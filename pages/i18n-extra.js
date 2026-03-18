@@ -1,5 +1,6 @@
 (() => {
   const LANGUAGE_EVENT = "controler:language-changed";
+  const USER_LANGUAGE_CHOICE_KEY = "controler:user-language-choice";
   const MONTH_NAMES = [
     "Jan",
     "Feb",
@@ -910,6 +911,28 @@
     }
   }
 
+  function rememberUserLanguageChoice(language) {
+    try {
+      localStorage.setItem(
+        USER_LANGUAGE_CHOICE_KEY,
+        normalizeLanguage(language),
+      );
+    } catch (error) {
+      // Ignore storage failures and keep the in-memory language choice.
+    }
+  }
+
+  function readRememberedUserLanguageChoice() {
+    try {
+      const storedChoice = String(
+        localStorage.getItem(USER_LANGUAGE_CHOICE_KEY) || "",
+      ).trim();
+      return storedChoice ? normalizeLanguage(storedChoice) : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
   let electronLanguageBridgeWrapped = false;
   let electronLanguageSyncStarted = false;
 
@@ -926,6 +949,12 @@
       const nextOptions =
         options && typeof options === "object" ? { ...options } : {};
       const result = originalSetLanguage(language, nextOptions);
+      if (
+        nextOptions.persist !== false &&
+        nextOptions.rememberChoice !== false
+      ) {
+        rememberUserLanguageChoice(language);
+      }
       if (
         nextOptions.syncNative !== false &&
         typeof window.electronAPI?.uiSetLanguage === "function"
@@ -958,6 +987,15 @@
       const normalizedStoredLanguage = storedLanguage
         ? normalizeLanguage(storedLanguage)
         : "";
+      const rememberedUserLanguage = normalizedStoredLanguage
+        ? readRememberedUserLanguageChoice()
+        : "";
+      const shouldPreferStoredLanguage =
+        !!normalizedStoredLanguage &&
+        (
+          rememberedUserLanguage === normalizedStoredLanguage ||
+          (normalizedStoredLanguage === "en-US" && mainLanguage === "zh-CN")
+        );
       const currentLanguage = normalizeLanguage(
         window.ControlerI18n.getLanguage?.() ||
           normalizedStoredLanguage ||
@@ -965,8 +1003,8 @@
       );
 
       if (
-        normalizedStoredLanguage === "en-US" &&
-        mainLanguage === "zh-CN"
+        shouldPreferStoredLanguage &&
+        normalizedStoredLanguage !== mainLanguage
       ) {
         await window.electronAPI.uiSetLanguage(normalizedStoredLanguage);
         if (currentLanguage !== normalizedStoredLanguage) {
@@ -974,6 +1012,7 @@
             persist: true,
             dispatch: true,
             syncNative: false,
+            rememberChoice: false,
           });
         }
         return;
@@ -984,6 +1023,7 @@
           persist: true,
           dispatch: true,
           syncNative: false,
+          rememberChoice: false,
         });
       }
     } catch (error) {

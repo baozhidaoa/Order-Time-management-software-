@@ -975,7 +975,7 @@ function createApplicationMenu() {
               title: nativeText("dialog.aboutTitle", {
                 appName: APP_PUBLIC_NAME,
               }),
-              message: `${APP_PUBLIC_NAME} v${appPackage.version}\n\n${APP_PUBLIC_DESCRIPTION}\n\n${APP_PUBLIC_COPYRIGHT}`,
+              message: `${APP_PUBLIC_NAME} v${appPackage?.build?.buildVersion || appPackage.version}\n\n${APP_PUBLIC_DESCRIPTION}\n\n${APP_PUBLIC_COPYRIGHT}`,
               buttons: [okLabel],
             });
           },

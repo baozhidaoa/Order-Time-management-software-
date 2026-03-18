@@ -37,14 +37,17 @@ function ensureDiaryDeferredRuntimeLoaded() {
     return diaryDeferredRuntimePromise;
   }
 
-  diaryDeferredRuntimePromise = uiTools
-    .loadScriptOnce("guide-ui.js")
-    .catch((error) => {
-      console.error("加载日记页延后脚本失败:", error);
-    })
-    .then(() => {
-      renderDiaryGuideCard();
+  diaryDeferredRuntimePromise = Promise.allSettled([
+    uiTools.loadScriptOnce("guide-bundle.js"),
+    uiTools.loadScriptOnce("guide-ui.js"),
+  ]).then((results) => {
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        console.error("加载日记页延后脚本失败:", result.reason);
+      }
     });
+    renderDiaryGuideCard();
+  });
   return diaryDeferredRuntimePromise;
 }
 

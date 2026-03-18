@@ -14,6 +14,19 @@ const platformContract = require(path.join(
 ));
 
 const failures = [];
+const mobileGeneratedBootFiles = new Set([
+  "mobile-common-boot.js",
+  "index-boot.js",
+  "diary-boot.js",
+  "plan-boot.js",
+  "stats-boot.js",
+]);
+const mobileBootstrapHtmlPages = new Set([
+  "index.html",
+  "diary.html",
+  "plan.html",
+  "stats.html",
+]);
 
 function recordFailure(message) {
   failures.push(message);
@@ -62,13 +75,49 @@ async function listRelativeFiles(rootDir) {
   return output;
 }
 
+function rewriteMobileBootstrapHtml(sourceText, relativePath) {
+  const pageKey = path.basename(relativePath, ".html");
+  const titleEndIndex = sourceText.indexOf("</title>");
+  const firstScriptIndex =
+    titleEndIndex === -1 ? -1 : sourceText.indexOf("<script", titleEndIndex);
+  const stylesheetIndex =
+    titleEndIndex === -1
+      ? -1
+      : sourceText.indexOf('<link rel="stylesheet"', titleEndIndex);
+
+  if (
+    titleEndIndex === -1 ||
+    firstScriptIndex === -1 ||
+    stylesheetIndex === -1 ||
+    firstScriptIndex >= stylesheetIndex
+  ) {
+    recordFailure(`无法识别移动端 HTML 启动脚本区域: ${relativePath}`);
+    return sourceText;
+  }
+
+  const bootstrapScripts =
+    `    <script src="mobile-common-boot.js"></script>\n` +
+    `    <script src="${pageKey}-boot.js"></script>\n`;
+
+  return (
+    sourceText.slice(0, firstScriptIndex) +
+    bootstrapScripts +
+    sourceText.slice(stylesheetIndex)
+  );
+}
+
 async function compareDirectories(sourceDir, targetDir, label) {
+  const isGeneratedMobileWeb =
+    label === "pages 与 Android Web 资源" || label === "pages 与 iOS Web 资源";
   const [sourceFiles, targetFiles] = await Promise.all([
     listRelativeFiles(sourceDir),
     listRelativeFiles(targetDir),
   ]);
+  const comparableTargetFiles = isGeneratedMobileWeb
+    ? targetFiles.filter((relativePath) => !mobileGeneratedBootFiles.has(relativePath))
+    : targetFiles;
   const sourceSet = new Set(sourceFiles);
-  const targetSet = new Set(targetFiles);
+  const targetSet = new Set(comparableTargetFiles);
 
   for (const relativePath of sourceFiles) {
     if (!targetSet.has(relativePath)) {
@@ -76,7 +125,7 @@ async function compareDirectories(sourceDir, targetDir, label) {
     }
   }
 
-  for (const relativePath of targetFiles) {
+  for (const relativePath of comparableTargetFiles) {
     if (!sourceSet.has(relativePath)) {
       recordFailure(`${label} 多出文件: ${relativePath}`);
     }
@@ -88,10 +137,18 @@ async function compareDirectories(sourceDir, targetDir, label) {
     }
     const sourcePath = path.join(sourceDir, relativePath);
     const targetPath = path.join(targetDir, relativePath);
-    const [sourceBuffer, targetBuffer] = await Promise.all([
-      fs.readFile(sourcePath),
-      fs.readFile(targetPath),
-    ]);
+    if (isGeneratedMobileWeb && mobileBootstrapHtmlPages.has(relativePath)) {
+      const [sourceText, targetText] = await Promise.all([
+        readUtf8(sourcePath),
+        readUtf8(targetPath),
+      ]);
+      const expectedTargetText = rewriteMobileBootstrapHtml(sourceText, relativePath);
+      if (expectedTargetText !== targetText) {
+        recordFailure(`${label} 文件内容不一致: ${relativePath}`);
+      }
+      continue;
+    }
+    const [sourceBuffer, targetBuffer] = await Promise.all([fs.readFile(sourcePath), fs.readFile(targetPath)]);
     if (!sourceBuffer.equals(targetBuffer)) {
       recordFailure(`${label} 文件内容不一致: ${relativePath}`);
     }

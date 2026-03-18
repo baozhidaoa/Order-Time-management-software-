@@ -29,6 +29,7 @@ async function sign(configuration) {
 
   const script = `
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
 $targetPath = $env:ORDER_SIGN_TARGET
 $pfxPath = $env:ORDER_SIGN_PFX
 $password = $env:ORDER_SIGN_PASSWORD
@@ -48,7 +49,7 @@ if ($verification.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
 `;
 
   const result = spawnSync(
-    "powershell.exe",
+    "pwsh.exe",
     [
       "-NoProfile",
       "-NonInteractive",

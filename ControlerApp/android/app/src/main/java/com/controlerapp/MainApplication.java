@@ -1,11 +1,15 @@
 package com.controlerapp;
 
 import android.app.Application;
+import com.controlerapp.widgets.ControlerWidgetKinds;
 import com.facebook.react.PackageList;
 import com.facebook.react.ReactApplication;
 import com.facebook.react.ReactHost;
+import com.facebook.react.ReactInstanceEventListener;
+import com.facebook.react.ReactInstanceManager;
 import com.facebook.react.ReactNativeHost;
 import com.facebook.react.ReactPackage;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint;
 import com.facebook.react.defaults.DefaultReactHost;
 import com.facebook.react.defaults.DefaultReactNativeHost;
@@ -15,6 +19,10 @@ import java.io.IOException;
 import java.util.List;
 
 public class MainApplication extends Application implements ReactApplication {
+  private final Object reactWarmupLock = new Object();
+  private boolean reactWarmupStartLogged = false;
+  private boolean reactWarmupCompleteLogged = false;
+  private boolean reactWarmupListenerAttached = false;
 
   private final ReactNativeHost mReactNativeHost =
       new DefaultReactNativeHost(this) {
@@ -60,6 +68,7 @@ public class MainApplication extends Application implements ReactApplication {
   @Override
   public void onCreate() {
     super.onCreate();
+    ControlerStartupTrace.mark("application_on_create");
     try {
       SoLoader.init(this, OpenSourceMergedSoMapping.INSTANCE);
     } catch (IOException error) {
@@ -70,5 +79,76 @@ public class MainApplication extends Application implements ReactApplication {
       DefaultNewArchitectureEntryPoint.load();
     }
     ControlerNotificationScheduler.rescheduleAll(this);
+    if (ControlerWidgetKinds.hasAnyPinnedWidgets(this)) {
+      maybePrewarmReactContext("existing-widget");
+    }
+  }
+
+  public void maybePrewarmReactContext(String reason) {
+    final ReactInstanceManager reactInstanceManager =
+        getReactNativeHost().getReactInstanceManager();
+    if (reactInstanceManager == null) {
+      return;
+    }
+
+    synchronized (reactWarmupLock) {
+      if (reactInstanceManager.getCurrentReactContext() != null) {
+        markReactWarmupCompleted("reason=" + normalizeReason(reason) + " mode=already_ready");
+        return;
+      }
+
+      attachWarmupListenerIfNeeded(reactInstanceManager, reason);
+
+      if (reactInstanceManager.hasStartedCreatingInitialContext()) {
+        markReactWarmupStarted("reason=" + normalizeReason(reason) + " mode=already_started");
+        return;
+      }
+
+      markReactWarmupStarted("reason=" + normalizeReason(reason));
+      reactInstanceManager.createReactContextInBackground();
+    }
+  }
+
+  private void attachWarmupListenerIfNeeded(
+      final ReactInstanceManager reactInstanceManager, String reason) {
+    if (reactWarmupListenerAttached) {
+      return;
+    }
+
+    reactWarmupListenerAttached = true;
+    final String normalizedReason = normalizeReason(reason);
+    final ReactInstanceEventListener listener =
+        new ReactInstanceEventListener() {
+          @Override
+          public void onReactContextInitialized(ReactContext context) {
+            synchronized (reactWarmupLock) {
+              markReactWarmupCompleted("reason=" + normalizedReason);
+              reactWarmupListenerAttached = false;
+            }
+            reactInstanceManager.removeReactInstanceEventListener(this);
+          }
+        };
+    reactInstanceManager.addReactInstanceEventListener(listener);
+  }
+
+  private void markReactWarmupStarted(String details) {
+    if (reactWarmupStartLogged) {
+      return;
+    }
+    reactWarmupStartLogged = true;
+    ControlerStartupTrace.mark("react_warmup_started", details);
+  }
+
+  private void markReactWarmupCompleted(String details) {
+    if (reactWarmupCompleteLogged) {
+      return;
+    }
+    reactWarmupCompleteLogged = true;
+    ControlerStartupTrace.mark("react_warmup_completed", details);
+  }
+
+  private String normalizeReason(String reason) {
+    String safeReason = String.valueOf(reason == null ? "" : reason).trim();
+    return safeReason.isEmpty() ? "unspecified" : safeReason;
   }
 }

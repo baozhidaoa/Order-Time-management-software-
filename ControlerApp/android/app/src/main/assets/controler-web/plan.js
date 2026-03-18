@@ -49,6 +49,7 @@ function ensurePlanDeferredRuntimeLoaded() {
   }
 
   planDeferredRuntimePromise = Promise.allSettled([
+    uiTools.loadScriptOnce("guide-bundle.js"),
     uiTools.loadScriptOnce("guide-ui.js"),
     uiTools.loadScriptOnce("reminders.js"),
   ]).then((results) => {

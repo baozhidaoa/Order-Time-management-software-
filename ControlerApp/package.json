@@ -1,6 +1,6 @@
 {
   "name": "order-mobile",
-  "version": "1.0.3",
+  "version": "1.15.0",
   "description": "Order mobile shell for Android and iOS.",
   "private": true,
   "scripts": {

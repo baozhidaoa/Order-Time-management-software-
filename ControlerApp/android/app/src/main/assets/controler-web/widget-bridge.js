@@ -187,12 +187,23 @@
     return pageName.replace(/\.html$/i, "").trim();
   }
 
-  function buildPageUrl(pageName, action = "") {
+  function buildPageUrl(pageName, payload = {}) {
     const safePage = normalizePageName(pageName) || "index";
     const url = new URL(`${safePage}.html`, window.location.href);
+    const action =
+      typeof payload.action === "string" ? payload.action.trim() : "";
+    const widgetKind =
+      typeof payload.widgetKind === "string" ? payload.widgetKind.trim() : "";
+    const source =
+      typeof payload.source === "string" && payload.source.trim()
+        ? payload.source.trim()
+        : "launcher";
     if (action) {
       url.searchParams.set("widgetAction", action);
-      url.searchParams.set("widgetSource", "launcher");
+      url.searchParams.set("widgetSource", source);
+    }
+    if (widgetKind) {
+      url.searchParams.set("widgetKind", widgetKind);
     }
     return `${url.pathname.split("/").pop()}${url.search}`;
   }
@@ -203,6 +214,10 @@
         detail: {
           page: normalizePageName(payload.page) || getCurrentPageName(),
           action: typeof payload.action === "string" ? payload.action.trim() : "",
+          widgetKind:
+            typeof payload.widgetKind === "string"
+              ? payload.widgetKind.trim()
+              : "",
           source:
             typeof payload.source === "string" && payload.source.trim()
               ? payload.source.trim()
@@ -222,7 +237,11 @@
     const action = typeof payload.action === "string" ? payload.action.trim() : "";
 
     if (targetPage && targetPage !== currentPage) {
-      const nextUrl = buildPageUrl(targetPage, action);
+      const nextUrl = buildPageUrl(targetPage, {
+        action,
+        widgetKind: payload.widgetKind,
+        source: payload.source,
+      });
       const currentUrl = `${window.location.pathname.split("/").pop()}${window.location.search}`;
       if (nextUrl !== currentUrl) {
         window.location.href = nextUrl;

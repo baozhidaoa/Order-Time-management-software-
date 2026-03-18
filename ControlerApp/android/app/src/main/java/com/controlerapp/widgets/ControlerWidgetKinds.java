@@ -1,5 +1,6 @@
 package com.controlerapp.widgets;
 
+import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
@@ -135,5 +136,28 @@ public final class ControlerWidgetKinds {
     public static ComponentName componentNameForKind(Context context, String kind) {
         Class<? extends AppWidgetProvider> providerClass = providerClassForKind(kind);
         return providerClass == null ? null : new ComponentName(context, providerClass);
+    }
+
+    public static boolean hasAnyPinnedWidgets(Context context) {
+        if (context == null) {
+            return false;
+        }
+
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        if (appWidgetManager == null) {
+            return false;
+        }
+
+        for (String kind : allKinds()) {
+            ComponentName componentName = componentNameForKind(context, kind);
+            if (componentName == null) {
+                continue;
+            }
+            int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+            if (appWidgetIds != null && appWidgetIds.length > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 }

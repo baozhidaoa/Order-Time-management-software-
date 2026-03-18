@@ -186,6 +186,13 @@ function applyIndexDesktopWidgetMode() {
   });
 }
 
+function isIndexWidgetTimerFastPath() {
+  return (
+    INDEX_WIDGET_CONTEXT.enabled &&
+    String(INDEX_WIDGET_CONTEXT.launchAction || "").trim() === "start-timer"
+  );
+}
+
 function refreshIndexWorkspace({ immediate = false } = {}) {
   if (immediate || !indexWorkspaceRefreshScheduler) {
     renderProjectsTable();
@@ -205,9 +212,13 @@ let indexLoadingOverlayTimer = 0;
 let indexLoadingOverlayController = null;
 let indexNativeBusyLockActive = false;
 let indexPrimaryBindingsInitialized = false;
+let indexModalBindingsInitialized = false;
+let indexSecondaryBindingsInitialized = false;
 let indexWidgetLaunchActionInitialized = false;
 let indexPendingDurationCachePersist = false;
+let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
+let indexDeferredWorkspaceHydrationPromise = null;
 
 function ensureIndexDeferredRuntimeLoaded() {
   if (indexDeferredRuntimePromise) {
@@ -218,14 +229,17 @@ function ensureIndexDeferredRuntimeLoaded() {
     return indexDeferredRuntimePromise;
   }
 
-  indexDeferredRuntimePromise = uiTools
-    .loadScriptOnce("guide-ui.js")
-    .catch((error) => {
-      console.error("加载记录页延后脚本失败:", error);
-    })
-    .then(() => {
-      renderRecordGuideCard();
+  indexDeferredRuntimePromise = Promise.allSettled([
+    uiTools.loadScriptOnce("guide-bundle.js"),
+    uiTools.loadScriptOnce("guide-ui.js"),
+  ]).then((results) => {
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        console.error("加载记录页延后脚本失败:", result.reason);
+      }
     });
+    renderRecordGuideCard();
+  });
   return indexDeferredRuntimePromise;
 }
 
@@ -529,6 +543,10 @@ async function refreshIndexFromExternalStorageChange() {
 }
 
 function bindIndexExternalStorageRefresh() {
+  if (indexExternalStorageRefreshBound) {
+    return;
+  }
+  indexExternalStorageRefreshBound = true;
   window.addEventListener("controler:storage-data-changed", (event) => {
     const changedSections = Array.isArray(event?.detail?.changedSections)
       ? event.detail.changedSections
@@ -4556,6 +4574,73 @@ function requestSpendModalOpen() {
   return false;
 }
 
+function initIndexModalBindings() {
+  if (indexModalBindingsInitialized) {
+    return;
+  }
+  indexModalBindingsInitialized = true;
+
+  const nextProjectInput = document.getElementById("next-project-input");
+  const projectNameInput = document.getElementById("project-name-input");
+  const currentSuggestionPopover = document.getElementById(
+    "project-name-suggestions",
+  );
+  const nextSuggestionPopover = document.getElementById(
+    "next-project-suggestions",
+  );
+
+  const bindProjectInputEvents = (input, inputId) => {
+    if (!input) return;
+    const applyPathHint = () => {
+      const entered = input.value.trim();
+      if (!entered) return;
+      const projectName = resolveProjectNameFromInput(entered);
+      const matched = projects.find((project) => project.name === projectName);
+      if (matched) {
+        input.value = getProjectPath(matched);
+      }
+    };
+
+    input.addEventListener("focus", () => {
+      setModalProjectInputTarget(inputId, {
+        manual: true,
+        showSuggestions: true,
+      });
+    });
+    input.addEventListener("input", () => {
+      setModalProjectInputTarget(inputId, { manual: true });
+      renderProjectSuggestionsForInput(inputId, input.value, true);
+    });
+    input.addEventListener("change", applyPathHint);
+    input.addEventListener("blur", () => {
+      applyPathHint();
+      setTimeout(() => {
+        hideProjectSuggestions(inputId);
+      }, 120);
+    });
+  };
+
+  bindProjectInputEvents(projectNameInput, "project-name-input");
+  bindProjectInputEvents(nextProjectInput, "next-project-input");
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    const existingProjects = document.getElementById("existing-projects");
+    const isInputArea =
+      target === projectNameInput ||
+      target === nextProjectInput ||
+      currentSuggestionPopover?.contains(target) ||
+      nextSuggestionPopover?.contains(target) ||
+      existingProjects?.contains(target);
+
+    if (isInputArea) {
+      return;
+    }
+
+    hideAllProjectSuggestions();
+  });
+}
+
 async function handleIndexModalConfirmClick() {
   if (!indexInitialDataLoaded) {
     await showIndexAlert("记录数据仍在加载，请稍候再保存。", {
@@ -7689,57 +7774,32 @@ function closeAdvancedModal() {
   }
 }
 
-// 初始化
-async function init() {
-  setIndexLoadingState({
-    active: true,
-    mode: "fullscreen",
+function initIndexSecondaryBindings() {
+  if (indexSecondaryBindingsInitialized) {
+    return;
+  }
+  indexSecondaryBindingsInitialized = true;
+
+  uiTools?.enhanceNativeSelect?.(
+    document.getElementById("parent-project-select"),
+    {
+      fullWidth: true,
+      minWidth: 240,
+    },
+  );
+
+  activeCreateProjectColorController = createProjectColorController({
+    input: document.getElementById("project-color-picker"),
+    paletteContainer: document.getElementById("project-color-presets"),
+    valueLabel: document.getElementById("project-color-current"),
+    randomButton: document.getElementById("project-color-random-btn"),
+    getLevel: getSelectedCreateProjectLevel,
+    getParentId: () =>
+      document.getElementById("parent-project-select")?.value || null,
+    preferCurrentHueForLevel1: false,
   });
-  try {
-    applyIndexDesktopWidgetMode();
-    initIndexPrimaryBindings();
-    uiTools?.markPerfStage?.("shell-ready", {
-      widgetMode: INDEX_WIDGET_CONTEXT.enabled,
-    });
-    queueRecordInitialReveal();
+  refreshCreateProjectColorPalette({ forceSuggestion: true });
 
-    await hydrateIndexWorkspace({
-      includeProjects: true,
-      includeRecords: true,
-    });
-    uiTools?.markPerfStage?.("first-data-ready", {
-      projectCount: projects.length,
-      recordCount: records.length,
-      periodIds: indexLoadedRecordPeriodIds.slice(),
-    });
-    await commitIndexWorkspaceSnapshot({
-      markFirstCommit: true,
-    });
-
-    bindIndexExternalStorageRefresh();
-    renderRecordGuideCard();
-
-    uiTools?.enhanceNativeSelect?.(
-      document.getElementById("parent-project-select"),
-      {
-        fullWidth: true,
-        minWidth: 240,
-      },
-    );
-
-    activeCreateProjectColorController = createProjectColorController({
-      input: document.getElementById("project-color-picker"),
-      paletteContainer: document.getElementById("project-color-presets"),
-      valueLabel: document.getElementById("project-color-current"),
-      randomButton: document.getElementById("project-color-random-btn"),
-      getLevel: getSelectedCreateProjectLevel,
-      getParentId: () =>
-        document.getElementById("parent-project-select")?.value || null,
-      preferCurrentHueForLevel1: false,
-    });
-    refreshCreateProjectColorPalette({ forceSuggestion: true });
-
-  // 绑定打开创建项目弹窗按钮事件
   const openCreateProjectBtn = document.getElementById(
     "open-create-project-modal-btn",
   );
@@ -7749,7 +7809,6 @@ async function init() {
     });
   }
 
-  // 绑定高级创建项目弹窗确认按钮事件
   const createProjectConfirmBtn = document.getElementById(
     "advanced-modal-confirm",
   );
@@ -7760,7 +7819,6 @@ async function init() {
     );
   }
 
-  // 绑定回车键创建项目
   const newProjectInput = document.getElementById("new-project-input");
   const createProjectBtn = document.getElementById("create-project-btn");
   if (newProjectInput && createProjectBtn) {
@@ -7771,7 +7829,6 @@ async function init() {
     });
   }
 
-  // 绑定高级弹窗取消按钮事件
   const advancedCancelBtn = document.getElementById("advanced-modal-cancel");
   if (advancedCancelBtn) {
     advancedCancelBtn.addEventListener("click", function (e) {
@@ -7781,7 +7838,6 @@ async function init() {
     });
   }
 
-  // 点击高级弹窗外部关闭
   const advancedModal = document.getElementById("advanced-modal-overlay");
   if (advancedModal) {
     advancedModal.addEventListener("click", function (e) {
@@ -7791,72 +7847,11 @@ async function init() {
     });
   }
 
-  const nextProjectInput = document.getElementById("next-project-input");
-  const projectNameInput = document.getElementById("project-name-input");
-  const currentSuggestionPopover = document.getElementById(
-    "project-name-suggestions",
-  );
-  const nextSuggestionPopover = document.getElementById(
-    "next-project-suggestions",
-  );
-
-  const bindProjectInputEvents = (input, inputId) => {
-    if (!input) return;
-    const applyPathHint = () => {
-      const entered = input.value.trim();
-      if (!entered) return;
-      const projectName = resolveProjectNameFromInput(entered);
-      const matched = projects.find((project) => project.name === projectName);
-      if (matched) {
-        input.value = getProjectPath(matched);
-      }
-    };
-
-    input.addEventListener("focus", () => {
-      setModalProjectInputTarget(inputId, {
-        manual: true,
-        showSuggestions: true,
-      });
-    });
-    input.addEventListener("input", () => {
-      setModalProjectInputTarget(inputId, { manual: true });
-      renderProjectSuggestionsForInput(inputId, input.value, true);
-    });
-    input.addEventListener("change", applyPathHint);
-    input.addEventListener("blur", () => {
-      applyPathHint();
-      setTimeout(() => {
-        hideProjectSuggestions(inputId);
-      }, 120);
-    });
-  };
-
-  bindProjectInputEvents(projectNameInput, "project-name-input");
-  bindProjectInputEvents(nextProjectInput, "next-project-input");
-
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    const existingProjects = document.getElementById("existing-projects");
-    const isInputArea =
-      target === projectNameInput ||
-      target === nextProjectInput ||
-      currentSuggestionPopover?.contains(target) ||
-      nextSuggestionPopover?.contains(target) ||
-      existingProjects?.contains(target);
-
-    if (isInputArea) {
-      return;
-    }
-
-    hideAllProjectSuggestions();
-  });
-  // 绑定高级选项切换按钮
   const toggleAdvancedBtn = document.getElementById("toggle-advanced-btn");
   if (toggleAdvancedBtn) {
     toggleAdvancedBtn.addEventListener("click", toggleAdvancedOptions);
   }
 
-  // 绑定层级选择变化事件
   const levelRadios = document.querySelectorAll('input[name="project-level"]');
   levelRadios.forEach((radio) => {
     radio.addEventListener("change", function () {
@@ -7870,9 +7865,6 @@ async function init() {
       refreshCreateProjectColorPalette({ recomputeAuto: true });
     });
 
-  // 已删除旧的创建项目按钮绑定逻辑
-
-  // 绑定统计视图按钮事件
   const dailyStatsBtn = document.getElementById("daily-stats-btn");
   const weeklyStatsBtn = document.getElementById("weekly-stats-btn");
   const monthlyStatsBtn = document.getElementById("monthly-stats-btn");
@@ -7903,25 +7895,126 @@ async function init() {
     });
   }
 
-    // 时间选择器事件绑定
-    initTimeSelector();
+  initTimeSelector();
+  bindTableScaleLiveRefresh();
+  bindOutsideRecordEditCancellation();
+}
 
-    // 尺寸设置实时联动
-    bindTableScaleLiveRefresh();
-    bindOutsideRecordEditCancellation();
-
-    // 初始更新显示
-    renderProjectsTable();
-    updateDisplay();
-    updateProjectTotals();
-    persistTimerSessionState();
-    initIndexWidgetLaunchAction();
-    indexInitialDataLoaded = true;
-    setIndexLoadingState({
-      active: false,
-    });
-    queueRecordInitialReveal();
+function finalizeIndexInitialHydration(options = {}) {
+  const { scheduleDeferredRuntime = true } = options;
+  initIndexModalBindings();
+  bindIndexExternalStorageRefresh();
+  initIndexSecondaryBindings();
+  persistTimerSessionState();
+  initIndexWidgetLaunchAction();
+  setIndexLoadingState({
+    active: false,
+  });
+  queueRecordInitialReveal();
+  if (scheduleDeferredRuntime) {
     void ensureIndexDeferredRuntimeLoaded();
+  }
+}
+
+function scheduleIndexDeferredWorkspaceHydration() {
+  if (indexDeferredWorkspaceHydrationPromise) {
+    return indexDeferredWorkspaceHydrationPromise;
+  }
+
+  indexDeferredWorkspaceHydrationPromise = new Promise((resolve, reject) => {
+    const startHydration = () => {
+      Promise.resolve()
+        .then(async () => {
+          await hydrateIndexWorkspace({
+            includeProjects: false,
+            includeRecords: true,
+          });
+          uiTools?.markPerfStage?.("first-data-ready", {
+            projectCount: projects.length,
+            recordCount: records.length,
+            periodIds: indexLoadedRecordPeriodIds.slice(),
+            fastPath: true,
+          });
+          await commitIndexWorkspaceSnapshot({
+            markFirstCommit: true,
+          });
+          finalizeIndexInitialHydration();
+          resolve();
+        })
+        .catch((error) => {
+          indexDeferredWorkspaceHydrationPromise = null;
+          console.error("后台补全记录页工作区失败:", error);
+          reject(error);
+        });
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(startHydration, {
+        timeout: 160,
+      });
+      return;
+    }
+
+    window.setTimeout(startHydration, 40);
+  });
+
+  return indexDeferredWorkspaceHydrationPromise;
+}
+
+// 初始化
+async function init() {
+  setIndexLoadingState({
+    active: true,
+    mode: "fullscreen",
+  });
+  try {
+    applyIndexDesktopWidgetMode();
+    initIndexPrimaryBindings();
+    initIndexModalBindings();
+    uiTools?.markPerfStage?.("shell-ready", {
+      widgetMode: INDEX_WIDGET_CONTEXT.enabled,
+    });
+
+    if (isIndexWidgetTimerFastPath()) {
+      await loadProjectsFromStorage({
+        applyUi: true,
+      });
+      loadTimerSessionState({
+        forceLatestRecord: false,
+      });
+      updateRemainingTimeDisplay();
+      updateDisplay();
+      persistTimerSessionState();
+      initIndexWidgetLaunchAction();
+      uiTools?.markPerfStage?.("first-data-ready", {
+        projectCount: projects.length,
+        recordCount: 0,
+        periodIds: [],
+        fastPath: true,
+        stage: "core",
+      });
+      setIndexLoadingState({
+        active: false,
+      });
+      queueRecordInitialReveal();
+      void scheduleIndexDeferredWorkspaceHydration();
+      return;
+    }
+
+    queueRecordInitialReveal();
+    await hydrateIndexWorkspace({
+      includeProjects: true,
+      includeRecords: true,
+    });
+    uiTools?.markPerfStage?.("first-data-ready", {
+      projectCount: projects.length,
+      recordCount: records.length,
+      periodIds: indexLoadedRecordPeriodIds.slice(),
+    });
+    await commitIndexWorkspaceSnapshot({
+      markFirstCommit: true,
+    });
+    finalizeIndexInitialHydration();
   } finally {
     setIndexLoadingState({
       active: false,

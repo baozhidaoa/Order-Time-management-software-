@@ -10,7 +10,11 @@ const sharedContractSourcePath = path.join(
   "shared",
   "platform-contract.js",
 );
-const pagesContractTargetPath = path.join(repoRoot, "pages", "platform-contract.js");
+const pagesContractTargetPath = path.join(
+  repoRoot,
+  "pages",
+  "platform-contract.js",
+);
 const mobileContractTargetPath = path.join(
   repoRoot,
   "ControlerApp",
@@ -34,7 +38,14 @@ const mobileAndroidWebDir = path.join(
   "assets",
   "controler-web",
 );
-const mobileIosWebDir = path.join(repoRoot, "ControlerApp", "ios", "controler-web");
+const mobileIosWebDir = path.join(
+  repoRoot,
+  "ControlerApp",
+  "ios",
+  "controler-web",
+);
+const pagesSourceDir = path.join(repoRoot, "pages");
+const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
 
 const assets = [
   {
@@ -67,16 +78,95 @@ const assets = [
   },
 ];
 
-await fs.ensureDir(offlineAssetsDir);
-if (!(await fs.pathExists(sharedContractSourcePath))) {
-  throw new Error(`缺少共享平台契约文件: ${sharedContractSourcePath}`);
-}
-await fs.copy(sharedContractSourcePath, pagesContractTargetPath, {
-  overwrite: true,
-});
+const mobileBootBundleEntries = {
+  "mobile-common-boot.js": [
+    {
+      label: "manual-native-page-ready",
+      inline: 'window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";',
+    },
+    { label: "shared/platform-contract.js", file: sharedContractSourcePath },
+    { label: "pages/rn-bridge.js", file: path.join(pagesSourceDir, "rn-bridge.js") },
+    {
+      label: "pages/storage-bundle.js",
+      file: path.join(pagesSourceDir, "storage-bundle.js"),
+    },
+    {
+      label: "pages/storage-adapter.js",
+      file: path.join(pagesSourceDir, "storage-adapter.js"),
+    },
+    {
+      label: "pages/widget-bridge.js",
+      file: path.join(pagesSourceDir, "widget-bridge.js"),
+    },
+    { label: "pages/i18n.js", file: path.join(pagesSourceDir, "i18n.js") },
+    {
+      label: "pages/i18n-extra.js",
+      file: path.join(pagesSourceDir, "i18n-extra.js"),
+    },
+    {
+      label: "pages/theme-init.js",
+      file: path.join(pagesSourceDir, "theme-init.js"),
+    },
+    {
+      label: "pages/ui-helpers.js",
+      file: path.join(pagesSourceDir, "ui-helpers.js"),
+    },
+  ],
+  "index-boot.js": [
+    {
+      label: "pages/project-stats-utils.js",
+      file: path.join(pagesSourceDir, "project-stats-utils.js"),
+    },
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/index.js", file: path.join(pagesSourceDir, "index.js") },
+  ],
+  "diary-boot.js": [
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/diary.js", file: path.join(pagesSourceDir, "diary.js") },
+  ],
+  "plan-boot.js": [
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/plan.js", file: path.join(pagesSourceDir, "plan.js") },
+  ],
+  "stats-boot.js": [
+    {
+      label: "pages/project-stats-utils.js",
+      file: path.join(pagesSourceDir, "project-stats-utils.js"),
+    },
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/stats.js", file: path.join(pagesSourceDir, "stats.js") },
+  ],
+};
+
+const mobileBootstrapPages = ["index", "diary", "plan", "stats"];
 
 function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
+}
+
+async function copyFileWithEpermTolerance(fromPath, toPath) {
+  try {
+    await fs.copy(fromPath, toPath, { overwrite: true });
+    return true;
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(toPath)}`);
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function canReuseExistingCopy(fromPath, toPath) {
@@ -104,6 +194,131 @@ async function canReuseExistingCopy(fromPath, toPath) {
   }
 }
 
+async function copyDirectoryTree(sourceDir, targetDir) {
+  await fs.ensureDir(targetDir);
+  const entries = await fs.readdir(sourceDir);
+
+  for (const entry of entries) {
+    if (
+      sourceDir === pagesSourceDir &&
+      entry === "runtime-assets"
+    ) {
+      continue;
+    }
+
+    const sourcePath = path.join(sourceDir, entry);
+    const targetPath = path.join(targetDir, entry);
+    let sourceStats = null;
+
+    try {
+      sourceStats = await fs.stat(sourcePath);
+    } catch (error) {
+      if (error?.code === "EPERM") {
+        console.warn(
+          `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
+        );
+        continue;
+      }
+      throw error;
+    }
+
+    if (sourceStats.isDirectory()) {
+      await copyDirectoryTree(sourcePath, targetPath);
+      continue;
+    }
+
+    if (!sourceStats.isFile()) {
+      continue;
+    }
+
+    try {
+      await fs.copy(sourcePath, targetPath, { overwrite: true });
+    } catch (error) {
+      if (error?.code === "EPERM") {
+        console.warn(
+          `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function buildMobileBootBundles() {
+  const bundles = new Map();
+
+  for (const [bundleName, entries] of Object.entries(mobileBootBundleEntries)) {
+    const segments = [];
+    for (const entry of entries) {
+      if (typeof entry.inline === "string") {
+        segments.push(`;/* ${entry.label} */\n${entry.inline}\n`);
+        continue;
+      }
+
+      const sourceText = await fs.readFile(entry.file, "utf8");
+      segments.push(`;/* ${entry.label} */\n${sourceText}\n`);
+    }
+    bundles.set(bundleName, segments.join("\n"));
+  }
+
+  return bundles;
+}
+
+async function writeMobileBootBundles(targetDir, bundles) {
+  for (const [bundleName, bundleContent] of bundles.entries()) {
+    await fs.writeFile(
+      path.join(targetDir, bundleName),
+      `${bundleContent}\n`,
+      "utf8",
+    );
+  }
+}
+
+async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
+  const htmlPath = path.join(targetDir, `${pageKey}.html`);
+  if (!(await fs.pathExists(htmlPath))) {
+    return;
+  }
+
+  const html = await fs.readFile(htmlPath, "utf8");
+  const titleEndIndex = html.indexOf("</title>");
+  const firstScriptIndex =
+    titleEndIndex === -1 ? -1 : html.indexOf("<script", titleEndIndex);
+  const stylesheetIndex =
+    titleEndIndex === -1
+      ? -1
+      : html.indexOf('<link rel="stylesheet"', titleEndIndex);
+
+  if (
+    titleEndIndex === -1 ||
+    firstScriptIndex === -1 ||
+    stylesheetIndex === -1 ||
+    firstScriptIndex >= stylesheetIndex
+  ) {
+    throw new Error(
+      `无法识别移动端 HTML 启动脚本区域: ${formatRelativeRepoPath(htmlPath)}`,
+    );
+  }
+
+  const bootstrapScripts =
+    `    <script src="mobile-common-boot.js"></script>\n` +
+    `    <script src="${pageKey}-boot.js"></script>\n`;
+  const rewrittenHtml =
+    html.slice(0, firstScriptIndex) +
+    bootstrapScripts +
+    html.slice(stylesheetIndex);
+
+  await fs.writeFile(htmlPath, rewrittenHtml, "utf8");
+}
+
+await fs.ensureDir(offlineAssetsDir);
+if (!(await fs.pathExists(sharedContractSourcePath))) {
+  throw new Error(`缺少共享平台契约文件: ${sharedContractSourcePath}`);
+}
+
+await copyFileWithEpermTolerance(sharedContractSourcePath, pagesContractTargetPath);
+
 for (const asset of assets) {
   if (!(await fs.pathExists(asset.from))) {
     throw new Error(`缺少资源文件: ${asset.from}`);
@@ -118,7 +333,7 @@ for (const asset of assets) {
       continue;
     }
     if (error?.code === "EPERM") {
-      console.warn(`跳过被占用的资源文件: ${asset.to}`);
+      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(asset.to)}`);
       continue;
     }
     throw error;
@@ -144,58 +359,30 @@ for (const entry of await fs.readdir(offlineAssetsDir)) {
   }
 }
 
-async function copyDirectoryTree(sourceDir, targetDir) {
-  await fs.ensureDir(targetDir);
-  const entries = await fs.readdir(sourceDir);
+if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
+  await copyFileWithEpermTolerance(
+    sharedContractSourcePath,
+    mobileContractTargetPath,
+  );
 
-  for (const entry of entries) {
-    if (sourceDir === path.join(repoRoot, "pages") && entry === "runtime-assets") {
-      continue;
-    }
+  await fs.emptyDir(mobileAndroidWebDir);
+  await fs.emptyDir(mobileIosWebDir);
+  await copyDirectoryTree(pagesSourceDir, mobileAndroidWebDir);
+  await copyDirectoryTree(pagesSourceDir, mobileIosWebDir);
 
-    const sourcePath = path.join(sourceDir, entry);
-    const targetPath = path.join(targetDir, entry);
-    let sourceStats = null;
-
-    try {
-      sourceStats = await fs.stat(sourcePath);
-    } catch (error) {
-      if (error?.code === "EPERM") {
-        console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`);
-        continue;
-      }
-      throw error;
-    }
-
-    if (sourceStats.isDirectory()) {
-      await copyDirectoryTree(sourcePath, targetPath);
-      continue;
-    }
-
-    if (!sourceStats.isFile()) {
-      continue;
-    }
-
-    try {
-      await fs.copy(sourcePath, targetPath, { overwrite: true });
-    } catch (error) {
-      if (error?.code === "EPERM") {
-        console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`);
-        continue;
-      }
-      throw error;
+  const mobileBootBundles = await buildMobileBootBundles();
+  for (const mobileWebDir of mobileWebDirs) {
+    await copyFileWithEpermTolerance(
+      sharedContractSourcePath,
+      path.join(mobileWebDir, "platform-contract.js"),
+    );
+    await writeMobileBootBundles(mobileWebDir, mobileBootBundles);
+    for (const pageKey of mobileBootstrapPages) {
+      await rewriteMobileBootstrapHtml(mobileWebDir, pageKey);
     }
   }
 }
 
-if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
-  await fs.copy(sharedContractSourcePath, mobileContractTargetPath, {
-    overwrite: true,
-  });
-  await fs.emptyDir(mobileAndroidWebDir);
-  await fs.emptyDir(mobileIosWebDir);
-  await copyDirectoryTree(path.join(repoRoot, "pages"), mobileAndroidWebDir);
-  await copyDirectoryTree(path.join(repoRoot, "pages"), mobileIosWebDir);
-}
-
-console.log("已同步离线 Web 资源到 pages/offline-assets 和 React Native 移动端资源目录");
+console.log(
+  "已同步离线 Web 资源到 pages/offline-assets 和 React Native 移动端资源目录",
+);

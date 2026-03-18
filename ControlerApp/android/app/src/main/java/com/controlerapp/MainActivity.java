@@ -1,5 +1,6 @@
 package com.controlerapp;
 
+import android.app.Application;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -19,14 +20,30 @@ public class MainActivity extends ReactActivity {
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
     getWindow().setStatusBarColor(Color.TRANSPARENT);
     getWindow().setNavigationBarColor(Color.TRANSPARENT);
+    ControlerStartupTrace.captureLaunchIntent(getIntent());
+    ControlerStartupTrace.mark("main_activity_created");
     ControlerWidgetLaunchStore.captureLaunchIntent(this, getIntent());
+    if (ControlerWidgetLaunchStore.hasLaunchAction(getIntent())) {
+      Application application = getApplication();
+      if (application instanceof MainApplication) {
+        ((MainApplication) application).maybePrewarmReactContext("widget-launch");
+      }
+    }
   }
 
   @Override
   public void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     setIntent(intent);
+    ControlerStartupTrace.captureLaunchIntent(intent);
+    ControlerStartupTrace.mark("main_activity_created", "mode=on_new_intent");
     ControlerWidgetLaunchStore.captureLaunchIntent(this, intent);
+    if (ControlerWidgetLaunchStore.hasLaunchAction(intent)) {
+      Application application = getApplication();
+      if (application instanceof MainApplication) {
+        ((MainApplication) application).maybePrewarmReactContext("widget-launch");
+      }
+    }
   }
 
   /**

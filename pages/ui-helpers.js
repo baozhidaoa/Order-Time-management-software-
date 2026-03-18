@@ -151,6 +151,30 @@
       ? performance.now()
       : Date.now();
   const emittedPagePerfStages = new Set();
+  const initialLaunchPerfContext = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      return {
+        launchSource: String(params.get("widgetSource") || "").trim(),
+        widgetAction: String(params.get("widgetAction") || "").trim(),
+        widgetKind: String(params.get("widgetKind") || "").trim(),
+      };
+    } catch (error) {
+      return {
+        launchSource: "",
+        widgetAction: "",
+        widgetKind: "",
+      };
+    }
+  })();
+
+  function getLaunchPerfContext() {
+    return {
+      launchSource: initialLaunchPerfContext.launchSource || undefined,
+      widgetAction: initialLaunchPerfContext.widgetAction || undefined,
+      widgetKind: initialLaunchPerfContext.widgetKind || undefined,
+    };
+  }
 
   function resolveCurrentPagePerfKey() {
     const pathSegments = String(window.location.pathname || "").split("/");
@@ -181,6 +205,7 @@
       page: resolveCurrentPagePerfKey(),
       href: window.location.href,
       elapsedMs: Math.max(0, Math.round(now - pagePerfStartTime)),
+      ...getLaunchPerfContext(),
       ...detail,
     };
 
@@ -382,6 +407,7 @@
     if (shouldReportToReactNative) {
       window.ControlerNativeBridge?.emitEvent?.("ui.page-ready", {
         href: window.location.href,
+        ...getLaunchPerfContext(),
       });
     }
     if (shouldReportToElectron) {

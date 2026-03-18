@@ -331,6 +331,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         JSONObject launchAction = ControlerWidgetLaunchStore.consumeLaunchAction(context);
         String page = normalizeLaunchPage(launchAction.optString("page", ""));
         String action = String.valueOf(launchAction.optString("action", "")).trim();
+        String widgetKind = String.valueOf(launchAction.optString("widgetKind", "")).trim();
         String source = String.valueOf(launchAction.optString("source", "android-widget")).trim();
 
         Uri.Builder builder = Uri.parse(
@@ -339,10 +340,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (!TextUtils.isEmpty(action)) {
             builder.appendQueryParameter("widgetAction", action);
         }
+        if (!TextUtils.isEmpty(widgetKind)) {
+            builder.appendQueryParameter("widgetKind", widgetKind);
+        }
         if (!TextUtils.isEmpty(source) && !TextUtils.isEmpty(action)) {
             builder.appendQueryParameter("widgetSource", source);
         }
-        return builder.build().toString();
+        String launchUrl = builder.build().toString();
+        ControlerStartupTrace.mark(
+            "start_url_built",
+            "page=" + page
+                + " action=" + (TextUtils.isEmpty(action) ? "-" : action)
+                + " widgetKind=" + (TextUtils.isEmpty(widgetKind) ? "-" : widgetKind)
+        );
+        return launchUrl;
     }
 
     private String normalizeLaunchPage(String page) {
