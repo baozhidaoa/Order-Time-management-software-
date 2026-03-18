@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "prepare:web-assets": "node scripts/sync-web-assets.mjs",
+    "ci:mac": "npm run dist:mac",
+    "ci:ios": "npm run mobile:ios",
     "start": "npm run prepare:web-assets && electron-forge start",
     "build": "npm run prepare:web-assets && electron-builder",
     "cert:android:release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/new-android-release-keystore.ps1",
@@ -29,6 +31,9 @@
   ],
   "author": "Order contributors",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.4"
+  },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",

@@ -1,17 +1,32 @@
 workflows:
-  macos_internal_unsigned:
+  mac_internal_unsigned:
     name: macOS Internal Unsigned
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
+      groups:
+        - github_release
       xcode: 16.2
       node: 20.19.4
       vars:
+        NODE_VERSION: "20.19.4"
         CSC_IDENTITY_AUTO_DISCOVERY: "false"
     cache:
       cache_paths:
         - $HOME/.npm
         - node_modules
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      tag_patterns:
+        - pattern: v*
+          include: true
+      cancel_previous_builds: true
     scripts:
       - name: Install desktop dependencies
         script: |
@@ -20,16 +35,55 @@ workflows:
       - name: Build macOS artifacts
         script: |
           cd "$CM_BUILD_DIR"
-          npm run dist:mac
+          npm run ci:mac
     artifacts:
       - dist/*.dmg
       - dist/*.zip
+    publishing:
+      scripts:
+        - name: Upload macOS artifacts to GitHub release
+          script: |
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            if [[ -z "${CM_TAG:-}" ]]; then
+              echo "Not a tag build, skipping GitHub release upload."
+              exit 0
+            fi
+
+            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+              echo "Missing GITHUB_TOKEN in Codemagic."
+              exit 1
+            fi
+
+            export GH_TOKEN="$GITHUB_TOKEN"
+
+            if ! gh release view "${CM_TAG}" >/dev/null 2>&1; then
+              gh release create "${CM_TAG}" \
+                --title "Order ${CM_TAG}" \
+                --notes "Automated release for ${CM_TAG}" || true
+            fi
+
+            mapfile -d '' mac_artifacts < <(
+              find "$CM_BUILD_DIR/dist" -maxdepth 1 -type f \
+                \( -name '*.dmg' -o -name '*.zip' \) -print0
+            )
+
+            if [[ ${#mac_artifacts[@]} -eq 0 ]]; then
+              echo "No macOS artifacts were found in dist/."
+              exit 1
+            fi
+
+            gh release upload "${CM_TAG}" "${mac_artifacts[@]}" --clobber
 
   ios_internal_testflight:
     name: iOS Internal TestFlight
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
+      groups:
+        - github_release
+        - apple_credentials
       xcode: 16.2
       cocoapods: default
       node: 20.19.4
@@ -37,6 +91,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.controler.timetracker
       vars:
+        NODE_VERSION: "20.19.4"
         BUNDLE_ID: "com.controler.timetracker"
         XCODE_SCHEME: "ControlerApp"
         XCODE_WORKSPACE: "$CM_BUILD_DIR/ControlerApp/ios/ControlerApp.xcworkspace"
@@ -47,13 +102,23 @@ workflows:
         - ControlerApp/node_modules
         - ControlerApp/vendor/bundle
         - $HOME/Library/Caches/CocoaPods
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: v*
+          include: true
+      cancel_previous_builds: true
     scripts:
       - name: Verify App Store Connect credentials
         script: |
-          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ] || [ -z "$APP_STORE_CONNECT_KEY_IDENTIFIER" ] || [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
-            echo "Missing App Store Connect credentials. Add APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, and APP_STORE_CONNECT_ISSUER_ID in Codemagic before running this workflow."
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ] || [ -z "$APP_STORE_CONNECT_KEY_ID" ] || [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
+            echo "Missing App Store Connect credentials. Add APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_ID, and APP_STORE_CONNECT_ISSUER_ID in Codemagic before running this workflow."
             exit 1
           fi
+      - name: Bridge Codemagic Apple key aliases
+        script: |
+          echo "APP_STORE_CONNECT_KEY_IDENTIFIER=$APP_STORE_CONNECT_KEY_ID" >> "$CM_ENV"
       - name: Install root dependencies
         script: |
           cd "$CM_BUILD_DIR"
@@ -96,5 +161,40 @@ workflows:
     publishing:
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        key_id: $APP_STORE_CONNECT_KEY_ID
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      scripts:
+        - name: Upload iOS artifacts to GitHub release
+          script: |
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            if [[ -z "${CM_TAG:-}" ]]; then
+              echo "Not a tag build, skipping GitHub release upload."
+              exit 0
+            fi
+
+            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+              echo "Missing GITHUB_TOKEN in Codemagic."
+              exit 1
+            fi
+
+            export GH_TOKEN="$GITHUB_TOKEN"
+
+            if ! gh release view "${CM_TAG}" >/dev/null 2>&1; then
+              gh release create "${CM_TAG}" \
+                --title "Order ${CM_TAG}" \
+                --notes "Automated release for ${CM_TAG}" || true
+            fi
+
+            mapfile -d '' ios_artifacts < <(
+              find "$CM_BUILD_DIR/ControlerApp/build/ios/ipa" -maxdepth 1 -type f \
+                -name '*.ipa' -print0
+            )
+
+            if [[ ${#ios_artifacts[@]} -eq 0 ]]; then
+              echo "No iOS ipa artifacts were found in ControlerApp/build/ios/ipa."
+              exit 1
+            fi
+
+            gh release upload "${CM_TAG}" "${ios_artifacts[@]}" --clobber
