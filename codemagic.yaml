@@ -1,0 +1,100 @@
+workflows:
+  macos_internal_unsigned:
+    name: macOS Internal Unsigned
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 16.2
+      node: 20.19.4
+      vars:
+        CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    cache:
+      cache_paths:
+        - $HOME/.npm
+        - node_modules
+    scripts:
+      - name: Install desktop dependencies
+        script: |
+          cd "$CM_BUILD_DIR"
+          npm ci
+      - name: Build macOS artifacts
+        script: |
+          cd "$CM_BUILD_DIR"
+          npm run dist:mac
+    artifacts:
+      - dist/*.dmg
+      - dist/*.zip
+
+  ios_internal_testflight:
+    name: iOS Internal TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 16.2
+      cocoapods: default
+      node: 20.19.4
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.controler.timetracker
+      vars:
+        BUNDLE_ID: "com.controler.timetracker"
+        XCODE_SCHEME: "ControlerApp"
+        XCODE_WORKSPACE: "$CM_BUILD_DIR/ControlerApp/ios/ControlerApp.xcworkspace"
+    cache:
+      cache_paths:
+        - $HOME/.npm
+        - node_modules
+        - ControlerApp/node_modules
+        - ControlerApp/vendor/bundle
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - name: Verify App Store Connect credentials
+        script: |
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ] || [ -z "$APP_STORE_CONNECT_KEY_IDENTIFIER" ] || [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
+            echo "Missing App Store Connect credentials. Add APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, and APP_STORE_CONNECT_ISSUER_ID in Codemagic before running this workflow."
+            exit 1
+          fi
+      - name: Install root dependencies
+        script: |
+          cd "$CM_BUILD_DIR"
+          npm ci
+      - name: Install mobile dependencies
+        script: |
+          cd "$CM_BUILD_DIR/ControlerApp"
+          npm ci
+      - name: Sync shared web assets
+        script: |
+          cd "$CM_BUILD_DIR"
+          npm run prepare:web-assets
+          npm run verify:parity
+      - name: Install Ruby gems
+        script: |
+          cd "$CM_BUILD_DIR/ControlerApp"
+          bundle config set path vendor/bundle
+          bundle install
+      - name: Install CocoaPods dependencies
+        script: |
+          cd "$CM_BUILD_DIR/ControlerApp/ios"
+          bundle exec pod install
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --custom-export-options='{"testFlightInternalTestingOnly": true}'
+      - name: Build ipa
+        script: |
+          cd "$CM_BUILD_DIR/ControlerApp"
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - ControlerApp/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID

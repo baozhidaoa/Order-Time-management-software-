@@ -1,0 +1,22 @@
+pluginManagement {
+  includeBuild("../node_modules/@react-native/gradle-plugin")
+  repositories {
+    maven { url 'https://repo.huaweicloud.com/repository/maven/' }
+    maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+    google()
+    mavenCentral()
+    gradlePluginPortal()
+  }
+}
+
+plugins {
+  id("com.facebook.react.settings")
+}
+
+extensions.configure(com.facebook.react.ReactSettingsExtension) { extension ->
+  extension.autolinkLibrariesFromCommand()
+}
+
+rootProject.name = 'ControlerApp'
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')

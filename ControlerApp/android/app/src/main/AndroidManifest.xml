@@ -1,0 +1,150 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:allowBackup="true"
+      android:supportsRtl="true"
+      android:theme="@style/AppTheme">
+      <activity
+        android:name=".MainActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:launchMode="singleTask"
+        android:windowSoftInputMode="adjustNothing"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity>
+
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+      </provider>
+
+      <receiver
+        android:name=".ControlerNotificationReceiver"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="com.controlerapp.action.SHOW_REMINDER" />
+          <action android:name="android.intent.action.BOOT_COMPLETED" />
+          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+          <action android:name="android.intent.action.TIME_SET" />
+          <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+        </intent-filter>
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetPinResultReceiver"
+        android:exported="false" />
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$StartTimerWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_start_timer">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_start_timer" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$WriteDiaryWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_write_diary">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_write_diary" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$WeekGridWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_week_grid">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_week_grid" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$DayPieWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_day_pie">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_day_pie" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$TodosWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_todos">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_todos" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$CheckinsWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_checkins">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_checkins" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$WeekViewWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_week_view">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_week_view" />
+      </receiver>
+
+      <receiver
+        android:name=".widgets.ControlerWidgetProviders$YearViewWidgetProvider"
+        android:exported="true"
+        android:label="@string/widget_year_view">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/controler_widget_provider_year_view" />
+      </receiver>
+    </application>
+</manifest>

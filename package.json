@@ -1,0 +1,111 @@
+{
+  "name": "order",
+  "version": "1.0.3",
+  "description": "Order is a local-first time tracker for desktop and mobile.",
+  "main": "main.js",
+  "scripts": {
+    "prepare:web-assets": "node scripts/sync-web-assets.mjs",
+    "start": "npm run prepare:web-assets && electron-forge start",
+    "build": "npm run prepare:web-assets && electron-builder",
+    "cert:android:release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/new-android-release-keystore.ps1",
+    "cert:win:self-signed": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/new-windows-self-signed-cert.ps1",
+    "dist:win:self-signed": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-self-signed.ps1",
+    "dist:win": "npm run prepare:web-assets && electron-builder --win nsis && node scripts/copy-windows-artifacts.mjs",
+    "dist:mac": "npm run prepare:web-assets && npm run verify:parity && electron-builder --mac dmg zip",
+    "mobile:install": "npm run prepare:web-assets && npm --prefix ControlerApp install",
+    "mobile:start": "npm --prefix ControlerApp run start",
+    "mobile:android": "npm run prepare:web-assets && npm --prefix ControlerApp run android",
+    "mobile:apk": "npm run prepare:web-assets && npm run verify:parity && npm --prefix ControlerApp run build:apk && node scripts/copy-android-apk.mjs",
+    "mobile:ios": "npm run prepare:web-assets && npm run verify:parity && npm --prefix ControlerApp run build:ios",
+    "verify:parity": "node scripts/verify-parity.mjs",
+    "test": "npm run prepare:web-assets && npm run verify:parity",
+    "package": "npm run prepare:web-assets && electron-forge package",
+    "make": "npm run prepare:web-assets && electron-forge make"
+  },
+  "keywords": [
+    "time-tracker",
+    "productivity",
+    "desktop-app"
+  ],
+  "author": "Order contributors",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
+    "electron": "^39.8.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "cal-heatmap": "^4.2.4",
+    "chart.js": "^4.5.1",
+    "d3": "^7.9.0",
+    "electron-squirrel-startup": "^1.0.1",
+    "fs-extra": "^11.2.0",
+    "path": "^0.12.7"
+  },
+  "build": {
+    "appId": "com.controler.timetracker",
+    "productName": "Order",
+    "buildVersion": "1.03",
+    "electronDist": "node_modules/electron/dist",
+    "afterPack": "scripts/after-pack-windows.js",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "images"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/*.iml",
+      "!{test,.github,.vscode,release,docs}",
+      "!ControlerApp{,/**}",
+      "!mobile{,/**}",
+      "!dist{,/**}",
+      "!out{,/**}",
+      "!android{,/**}",
+      "!ios{,/**}",
+      "!pages/runtime-assets{,/**}",
+      "!pages/vendor{,/**}",
+      "!TmpPackageBuild_*{,/**}",
+      "!TmpRn*{,/**}",
+      "!tmp-build-assets{,/**}"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "Order.ico",
+      "sign": "./scripts/windows-authenticode-sign.js",
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "publisherName": "Order Internal Code Signing",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "packElevateHelper": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "Order.ico",
+      "uninstallerIcon": "Order.ico",
+      "installerHeaderIcon": "Order.ico"
+    }
+  }
+}

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日记</title>
+    <script src="platform-contract.js"></script>
+    <script src="rn-bridge.js"></script>
+    <script src="guide-bundle.js"></script>
+    <script src="storage-bundle.js?v=20260317-bundle-storage"></script>
+    <script src="storage-adapter.js?v=20260310-sync-storage"></script>
+    <script src="widget-bridge.js"></script>
+    <script src="i18n.js"></script>
+    <script src="i18n-extra.js"></script>
+    <script src="theme-init.js?v=20260310-modal-fix"></script>
+    <script>
+      window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
+    </script>
+    <script src="ui-helpers.js?v=20260310-modal-fix"></script>
+    <script src="data-index.js"></script>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+        sans-serif;
+    }
+  </style>
+  <body class="app-layout page-diary diary-bootstrap-pending bkg flex row">
+    <div class="app-sidebar flex column ms mgt mgb" style="height: 100vh; width: 11%">
+      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-nav flex flex1 column ms mgt">
+        <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
+          记录
+        </button>
+        <button class="bts" type="button" data-nav-page="stats" onclick="if (window.ControlerUI?.navigateAppPage?.('stats')) return false; window.location.href = 'stats.html'; return false;">
+          统计
+        </button>
+        <button class="bts" type="button" data-nav-page="plan" onclick="if (window.ControlerUI?.navigateAppPage?.('plan')) return false; window.location.href = 'plan.html'; return false;">
+          计划
+        </button>
+        <button class="bts" type="button" data-nav-page="diary" onclick="if (window.ControlerUI?.navigateAppPage?.('diary')) return false; window.location.href = 'diary.html'; return false;">
+          日记
+        </button>
+        <button class="bts" type="button" data-nav-page="settings" onclick="if (window.ControlerUI?.navigateAppPage?.('settings')) return false; window.location.href = 'settings.html'; return false;">
+          设置
+        </button>
+      </div>
+    </div>
+
+    <div class="app-main diary-main flex flex1 column mg ms" style="overflow-y: auto">
+      <div class="diary-topbar flex juzhong ms mg" style="height: 7%">
+        <h2 style="margin: 0; color: var(--text-color)">日记</h2>
+      </div>
+      <div
+        id="diary-loading-overlay"
+        class="page-loading-overlay"
+        data-mode="fullscreen"
+        aria-hidden="true"
+        hidden
+      >
+        <div class="page-loading-card">
+          <div class="page-loading-title" data-loading-title>正在加载数据中</div>
+          <div class="page-loading-message" data-loading-message>
+            正在读取当前月份的日记与分类，请稍候
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="diary-shell"
+        style="
+          margin: 15px;
+          padding: 15px;
+          background-color: var(--bg-secondary);
+          border-radius: 15px;
+        "
+      >
+        <div id="diary-guide-card" class="guide-card-host" hidden></div>
+        <h3 style="margin: 0 0 15px 0; color: var(--text-color)">日记视图</h3>
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 12px;
+          "
+        >
+          <div
+            class="diary-filter-row"
+            style="
+              display: flex;
+              gap: 12px;
+              flex-wrap: wrap;
+              align-items: center;
+            "
+          >
+            <div class="diary-filter-field" style="display: flex; gap: 8px; align-items: center">
+              <label for="diary-year-select" style="color: var(--text-color)"
+                >年份</label
+              >
+              <select id="diary-year-select" style="min-width: 120px">
+                <option value="">加载中...</option>
+              </select>
+            </div>
+            <div class="diary-filter-field" style="display: flex; gap: 8px; align-items: center">
+              <label for="diary-month-select" style="color: var(--text-color)"
+                >月份</label
+              >
+              <select id="diary-month-select" style="min-width: 110px">
+                <option value="">加载中...</option>
+              </select>
+            </div>
+            <div class="diary-filter-field diary-filter-field--category" style="display: flex; gap: 8px; align-items: center">
+              <label
+                for="diary-category-filter"
+                style="color: var(--text-color)"
+                >分类</label
+              >
+              <select
+                id="diary-category-filter"
+                style="min-width: 140px"
+              >
+                <option value="all">全部</option>
+              </select>
+            </div>
+            <div class="diary-filter-field diary-filter-field--search" style="display: flex; gap: 8px; align-items: center">
+              <label for="diary-search-input" style="color: var(--text-color)"
+                >搜索</label
+              >
+              <input
+                id="diary-search-input"
+                type="text"
+                placeholder="搜索标题或正文关键词"
+                autocomplete="off"
+                style="
+                  width: 100%;
+                  min-width: 0;
+                  padding: 10px 15px;
+                  border-radius: 8px;
+                  border: 1px solid var(--bg-tertiary);
+                  background-color: var(--bg-quaternary);
+                  color: var(--text-color);
+                  font-size: 14px;
+                "
+              />
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <button class="bts" id="diary-month-view-btn">月视图</button>
+            <button class="bts" id="diary-list-view-btn">列表视图</button>
+            <button class="bts" id="diary-category-btn">分类管理</button>
+          </div>
+        </div>
+        <div
+          id="diary-view-container"
+          class="resizable-panel"
+          style="
+            min-height: 620px;
+            overflow: auto;
+            position: relative;
+            border-radius: 12px;
+            border: 1px solid var(--bg-tertiary);
+            background-color: var(--bg-secondary);
+            padding: 12px;
+          "
+        ></div>
+      </div>
+    </div>
+
+    <script src="diary.js?v=20260310-modal-fix"></script>
+  </body>
+</html>

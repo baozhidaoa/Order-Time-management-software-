@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Order</string>
+    <string name="widget_start_timer">开始计时</string>
+    <string name="widget_write_diary">写日记</string>
+    <string name="widget_week_grid">一周表格视图</string>
+    <string name="widget_day_pie">一天的饼状图</string>
+    <string name="widget_todos">待办事项</string>
+    <string name="widget_checkins">打卡列表</string>
+    <string name="widget_week_view">周视图</string>
+    <string name="widget_year_view">年视图</string>
+</resources>

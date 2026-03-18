@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>其他设置</title>
+    <script src="platform-contract.js"></script>
+    <script src="rn-bridge.js"></script>
+    <script src="guide-bundle.js"></script>
+    <script src="storage-bundle.js?v=20260317-bundle-storage"></script>
+    <script src="external-import.js"></script>
+    <script src="storage-adapter.js?v=20260310-sync-storage"></script>
+    <script src="widget-bridge.js"></script>
+    <script src="i18n.js"></script>
+    <script src="i18n-extra.js"></script>
+    <script src="theme-init.js"></script>
+    <script>
+      window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
+    </script>
+    <script src="ui-helpers.js"></script>
+    <link rel="stylesheet" href="index.css" />
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          sans-serif;
+      }
+
+      .settings-card {
+        padding: 25px;
+        border-radius: 15px;
+        resize: none;
+        overflow: visible;
+        flex: 0 0 auto;
+        height: auto;
+      }
+
+      #widget-type-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      #widget-type-grid > * {
+        min-width: 0;
+      }
+
+      @media (max-width: 760px) {
+        #widget-type-grid {
+          gap: 8px;
+        }
+
+        #widget-type-grid .widget-action-card {
+          padding: 8px !important;
+          border-radius: 10px !important;
+          gap: 6px !important;
+        }
+
+        #widget-type-grid .widget-action-card-title {
+          font-size: 12px !important;
+          line-height: 1.25 !important;
+        }
+
+        #widget-type-grid .widget-action-card-description {
+          font-size: 10px !important;
+          line-height: 1.35 !important;
+          margin-top: 2px !important;
+        }
+
+        #widget-type-grid .widget-action-card-button {
+          width: 100% !important;
+          padding: 6px 8px !important;
+          font-size: 11px !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="app-layout page-settings settings-bootstrap-pending bkg flex row">
+    <!-- 侧边栏 -->
+    <div
+      class="app-sidebar flex column ms mgt mgb"
+      style="height: 100vh; width: 11%"
+    >
+      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <!-- 导航栏 -->
+      <div class="app-nav flex flex1 column ms mgt">
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="index"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('index')) return false;
+            window.location.href = 'index.html';
+            return false;
+          "
+        >
+          记录
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="stats"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('stats')) return false;
+            window.location.href = 'stats.html';
+            return false;
+          "
+        >
+          统计
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="plan"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('plan')) return false;
+            window.location.href = 'plan.html';
+            return false;
+          "
+        >
+          计划
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="diary"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('diary')) return false;
+            window.location.href = 'diary.html';
+            return false;
+          "
+        >
+          日记
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="settings"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('settings')) return false;
+            window.location.href = 'settings.html';
+            return false;
+          "
+        >
+          设置
+        </button>
+      </div>
+    </div>
+    <!-- 主要内容区域 -->
+    <div
+      class="app-main settings-main flex flex1 column ms mg"
+      style="
+        min-height: 100vh;
+        height: auto;
+        width: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
+      "
+    >
+      <div class="settings-topbar flex" style="margin-bottom: 30px">
+        <h1 style="color: var(--text-color)" class="mgb mgl">其他设置</h1>
+      </div>
+      <div
+        id="settings-backup-overlay"
+        class="page-loading-overlay settings-backup-overlay"
+        data-mode="fullscreen"
+        aria-hidden="true"
+        tabindex="-1"
+        hidden
+      >
+        <div class="page-loading-card settings-backup-card" role="status" aria-live="polite">
+          <div class="settings-backup-spinner" aria-hidden="true"></div>
+          <div class="page-loading-title" data-loading-title>正在加载设置</div>
+          <div class="page-loading-message" data-loading-message>
+            设置项较多，正在准备当前页面，请稍候。
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="ms resizable-panel settings-card settings-card--themes"
+        data-settings-collapsible-pending="true"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">主题配色</h2>
+          <p style="color: var(--text-color); margin-bottom: 20px">
+            选择您喜欢的主题配色，设置将自动保存并同步到底部导航样式。
+          </p>
+
+          <div
+            class="theme-selector"
+            id="theme-selector"
+            style="
+              min-height: 88px;
+              padding: 14px;
+              border-radius: 16px;
+              background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
+              border: 1px solid var(--panel-border-color);
+              backdrop-filter: blur(14px) saturate(120%);
+              -webkit-backdrop-filter: blur(14px) saturate(120%);
+            "
+          >
+            <!-- 主题选项将通过JavaScript动态生成 -->
+          </div>
+          <div class="theme-custom-actions">
+            <button class="bts" id="add-custom-theme-btn" style="margin: 0">
+              添加自定义主题
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="ms resizable-panel settings-card settings-card--table-scale"
+        id="table-size-settings-panel"
+        data-settings-collapsible-pending="true"
+        style="margin-top: 15px"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">视图尺寸</h2>
+          <p
+            style="
+              color: var(--muted-text-color);
+              margin-bottom: 15px;
+              font-size: 13px;
+            "
+          >
+            最小可调到 10%。
+          </p>
+
+          <div
+            id="table-size-items"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+              gap: 12px;
+            "
+          >
+            <!-- 各页面表格尺寸将由 JS 动态渲染 -->
+          </div>
+
+          <div
+            style="margin-top: 12px; display: flex; justify-content: flex-end"
+          >
+            <button class="bts" id="table-size-reset" style="margin: 0">
+              重置为默认 100%
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="ms resizable-panel settings-card settings-card--navigation"
+        style="margin-top: 15px"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">导航按钮显示</h2>
+
+          <div
+            id="navigation-visibility-grid"
+            class="settings-nav-grid"
+            aria-label="导航按钮显示设置"
+          ></div>
+          <p
+            id="navigation-visibility-hint"
+            class="settings-inline-note"
+            style="margin: 14px 0 0 0"
+          ></p>
+        </div>
+      </div>
+
+      <div
+        class="ms resizable-panel settings-card settings-card--language"
+        style="margin-top: 15px"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">显示语言</h2>
+
+          <div class="settings-language-field" style="max-width: 320px">
+            <label
+              for="language-select"
+              style="
+                color: var(--text-color);
+                display: block;
+                margin-bottom: 8px;
+                font-size: 14px;
+              "
+            >
+              界面语言
+            </label>
+            <select
+              id="language-select"
+              data-language-select="true"
+              data-i18n-skip="true"
+              style="
+                width: 100%;
+                padding: 10px 14px;
+                border-radius: 10px;
+                border: 1px solid var(--panel-border-color);
+                background: color-mix(
+                  in srgb,
+                  var(--panel-bg) 72%,
+                  transparent
+                );
+                color: var(--text-color);
+                font-size: 10px;
+              "
+            >
+              <option value="zh-CN">简体中文</option>
+              <option value="en-US">English</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="ms resizable-panel settings-card settings-card--widgets"
+        id="widget-settings-panel"
+        data-settings-collapsible-pending="true"
+        style="margin-top: 15px"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">桌面小组件</h2>
+          <p
+            id="widget-platform-summary"
+            style="color: var(--text-color); margin-bottom: 18px"
+          >
+            正在检测当前平台的小组件能力...
+          </p>
+          <div id="widget-guide-card" class="guide-card-host" hidden></div>
+
+          <div
+            id="desktop-widget-settings"
+            style="display: none; margin-bottom: 18px"
+          >
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 10px;
+              "
+            >
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  color: var(--text-color);
+                  background: var(--bg-tertiary);
+                  border-radius: 10px;
+                  padding: 10px 12px;
+                "
+              >
+                <input type="checkbox" id="desktop-widget-open-login" />
+                开机自启应用
+              </label>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  color: var(--text-color);
+                  background: var(--bg-tertiary);
+                  border-radius: 10px;
+                  padding: 10px 12px;
+                "
+              >
+                <input type="checkbox" id="desktop-widget-restore" />
+                启动时恢复已创建小组件
+              </label>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  color: var(--text-color);
+                  background: var(--bg-tertiary);
+                  border-radius: 10px;
+                  padding: 10px 12px;
+                "
+              >
+                <input type="checkbox" id="desktop-widget-always-on-top" />
+                小组件始终停留在桌面上方
+              </label>
+            </div>
+            <p
+              id="desktop-widget-state-text"
+              style="
+                color: var(--muted-text-color);
+                margin: 10px 0 0 0;
+                font-size: 12px;
+              "
+            ></p>
+          </div>
+
+          <div id="widget-type-grid" style="display: grid; gap: 10px"></div>
+        </div>
+      </div>
+      <div
+        class="ms resizable-panel settings-card settings-card--data"
+        style="margin-top: 15px"
+      >
+        <div class="settings-card-content">
+          <h2 style="color: var(--text-color); margin-top: 0">数据管理</h2>
+          <p
+            id="data-management-guide-hint"
+            style="color: var(--text-color); margin-bottom: 20px"
+          >
+            导入前先看清模式：整包替换会清掉未导入内容，差异导入不会。
+          </p>
+
+          <div class="settings-data-actions" style="display: flex; gap: 15px">
+            <button class="bts" id="export-data">导出数据</button>
+            <button class="bts" id="import-data">导入数据</button>
+            <button
+              class="bts"
+              id="clear-data"
+              style="background-color: var(--delete-btn)"
+            >
+              清除所有数据
+            </button>
+          </div>
+
+          <div
+            class="settings-data-status"
+            style="margin-top: 20px; color: var(--text-color); font-size: 14px"
+          >
+            <p>当前存储状态:</p>
+            <div id="storage-status">正在加载...</div>
+
+            <div style="margin-top: 15px">
+              <!-- 存储路径管理 -->
+              <div
+                class="settings-storage-card settings-storage-card--bundle"
+                data-settings-collapsible-pending="true"
+                style="
+                  margin-bottom: 15px;
+                  padding: 15px;
+                  background-color: var(--bg-tertiary);
+                  border-radius: 8px;
+                "
+              >
+                <div class="settings-card-content">
+                  <h4
+                    style="
+                      margin: 0 0 10px 0;
+                      color: var(--accent-color);
+                      font-size: 16px;
+                    "
+                  >
+                    实时存储目录 bundle
+                  </h4>
+                  <div id="current-storage-path-info" style="margin-bottom: 10px">
+                    <p style="margin: 5px 0; font-size: 13px">
+                      当前 bundle 清单:
+                      <span id="current-storage-path">正在加载...</span>
+                    </p>
+                    <p style="margin: 5px 0; font-size: 13px">
+                      当前 bundle 根目录:
+                      <span id="current-storage-directory">正在加载...</span>
+                    </p>
+                    <p style="margin: 5px 0; font-size: 13px">
+                      存储模式: <span id="storage-path-type">正在加载...</span>
+                    </p>
+                  </div>
+                  <div
+                    class="settings-storage-actions"
+                    style="display: flex; gap: 10px; flex-wrap: wrap"
+                  >
+                    <button
+                      class="bts"
+                      id="change-storage-directory-btn"
+                      style="
+                        background-color: var(--accent-color);
+                        padding: 8px 16px;
+                        font-size: 14px;
+                      "
+                    >
+                      选择存储目录
+                    </button>
+                    <button
+                      class="bts"
+                      id="reset-storage-path-btn"
+                      style="
+                        background-color: var(--bg-tertiary);
+                        padding: 8px 16px;
+                        font-size: 14px;
+                      "
+                    >
+                      重置为默认目录
+                    </button>
+                    <button
+                      class="bts"
+                      id="show-storage-path"
+                      style="
+                        background-color: var(--bg-tertiary);
+                        padding: 8px 16px;
+                        font-size: 14px;
+                      "
+                    >
+                      显示文件位置
+                    </button>
+                  </div>
+                  <p
+                    style="
+                      margin: 10px 0 0;
+                      font-size: 12px;
+                      color: var(--muted-text-color);
+                      line-height: 1.6;
+                    "
+                  >
+                    当前实时存储不是单个 JSON，而是一个目录里的多份 JSON。固定包含
+                    `bundle-manifest.json`、`core.json`、`plans-recurring.json`，其余数据按月拆分保存。
+                  </p>
+                  <div
+                    id="bundle-structure-info"
+                    style="
+                      margin-top: 12px;
+                      padding: 12px;
+                      border-radius: 10px;
+                      background: color-mix(in srgb, var(--panel-bg) 76%, transparent);
+                      border: 1px solid var(--panel-border-color);
+                      color: var(--text-color);
+                      font-size: 12px;
+                      line-height: 1.7;
+                    "
+                  >
+                    正在读取 bundle 结构...
+                  </div>
+                  <div
+                    id="bundle-backup-info"
+                    style="
+                      margin-top: 12px;
+                      padding: 12px;
+                      border-radius: 10px;
+                      background: color-mix(in srgb, var(--panel-bg) 76%, transparent);
+                      border: 1px solid var(--panel-border-color);
+                      color: var(--text-color);
+                      font-size: 12px;
+                      line-height: 1.7;
+                    "
+                  >
+                    正在读取最近备份/迁移记录...
+                  </div>
+                  <div
+                    id="storage-path-info"
+                    style="margin-top: 10px; display: none"
+                  >
+                    <p>存储路径信息将在浏览器控制台中显示。</p>
+                    <p>
+                      要查看实际存储数据，请在浏览器中打开开发者工具(F12)，然后查看"Application"或"Storage"选项卡中的"Local
+                      Storage"。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 15px">
+              <div
+                class="settings-storage-card"
+                style="
+                  padding: 15px;
+                  background-color: var(--bg-tertiary);
+                  border-radius: 8px;
+                "
+              >
+                <h4
+                  style="
+                    margin: 0 0 10px 0;
+                    color: var(--accent-color);
+                    font-size: 16px;
+                  "
+                >
+                  自动本地 ZIP 备份
+                </h4>
+                <div
+                  style="
+                    display: grid;
+                    gap: 12px;
+                    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                  "
+                >
+                  <label
+                    style="
+                      display: flex;
+                      align-items: center;
+                      gap: 8px;
+                      color: var(--text-color);
+                    "
+                  >
+                    <input type="checkbox" id="auto-backup-enabled" />
+                    <span>启用自动备份</span>
+                  </label>
+                  <label style="display: grid; gap: 6px; color: var(--text-color)">
+                    <span>备份周期数值</span>
+                    <input
+                      type="number"
+                      id="auto-backup-interval-value"
+                      min="1"
+                      step="1"
+                      value="1"
+                      style="
+                        padding: 8px 10px;
+                        border-radius: 8px;
+                        border: 1px solid var(--panel-border-color);
+                        background: var(--panel-bg);
+                        color: var(--text-color);
+                      "
+                    />
+                  </label>
+                  <label style="display: grid; gap: 6px; color: var(--text-color)">
+                    <span>备份周期单位</span>
+                    <select
+                      id="auto-backup-interval-unit"
+                      style="
+                        padding: 8px 10px;
+                        border-radius: 8px;
+                        border: 1px solid var(--panel-border-color);
+                        background: var(--panel-bg);
+                        color: var(--text-color);
+                      "
+                    >
+                      <option value="hour">小时</option>
+                      <option value="day" selected>天</option>
+                      <option value="week">周</option>
+                    </select>
+                  </label>
+                  <label style="display: grid; gap: 6px; color: var(--text-color)">
+                    <span>保留备份份数</span>
+                    <input
+                      type="number"
+                      id="auto-backup-max-backups"
+                      min="1"
+                      step="1"
+                      value="7"
+                      style="
+                        padding: 8px 10px;
+                        border-radius: 8px;
+                        border: 1px solid var(--panel-border-color);
+                        background: var(--panel-bg);
+                        color: var(--text-color);
+                      "
+                    />
+                  </label>
+                </div>
+                <div class="settings-auto-backup-actions">
+                  <button class="bts settings-auto-backup-action" id="run-auto-backup-now">
+                    立即备份
+                  </button>
+                  <button
+                    class="bts settings-auto-backup-action"
+                    id="open-auto-backup-location"
+                  >
+                    查看备份位置
+                  </button>
+                  <button
+                    class="bts settings-auto-backup-action"
+                    id="share-latest-auto-backup"
+                    style="display: none"
+                  >
+                    分享最新备份
+                  </button>
+                </div>
+                <div
+                  id="auto-backup-status-panel"
+                  style="
+                    margin-top: 12px;
+                    padding: 12px;
+                    border-radius: 10px;
+                    background: color-mix(in srgb, var(--panel-bg) 76%, transparent);
+                    border: 1px solid var(--panel-border-color);
+                    color: var(--text-color);
+                    font-size: 12px;
+                    line-height: 1.7;
+                  "
+                >
+                  正在读取自动备份状态...
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 清除数据预览模态框 -->
+      <div
+        class="modal-overlay"
+        id="clear-data-preview-modal"
+        style="display: none"
+      >
+        <div
+          class="modal-content ms"
+          style="
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+          "
+        >
+          <h2 style="margin-top: 0; color: var(--text-color)">清除数据预览</h2>
+
+          <div style="margin-bottom: 20px; color: var(--text-color)">
+            <p>以下数据将被清除:</p>
+            <div
+              id="preview-data-list"
+              class="settings-preview-list"
+              style="
+                background: var(--bg-tertiary);
+                padding: 10px;
+                border-radius: 8px;
+                margin-top: 10px;
+                max-height: 200px;
+                overflow-y: auto;
+              "
+            >
+              <!-- 预览数据将动态添加到这里 -->
+            </div>
+            <p
+              style="
+                margin-top: 10px;
+                font-size: 14px;
+                color: var(--muted-text-color);
+              "
+            >
+              此操作不可撤销！请确认是否继续。
+            </p>
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="
+              display: flex;
+              justify-content: flex-end;
+              gap: 10px;
+              margin-top: 20px;
+            "
+          >
+            <button class="bts" id="preview-cancel" type="button">取消</button>
+            <button
+              class="bts"
+              id="preview-confirm"
+              type="button"
+              style="background-color: var(--delete-btn)"
+            >
+              确认清除
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="settings.js"></script>
+  </body>
+</html>

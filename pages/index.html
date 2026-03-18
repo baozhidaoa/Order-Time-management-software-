@@ -1,0 +1,450 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>时间跟踪器</title>
+    <script src="platform-contract.js"></script>
+    <script src="rn-bridge.js"></script>
+    <script src="guide-bundle.js"></script>
+    <script src="storage-bundle.js"></script>
+    <script src="storage-adapter.js"></script>
+    <script src="widget-bridge.js"></script>
+    <script src="i18n.js"></script>
+    <script src="i18n-extra.js"></script>
+    <script src="theme-init.js"></script>
+    <script>
+      window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
+    </script>
+    <script src="ui-helpers.js"></script>
+    <script src="project-stats-utils.js"></script>
+    <script src="data-index.js"></script>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+        sans-serif;
+    }
+    /* 移除调试边框 */
+    /* * {
+      border: 1px solid transparent;
+    } */
+  </style>
+  <body class="app-layout page-record record-bootstrap-pending flex row bgs bkg">
+    <!-- 侧边栏 -->
+    <div class="app-sidebar flex column mgt mgb" style="height: 100vh; width: 11%">
+      <div class="app-sidebar-spacer flex ms" style="height: 20%">
+      </div>
+      <!-- 导航栏 -->
+      <div class="app-nav flex flex1 column ms mgt">
+        <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
+          记录
+        </button>
+        <button class="bts" type="button" data-nav-page="stats" onclick="if (window.ControlerUI?.navigateAppPage?.('stats')) return false; window.location.href = 'stats.html'; return false;">
+          统计
+        </button>
+        <button class="bts" type="button" data-nav-page="plan" onclick="if (window.ControlerUI?.navigateAppPage?.('plan')) return false; window.location.href = 'plan.html'; return false;">计划</button>
+        <button class="bts" type="button" data-nav-page="diary" onclick="if (window.ControlerUI?.navigateAppPage?.('diary')) return false; window.location.href = 'diary.html'; return false;">日记</button>
+        <button class="bts" type="button" data-nav-page="settings" onclick="if (window.ControlerUI?.navigateAppPage?.('settings')) return false; window.location.href = 'settings.html'; return false;">
+          设置
+        </button>
+      </div>
+    </div>
+    <!-- 主要内容区域 -->
+    <div class="app-main record-main flex flex1 column mg ms" style="overflow-y: auto">
+      <div class="record-topbar flex juzhong ms mg" style="height: 7%"><h2 style="margin: 0; color: var(--text-color)">时间记录</h2></div>
+      <div id="record-guide-card" class="guide-card-host ms mg" hidden></div>
+      <div
+        id="record-loading-overlay"
+        class="page-loading-overlay"
+        data-mode="fullscreen"
+        aria-hidden="true"
+        hidden
+      >
+        <div class="page-loading-card">
+          <div class="page-loading-title" data-loading-title>正在加载数据中</div>
+          <div class="page-loading-message" data-loading-message>
+            正在读取记录与项目，请稍候
+          </div>
+        </div>
+      </div>
+      
+      <!-- 项目创建和展示区域 -->
+      <div
+        class="flex ms mg column ss resizable-panel"
+        style="padding: 15px; min-height: 200px;height: 50%;overflow-y: auto"
+        id="project-container"
+      >
+        
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+          "
+        >
+          <!-- 基础项目信息 -->
+          <div
+            class="record-create-project-row"
+            style="display: flex; gap: 10px; align-items: center; justify-content: center"
+          >
+            <button
+              class="bts"
+              id="open-create-project-modal-btn"
+              style="margin: 0; padding: 10px 20px"
+            >
+              创建项目
+            </button>
+          </div>
+        </div>
+        <!-- 表格视图容器 -->
+        <div id="projects-table-container" style="display: block; margin-bottom: 15px;">
+          <div
+            class="projects-table resizable-panel"
+            id="projects-table"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+              gap: 10px;
+              overflow: auto;
+              min-height: 260px;
+            "
+          >
+            <!-- 表格视图将动态添加到这里 -->
+          </div>
+        </div>
+        
+        <!-- 原始项目列表视图 -->
+        <div
+          class="projects-list flex wrap"
+          id="projects-list"
+          style="gap: 10px; display: none"
+        >
+          <!-- 项目将动态添加到这里 -->
+        </div>
+        <div
+          class="project-totals"
+          id="project-totals"
+          style="
+            margin-top: 15px;
+            color: var(--text-color);
+            font-size: 14px;
+          "
+        >
+          <!-- 项目总用时将显示在这里 -->
+        </div>
+      </div>
+      <div
+        class="flex ms mg column resizable-panel"
+        id="output"
+        style="height: 30%;overflow-y: auto"
+      ></div>
+<div class="record-action-bar flex juzhong ms mg ss" style="height: 7%">
+        <!-- 计时按钮 -->
+        <button class="bts" id="spend">开始计时</button>
+      </div>
+    <!-- 弹窗模态框 -->
+    <div
+      class="modal-overlay"
+      id="modal-overlay"
+      data-controler-modal-persistent="true"
+      style="display: none"
+    >
+      <div
+        class="modal-content ms"
+        style="padding: 20px; border-radius: 15px; max-width: 500px; width: 90%"
+      >
+        <h2 style="margin-top: 0; color: var(--text-color)">配置计时</h2>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >当前项目</label
+          >
+          <div class="input-with-suggestions">
+            <input
+              type="text"
+              id="project-name-input"
+              placeholder="输入或选择本次计时项目"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-tertiary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 16px;
+              "
+            />
+            <div id="project-name-suggestions" class="suggestion-popover"></div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >用时</label
+          >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              margin-bottom: 10px;
+            "
+          >
+            <div style="flex: 1; color: var(--text-color)">
+              <div style="font-size: 13px; font-weight: bold">
+                当前用时: <span id="spendtime-display">小于1min</span>
+              </div>
+            </div>
+            <div style="color: var(--text-color); font-size: 14px">
+              剩余: <span id="remaining-time">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >缩短时间</label
+          >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              margin-bottom: 10px;
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 5px;">
+              <input
+                type="number"
+                id="shorten-hours"
+                placeholder="小时"
+                min="0"
+                style="
+                  width: 70px;
+                  padding: 8px;
+                  border-radius: 8px;
+                  border: 1px solid var(--input-border-color);
+                  background-color: var(--bg-quaternary);
+                  color: var(--text-color);
+                "
+              />
+              <span style="color: var(--text-color)">h</span>
+              <input
+                type="number"
+                id="shorten-minutes"
+                placeholder="分钟"
+                min="0"
+                max="59"
+                style="
+                  width: 70px;
+                  padding: 8px;
+                  border-radius: 8px;
+                  border: 1px solid var(--input-border-color);
+                  background-color: var(--bg-quaternary);
+                  color: var(--text-color);
+                "
+              />
+              <span style="color: var(--text-color)">min</span>
+            </div>
+          </div>
+          <div
+            id="shorten-error"
+            style="color: var(--delete-btn); font-size: 12px; display: none"
+          >
+            缩短时间不能超过当前时长，且不能小于1分钟
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >下一个项目</label
+          >
+          <div class="input-with-suggestions">
+            <input
+              type="text"
+              id="next-project-input"
+              placeholder="例如：一级盒子/二级盒子"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-tertiary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 16px;
+              "
+            />
+            <div id="next-project-suggestions" class="suggestion-popover"></div>
+          </div>
+          <div
+            class="existing-projects"
+            id="existing-projects"
+            style="
+              margin-top: 8px;
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+              gap: 8px;
+              border-radius: 10px;
+              padding: 8px;
+              max-height: 140px;
+              overflow-y: auto;
+            "
+          >
+            <!-- 已创建项目将动态添加到这里 -->
+          </div>
+          <div style="margin-top: 5px; font-size: 12px; color: var(--muted-text-color)">
+            留空则沿用当前项目；输入二级/三级项目会自动显示完整路径
+          </div>
+        </div>
+
+        <div
+          class="modal-buttons"
+          style="
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+          "
+        >
+          <button class="bts" id="modal-cancel">取消</button>
+          <button class="bts" id="modal-confirm">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 高级创建项目模态框 -->
+    <div
+      class="modal-overlay"
+      id="advanced-modal-overlay"
+      data-controler-modal-persistent="true"
+      style="display: none"
+    >
+      <div
+        class="modal-content ms"
+        style="padding: 20px; border-radius: 15px; max-width: 500px; width: 90%"
+      >
+        <h2 style="margin-top: 0; color: var(--text-color)">高级创建项目</h2>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >项目名称</label
+          >
+          <input
+            type="text"
+            id="advanced-project-name"
+            placeholder="输入项目名称"
+            style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--input-border-color);
+              background-color: var(--bg-quaternary);
+              color: var(--text-color);
+              font-size: 16px;
+            "
+          />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >项目层级</label
+          >
+          <div style="display: flex; gap: 10px">
+            <label style="display: flex; align-items: center; color: var(--text-color)">
+              <input type="radio" name="project-level" value="1" checked />
+              <span style="margin-left: 5px">一级项目</span>
+            </label>
+            <label style="display: flex; align-items: center; color: var(--text-color)">
+              <input type="radio" name="project-level" value="2" />
+              <span style="margin-left: 5px">二级项目</span>
+            </label>
+            <label style="display: flex; align-items: center; color: var(--text-color)">
+              <input type="radio" name="project-level" value="3" />
+              <span style="margin-left: 5px">三级项目</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >父级项目（仅二级和三级项目需要）</label
+          >
+          <select
+            id="parent-project-select"
+            style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--input-border-color);
+              background-color: var(--bg-quaternary);
+              color: var(--text-color);
+              font-size: 16px;
+            "
+          >
+            <option value="">请选择父级项目</option>
+            <!-- 父级项目将动态添加 -->
+          </select>
+        </div>
+
+        <div class="form-group project-color-panel" style="margin-bottom: 15px">
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >项目颜色</label
+          >
+          <div class="project-color-picker-row">
+            <input
+              type="color"
+              id="project-color-picker"
+              class="project-color-input"
+              style="width: 50px; height: 50px; cursor: pointer"
+              value="#79af85"
+            />
+            <button class="bts project-color-random-btn" id="project-color-random-btn" type="button">
+              随机色
+            </button>
+            <div class="project-color-picker-copy">
+              <div style="color: var(--text-color); font-size: 14px">
+                可直接挑色，也可从推荐色板里选
+              </div>
+              <div
+                id="project-color-current"
+                class="project-color-current-value"
+                aria-live="polite"
+              >
+                #79AF85
+              </div>
+            </div>
+          </div>
+          <div
+            id="project-color-presets"
+            class="project-color-palette"
+            role="list"
+            aria-label="项目颜色推荐色板"
+          ></div>
+          <div class="project-color-note">
+            颜色仅用于统计图表；一级项目决定整组色相，二级和三级会跟随一级色调推荐。
+          </div>
+        </div>
+
+        <div
+          class="modal-buttons"
+          style="
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+          "
+        >
+          <button class="bts" id="advanced-modal-cancel">取消</button>
+          <button class="bts" id="advanced-modal-confirm">确定创建</button>
+        </div>
+      </div>
+    </div>
+  </body>
+  <script src="index.js"></script>
+</html>

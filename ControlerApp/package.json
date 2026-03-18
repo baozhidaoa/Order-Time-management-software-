@@ -1,0 +1,44 @@
+{
+  "name": "order-mobile",
+  "version": "1.0.3",
+  "description": "Order mobile shell for Android and iOS.",
+  "private": true,
+  "scripts": {
+    "prepare:web-assets": "node ../scripts/sync-web-assets.mjs",
+    "android": "cmd /c if exist android\\build\\generated\\autolinking rmdir /s /q android\\build\\generated\\autolinking && set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& react-native run-android",
+    "ios": "react-native run-ios",
+    "build:apk": "cmd /c if exist android\\build\\generated\\autolinking rmdir /s /q android\\build\\generated\\autolinking && set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& cd android && gradlew.bat assembleRelease",
+    "build:ios": "xcodebuild -workspace ios/ControlerApp.xcworkspace -scheme ControlerApp -configuration Release -sdk iphoneos -derivedDataPath ios/build",
+    "lint": "eslint .",
+    "start": "react-native start",
+    "test": "jest"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.77.3",
+    "react-native-webview": "^13.16.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "@babel/runtime": "^7.20.0",
+    "@react-native-community/cli": "^20.1.2",
+    "@react-native/babel-preset": "^0.77.3",
+    "@react-native/eslint-config": "^0.77.3",
+    "@react-native/metro-config": "^0.77.3",
+    "@tsconfig/react-native": "^3.0.0",
+    "@types/react": "^18.0.24",
+    "@types/react-test-renderer": "^18.0.0",
+    "babel-jest": "^29.2.1",
+    "eslint": "^8.19.0",
+    "jest": "^29.2.1",
+    "prettier": "^2.4.1",
+    "react-test-renderer": "18.2.0",
+    "typescript": "4.8.4"
+  },
+  "author": "Order contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19.4"
+  }
+}
