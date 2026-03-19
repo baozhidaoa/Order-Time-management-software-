@@ -7,6 +7,7 @@ const {
   dialog,
   Notification,
   screen,
+  Tray,
 } = require("electron");
 const fs = require("fs");
 const path = require("path");
@@ -22,8 +23,34 @@ const APP_PUBLIC_DESCRIPTION =
   "Local-first time tracking, planning, todos, check-ins, diary, and widgets.";
 const APP_PUBLIC_COPYRIGHT = "© 2026 Order contributors";
 const UI_PREFERENCES_FILE_NAME = "ui-preferences.json";
+const STARTUP_DEBUG_LOG_FILE_NAME = "startup-debug.log";
+
+function appendStartupDebugLog(message) {
+  try {
+    const baseDir = process.env.APPDATA
+      ? path.join(process.env.APPDATA, APP_PUBLIC_NAME)
+      : path.join(path.dirname(process.execPath), "logs");
+    fs.mkdirSync(baseDir, { recursive: true });
+    fs.appendFileSync(
+      path.join(baseDir, STARTUP_DEBUG_LOG_FILE_NAME),
+      `[${new Date().toISOString()}] ${message}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    // Ignore debug logging failures.
+  }
+}
+
+process.on("uncaughtException", (error) => {
+  appendStartupDebugLog(`uncaughtException: ${error?.stack || error?.message || String(error)}`);
+});
+
+process.on("unhandledRejection", (reason) => {
+  appendStartupDebugLog(`unhandledRejection: ${reason?.stack || reason?.message || String(reason)}`);
+});
 
 app.setName(APP_PUBLIC_NAME);
+appendStartupDebugLog("main.js loaded");
 if (process.platform === "win32") {
   app.setAppUserModelId("com.controler.timetracker");
   // Electron 28 on Windows still hits Chromium/DirectComposition stale-pixel
@@ -36,6 +63,7 @@ if (process.platform === "win32") {
 }
 
 let mainWindow;
+let appTray = null;
 const uiPreferencesPath = path.join(
   app.getPath("userData"),
   UI_PREFERENCES_FILE_NAME,
@@ -88,6 +116,12 @@ function getCurrentUiLanguage() {
   return uiLanguage.normalizeLanguage(currentUiLanguage);
 }
 
+function getDesktopIconPath() {
+  return process.platform === "win32"
+    ? path.join(__dirname, "images", "Order.ico")
+    : path.join(__dirname, "images", "Order.png");
+}
+
 function nativeText(keyPath, params = {}) {
   return uiLanguage.t(getCurrentUiLanguage(), keyPath, params);
 }
@@ -121,6 +155,7 @@ function setCurrentUiLanguage(language) {
   if (languageChanged) {
     createApplicationMenu();
     desktopWidgetManager.refreshLocalizedTitles();
+    refreshTrayMenu();
   }
   return currentUiLanguage;
 }
@@ -566,6 +601,10 @@ function resolveTargetPageFile(targetPage = "index") {
   return normalizedPage + ".html";
 }
 
+function resolvePageFilePath(targetPage = "index") {
+  return path.join(__dirname, "pages", resolveTargetPageFile(targetPage));
+}
+
 function broadcastStorageDataChanged(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("storage-data-changed", payload);
@@ -583,6 +622,126 @@ function showAndFocusMainWindow() {
   mainWindow.show();
   mainWindow.focus();
   mainWindow.webContents.focus();
+  refreshTrayMenu();
+}
+
+function hideMainWindowToTray() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  if (mainWindow.isFullScreen()) {
+    mainWindow.setFullScreen(false);
+  }
+  mainWindow.hide();
+  refreshTrayMenu();
+}
+
+function shouldMinimizeMainWindowToTray(targetWindow = mainWindow) {
+  return (
+    !!appTray &&
+    process.platform !== "darwin" &&
+    !!targetWindow &&
+    !targetWindow.isDestroyed() &&
+    targetWindow === mainWindow
+  );
+}
+
+function buildTrayMenu() {
+  const hasVisibleMainWindow =
+    !!mainWindow &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.isVisible();
+
+  return Menu.buildFromTemplate([
+    {
+      label: nativeText("tray.showMainWindow"),
+      click: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          createWindow();
+          return;
+        }
+        showAndFocusMainWindow();
+      },
+    },
+    {
+      label: nativeText("tray.hideMainWindow"),
+      enabled: hasVisibleMainWindow,
+      click: () => {
+        hideMainWindowToTray();
+      },
+    },
+    { type: "separator" },
+    {
+      label: nativeText("tray.quit"),
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function refreshTrayMenu() {
+  if (!appTray || appTray.isDestroyed()) {
+    return;
+  }
+  appTray.setToolTip(
+    nativeText("tray.tooltip", {
+      appName: APP_PUBLIC_NAME,
+    }),
+  );
+  appTray.setContextMenu(buildTrayMenu());
+}
+
+function toggleTrayMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    hideMainWindowToTray();
+    return;
+  }
+
+  showAndFocusMainWindow();
+}
+
+function createTray() {
+  appendStartupDebugLog("createTray invoked");
+  if (appTray && !appTray.isDestroyed()) {
+    refreshTrayMenu();
+    return appTray;
+  }
+
+  try {
+    appTray = new Tray(getDesktopIconPath());
+    if (process.platform === "darwin") {
+      appTray.setIgnoreDoubleClickEvents(true);
+    }
+    appTray.on("click", () => {
+      toggleTrayMainWindow();
+    });
+    appTray.on("double-click", () => {
+      showAndFocusMainWindow();
+    });
+    appTray.on("right-click", () => {
+      refreshTrayMenu();
+      appTray?.popUpContextMenu();
+    });
+
+    refreshTrayMenu();
+    appendStartupDebugLog("createTray succeeded");
+    return appTray;
+  } catch (error) {
+    console.error("创建系统托盘失败:", error);
+    appendStartupDebugLog(`createTray failed: ${error?.stack || error?.message || String(error)}`);
+    if (appTray && !appTray.isDestroyed()) {
+      appTray.destroy();
+    }
+    appTray = null;
+    return null;
+  }
 }
 
 async function openMainWindowAction(payload = {}) {
@@ -609,7 +768,9 @@ async function openMainWindowAction(payload = {}) {
     : "";
 
   if (currentPage !== pageFile) {
-    mainWindow.loadFile(path.join("pages", pageFile));
+    mainWindow.loadFile(resolvePageFilePath(pageFile)).catch((error) => {
+      console.error("切换主窗口页面失败:", error);
+    });
     mainWindow.webContents.once("did-finish-load", () => {
       showAndFocusMainWindow();
       dispatchAction();
@@ -662,10 +823,7 @@ function applyWindowAppearance(options = {}, targetWindow = mainWindow) {
 // 创建主窗口
 function createWindow(startPage = "index.html", onReadyAction = null) {
   const targetPageFile = resolveTargetPageFile(startPage);
-  const windowIconPath =
-    process.platform === "win32"
-      ? path.join(__dirname, "images", "Order.ico")
-      : path.join(__dirname, "images", "Order.png");
+  appendStartupDebugLog(`createWindow invoked: ${targetPageFile}`);
   const windowOptions = {
     width: 1200,
     height: 800,
@@ -680,7 +838,7 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
     },
     show: false,
     backgroundColor: windowAppearance.backgroundColor,
-    icon: windowIconPath,
+    icon: getDesktopIconPath(),
   };
 
   if (process.platform !== "darwin") {
@@ -763,8 +921,19 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
     }
   };
 
-  createdWindow.loadFile(path.join("pages", targetPageFile));
+  createdWindow
+    .loadFile(resolvePageFilePath(targetPageFile))
+    .then(() => {
+      appendStartupDebugLog(`createWindow loadFile resolved: ${targetPageFile}`);
+    })
+    .catch((error) => {
+      console.error("加载主窗口页面失败:", error);
+      appendStartupDebugLog(
+        `createWindow loadFile failed: ${error?.stack || error?.message || String(error)}`,
+      );
+    });
   createdWindow.webContents.once("did-finish-load", () => {
+    appendStartupDebugLog(`main window did-finish-load: ${targetPageFile}`);
     maybeRunReadyAction();
     scheduleBridgeHealthLog(createdWindow, {
       windowType: "main-window",
@@ -775,13 +944,23 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
   });
 
   createdWindow.once("ready-to-show", () => {
+    appendStartupDebugLog(`main window ready-to-show: ${targetPageFile}`);
     windowReadyToShow = true;
     revealWindow();
   });
 
   createdWindow.webContents.on("did-fail-load", () => {
+    appendStartupDebugLog(`main window did-fail-load: ${targetPageFile}`);
     forceReveal = true;
     revealWindow();
+  });
+
+  createdWindow.on("close", (event) => {
+    if (!shouldMinimizeMainWindowToTray(createdWindow) || isQuitting) {
+      return;
+    }
+    event.preventDefault();
+    hideMainWindowToTray();
   });
 
   createdWindow.on("focus", () => {
@@ -790,6 +969,12 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
 
   createdWindow.webContents.on("dom-ready", () => {
     createdWindow?.webContents?.focus();
+  });
+
+  ["show", "hide", "minimize", "restore"].forEach((eventName) => {
+    createdWindow.on(eventName, () => {
+      refreshTrayMenu();
+    });
   });
 
   createdWindow.on("closed", () => {
@@ -801,6 +986,7 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
     if (mainWindow === createdWindow) {
       mainWindow = null;
     }
+    refreshTrayMenu();
   });
 
   createApplicationMenu();
@@ -1027,10 +1213,12 @@ function createApplicationMenu() {
 
 // 应用准备就绪
 app.whenReady().then(() => {
+  appendStartupDebugLog("app.whenReady resolved");
   desktopWidgetManager.applyLoginItemSettings();
   desktopWidgetManager.setOpenMainActionHandler(openMainWindowAction);
   desktopNotificationScheduler.setOpenMainActionHandler(openMainWindowAction);
   setupIpcHandlers();
+  createTray();
 
   const loginItemSettings =
     typeof app.getLoginItemSettings === "function"
@@ -1053,14 +1241,17 @@ app.whenReady().then(() => {
   };
 
   if (shouldCreateMainWindow) {
+    appendStartupDebugLog("app.whenReady creating main window");
     const createdWindow = createWindow();
     createdWindow?.once("show", scheduleWidgetRestore);
   }
 
   if (!shouldCreateMainWindow) {
+    appendStartupDebugLog("app.whenReady skipping main window because shouldCreateMainWindow=false");
     scheduleWidgetRestore();
   }
   if (!shouldCreateMainWindow && !desktopWidgetManager.hasSavedWidgets()) {
+    appendStartupDebugLog("app.whenReady forcing main window because no saved widgets");
     createWindow();
   }
 
@@ -1069,12 +1260,17 @@ app.whenReady().then(() => {
   });
 
   desktopNotificationScheduler.markReady();
+  appendStartupDebugLog("app.whenReady completed");
 });
 
 app.on("before-quit", () => {
   isQuitting = true;
   desktopWidgetManager.setQuitting(true);
   desktopNotificationScheduler.dispose();
+  if (appTray && !appTray.isDestroyed()) {
+    appTray.destroy();
+    appTray = null;
+  }
 });
 
 // 所有窗口关闭时退出应用（macOS 除外）

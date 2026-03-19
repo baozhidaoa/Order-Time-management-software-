@@ -27,6 +27,90 @@ let diaryLoadingOverlayTimer = 0;
 let diaryLoadingOverlayController = null;
 let diaryInitialRevealQueued = false;
 let diaryPrefetchRequestId = 0;
+const diaryExternalStorageRefreshCoordinator =
+  uiTools?.createDeferredRefreshController?.({
+    run: async () => {
+      await refreshDiaryFromExternalStorageChange();
+    },
+  }) || null;
+
+function getDiaryNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function hasDiaryChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+  if (typeof uiTools?.hasPeriodOverlap === "function") {
+    return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
+  }
+  const normalizedChanged = Array.isArray(changedPeriodIds)
+    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  const normalizedCurrent = Array.isArray(currentPeriodIds)
+    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  if (!normalizedChanged.length || !normalizedCurrent.length) {
+    return true;
+  }
+  const currentSet = new Set(normalizedCurrent);
+  return normalizedChanged.some((periodId) => currentSet.has(periodId));
+}
+
+function isDiarySerializableEqual(left, right) {
+  if (typeof uiTools?.isSerializableEqual === "function") {
+    return uiTools.isSerializableEqual(left, right);
+  }
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch (error) {
+    return false;
+  }
+}
+
+function shouldRefreshDiaryCoreData(nextData = null) {
+  if (!nextData || typeof nextData !== "object") {
+    return true;
+  }
+  return !isDiarySerializableEqual(
+    nextData.diaryCategories || [],
+    diaryCategories || [],
+  );
+}
+
+function shouldRefreshDiaryForExternalChange(detail = {}) {
+  const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
+  if (!changedSections.length) {
+    return true;
+  }
+  const entriesChanged = changedSections.includes("diaryEntries");
+  const coreChanged = changedSections.includes("core");
+  if (!entriesChanged && !coreChanged) {
+    return false;
+  }
+  if (
+    entriesChanged &&
+    hasDiaryChangedPeriodOverlap(
+      detail?.changedPeriods?.diaryEntries || [],
+      diaryLoadedPeriodIds.length
+        ? diaryLoadedPeriodIds
+        : getDiaryPrefetchPeriodIds(currentDate),
+    )
+  ) {
+    return true;
+  }
+  if (coreChanged && shouldRefreshDiaryCoreData(detail?.data)) {
+    return true;
+  }
+  return false;
+}
 
 function ensureDiaryDeferredRuntimeLoaded() {
   if (diaryDeferredRuntimePromise) {
@@ -1698,7 +1782,6 @@ function renderDiaryGuideCard() {
 
 function refreshDiaryFromExternalStorageChange() {
   diaryExternalStorageRefreshQueued = false;
-  uiTools?.closeAllModals?.();
   void refreshDiaryVisibleData({
     anchorDate: currentDate,
     message: "正在同步最新日记数据，请稍候",
@@ -1707,21 +1790,21 @@ function refreshDiaryFromExternalStorageChange() {
 
 function bindDiaryExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
-    const changedSections = Array.isArray(event?.detail?.changedSections)
-      ? event.detail.changedSections
-      : [];
-    if (
-      changedSections.length > 0 &&
-      !changedSections.some((section) =>
-        ["diaryEntries", "core"].includes(String(section || "")),
-      )
-    ) {
+    const detail = event?.detail || {};
+    if (!shouldRefreshDiaryForExternalChange(detail)) {
+      uiTools?.markPerfStage?.("refresh-skipped", {
+        reason: "diary-storage-change-irrelevant",
+      });
       return;
     }
     if (diaryExternalStorageRefreshQueued) {
       return;
     }
     diaryExternalStorageRefreshQueued = true;
+    if (diaryExternalStorageRefreshCoordinator) {
+      diaryExternalStorageRefreshCoordinator.enqueue(detail);
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)

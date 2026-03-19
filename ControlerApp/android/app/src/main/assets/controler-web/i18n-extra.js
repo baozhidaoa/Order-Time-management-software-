@@ -1142,6 +1142,33 @@
       ?.forEach((select) => select.__uiEnhancedSelectApi?.refresh?.());
   }
 
+  function bindLanguageSelectBridge(root = document) {
+    root
+      .querySelectorAll?.("#language-select,[data-language-select='true']")
+      ?.forEach((select) => {
+        if (
+          !(select instanceof HTMLSelectElement) ||
+          select.dataset.languageBridgeBound === "true"
+        ) {
+          return;
+        }
+
+        select.dataset.languageBridgeBound = "true";
+        select.addEventListener(
+          "change",
+          (event) => {
+            const setLanguage = window.ControlerI18n?.setLanguage;
+            if (typeof setLanguage !== "function") {
+              return;
+            }
+            event.stopImmediatePropagation();
+            setLanguage(select.value);
+          },
+          { capture: true },
+        );
+      });
+  }
+
   function applyTranslations(root = document.documentElement) {
     if (!root) return;
 
@@ -1162,6 +1189,7 @@
       }
     }
 
+    bindLanguageSelectBridge(root instanceof Element ? root : document);
     refreshEnhancedSelects(root instanceof Element ? root : document);
   }
 
@@ -1183,6 +1211,7 @@
       window.ControlerI18n.translateUiText = translateTextBlock;
     }
     wrapElectronLanguageBridge();
+    bindLanguageSelectBridge();
     applyTranslations();
     void syncElectronLanguagePreference();
 

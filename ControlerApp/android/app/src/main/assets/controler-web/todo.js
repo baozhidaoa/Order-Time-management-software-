@@ -29,6 +29,35 @@ let todoWidgetViewListenerBound = false;
 let todoPlanSidebarInitialized = false;
 let todoPendingExternalStorageRefresh =
   window.__controlerTodoRuntimePendingExternalRefresh === true;
+const todoExternalStorageRefreshCoordinator =
+  uiTools?.createDeferredRefreshController?.({
+    run: async () => {
+      refreshTodoFromExternalStorageChange();
+    },
+  }) || null;
+
+function getTodoNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function shouldRefreshTodoForExternalChange(detail = {}) {
+  const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
+  if (!changedSections.length) {
+    return true;
+  }
+  return changedSections.some((section) =>
+    ["todos", "checkinItems", "dailyCheckins", "checkins"].includes(section),
+  );
+}
 
 function invalidateTodoDerivedCaches() {
   cachedTodoFilterKey = "";
@@ -531,7 +560,6 @@ function refreshTodoFromExternalStorageChange() {
   todoExternalStorageRefreshQueued = false;
   todoPendingExternalStorageRefresh = false;
   window.__controlerTodoRuntimePendingExternalRefresh = false;
-  uiTools?.closeAllModals?.();
   loadData();
   renderCurrentView();
   updateStats();
@@ -543,11 +571,19 @@ function bindTodoExternalStorageRefresh() {
     return;
   }
   todoExternalStorageListenerBound = true;
-  window.addEventListener("controler:storage-data-changed", () => {
+  window.addEventListener("controler:storage-data-changed", (event) => {
+    const detail = event?.detail || {};
+    if (!shouldRefreshTodoForExternalChange(detail)) {
+      return;
+    }
     if (todoExternalStorageRefreshQueued) {
       return;
     }
     todoExternalStorageRefreshQueued = true;
+    if (todoExternalStorageRefreshCoordinator) {
+      todoExternalStorageRefreshCoordinator.enqueue(detail);
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)

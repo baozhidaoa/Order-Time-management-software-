@@ -23,7 +23,7 @@ public final class ControlerWidgetProviders {
         @Override
         public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
             super.onUpdate(context, appWidgetManager, appWidgetIds);
-            ControlerWidgetRenderer.updateWidgets(context, getKind(), appWidgetIds);
+            ControlerWidgetRenderer.scheduleUpdateWidgets(context, getKind(), appWidgetIds);
         }
 
         @Override
@@ -34,7 +34,11 @@ public final class ControlerWidgetProviders {
             Bundle newOptions
         ) {
             super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions);
-            ControlerWidgetRenderer.updateWidgets(context, getKind(), new int[] { appWidgetId });
+            ControlerWidgetRenderer.scheduleUpdateWidgets(
+                context,
+                getKind(),
+                new int[] { appWidgetId }
+            );
         }
 
         @Override

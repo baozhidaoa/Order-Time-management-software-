@@ -2770,6 +2770,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
 
+      const deferredReloadController =
+        window.__controlerExternalSyncAutoReloadController ||
+        window.ControlerUI?.createDeferredRefreshController?.({
+          delayMs: EXTERNAL_RELOAD_DELAY_MS,
+          run: async () => {
+            window.location.reload();
+          },
+        }) ||
+        null;
+      if (deferredReloadController) {
+        window.__controlerExternalSyncAutoReloadController =
+          deferredReloadController;
+        deferredReloadController.enqueue(event?.detail || {});
+        return;
+      }
+
       window.clearTimeout(window.__controlerExternalSyncAutoReloadTimer);
       window.__controlerExternalSyncAutoReloadTimer = window.setTimeout(() => {
         window.location.reload();
@@ -3432,6 +3448,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const nativeSyncBootstrapStartedAt = Date.now();
     let nativeInitializationSettled = false;
     let pendingForegroundSyncRequest = null;
+    let shellPageActive =
+      window.__CONTROLER_SHELL_VISIBILITY__?.active !== false;
     const MANAGED_RANGE_SECTIONS = [
       "records",
       "dailyCheckins",
@@ -3471,6 +3489,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function shouldSuppressNativeStorageSyncError(options = {}) {
+      if (!shellPageActive) {
+        return true;
+      }
       if (document.hidden) {
         return true;
       }
@@ -3800,7 +3821,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function scheduleNativeProbeLoop() {
-      if (!useAndroidProbeLoop || document.hidden) {
+      if (!useAndroidProbeLoop || document.hidden || !shellPageActive) {
         return;
       }
       window.clearTimeout(nativeProbeLoopTimer);
@@ -4110,6 +4131,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function scheduleNativeForegroundSync(reason, options = {}) {
       const { resetWindow = true } = options;
+      if (!shellPageActive) {
+        pendingForegroundSyncRequest = {
+          reason: reason || "shell-resume",
+          resetWindow: false,
+        };
+        return;
+      }
       if (!nativeInitializationSettled) {
         pendingForegroundSyncRequest = {
           reason: reason || "external-update",
@@ -4974,16 +5002,53 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     void initializeReactNativeStorage().finally(() => {
       nativeInitializationSettled = true;
       const queuedForegroundSync = pendingForegroundSyncRequest;
-      pendingForegroundSyncRequest = null;
-      if (queuedForegroundSync) {
+      if (queuedForegroundSync && shellPageActive) {
+        pendingForegroundSyncRequest = null;
         scheduleNativeForegroundSync(queuedForegroundSync.reason, {
           resetWindow: queuedForegroundSync.resetWindow,
         });
       }
-      if (useAndroidProbeLoop && !document.hidden) {
+      if (useAndroidProbeLoop && !document.hidden && shellPageActive) {
         touchNativeFastProbeWindow();
         scheduleNativeProbeLoop();
       }
+    });
+    window.addEventListener("controler:native-bridge-event", (event) => {
+      const detail =
+        event && typeof event.detail === "object" && event.detail
+          ? event.detail
+          : {};
+      if (detail.name !== "ui.shell-visibility") {
+        return;
+      }
+
+      const nextActive = detail.active !== false;
+      window.__CONTROLER_SHELL_VISIBILITY__ = {
+        active: nextActive,
+        slot: typeof detail.slot === "string" ? detail.slot : "",
+        reason: typeof detail.reason === "string" ? detail.reason : "",
+        page: typeof detail.page === "string" ? detail.page : "",
+        href: typeof detail.href === "string" ? detail.href : "",
+        receivedAt: Date.now(),
+      };
+      if (shellPageActive === nextActive) {
+        return;
+      }
+
+      shellPageActive = nextActive;
+      if (!shellPageActive) {
+        pendingForegroundSyncRequest = {
+          reason: "shell-resume",
+          resetWindow: false,
+        };
+        stopNativeProbeLoop();
+        return;
+      }
+
+      scheduleNativeForegroundSync("shell-resume", {
+        resetWindow: false,
+      });
+      scheduleNativeProbeLoop();
     });
     window.addEventListener("focus", () => {
       scheduleNativeForegroundSync("external-update");
@@ -4997,6 +5062,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         stopNativeProbeLoop();
+        return;
+      }
+      if (!shellPageActive) {
         return;
       }
       scheduleNativeForegroundSync("external-update");
@@ -6974,6 +7042,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ?.forEach((select) => select.__uiEnhancedSelectApi?.refresh?.());
   }
 
+  function bindLanguageSelectBridge(root = document) {
+    root
+      .querySelectorAll?.("#language-select,[data-language-select='true']")
+      ?.forEach((select) => {
+        if (
+          !(select instanceof HTMLSelectElement) ||
+          select.dataset.languageBridgeBound === "true"
+        ) {
+          return;
+        }
+
+        select.dataset.languageBridgeBound = "true";
+        select.addEventListener(
+          "change",
+          (event) => {
+            const setLanguage = window.ControlerI18n?.setLanguage;
+            if (typeof setLanguage !== "function") {
+              return;
+            }
+            event.stopImmediatePropagation();
+            setLanguage(select.value);
+          },
+          { capture: true },
+        );
+      });
+  }
+
   function applyTranslations(root = document.documentElement) {
     if (!root) return;
 
@@ -6994,6 +7089,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     }
 
+    bindLanguageSelectBridge(root instanceof Element ? root : document);
     refreshEnhancedSelects(root instanceof Element ? root : document);
   }
 
@@ -7015,6 +7111,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.ControlerI18n.translateUiText = translateTextBlock;
     }
     wrapElectronLanguageBridge();
+    bindLanguageSelectBridge();
     applyTranslations();
     void syncElectronLanguagePreference();
 
@@ -8139,6 +8236,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
+  const BLOCKING_OVERLAY_STATE_EVENT_NAME =
+    "controler:blocking-overlay-state-changed";
+  const SHELL_VISIBILITY_EVENT_NAME =
+    "controler:shell-visibility-changed";
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const APP_NAV_ITEMS = [
     {
@@ -8263,6 +8364,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let suppressModalPopClose = false;
   const trackedModalTokens = new Map();
   let lastReportedModalCount = -1;
+  let lastReportedBlockingOverlayActive = null;
   let appNavigationInitialized = false;
   let appPageTransitionInitialized = false;
   let appPageTransitionLocked = false;
@@ -8272,6 +8374,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
   let lastReportedAppNavigationStateSignature = "";
+  let lastShellVisibilityStateSignature = "";
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
   const activeAndroidPressTargets = new Map();
@@ -8296,6 +8399,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         widgetKind: "",
       };
     }
+  })();
+  const shellVisibilityState = (() => {
+    const initialState =
+      window.__CONTROLER_SHELL_VISIBILITY__ &&
+      typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
+        ? window.__CONTROLER_SHELL_VISIBILITY__
+        : null;
+    return {
+      active: initialState?.active !== false,
+      slot:
+        typeof initialState?.slot === "string" ? initialState.slot.trim() : "",
+      reason:
+        typeof initialState?.reason === "string"
+          ? initialState.reason.trim()
+          : "initial",
+      page:
+        typeof initialState?.page === "string" ? initialState.page.trim() : "",
+      href:
+        typeof initialState?.href === "string" ? initialState.href.trim() : "",
+      receivedAt:
+        Number.isFinite(initialState?.receivedAt) && initialState.receivedAt > 0
+          ? initialState.receivedAt
+          : Date.now(),
+    };
   })();
 
   function getLaunchPerfContext() {
@@ -8475,6 +8602,61 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return loader;
   }
 
+  function normalizeShellVisibilityState(detail = {}) {
+    const source = detail && typeof detail === "object" ? detail : {};
+    return {
+      active: source.active !== false,
+      slot: typeof source.slot === "string" ? source.slot.trim() : "",
+      reason:
+        typeof source.reason === "string" && source.reason.trim()
+          ? source.reason.trim()
+          : "unknown",
+      page: typeof source.page === "string" ? source.page.trim() : "",
+      href: typeof source.href === "string" ? source.href.trim() : "",
+      receivedAt: Date.now(),
+    };
+  }
+
+  function getShellVisibilityState() {
+    return { ...shellVisibilityState };
+  }
+
+  function isShellPageActive() {
+    return shellVisibilityState.active !== false;
+  }
+
+  function applyShellVisibilityState(detail = {}) {
+    const nextState = normalizeShellVisibilityState(detail);
+    const nextSignature = JSON.stringify({
+      active: nextState.active,
+      slot: nextState.slot,
+      reason: nextState.reason,
+      page: nextState.page,
+      href: nextState.href,
+    });
+    if (nextSignature === lastShellVisibilityStateSignature) {
+      return;
+    }
+
+    lastShellVisibilityStateSignature = nextSignature;
+    Object.assign(shellVisibilityState, nextState);
+    window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
+    markPagePerfStage(
+      nextState.active ? "hidden-page-resumed" : "hidden-page-paused",
+      {
+        allowRepeat: true,
+        slot: nextState.slot || undefined,
+        reason: nextState.reason || undefined,
+        active: nextState.active,
+      },
+    );
+    window.dispatchEvent(
+      new CustomEvent(SHELL_VISIBILITY_EVENT_NAME, {
+        detail: getShellVisibilityState(),
+      }),
+    );
+  }
+
   function clearPendingNativeNavigationRequest() {
     if (!pendingNativeNavigationRequest) {
       return null;
@@ -8497,6 +8679,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         event && typeof event.detail === "object" && event.detail
           ? event.detail
           : {};
+      if (detail.name === "ui.shell-visibility") {
+        applyShellVisibilityState(detail);
+        return;
+      }
       if (detail.name !== "ui.navigate-ack") {
         return;
       }
@@ -9436,6 +9622,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const active = hasVisibleBlockingOverlay();
     root?.classList.toggle("controler-blocking-overlay-active", active);
     body?.classList.toggle("controler-blocking-overlay-active", active);
+    if (lastReportedBlockingOverlayActive !== active) {
+      lastReportedBlockingOverlayActive = active;
+      window.dispatchEvent(
+        new CustomEvent(BLOCKING_OVERLAY_STATE_EVENT_NAME, {
+          detail: {
+            active,
+            modalCount: getVisibleModalOverlays().length,
+            hasOpenModal: getVisibleModalOverlays().length > 0,
+          },
+        }),
+      );
+    }
   }
 
   function scheduleBlockingOverlaySync() {
@@ -9816,6 +10014,242 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         clearPending();
       },
     };
+  }
+
+  function normalizeChangedSections(changedSections = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(changedSections) ? changedSections : [])
+          .map((section) => String(section || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function normalizePeriodIdList(periodIds = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(periodIds) ? periodIds : [])
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function hasPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+    const normalizedChanged = normalizePeriodIdList(changedPeriodIds);
+    const normalizedCurrent = normalizePeriodIdList(currentPeriodIds);
+    if (!normalizedChanged.length || !normalizedCurrent.length) {
+      return true;
+    }
+    const currentSet = new Set(normalizedCurrent);
+    return normalizedChanged.some((periodId) => currentSet.has(periodId));
+  }
+
+  function isSerializableEqual(left, right) {
+    if (left === right) {
+      return true;
+    }
+    try {
+      return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function mergeDeferredRefreshPayload(currentPayload = null, incomingPayload = {}) {
+    const current =
+      currentPayload && typeof currentPayload === "object" ? currentPayload : {};
+    const incoming =
+      incomingPayload && typeof incomingPayload === "object" ? incomingPayload : {};
+    const nextChangedPeriods = {
+      ...(current.changedPeriods &&
+      typeof current.changedPeriods === "object" &&
+      !Array.isArray(current.changedPeriods)
+        ? current.changedPeriods
+        : {}),
+    };
+    const incomingChangedPeriods =
+      incoming.changedPeriods &&
+      typeof incoming.changedPeriods === "object" &&
+      !Array.isArray(incoming.changedPeriods)
+        ? incoming.changedPeriods
+        : {};
+
+    Object.keys(incomingChangedPeriods).forEach((section) => {
+      nextChangedPeriods[section] = normalizePeriodIdList([
+        ...(Array.isArray(nextChangedPeriods[section]) ? nextChangedPeriods[section] : []),
+        ...(Array.isArray(incomingChangedPeriods[section])
+          ? incomingChangedPeriods[section]
+          : []),
+      ]);
+    });
+
+    return {
+      eventCount: Math.max(0, Number(current.eventCount) || 0) + 1,
+      reason:
+        typeof incoming.reason === "string" && incoming.reason.trim()
+          ? incoming.reason.trim()
+          : current.reason || "",
+      source:
+        typeof incoming.source === "string" && incoming.source.trim()
+          ? incoming.source.trim()
+          : current.source || "",
+      changedSections: normalizeChangedSections([
+        ...(Array.isArray(current.changedSections) ? current.changedSections : []),
+        ...(Array.isArray(incoming.changedSections) ? incoming.changedSections : []),
+      ]),
+      changedPeriods: nextChangedPeriods,
+      data:
+        Object.prototype.hasOwnProperty.call(incoming, "data")
+          ? incoming.data
+          : current.data ?? null,
+      status:
+        Object.prototype.hasOwnProperty.call(incoming, "status")
+          ? incoming.status
+          : current.status ?? null,
+      snapshotFingerprint:
+        typeof incoming.snapshotFingerprint === "string" &&
+        incoming.snapshotFingerprint.trim()
+          ? incoming.snapshotFingerprint.trim()
+          : current.snapshotFingerprint || "",
+    };
+  }
+
+  function createDeferredRefreshController(options = {}) {
+    const runTask = typeof options.run === "function" ? options.run : async () => {};
+    const mergePayload =
+      typeof options.mergePayload === "function"
+        ? options.mergePayload
+        : mergeDeferredRefreshPayload;
+    const isBlocked =
+      typeof options.isBlocked === "function"
+        ? options.isBlocked
+        : () => hasVisibleBlockingOverlay();
+    const scheduleFrame =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (task) => window.setTimeout(task, 16);
+    const cancelScheduledFrame =
+      typeof window !== "undefined" &&
+      typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame.bind(window)
+        : (taskId) => window.clearTimeout(taskId);
+    const enqueueDelayMs = Number.isFinite(options.delayMs)
+      ? Math.max(0, Math.round(Number(options.delayMs)))
+      : 0;
+
+    let pendingPayload = null;
+    let running = false;
+    let destroyed = false;
+    let frameId = 0;
+    let timerId = 0;
+
+    const clearScheduledAttempt = () => {
+      if (timerId) {
+        window.clearTimeout(timerId);
+        timerId = 0;
+      }
+      if (frameId) {
+        cancelScheduledFrame(frameId);
+        frameId = 0;
+      }
+    };
+
+    const queueAttempt = () => {
+      if (destroyed || running || !pendingPayload || frameId || timerId) {
+        return;
+      }
+      if (isBlocked()) {
+        return;
+      }
+
+      const runAttempt = () => {
+        timerId = 0;
+        frameId = scheduleFrame(() => {
+          frameId = 0;
+          void controller.flush();
+        });
+      };
+
+      if (enqueueDelayMs > 0) {
+        timerId = window.setTimeout(runAttempt, enqueueDelayMs);
+        return;
+      }
+
+      runAttempt();
+    };
+
+    const handleReadyState = () => {
+      if (destroyed || document.hidden || isBlocked()) {
+        return;
+      }
+      queueAttempt();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        handleReadyState();
+      }
+    };
+
+    window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleReadyState);
+    window.addEventListener("focus", handleReadyState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const controller = {
+      enqueue(payload = {}) {
+        pendingPayload = mergePayload(pendingPayload, payload);
+        queueAttempt();
+        return pendingPayload;
+      },
+      async flush() {
+        if (destroyed || running || !pendingPayload || isBlocked()) {
+          return false;
+        }
+
+        const payload = pendingPayload;
+        pendingPayload = null;
+        running = true;
+        try {
+          await runTask(payload);
+        } finally {
+          running = false;
+          queueAttempt();
+        }
+        return true;
+      },
+      cancel() {
+        pendingPayload = null;
+        clearScheduledAttempt();
+      },
+      destroy() {
+        if (destroyed) {
+          return;
+        }
+        destroyed = true;
+        pendingPayload = null;
+        clearScheduledAttempt();
+        window.removeEventListener(
+          BLOCKING_OVERLAY_STATE_EVENT_NAME,
+          handleReadyState,
+        );
+        window.removeEventListener("focus", handleReadyState);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      },
+      hasPending() {
+        return !!pendingPayload;
+      },
+      isRunning() {
+        return running;
+      },
+      isBlocked() {
+        return isBlocked();
+      },
+    };
+
+    return controller;
   }
 
   function createAtomicRefreshController(options = {}) {
@@ -12311,7 +12745,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     bindVerticalDragScroll,
     bindWindowMoveHandle,
     mountDesktopWidgetScale,
+    blockingOverlayStateEventName: BLOCKING_OVERLAY_STATE_EVENT_NAME,
+    shellVisibilityEventName: SHELL_VISIBILITY_EVENT_NAME,
+    hasVisibleBlockingOverlay,
+    getShellVisibilityState,
+    isShellPageActive,
+    normalizeChangedSections,
+    hasPeriodOverlap,
+    isSerializableEqual,
     createFrameScheduler,
+    createDeferredRefreshController,
     createAtomicRefreshController,
     createPageLoadingOverlayController,
     positionFloatingMenu,

@@ -12,6 +12,24 @@ public final class ControlerWidgetLaunchStore {
     private static final String KEY_PAGE = "launch_page";
     private static final String KEY_ACTION = "launch_action";
     private static final String KEY_KIND = "launch_kind";
+    private static final Object MEMORY_LOCK = new Object();
+    private static LaunchSnapshot pendingLaunchSnapshot = null;
+
+    private static final class LaunchSnapshot {
+        final String page;
+        final String action;
+        final String kind;
+
+        LaunchSnapshot(String page, String action, String kind) {
+            this.page = page == null ? "" : page;
+            this.action = action == null ? "" : action;
+            this.kind = kind == null ? "" : kind;
+        }
+
+        boolean hasAction() {
+            return !TextUtils.isEmpty(page) || !TextUtils.isEmpty(action) || !TextUtils.isEmpty(kind);
+        }
+    }
 
     private ControlerWidgetLaunchStore() {}
 
@@ -38,32 +56,44 @@ public final class ControlerWidgetLaunchStore {
             return;
         }
 
+        LaunchSnapshot snapshot = new LaunchSnapshot(page, action, kind);
+        synchronized (MEMORY_LOCK) {
+            pendingLaunchSnapshot = snapshot;
+        }
+
         SharedPreferences preferences =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         preferences
             .edit()
-            .putString(KEY_PAGE, page == null ? "" : page)
-            .putString(KEY_ACTION, action == null ? "" : action)
-            .putString(KEY_KIND, kind == null ? "" : kind)
-            .commit();
+            .putString(KEY_PAGE, snapshot.page)
+            .putString(KEY_ACTION, snapshot.action)
+            .putString(KEY_KIND, snapshot.kind)
+            .apply();
     }
 
     public static JSONObject consumeLaunchAction(Context context) throws Exception {
+        LaunchSnapshot snapshot = null;
+        synchronized (MEMORY_LOCK) {
+            snapshot = pendingLaunchSnapshot;
+            pendingLaunchSnapshot = null;
+        }
+
         SharedPreferences preferences =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String page = preferences.getString(KEY_PAGE, "");
-        String action = preferences.getString(KEY_ACTION, "");
-        String kind = preferences.getString(KEY_KIND, "");
-        preferences.edit().remove(KEY_PAGE).remove(KEY_ACTION).remove(KEY_KIND).commit();
+        if (snapshot == null || !snapshot.hasAction()) {
+            snapshot = new LaunchSnapshot(
+                preferences.getString(KEY_PAGE, ""),
+                preferences.getString(KEY_ACTION, ""),
+                preferences.getString(KEY_KIND, "")
+            );
+        }
+        preferences.edit().remove(KEY_PAGE).remove(KEY_ACTION).remove(KEY_KIND).apply();
 
         JSONObject result = new JSONObject();
-        result.put(
-            "hasAction",
-            !TextUtils.isEmpty(page) || !TextUtils.isEmpty(action) || !TextUtils.isEmpty(kind)
-        );
-        result.put("page", page == null ? "" : page);
-        result.put("action", action == null ? "" : action);
-        result.put("widgetKind", kind == null ? "" : kind);
+        result.put("hasAction", snapshot.hasAction());
+        result.put("page", snapshot.page);
+        result.put("action", snapshot.action);
+        result.put("widgetKind", snapshot.kind);
         result.put("source", "android-widget");
         return result;
     }

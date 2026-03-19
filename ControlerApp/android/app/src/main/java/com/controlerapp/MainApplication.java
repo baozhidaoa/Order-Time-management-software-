@@ -1,7 +1,6 @@
 package com.controlerapp;
 
 import android.app.Application;
-import com.controlerapp.widgets.ControlerWidgetKinds;
 import com.facebook.react.PackageList;
 import com.facebook.react.ReactApplication;
 import com.facebook.react.ReactHost;
@@ -79,9 +78,6 @@ public class MainApplication extends Application implements ReactApplication {
       DefaultNewArchitectureEntryPoint.load();
     }
     ControlerNotificationScheduler.rescheduleAll(this);
-    if (ControlerWidgetKinds.hasAnyPinnedWidgets(this)) {
-      maybePrewarmReactContext("existing-widget");
-    }
   }
 
   public void maybePrewarmReactContext(String reason) {

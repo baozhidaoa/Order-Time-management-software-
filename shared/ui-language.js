@@ -67,6 +67,12 @@ const NATIVE_UI_STRINGS = Object.freeze({
     notification: Object.freeze({
       reminderTitle: "提醒",
     }),
+    tray: Object.freeze({
+      tooltip: "{appName}",
+      showMainWindow: "显示主窗口",
+      hideMainWindow: "隐藏主窗口",
+      quit: "退出",
+    }),
   }),
   "en-US": Object.freeze({
     menu: Object.freeze({
@@ -132,6 +138,12 @@ const NATIVE_UI_STRINGS = Object.freeze({
     }),
     notification: Object.freeze({
       reminderTitle: "Reminder",
+    }),
+    tray: Object.freeze({
+      tooltip: "{appName}",
+      showMainWindow: "Show Main Window",
+      hideMainWindow: "Hide Main Window",
+      quit: "Quit",
     }),
   }),
 });

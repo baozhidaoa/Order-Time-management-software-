@@ -39,6 +39,12 @@ let autoBackupSaveTimer = 0;
 let autoBackupSaveVersion = 0;
 let settingsLoadingOverlayController = null;
 let settingsNativeBusyLockActive = false;
+const settingsExternalStorageRefreshCoordinator =
+  window.ControlerUI?.createDeferredRefreshController?.({
+    run: async () => {
+      refreshSettingsFromStorage();
+    },
+  }) || null;
 
 function ensureSettingsDeferredRuntimeLoaded() {
   if (settingsDeferredRuntimePromise) {
@@ -6303,7 +6309,6 @@ let settingsExternalStorageRefreshQueued = false;
 
 function refreshSettingsFromStorage() {
   settingsExternalStorageRefreshQueued = false;
-  window.ControlerUI?.closeAllModals?.();
   updateStorageStatus();
   updateStoragePathInfo();
   void refreshAutoBackupPanel();
@@ -6312,11 +6317,15 @@ function refreshSettingsFromStorage() {
 }
 
 function bindSettingsExternalStorageRefresh() {
-  window.addEventListener("controler:storage-data-changed", () => {
+  window.addEventListener("controler:storage-data-changed", (event) => {
     if (settingsExternalStorageRefreshQueued) {
       return;
     }
     settingsExternalStorageRefreshQueued = true;
+    if (settingsExternalStorageRefreshCoordinator) {
+      settingsExternalStorageRefreshCoordinator.enqueue(event?.detail || {});
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)

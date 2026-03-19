@@ -895,6 +895,22 @@
         return;
       }
 
+      const deferredReloadController =
+        window.__controlerExternalSyncAutoReloadController ||
+        window.ControlerUI?.createDeferredRefreshController?.({
+          delayMs: EXTERNAL_RELOAD_DELAY_MS,
+          run: async () => {
+            window.location.reload();
+          },
+        }) ||
+        null;
+      if (deferredReloadController) {
+        window.__controlerExternalSyncAutoReloadController =
+          deferredReloadController;
+        deferredReloadController.enqueue(event?.detail || {});
+        return;
+      }
+
       window.clearTimeout(window.__controlerExternalSyncAutoReloadTimer);
       window.__controlerExternalSyncAutoReloadTimer = window.setTimeout(() => {
         window.location.reload();
@@ -1557,6 +1573,8 @@
     const nativeSyncBootstrapStartedAt = Date.now();
     let nativeInitializationSettled = false;
     let pendingForegroundSyncRequest = null;
+    let shellPageActive =
+      window.__CONTROLER_SHELL_VISIBILITY__?.active !== false;
     const MANAGED_RANGE_SECTIONS = [
       "records",
       "dailyCheckins",
@@ -1596,6 +1614,9 @@
     }
 
     function shouldSuppressNativeStorageSyncError(options = {}) {
+      if (!shellPageActive) {
+        return true;
+      }
       if (document.hidden) {
         return true;
       }
@@ -1925,7 +1946,7 @@
     }
 
     function scheduleNativeProbeLoop() {
-      if (!useAndroidProbeLoop || document.hidden) {
+      if (!useAndroidProbeLoop || document.hidden || !shellPageActive) {
         return;
       }
       window.clearTimeout(nativeProbeLoopTimer);
@@ -2235,6 +2256,13 @@
 
     function scheduleNativeForegroundSync(reason, options = {}) {
       const { resetWindow = true } = options;
+      if (!shellPageActive) {
+        pendingForegroundSyncRequest = {
+          reason: reason || "shell-resume",
+          resetWindow: false,
+        };
+        return;
+      }
       if (!nativeInitializationSettled) {
         pendingForegroundSyncRequest = {
           reason: reason || "external-update",
@@ -3099,16 +3127,53 @@
     void initializeReactNativeStorage().finally(() => {
       nativeInitializationSettled = true;
       const queuedForegroundSync = pendingForegroundSyncRequest;
-      pendingForegroundSyncRequest = null;
-      if (queuedForegroundSync) {
+      if (queuedForegroundSync && shellPageActive) {
+        pendingForegroundSyncRequest = null;
         scheduleNativeForegroundSync(queuedForegroundSync.reason, {
           resetWindow: queuedForegroundSync.resetWindow,
         });
       }
-      if (useAndroidProbeLoop && !document.hidden) {
+      if (useAndroidProbeLoop && !document.hidden && shellPageActive) {
         touchNativeFastProbeWindow();
         scheduleNativeProbeLoop();
       }
+    });
+    window.addEventListener("controler:native-bridge-event", (event) => {
+      const detail =
+        event && typeof event.detail === "object" && event.detail
+          ? event.detail
+          : {};
+      if (detail.name !== "ui.shell-visibility") {
+        return;
+      }
+
+      const nextActive = detail.active !== false;
+      window.__CONTROLER_SHELL_VISIBILITY__ = {
+        active: nextActive,
+        slot: typeof detail.slot === "string" ? detail.slot : "",
+        reason: typeof detail.reason === "string" ? detail.reason : "",
+        page: typeof detail.page === "string" ? detail.page : "",
+        href: typeof detail.href === "string" ? detail.href : "",
+        receivedAt: Date.now(),
+      };
+      if (shellPageActive === nextActive) {
+        return;
+      }
+
+      shellPageActive = nextActive;
+      if (!shellPageActive) {
+        pendingForegroundSyncRequest = {
+          reason: "shell-resume",
+          resetWindow: false,
+        };
+        stopNativeProbeLoop();
+        return;
+      }
+
+      scheduleNativeForegroundSync("shell-resume", {
+        resetWindow: false,
+      });
+      scheduleNativeProbeLoop();
     });
     window.addEventListener("focus", () => {
       scheduleNativeForegroundSync("external-update");
@@ -3122,6 +3187,9 @@
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         stopNativeProbeLoop();
+        return;
+      }
+      if (!shellPageActive) {
         return;
       }
       scheduleNativeForegroundSync("external-update");

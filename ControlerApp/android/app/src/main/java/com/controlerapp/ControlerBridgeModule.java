@@ -295,6 +295,83 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         );
     }
 
+    private void scheduleWidgetRefresh(JSONObject payload) {
+        ControlerWidgetRenderer.scheduleRefresh(getReactApplicationContext(), payload);
+    }
+
+    private void scheduleWidgetRefresh(JSONArray changedSections, String source) throws Exception {
+        JSONObject payload = new JSONObject();
+        if (changedSections != null) {
+            payload.put("changedSections", changedSections);
+        }
+        if (!TextUtils.isEmpty(source)) {
+            payload.put("source", source);
+        }
+        scheduleWidgetRefresh(payload);
+    }
+
+    private JSONArray toJsonArray(LinkedHashSet<String> sections) {
+        JSONArray array = new JSONArray();
+        if (sections == null) {
+            return array;
+        }
+        for (String section : sections) {
+            if (!TextUtils.isEmpty(section)) {
+                array.put(section);
+            }
+        }
+        return array;
+    }
+
+    private JSONArray inferChangedSectionsFromCorePatch(JSONObject partialCore) {
+        LinkedHashSet<String> sections = new LinkedHashSet<>();
+        if (partialCore == null) {
+            sections.add("core");
+            return toJsonArray(sections);
+        }
+
+        if (partialCore.has("selectedTheme")
+            || partialCore.has("customThemes")
+            || partialCore.has("builtInThemeOverrides")) {
+            sections.add("theme");
+        }
+        if (partialCore.has("yearlyGoals")) {
+            sections.add("yearlyGoals");
+        }
+        if (partialCore.has("todos")) {
+            sections.add("todos");
+        }
+        if (partialCore.has("checkinItems")) {
+            sections.add("checkinItems");
+        }
+        if (partialCore.has("dailyCheckins")) {
+            sections.add("dailyCheckins");
+        }
+        if (partialCore.has("checkins")) {
+            sections.add("checkins");
+        }
+        if (partialCore.has("timerSessionState")) {
+            sections.add("timerSessionState");
+        }
+        if (partialCore.has("records")) {
+            sections.add("records");
+        }
+        if (partialCore.has("plans")) {
+            sections.add("plans");
+        }
+        if (partialCore.has("diaryEntries")) {
+            sections.add("diaryEntries");
+        }
+        if (partialCore.has("projects") || partialCore.has("diaryCategories")) {
+            sections.add("core");
+        }
+
+        if (sections.isEmpty()) {
+            sections.add("core");
+        }
+        return toJsonArray(sections);
+    }
+
     @ReactMethod
     public void getUiLanguage(Promise promise) {
         try {
@@ -398,7 +475,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
 
             ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext(), root);
-            ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
+            scheduleWidgetRefresh(buildDefaultChangedSections(), "storage-write");
             maybeRunAutoBackup(getReactApplicationContext());
 
             JSONObject payload = new JSONObject();
@@ -534,7 +611,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     payload
                 );
             ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
+            scheduleWidgetRefresh(new JSONArray().put(section), "section-save");
             maybeRunAutoBackup(getReactApplicationContext());
             promise.resolve(result.toString());
         } catch (Exception error) {
@@ -555,7 +632,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     partialCore
                 );
             ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
+            scheduleWidgetRefresh(
+                inferChangedSectionsFromCorePatch(partialCore),
+                "core-replace"
+            );
             maybeRunAutoBackup(getReactApplicationContext());
             promise.resolve(result.toString());
         } catch (Exception error) {
@@ -574,7 +654,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     items
                 );
             ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
+            scheduleWidgetRefresh(new JSONArray().put("plansRecurring"), "plans-recurring");
             maybeRunAutoBackup(getReactApplicationContext());
             promise.resolve(result.toString());
         } catch (Exception error) {
@@ -1006,9 +1086,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void refreshWidgets(Promise promise) {
+    public void refreshWidgets(String payloadJson, Promise promise) {
         try {
-            ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
+            JSONObject payload =
+                TextUtils.isEmpty(payloadJson) ? new JSONObject() : new JSONObject(payloadJson);
+            scheduleWidgetRefresh(payload);
             JSONObject result = new JSONObject();
             result.put("ok", true);
             result.put("supported", true);

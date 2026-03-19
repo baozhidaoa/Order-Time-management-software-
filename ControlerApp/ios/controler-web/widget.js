@@ -363,17 +363,20 @@ function updateWidgetWindowChrome(widgetType) {
   }
 }
 
-async function openWidgetMainView(widgetType) {
+async function openWidgetMainView(widgetType, extraPayload = {}) {
   if (!widgetType) {
     return;
   }
 
+  const launchPayload =
+    extraPayload && typeof extraPayload === "object" ? { ...extraPayload } : {};
   const bridge = window.ControlerWidgetsBridge || null;
   if (typeof bridge?.openMainAction === "function") {
     await bridge.openMainAction({
       page: widgetType.page,
       action: widgetType.action,
       source: "desktop-widget",
+      ...launchPayload,
     });
     return;
   }
@@ -385,6 +388,15 @@ async function openWidgetMainView(widgetType) {
   if (widgetType.action) {
     nextUrl.searchParams.set("widgetAction", widgetType.action);
     nextUrl.searchParams.set("widgetSource", "desktop-widget");
+  }
+  if (
+    typeof launchPayload.widgetAnchorDate === "string" &&
+    launchPayload.widgetAnchorDate.trim()
+  ) {
+    nextUrl.searchParams.set(
+      "widgetAnchorDate",
+      launchPayload.widgetAnchorDate.trim(),
+    );
   }
   window.location.href = `${nextUrl.pathname.split("/").pop()}${nextUrl.search}`;
 }
@@ -1048,10 +1060,11 @@ async function loadWidgetDataPayload(widgetType) {
     case "write-diary":
       return createEmptyAppState();
     case "day-pie": {
+      const startDate = addDaysToDateText(todayText, -45) || todayText;
       const [coreState, recordsResult] = await Promise.all([
         loadWidgetCoreState(),
         loadWidgetSectionRange("records", {
-          startDate: todayText,
+          startDate,
           endDate: todayText,
         }),
       ]);
@@ -1537,15 +1550,48 @@ function resolveRecordMinutes(record) {
   return parseSpendMinutes(record?.spendtime);
 }
 
-function getTodayRecords(state) {
-  const today = getDateText(new Date());
-  return widgetDataIndex?.getRecordsForDate?.(today) || [];
+function getWidgetRecordsForDate(state, dateText) {
+  const normalizedDateText = String(dateText || "").trim();
+  if (!normalizedDateText) {
+    return [];
+  }
+  if (typeof widgetDataIndex?.getRecordsForDate === "function") {
+    return widgetDataIndex.getRecordsForDate(normalizedDateText) || [];
+  }
+  return (Array.isArray(state?.records) ? state.records : []).filter(
+    (record) => getRecordDateText(record) === normalizedDateText,
+  );
 }
 
-function buildDayPieEntries(state) {
+function findLatestWidgetRecordDate(state) {
+  let latestDateText = "";
+  (Array.isArray(state?.records) ? state.records : []).forEach((record) => {
+    const dateText = getRecordDateText(record);
+    if (!dateText) {
+      return;
+    }
+    if (!latestDateText || compareDateText(dateText, latestDateText) > 0) {
+      latestDateText = dateText;
+    }
+  });
+  return latestDateText;
+}
+
+function resolveDayPieWidgetSnapshot(state) {
+  const todayText = getDateText(new Date());
+  const todayRecords = getWidgetRecordsForDate(state, todayText);
+  const activeDateText =
+    todayRecords.length > 0 ? todayText : findLatestWidgetRecordDate(state) || todayText;
+  return {
+    dateText: activeDateText,
+    isFallback: activeDateText !== todayText,
+  };
+}
+
+function buildDayPieEntries(state, dateText) {
   const projectMap = getProjectMap(state?.projects);
   const summary = new Map();
-  getTodayRecords(state).forEach((record) => {
+  getWidgetRecordsForDate(state, dateText).forEach((record) => {
     const project = projectMap.get(record?.projectId);
     const label = project?.name || record?.name || "未分类";
     const current = summary.get(label) || {
@@ -2133,6 +2179,7 @@ function createBaseContent(widgetType) {
     lines: [],
     itemCards: [],
     preview: null,
+    launchPayload: null,
   };
 }
 
@@ -2199,14 +2246,23 @@ function fillWeekGridContent(content, state) {
 }
 
 function fillDayPieContent(content, state) {
-  const entries = buildDayPieEntries(state);
+  const pieSnapshot = resolveDayPieWidgetSnapshot(state);
+  const entries = buildDayPieEntries(state, pieSnapshot.dateText);
   const totalMinutes = entries.reduce((sum, item) => sum + item.minutes, 0);
-  content.subtitle = translateWidgetUiText("今日项目占比");
+  content.subtitle = pieSnapshot.isFallback
+    ? `${formatRelativeDateLabel(pieSnapshot.dateText)} ${translateWidgetUiText("项目占比")}`
+    : translateWidgetUiText("今日项目占比");
   content.preview = {
     kind: "pie",
     entries,
     totalMinutes,
   };
+  content.launchPayload =
+    typeof pieSnapshot.dateText === "string" && pieSnapshot.dateText
+      ? {
+          widgetAnchorDate: pieSnapshot.dateText,
+        }
+      : null;
   if (totalMinutes <= 0) {
     return;
   }
@@ -2434,7 +2490,7 @@ function buildActionOnlyNode(widgetType, content) {
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    void openWidgetMainView(widgetType);
+    void openWidgetMainView(widgetType, content?.launchPayload);
   });
   wrapper.appendChild(button);
   return wrapper;
@@ -2824,7 +2880,7 @@ function handleItemAction(item) {
   }
 }
 
-function buildItemListNode(widgetType, items, metrics) {
+function buildItemListNode(widgetType, items, metrics, content = null) {
   if (!Array.isArray(items) || items.length === 0) {
     return buildEmptyState(
       "当前没有需要处理的项目。",
@@ -2854,7 +2910,7 @@ function buildItemListNode(widgetType, items, metrics) {
     const card = createElement("article", "widget-item-card");
     card.dataset.openable = "true";
     card.addEventListener("click", () => {
-      void openWidgetMainView(widgetType);
+      void openWidgetMainView(widgetType, content?.launchPayload);
     });
 
     const accent = createElement("div", "widget-item-accent");
@@ -2890,7 +2946,7 @@ function buildItemListNode(widgetType, items, metrics) {
         handleItemAction(item);
         return;
       }
-      void openWidgetMainView(widgetType);
+      void openWidgetMainView(widgetType, content?.launchPayload);
     });
     card.appendChild(action);
 
@@ -2919,7 +2975,7 @@ function buildWidgetCard(widgetType, content, metrics) {
       if (event.target instanceof HTMLElement && event.target.closest("button")) {
         return;
       }
-      void openWidgetMainView(widgetType);
+      void openWidgetMainView(widgetType, content?.launchPayload);
     });
   }
 
@@ -2953,7 +3009,12 @@ function buildWidgetCard(widgetType, content, metrics) {
 
   if (visibleItemCount > 0) {
     card.appendChild(
-      buildItemListNode(widgetType, content.itemCards.slice(0, visibleItemCount), metrics),
+      buildItemListNode(
+        widgetType,
+        content.itemCards.slice(0, visibleItemCount),
+        metrics,
+        content,
+      ),
     );
   }
 

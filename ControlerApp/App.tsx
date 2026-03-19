@@ -5,6 +5,7 @@ import {
   BackHandler,
   Dimensions,
   NativeModules,
+  PanResponder,
   Platform,
   SafeAreaView,
   StatusBar,
@@ -54,7 +55,7 @@ type NativeBridgeModule = {
   getWidgetPinSupport?: (kind: string) => Promise<string>;
   consumePinWidgetResult?: () => Promise<string>;
   openHomeScreen?: () => Promise<string>;
-  refreshWidgets: () => Promise<string>;
+  refreshWidgets: (payloadJson?: string) => Promise<string>;
   exportData: (stateJson: string, fileName: string) => Promise<string>;
   requestNotificationPermission: (interactive: boolean) => Promise<string>;
   syncNotificationSchedule?: (scheduleJson: string) => Promise<string>;
@@ -116,6 +117,13 @@ type LaunchContext = {
   widgetSource: string;
 };
 
+type WidgetRefreshPayload = {
+  changedSections?: string[];
+  widgetKindHint?: string;
+  appWidgetId?: number;
+  source?: string;
+};
+
 function updateWebViewSlotsRef(
   ref: React.MutableRefObject<Record<WebViewSlot, WebViewSlotState>>,
   slot: WebViewSlot,
@@ -140,7 +148,12 @@ const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
 const IS_ANDROID = Platform.OS === 'android';
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 3200 : 2200;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 4200 : 2200;
+const WIDGET_PREWARM_AFTER_READY_MS = 800;
+const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 5000;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
+const EDGE_BACK_SWIPE_REGION_WIDTH = 20;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = 72;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 64;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
@@ -407,6 +420,37 @@ function buildWidgetLaunchHref(
   }
 }
 
+function buildWidgetLaunchDispatchScript(
+  pageKey: AppPageKey,
+  context: Pick<LaunchContext, 'widgetAction' | 'widgetKind' | 'widgetSource'>,
+): string {
+  const serialized = JSON.stringify({
+    page: pageKey,
+    action: String(context.widgetAction || '').trim(),
+    widgetKind: String(context.widgetKind || '').trim(),
+    source: String(context.widgetSource || '').trim() || 'android-widget',
+    payload: {},
+  })
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
+  return `
+    (function () {
+      const eventName =
+        (window.ControlerWidgetsBridge &&
+          window.ControlerWidgetsBridge.launchActionEventName) ||
+        'controler:launch-action';
+      window.dispatchEvent(
+        new CustomEvent(eventName, {
+          detail: ${serialized},
+        }),
+      );
+      return true;
+    })();
+    true;
+  `;
+}
+
 const bridgeBootstrapScript = `
   (function () {
     window.__CONTROLER_RN_META__ = ${JSON.stringify(
@@ -439,6 +483,19 @@ const bridgeBootstrapScript = `
     true;
   })();
 `;
+
+function buildBridgeBootstrapScript(payload: Record<string, unknown>): string {
+  const serialized = JSON.stringify(payload)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `${bridgeBootstrapScript}
+    (function () {
+      window.__CONTROLER_SHELL_VISIBILITY__ = ${serialized};
+      return true;
+    })();
+    true;
+  `;
+}
 
 const dispatchNativeResumeScript =
   "window.dispatchEvent(new CustomEvent('controler:native-app-resume')); true;";
@@ -515,15 +572,23 @@ function App(): JSX.Element {
     widgetSource: '',
   });
   const widgetPrewarmPendingRef = useRef(false);
+  const widgetLaunchStartedAtRef = useRef(0);
+  const widgetPrimaryReadyAtRef = useRef(0);
   const widgetPrewarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const shellVisibilitySignatureRef = useRef<Record<WebViewSlot, string>>({
+    primary: '',
+    secondary: '',
+    tertiary: '',
+  });
   const shellLanguageRef = useRef<UiLanguage>(DEFAULT_UI_LANGUAGE);
 
   const [bootError, setBootError] = useState<string | null>(null);
   const [shellLanguage, setShellLanguage] =
     useState<UiLanguage>(DEFAULT_UI_LANGUAGE);
   const [isPageReady, setIsPageReady] = useState(false);
+  const [busyStateVersion, setBusyStateVersion] = useState(0);
   const [activeSlot, setActiveSlot] = useState<WebViewSlot>('primary');
   const [transitionState, setTransitionState] =
     useState<TransitionState | null>(null);
@@ -669,6 +734,77 @@ function App(): JSX.Element {
         ? secondaryWebViewRef
         : tertiaryWebViewRef;
 
+  const handleShellBackNavigation = useCallback((allowExit = true) => {
+    if (transitionStateRef.current) {
+      return true;
+    }
+
+    const currentSlot = activeSlotRef.current;
+    if (busyLockBySlotRef.current[currentSlot]) {
+      return true;
+    }
+
+    const currentWebViewRef = getWebViewRef(currentSlot);
+    if (modalOpenBySlotRef.current[currentSlot]) {
+      currentWebViewRef.current?.injectJavaScript(closeTopModalScript);
+      return true;
+    }
+
+    if (canGoBackBySlotRef.current[currentSlot]) {
+      currentWebViewRef.current?.goBack();
+      return true;
+    }
+
+    if (allowExit && Platform.OS === 'android') {
+      BackHandler.exitApp();
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const canStartEdgeBackSwipe = useCallback(() => {
+    if (transitionStateRef.current) {
+      return false;
+    }
+
+    const currentSlot = activeSlotRef.current;
+    if (busyLockBySlotRef.current[currentSlot]) {
+      return false;
+    }
+
+    if (modalOpenBySlotRef.current[currentSlot]) {
+      return true;
+    }
+
+    if (canGoBackBySlotRef.current[currentSlot]) {
+      return true;
+    }
+
+    return Platform.OS === 'android';
+  }, []);
+
+  const edgeBackPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_event, gestureState) =>
+        canStartEdgeBackSwipe() &&
+        gestureState.dx >= 8 &&
+        Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderRelease: (_event, gestureState) => {
+        if (
+          gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE &&
+          Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT
+        ) {
+          handleShellBackNavigation(true);
+        }
+      },
+    }),
+  ).current;
+
   const getPageKeyForSlot = useCallback(
     (slot: WebViewSlot) => webViewSlotsRef.current[slot].pageKey,
     [],
@@ -678,11 +814,45 @@ function App(): JSX.Element {
     slotLastUsedAtRef.current[slot] = Date.now();
   }, []);
 
+  const markWidgetLaunchWindow = useCallback((launchContext: LaunchContext) => {
+    if (!launchContext.active || !IS_ANDROID) {
+      widgetLaunchStartedAtRef.current = 0;
+      widgetPrimaryReadyAtRef.current = 0;
+      widgetPrewarmPendingRef.current = false;
+      return;
+    }
+    widgetLaunchStartedAtRef.current = Date.now();
+    widgetPrimaryReadyAtRef.current = 0;
+    widgetPrewarmPendingRef.current = true;
+  }, []);
+
+  const settleWidgetLaunchWindowIfExpired = useCallback(() => {
+    const launchStartedAt = widgetLaunchStartedAtRef.current;
+    if (
+      !launchContextRef.current.active ||
+      !launchStartedAt ||
+      Date.now() - launchStartedAt < WIDGET_LAUNCH_PREWARM_WINDOW_MS
+    ) {
+      return false;
+    }
+
+    launchContextRef.current = {
+      ...launchContextRef.current,
+      active: false,
+      widgetAction: '',
+      widgetKind: '',
+    };
+    widgetPrewarmPendingRef.current = false;
+    widgetPrimaryReadyAtRef.current = 0;
+    return true;
+  }, []);
+
   const clearCachedSlot = useCallback((slot: WebViewSlot) => {
     canGoBackBySlotRef.current[slot] = false;
     modalOpenBySlotRef.current[slot] = false;
     busyLockBySlotRef.current[slot] = false;
     slotLastUsedAtRef.current[slot] = 0;
+    shellVisibilitySignatureRef.current[slot] = '';
     updateWebViewSlotsRef(webViewSlotsRef, slot, {
       uri: null,
       pageKey: '',
@@ -752,6 +922,9 @@ function App(): JSX.Element {
   );
 
   const prewarmWidgetLandingPages = useCallback(() => {
+    if (settleWidgetLaunchWindowIfExpired()) {
+      return;
+    }
     if (
       !IS_ANDROID ||
       transitionStateRef.current ||
@@ -787,7 +960,7 @@ function App(): JSX.Element {
       priorityPages.push(pageKey);
     });
 
-    const desiredPages = priorityPages.slice(0, WEBVIEW_SLOTS.length - 1);
+    const desiredPages = priorityPages.slice(0, 1);
     if (desiredPages.length === 0) {
       widgetPrewarmPendingRef.current = false;
       return;
@@ -866,15 +1039,26 @@ function App(): JSX.Element {
       }
     });
     widgetPrewarmPendingRef.current = false;
-  }, [clearCachedSlot, isPageKeyHidden, logPerfMetric, markSlotUsed]);
+  }, [
+    clearCachedSlot,
+    isPageKeyHidden,
+    logPerfMetric,
+    markSlotUsed,
+    settleWidgetLaunchWindowIfExpired,
+  ]);
 
   const findReusableSlot = useCallback(
     (
       currentSlot: WebViewSlot,
       targetUri: string,
     ): {slot: WebViewSlot; needsLoad: boolean} => {
+      settleWidgetLaunchWindowIfExpired();
+      const reusableSlots =
+        IS_ANDROID && launchContextRef.current.active
+          ? (['primary', 'secondary'] as WebViewSlot[])
+          : WEBVIEW_SLOTS;
       const comparableTargetUrl = getComparableUrl(targetUri);
-      const cachedTargetSlot = WEBVIEW_SLOTS.find(slot => {
+      const cachedTargetSlot = reusableSlots.find(slot => {
         if (slot === currentSlot) {
           return false;
         }
@@ -892,7 +1076,7 @@ function App(): JSX.Element {
         };
       }
 
-      const freeSlot = WEBVIEW_SLOTS.find(
+      const freeSlot = reusableSlots.find(
         slot => slot !== currentSlot && !webViewSlotsRef.current[slot].uri,
       );
       if (freeSlot) {
@@ -905,7 +1089,7 @@ function App(): JSX.Element {
       let fallbackSlot: WebViewSlot = 'secondary';
       let oldestUsedAt = Number.POSITIVE_INFINITY;
       let fallbackPriority = Number.POSITIVE_INFINITY;
-      WEBVIEW_SLOTS.forEach(slot => {
+      reusableSlots.forEach(slot => {
         if (slot === currentSlot) {
           return;
         }
@@ -927,7 +1111,7 @@ function App(): JSX.Element {
         needsLoad: true,
       };
     },
-    [isPageKeyHidden],
+    [isPageKeyHidden, settleWidgetLaunchWindowIfExpired],
   );
 
   const clearTransitionWatchdog = useCallback(() => {
@@ -944,6 +1128,59 @@ function App(): JSX.Element {
       widgetPrewarmTimerRef.current = null;
     }
   }, []);
+
+  const syncShellVisibility = useCallback((reason = 'shell-state') => {
+    const loadingTransition = transitionStateRef.current;
+    const shellActiveSlot =
+      loadingTransition?.status === 'loading'
+        ? loadingTransition.fromSlot
+        : activeSlotRef.current;
+
+    WEBVIEW_SLOTS.forEach(slot => {
+      const slotState = webViewSlotsRef.current[slot];
+      if (!slotState.uri) {
+        shellVisibilitySignatureRef.current[slot] = '';
+        return;
+      }
+
+      const payload = {
+        active: slot === shellActiveSlot,
+        slot,
+        reason,
+        page: slotState.pageKey,
+        href: slotState.uri,
+      };
+      const signature = JSON.stringify(payload);
+      if (shellVisibilitySignatureRef.current[slot] === signature) {
+        return;
+      }
+      shellVisibilitySignatureRef.current[slot] = signature;
+      postBridgeEvent(slot, 'ui.shell-visibility', payload);
+    });
+  }, []);
+
+  const dispatchWidgetLaunchActionToSlot = useCallback(
+    (
+      slot: WebViewSlot,
+      pageKey: AppPageKey,
+      launchContext: Pick<
+        LaunchContext,
+        'widgetAction' | 'widgetKind' | 'widgetSource'
+      >,
+    ) => {
+      const script = buildWidgetLaunchDispatchScript(pageKey, launchContext);
+      logPerfMetric('inject-javascript', {
+        slot,
+        page: pageKey,
+        kind: 'widget-launch-action',
+        widgetAction: launchContext.widgetAction,
+        widgetKind: launchContext.widgetKind,
+        sizeBytes: script.length,
+      });
+      getWebViewRef(slot).current?.injectJavaScript(script);
+    },
+    [logPerfMetric],
+  );
 
   const revealWebView = useCallback(() => {
     if (isPageReadyRef.current) {
@@ -1273,7 +1510,7 @@ function App(): JSX.Element {
           setActiveSlot('primary');
           setBootError(null);
           launchContextRef.current = launchContext;
-          widgetPrewarmPendingRef.current = launchContext.active;
+          markWidgetLaunchWindow(launchContext);
           webViewSlotsRef.current = {
             primary: {
               uri: url,
@@ -1321,7 +1558,7 @@ function App(): JSX.Element {
     return () => {
       mounted = false;
     };
-  }, [markSlotUsed, resetWebViewPresentation]);
+  }, [markSlotUsed, markWidgetLaunchWindow, resetWebViewPresentation]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -1358,11 +1595,33 @@ function App(): JSX.Element {
         }
 
         launchContextRef.current = launchContext;
-        widgetPrewarmPendingRef.current = true;
+        markWidgetLaunchWindow(launchContext);
 
         const activeState = webViewSlotsRef.current[activeSlotRef.current];
         const targetPageKey =
           launchContext.pageKey || activeState.pageKey || APP_PAGES[0].key;
+        const shouldDispatchInPlace =
+          !transitionStateRef.current &&
+          !!activeState.uri &&
+          activeState.pageKey === targetPageKey &&
+          !!launchContext.widgetAction;
+
+        if (shouldDispatchInPlace) {
+          dispatchWidgetLaunchActionToSlot(
+            activeSlotRef.current,
+            targetPageKey,
+            launchContext,
+          );
+          logPerfMetric('launch-action-consumed', {
+            reason,
+            page: targetPageKey,
+            action: launchContext.widgetAction,
+            widgetKind: launchContext.widgetKind,
+            navigationResult: 'inplace-dispatch',
+          });
+          return true;
+        }
+
         const navigationResult = requestPageNavigation(
           {
             page: targetPageKey,
@@ -1421,7 +1680,12 @@ function App(): JSX.Element {
       }
       subscription.remove();
     };
-  }, [logPerfMetric, requestPageNavigation]);
+  }, [
+    dispatchWidgetLaunchActionToSlot,
+    logPerfMetric,
+    markWidgetLaunchWindow,
+    requestPageNavigation,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1467,27 +1731,49 @@ function App(): JSX.Element {
     if (!IS_ANDROID || bootError || !isPageReady || transitionState) {
       return;
     }
+    if (settleWidgetLaunchWindowIfExpired()) {
+      return;
+    }
     if (!widgetPrewarmPendingRef.current) {
       return;
     }
+    if (busyLockBySlotRef.current[activeSlotRef.current]) {
+      return;
+    }
+
+    const primaryReadyAt = widgetPrimaryReadyAtRef.current;
+    if (!primaryReadyAt) {
+      return;
+    }
+
+    const remainingDelay = Math.max(
+      0,
+      WIDGET_PREWARM_AFTER_READY_MS - (Date.now() - primaryReadyAt),
+    );
 
     widgetPrewarmTimerRef.current = setTimeout(() => {
       widgetPrewarmTimerRef.current = null;
       prewarmWidgetLandingPages();
-    }, 180);
+    }, remainingDelay);
 
     return () => {
       clearWidgetPrewarmTimer();
     };
   }, [
     activeSlot,
+    busyStateVersion,
     bootError,
     clearWidgetPrewarmTimer,
     isPageReady,
     prewarmWidgetLandingPages,
+    settleWidgetLaunchWindowIfExpired,
     transitionState,
     webViewSlots,
   ]);
+
+  useEffect(() => {
+    syncShellVisibility('slot-state-change');
+  }, [activeSlot, syncShellVisibility, transitionState, webViewSlots]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -1496,35 +1782,13 @@ function App(): JSX.Element {
 
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
-      () => {
-        if (transitionStateRef.current) {
-          return true;
-        }
-
-        const currentSlot = activeSlotRef.current;
-        if (busyLockBySlotRef.current[currentSlot]) {
-          return true;
-        }
-
-        const currentWebViewRef = getWebViewRef(currentSlot);
-        if (modalOpenBySlotRef.current[currentSlot]) {
-          currentWebViewRef.current?.injectJavaScript(closeTopModalScript);
-          return true;
-        }
-
-        if (canGoBackBySlotRef.current[currentSlot]) {
-          currentWebViewRef.current?.goBack();
-          return true;
-        }
-
-        return false;
-      },
+      () => handleShellBackNavigation(false),
     );
 
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [handleShellBackNavigation]);
 
   useEffect(() => {
     const changeSubscription = AppState.addEventListener('change', nextState => {
@@ -1830,7 +2094,15 @@ function App(): JSX.Element {
         }
         return parseBridgeJson(await nativeBridge.openHomeScreen());
       case 'widgets.refresh':
-        return parseBridgeJson(await nativeBridge.refreshWidgets());
+        return parseBridgeJson(
+          await nativeBridge.refreshWidgets(
+            JSON.stringify(
+              payload && typeof payload === 'object'
+                ? (payload as WidgetRefreshPayload)
+                : {},
+            ),
+          ),
+        );
       case 'widgets.consumeLaunchAction':
         return parseBridgeJson(await nativeBridge.consumeLaunchAction());
       case 'settings.exportData':
@@ -1957,7 +2229,11 @@ function App(): JSX.Element {
         return;
       }
       if (eventName === 'ui.busy-state') {
-        busyLockBySlotRef.current[slot] = !!message.payload?.isBusy;
+        const nextBusy = !!message.payload?.isBusy;
+        if (busyLockBySlotRef.current[slot] !== nextBusy) {
+          busyLockBySlotRef.current[slot] = nextBusy;
+          setBusyStateVersion(version => version + 1);
+        }
         return;
       }
       if (eventName === 'perf.metric') {
@@ -1973,6 +2249,15 @@ function App(): JSX.Element {
           page: getPageKeyForSlot(slot),
           href: message.payload?.href || '',
         });
+        if (
+          IS_ANDROID &&
+          launchContextRef.current.active &&
+          slot === activeSlotRef.current &&
+          widgetPrimaryReadyAtRef.current <= 0
+        ) {
+          widgetPrimaryReadyAtRef.current = Date.now();
+        }
+        syncShellVisibility('page-ready');
         if (!isPayloadForCurrentSlot(slot, message.payload)) {
           return;
         }
@@ -2004,6 +2289,7 @@ function App(): JSX.Element {
           slot,
           hiddenPages: nextHiddenPageKeys.join(','),
         });
+        syncShellVisibility('navigation-visibility');
         return;
       }
       if (eventName === 'ui.navigate') {
@@ -2056,7 +2342,7 @@ function App(): JSX.Element {
         );
         if (launchContext.active) {
           launchContextRef.current = launchContext;
-          widgetPrewarmPendingRef.current = true;
+          markWidgetLaunchWindow(launchContext);
         }
       }
       logPerfMetric('native-bridge-call', {
@@ -2290,6 +2576,10 @@ function App(): JSX.Element {
     }
 
     const currentTransition = transitionState;
+    const shellActiveSlot =
+      currentTransition?.status === 'loading'
+        ? currentTransition.fromSlot
+        : activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
     let wrapperStyle: Array<object> = [styles.webviewLayer];
     const interactiveLayer =
@@ -2406,12 +2696,19 @@ function App(): JSX.Element {
           showsHorizontalScrollIndicator={false}
           bounces={false}
           overScrollMode="never"
-          injectedJavaScriptBeforeContentLoaded={bridgeBootstrapScript}
+          injectedJavaScriptBeforeContentLoaded={buildBridgeBootstrapScript({
+            active: slot === shellActiveSlot,
+            slot,
+            reason: 'bootstrap',
+            page: slotState.pageKey,
+            href: slotState.uri,
+          })}
           onMessage={event => {
             handleWebViewMessage(slot, event).catch(() => undefined);
           }}
           onLoadEnd={() => {
             handleSlotLoadEnd(slot);
+            syncShellVisibility('load-end');
           }}
           onLoadProgress={event => {
             handleSlotLoadProgress(slot, event.nativeEvent.progress);
@@ -2513,6 +2810,14 @@ function App(): JSX.Element {
         {renderWebView('primary')}
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
+        {isPageReady ? (
+          <View
+            {...edgeBackPanResponder.panHandlers}
+            accessible={false}
+            pointerEvents="box-only"
+            style={styles.edgeBackSwipeHotzone}
+          />
+        ) : null}
 
         {!isPageReady ? (
           <Animated.View
@@ -2535,6 +2840,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: SCREEN_BG,
     overflow: 'hidden',
+  },
+  edgeBackSwipeHotzone: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: EDGE_BACK_SWIPE_REGION_WIDTH,
+    zIndex: 10,
+    backgroundColor: 'transparent',
   },
   webviewLayer: {
     ...StyleSheet.absoluteFillObject,

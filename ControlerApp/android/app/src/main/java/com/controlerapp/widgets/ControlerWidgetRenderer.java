@@ -21,6 +21,7 @@ import android.util.TypedValue;
 import android.view.View;
 import android.widget.RemoteViews;
 
+import com.controlerapp.ControlerStartupTrace;
 import com.controlerapp.MainActivity;
 import com.controlerapp.R;
 
@@ -54,14 +55,20 @@ public final class ControlerWidgetRenderer {
         "rgba?\\(\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})(?:\\s*,\\s*([\\d.]+))?\\s*\\)"
     );
     private static final long DEBOUNCED_REFRESH_DELAY_MS = 220L;
+    private static final long SAME_KIND_REFRESH_DELAY_MS = 300L;
+    private static final long AFFECTED_REFRESH_DELAY_MS = 1800L;
+    private static final long THEME_REFRESH_DELAY_MS = 2200L;
     private static final String PREVIEW_SIGNATURE_NONE = "preview:none";
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
+    private static final long RENDER_SOURCE_CACHE_TTL_MS = 1200L;
     private static final Object REFRESH_LOCK = new Object();
     private static final Object RENDER_STATE_LOCK = new Object();
     private static final HandlerThread REFRESH_THREAD = createRefreshThread();
     private static final Handler REFRESH_HANDLER = new Handler(REFRESH_THREAD.getLooper());
     private static final Map<Integer, String> LAST_RENDER_KEYS = new HashMap<>();
+    private static long lastRenderSourceLoadedAtMs = 0L;
+    private static RenderSource lastRenderSource = null;
     private static final LruCache<String, Bitmap> CARD_BACKGROUND_CACHE =
         new LruCache<String, Bitmap>(CARD_BACKGROUND_CACHE_BYTES) {
             @Override
@@ -77,6 +84,13 @@ public final class ControlerWidgetRenderer {
             }
         };
     private static Runnable pendingRefreshRunnable = null;
+    private static Runnable pendingSameKindRefreshRunnable = null;
+    private static Runnable pendingAffectedRefreshRunnable = null;
+    private static Runnable pendingThemeRefreshRunnable = null;
+    private static RefreshBatch pendingImmediateBatch = new RefreshBatch();
+    private static RefreshBatch pendingSameKindBatch = new RefreshBatch();
+    private static RefreshBatch pendingAffectedBatch = new RefreshBatch();
+    private static RefreshBatch pendingThemeBatch = new RefreshBatch();
 
     private ControlerWidgetRenderer() {}
 
@@ -181,6 +195,34 @@ public final class ControlerWidgetRenderer {
         }
     }
 
+    private static final class RefreshRequest {
+        final Set<String> changedSections = new HashSet<>();
+        String widgetKindHint = "";
+        int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+        String source = "";
+        boolean requestAll = false;
+        boolean themeRefresh = false;
+    }
+
+    private static final class RefreshBatch {
+        final Set<String> kinds = new HashSet<>();
+        final Set<Integer> widgetIds = new HashSet<>();
+        boolean refreshAll = false;
+        String reason = "";
+
+        void merge(RefreshBatch incoming) {
+            if (incoming == null) {
+                return;
+            }
+            refreshAll = refreshAll || incoming.refreshAll;
+            kinds.addAll(incoming.kinds);
+            widgetIds.addAll(incoming.widgetIds);
+            if (TextUtils.isEmpty(reason) && !TextUtils.isEmpty(incoming.reason)) {
+                reason = incoming.reason;
+            }
+        }
+    }
+
     private static final class RecordSummaryAccumulator {
         String title = "";
         int accentColor = Color.parseColor("#8ED6A4");
@@ -229,27 +271,91 @@ public final class ControlerWidgetRenderer {
             return;
         }
 
-        final Context appContext = context.getApplicationContext();
-        synchronized (REFRESH_LOCK) {
-            if (pendingRefreshRunnable != null) {
-                REFRESH_HANDLER.removeCallbacks(pendingRefreshRunnable);
-            }
+        RefreshBatch batch = new RefreshBatch();
+        batch.refreshAll = true;
+        batch.reason = "refresh-all";
+        scheduleRefreshBatch(
+            context.getApplicationContext(),
+            batch,
+            DEBOUNCED_REFRESH_DELAY_MS,
+            "full"
+        );
+    }
 
-            final Runnable[] runnableHolder = new Runnable[1];
-            runnableHolder[0] = new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (REFRESH_LOCK) {
-                        if (pendingRefreshRunnable != runnableHolder[0]) {
-                            return;
-                        }
-                        pendingRefreshRunnable = null;
-                    }
-                    refreshAll(appContext);
-                }
-            };
-            pendingRefreshRunnable = runnableHolder[0];
-            REFRESH_HANDLER.postDelayed(runnableHolder[0], DEBOUNCED_REFRESH_DELAY_MS);
+    public static void scheduleRefresh(Context context, JSONObject payload) {
+        if (context == null) {
+            return;
+        }
+
+        RefreshRequest request = parseRefreshRequest(payload);
+        if (request.requestAll) {
+            scheduleRefreshAll(context);
+            return;
+        }
+
+        Set<String> affectedKinds =
+            request.changedSections.isEmpty()
+                ? new HashSet<String>()
+                : resolveKindsForSections(request.changedSections);
+        if (affectedKinds.isEmpty() && request.appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+            String normalizedHint = ControlerWidgetKinds.normalize(request.widgetKindHint);
+            if (TextUtils.isEmpty(normalizedHint)) {
+                return;
+            }
+            affectedKinds.add(normalizedHint);
+        }
+
+        String normalizedHint = ControlerWidgetKinds.normalize(request.widgetKindHint);
+        if (
+            request.appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID
+                || !TextUtils.isEmpty(normalizedHint)
+        ) {
+            RefreshBatch immediateBatch = new RefreshBatch();
+            immediateBatch.reason = "immediate";
+            if (!TextUtils.isEmpty(normalizedHint)) {
+                immediateBatch.kinds.add(normalizedHint);
+            }
+            if (request.appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                immediateBatch.widgetIds.add(request.appWidgetId);
+            }
+            scheduleRefreshBatch(
+                context.getApplicationContext(),
+                immediateBatch,
+                0L,
+                "full"
+            );
+        }
+
+        if (!TextUtils.isEmpty(normalizedHint) && affectedKinds.contains(normalizedHint)) {
+            RefreshBatch sameKindBatch = new RefreshBatch();
+            sameKindBatch.reason = "same-kind";
+            sameKindBatch.kinds.add(normalizedHint);
+            scheduleRefreshBatch(
+                context.getApplicationContext(),
+                sameKindBatch,
+                SAME_KIND_REFRESH_DELAY_MS,
+                "same-kind"
+            );
+            affectedKinds.remove(normalizedHint);
+        }
+
+        RefreshBatch affectedBatch = new RefreshBatch();
+        affectedBatch.reason = request.themeRefresh ? "theme" : "affected";
+        affectedBatch.kinds.addAll(affectedKinds);
+        if (request.themeRefresh) {
+            scheduleRefreshBatch(
+                context.getApplicationContext(),
+                affectedBatch,
+                THEME_REFRESH_DELAY_MS,
+                "theme"
+            );
+        } else if (!affectedBatch.kinds.isEmpty()) {
+            scheduleRefreshBatch(
+                context.getApplicationContext(),
+                affectedBatch,
+                AFFECTED_REFRESH_DELAY_MS,
+                "affected"
+            );
         }
     }
 
@@ -259,30 +365,10 @@ public final class ControlerWidgetRenderer {
         }
 
         cancelPendingRefresh();
-
-        Context appContext = context.getApplicationContext();
-        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
-        Map<String, int[]> widgetIdsByKind = new HashMap<>();
-        for (String kind : ControlerWidgetKinds.allKinds()) {
-            ComponentName componentName = ControlerWidgetKinds.componentNameForKind(appContext, kind);
-            if (componentName == null) {
-                continue;
-            }
-            int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
-            if (appWidgetIds == null || appWidgetIds.length == 0) {
-                continue;
-            }
-            widgetIdsByKind.put(kind, appWidgetIds);
-        }
-
-        if (widgetIdsByKind.isEmpty()) {
-            return;
-        }
-
-        RenderSource renderSource = loadRenderSource(appContext);
-        for (Map.Entry<String, int[]> entry : widgetIdsByKind.entrySet()) {
-            updateWidgets(appContext, entry.getKey(), entry.getValue(), appWidgetManager, renderSource);
-        }
+        RefreshBatch batch = new RefreshBatch();
+        batch.refreshAll = true;
+        batch.reason = "refresh-all";
+        runRefreshBatch(context.getApplicationContext(), batch);
     }
 
     public static void refreshKind(Context context, String kind) {
@@ -296,22 +382,10 @@ public final class ControlerWidgetRenderer {
         }
 
         cancelPendingRefresh();
-
-        Context appContext = context.getApplicationContext();
-        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
-        ComponentName componentName =
-            ControlerWidgetKinds.componentNameForKind(appContext, normalizedKind);
-        if (componentName == null) {
-            return;
-        }
-
-        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
-        if (appWidgetIds == null || appWidgetIds.length == 0) {
-            return;
-        }
-
-        RenderSource renderSource = loadRenderSource(appContext);
-        updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
+        RefreshBatch batch = new RefreshBatch();
+        batch.reason = "refresh-kind";
+        batch.kinds.add(normalizedKind);
+        runRefreshBatch(context.getApplicationContext(), batch);
     }
 
     public static void clearRenderState(int[] appWidgetIds) {
@@ -335,13 +409,402 @@ public final class ControlerWidgetRenderer {
             return;
         }
 
+        invalidateRenderSourceCache();
         Context appContext = context.getApplicationContext();
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
         RenderSource renderSource = loadRenderSource(appContext);
         updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
     }
 
+    public static void scheduleUpdateWidgets(Context context, String kind, int[] appWidgetIds) {
+        if (context == null || appWidgetIds == null || appWidgetIds.length == 0) {
+            return;
+        }
+
+        final String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return;
+        }
+
+        final Context appContext = context.getApplicationContext();
+        final int[] appWidgetIdsCopy = appWidgetIds.clone();
+        REFRESH_HANDLER.post(new Runnable() {
+            @Override
+            public void run() {
+                AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
+                RenderSource renderSource = loadRenderSource(appContext);
+                updateWidgets(
+                    appContext,
+                    normalizedKind,
+                    appWidgetIdsCopy,
+                    appWidgetManager,
+                    renderSource
+                );
+            }
+        });
+    }
+
+    private static RefreshRequest parseRefreshRequest(JSONObject payload) {
+        RefreshRequest request = new RefreshRequest();
+        if (payload == null) {
+            request.requestAll = true;
+            return request;
+        }
+
+        JSONArray changedSections = payload.optJSONArray("changedSections");
+        if (changedSections != null) {
+            for (int index = 0; index < changedSections.length(); index++) {
+                String section = changedSections.optString(index, "");
+                if (!TextUtils.isEmpty(section)) {
+                    request.changedSections.add(section.trim());
+                }
+            }
+        }
+        request.widgetKindHint =
+            ControlerWidgetKinds.normalize(payload.optString("widgetKindHint", ""));
+        request.appWidgetId =
+            payload.optInt("appWidgetId", AppWidgetManager.INVALID_APPWIDGET_ID);
+        request.source = payload.optString("source", "");
+        request.themeRefresh =
+            request.changedSections.contains("theme")
+                || request.changedSections.contains("core/theme");
+        request.requestAll =
+            request.changedSections.isEmpty()
+                && TextUtils.isEmpty(request.widgetKindHint)
+                && request.appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID;
+        return request;
+    }
+
+    private static Set<String> resolveKindsForSections(Set<String> changedSections) {
+        Set<String> affectedKinds = new HashSet<>();
+        if (changedSections == null || changedSections.isEmpty()) {
+            affectedKinds.addAll(ControlerWidgetKinds.allKinds());
+            return affectedKinds;
+        }
+
+        for (String section : changedSections) {
+            String normalized = section == null ? "" : section.trim();
+            if (TextUtils.isEmpty(normalized) || "diaryEntries".equals(normalized)) {
+                continue;
+            }
+            if (
+                "core".equals(normalized)
+                    || "theme".equals(normalized)
+                    || "core/theme".equals(normalized)
+            ) {
+                affectedKinds.addAll(ControlerWidgetKinds.allKinds());
+                continue;
+            }
+            if ("records".equals(normalized) || "timerSessionState".equals(normalized)) {
+                affectedKinds.add(ControlerWidgetKinds.START_TIMER);
+                affectedKinds.add(ControlerWidgetKinds.WEEK_GRID);
+                affectedKinds.add(ControlerWidgetKinds.DAY_PIE);
+                continue;
+            }
+            if (
+                "plans".equals(normalized)
+                    || "plansRecurring".equals(normalized)
+                    || "yearlyGoals".equals(normalized)
+            ) {
+                affectedKinds.add(ControlerWidgetKinds.WEEK_VIEW);
+                affectedKinds.add(ControlerWidgetKinds.YEAR_VIEW);
+                continue;
+            }
+            if ("todos".equals(normalized)) {
+                affectedKinds.add(ControlerWidgetKinds.TODOS);
+                continue;
+            }
+            if (
+                "checkinItems".equals(normalized)
+                    || "dailyCheckins".equals(normalized)
+                    || "checkins".equals(normalized)
+            ) {
+                affectedKinds.add(ControlerWidgetKinds.CHECKINS);
+            }
+        }
+        return affectedKinds;
+    }
+
+    private static Runnable getPendingRunnableForBucket(String bucket) {
+        if ("same-kind".equals(bucket)) {
+            return pendingSameKindRefreshRunnable;
+        }
+        if ("affected".equals(bucket)) {
+            return pendingAffectedRefreshRunnable;
+        }
+        if ("theme".equals(bucket)) {
+            return pendingThemeRefreshRunnable;
+        }
+        return pendingRefreshRunnable;
+    }
+
+    private static void setPendingRunnableForBucket(String bucket, Runnable runnable) {
+        if ("same-kind".equals(bucket)) {
+            pendingSameKindRefreshRunnable = runnable;
+            return;
+        }
+        if ("affected".equals(bucket)) {
+            pendingAffectedRefreshRunnable = runnable;
+            return;
+        }
+        if ("theme".equals(bucket)) {
+            pendingThemeRefreshRunnable = runnable;
+            return;
+        }
+        pendingRefreshRunnable = runnable;
+    }
+
+    private static RefreshBatch getPendingBatchForBucket(String bucket) {
+        if ("same-kind".equals(bucket)) {
+            return pendingSameKindBatch;
+        }
+        if ("affected".equals(bucket)) {
+            return pendingAffectedBatch;
+        }
+        if ("theme".equals(bucket)) {
+            return pendingThemeBatch;
+        }
+        return null;
+    }
+
+    private static void scheduleRefreshBatch(
+        final Context appContext,
+        RefreshBatch incomingBatch,
+        long delayMs,
+        final String bucket
+    ) {
+        if (appContext == null || incomingBatch == null) {
+            return;
+        }
+
+        synchronized (REFRESH_LOCK) {
+            final RefreshBatch aggregateBatch;
+            if ("same-kind".equals(bucket)) {
+                pendingSameKindBatch.merge(incomingBatch);
+                aggregateBatch = pendingSameKindBatch;
+            } else if ("affected".equals(bucket)) {
+                pendingAffectedBatch.merge(incomingBatch);
+                aggregateBatch = pendingAffectedBatch;
+            } else if ("theme".equals(bucket)) {
+                pendingThemeBatch.merge(incomingBatch);
+                aggregateBatch = pendingThemeBatch;
+            } else {
+                pendingImmediateBatch.merge(incomingBatch);
+                aggregateBatch = pendingImmediateBatch;
+            }
+
+            Runnable pendingRunnable = getPendingRunnableForBucket(bucket);
+            if (pendingRunnable != null) {
+                REFRESH_HANDLER.removeCallbacks(pendingRunnable);
+            }
+
+            final Runnable[] runnableHolder = new Runnable[1];
+            runnableHolder[0] = new Runnable() {
+                @Override
+                public void run() {
+                    RefreshBatch batchToRun = aggregateBatch;
+                    synchronized (REFRESH_LOCK) {
+                        if (getPendingRunnableForBucket(bucket) != runnableHolder[0]) {
+                            return;
+                        }
+                        setPendingRunnableForBucket(bucket, null);
+                        if ("same-kind".equals(bucket)) {
+                            batchToRun = pendingSameKindBatch;
+                            pendingSameKindBatch = new RefreshBatch();
+                        } else if ("affected".equals(bucket)) {
+                            batchToRun = pendingAffectedBatch;
+                            pendingAffectedBatch = new RefreshBatch();
+                        } else if ("theme".equals(bucket)) {
+                            batchToRun = pendingThemeBatch;
+                            pendingThemeBatch = new RefreshBatch();
+                        } else {
+                            batchToRun = pendingImmediateBatch;
+                            pendingImmediateBatch = new RefreshBatch();
+                        }
+                    }
+                    runRefreshBatch(appContext, batchToRun);
+                }
+            };
+            setPendingRunnableForBucket(bucket, runnableHolder[0]);
+            if (delayMs <= 0L) {
+                REFRESH_HANDLER.post(runnableHolder[0]);
+            } else {
+                REFRESH_HANDLER.postDelayed(runnableHolder[0], delayMs);
+            }
+        }
+    }
+
+    private static void runRefreshBatch(Context context, RefreshBatch batch) {
+        if (context == null || batch == null) {
+            return;
+        }
+
+        Context appContext = context.getApplicationContext();
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
+        if (appWidgetManager == null) {
+            return;
+        }
+
+        Map<String, int[]> widgetIdsByKind =
+            resolveWidgetIdsByKind(appContext, appWidgetManager, batch);
+        if (widgetIdsByKind.isEmpty()) {
+            return;
+        }
+
+        invalidateRenderSourceCache();
+        ControlerStartupTrace.mark(
+            "widget-refresh-batch-start",
+            "reason="
+                + safeText(batch.reason)
+                + " kinds="
+                + widgetIdsByKind.keySet().toString()
+                + " widgetCount="
+                + countWidgetIds(widgetIdsByKind)
+        );
+
+        RenderSource renderSource = loadRenderSource(appContext);
+        for (Map.Entry<String, int[]> entry : widgetIdsByKind.entrySet()) {
+            updateWidgets(
+                appContext,
+                entry.getKey(),
+                entry.getValue(),
+                appWidgetManager,
+                renderSource
+            );
+        }
+        ControlerStartupTrace.mark(
+            "widget-refresh-batch-done",
+            "reason="
+                + safeText(batch.reason)
+                + " kinds="
+                + widgetIdsByKind.keySet().toString()
+                + " widgetCount="
+                + countWidgetIds(widgetIdsByKind)
+        );
+    }
+
+    private static Map<String, int[]> resolveWidgetIdsByKind(
+        Context context,
+        AppWidgetManager appWidgetManager,
+        RefreshBatch batch
+    ) {
+        Map<String, Set<Integer>> widgetIdsByKind = new HashMap<>();
+        Set<String> requestedKinds = new HashSet<>();
+        if (batch.refreshAll) {
+            requestedKinds.addAll(ControlerWidgetKinds.allKinds());
+        } else {
+            requestedKinds.addAll(batch.kinds);
+        }
+
+        for (String kind : requestedKinds) {
+            String normalizedKind = ControlerWidgetKinds.normalize(kind);
+            if (TextUtils.isEmpty(normalizedKind)) {
+                continue;
+            }
+            ComponentName componentName =
+                ControlerWidgetKinds.componentNameForKind(context, normalizedKind);
+            if (componentName == null) {
+                continue;
+            }
+            int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+            if (appWidgetIds == null || appWidgetIds.length == 0) {
+                continue;
+            }
+            Set<Integer> bucket = new HashSet<>();
+            for (int appWidgetId : appWidgetIds) {
+                bucket.add(appWidgetId);
+            }
+            widgetIdsByKind.put(normalizedKind, bucket);
+        }
+
+        if (!batch.widgetIds.isEmpty()) {
+            for (int appWidgetId : batch.widgetIds) {
+                String kind = findWidgetKindForId(context, appWidgetManager, appWidgetId);
+                if (TextUtils.isEmpty(kind)) {
+                    continue;
+                }
+                Set<Integer> bucket = widgetIdsByKind.get(kind);
+                if (bucket == null) {
+                    bucket = new HashSet<>();
+                    widgetIdsByKind.put(kind, bucket);
+                }
+                bucket.add(appWidgetId);
+            }
+        }
+
+        Map<String, int[]> resolved = new HashMap<>();
+        for (Map.Entry<String, Set<Integer>> entry : widgetIdsByKind.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            int[] ids = new int[entry.getValue().size()];
+            int cursor = 0;
+            for (Integer id : entry.getValue()) {
+                ids[cursor] = id == null ? AppWidgetManager.INVALID_APPWIDGET_ID : id;
+                cursor += 1;
+            }
+            resolved.put(entry.getKey(), ids);
+        }
+        return resolved;
+    }
+
+    private static String findWidgetKindForId(
+        Context context,
+        AppWidgetManager appWidgetManager,
+        int appWidgetId
+    ) {
+        if (context == null || appWidgetManager == null) {
+            return "";
+        }
+
+        for (String kind : ControlerWidgetKinds.allKinds()) {
+            ComponentName componentName =
+                ControlerWidgetKinds.componentNameForKind(context, kind);
+            if (componentName == null) {
+                continue;
+            }
+            int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+            if (appWidgetIds == null) {
+                continue;
+            }
+            for (int currentId : appWidgetIds) {
+                if (currentId == appWidgetId) {
+                    return kind;
+                }
+            }
+        }
+        return "";
+    }
+
+    private static int countWidgetIds(Map<String, int[]> widgetIdsByKind) {
+        int total = 0;
+        if (widgetIdsByKind == null) {
+            return 0;
+        }
+        for (int[] ids : widgetIdsByKind.values()) {
+            total += ids == null ? 0 : ids.length;
+        }
+        return total;
+    }
+
+    public static void invalidateRenderSourceCache() {
+        synchronized (RENDER_STATE_LOCK) {
+            lastRenderSourceLoadedAtMs = 0L;
+            lastRenderSource = null;
+        }
+    }
+
     private static RenderSource loadRenderSource(Context context) {
+        long now = System.currentTimeMillis();
+        synchronized (RENDER_STATE_LOCK) {
+            if (
+                lastRenderSource != null
+                    && now - lastRenderSourceLoadedAtMs <= RENDER_SOURCE_CACHE_TTL_MS
+            ) {
+                return lastRenderSource;
+            }
+        }
+
         RenderSource renderSource = new RenderSource();
         if (context == null) {
             return renderSource;
@@ -353,6 +816,11 @@ public final class ControlerWidgetRenderer {
             renderSource.state = ControlerWidgetDataStore.loadFromRoot(renderSource.root);
         } catch (Exception error) {
             error.printStackTrace();
+        }
+
+        synchronized (RENDER_STATE_LOCK) {
+            lastRenderSourceLoadedAtMs = now;
+            lastRenderSource = renderSource;
         }
         return renderSource;
     }
@@ -1755,6 +2223,22 @@ public final class ControlerWidgetRenderer {
                 REFRESH_HANDLER.removeCallbacks(pendingRefreshRunnable);
                 pendingRefreshRunnable = null;
             }
+            if (pendingSameKindRefreshRunnable != null) {
+                REFRESH_HANDLER.removeCallbacks(pendingSameKindRefreshRunnable);
+                pendingSameKindRefreshRunnable = null;
+            }
+            if (pendingAffectedRefreshRunnable != null) {
+                REFRESH_HANDLER.removeCallbacks(pendingAffectedRefreshRunnable);
+                pendingAffectedRefreshRunnable = null;
+            }
+            if (pendingThemeRefreshRunnable != null) {
+                REFRESH_HANDLER.removeCallbacks(pendingThemeRefreshRunnable);
+                pendingThemeRefreshRunnable = null;
+            }
+            pendingImmediateBatch = new RefreshBatch();
+            pendingSameKindBatch = new RefreshBatch();
+            pendingAffectedBatch = new RefreshBatch();
+            pendingThemeBatch = new RefreshBatch();
         }
     }
 

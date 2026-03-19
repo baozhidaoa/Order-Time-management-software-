@@ -219,8 +219,139 @@ let indexPendingDurationCachePersist = false;
 let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
 let indexDeferredWorkspaceHydrationPromise = null;
+let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let indexDeferredHydrationPendingResume = false;
+let indexDeferredRuntimePendingResume = false;
+let indexExternalRefreshPendingResume = false;
+let indexShellVisibilityBound = false;
+const indexExternalStorageRefreshCoordinator =
+  uiTools?.createDeferredRefreshController?.({
+    run: async () => {
+      await refreshIndexFromExternalStorageChange();
+    },
+  }) || null;
+
+function bindIndexShellVisibilityGate() {
+  if (indexShellVisibilityBound) {
+    return;
+  }
+  indexShellVisibilityBound = true;
+  const eventName =
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed";
+  window.addEventListener(eventName, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    const nextActive = detail.active !== false;
+    if (indexShellPageActive === nextActive) {
+      return;
+    }
+
+    indexShellPageActive = nextActive;
+    if (!indexShellPageActive) {
+      return;
+    }
+
+    if (indexExternalRefreshPendingResume) {
+      indexExternalRefreshPendingResume = false;
+      void refreshIndexFromExternalStorageChange();
+    }
+    if (indexDeferredHydrationPendingResume) {
+      indexDeferredHydrationPendingResume = false;
+      if (!indexInitialDataLoaded) {
+        void hydrateIndexInitialForegroundWorkspace().catch((error) => {
+          console.error("恢复记录页首屏工作区失败:", error);
+        });
+      } else {
+        void scheduleIndexDeferredWorkspaceHydration();
+      }
+    }
+    if (indexDeferredRuntimePendingResume) {
+      indexDeferredRuntimePendingResume = false;
+      void ensureIndexDeferredRuntimeLoaded();
+    }
+  });
+}
+
+function getIndexNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function hasIndexChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+  if (typeof uiTools?.hasPeriodOverlap === "function") {
+    return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
+  }
+  const normalizedChanged = Array.isArray(changedPeriodIds)
+    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  const normalizedCurrent = Array.isArray(currentPeriodIds)
+    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  if (!normalizedChanged.length || !normalizedCurrent.length) {
+    return true;
+  }
+  const currentSet = new Set(normalizedCurrent);
+  return normalizedChanged.some((periodId) => currentSet.has(periodId));
+}
+
+function isIndexSerializableEqual(left, right) {
+  if (typeof uiTools?.isSerializableEqual === "function") {
+    return uiTools.isSerializableEqual(left, right);
+  }
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch (error) {
+    return false;
+  }
+}
+
+function shouldRefreshIndexCoreData(nextData = null) {
+  if (!nextData || typeof nextData !== "object") {
+    return true;
+  }
+  return !isIndexSerializableEqual(nextData.projects || [], projects || []);
+}
+
+function shouldRefreshIndexForExternalChange(detail = {}) {
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
+  if (!changedSections.length) {
+    return true;
+  }
+  const recordsChanged = changedSections.includes("records");
+  const coreChanged = changedSections.includes("core");
+  if (!recordsChanged && !coreChanged) {
+    return false;
+  }
+  if (
+    recordsChanged &&
+    hasIndexChangedPeriodOverlap(
+      detail?.changedPeriods?.records || [],
+      indexLoadedRecordPeriodIds,
+    )
+  ) {
+    return true;
+  }
+  if (coreChanged && shouldRefreshIndexCoreData(detail?.data)) {
+    return true;
+  }
+  return false;
+}
 
 function ensureIndexDeferredRuntimeLoaded() {
+  if (!indexShellPageActive) {
+    indexDeferredRuntimePendingResume = true;
+    return Promise.resolve();
+  }
   if (indexDeferredRuntimePromise) {
     return indexDeferredRuntimePromise;
   }
@@ -489,12 +620,16 @@ function commitIndexWorkspaceSnapshot(options = {}) {
 }
 
 async function refreshIndexFromExternalStorageChange() {
+  if (!indexShellPageActive) {
+    indexExternalRefreshPendingResume = true;
+    indexExternalStorageRefreshQueued = false;
+    return;
+  }
   const forceTimerSessionSync = indexExternalStorageRefreshForceTimerSessionSync;
   const changedSections = Array.from(indexExternalStorageRefreshChangedSections);
   indexExternalStorageRefreshQueued = false;
   indexExternalStorageRefreshForceTimerSessionSync = false;
   indexExternalStorageRefreshChangedSections = new Set();
-  uiTools?.closeAllModals?.();
   hideAllProjectSuggestions();
   const includeProjects =
     changedSections.length === 0 || changedSections.includes("core");
@@ -548,20 +683,19 @@ function bindIndexExternalStorageRefresh() {
   }
   indexExternalStorageRefreshBound = true;
   window.addEventListener("controler:storage-data-changed", (event) => {
-    const changedSections = Array.isArray(event?.detail?.changedSections)
-      ? event.detail.changedSections
-      : [];
+    const detail = event?.detail || {};
+    const changedSections = getIndexNormalizedChangedSections(detail.changedSections);
     if (
-      changedSections.length > 0 &&
-      !changedSections.some((section) =>
-        ["records", "core"].includes(String(section || "")),
-      )
+      !shouldRefreshIndexForExternalChange(detail)
     ) {
+      uiTools?.markPerfStage?.("refresh-skipped", {
+        reason: "index-storage-change-irrelevant",
+      });
       return;
     }
     const shouldForceTimerSessionSync =
-      event?.detail?.reason === "import" ||
-      String(event?.detail?.source || "")
+      detail.reason === "import" ||
+      String(detail.source || "")
         .toLowerCase()
         .includes("import");
     if (shouldForceTimerSessionSync) {
@@ -577,6 +711,10 @@ function bindIndexExternalStorageRefresh() {
       return;
     }
     indexExternalStorageRefreshQueued = true;
+    if (indexExternalStorageRefreshCoordinator) {
+      indexExternalStorageRefreshCoordinator.enqueue(detail);
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
@@ -7912,17 +8050,57 @@ function finalizeIndexInitialHydration(options = {}) {
   });
   queueRecordInitialReveal();
   if (scheduleDeferredRuntime) {
+    if (!indexShellPageActive) {
+      indexDeferredRuntimePendingResume = true;
+      return;
+    }
     void ensureIndexDeferredRuntimeLoaded();
   }
 }
 
+async function hydrateIndexInitialForegroundWorkspace() {
+  setIndexLoadingState({
+    active: true,
+    mode: indexInitialDataLoaded ? "inline" : "fullscreen",
+  });
+  try {
+    await hydrateIndexWorkspace({
+      includeProjects: true,
+      includeRecords: true,
+    });
+    uiTools?.markPerfStage?.("first-data-ready", {
+      projectCount: projects.length,
+      recordCount: records.length,
+      periodIds: indexLoadedRecordPeriodIds.slice(),
+    });
+    await commitIndexWorkspaceSnapshot({
+      markFirstCommit: true,
+    });
+    finalizeIndexInitialHydration();
+  } finally {
+    setIndexLoadingState({
+      active: false,
+    });
+  }
+}
+
 function scheduleIndexDeferredWorkspaceHydration() {
+  if (!indexShellPageActive) {
+    indexDeferredHydrationPendingResume = true;
+    return Promise.resolve();
+  }
   if (indexDeferredWorkspaceHydrationPromise) {
     return indexDeferredWorkspaceHydrationPromise;
   }
 
   indexDeferredWorkspaceHydrationPromise = new Promise((resolve, reject) => {
     const startHydration = () => {
+      if (!indexShellPageActive) {
+        indexDeferredWorkspaceHydrationPromise = null;
+        indexDeferredHydrationPendingResume = true;
+        resolve();
+        return;
+      }
       Promise.resolve()
         .then(async () => {
           await hydrateIndexWorkspace({
@@ -7969,6 +8147,7 @@ async function init() {
   });
   try {
     applyIndexDesktopWidgetMode();
+    bindIndexShellVisibilityGate();
     initIndexPrimaryBindings();
     initIndexModalBindings();
     uiTools?.markPerfStage?.("shell-ready", {
@@ -8002,19 +8181,11 @@ async function init() {
     }
 
     queueRecordInitialReveal();
-    await hydrateIndexWorkspace({
-      includeProjects: true,
-      includeRecords: true,
-    });
-    uiTools?.markPerfStage?.("first-data-ready", {
-      projectCount: projects.length,
-      recordCount: records.length,
-      periodIds: indexLoadedRecordPeriodIds.slice(),
-    });
-    await commitIndexWorkspaceSnapshot({
-      markFirstCommit: true,
-    });
-    finalizeIndexInitialHydration();
+    if (!indexShellPageActive) {
+      indexDeferredHydrationPendingResume = true;
+      return;
+    }
+    await hydrateIndexInitialForegroundWorkspace();
   } finally {
     setIndexLoadingState({
       active: false,

@@ -33,6 +33,15 @@ let todoSidebarRuntimePromise = null;
 let todoSidebarRuntimeReady = false;
 let todoSidebarIdleBootstrapQueued = false;
 let pendingTodoSidebarRuntimeOptions = null;
+let planShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let planDeferredBootstrapPendingResume = false;
+let planDeferredRuntimePendingResume = false;
+let todoSidebarIdleBootstrapPendingResume = false;
+let planExternalStorageRefreshPendingResume = false;
+let planCoverageLoadKey = "";
+let planCalendarMountDeferred = false;
+let planShellRefs = null;
+let planShellVisibilityBound = false;
 
 function getReminderTools() {
   reminderTools = window.ControlerReminders || reminderTools || null;
@@ -40,6 +49,10 @@ function getReminderTools() {
 }
 
 function ensurePlanDeferredRuntimeLoaded() {
+  if (!planShellPageActive) {
+    planDeferredRuntimePendingResume = true;
+    return Promise.resolve();
+  }
   if (planDeferredRuntimePromise) {
     return planDeferredRuntimePromise;
   }
@@ -62,6 +75,47 @@ function ensurePlanDeferredRuntimeLoaded() {
     renderPlanGuideCard();
   });
   return planDeferredRuntimePromise;
+}
+
+function bindPlanShellVisibilityGate() {
+  if (planShellVisibilityBound) {
+    return;
+  }
+  planShellVisibilityBound = true;
+  const eventName =
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed";
+  window.addEventListener(eventName, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    const nextActive = detail.active !== false;
+    if (planShellPageActive === nextActive) {
+      return;
+    }
+
+    planShellPageActive = nextActive;
+    if (!planShellPageActive) {
+      return;
+    }
+
+    if (planExternalStorageRefreshPendingResume) {
+      planExternalStorageRefreshPendingResume = false;
+      refreshPlanFromExternalStorageChange();
+    }
+    if (planDeferredBootstrapPendingResume) {
+      planDeferredBootstrapPendingResume = false;
+      scheduleDeferredPlanBootstrap();
+    }
+    if (planDeferredRuntimePendingResume) {
+      planDeferredRuntimePendingResume = false;
+      void ensurePlanDeferredRuntimeLoaded();
+    }
+    if (todoSidebarIdleBootstrapPendingResume) {
+      todoSidebarIdleBootstrapPendingResume = false;
+      scheduleTodoSidebarIdleBootstrap();
+    }
+  });
 }
 
 function isRecurringPlanItem(plan) {
@@ -312,9 +366,17 @@ function scheduleTodoSidebarIdleBootstrap() {
   ) {
     return;
   }
+  if (!planShellPageActive) {
+    todoSidebarIdleBootstrapPendingResume = true;
+    return;
+  }
   todoSidebarIdleBootstrapQueued = true;
   const run = () => {
     todoSidebarIdleBootstrapQueued = false;
+    if (!planShellPageActive) {
+      todoSidebarIdleBootstrapPendingResume = true;
+      return;
+    }
     void ensureTodoSidebarRuntimeLoaded({
       initialView: window.__controlerTodoWidgetView || "todos",
       reason: "idle",
@@ -909,6 +971,89 @@ function bindTableScaleLiveRefresh() {
 }
 
 let planExternalStorageRefreshQueued = false;
+const planExternalStorageRefreshCoordinator =
+  uiTools?.createDeferredRefreshController?.({
+    run: async () => {
+      await refreshPlanFromExternalStorageChange();
+    },
+  }) || null;
+
+function getPlanNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function hasPlanChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+  if (typeof uiTools?.hasPeriodOverlap === "function") {
+    return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
+  }
+  const normalizedChanged = Array.isArray(changedPeriodIds)
+    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  const normalizedCurrent = Array.isArray(currentPeriodIds)
+    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  if (!normalizedChanged.length || !normalizedCurrent.length) {
+    return true;
+  }
+  const currentSet = new Set(normalizedCurrent);
+  return normalizedChanged.some((periodId) => currentSet.has(periodId));
+}
+
+function isPlanSerializableEqual(left, right) {
+  if (typeof uiTools?.isSerializableEqual === "function") {
+    return uiTools.isSerializableEqual(left, right);
+  }
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch (error) {
+    return false;
+  }
+}
+
+function shouldRefreshPlanCoreData(nextData = null) {
+  if (!nextData || typeof nextData !== "object") {
+    return true;
+  }
+  return !isPlanSerializableEqual(nextData.yearlyGoals || {}, yearlyGoals || {});
+}
+
+function shouldRefreshPlanForExternalChange(detail = {}) {
+  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  if (!changedSections.length) {
+    return true;
+  }
+  const planChanged = changedSections.includes("plans");
+  const recurringChanged = changedSections.includes("plansRecurring");
+  const coreChanged = changedSections.includes("core");
+  if (!planChanged && !recurringChanged && !coreChanged) {
+    return false;
+  }
+  if (recurringChanged) {
+    return true;
+  }
+  if (
+    planChanged &&
+    hasPlanChangedPeriodOverlap(
+      detail?.changedPeriods?.plans || [],
+      planLoadedPeriodIds.length ? planLoadedPeriodIds : getPlanPeriodIdsForVisibleView(),
+    )
+  ) {
+    return true;
+  }
+  if (coreChanged && shouldRefreshPlanCoreData(detail?.data)) {
+    return true;
+  }
+  return false;
+}
 
 function renderPlanGuideCard() {
   const container = document.getElementById("plan-guide-card");
@@ -929,8 +1074,12 @@ function renderPlanGuideCard() {
 }
 
 function refreshPlanFromExternalStorageChange() {
+  if (!planShellPageActive) {
+    planExternalStorageRefreshPendingResume = true;
+    planExternalStorageRefreshQueued = false;
+    return;
+  }
   planExternalStorageRefreshQueued = false;
-  uiTools?.closeAllModals?.();
   const requestId = ++planLoadRequestId;
   const runRefresh = async () => {
     if (!planRefreshController) {
@@ -987,21 +1136,21 @@ function refreshPlanFromExternalStorageChange() {
 
 function bindPlanExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
-    const changedSections = Array.isArray(event?.detail?.changedSections)
-      ? event.detail.changedSections
-      : [];
-    if (
-      changedSections.length > 0 &&
-      !changedSections.some((section) =>
-        ["plans", "plansRecurring", "core"].includes(String(section || "")),
-      )
-    ) {
+    const detail = event?.detail || {};
+    if (!shouldRefreshPlanForExternalChange(detail)) {
+      uiTools?.markPerfStage?.("refresh-skipped", {
+        reason: "plan-storage-change-irrelevant",
+      });
       return;
     }
     if (planExternalStorageRefreshQueued) {
       return;
     }
     planExternalStorageRefreshQueued = true;
+    if (planExternalStorageRefreshCoordinator) {
+      planExternalStorageRefreshCoordinator.enqueue(detail);
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
@@ -1631,6 +1780,11 @@ function syncPlannerPanelFromHash(behavior = "auto") {
   }
   const requestedPanel = getRequestedPlannerPanel();
   scrollPlannerToPanel(requestedPanel, behavior);
+  if (requestedPanel === "plans" && planCalendarMountDeferred) {
+    renderCalendarView({
+      skipCoverageCheck: true,
+    });
+  }
   if (
     requestedPanel === "todos" &&
     window.location.hash === "#todo-panel-anchor"
@@ -2040,33 +2194,22 @@ function formatDateForDisplay(dateStr) {
 }
 
 // 渲染日历视图
-function renderPlanShell(options = {}) {
-  planShellRendered = true;
-  renderCalendarView({
-    skipCoverageCheck: true,
-  });
-  if (!todoSidebarRuntimeReady) {
-    renderTodoSidebarPlaceholder({
-      loading: options.todoLoading === true || !!todoSidebarRuntimePromise,
-    });
-  }
-  bindTodoSidebarBootstrapGate();
-  uiTools?.markPerfStage?.("plan-shell-ready", {
-    allowRepeat: true,
-    fromCache: options.fromCache === true,
-    planCount: plans.length,
-    periodIds: planLoadedPeriodIds.slice(),
-  });
-}
-
-function renderCalendarView(options = {}) {
+function ensurePlanShellStructure() {
   const container = document.getElementById("stats-container");
-  if (!container) return;
-  if (!options?.skipCoverageCheck && ensurePlansLoadedForCurrentView()) return;
+  if (!(container instanceof HTMLElement)) {
+    return null;
+  }
+
+  if (
+    planShellRefs &&
+    planShellRefs.host === container &&
+    planShellRefs.calendarContent?.isConnected
+  ) {
+    return planShellRefs;
+  }
 
   container.innerHTML = "";
 
-  // 创建日历容器
   const calendarContainer = document.createElement("div");
   calendarContainer.className = "calendar-container";
   calendarContainer.style.padding = "15px";
@@ -2075,7 +2218,6 @@ function renderCalendarView(options = {}) {
   calendarContainer.style.minWidth = "0";
   calendarContainer.style.boxSizing = "border-box";
 
-  // 创建日历标题和控制按钮
   const calendarHeader = document.createElement("div");
   calendarHeader.className = "plan-calendar-header";
   calendarHeader.style.display = "flex";
@@ -2090,22 +2232,15 @@ function renderCalendarView(options = {}) {
   calendarHeader.style.width = "100%";
   calendarHeader.style.boxSizing = "border-box";
 
-  // 视图切换按钮
   const viewButtons = document.createElement("div");
   viewButtons.className = "plan-view-buttons";
   viewButtons.style.display = "flex";
   viewButtons.style.gap = "10px";
   viewButtons.style.flexWrap = "wrap";
+  viewButtons.appendChild(createViewButton("周视图", "weekly-grid"));
+  viewButtons.appendChild(createViewButton("月视图", "month"));
+  viewButtons.appendChild(createViewButton("年视图", "year"));
 
-  const yearViewBtn = createViewButton("年视图", "year");
-  const monthViewBtn = createViewButton("月视图", "month");
-  const weekViewBtn = createViewButton("周视图", "weekly-grid");
-
-  viewButtons.appendChild(weekViewBtn);
-  viewButtons.appendChild(monthViewBtn);
-  viewButtons.appendChild(yearViewBtn);
-
-  // 当前日期显示
   const currentDateDisplay = document.createElement("div");
   currentDateDisplay.className = "plan-current-date-display";
   currentDateDisplay.style.color = "var(--text-color)";
@@ -2113,7 +2248,6 @@ function renderCalendarView(options = {}) {
   currentDateDisplay.style.fontSize = "18px";
   currentDateDisplay.id = "current-date-display";
 
-  // 导航按钮
   const navButtons = document.createElement("div");
   navButtons.className = "plan-nav-buttons";
   navButtons.style.display = "flex";
@@ -2154,10 +2288,8 @@ function renderCalendarView(options = {}) {
 
   calendarHeader.appendChild(viewButtons);
   calendarHeader.appendChild(dateNavGroup);
-
   calendarContainer.appendChild(calendarHeader);
 
-  // 创建日历内容区域
   const calendarContent = document.createElement("div");
   calendarContent.id = "calendar-content";
   calendarContent.className = "resizable-panel";
@@ -2176,6 +2308,62 @@ function renderCalendarView(options = {}) {
 
   calendarContainer.appendChild(calendarContent);
   container.appendChild(calendarContainer);
+  planShellRefs = {
+    host: container,
+    calendarContainer,
+    calendarContent,
+  };
+  return planShellRefs;
+}
+
+function renderDeferredCalendarPlaceholder(message = "切回计划面板后再加载日历内容") {
+  const shell = ensurePlanShellStructure();
+  const calendarContent = shell?.calendarContent;
+  if (!(calendarContent instanceof HTMLElement)) {
+    return;
+  }
+  calendarContent.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">📅</div>
+      <h3 style="color: var(--text-color)">计划面板已延后挂载</h3>
+      <p style="color: var(--muted-text-color); margin-bottom: 0;">${message}</p>
+    </div>
+  `;
+}
+
+function renderPlanShell(options = {}) {
+  planShellRendered = true;
+  ensurePlanShellStructure();
+  if (options.deferCalendarMount === true) {
+    planCalendarMountDeferred = true;
+    updateCurrentDateDisplay();
+    renderDeferredCalendarPlaceholder();
+  } else {
+    planCalendarMountDeferred = false;
+    renderCalendarView({
+      skipCoverageCheck: true,
+    });
+  }
+  if (!todoSidebarRuntimeReady) {
+    renderTodoSidebarPlaceholder({
+      loading: options.todoLoading === true || !!todoSidebarRuntimePromise,
+    });
+  }
+  bindTodoSidebarBootstrapGate();
+  uiTools?.markPerfStage?.("plan-shell-ready", {
+    allowRepeat: true,
+    fromCache: options.fromCache === true,
+    planCount: plans.length,
+    periodIds: planLoadedPeriodIds.slice(),
+  });
+}
+
+function renderCalendarView(options = {}) {
+  const shell = ensurePlanShellStructure();
+  const contentElement = shell?.calendarContent;
+  if (!(contentElement instanceof HTMLElement)) return;
+  planCalendarMountDeferred = false;
+  if (!options?.skipCoverageCheck && ensurePlansLoadedForCurrentView()) return;
 
   // 更新日期显示并渲染日历内容
   updateCurrentDateDisplay();
@@ -4761,12 +4949,20 @@ function ensurePlansLoadedForCurrentView() {
     return false;
   }
   const neededPeriodIds = getPlanPeriodIdsForVisibleView();
+  const coverageLoadKey = `${currentView}:${neededPeriodIds.join("|")}`;
   const hasCoverage =
     neededPeriodIds.length > 0 &&
     neededPeriodIds.every((periodId) => planLoadedPeriodIds.includes(periodId));
   if (hasCoverage) {
+    if (planCoverageLoadKey === coverageLoadKey) {
+      planCoverageLoadKey = "";
+    }
     return false;
   }
+  if (planCoverageLoadKey === coverageLoadKey) {
+    return true;
+  }
+  planCoverageLoadKey = coverageLoadKey;
   const requestId = ++planLoadRequestId;
   const runRefresh = async () => {
     if (!planRefreshController) {
@@ -4789,6 +4985,9 @@ function ensurePlansLoadedForCurrentView() {
         planInitialDataValidated = true;
       } finally {
         if (requestId === planLoadRequestId) {
+          if (planCoverageLoadKey === coverageLoadKey) {
+            planCoverageLoadKey = "";
+          }
           setPlanLoadingState({
             active: false,
           });
@@ -4819,8 +5018,14 @@ function ensurePlansLoadedForCurrentView() {
         },
       },
     );
+    if (planCoverageLoadKey === coverageLoadKey) {
+      planCoverageLoadKey = "";
+    }
   };
   void runRefresh().catch((error) => {
+    if (planCoverageLoadKey === coverageLoadKey) {
+      planCoverageLoadKey = "";
+    }
     console.error("加载当前视图计划失败:", error);
   });
   return true;
@@ -4934,7 +5139,16 @@ async function loadInitialPlanWorkspace() {
       if (requestId !== planLoadRequestId) {
         return;
       }
-      applyPlanWorkspaceState(snapshot);
+      const dataChanged =
+        !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
+        !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
+        !isPlanSerializableEqual(
+          snapshot?.loadedPeriodIds || [],
+          planLoadedPeriodIds || [],
+        );
+      if (dataChanged) {
+        applyPlanWorkspaceState(snapshot);
+      }
       uiTools?.markPerfStage?.("first-data-ready", {
         periodIds: planLoadedPeriodIds.slice(),
         planCount: plans.length,
@@ -4943,7 +5157,15 @@ async function loadInitialPlanWorkspace() {
         periodIds: planLoadedPeriodIds.slice(),
         planCount: plans.length,
       });
-      renderCalendarView();
+      const calendarContent = document.getElementById("calendar-content");
+      const shouldRenderCalendar =
+        dataChanged ||
+        !planShellRendered ||
+        !(calendarContent instanceof HTMLElement) ||
+        calendarContent.childElementCount === 0;
+      if (shouldRenderCalendar && !planCalendarMountDeferred) {
+        renderCalendarView();
+      }
       planInitialDataLoaded = true;
       planInitialDataValidated = true;
       return;
@@ -4964,7 +5186,16 @@ async function loadInitialPlanWorkspace() {
           if (requestId !== planLoadRequestId) {
             return;
           }
-          applyPlanWorkspaceState(snapshot);
+          const dataChanged =
+            !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
+            !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
+            !isPlanSerializableEqual(
+              snapshot?.loadedPeriodIds || [],
+              planLoadedPeriodIds || [],
+            );
+          if (dataChanged) {
+            applyPlanWorkspaceState(snapshot);
+          }
           uiTools?.markPerfStage?.("first-data-ready", {
             periodIds: planLoadedPeriodIds.slice(),
             planCount: plans.length,
@@ -4973,7 +5204,15 @@ async function loadInitialPlanWorkspace() {
             periodIds: planLoadedPeriodIds.slice(),
             planCount: plans.length,
           });
-          renderCalendarView();
+          const calendarContent = document.getElementById("calendar-content");
+          const shouldRenderCalendar =
+            dataChanged ||
+            !planShellRendered ||
+            !(calendarContent instanceof HTMLElement) ||
+            calendarContent.childElementCount === 0;
+          if (shouldRenderCalendar && !planCalendarMountDeferred) {
+            renderCalendarView();
+          }
           planInitialDataLoaded = true;
           planInitialDataValidated = true;
         },
@@ -5013,10 +5252,19 @@ function scheduleDeferredPlanBootstrap() {
   ) {
     return;
   }
+  if (!planShellPageActive) {
+    planDeferredBootstrapPendingResume = true;
+    return;
+  }
 
   planDeferredBootstrapQueued = true;
   const run = () => {
     planDeferredBootstrapQueued = false;
+    if (!planShellPageActive) {
+      planDeferredBootstrapPendingResume = true;
+      planDeferredRuntimePendingResume = true;
+      return;
+    }
     void loadInitialPlanWorkspace();
     void ensurePlanDeferredRuntimeLoaded();
   };
@@ -5046,6 +5294,9 @@ async function init() {
   const useWidgetLaunchFastPath =
     typeof PLAN_WIDGET_CONTEXT.launchAction === "string" &&
     PLAN_WIDGET_CONTEXT.launchAction.trim().length > 0;
+  const shouldDeferCalendarMount =
+    PLAN_WIDGET_CONTEXT.launchAction === "show-todos" ||
+    PLAN_WIDGET_CONTEXT.launchAction === "show-checkins";
 
   try {
     // 加载主题设置
@@ -5057,6 +5308,7 @@ async function init() {
 
     // 尺寸设置实时联动
     bindTableScaleLiveRefresh();
+    bindPlanShellVisibilityGate();
     initPlanWidgetLaunchAction();
     initGridViewButton();
     bindAddPlanInlineButton();
@@ -5065,6 +5317,7 @@ async function init() {
     const bootstrappedFromSnapshot = bootstrapPlanFromCachedSnapshot();
     renderPlanShell({
       fromCache: bootstrappedFromSnapshot,
+      deferCalendarMount: shouldDeferCalendarMount,
     });
     window.__controlerPlannerMobilePanel = getRequestedPlannerPanel();
     bindPlannerMobileSwipe();
@@ -5087,7 +5340,9 @@ async function init() {
     });
     queuePlanInitialReveal();
 
-    if (!planInitialDataValidated) {
+    if (!planInitialDataValidated && !planShellPageActive) {
+      scheduleDeferredPlanBootstrap();
+    } else if (!planInitialDataValidated) {
       await hydratePlanData();
     } else if (useWidgetLaunchFastPath) {
       scheduleDeferredPlanBootstrap();

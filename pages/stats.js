@@ -245,6 +245,93 @@ const statsViewRefreshScheduler = uiTools?.createFrameScheduler?.(
   { delay: 70 },
 );
 let cachedStatsTimeRecords = null;
+const statsExternalStorageRefreshCoordinator =
+  uiTools?.createDeferredRefreshController?.({
+    run: async () => {
+      refreshStatsFromExternalStorageChange();
+    },
+  }) || null;
+
+function getStatsNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function hasStatsChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+  if (typeof uiTools?.hasPeriodOverlap === "function") {
+    return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
+  }
+  const normalizedChanged = Array.isArray(changedPeriodIds)
+    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  const normalizedCurrent = Array.isArray(currentPeriodIds)
+    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    : [];
+  if (!normalizedChanged.length || !normalizedCurrent.length) {
+    return true;
+  }
+  const currentSet = new Set(normalizedCurrent);
+  return normalizedChanged.some((periodId) => currentSet.has(periodId));
+}
+
+function isStatsSerializableEqual(left, right) {
+  if (typeof uiTools?.isSerializableEqual === "function") {
+    return uiTools.isSerializableEqual(left, right);
+  }
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch (error) {
+    return false;
+  }
+}
+
+function shouldRefreshStatsCoreData(nextData = null) {
+  if (!nextData || typeof nextData !== "object") {
+    return true;
+  }
+  return !isStatsSerializableEqual(nextData.projects || [], projects || []);
+}
+
+function shouldRefreshStatsForExternalChange(detail = {}) {
+  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  if (!changedSections.length) {
+    return true;
+  }
+  const recordsChanged = changedSections.includes("records");
+  const checkinsChanged =
+    changedSections.includes("dailyCheckins") ||
+    changedSections.includes("checkinItems");
+  const coreChanged = changedSections.includes("core");
+  if (!recordsChanged && !checkinsChanged && !coreChanged) {
+    return false;
+  }
+  if (checkinsChanged) {
+    return true;
+  }
+  if (
+    recordsChanged &&
+    hasStatsChangedPeriodOverlap(
+      detail?.changedPeriods?.records || [],
+      statsLoadedRecordPeriodIds.length
+        ? statsLoadedRecordPeriodIds
+        : getExpandedStatsRecordLoadScope(getStatsLoadScope()).periodIds,
+    )
+  ) {
+    return true;
+  }
+  if (coreChanged && shouldRefreshStatsCoreData(detail?.data)) {
+    return true;
+  }
+  return false;
+}
 
 function invalidateStatsDerivedCaches(fields = []) {
   if (fields.includes("records") || fields.includes("projects")) {
@@ -1247,6 +1334,16 @@ function getInitialStatsAnchorForView(viewMode = statsViewMode) {
   return statsRememberedHeatmapRangeUnit === "year"
     ? getHeatmapYearAnchor(today.getFullYear())
     : new Date(today.getFullYear(), today.getMonth(), 1);
+}
+
+function getWidgetLaunchAnchorDate(payload = {}, fallbackDate = getDateOnly(new Date())) {
+  const rawAnchorDate =
+    typeof payload?.widgetAnchorDate === "string" && payload.widgetAnchorDate.trim()
+      ? payload.widgetAnchorDate.trim()
+      : typeof payload?.anchorDate === "string" && payload.anchorDate.trim()
+        ? payload.anchorDate.trim()
+        : "";
+  return getDateOnly(rawAnchorDate) || getDateOnly(fallbackDate) || getDateOnly(new Date());
 }
 
 function normalizeStatsAnchorForView(
@@ -6577,32 +6674,26 @@ let statsExternalStorageRefreshQueued = false;
 
 function refreshStatsFromExternalStorageChange() {
   statsExternalStorageRefreshQueued = false;
-  window.ControlerUI?.closeAllModals?.();
   void refreshStatsRangeData(true);
 }
 
 function bindStatsExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
-    const changedSections = Array.isArray(event?.detail?.changedSections)
-      ? event.detail.changedSections
-      : [];
-    if (
-      changedSections.length > 0 &&
-      !changedSections.some((section) =>
-        [
-          "records",
-          "dailyCheckins",
-          "checkinItems",
-          "core",
-        ].includes(String(section || "")),
-      )
-    ) {
+    const detail = event?.detail || {};
+    if (!shouldRefreshStatsForExternalChange(detail)) {
+      uiTools?.markPerfStage?.("refresh-skipped", {
+        reason: "stats-storage-change-irrelevant",
+      });
       return;
     }
     if (statsExternalStorageRefreshQueued) {
       return;
     }
     statsExternalStorageRefreshQueued = true;
+    if (statsExternalStorageRefreshCoordinator) {
+      statsExternalStorageRefreshCoordinator.enqueue(detail);
+      return;
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
@@ -6630,7 +6721,7 @@ function handleStatsWidgetLaunchAction(payload = {}) {
       statsViewMode = "day-pie";
       statsRememberedGeneralRangeUnit = "day";
       statsRangeState.unit = "day";
-      statsRangeState.anchorDate = getDateOnly(new Date());
+      statsRangeState.anchorDate = getWidgetLaunchAnchorDate(payload);
       break;
     case "show-day-line":
       statsViewMode = "day-line";
@@ -6687,9 +6778,11 @@ function initStatsWidgetLaunchAction() {
     handleStatsWidgetLaunchAction({
       action,
       source: params.get("widgetSource") || "query",
+      widgetAnchorDate: params.get("widgetAnchorDate") || "",
     });
     params.delete("widgetAction");
     params.delete("widgetSource");
+    params.delete("widgetAnchorDate");
     const queryText = params.toString();
     const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
     window.history.replaceState({}, document.title, nextUrl);
