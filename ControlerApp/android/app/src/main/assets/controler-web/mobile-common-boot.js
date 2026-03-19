@@ -1952,11 +1952,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "yearlyGoals",
     "diaryEntries",
     "diaryCategories",
+    "guideState",
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
   ]);
-  const LEGACY_LOCAL_ONLY_THEME_KEYS = Object.freeze([
+  const LEGACY_LOCAL_ONLY_SHARED_KEYS = Object.freeze([
+    "guideState",
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
@@ -1990,7 +1992,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "notifications",
     "planViewState",
     "timerSessionState",
-    "guideState",
     "statsPreferences",
     "projectHierarchyExpansionState",
     "projectTableScale",
@@ -2042,6 +2043,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     yearlyGoals: {},
     diaryEntries: [],
     diaryCategories: [],
+    guideState:
+      guideBundle?.getDefaultGuideState?.() || {
+        bundleVersion: 1,
+        dismissedCardIds: [],
+      },
     customThemes: [],
     builtInThemeOverrides: {},
     selectedTheme: "default",
@@ -2322,12 +2328,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
-  function migrateLegacyLocalOnlyThemeValues(rawState) {
+  function migrateLegacyLocalOnlySharedValues(rawState) {
     const target =
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
         ? rawState
         : {};
-    LEGACY_LOCAL_ONLY_THEME_KEYS.forEach((key) => {
+    LEGACY_LOCAL_ONLY_SHARED_KEYS.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(target, key)) {
         writeRawLocalOnlyValue(key, undefined);
         return;
@@ -2398,7 +2404,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function normalizeState(rawState, metadata = {}) {
-    const sourceState = migrateLegacyLocalOnlyThemeValues(
+    const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
         ? { ...rawState }
         : rawState,
@@ -2452,9 +2458,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } else {
       base.selectedTheme = base.selectedTheme.trim();
     }
+    base.guideState =
+      normalizedGuideState ||
+      guideBundle?.getDefaultGuideState?.() || {
+        bundleVersion: 1,
+        dismissedCardIds: [],
+      };
     if (guideBundle?.shouldSeedGuideBundle?.(guideSource)) {
       base.diaryEntries = guideBundle.buildGuideDiaryEntries();
       base.diaryCategories = [];
+      base.guideState =
+        guideBundle?.getDefaultGuideState?.() || base.guideState;
     } else if (typeof guideBundle?.synchronizeGuideDiaryEntries === "function") {
       base.diaryEntries = guideBundle.synchronizeGuideDiaryEntries(
         base.diaryEntries,
@@ -5460,6 +5474,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function isReactNativeNavigationRuntime(snapshot = getRuntimeSnapshot()) {
+    return (
+      !!snapshot?.nativeBridge?.isReactNativeApp ||
+      snapshot?.runtimeMeta?.runtime === "react-native"
+    );
+  }
+
   function getCurrentPageName() {
     const rawName = window.location.pathname.split("/").pop() || "index.html";
     return String(rawName).replace(/\.html$/i, "") || "index";
@@ -5576,7 +5597,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (
       nativeLaunchPollPending ||
       !snapshot.isNativePlatform ||
-      !snapshot.hasNativeCall
+      !snapshot.hasNativeCall ||
+      isReactNativeNavigationRuntime(snapshot)
     ) {
       return null;
     }
@@ -5605,18 +5627,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
-  window.setTimeout(() => {
-    void pollNativeLaunchAction();
-  }, 80);
-
-  window.addEventListener("focus", () => {
-    void pollNativeLaunchAction();
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
+  if (!isReactNativeNavigationRuntime(initialSnapshot)) {
+    window.setTimeout(() => {
       void pollNativeLaunchAction();
-    }
-  });
+    }, 80);
+
+    window.addEventListener("focus", () => {
+      void pollNativeLaunchAction();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        void pollNativeLaunchAction();
+      }
+    });
+  }
 
   function normalizeAndroidPinSupport(kind, payload = null) {
     const normalizedKind = typeof kind === "string" ? kind.trim() : "";
@@ -8230,9 +8254,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const EXPAND_SURFACE_WIDTH_FACTOR_MIN = 0.4;
   const EXPAND_SURFACE_WIDTH_FACTOR_MAX = 1.5;
   const MODAL_GESTURE_MAX_WIDTH = 690;
-  const MODAL_EDGE_SWIPE_TRIGGER = 24;
-  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 72;
-  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 36;
+  const MODAL_EDGE_SWIPE_TRIGGER = 40;
+  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 56;
+  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 56;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -10656,6 +10680,54 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  function prepareModalOverlay(modal, options = {}) {
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const persistent =
+      options.persistent === true ||
+      modal.dataset?.controlerModalPersistent === "true";
+    const zIndex =
+      Number.isFinite(options.zIndex) && Number(options.zIndex) > 0
+        ? String(Math.round(Number(options.zIndex)))
+        : "";
+    const closeHandler =
+      typeof options.close === "function" ? options.close : null;
+
+    modal.classList.add("modal-overlay");
+    modal.style.position = "fixed";
+    modal.style.top = "0";
+    modal.style.left = "0";
+    modal.style.right = "0";
+    modal.style.bottom = "0";
+    modal.style.inset = "0";
+    modal.style.width = "100vw";
+    modal.style.minHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.height = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.backgroundColor = "var(--overlay-bg)";
+    modal.style.display = options.visible === false ? "none" : "flex";
+    modal.style.alignItems = options.alignItems || "center";
+    modal.style.justifyContent = options.justifyContent || "center";
+    modal.style.overflow = "hidden";
+    modal.style.boxSizing = "border-box";
+    modal.hidden = options.visible === false;
+    if (zIndex) {
+      modal.style.zIndex = zIndex;
+    }
+    if (persistent) {
+      modal.dataset.controlerModalPersistent = "true";
+    }
+    if (closeHandler) {
+      modal.__controlerCloseModal = closeHandler;
+    }
+
+    if (options.append !== false && !modal.isConnected && document.body) {
+      document.body.appendChild(modal);
+    }
+    stopModalContentPropagation(modal);
+    return modal;
+  }
+
   function bindModalAction(modal, selector, handler, options = {}) {
     const button =
       selector instanceof Element
@@ -12735,6 +12807,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     applyAppNavigationVisibility,
     closeModal,
     closeAllModals,
+    prepareModalOverlay,
     stopModalContentPropagation,
     bindModalAction,
     setAccentButtonState,

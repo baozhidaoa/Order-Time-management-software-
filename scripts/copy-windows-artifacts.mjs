@@ -18,6 +18,8 @@ if (displayVersion === semverVersion) {
 
 const distDir = path.join(repoRoot, "dist");
 const expectedPrefix = `Order-${semverVersion}-win-`;
+const displayPrefix = `Order-${displayVersion}-win-`;
+const latestYmlPath = path.join(distDir, "latest.yml");
 
 if (!(await fs.pathExists(distDir))) {
   throw new Error(`未找到 dist 目录: ${distDir}`);
@@ -29,8 +31,13 @@ const windowsArtifacts = entries.filter(
     entry.startsWith(expectedPrefix) &&
     (entry.endsWith(".exe") || entry.endsWith(".exe.blockmap")),
 );
+const displayArtifacts = entries.filter(
+  (entry) =>
+    entry.startsWith(displayPrefix) &&
+    (entry.endsWith(".exe") || entry.endsWith(".exe.blockmap")),
+);
 
-if (windowsArtifacts.length === 0) {
+if (windowsArtifacts.length === 0 && displayArtifacts.length === 0) {
   throw new Error(`未找到 Windows 构建产物，匹配前缀: ${expectedPrefix}`);
 }
 
@@ -42,4 +49,20 @@ for (const entry of windowsArtifacts) {
   );
   await fs.move(sourcePath, targetPath, { overwrite: true });
   console.log(`已整理 Windows 产物到 ${targetPath}`);
+}
+
+if (windowsArtifacts.length === 0 && displayArtifacts.length > 0) {
+  console.log("Windows 构建产物已经是显示版本命名，无需再次重命名。");
+}
+
+if (await fs.pathExists(latestYmlPath)) {
+  const latestYml = await fs.readFile(latestYmlPath, "utf8");
+  const normalized = latestYml.replaceAll(
+    `Order-${semverVersion}-`,
+    `Order-${displayVersion}-`,
+  );
+  if (normalized !== latestYml) {
+    await fs.writeFile(latestYmlPath, normalized, "utf8");
+    console.log(`已更新 latest.yml 中的显示版本引用: ${latestYmlPath}`);
+  }
 }

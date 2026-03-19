@@ -6781,7 +6781,9 @@ function initStatsWidgetLaunchAction() {
       widgetAnchorDate: params.get("widgetAnchorDate") || "",
     });
     params.delete("widgetAction");
+    params.delete("widgetKind");
     params.delete("widgetSource");
+    params.delete("widgetLaunchId");
     params.delete("widgetAnchorDate");
     const queryText = params.toString();
     const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;

@@ -6,10 +6,13 @@ import android.graphics.Color;
 import android.os.Bundle;
 
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
+import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.ReactActivity;
 import com.facebook.react.ReactActivityDelegate;
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint;
 import com.facebook.react.defaults.DefaultReactActivityDelegate;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import androidx.core.view.WindowCompat;
 
@@ -29,6 +32,7 @@ public class MainActivity extends ReactActivity {
         ((MainApplication) application).maybePrewarmReactContext("widget-launch");
       }
     }
+    emitWidgetLaunchActionIfPossible(getIntent());
   }
 
   @Override
@@ -44,6 +48,40 @@ public class MainActivity extends ReactActivity {
         ((MainApplication) application).maybePrewarmReactContext("widget-launch");
       }
     }
+    emitWidgetLaunchActionIfPossible(intent);
+  }
+
+  private void emitWidgetLaunchActionIfPossible(Intent intent) {
+    if (!ControlerWidgetLaunchStore.hasLaunchAction(intent)) {
+      return;
+    }
+
+    Application application = getApplication();
+    if (!(application instanceof MainApplication)) {
+      return;
+    }
+
+    ReactContext reactContext =
+        ((MainApplication) application)
+            .getReactNativeHost()
+            .getReactInstanceManager()
+            .getCurrentReactContext();
+    if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
+      return;
+    }
+
+    WritableNativeMap payload = new WritableNativeMap();
+    payload.putString("page", trimLaunchValue(intent.getStringExtra("widgetPage")));
+    payload.putString("action", trimLaunchValue(intent.getStringExtra("widgetAction")));
+    payload.putString("widgetKind", trimLaunchValue(intent.getStringExtra("widgetKind")));
+    payload.putString("source", "android-widget");
+    reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+        .emit("widgets.launchActionReceived", payload);
+  }
+
+  private String trimLaunchValue(String value) {
+    return value == null ? "" : value.trim();
   }
 
   /**

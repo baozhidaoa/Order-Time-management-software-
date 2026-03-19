@@ -541,6 +541,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   left: 0;
   right: 0;
   bottom: 0;
+  inset: 0;
   width: 100vw;
   min-height: var(--controler-visual-viewport-height, 100dvh);
   height: var(--controler-visual-viewport-height, 100dvh);
@@ -553,6 +554,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   overflow: hidden;
   overscroll-behavior: contain;
   box-sizing: border-box;
+  pointer-events: auto;
 }
 
 .controler-form-modal-overlay {
@@ -568,6 +570,54 @@ body.controler-blocking-overlay-active {
 body.controler-blocking-overlay-active :is(.app-main, .settings-main) {
   overflow: hidden !important;
   overscroll-behavior: none;
+}
+
+body.page-plan.controler-blocking-overlay-active :is(
+    .plan-main,
+    .planner-dashboard,
+    .planner-dashboard[data-pager-mode="mobile"],
+    .weekly-glass-shell,
+    .weekly-glass-scroller,
+    .weekly-grid-size-shell
+  ) {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
+  pointer-events: none !important;
+}
+
+body.page-plan.controler-blocking-overlay-active :is(
+    .modal-overlay,
+    .page-loading-overlay
+  ) {
+  touch-action: none !important;
+}
+
+body.page-plan.controler-blocking-overlay-active :is(
+    .modal-overlay,
+    .page-loading-overlay,
+    .modal-content
+  ) {
+  pointer-events: auto !important;
+}
+
+body.page-plan.controler-blocking-overlay-active .modal-content {
+  touch-action: pan-y !important;
+  overscroll-behavior: contain !important;
+}
+
+body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
+    .planner-dashboard,
+    .planner-dashboard .planner-panel,
+    .weekly-glass-shell,
+    .weekly-glass-scroller,
+    .weekly-grid-size-shell
+  ) {
+  contain: none !important;
+  transform: none !important;
+  will-change: auto !important;
+  backface-visibility: visible !important;
+  -webkit-backface-visibility: visible !important;
 }
 
 body.controler-mobile-runtime .modal-overlay {

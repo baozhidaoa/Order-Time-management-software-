@@ -3,9 +3,9 @@
   const EXPAND_SURFACE_WIDTH_FACTOR_MIN = 0.4;
   const EXPAND_SURFACE_WIDTH_FACTOR_MAX = 1.5;
   const MODAL_GESTURE_MAX_WIDTH = 690;
-  const MODAL_EDGE_SWIPE_TRIGGER = 24;
-  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 72;
-  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 36;
+  const MODAL_EDGE_SWIPE_TRIGGER = 40;
+  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 56;
+  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 56;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -2429,6 +2429,54 @@
     });
   }
 
+  function prepareModalOverlay(modal, options = {}) {
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const persistent =
+      options.persistent === true ||
+      modal.dataset?.controlerModalPersistent === "true";
+    const zIndex =
+      Number.isFinite(options.zIndex) && Number(options.zIndex) > 0
+        ? String(Math.round(Number(options.zIndex)))
+        : "";
+    const closeHandler =
+      typeof options.close === "function" ? options.close : null;
+
+    modal.classList.add("modal-overlay");
+    modal.style.position = "fixed";
+    modal.style.top = "0";
+    modal.style.left = "0";
+    modal.style.right = "0";
+    modal.style.bottom = "0";
+    modal.style.inset = "0";
+    modal.style.width = "100vw";
+    modal.style.minHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.height = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.backgroundColor = "var(--overlay-bg)";
+    modal.style.display = options.visible === false ? "none" : "flex";
+    modal.style.alignItems = options.alignItems || "center";
+    modal.style.justifyContent = options.justifyContent || "center";
+    modal.style.overflow = "hidden";
+    modal.style.boxSizing = "border-box";
+    modal.hidden = options.visible === false;
+    if (zIndex) {
+      modal.style.zIndex = zIndex;
+    }
+    if (persistent) {
+      modal.dataset.controlerModalPersistent = "true";
+    }
+    if (closeHandler) {
+      modal.__controlerCloseModal = closeHandler;
+    }
+
+    if (options.append !== false && !modal.isConnected && document.body) {
+      document.body.appendChild(modal);
+    }
+    stopModalContentPropagation(modal);
+    return modal;
+  }
+
   function bindModalAction(modal, selector, handler, options = {}) {
     const button =
       selector instanceof Element
@@ -4508,6 +4556,7 @@
     applyAppNavigationVisibility,
     closeModal,
     closeAllModals,
+    prepareModalOverlay,
     stopModalContentPropagation,
     bindModalAction,
     setAccentButtonState,

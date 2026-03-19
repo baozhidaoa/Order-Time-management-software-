@@ -6964,7 +6964,9 @@ function initSettingsLaunchAction() {
       source: params.get("widgetSource") || "query",
     });
     params.delete("widgetAction");
+    params.delete("widgetKind");
     params.delete("widgetSource");
+    params.delete("widgetLaunchId");
     const queryText = params.toString();
     const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
     window.history.replaceState({}, document.title, nextUrl);

@@ -1,8 +1,12 @@
 package com.controlerapp.widgets;
 
 import android.appwidget.AppWidgetManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.widget.Toast;
 
@@ -26,8 +30,17 @@ public final class ControlerWidgetActionHandler {
     public static final String COMMAND_TOGGLE_TODO = "toggle-todo";
     public static final String COMMAND_TOGGLE_CHECKIN = "toggle-checkin";
     public static final String COMMAND_REFRESH_WIDGET = "refresh-widget";
+    private static final HandlerThread ACTION_THREAD = createActionThread();
+    private static final Handler ACTION_HANDLER = new Handler(ACTION_THREAD.getLooper());
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     private ControlerWidgetActionHandler() {}
+
+    private static HandlerThread createActionThread() {
+        HandlerThread thread = new HandlerThread("ControlerWidgetActions");
+        thread.start();
+        return thread;
+    }
 
     private static final class ActionResult {
         final boolean ok;
@@ -86,19 +99,56 @@ public final class ControlerWidgetActionHandler {
         }
     }
 
-    public static boolean handleBroadcast(Context context, Intent intent) {
-        if (context == null || intent == null) {
-            return false;
+    public static boolean canHandleBroadcast(Intent intent) {
+        return intent != null && ACTION_EXECUTE.equals(intent.getAction());
+    }
+
+    public static void handleBroadcastAsync(
+        Context context,
+        Intent intent,
+        BroadcastReceiver.PendingResult pendingResult
+    ) {
+        final Context appContext = context == null ? null : context.getApplicationContext();
+        if (appContext == null || !canHandleBroadcast(intent)) {
+            if (pendingResult != null) {
+                pendingResult.finish();
+            }
+            return;
         }
-        if (!ACTION_EXECUTE.equals(intent.getAction())) {
+
+        final Intent intentCopy = new Intent(intent);
+        ACTION_HANDLER.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ActionResult result = execute(appContext, intentCopy);
+                    applyActionResult(appContext, result);
+                } finally {
+                    if (pendingResult != null) {
+                        pendingResult.finish();
+                    }
+                }
+            }
+        });
+    }
+
+    public static boolean handleBroadcast(Context context, Intent intent) {
+        if (context == null || !canHandleBroadcast(intent)) {
             return false;
         }
 
-        ActionResult result = execute(context, intent);
-        if (!TextUtils.isEmpty(result.message)) {
-            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show();
+        ActionResult result = execute(context.getApplicationContext(), intent);
+        applyActionResult(context.getApplicationContext(), result);
+        return true;
+    }
+
+    private static void applyActionResult(Context context, ActionResult result) {
+        if (context == null || result == null) {
+            return;
         }
+
         if (result.ok && result.changed) {
+            ControlerWidgetRenderer.invalidateRenderSourceCache();
             if (result.refreshAll || TextUtils.isEmpty(result.refreshKind)) {
                 ControlerWidgetRenderer.refreshAll(context);
             } else if (result.appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
@@ -111,7 +161,15 @@ public final class ControlerWidgetActionHandler {
                 ControlerWidgetRenderer.refreshKind(context, result.refreshKind);
             }
         }
-        return true;
+
+        if (!TextUtils.isEmpty(result.message)) {
+            MAIN_HANDLER.post(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
     }
 
     private static ActionResult execute(Context context, Intent intent) {

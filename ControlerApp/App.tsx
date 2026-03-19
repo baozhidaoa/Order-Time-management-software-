@@ -3,6 +3,7 @@ import {
   Animated,
   AppState,
   BackHandler,
+  DeviceEventEmitter,
   Dimensions,
   NativeModules,
   PanResponder,
@@ -117,6 +118,13 @@ type LaunchContext = {
   widgetSource: string;
 };
 
+type PendingWidgetLaunchDispatch = {
+  pageKey: AppPageKey;
+  comparableUri: string;
+  launchContext: LaunchContext;
+  queuedAt: number;
+};
+
 type WidgetRefreshPayload = {
   changedSections?: string[];
   widgetKindHint?: string;
@@ -150,8 +158,9 @@ const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 3200 : 2200;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 4200 : 2200;
 const WIDGET_PREWARM_AFTER_READY_MS = 800;
 const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 5000;
+const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 900;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
-const EDGE_BACK_SWIPE_REGION_WIDTH = 20;
+const EDGE_BACK_SWIPE_REGION_WIDTH = 32;
 const EDGE_BACK_SWIPE_MIN_DISTANCE = 72;
 const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 64;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
@@ -316,6 +325,11 @@ function getComparableUrl(value: string | null): string {
 
   try {
     const parsed = new URL(value);
+    parsed.searchParams.delete('widgetAction');
+    parsed.searchParams.delete('widgetKind');
+    parsed.searchParams.delete('widgetSource');
+    parsed.searchParams.delete('widgetLaunchId');
+    parsed.searchParams.delete('widgetAnchorDate');
     parsed.hash = '';
     return parsed.toString();
   } catch {
@@ -385,39 +399,18 @@ function parseLaunchContextFromPayload(
   };
 }
 
-function buildWidgetLaunchHref(
-  pageKey: AppPageKey,
-  context: Pick<LaunchContext, 'widgetAction' | 'widgetKind' | 'widgetSource'>,
-  launchId = '',
+function buildLaunchContextSignature(
+  context: Pick<
+    LaunchContext,
+    'pageKey' | 'widgetAction' | 'widgetKind' | 'widgetSource'
+  >,
 ): string {
-  const page = getPageByKey(pageKey) || APP_PAGES[0];
-  try {
-    const parsed = new URL(
-      page.href,
-      `file:///android_asset/controler-web/${page.href}`,
-    );
-    const widgetAction = String(context.widgetAction || '').trim();
-    const widgetKind = String(context.widgetKind || '').trim();
-    const widgetSource = String(context.widgetSource || '').trim();
-
-    if (widgetAction) {
-      parsed.searchParams.set('widgetAction', widgetAction);
-    }
-    if (widgetKind) {
-      parsed.searchParams.set('widgetKind', widgetKind);
-    }
-    if (widgetAction || widgetKind || widgetSource) {
-      parsed.searchParams.set('widgetSource', widgetSource || 'android-widget');
-    }
-    if (launchId) {
-      parsed.searchParams.set('widgetLaunchId', launchId);
-    }
-
-    const query = parsed.searchParams.toString();
-    return `${page.href}${query ? `?${query}` : ''}`;
-  } catch {
-    return page.href;
-  }
+  return [
+    String(context.pageKey || '').trim(),
+    String(context.widgetAction || '').trim(),
+    String(context.widgetKind || '').trim(),
+    String(context.widgetSource || '').trim(),
+  ].join('|');
 }
 
 function buildWidgetLaunchDispatchScript(
@@ -571,6 +564,15 @@ function App(): JSX.Element {
     widgetAction: '',
     widgetSource: '',
   });
+  const pendingWidgetLaunchDispatchRef =
+    useRef<PendingWidgetLaunchDispatch | null>(null);
+  const lastHandledWidgetLaunchRef = useRef<{
+    signature: string;
+    handledAt: number;
+  }>({
+    signature: '',
+    handledAt: 0,
+  });
   const widgetPrewarmPendingRef = useRef(false);
   const widgetLaunchStartedAtRef = useRef(0);
   const widgetPrimaryReadyAtRef = useRef(0);
@@ -582,6 +584,19 @@ function App(): JSX.Element {
     secondary: '',
     tertiary: '',
   });
+  const postBridgeEventRef = useRef(
+    (
+      _slot: WebViewSlot,
+      _name: string,
+      _payload: Record<string, unknown> = {},
+    ) => {},
+  );
+  const requestPageNavigationRef = useRef(
+    (
+      _payload: Record<string, unknown> = {},
+      _source: NavigationRequestSource = 'bridge',
+    ): NavigationRequestResult => 'noop',
+  );
   const shellLanguageRef = useRef<UiLanguage>(DEFAULT_UI_LANGUAGE);
 
   const [bootError, setBootError] = useState<string | null>(null);
@@ -960,15 +975,17 @@ function App(): JSX.Element {
       priorityPages.push(pageKey);
     });
 
-    const desiredPages = priorityPages.slice(0, 1);
+    const inactiveSlots = WEBVIEW_SLOTS.filter(
+      slot => slot !== activeSlotRef.current,
+    );
+    const desiredPages = priorityPages.slice(
+      0,
+      Math.max(1, inactiveSlots.length || 0),
+    );
     if (desiredPages.length === 0) {
       widgetPrewarmPendingRef.current = false;
       return;
     }
-
-    const inactiveSlots = WEBVIEW_SLOTS.filter(
-      slot => slot !== activeSlotRef.current,
-    );
     const preservedSlots = new Set<WebViewSlot>();
 
     desiredPages.forEach(pageKey => {
@@ -1053,10 +1070,7 @@ function App(): JSX.Element {
       targetUri: string,
     ): {slot: WebViewSlot; needsLoad: boolean} => {
       settleWidgetLaunchWindowIfExpired();
-      const reusableSlots =
-        IS_ANDROID && launchContextRef.current.active
-          ? (['primary', 'secondary'] as WebViewSlot[])
-          : WEBVIEW_SLOTS;
+      const reusableSlots = WEBVIEW_SLOTS;
       const comparableTargetUrl = getComparableUrl(targetUri);
       const cachedTargetSlot = reusableSlots.find(slot => {
         if (slot === currentSlot) {
@@ -1155,7 +1169,7 @@ function App(): JSX.Element {
         return;
       }
       shellVisibilitySignatureRef.current[slot] = signature;
-      postBridgeEvent(slot, 'ui.shell-visibility', payload);
+      postBridgeEventRef.current(slot, 'ui.shell-visibility', payload);
     });
   }, []);
 
@@ -1180,6 +1194,62 @@ function App(): JSX.Element {
       getWebViewRef(slot).current?.injectJavaScript(script);
     },
     [logPerfMetric],
+  );
+
+  const queueWidgetLaunchDispatch = useCallback(
+    (
+      pageKey: AppPageKey,
+      comparableUri: string,
+      launchContext: LaunchContext,
+    ) => {
+      const widgetAction = String(launchContext.widgetAction || '').trim();
+      if (!widgetAction) {
+        pendingWidgetLaunchDispatchRef.current = null;
+        return;
+      }
+
+      pendingWidgetLaunchDispatchRef.current = {
+        pageKey,
+        comparableUri,
+        launchContext: {
+          ...launchContext,
+          pageKey,
+          widgetAction,
+        },
+        queuedAt: Date.now(),
+      };
+    },
+    [],
+  );
+
+  const dispatchQueuedWidgetLaunchIfReady = useCallback(
+    (slot: WebViewSlot, reason = 'queued-dispatch') => {
+      const pendingDispatch = pendingWidgetLaunchDispatchRef.current;
+      if (!pendingDispatch || !pendingDispatch.launchContext.widgetAction) {
+        return false;
+      }
+
+      const slotState = webViewSlotsRef.current[slot];
+      if (!slotState.uri || slotState.pageKey !== pendingDispatch.pageKey) {
+        return false;
+      }
+
+      pendingWidgetLaunchDispatchRef.current = null;
+      dispatchWidgetLaunchActionToSlot(
+        slot,
+        pendingDispatch.pageKey,
+        pendingDispatch.launchContext,
+      );
+      logPerfMetric('launch-action-dispatched', {
+        reason,
+        slot,
+        page: pendingDispatch.pageKey,
+        action: pendingDispatch.launchContext.widgetAction,
+        widgetKind: pendingDispatch.launchContext.widgetKind,
+      });
+      return true;
+    },
+    [dispatchWidgetLaunchActionToSlot, logPerfMetric],
   );
 
   const revealWebView = useCallback(() => {
@@ -1483,6 +1553,146 @@ function App(): JSX.Element {
     }
     return 'intercept';
   };
+  requestPageNavigationRef.current = requestPageNavigation;
+
+  const handleWidgetLaunchContext = useCallback(
+    (launchContext: LaunchContext, reason: string) => {
+      if (!launchContext.active && !launchContext.pageKey) {
+        return false;
+      }
+
+      const signature = buildLaunchContextSignature(launchContext);
+      const lastHandledLaunch = lastHandledWidgetLaunchRef.current;
+      const now = Date.now();
+      if (
+        signature &&
+        signature === lastHandledLaunch.signature &&
+        now - lastHandledLaunch.handledAt < WIDGET_LAUNCH_DEDUP_WINDOW_MS
+      ) {
+        logPerfMetric('launch-action-deduped', {
+          reason,
+          page: launchContext.pageKey,
+          action: launchContext.widgetAction,
+          widgetKind: launchContext.widgetKind,
+        });
+        return false;
+      }
+      lastHandledWidgetLaunchRef.current = {
+        signature,
+        handledAt: now,
+      };
+
+      launchContextRef.current = launchContext;
+      markWidgetLaunchWindow(launchContext);
+
+      const activeState = webViewSlotsRef.current[activeSlotRef.current];
+      const targetPageKey =
+        launchContext.pageKey || activeState.pageKey || APP_PAGES[0].key;
+      const target = resolvePageTarget(activeState.uri, {
+        page: targetPageKey,
+        href: `${targetPageKey}.html`,
+      });
+      const comparableTargetUri = getComparableUrl(target?.uri || null);
+      const shouldDispatchInPlace =
+        !transitionStateRef.current &&
+        !!activeState.uri &&
+        activeState.pageKey === targetPageKey &&
+        !!launchContext.widgetAction &&
+        isPageReadyRef.current;
+
+      if (shouldDispatchInPlace) {
+        pendingWidgetLaunchDispatchRef.current = null;
+        dispatchWidgetLaunchActionToSlot(
+          activeSlotRef.current,
+          targetPageKey,
+          launchContext,
+        );
+        logPerfMetric('launch-action-consumed', {
+          reason,
+          page: targetPageKey,
+          action: launchContext.widgetAction,
+          widgetKind: launchContext.widgetKind,
+          navigationResult: 'inplace-dispatch',
+        });
+        return true;
+      }
+
+      if (!target) {
+        pendingWidgetLaunchDispatchRef.current = null;
+        logPerfMetric('launch-action-consume-failed', {
+          reason,
+          page: targetPageKey,
+          error: 'target-page-unresolved',
+        });
+        return false;
+      }
+
+      if (launchContext.widgetAction) {
+        queueWidgetLaunchDispatch(
+          targetPageKey,
+          comparableTargetUri,
+          launchContext,
+        );
+      } else {
+        pendingWidgetLaunchDispatchRef.current = null;
+      }
+
+      if (activeState.pageKey === targetPageKey) {
+        const queuedActiveDispatch =
+          launchContext.widgetAction && isPageReadyRef.current
+          ? dispatchQueuedWidgetLaunchIfReady(
+              activeSlotRef.current,
+              'active-slot-dispatch',
+            )
+          : false;
+        logPerfMetric('launch-action-consumed', {
+          reason,
+          page: targetPageKey,
+          action: launchContext.widgetAction,
+          widgetKind: launchContext.widgetKind,
+          navigationResult: queuedActiveDispatch
+            ? 'queued-active-dispatch'
+            : launchContext.widgetAction
+              ? 'queued-active'
+              : 'noop',
+        });
+        return queuedActiveDispatch || !!launchContext.widgetAction;
+      }
+
+      const navigationResult = requestPageNavigationRef.current(
+        {
+          page: targetPageKey,
+          href: `${targetPageKey}.html`,
+          direction: getNavigationDirection(activeState.pageKey, targetPageKey),
+        },
+        'bridge',
+      );
+      const dispatchedImmediately = launchContext.widgetAction
+        ? dispatchQueuedWidgetLaunchIfReady(
+            activeSlotRef.current,
+            'cached-slot-dispatch',
+          )
+        : false;
+
+      logPerfMetric('launch-action-consumed', {
+        reason,
+        page: targetPageKey,
+        action: launchContext.widgetAction,
+        widgetKind: launchContext.widgetKind,
+        navigationResult: dispatchedImmediately
+          ? 'cached-dispatch'
+          : navigationResult,
+      });
+      return dispatchedImmediately || navigationResult !== 'noop';
+    },
+    [
+      dispatchQueuedWidgetLaunchIfReady,
+      dispatchWidgetLaunchActionToSlot,
+      logPerfMetric,
+      markWidgetLaunchWindow,
+      queueWidgetLaunchDispatch,
+    ],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -1558,7 +1768,37 @@ function App(): JSX.Element {
     return () => {
       mounted = false;
     };
-  }, [markSlotUsed, markWidgetLaunchWindow, resetWebViewPresentation]);
+  }, [
+    markSlotUsed,
+    markWidgetLaunchWindow,
+    resetWebViewPresentation,
+    shellText,
+  ]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const subscription = DeviceEventEmitter.addListener(
+      'widgets.launchActionReceived',
+      payload => {
+        const launchContext = parseLaunchContextFromPayload(
+          payload && typeof payload === 'object'
+            ? (payload as Record<string, unknown>)
+            : null,
+        );
+        if (!launchContext.active && !launchContext.pageKey) {
+          return;
+        }
+        handleWidgetLaunchContext(launchContext, 'device-event');
+      },
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleWidgetLaunchContext]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -1593,59 +1833,7 @@ function App(): JSX.Element {
         if (!launchContext.active && !launchContext.pageKey) {
           return false;
         }
-
-        launchContextRef.current = launchContext;
-        markWidgetLaunchWindow(launchContext);
-
-        const activeState = webViewSlotsRef.current[activeSlotRef.current];
-        const targetPageKey =
-          launchContext.pageKey || activeState.pageKey || APP_PAGES[0].key;
-        const shouldDispatchInPlace =
-          !transitionStateRef.current &&
-          !!activeState.uri &&
-          activeState.pageKey === targetPageKey &&
-          !!launchContext.widgetAction;
-
-        if (shouldDispatchInPlace) {
-          dispatchWidgetLaunchActionToSlot(
-            activeSlotRef.current,
-            targetPageKey,
-            launchContext,
-          );
-          logPerfMetric('launch-action-consumed', {
-            reason,
-            page: targetPageKey,
-            action: launchContext.widgetAction,
-            widgetKind: launchContext.widgetKind,
-            navigationResult: 'inplace-dispatch',
-          });
-          return true;
-        }
-
-        const navigationResult = requestPageNavigation(
-          {
-            page: targetPageKey,
-            href: buildWidgetLaunchHref(
-              targetPageKey,
-              launchContext,
-              `${Date.now()}`,
-            ),
-            direction: getNavigationDirection(
-              activeState.pageKey,
-              targetPageKey,
-            ),
-          },
-          'bridge',
-        );
-
-        logPerfMetric('launch-action-consumed', {
-          reason,
-          page: targetPageKey,
-          action: launchContext.widgetAction,
-          widgetKind: launchContext.widgetKind,
-          navigationResult,
-        });
-        return navigationResult !== 'noop';
+        return handleWidgetLaunchContext(launchContext, reason);
       } catch (error) {
         logPerfMetric('launch-action-consume-failed', {
           reason,
@@ -1681,10 +1869,8 @@ function App(): JSX.Element {
       subscription.remove();
     };
   }, [
-    dispatchWidgetLaunchActionToSlot,
+    handleWidgetLaunchContext,
     logPerfMetric,
-    markWidgetLaunchWindow,
-    requestPageNavigation,
   ]);
 
   useEffect(() => {
@@ -1767,6 +1953,19 @@ function App(): JSX.Element {
     isPageReady,
     prewarmWidgetLandingPages,
     settleWidgetLaunchWindowIfExpired,
+    transitionState,
+    webViewSlots,
+  ]);
+
+  useEffect(() => {
+    if (!isPageReady || transitionState) {
+      return;
+    }
+    dispatchQueuedWidgetLaunchIfReady(activeSlot, 'active-slot-ready');
+  }, [
+    activeSlot,
+    dispatchQueuedWidgetLaunchIfReady,
+    isPageReady,
     transitionState,
     webViewSlots,
   ]);
@@ -2185,6 +2384,7 @@ function App(): JSX.Element {
     });
     getWebViewRef(slot).current?.injectJavaScript(script);
   }
+  postBridgeEventRef.current = postBridgeEvent;
 
   function isPayloadForCurrentSlot(
     slot: WebViewSlot,
@@ -2261,6 +2461,7 @@ function App(): JSX.Element {
         if (!isPayloadForCurrentSlot(slot, message.payload)) {
           return;
         }
+        dispatchQueuedWidgetLaunchIfReady(slot, 'page-ready');
         if (transitionStateRef.current?.toSlot === slot) {
           startLoadedTransition(slot);
           return;

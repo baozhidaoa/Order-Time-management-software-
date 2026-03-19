@@ -14,7 +14,12 @@ public final class ControlerWidgetProviders {
 
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (ControlerWidgetActionHandler.handleBroadcast(context, intent)) {
+            if (ControlerWidgetActionHandler.canHandleBroadcast(intent)) {
+                ControlerWidgetActionHandler.handleBroadcastAsync(
+                    context,
+                    intent,
+                    goAsync()
+                );
                 return;
             }
             super.onReceive(context, intent);

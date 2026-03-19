@@ -77,11 +77,13 @@
     "yearlyGoals",
     "diaryEntries",
     "diaryCategories",
+    "guideState",
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
   ]);
-  const LEGACY_LOCAL_ONLY_THEME_KEYS = Object.freeze([
+  const LEGACY_LOCAL_ONLY_SHARED_KEYS = Object.freeze([
+    "guideState",
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
@@ -115,7 +117,6 @@
     "notifications",
     "planViewState",
     "timerSessionState",
-    "guideState",
     "statsPreferences",
     "projectHierarchyExpansionState",
     "projectTableScale",
@@ -167,6 +168,11 @@
     yearlyGoals: {},
     diaryEntries: [],
     diaryCategories: [],
+    guideState:
+      guideBundle?.getDefaultGuideState?.() || {
+        bundleVersion: 1,
+        dismissedCardIds: [],
+      },
     customThemes: [],
     builtInThemeOverrides: {},
     selectedTheme: "default",
@@ -447,12 +453,12 @@
     });
   }
 
-  function migrateLegacyLocalOnlyThemeValues(rawState) {
+  function migrateLegacyLocalOnlySharedValues(rawState) {
     const target =
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
         ? rawState
         : {};
-    LEGACY_LOCAL_ONLY_THEME_KEYS.forEach((key) => {
+    LEGACY_LOCAL_ONLY_SHARED_KEYS.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(target, key)) {
         writeRawLocalOnlyValue(key, undefined);
         return;
@@ -523,7 +529,7 @@
   }
 
   function normalizeState(rawState, metadata = {}) {
-    const sourceState = migrateLegacyLocalOnlyThemeValues(
+    const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
         ? { ...rawState }
         : rawState,
@@ -577,9 +583,17 @@
     } else {
       base.selectedTheme = base.selectedTheme.trim();
     }
+    base.guideState =
+      normalizedGuideState ||
+      guideBundle?.getDefaultGuideState?.() || {
+        bundleVersion: 1,
+        dismissedCardIds: [],
+      };
     if (guideBundle?.shouldSeedGuideBundle?.(guideSource)) {
       base.diaryEntries = guideBundle.buildGuideDiaryEntries();
       base.diaryCategories = [];
+      base.guideState =
+        guideBundle?.getDefaultGuideState?.() || base.guideState;
     } else if (typeof guideBundle?.synchronizeGuideDiaryEntries === "function") {
       base.diaryEntries = guideBundle.synchronizeGuideDiaryEntries(
         base.diaryEntries,

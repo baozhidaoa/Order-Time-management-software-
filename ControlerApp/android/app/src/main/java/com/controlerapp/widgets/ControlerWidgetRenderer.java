@@ -58,6 +58,7 @@ public final class ControlerWidgetRenderer {
     private static final long SAME_KIND_REFRESH_DELAY_MS = 300L;
     private static final long AFFECTED_REFRESH_DELAY_MS = 1800L;
     private static final long THEME_REFRESH_DELAY_MS = 2200L;
+    private static final long DEFERRED_PREVIEW_REFRESH_DELAY_MS = 180L;
     private static final String PREVIEW_SIGNATURE_NONE = "preview:none";
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
@@ -187,11 +188,18 @@ public final class ControlerWidgetRenderer {
         final int appWidgetId;
         final WidgetMetrics metrics;
         final String renderKey;
+        final boolean deferPreview;
 
-        PendingWidgetUpdate(int appWidgetId, WidgetMetrics metrics, String renderKey) {
+        PendingWidgetUpdate(
+            int appWidgetId,
+            WidgetMetrics metrics,
+            String renderKey,
+            boolean deferPreview
+        ) {
             this.appWidgetId = appWidgetId;
             this.metrics = metrics;
             this.renderKey = renderKey == null ? "" : renderKey;
+            this.deferPreview = deferPreview;
         }
     }
 
@@ -409,7 +417,6 @@ public final class ControlerWidgetRenderer {
             return;
         }
 
-        invalidateRenderSourceCache();
         Context appContext = context.getApplicationContext();
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
         RenderSource renderSource = loadRenderSource(appContext);
@@ -877,13 +884,19 @@ public final class ControlerWidgetRenderer {
             if (hasSameRenderKey(appWidgetId, renderKey)) {
                 continue;
             }
-            pendingUpdates.add(new PendingWidgetUpdate(appWidgetId, metrics, renderKey));
+            boolean deferPreview =
+                TextUtils.isEmpty(getRememberedRenderKey(appWidgetId))
+                    && shouldShowPreview(normalizedKind, content, metrics);
+            pendingUpdates.add(
+                new PendingWidgetUpdate(appWidgetId, metrics, renderKey, deferPreview)
+            );
         }
 
         if (pendingUpdates.isEmpty()) {
             return;
         }
 
+        final List<Integer> deferredPreviewWidgetIds = new ArrayList<>();
         for (PendingWidgetUpdate pendingUpdate : pendingUpdates) {
             RemoteViews remoteViews;
             try {
@@ -891,7 +904,7 @@ public final class ControlerWidgetRenderer {
                     normalizedKind,
                     content,
                     pendingUpdate.metrics
-                )
+                ) && !pendingUpdate.deferPreview
                     ? resolvePreviewBitmap(
                         context,
                         normalizedKind,
@@ -931,7 +944,34 @@ public final class ControlerWidgetRenderer {
                 continue;
             }
             appWidgetManager.updateAppWidget(pendingUpdate.appWidgetId, remoteViews);
-            rememberRenderKey(pendingUpdate.appWidgetId, pendingUpdate.renderKey);
+            rememberRenderKey(
+                pendingUpdate.appWidgetId,
+                pendingUpdate.deferPreview
+                    ? pendingUpdate.renderKey + "|preview-pending"
+                    : pendingUpdate.renderKey
+            );
+            if (pendingUpdate.deferPreview) {
+                deferredPreviewWidgetIds.add(pendingUpdate.appWidgetId);
+            }
+        }
+
+        if (!deferredPreviewWidgetIds.isEmpty()) {
+            final Context appContext = context.getApplicationContext();
+            final int[] deferredIds = toIntArray(deferredPreviewWidgetIds);
+            REFRESH_HANDLER.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    AppWidgetManager nextAppWidgetManager = AppWidgetManager.getInstance(appContext);
+                    RenderSource deferredRenderSource = loadRenderSource(appContext);
+                    updateWidgets(
+                        appContext,
+                        normalizedKind,
+                        deferredIds,
+                        nextAppWidgetManager,
+                        deferredRenderSource
+                    );
+                }
+            }, DEFERRED_PREVIEW_REFRESH_DELAY_MS);
         }
     }
 
@@ -2211,10 +2251,28 @@ public final class ControlerWidgetRenderer {
         }
     }
 
+    private static String getRememberedRenderKey(int appWidgetId) {
+        synchronized (RENDER_STATE_LOCK) {
+            String renderKey = LAST_RENDER_KEYS.get(appWidgetId);
+            return renderKey == null ? "" : renderKey;
+        }
+    }
+
     private static void rememberRenderKey(int appWidgetId, String renderKey) {
         synchronized (RENDER_STATE_LOCK) {
             LAST_RENDER_KEYS.put(appWidgetId, renderKey == null ? "" : renderKey);
         }
+    }
+
+    private static int[] toIntArray(List<Integer> values) {
+        if (values == null || values.isEmpty()) {
+            return new int[0];
+        }
+        int[] result = new int[values.size()];
+        for (int index = 0; index < values.size(); index++) {
+            result[index] = values.get(index) == null ? 0 : values.get(index);
+        }
+        return result;
     }
 
     private static void cancelPendingRefresh() {

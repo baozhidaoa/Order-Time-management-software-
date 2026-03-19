@@ -177,6 +177,13 @@
     };
   }
 
+  function isReactNativeNavigationRuntime(snapshot = getRuntimeSnapshot()) {
+    return (
+      !!snapshot?.nativeBridge?.isReactNativeApp ||
+      snapshot?.runtimeMeta?.runtime === "react-native"
+    );
+  }
+
   function getCurrentPageName() {
     const rawName = window.location.pathname.split("/").pop() || "index.html";
     return String(rawName).replace(/\.html$/i, "") || "index";
@@ -293,7 +300,8 @@
     if (
       nativeLaunchPollPending ||
       !snapshot.isNativePlatform ||
-      !snapshot.hasNativeCall
+      !snapshot.hasNativeCall ||
+      isReactNativeNavigationRuntime(snapshot)
     ) {
       return null;
     }
@@ -322,18 +330,20 @@
     });
   }
 
-  window.setTimeout(() => {
-    void pollNativeLaunchAction();
-  }, 80);
-
-  window.addEventListener("focus", () => {
-    void pollNativeLaunchAction();
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
+  if (!isReactNativeNavigationRuntime(initialSnapshot)) {
+    window.setTimeout(() => {
       void pollNativeLaunchAction();
-    }
-  });
+    }, 80);
+
+    window.addEventListener("focus", () => {
+      void pollNativeLaunchAction();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        void pollNativeLaunchAction();
+      }
+    });
+  }
 
   function normalizeAndroidPinSupport(kind, payload = null) {
     const normalizedKind = typeof kind === "string" ? kind.trim() : "";

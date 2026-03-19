@@ -460,6 +460,27 @@ function planOccursOnDateCached(plan, dateText) {
 function localizePlanUiText(value) {
   return window.ControlerI18n?.translateUiText?.(String(value ?? "")) || String(value ?? "");
 }
+
+function preparePlanModalOverlay(modal, options = {}) {
+  if (!(modal instanceof HTMLElement)) {
+    return null;
+  }
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    return uiTools.prepareModalOverlay(modal, options);
+  }
+  if (typeof options.close === "function") {
+    modal.__controlerCloseModal = options.close;
+  }
+  if (options.persistent === true) {
+    modal.dataset.controlerModalPersistent = "true";
+  }
+  if (options.append !== false && !modal.isConnected && document.body) {
+    document.body.appendChild(modal);
+  }
+  uiTools?.stopModalContentPropagation?.(modal);
+  return modal;
+}
+
 const PLAN_WIDGET_CONTEXT = (() => {
   let params = null;
   try {
@@ -2975,8 +2996,10 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
     });
   };
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  preparePlanModalOverlay(modal, {
+    close: closeModalSafely,
+    zIndex: 2100,
+  });
 
   const yearGoalTitleInput = modal.querySelector("#year-goal-title-input");
   const yearGoalDescriptionInput = modal.querySelector(
@@ -4090,8 +4113,9 @@ function showWeeklyGridPlanModal(planData = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  preparePlanModalOverlay(modal, {
+    zIndex: 2000,
+  });
 
   // 显示/隐藏每周重复详细设置
   const weeklyRadio = modal.querySelector(
@@ -4157,6 +4181,7 @@ function showWeeklyGridPlanModal(planData = null) {
       modal.parentNode.removeChild(modal);
     }
   };
+  modal.__controlerCloseModal = closeWeeklyPlanModal;
 
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(
@@ -4522,8 +4547,9 @@ function showPlanEditModal(planData = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  preparePlanModalOverlay(modal, {
+    zIndex: 2000,
+  });
 
   const repeatRadios = modal.querySelectorAll('input[name="plan-repeat"]');
   const repeatDaysWrap = modal.querySelector("#plan-repeat-days-wrap");
@@ -4548,6 +4574,7 @@ function showPlanEditModal(planData = null) {
       modal.parentNode.removeChild(modal);
     }
   };
+  modal.__controlerCloseModal = closePlanModal;
 
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(modal, "#cancel-plan-btn", closePlanModal);
@@ -4776,8 +4803,9 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  preparePlanModalOverlay(modal, {
+    zIndex: 2000,
+  });
 
   // 绑定事件
   const closeDetailModal = () => {
@@ -4787,6 +4815,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       modal.parentNode.removeChild(modal);
     }
   };
+  modal.__controlerCloseModal = closeDetailModal;
 
   const editPlanAction = () => {
     closeDetailModal();
@@ -5109,7 +5138,9 @@ function initPlanWidgetLaunchAction() {
       source: params.get("widgetSource") || "query",
     });
     params.delete("widgetAction");
+    params.delete("widgetKind");
     params.delete("widgetSource");
+    params.delete("widgetLaunchId");
     const queryText = params.toString();
     const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
     window.history.replaceState({}, document.title, nextUrl);

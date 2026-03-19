@@ -4912,12 +4912,24 @@ function initIndexPrimaryBindings() {
   if (timerModal) {
     timerModal.__controlerCloseModal = () => closeModal();
     timerModal.hidden = timerModal.style.display === "none";
+    uiTools?.prepareModalOverlay?.(timerModal, {
+      append: false,
+      persistent: true,
+      visible: !timerModal.hidden,
+      close: () => closeModal(),
+    });
   }
 
   const advancedModalRoot = document.getElementById("advanced-modal-overlay");
   if (advancedModalRoot) {
     advancedModalRoot.__controlerCloseModal = () => closeAdvancedModal();
     advancedModalRoot.hidden = advancedModalRoot.style.display === "none";
+    uiTools?.prepareModalOverlay?.(advancedModalRoot, {
+      append: false,
+      persistent: true,
+      visible: !advancedModalRoot.hidden,
+      close: () => closeAdvancedModal(),
+    });
   }
 
   const spendBtn = document.getElementById("spend");
@@ -9123,7 +9135,9 @@ function initIndexWidgetLaunchAction() {
       source: params.get("widgetSource") || "query",
     });
     params.delete("widgetAction");
+    params.delete("widgetKind");
     params.delete("widgetSource");
+    params.delete("widgetLaunchId");
     const queryText = params.toString();
     const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
     window.history.replaceState({}, document.title, nextUrl);
