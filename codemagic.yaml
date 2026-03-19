@@ -43,38 +43,18 @@ workflows:
       scripts:
         - name: Upload macOS artifacts to GitHub release
           script: |
-            #!/usr/bin/env bash
-            set -euo pipefail
-
-            if [[ -z "${CM_TAG:-}" ]]; then
+            if [ -z "${CM_TAG:-}" ]; then
               echo "Not a tag build, skipping GitHub release upload."
               exit 0
             fi
 
-            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-              echo "Missing GITHUB_TOKEN in Codemagic."
-              exit 1
-            fi
-
-            export GH_TOKEN="$GITHUB_TOKEN"
-
-            if ! gh release view "${CM_TAG}" >/dev/null 2>&1; then
-              gh release create "${CM_TAG}" \
-                --title "Order ${CM_TAG}" \
-                --notes "Automated release for ${CM_TAG}" || true
-            fi
-
-            mapfile -d '' mac_artifacts < <(
-              find "$CM_BUILD_DIR/dist" -maxdepth 1 -type f \
-                \( -name '*.dmg' -o -name '*.zip' \) -print0
-            )
-
-            if [[ ${#mac_artifacts[@]} -eq 0 ]]; then
-              echo "No macOS artifacts were found in dist/."
-              exit 1
-            fi
-
-            gh release upload "${CM_TAG}" "${mac_artifacts[@]}" --clobber
+            cd "$CM_BUILD_DIR"
+            node scripts/upload-github-release-assets.mjs \
+              --repo "baozhidaoa/Order-Time-management-software-" \
+              --tag "$CM_TAG" \
+              --dir "$CM_BUILD_DIR/dist" \
+              --ext ".dmg" \
+              --ext ".zip"
 
   ios_internal_testflight:
     name: iOS Internal TestFlight
@@ -166,35 +146,14 @@ workflows:
       scripts:
         - name: Upload iOS artifacts to GitHub release
           script: |
-            #!/usr/bin/env bash
-            set -euo pipefail
-
-            if [[ -z "${CM_TAG:-}" ]]; then
+            if [ -z "${CM_TAG:-}" ]; then
               echo "Not a tag build, skipping GitHub release upload."
               exit 0
             fi
 
-            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-              echo "Missing GITHUB_TOKEN in Codemagic."
-              exit 1
-            fi
-
-            export GH_TOKEN="$GITHUB_TOKEN"
-
-            if ! gh release view "${CM_TAG}" >/dev/null 2>&1; then
-              gh release create "${CM_TAG}" \
-                --title "Order ${CM_TAG}" \
-                --notes "Automated release for ${CM_TAG}" || true
-            fi
-
-            mapfile -d '' ios_artifacts < <(
-              find "$CM_BUILD_DIR/ControlerApp/build/ios/ipa" -maxdepth 1 -type f \
-                -name '*.ipa' -print0
-            )
-
-            if [[ ${#ios_artifacts[@]} -eq 0 ]]; then
-              echo "No iOS ipa artifacts were found in ControlerApp/build/ios/ipa."
-              exit 1
-            fi
-
-            gh release upload "${CM_TAG}" "${ios_artifacts[@]}" --clobber
+            cd "$CM_BUILD_DIR"
+            node scripts/upload-github-release-assets.mjs \
+              --repo "baozhidaoa/Order-Time-management-software-" \
+              --tag "$CM_TAG" \
+              --dir "$CM_BUILD_DIR/ControlerApp/build/ios/ipa" \
+              --ext ".ipa"
