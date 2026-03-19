@@ -11,6 +11,10 @@ Order is a local-first time management app for time tracking, statistics, planni
 > Screenshots below use demo data only. No personal records are included.
 >
 > 下方截图均为演示数据，不包含任何个人记录。
+>
+> The screenshots use the `Champagne Sandstone` and `Obsidian Black` themes.
+>
+> 这些截图使用了 `香槟砂岩` 与 `曜石黑` 两套主题。
 
 ## Screenshots / 截图
 

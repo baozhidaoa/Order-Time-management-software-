@@ -36,6 +36,18 @@ async function execute(windowRef, script) {
   return windowRef.webContents.executeJavaScript(script, true);
 }
 
+async function setTheme(windowRef, themeId) {
+  await execute(
+    windowRef,
+    `(() => {
+      localStorage.setItem("selectedTheme", ${JSON.stringify(themeId)});
+      window.dispatchEvent(new Event("controler:storage-data-changed"));
+      return document.documentElement.getAttribute("data-theme") || "";
+    })();`,
+  );
+  await wait(250);
+}
+
 async function capture(windowRef, outputPath, rectScript = "") {
   let rect = null;
   if (rectScript) {
@@ -93,6 +105,7 @@ async function primeSharedDemoData(windowRef) {
 
       storage?.setItem?.("statsPreferences", nextPreferences);
       storage?.setItem?.("appLanguage", "zh-CN");
+      storage?.setItem?.("selectedTheme", "champagne-sandstone");
       return {
         projects: Array.isArray(currentState?.projects) ? currentState.projects.length : 0,
         records: Array.isArray(currentState?.records) ? currentState.records.length : 0,
@@ -242,15 +255,19 @@ async function generateReadmeScreenshots({ BrowserWindow, baseDir }) {
   try {
     await primeSharedDemoData(windowRef);
 
+    await setTheme(windowRef, "champagne-sandstone");
     await loadPage(windowRef, path.join(pagesDir, "index.html"), 1200);
     await capture(windowRef, path.join(outputDir, "record-overview-demo.png"));
 
+    await setTheme(windowRef, "obsidian-mono");
     await configureStatsPage(windowRef);
     await capture(windowRef, path.join(outputDir, "stats-table-demo.png"));
 
+    await setTheme(windowRef, "champagne-sandstone");
     await configurePlanPage(windowRef);
     await capture(windowRef, path.join(outputDir, "plan-dashboard-demo.png"));
 
+    await setTheme(windowRef, "obsidian-mono");
     await configureSettingsPage(windowRef);
     await capture(windowRef, path.join(outputDir, "settings-language-demo.png"));
   } finally {
