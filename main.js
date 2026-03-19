@@ -490,8 +490,8 @@ function saveStorageData(data) {
   return storageManager.saveStorageData(data);
 }
 
-async function saveStorageSnapshot(data) {
-  return storageManager.saveStorageSnapshot(data);
+async function saveStorageSnapshot(data, options = {}) {
+  return storageManager.saveStorageSnapshot(data, options);
 }
 
 async function flushStorageSnapshot() {
@@ -1326,8 +1326,8 @@ function setupIpcHandlers() {
     return saveStorageData(data);
   });
 
-  ipcMain.handle("storage:saveSnapshot", async (event, data) => {
-    return saveStorageSnapshot(data);
+  ipcMain.handle("storage:saveSnapshot", async (event, data, options = {}) => {
+    return saveStorageSnapshot(data, options);
   });
 
   ipcMain.on("storage:saveSync", (event, data) => {
@@ -1365,6 +1365,10 @@ function setupIpcHandlers() {
 
   ipcMain.handle("storage:getCoreState", async () => {
     return getStorageCoreState();
+  });
+
+  ipcMain.on("storage:replaceCoreStateSync", (event, partialCore, options = {}) => {
+    event.returnValue = replaceStorageCoreState(partialCore, options);
   });
 
   ipcMain.handle("storage:loadSectionRange", async (event, section, scope) => {

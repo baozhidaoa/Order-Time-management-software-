@@ -1626,8 +1626,9 @@ function shouldRefreshPlanForExternalChange(detail = {}) {
   }
   const planChanged = changedSections.includes("plans");
   const recurringChanged = changedSections.includes("plansRecurring");
-  const coreChanged = changedSections.includes("core");
-  if (!planChanged && !recurringChanged && !coreChanged) {
+  const yearlyGoalsChanged =
+    changedSections.includes("yearlyGoals") || changedSections.includes("core");
+  if (!planChanged && !recurringChanged && !yearlyGoalsChanged) {
     return false;
   }
   if (recurringChanged) {
@@ -1642,7 +1643,7 @@ function shouldRefreshPlanForExternalChange(detail = {}) {
   ) {
     return true;
   }
-  if (coreChanged && shouldRefreshPlanCoreData(detail?.data)) {
+  if (yearlyGoalsChanged && shouldRefreshPlanCoreData(detail?.data)) {
     return true;
   }
   return false;
@@ -1666,6 +1667,30 @@ function renderPlanGuideCard() {
   window.ControlerGuideUI.renderCard(container, guideCard);
 }
 
+function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
+  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  const todoRelatedChanged =
+    changedSections.includes("todos") ||
+    changedSections.includes("checkinItems") ||
+    changedSections.includes("dailyCheckins") ||
+    changedSections.includes("checkins") ||
+    changedSections.includes("core");
+  if (!todoRelatedChanged) {
+    return false;
+  }
+  if (
+    !todoSidebarRuntimeReady ||
+    typeof window.ControlerTodoRuntime?.initPlanSidebar !== "function"
+  ) {
+    return false;
+  }
+  window.ControlerTodoRuntime.initPlanSidebar({
+    initialView: window.__controlerTodoWidgetView || "todos",
+    persistWidgetView: true,
+  });
+  return true;
+}
+
 function refreshPlanFromExternalStorageChange() {
   if (!planShellPageActive) {
     planExternalStorageRefreshPendingResume = true;
@@ -1678,8 +1703,12 @@ function refreshPlanFromExternalStorageChange() {
     if (!planRefreshController) {
       setPlanLoadingState({
         active: true,
-        mode: getPlanLoadingMode(),
-        delayMs: getPlanLoadingDelayMs(),
+        mode: getPlanLoadingMode({
+          blocking: true,
+        }),
+        delayMs: getPlanLoadingDelayMs({
+          blocking: true,
+        }),
         message: "正在同步最新计划数据，请稍候",
       });
       try {
@@ -1704,9 +1733,13 @@ function refreshPlanFromExternalStorageChange() {
     await planRefreshController.run(
       () => readPlanWorkspace(),
       {
-        delayMs: getPlanLoadingDelayMs(),
+        delayMs: getPlanLoadingDelayMs({
+          blocking: true,
+        }),
         loadingOptions: {
-          mode: getPlanLoadingMode(),
+          mode: getPlanLoadingMode({
+            blocking: true,
+          }),
           message: "正在同步最新计划数据，请稍候",
         },
         commit: async (snapshot) => {
@@ -1730,6 +1763,11 @@ function refreshPlanFromExternalStorageChange() {
 function bindPlanExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
+    const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+    if (changedSections.includes("guideState")) {
+      renderPlanGuideCard();
+    }
+    refreshPlanTodoSidebarFromExternalChange(detail);
     if (!shouldRefreshPlanForExternalChange(detail)) {
       uiTools?.markPerfStage?.("refresh-skipped", {
         reason: "plan-storage-change-irrelevant",
@@ -2165,11 +2203,16 @@ let planInitialRevealQueued = false;
 
 function queuePlanInitialReveal() {
   const body = document.body;
-  if (
-    !(body instanceof HTMLElement) ||
-    !body.classList.contains("plan-bootstrap-pending") ||
-    planInitialRevealQueued
-  ) {
+  if (!(body instanceof HTMLElement) || planInitialRevealQueued) {
+    return;
+  }
+  if (!planInitialDataValidated) {
+    return;
+  }
+  if (!body.classList.contains("plan-bootstrap-pending")) {
+    planShellReady = true;
+    uiTools?.markNativePageReady?.();
+    scheduleTodoSidebarIdleBootstrap();
     return;
   }
 
@@ -2208,11 +2251,17 @@ function getPlanLoadingOverlayController() {
   return planLoadingOverlayController;
 }
 
-function getPlanLoadingMode() {
+function getPlanLoadingMode(options = {}) {
+  if (!planInitialDataValidated || options?.blocking === true) {
+    return "fullscreen";
+  }
   return planShellRendered ? "inline" : "fullscreen";
 }
 
-function getPlanLoadingDelayMs() {
+function getPlanLoadingDelayMs(options = {}) {
+  if (!planInitialDataValidated || options?.blocking === true) {
+    return 0;
+  }
   return planShellRendered ? PLAN_LOADING_OVERLAY_DELAY_MS : 0;
 }
 
@@ -5569,8 +5618,12 @@ function ensurePlansLoadedForCurrentView() {
     if (!planRefreshController) {
       setPlanLoadingState({
         active: true,
-        mode: getPlanLoadingMode(),
-        delayMs: getPlanLoadingDelayMs(),
+        mode: getPlanLoadingMode({
+          blocking: true,
+        }),
+        delayMs: getPlanLoadingDelayMs({
+          blocking: true,
+        }),
         message: "正在加载当前时间范围的计划，请稍候",
       });
       try {
@@ -5603,9 +5656,13 @@ function ensurePlansLoadedForCurrentView() {
           periodIds: neededPeriodIds,
         }),
       {
-        delayMs: getPlanLoadingDelayMs(),
+        delayMs: getPlanLoadingDelayMs({
+          blocking: true,
+        }),
         loadingOptions: {
-          mode: getPlanLoadingMode(),
+          mode: getPlanLoadingMode({
+            blocking: true,
+          }),
           message: "正在加载当前时间范围的计划，请稍候",
         },
         commit: async (snapshot) => {
@@ -5629,6 +5686,87 @@ function ensurePlansLoadedForCurrentView() {
     }
     console.error("加载当前视图计划失败:", error);
   });
+  return true;
+}
+
+function isPlanWidgetTargetVisible(action = "") {
+  switch (action) {
+    case "show-week-view":
+      return planInitialDataValidated && planShellReady && currentView === "weekly-grid";
+    case "show-month-view":
+      return planInitialDataValidated && planShellReady && currentView === "month";
+    case "show-year-view":
+      return planInitialDataValidated && planShellReady && currentView === "year";
+    case "show-todos":
+    case "show-checkins": {
+      const todoPanel = document.getElementById("todo-panel-anchor");
+      const expectedTodoView = action === "show-checkins" ? "checkins" : "todos";
+      return (
+        todoPanel instanceof HTMLElement &&
+        todoSidebarRuntimeReady &&
+        window.__controlerTodoWidgetView === expectedTodoView &&
+        (
+          !syncPlannerPagerMode() ||
+          window.__controlerPlannerMobilePanel === "todos" ||
+          window.location.hash === "#todo-panel-anchor"
+        )
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+function schedulePlanWidgetLaunchHandled(payload = {}, isHandled) {
+  const launchId =
+    typeof payload?.launchId === "string" && payload.launchId.trim()
+      ? payload.launchId.trim()
+      : "";
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  const source =
+    typeof payload?.source === "string" && payload.source.trim()
+      ? payload.source.trim()
+      : "widget";
+  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    return false;
+  }
+
+  let settled = false;
+  let attempts = 0;
+  const maxAttempts = 120;
+  const tryAck = () => {
+    if (settled) {
+      return;
+    }
+    if (typeof isHandled === "function" && !isHandled()) {
+      if (attempts >= maxAttempts) {
+        return;
+      }
+      attempts += 1;
+      window.setTimeout(() => {
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(tryAck);
+          return;
+        }
+        tryAck();
+      }, attempts <= 18 ? 16 : 48);
+      return;
+    }
+
+    settled = true;
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "plan",
+      action,
+      handled: true,
+      source,
+    });
+  };
+
+  tryAck();
   return true;
 }
 
@@ -5674,6 +5812,10 @@ function handlePlanWidgetLaunchAction(payload = {}) {
         reason: "widget-action",
         persistWidgetView: true,
       }).catch(() => undefined);
+      schedulePlanWidgetLaunchHandled(
+        payload,
+        () => isPlanWidgetTargetVisible(action),
+      );
       return true;
     }
     default:
@@ -5681,6 +5823,10 @@ function handlePlanWidgetLaunchAction(payload = {}) {
   }
 
   saveViewState();
+  schedulePlanWidgetLaunchHandled(
+    payload,
+    () => isPlanWidgetTargetVisible(action),
+  );
   if (!planInitialDataLoaded) {
     scheduleDeferredPlanBootstrap();
     return true;
@@ -5708,6 +5854,7 @@ function initPlanWidgetLaunchAction() {
     handlePlanWidgetLaunchAction({
       action,
       source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
     });
     params.delete("widgetAction");
     params.delete("widgetKind");
@@ -5938,7 +6085,7 @@ async function init() {
 
     setPlanLoadingState({
       active: !planInitialDataValidated,
-      mode: "inline",
+      mode: getPlanLoadingMode(),
       message: "正在读取当前计划范围，请稍候",
     });
     queuePlanInitialReveal();

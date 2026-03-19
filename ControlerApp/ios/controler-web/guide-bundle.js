@@ -30,24 +30,6 @@
         "所有视图均可放大",
       ],
     },
-    plan: {
-      id: GUIDE_CARD_IDS.plan,
-      title: "快速上手",
-      items: [
-        "右滑可见计划页面。",
-        "待办适合跟踪要做的事。",
-        "打卡适合每天或每周重复的习惯。",
-      ],
-    },
-    diary: {
-      id: GUIDE_CARD_IDS.diary,
-      title: "快速上手",
-      items: [
-        "点日期或已有条目都可以开始写。",
-        "标题和正文至少写一项。",
-        "分类可选，不分也能保存。",
-      ],
-    },
     widget: {
       id: GUIDE_CARD_IDS.widget,
       title: "快速上手",
@@ -142,54 +124,7 @@
   }
 
   function buildGuideDiaryEntries(now = new Date()) {
-    const createdAt = new Date(now).toISOString();
-    const diarySpecs = [
-      {
-        id: "guide-entry-import-backup",
-        title: GUIDE_DIARY_TITLES[0],
-        offsetDays: 0,
-        content: [
-          "想完整备份当前全部数据：用“全部分片 ZIP 导出”。它会把 bundle-manifest.json、core.json、plans-recurring.json 和全部月分片一起打包。",
-          "换电脑或换手机，想完整恢复：用“导入数据”选择整包文件，再选“整包替换当前数据”。这样当前设备会完全变成导入源那份数据。（是将其中的数据导入到该软件的存储处，而不是使用导入的那份文件！）",
-          "如果当前机器里已经有数据，不确定会不会覆盖掉：先导出一份整包 ZIP 备份，再决定导入模式。",
-          "记住一句话：整包替换会清掉未导入内容；差异导入不会。",
-        ].join("\n"),
-      },
-      {
-        id: "guide-entry-directory-bundle",
-        title: GUIDE_DIARY_TITLES[1],
-        offsetDays: -1,
-        content: [
-          "现在的实时存储不是一个越存越大的单 JSON，而是一个目录里的多份 JSON，这叫目录 bundle。",
-          "core.json 放项目、待办、打卡项、年度目标、日记分类这些核心数据；plans-recurring.json 单独放重复计划。",
-          "records、diaryEntries、dailyCheckins、checkins、plans（一次性）会按月拆分，所以页面只读取当前时间范围命中的月份，不会每次都把全部历史一次性读出来。",
-          "这样做的好处很直接：数据大时更快、更稳，也更适合安卓端和同步目录。",
-          "如果你在单分区导出里只看到“记录”，通常不是功能没做完，而是当前只有记录这个 section 产生了月分片；核心数据和重复计划一直都在整包 ZIP 里。",
-        ].join("\n"),
-      },
-      {
-        id: "guide-entry-storage-scenarios",
-        title: GUIDE_DIARY_TITLES[2],
-        offsetDays: -2,
-        content: [
-          "场景 1：我换设备了，只想完整搬家。做法：先在旧设备导出整包 ZIP，再到新设备导入，并选择“整包替换当前数据”。",
-          "场景 2：我现在这台机器里已经有数据，只想把另一份数据补进来。做法：用整包“差异导入（只替换有差异的单位）”。它不会删除未导入内容。",
-          "场景 3：我只想补 2026-03 的记录。做法：导出或拿到那个 section 对应月份的单分区 JSON，再导入时选择“替换该月份分区”或“合并该月份分区”。",
-          "场景 4：我误拿到一份不完整的数据，担心把现有内容冲掉。做法：不要用整包替换，先导出一份备份，再用差异导入。",
-          "差异导入的逻辑是：核心区按字段替换；重复计划和月分片只处理导入源里出现的内容，并按 ID 或自然键逐条覆盖(每条记录都有一个专属id)；未命中的旧条目会保留。它不是按整天或整月整块替换。",
-        ].join("\n"),
-      },
-    ];
-
-    return diarySpecs.map((item) => ({
-      id: item.id,
-      date: formatDateText(shiftDate(now, item.offsetDays)),
-      title: item.title,
-      content: item.content,
-      categoryId: "",
-      createdAt,
-      updatedAt: createdAt,
-    }));
+    return [];
   }
 
   function createGuideSeed(now = new Date()) {
@@ -271,42 +206,13 @@
     guideState = null,
   ) {
     const sourceEntries = Array.isArray(entries) ? entries : [];
-    const normalizedGuideState = normalizeGuideState(guideState);
-    const dismissedGuideDiaryEntryIds = new Set(
-      normalizedGuideState.dismissedGuideDiaryEntryIds,
-    );
-    const latestGuideEntries = buildGuideDiaryEntries(now).filter((entry) => {
-      const guideDiaryEntryId = resolveGuideDiaryEntryId(entry, now);
-      return (
-        !guideDiaryEntryId ||
-        !dismissedGuideDiaryEntryIds.has(guideDiaryEntryId)
-      );
-    });
-    const latestGuideIds = new Set(
-      latestGuideEntries
-        .map((entry) => String(entry?.id || "").trim())
-        .filter(Boolean),
-    );
-    const hasLegacyGuideEntries = sourceEntries.some((entry) =>
-      LEGACY_GUIDE_DIARY_TITLES.includes(String(entry?.title || "").trim()) &&
-      !dismissedGuideDiaryEntryIds.has(resolveGuideDiaryEntryId(entry, now)),
-    );
-    const currentGuideEntryCount = sourceEntries.filter((entry) => {
-      const id = resolveGuideDiaryEntryId(entry, now);
-      return id && latestGuideIds.has(id);
-    }).length;
-
-    if (
-      !hasLegacyGuideEntries &&
-      currentGuideEntryCount >= latestGuideEntries.length
-    ) {
-      return sourceEntries;
-    }
-
     const retainedEntries = sourceEntries.filter(
       (entry) => !isStorageGuideDiaryEntry(entry),
     );
-    return [...latestGuideEntries, ...retainedEntries];
+    if (retainedEntries.length === sourceEntries.length) {
+      return sourceEntries;
+    }
+    return retainedEntries;
   }
 
   function getGuideCard(pageKey) {

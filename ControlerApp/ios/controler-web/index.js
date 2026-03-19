@@ -328,8 +328,9 @@ function shouldRefreshIndexForExternalChange(detail = {}) {
     return true;
   }
   const recordsChanged = changedSections.includes("records");
-  const coreChanged = changedSections.includes("core");
-  if (!recordsChanged && !coreChanged) {
+  const projectsChanged =
+    changedSections.includes("projects") || changedSections.includes("core");
+  if (!recordsChanged && !projectsChanged) {
     return false;
   }
   if (
@@ -341,7 +342,7 @@ function shouldRefreshIndexForExternalChange(detail = {}) {
   ) {
     return true;
   }
-  if (coreChanged && shouldRefreshIndexCoreData(detail?.data)) {
+  if (projectsChanged && shouldRefreshIndexCoreData(detail?.data)) {
     return true;
   }
   return false;
@@ -685,6 +686,9 @@ function bindIndexExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
     const changedSections = getIndexNormalizedChangedSections(detail.changedSections);
+    if (changedSections.includes("guideState")) {
+      renderRecordGuideCard();
+    }
     if (
       !shouldRefreshIndexForExternalChange(detail)
     ) {
@@ -9096,6 +9100,69 @@ function handleTableDragEnd(e) {
   dragType = null;
 }
 
+function isIndexWidgetTimerModalVisible() {
+  const modal = document.getElementById("modal-overlay");
+  return (
+    modal instanceof HTMLElement &&
+    !modal.hidden &&
+    modal.style.display !== "none" &&
+    isModalOpen
+  );
+}
+
+function scheduleIndexWidgetLaunchHandled(payload = {}, isHandled) {
+  const launchId =
+    typeof payload?.launchId === "string" && payload.launchId.trim()
+      ? payload.launchId.trim()
+      : "";
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  const source =
+    typeof payload?.source === "string" && payload.source.trim()
+      ? payload.source.trim()
+      : "widget";
+  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    return false;
+  }
+
+  let settled = false;
+  let attempts = 0;
+  const maxAttempts = 90;
+  const tryAck = () => {
+    if (settled) {
+      return;
+    }
+    if (typeof isHandled === "function" && !isHandled()) {
+      if (attempts >= maxAttempts) {
+        return;
+      }
+      attempts += 1;
+      window.setTimeout(() => {
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(tryAck);
+          return;
+        }
+        tryAck();
+      }, attempts <= 12 ? 16 : 40);
+      return;
+    }
+
+    settled = true;
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "index",
+      action,
+      handled: true,
+      source,
+    });
+  };
+
+  tryAck();
+  return true;
+}
+
 function handleIndexWidgetLaunchAction(payload = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -9106,6 +9173,10 @@ function handleIndexWidgetLaunchAction(payload = {}) {
   }
   window.setTimeout(() => {
     requestSpendModalOpen();
+    scheduleIndexWidgetLaunchHandled(
+      payload,
+      isIndexWidgetTimerModalVisible,
+    );
   }, 24);
   return true;
 }
@@ -9133,6 +9204,7 @@ function initIndexWidgetLaunchAction() {
     handleIndexWidgetLaunchAction({
       action,
       source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
     });
     params.delete("widgetAction");
     params.delete("widgetKind");

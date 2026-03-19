@@ -474,7 +474,10 @@ public final class ControlerWidgetRenderer {
         request.source = payload.optString("source", "");
         request.themeRefresh =
             request.changedSections.contains("theme")
-                || request.changedSections.contains("core/theme");
+                || request.changedSections.contains("core/theme")
+                || request.changedSections.contains("selectedTheme")
+                || request.changedSections.contains("customThemes")
+                || request.changedSections.contains("builtInThemeOverrides");
         request.requestAll =
             request.changedSections.isEmpty()
                 && TextUtils.isEmpty(request.widgetKindHint)
@@ -498,8 +501,19 @@ public final class ControlerWidgetRenderer {
                 "core".equals(normalized)
                     || "theme".equals(normalized)
                     || "core/theme".equals(normalized)
+                    || "selectedTheme".equals(normalized)
+                    || "customThemes".equals(normalized)
+                    || "builtInThemeOverrides".equals(normalized)
             ) {
                 affectedKinds.addAll(ControlerWidgetKinds.allKinds());
+                continue;
+            }
+            if ("projects".equals(normalized)) {
+                affectedKinds.add(ControlerWidgetKinds.START_TIMER);
+                affectedKinds.add(ControlerWidgetKinds.WEEK_GRID);
+                affectedKinds.add(ControlerWidgetKinds.DAY_PIE);
+                affectedKinds.add(ControlerWidgetKinds.WEEK_VIEW);
+                affectedKinds.add(ControlerWidgetKinds.YEAR_VIEW);
                 continue;
             }
             if ("records".equals(normalized) || "timerSessionState".equals(normalized)) {
@@ -2490,7 +2504,7 @@ public final class ControlerWidgetRenderer {
             );
         views.setOnClickPendingIntent(
             containerId,
-            minimalListCards ? actionIntent : openIntent
+            TextUtils.isEmpty(item.command) ? openIntent : actionIntent
         );
         views.setOnClickPendingIntent(actionId, actionIntent);
     }

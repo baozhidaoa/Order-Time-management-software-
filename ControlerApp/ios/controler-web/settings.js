@@ -2375,9 +2375,14 @@ function isSettingsEnglish() {
 }
 
 function getGuideDiaryReferenceEntries() {
-  const guideTitles = Array.isArray(window.ControlerGuideBundle?.GUIDE_DIARY_TITLES)
-    ? window.ControlerGuideBundle.GUIDE_DIARY_TITLES
-    : [];
+  const guideTitles =
+    typeof window.ControlerGuideBundle?.buildGuideDiaryEntries === "function"
+      ? window.ControlerGuideBundle.buildGuideDiaryEntries()
+          .map((entry) => String(entry?.title || "").trim())
+          .filter(Boolean)
+      : Array.isArray(window.ControlerGuideBundle?.GUIDE_DIARY_TITLES)
+        ? window.ControlerGuideBundle.GUIDE_DIARY_TITLES
+        : [];
   let storedEntries = [];
 
   try {

@@ -109,7 +109,7 @@ static NSArray<NSString *> *ControlerSharedArrayKeys(void)
   static NSArray<NSString *> *keys = nil;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
-    keys = @[@"projects", @"records", @"plans", @"todos", @"checkinItems", @"dailyCheckins", @"checkins", @"diaryEntries", @"diaryCategories"];
+    keys = @[@"projects", @"records", @"plans", @"todos", @"checkinItems", @"dailyCheckins", @"checkins", @"diaryEntries", @"diaryCategories", @"customThemes"];
   });
   return keys;
 }
@@ -119,9 +119,26 @@ static NSArray<NSString *> *ControlerCoreSectionKeys(void)
   static NSArray<NSString *> *keys = nil;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
-    keys = @[@"projects", @"todos", @"checkinItems", @"yearlyGoals", @"diaryCategories", @"createdAt", @"lastModified", @"storagePath", @"storageDirectory", @"userDataPath", @"documentsPath", @"syncMeta"];
+    keys = @[@"projects", @"todos", @"checkinItems", @"yearlyGoals", @"diaryCategories", @"guideState", @"customThemes", @"builtInThemeOverrides", @"selectedTheme", @"createdAt", @"lastModified", @"storagePath", @"storageDirectory", @"userDataPath", @"documentsPath", @"syncMeta"];
   });
   return keys;
+}
+
+static NSDictionary *ControlerNormalizedGuideState(NSDictionary *guideState)
+{
+  NSDictionary *source = ControlerEnsureDictionary(guideState);
+  NSArray *dismissedGuideDiaryEntryIds = ControlerEnsureArray(source[@"dismissedGuideDiaryEntryIds"]);
+  if (dismissedGuideDiaryEntryIds.count == 0) {
+    dismissedGuideDiaryEntryIds = ControlerEnsureArray(source[@"dismissedDiaryEntryIds"]);
+  }
+  NSInteger bundleVersion = [source[@"bundleVersion"] respondsToSelector:@selector(integerValue)]
+    ? [source[@"bundleVersion"] integerValue]
+    : 2;
+  return @{
+    @"bundleVersion": @(MAX(1, bundleVersion)),
+    @"dismissedCardIds": ControlerDeepCopyJSON(ControlerEnsureArray(source[@"dismissedCardIds"])) ?: @[],
+    @"dismissedGuideDiaryEntryIds": ControlerDeepCopyJSON(dismissedGuideDiaryEntryIds) ?: @[],
+  };
 }
 
 static NSDictionary<NSString *, NSString *> *ControlerSectionDirectoryMap(void)
@@ -625,6 +642,9 @@ RCT_EXPORT_MODULE(ControlerBridge);
   NSMutableDictionary *next = [NSMutableDictionary dictionary];
   for (NSString *key in ControlerSharedArrayKeys()) next[key] = ControlerDeepCopyJSON(ControlerEnsureArray(source[key])) ?: @[];
   next[@"yearlyGoals"] = ControlerDeepCopyJSON(ControlerEnsureDictionary(source[@"yearlyGoals"])) ?: @{};
+  next[@"guideState"] = ControlerNormalizedGuideState(ControlerEnsureDictionary(source[@"guideState"]));
+  next[@"builtInThemeOverrides"] = ControlerDeepCopyJSON(ControlerEnsureDictionary(source[@"builtInThemeOverrides"])) ?: @{};
+  next[@"selectedTheme"] = ControlerOptionalTrimmedString(source[@"selectedTheme"]) ?: @"default";
   next[@"createdAt"] = ControlerOptionalTrimmedString(source[@"createdAt"]) ?: now;
   next[@"lastModified"] = touchModified || !ControlerOptionalTrimmedString(source[@"lastModified"]) ? now : source[@"lastModified"];
   next[@"storagePath"] = [self manifestPath];
@@ -1233,7 +1253,17 @@ RCT_EXPORT_MODULE(ControlerBridge);
   BOOL fileMode = [ControlerOptionalTrimmedString(selection[@"mode"]) isEqualToString:kStorageModeFile];
   NSString *storagePath = fileMode ? (ControlerOptionalTrimmedString(selection[@"path"]) ?: [self manifestPath]) : [self manifestPath];
   NSString *storageDirectory = fileMode ? (ControlerOptionalTrimmedString(selection[@"parentPath"]) ?: [self storageDirectoryPath]) : [self storageDirectoryPath];
-  return @{@"projects": ControlerDeepCopyJSON(ControlerEnsureArray(state[@"projects"])) ?: @[], @"todos": ControlerDeepCopyJSON(ControlerEnsureArray(state[@"todos"])) ?: @[], @"checkinItems": ControlerDeepCopyJSON(ControlerEnsureArray(state[@"checkinItems"])) ?: @[], @"yearlyGoals": ControlerDeepCopyJSON(ControlerEnsureDictionary(state[@"yearlyGoals"])) ?: @{}, @"diaryCategories": ControlerDeepCopyJSON(ControlerEnsureArray(state[@"diaryCategories"])) ?: @[], @"createdAt": ControlerJSONValue(ControlerOptionalTrimmedString(state[@"createdAt"])), @"lastModified": ControlerJSONValue(ControlerOptionalTrimmedString(state[@"lastModified"])), @"storagePath": storagePath, @"storageDirectory": storageDirectory, @"userDataPath": [self documentsPath], @"documentsPath": [self documentsPath], @"syncMeta": ControlerJSONValue(ControlerDeepCopyJSON(state[@"syncMeta"])), @"recurringPlans": recurringPlans};
+  NSMutableDictionary *payload = [NSMutableDictionary dictionary];
+  for (NSString *key in ControlerCoreSectionKeys()) {
+    id value = ControlerDeepCopyJSON(state[key]) ?: state[key];
+    if (value) payload[key] = value;
+  }
+  payload[@"storagePath"] = storagePath;
+  payload[@"storageDirectory"] = storageDirectory;
+  payload[@"userDataPath"] = [self documentsPath];
+  payload[@"documentsPath"] = [self documentsPath];
+  payload[@"recurringPlans"] = recurringPlans;
+  return payload;
 }
 
 - (NSDictionary *)planBootstrapPayload
@@ -1662,7 +1692,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
   NSDictionary *normalizedCurrent = [self normalizedState:currentState touchModified:NO touchSyncSave:NO];
   NSDictionary *normalizedImported = [self normalizedState:importedState touchModified:NO touchSyncSave:NO];
   NSMutableDictionary *next = [normalizedCurrent mutableCopy];
-  for (NSString *key in @[@"projects", @"todos", @"checkinItems", @"yearlyGoals", @"diaryCategories", @"createdAt"]) {
+  for (NSString *key in @[@"projects", @"todos", @"checkinItems", @"yearlyGoals", @"diaryCategories", @"guideState", @"customThemes", @"builtInThemeOverrides", @"selectedTheme", @"createdAt"]) {
     if (normalizedImported[key]) next[key] = ControlerDeepCopyJSON(normalizedImported[key]) ?: normalizedImported[key];
   }
   for (NSString *section in ControlerPartitionedSections()) {
@@ -2251,7 +2281,7 @@ RCT_REMAP_METHOD(replaceStorageCoreState,
   }
   NSMutableDictionary *state = [[NSMutableDictionary alloc] initWithDictionary:([self loadBundleState] ?: @{})];
   NSDictionary *partialCore = ControlerEnsureDictionary(partialCoreObject);
-  for (NSString *key in @[@"projects", @"todos", @"checkinItems", @"yearlyGoals", @"diaryCategories", @"createdAt"]) if (partialCore[key]) state[key] = ControlerDeepCopyJSON(partialCore[key]) ?: partialCore[key];
+  for (NSString *key in ControlerCoreSectionKeys()) if (partialCore[key]) state[key] = ControlerDeepCopyJSON(partialCore[key]) ?: partialCore[key];
   NSError *writeError = nil;
   if (![self writeBundleFromState:state legacyBackups:ControlerEnsureArray([self readManifest][@"legacyBackups"]) touchModified:YES touchSyncSave:YES error:&writeError]) {
     reject(@"storage_core_replace_failed", @"替换核心状态失败。", writeError);

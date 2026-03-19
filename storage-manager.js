@@ -27,9 +27,32 @@ const SHARED_ARRAY_KEYS = Object.freeze([
   "customThemes",
 ]);
 const DEFAULT_CHANGED_SECTIONS = Object.freeze([
-  "core",
-  ...bundleHelper.PARTITIONED_SECTIONS,
+  "projects",
+  "records",
+  "plans",
+  "todos",
+  "checkinItems",
+  "dailyCheckins",
+  "checkins",
+  "yearlyGoals",
+  "diaryEntries",
+  "diaryCategories",
+  "guideState",
+  "customThemes",
+  "builtInThemeOverrides",
+  "selectedTheme",
   "plansRecurring",
+]);
+const PRECISE_CORE_SECTION_KEYS = new Set([
+  "projects",
+  "todos",
+  "checkinItems",
+  "yearlyGoals",
+  "diaryCategories",
+  "guideState",
+  "customThemes",
+  "builtInThemeOverrides",
+  "selectedTheme",
 ]);
 const DIFF_IMPORT_CORE_KEYS = Object.freeze([
   "todos",
@@ -59,6 +82,86 @@ const EMPTY_AUTO_BACKUP_STATE = Object.freeze({
   latestBackupSize: 0,
   targetBackupDirectory: null,
 });
+
+function normalizeChangedSections(changedSections = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function normalizeChangedPeriods(changedPeriods = {}) {
+  const source =
+    changedPeriods && typeof changedPeriods === "object" ? changedPeriods : {};
+  const normalized = {};
+  Object.keys(source).forEach((section) => {
+    const normalizedSection = String(section || "").trim();
+    if (!normalizedSection) {
+      return;
+    }
+    const periodIds = Array.from(
+      new Set(
+        (Array.isArray(source[section]) ? source[section] : [])
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (periodIds.length) {
+      normalized[normalizedSection] = periodIds;
+    }
+  });
+  return normalized;
+}
+
+function mergeChangedPeriods(...maps) {
+  const merged = {};
+  maps.forEach((entry) => {
+    const normalizedEntry = normalizeChangedPeriods(entry);
+    Object.keys(normalizedEntry).forEach((section) => {
+      merged[section] = Array.from(
+        new Set([...(merged[section] || []), ...normalizedEntry[section]]),
+      );
+    });
+  });
+  return merged;
+}
+
+function inferChangedSectionsFromCorePatch(partialCore = {}) {
+  const source =
+    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+      ? partialCore
+      : {};
+  const sections = new Set();
+
+  Object.keys(source).forEach((key) => {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    if (PRECISE_CORE_SECTION_KEYS.has(normalizedKey)) {
+      sections.add(normalizedKey);
+      return;
+    }
+    if (normalizedKey === "recurringPlans") {
+      sections.add("plansRecurring");
+      return;
+    }
+    if (normalizedKey === "storagePath" || normalizedKey === "storageDirectory" || normalizedKey === "userDataPath" || normalizedKey === "documentsPath" || normalizedKey === "createdAt" || normalizedKey === "lastModified" || normalizedKey === "syncMeta") {
+      sections.add("core");
+      return;
+    }
+    if (SHARED_ARRAY_KEYS.includes(normalizedKey) || normalizedKey === "builtInThemeOverrides" || normalizedKey === "selectedTheme" || normalizedKey === "guideState" || normalizedKey === "yearlyGoals") {
+      sections.add(normalizedKey);
+      return;
+    }
+    sections.add("core");
+  });
+
+  return sections.size ? Array.from(sections) : ["core"];
+}
 
 function addMonthOffsetToPeriodId(periodId, monthOffset = 0) {
   const normalized = String(periodId || "").trim();
@@ -171,6 +274,8 @@ class StorageManager {
     this.cachedStorageSnapshot = null;
     this.pendingSnapshot = null;
     this.pendingWriteReason = "";
+    this.pendingWriteChangedSections = [];
+    this.pendingWriteChangedPeriods = {};
     this.pendingWriteCount = 0;
     this.flushInFlight = null;
     this.changeListener = null;
@@ -1062,7 +1167,9 @@ class StorageManager {
         ? options.reason.trim()
         : "core-replace";
     if (options.emitChange !== false) {
-      this.emitChange(changeReason, { changedSections: ["core"] });
+      this.emitChange(changeReason, {
+        changedSections: inferChangedSectionsFromCorePatch(partialCore),
+      });
       this.maybeRunAutoBackup({ reason: changeReason });
     }
     return nextCore;
@@ -1329,11 +1436,13 @@ class StorageManager {
 
     this.cachedStorageSnapshot = null;
     this.markKnownFileVersion({ includeHash: true });
+    const changedSections =
+      projectReconciliation.createdProjects > 0
+        ? ["projects", "records"]
+        : ["records"];
+
     this.emitChange("import", {
-      changedSections:
-        projectReconciliation.createdProjects > 0
-          ? ["core", "records"]
-          : ["records"],
+      changedSections,
       changedPeriods,
       source: "import:external-json",
     });
@@ -1352,10 +1461,7 @@ class StorageManager {
           ? options.projectMapping.trim()
           : externalImportHelper.DEFAULT_PROJECT_MAPPING,
       filePath,
-      changedSections:
-        projectReconciliation.createdProjects > 0
-          ? ["core", "records"]
-          : ["records"],
+      changedSections,
       changedPeriods,
       affectedPeriodIds: normalizedExternal.affectedPeriodIds.slice(),
       affectedDates: normalizedExternal.affectedDates.slice(),
@@ -1450,6 +1556,12 @@ class StorageManager {
 
   saveStorageSnapshot(data, options = {}) {
     try {
+      const normalizedChangedSections = normalizeChangedSections(
+        options.changedSections,
+      );
+      const normalizedChangedPeriods = normalizeChangedPeriods(
+        options.changedPeriods,
+      );
       this.pendingSnapshot = this.normalizeStorageData(data, {
         storagePath: this.storagePath,
         touchModified: true,
@@ -1457,6 +1569,14 @@ class StorageManager {
         pendingWriteCount: this.pendingWriteCount + 1,
       });
       this.pendingWriteReason = typeof options.reason === "string" && options.reason.trim() ? options.reason.trim() : "save";
+      this.pendingWriteChangedSections = normalizeChangedSections([
+        ...this.pendingWriteChangedSections,
+        ...normalizedChangedSections,
+      ]);
+      this.pendingWriteChangedPeriods = mergeChangedPeriods(
+        this.pendingWriteChangedPeriods,
+        normalizedChangedPeriods,
+      );
       this.pendingWriteCount += 1;
       void this.flushPendingWrites();
       return true;
@@ -1469,18 +1589,40 @@ class StorageManager {
   async flushPendingWrites() {
     if (this.flushInFlight) return this.flushInFlight;
     if (!this.pendingSnapshot) return this.getStorageStatus();
-    this.flushInFlight = Promise.resolve().then(() => {
-      if (!this.pendingSnapshot) return this.getStorageStatus();
-      const snapshot = this.pendingSnapshot;
-      const reason = this.pendingWriteReason || "save";
-      this.pendingSnapshot = null;
-      this.pendingWriteReason = "";
-      this.pendingWriteCount = 0;
-      this.cachedStorageSnapshot = this.writeBundleFromState(this.getBundleRoot(this.storagePath), snapshot);
-      this.markKnownFileVersion({ includeHash: true });
-      this.emitChange(reason);
-      this.maybeRunAutoBackup({ reason });
-      return this.getStorageStatus();
+    this.flushInFlight = Promise.resolve().then(async () => {
+      let latestStatus = this.getStorageStatus();
+      while (this.pendingSnapshot) {
+        const snapshot = this.pendingSnapshot;
+        const reason = this.pendingWriteReason || "save";
+        const changedSections = normalizeChangedSections(
+          this.pendingWriteChangedSections,
+        );
+        const changedPeriods = normalizeChangedPeriods(
+          this.pendingWriteChangedPeriods,
+        );
+        this.pendingSnapshot = null;
+        this.pendingWriteReason = "";
+        this.pendingWriteChangedSections = [];
+        this.pendingWriteChangedPeriods = {};
+        this.pendingWriteCount = 0;
+        this.cachedStorageSnapshot = this.writeBundleFromState(
+          this.getBundleRoot(this.storagePath),
+          snapshot,
+        );
+        this.markKnownFileVersion({ includeHash: true });
+        this.emitChange(
+          reason,
+          changedSections.length || Object.keys(changedPeriods).length
+            ? {
+                changedSections,
+                changedPeriods,
+              }
+            : {},
+        );
+        this.maybeRunAutoBackup({ reason });
+        latestStatus = this.getStorageStatus();
+      }
+      return latestStatus;
     }).finally(() => {
       this.flushInFlight = null;
     });
@@ -1511,6 +1653,8 @@ class StorageManager {
     this.cachedStorageSnapshot = null;
     this.pendingSnapshot = null;
     this.pendingWriteReason = "";
+    this.pendingWriteChangedSections = [];
+    this.pendingWriteChangedPeriods = {};
     this.pendingWriteCount = 0;
     this.writeConfig({ storagePath: this.getBundleDisplayPath(this.getBundleRoot(nextStoragePath)) });
     this.startWatching();
@@ -1623,11 +1767,19 @@ class StorageManager {
   emitChange(reason, options = {}) {
     if (typeof this.changeListener !== "function") return;
     const status = this.getStorageStatus();
+    const changedPeriods = normalizeChangedPeriods(options.changedPeriods || {});
+    const normalizedChangedSections = normalizeChangedSections(
+      options.changedSections,
+    );
+    const changedSections =
+      normalizedChangedSections.length || Object.keys(changedPeriods).length
+        ? normalizedChangedSections
+        : [...DEFAULT_CHANGED_SECTIONS];
     this.changeListener({
       reason,
       status,
-      changedSections: options.changedSections || DEFAULT_CHANGED_SECTIONS,
-      changedPeriods: options.changedPeriods || {},
+      changedSections,
+      changedPeriods,
       source: options.source || "storage-manager",
       snapshotFingerprint: status?.fingerprint || "",
     });

@@ -330,10 +330,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             return toJsonArray(sections);
         }
 
-        if (partialCore.has("selectedTheme")
-            || partialCore.has("customThemes")
-            || partialCore.has("builtInThemeOverrides")) {
-            sections.add("theme");
+        if (partialCore.has("projects")) {
+            sections.add("projects");
         }
         if (partialCore.has("yearlyGoals")) {
             sections.add("yearlyGoals");
@@ -362,7 +360,28 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (partialCore.has("diaryEntries")) {
             sections.add("diaryEntries");
         }
-        if (partialCore.has("projects") || partialCore.has("diaryCategories")) {
+        if (partialCore.has("diaryCategories")) {
+            sections.add("diaryCategories");
+        }
+        if (partialCore.has("guideState")) {
+            sections.add("guideState");
+        }
+        if (partialCore.has("customThemes")) {
+            sections.add("customThemes");
+        }
+        if (partialCore.has("builtInThemeOverrides")) {
+            sections.add("builtInThemeOverrides");
+        }
+        if (partialCore.has("selectedTheme")) {
+            sections.add("selectedTheme");
+        }
+        if (partialCore.has("createdAt")
+            || partialCore.has("lastModified")
+            || partialCore.has("storagePath")
+            || partialCore.has("storageDirectory")
+            || partialCore.has("userDataPath")
+            || partialCore.has("documentsPath")
+            || partialCore.has("syncMeta")) {
             sections.add("core");
         }
 

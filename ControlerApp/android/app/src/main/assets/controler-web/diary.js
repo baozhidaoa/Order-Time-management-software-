@@ -91,8 +91,9 @@ function shouldRefreshDiaryForExternalChange(detail = {}) {
     return true;
   }
   const entriesChanged = changedSections.includes("diaryEntries");
-  const coreChanged = changedSections.includes("core");
-  if (!entriesChanged && !coreChanged) {
+  const categoriesChanged =
+    changedSections.includes("diaryCategories") || changedSections.includes("core");
+  if (!entriesChanged && !categoriesChanged) {
     return false;
   }
   if (
@@ -106,7 +107,7 @@ function shouldRefreshDiaryForExternalChange(detail = {}) {
   ) {
     return true;
   }
-  if (coreChanged && shouldRefreshDiaryCoreData(detail?.data)) {
+  if (categoriesChanged && shouldRefreshDiaryCoreData(detail?.data)) {
     return true;
   }
   return false;
@@ -440,6 +441,40 @@ function cloneDiaryCategoriesSnapshot(categories = []) {
 }
 
 function getDiaryGuideStateSnapshot() {
+  if (typeof window.ControlerGuideUI?.getGuideStateSnapshot === "function") {
+    const snapshot = window.ControlerGuideUI.getGuideStateSnapshot();
+    return {
+      hasGuideState: snapshot?.hasGuideState === true,
+      guideState: snapshot?.guideState || null,
+      pending: snapshot?.pending === true,
+    };
+  }
+
+  try {
+    const managedState =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    if (
+      managedState &&
+      typeof managedState === "object" &&
+      !Array.isArray(managedState) &&
+      managedState.guideState &&
+      typeof managedState.guideState === "object"
+    ) {
+      return {
+        hasGuideState: true,
+        guideState:
+          window.ControlerGuideBundle?.normalizeGuideState?.(
+            managedState.guideState,
+          ) || null,
+        pending: false,
+      };
+    }
+  } catch (error) {
+    console.error("读取日记受管引导状态失败，回退本地读取:", error);
+  }
+
   try {
     const rawGuideState = localStorage.getItem("guideState");
     return {
@@ -450,12 +485,14 @@ function getDiaryGuideStateSnapshot() {
               JSON.parse(rawGuideState),
             ) || null
           : null,
+      pending: false,
     };
   } catch (error) {
     return {
       hasGuideState: true,
       guideState:
         window.ControlerGuideBundle?.getDefaultGuideState?.() || null,
+      pending: false,
     };
   }
 }
@@ -467,6 +504,46 @@ function readDiaryGuideState() {
     window.ControlerGuideBundle?.getDefaultGuideState?.() ||
     null
   );
+}
+
+function resolveDiaryGuideStateForHydration(coreGuideState = null) {
+  const guideStateSnapshot = getDiaryGuideStateSnapshot();
+  if (guideStateSnapshot.pending && guideStateSnapshot.guideState) {
+    return guideStateSnapshot.guideState;
+  }
+  return (
+    window.ControlerGuideBundle?.normalizeGuideState?.(coreGuideState) ||
+    guideStateSnapshot.guideState ||
+    window.ControlerGuideBundle?.getDefaultGuideState?.() ||
+    null
+  );
+}
+
+function synchronizeDiaryEntriesWithGuideState(entries = [], guideState = null) {
+  const normalizedEntries = Array.isArray(entries) ? entries : [];
+  if (
+    typeof window.ControlerGuideBundle?.synchronizeGuideDiaryEntries !==
+    "function"
+  ) {
+    return {
+      entries: normalizedEntries,
+      changed: false,
+    };
+  }
+
+  const synchronizedEntries =
+    window.ControlerGuideBundle.synchronizeGuideDiaryEntries(
+      normalizedEntries,
+      new Date(),
+      guideState,
+    );
+
+  return {
+    entries: Array.isArray(synchronizedEntries)
+      ? synchronizedEntries
+      : normalizedEntries,
+    changed: !isDiarySerializableEqual(synchronizedEntries, normalizedEntries),
+  };
 }
 
 function saveDiaryGuideState(nextState) {
@@ -971,6 +1048,9 @@ async function loadDiaryData(options = {}) {
       ),
       withDiaryTimeout(bundleStorage.getCoreState(), "读取日记核心数据"),
     ]);
+    const effectiveGuideState = resolveDiaryGuideStateForHydration(
+      coreState?.guideState || null,
+    );
 
     let shouldPersist = false;
     const entries = Array.isArray(entriesResult?.items)
@@ -984,9 +1064,16 @@ async function loadDiaryData(options = {}) {
           })
           .filter(Boolean)
       : [];
+    const synchronizedEntries = synchronizeDiaryEntriesWithGuideState(
+      entries,
+      effectiveGuideState,
+    );
+    if (synchronizedEntries.changed) {
+      shouldPersist = true;
+    }
 
     return normalizeDiaryLoadedState({
-      entries,
+      entries: synchronizedEntries.entries,
       categories: Array.isArray(coreState?.diaryCategories)
         ? coreState.diaryCategories
         : [],
@@ -1014,16 +1101,25 @@ async function loadDiaryData(options = {}) {
         })
         .filter(Boolean)
     : [];
+  const synchronizedEntries = synchronizeDiaryEntriesWithGuideState(
+    normalizedEntries,
+    readDiaryGuideState(),
+  );
+  if (synchronizedEntries.changed) {
+    shouldPersist = true;
+  }
 
   return normalizeDiaryLoadedState({
-    entries: normalizedEntries,
+    entries: synchronizedEntries.entries,
     categories: Array.isArray(categories) ? categories : [],
     shouldPersist,
     persistMeta: shouldPersist
       ? {
           changedPeriodIds: [
             ...new Set(
-              normalizedEntries.map((entry) => getDiaryEntryPeriodId(entry)),
+              synchronizedEntries.entries.map((entry) =>
+                getDiaryEntryPeriodId(entry),
+              ),
             ),
           ],
         }
@@ -1042,6 +1138,18 @@ async function saveDiaryData(options = {}) {
       typeof bundleStorage?.saveSectionRange === "function" &&
       typeof bundleStorage?.replaceCoreState === "function"
     ) {
+      const partialCore = {};
+      if (categoriesChanged) {
+        partialCore.diaryCategories = diaryCategories;
+      }
+      if (guideStateChanged) {
+        partialCore.guideState = readDiaryGuideState();
+      }
+      if (guideStateChanged && Object.keys(partialCore).length) {
+        await bundleStorage.replaceCoreState(partialCore, {
+          reason: "diary-guide-state",
+        });
+      }
       const periodIds = changedPeriodIds.length
         ? changedPeriodIds
         : diaryLoadedPeriodIds.length
@@ -1060,16 +1168,9 @@ async function saveDiaryData(options = {}) {
           ),
         );
       }
-      if (categoriesChanged || guideStateChanged) {
-        const partialCore = {};
-        if (categoriesChanged) {
-          partialCore.diaryCategories = diaryCategories;
-        }
-        if (guideStateChanged) {
-          partialCore.guideState = readDiaryGuideState();
-        }
+      if (categoriesChanged && !guideStateChanged) {
         await bundleStorage.replaceCoreState(partialCore, {
-          reason: guideStateChanged ? "diary-guide-state" : "core-replace",
+          reason: "core-replace",
         });
       }
       return true;
@@ -1788,9 +1889,30 @@ function refreshDiaryFromExternalStorageChange() {
   });
 }
 
+function refreshDiaryGuideEntriesFromGuideState(nextGuideState = null) {
+  const synchronizedEntries = synchronizeDiaryEntriesWithGuideState(
+    diaryEntries,
+    nextGuideState,
+  );
+  if (!synchronizedEntries.changed) {
+    return false;
+  }
+  diaryEntries = synchronizedEntries.entries;
+  syncDiaryDataIndex();
+  scheduleDiaryViewRefresh();
+  return true;
+}
+
 function bindDiaryExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
+    const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
+    if (changedSections.includes("guideState")) {
+      refreshDiaryGuideEntriesFromGuideState(
+        detail?.data?.guideState || readDiaryGuideState(),
+      );
+      renderDiaryGuideCard();
+    }
     if (!shouldRefreshDiaryForExternalChange(detail)) {
       uiTools?.markPerfStage?.("refresh-skipped", {
         reason: "diary-storage-change-irrelevant",
@@ -2398,6 +2520,70 @@ function showCategoryModal() {
   });
 }
 
+function isDiaryWidgetModalVisible() {
+  const titleInput = document.getElementById("diary-title-input");
+  const modal = titleInput?.closest?.(".modal-overlay");
+  return (
+    titleInput instanceof HTMLElement &&
+    modal instanceof HTMLElement &&
+    modal.parentNode === document.body &&
+    modal.style.display !== "none"
+  );
+}
+
+function scheduleDiaryWidgetLaunchHandled(payload = {}, isHandled) {
+  const launchId =
+    typeof payload?.launchId === "string" && payload.launchId.trim()
+      ? payload.launchId.trim()
+      : "";
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  const source =
+    typeof payload?.source === "string" && payload.source.trim()
+      ? payload.source.trim()
+      : "widget";
+  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    return false;
+  }
+
+  let settled = false;
+  let attempts = 0;
+  const maxAttempts = 90;
+  const tryAck = () => {
+    if (settled) {
+      return;
+    }
+    if (typeof isHandled === "function" && !isHandled()) {
+      if (attempts >= maxAttempts) {
+        return;
+      }
+      attempts += 1;
+      window.setTimeout(() => {
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(tryAck);
+          return;
+        }
+        tryAck();
+      }, attempts <= 12 ? 16 : 40);
+      return;
+    }
+
+    settled = true;
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "diary",
+      action,
+      handled: true,
+      source,
+    });
+  };
+
+  tryAck();
+  return true;
+}
+
 function handleDiaryWidgetLaunchAction(payload = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -2417,6 +2603,10 @@ function handleDiaryWidgetLaunchAction(payload = {}) {
       showDiaryModal(formatDateInputValue(new Date()));
     }
   }
+  scheduleDiaryWidgetLaunchHandled(
+    payload,
+    isDiaryWidgetModalVisible,
+  );
   return true;
 }
 
@@ -2452,6 +2642,7 @@ function initDiaryWidgetLaunchAction() {
     handleDiaryWidgetLaunchAction({
       action,
       source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
     });
     params.delete("widgetAction");
     params.delete("widgetKind");

@@ -1673,8 +1673,9 @@ function shouldRefreshStatsForExternalChange(detail = {}) {
   const checkinsChanged =
     changedSections.includes("dailyCheckins") ||
     changedSections.includes("checkinItems");
-  const coreChanged = changedSections.includes("core");
-  if (!recordsChanged && !checkinsChanged && !coreChanged) {
+  const projectsChanged =
+    changedSections.includes("projects") || changedSections.includes("core");
+  if (!recordsChanged && !checkinsChanged && !projectsChanged) {
     return false;
   }
   if (checkinsChanged) {
@@ -1691,7 +1692,7 @@ function shouldRefreshStatsForExternalChange(detail = {}) {
   ) {
     return true;
   }
-  if (coreChanged && shouldRefreshStatsCoreData(detail?.data)) {
+  if (projectsChanged && shouldRefreshStatsCoreData(detail?.data)) {
     return true;
   }
   return false;
@@ -8066,6 +8067,87 @@ function bindStatsExternalStorageRefresh() {
   });
 }
 
+function getStatsWidgetLaunchTargetMode(action = "") {
+  switch (action) {
+    case "show-heatmap":
+      return "heatmap";
+    case "show-day-pie":
+      return "day-pie";
+    case "show-day-line":
+      return "day-line";
+    case "show-week-grid":
+      return "table";
+    case "show-record-list":
+      return "record-list";
+    default:
+      return "";
+  }
+}
+
+function isStatsWidgetTargetVisible(action = "") {
+  const expectedMode = getStatsWidgetLaunchTargetMode(action);
+  const container = document.getElementById("stats-container");
+  return (
+    !!expectedMode &&
+    statsViewMode === expectedMode &&
+    container instanceof HTMLElement &&
+    !!container.querySelector(".stats-section-panel")
+  );
+}
+
+function scheduleStatsWidgetLaunchHandled(payload = {}, isHandled) {
+  const launchId =
+    typeof payload?.launchId === "string" && payload.launchId.trim()
+      ? payload.launchId.trim()
+      : "";
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  const source =
+    typeof payload?.source === "string" && payload.source.trim()
+      ? payload.source.trim()
+      : "widget";
+  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    return false;
+  }
+
+  let settled = false;
+  let attempts = 0;
+  const maxAttempts = 90;
+  const tryAck = () => {
+    if (settled) {
+      return;
+    }
+    if (typeof isHandled === "function" && !isHandled()) {
+      if (attempts >= maxAttempts) {
+        return;
+      }
+      attempts += 1;
+      window.setTimeout(() => {
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(tryAck);
+          return;
+        }
+        tryAck();
+      }, attempts <= 12 ? 16 : 40);
+      return;
+    }
+
+    settled = true;
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "stats",
+      action,
+      handled: true,
+      source,
+    });
+  };
+
+  tryAck();
+  return true;
+}
+
 function handleStatsWidgetLaunchAction(payload = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -8115,10 +8197,15 @@ function handleStatsWidgetLaunchAction(payload = {}) {
     uiTools?.refreshEnhancedSelect?.(viewSelect);
   }
   syncStatsTimeUnitOptions();
+  scheduleStatsWidgetLaunchHandled(
+    payload,
+    () => isStatsWidgetTargetVisible(action),
+  );
   if (!statsInitialDataLoaded) {
     applyStatsRange(statsRangeState.unit, statsRangeState.anchorDate, false);
     return true;
   }
+  renderCurrentView();
   applyStatsRange(statsRangeState.unit, statsRangeState.anchorDate);
   return true;
 }
@@ -8142,6 +8229,7 @@ function initStatsWidgetLaunchAction() {
     handleStatsWidgetLaunchAction({
       action,
       source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
       widgetAnchorDate: params.get("widgetAnchorDate") || "",
     });
     params.delete("widgetAction");

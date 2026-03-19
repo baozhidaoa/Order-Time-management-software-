@@ -10,11 +10,19 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.widget.Toast;
 
+import com.controlerapp.MainApplication;
+import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.TimeZone;
 
@@ -172,6 +180,102 @@ public final class ControlerWidgetActionHandler {
         }
     }
 
+    private static void emitForegroundStorageChanged(
+        final Context context,
+        final String[] changedSections,
+        final JSONObject changedPeriods,
+        final String source
+    ) {
+        if (context == null || changedSections == null || changedSections.length == 0) {
+            return;
+        }
+
+        final Context appContext = context.getApplicationContext();
+        if (appContext == null) {
+            return;
+        }
+
+        MAIN_HANDLER.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!(appContext instanceof MainApplication)) {
+                    return;
+                }
+
+                ReactContext reactContext =
+                    ((MainApplication) appContext)
+                        .getReactNativeHost()
+                        .getReactInstanceManager()
+                        .getCurrentReactContext();
+                if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
+                    return;
+                }
+
+                WritableMap payload = Arguments.createMap();
+                WritableArray sectionArray = Arguments.createArray();
+                for (String section : changedSections) {
+                    String normalizedSection = section == null ? "" : section.trim();
+                    if (!TextUtils.isEmpty(normalizedSection)) {
+                        sectionArray.pushString(normalizedSection);
+                    }
+                }
+                payload.putArray("changedSections", sectionArray);
+
+                WritableMap periodMap = Arguments.createMap();
+                if (changedPeriods != null) {
+                    Iterator<String> keys = changedPeriods.keys();
+                    while (keys.hasNext()) {
+                        String section = keys.next();
+                        String normalizedSection = section == null ? "" : section.trim();
+                        if (TextUtils.isEmpty(normalizedSection)) {
+                            continue;
+                        }
+                        JSONArray periodIds = changedPeriods.optJSONArray(section);
+                        if (periodIds == null || periodIds.length() == 0) {
+                            continue;
+                        }
+                        WritableArray periodArray = Arguments.createArray();
+                        for (int index = 0; index < periodIds.length(); index++) {
+                            String periodId = periodIds.optString(index, "").trim();
+                            if (!TextUtils.isEmpty(periodId)) {
+                                periodArray.pushString(periodId);
+                            }
+                        }
+                        if (periodArray.size() > 0) {
+                            periodMap.putArray(normalizedSection, periodArray);
+                        }
+                    }
+                }
+                payload.putMap("changedPeriods", periodMap);
+                payload.putString(
+                    "source",
+                    TextUtils.isEmpty(source) ? "android-widget" : source
+                );
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                    .emit("widgets.storageChanged", payload);
+            }
+        });
+    }
+
+    private static JSONObject buildChangedPeriodsPayload(String section, String periodId) {
+        String normalizedSection = section == null ? "" : section.trim();
+        String normalizedPeriodId = periodId == null ? "" : periodId.trim();
+        if (TextUtils.isEmpty(normalizedSection) || TextUtils.isEmpty(normalizedPeriodId)) {
+            return null;
+        }
+
+        try {
+            JSONObject result = new JSONObject();
+            JSONArray periodIds = new JSONArray();
+            periodIds.put(normalizedPeriodId);
+            result.put(normalizedSection, periodIds);
+            return result;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private static ActionResult execute(Context context, Intent intent) {
         String command = intent.getStringExtra(EXTRA_COMMAND);
         String targetId = intent.getStringExtra(EXTRA_TARGET_ID);
@@ -244,6 +348,13 @@ public final class ControlerWidgetActionHandler {
                 return ActionResult.fullRefresh(false, false, "开始计时失败。");
             }
 
+            emitForegroundStorageChanged(
+                context,
+                new String[] { "timerSessionState", "projects" },
+                null,
+                "android-widget-direct-action"
+            );
+
             return ActionResult.fullRefresh(true, true, "已开始计时");
         } catch (Exception error) {
             error.printStackTrace();
@@ -308,6 +419,13 @@ public final class ControlerWidgetActionHandler {
                 return ActionResult.fullRefresh(false, false, "保存计时失败。");
             }
 
+            emitForegroundStorageChanged(
+                context,
+                new String[] { "records", "timerSessionState", "projects" },
+                null,
+                "android-widget-direct-action"
+            );
+
             return ActionResult.fullRefresh(
                 true,
                 true,
@@ -345,6 +463,13 @@ public final class ControlerWidgetActionHandler {
                 if (!ControlerWidgetDataStore.saveRoot(context, root)) {
                     return ActionResult.refreshKind(false, false, "更新待办失败。", ControlerWidgetKinds.TODOS);
                 }
+
+                emitForegroundStorageChanged(
+                    context,
+                    new String[] { "todos" },
+                    null,
+                    "android-widget-direct-action"
+                );
 
                 if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
                     return ActionResult.refreshSingleWidget(
@@ -412,6 +537,13 @@ public final class ControlerWidgetActionHandler {
                         return ActionResult.refreshKind(false, false, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
                     }
 
+                    emitForegroundStorageChanged(
+                        context,
+                        new String[] { "dailyCheckins" },
+                        buildChangedPeriodsPayload("dailyCheckins", today.substring(0, 7)),
+                        "android-widget-direct-action"
+                    );
+
                     if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
                         return ActionResult.refreshSingleWidget(
                             true,
@@ -442,6 +574,13 @@ public final class ControlerWidgetActionHandler {
             if (!ControlerWidgetDataStore.saveRoot(context, root)) {
                 return ActionResult.refreshKind(false, false, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
             }
+
+            emitForegroundStorageChanged(
+                context,
+                new String[] { "dailyCheckins" },
+                buildChangedPeriodsPayload("dailyCheckins", today.substring(0, 7)),
+                "android-widget-direct-action"
+            );
 
             if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
                 return ActionResult.refreshSingleWidget(

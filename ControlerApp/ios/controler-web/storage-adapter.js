@@ -89,21 +89,38 @@
     "selectedTheme",
   ]);
   const SHARED_BOOTSTRAP_MIRROR_KEYS = Object.freeze([
+    "guideState",
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
   ]);
   const DEFAULT_CHANGED_SECTIONS = Object.freeze([
-    "core",
+    "projects",
     "records",
     "plans",
     "todos",
     "checkinItems",
     "dailyCheckins",
     "checkins",
+    "yearlyGoals",
     "diaryEntries",
     "diaryCategories",
+    "guideState",
+    "customThemes",
+    "builtInThemeOverrides",
+    "selectedTheme",
     "plansRecurring",
+  ]);
+  const PRECISE_CORE_SECTION_KEYS = new Set([
+    "projects",
+    "todos",
+    "checkinItems",
+    "yearlyGoals",
+    "diaryCategories",
+    "guideState",
+    "customThemes",
+    "builtInThemeOverrides",
+    "selectedTheme",
   ]);
   const LOCAL_ONLY_STATE_KEY_ALIASES = Object.freeze({
     tableScaleSettings: "uiTableScaleSettings",
@@ -157,6 +174,23 @@
     };
   }
 
+  function isPlainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function getDefaultGuideStateFallback() {
+    return (
+      guideBundle?.getDefaultGuideState?.() || {
+        bundleVersion:
+          Number.isFinite(guideBundle?.GUIDE_BUNDLE_VERSION)
+            ? guideBundle.GUIDE_BUNDLE_VERSION
+            : 2,
+        dismissedCardIds: [],
+        dismissedGuideDiaryEntryIds: [],
+      }
+    );
+  }
+
   const defaultState = () => ({
     projects: [],
     records: [],
@@ -168,11 +202,7 @@
     yearlyGoals: {},
     diaryEntries: [],
     diaryCategories: [],
-    guideState:
-      guideBundle?.getDefaultGuideState?.() || {
-        bundleVersion: 1,
-        dismissedCardIds: [],
-      },
+    guideState: getDefaultGuideStateFallback(),
     customThemes: [],
     builtInThemeOverrides: {},
     selectedTheme: "default",
@@ -356,12 +386,25 @@
       case "appNavigationVisibility":
         return normalizeNavigationVisibilityState(value);
       case "guideState":
-        return guideBundle?.normalizeGuideState?.(value) ||
-          value ||
-          {
-            bundleVersion: 1,
-            dismissedCardIds: [],
-          };
+        return (
+          guideBundle?.normalizeGuideState?.(value) ||
+          (isPlainObject(value)
+            ? {
+                ...getDefaultGuideStateFallback(),
+                ...value,
+                dismissedCardIds: Array.isArray(value.dismissedCardIds)
+                  ? value.dismissedCardIds
+                  : [],
+                dismissedGuideDiaryEntryIds: Array.isArray(
+                  value.dismissedGuideDiaryEntryIds,
+                )
+                  ? value.dismissedGuideDiaryEntryIds
+                  : Array.isArray(value.dismissedDiaryEntryIds)
+                    ? value.dismissedDiaryEntryIds
+                    : [],
+              }
+            : getDefaultGuideStateFallback())
+        );
       case "statsPreferences":
         return normalizeStatsPreferences(value);
       case "appLanguage":
@@ -584,16 +627,11 @@
       base.selectedTheme = base.selectedTheme.trim();
     }
     base.guideState =
-      normalizedGuideState ||
-      guideBundle?.getDefaultGuideState?.() || {
-        bundleVersion: 1,
-        dismissedCardIds: [],
-      };
+      normalizedGuideState || getDefaultGuideStateFallback();
     if (guideBundle?.shouldSeedGuideBundle?.(guideSource)) {
       base.diaryEntries = guideBundle.buildGuideDiaryEntries();
       base.diaryCategories = [];
-      base.guideState =
-        guideBundle?.getDefaultGuideState?.() || base.guideState;
+      base.guideState = getDefaultGuideStateFallback();
     } else if (typeof guideBundle?.synchronizeGuideDiaryEntries === "function") {
       base.diaryEntries = guideBundle.synchronizeGuideDiaryEntries(
         base.diaryEntries,
@@ -682,6 +720,94 @@
       }
     });
     return JSON.stringify(snapshot);
+  }
+
+  function normalizeChangedSectionEntries(changedSections = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(changedSections) ? changedSections : [])
+          .map((section) => String(section || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function normalizeChangedPeriodEntries(changedPeriods = {}) {
+    const source =
+      changedPeriods && typeof changedPeriods === "object" ? changedPeriods : {};
+    const normalized = {};
+    Object.keys(source).forEach((section) => {
+      const normalizedSection = String(section || "").trim();
+      if (!normalizedSection) {
+        return;
+      }
+      const periodIds = Array.from(
+        new Set(
+          (Array.isArray(source[section]) ? source[section] : [])
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean),
+        ),
+      );
+      if (periodIds.length) {
+        normalized[normalizedSection] = periodIds;
+      }
+    });
+    return normalized;
+  }
+
+  function mergeChangedPeriodEntries(...maps) {
+    const merged = {};
+    maps.forEach((entry) => {
+      const normalizedEntry = normalizeChangedPeriodEntries(entry);
+      Object.keys(normalizedEntry).forEach((section) => {
+        merged[section] = Array.from(
+          new Set([...(merged[section] || []), ...normalizedEntry[section]]),
+        );
+      });
+    });
+    return merged;
+  }
+
+  function getChangedSectionsForSharedStateKey(key) {
+    const normalizedKey = resolveLocalStateKey(key);
+    if (!normalizedKey || !isSharedStateKey(normalizedKey)) {
+      return [];
+    }
+    return [normalizedKey];
+  }
+
+  function inferChangedSectionsFromCorePatch(partialCore = {}) {
+    const source =
+      partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+        ? partialCore
+        : {};
+    const sections = new Set();
+
+    Object.keys(source).forEach((key) => {
+      const normalizedKey = resolveLocalStateKey(key);
+      if (!normalizedKey) {
+        return;
+      }
+      if (PRECISE_CORE_SECTION_KEYS.has(normalizedKey)) {
+        sections.add(normalizedKey);
+        return;
+      }
+      if (normalizedKey === "recurringPlans") {
+        sections.add("plansRecurring");
+        return;
+      }
+      if (reservedMetadataKeys.has(normalizedKey)) {
+        sections.add("core");
+        return;
+      }
+      if (SHARED_STATE_KEYS.has(normalizedKey)) {
+        sections.add(normalizedKey);
+        return;
+      }
+      sections.add("core");
+    });
+
+    return sections.size ? Array.from(sections) : ["core"];
   }
 
   function normalizeVersionProbe(rawProbe, fallbackStatus = null) {
@@ -1216,6 +1342,9 @@
     let writeTimer = null;
     let writeChain = Promise.resolve();
     let hasPendingStateChanges = false;
+    let pendingElectronWriteReason = "";
+    let pendingElectronStorageChangedSections = new Set();
+    let pendingElectronStorageChangedPeriods = {};
 
     function readState() {
       if (cachedState) {
@@ -1243,22 +1372,93 @@
       return cachedState;
     }
 
+    function markPendingElectronStorageChangeMetadata(metadata = {}) {
+      normalizeChangedSectionEntries(metadata.changedSections).forEach((section) => {
+        pendingElectronStorageChangedSections.add(section);
+      });
+      pendingElectronStorageChangedPeriods = mergeChangedPeriodEntries(
+        pendingElectronStorageChangedPeriods,
+        metadata.changedPeriods,
+      );
+    }
+
+    function peekPendingElectronStorageChangeMetadata() {
+      return {
+        changedSections: Array.from(pendingElectronStorageChangedSections),
+        changedPeriods: normalizeChangedPeriodEntries(
+          pendingElectronStorageChangedPeriods,
+        ),
+      };
+    }
+
+    function clearPendingElectronStorageChangeMetadata() {
+      pendingElectronStorageChangedSections.clear();
+      pendingElectronStorageChangedPeriods = {};
+    }
+
     async function flushElectronState() {
+      const pendingChangeMetadata = peekPendingElectronStorageChangeMetadata();
       const nextState = normalizeState(readState(), {
         touchModified: true,
         touchSyncSave: true,
       });
       cachedState = nextState;
-      await electronAPI.storageSaveSnapshot(nextState);
+      await electronAPI.storageSaveSnapshot(nextState, {
+        reason: pendingElectronWriteReason || "save",
+        changedSections: pendingChangeMetadata.changedSections,
+        changedPeriods: pendingChangeMetadata.changedPeriods,
+      });
       cachedStatus = await electronAPI.storageFlush().catch((error) => {
         console.error("刷新 Electron 存储状态失败:", error);
         return null;
       });
       hasPendingStateChanges = false;
+      pendingElectronWriteReason = "";
+      clearPendingElectronStorageChangeMetadata();
       return cachedStatus;
     }
 
-    function persistState() {
+    function persistState(options = {}) {
+      const normalizedKey = resolveLocalStateKey(options?.key);
+      const normalizedChangedSections = normalizeChangedSectionEntries(
+        options?.changedSections,
+      );
+      const normalizedChangedPeriods = normalizeChangedPeriodEntries(
+        options?.changedPeriods,
+      );
+      if (normalizedChangedSections.length) {
+        markPendingElectronStorageChangeMetadata({
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+        });
+      } else if (isSharedStateKey(normalizedKey)) {
+        markPendingElectronStorageChangeMetadata({
+          changedSections: getChangedSectionsForSharedStateKey(normalizedKey),
+          changedPeriods: normalizedChangedPeriods,
+        });
+      } else if (options?.reason === "core-replace") {
+        markPendingElectronStorageChangeMetadata({
+          changedSections: inferChangedSectionsFromCorePatch(options?.partialCore),
+          changedPeriods: normalizedChangedPeriods,
+        });
+      } else if (options?.reason === "plans-recurring-replace") {
+        markPendingElectronStorageChangeMetadata({
+          changedSections: ["plansRecurring"],
+          changedPeriods: normalizedChangedPeriods,
+        });
+      } else if (
+        options?.reason === "clear" ||
+        options?.reason === "replace-all"
+      ) {
+        markPendingElectronStorageChangeMetadata({
+          changedSections: DEFAULT_CHANGED_SECTIONS,
+          changedPeriods: normalizedChangedPeriods,
+        });
+      }
+      pendingElectronWriteReason =
+        typeof options?.reason === "string" && options.reason.trim()
+          ? options.reason.trim()
+          : pendingElectronWriteReason || "save";
       hasPendingStateChanges = true;
       window.clearTimeout(writeTimer);
       writeTimer = window.setTimeout(() => {
@@ -1431,6 +1631,7 @@
           }
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          const changedSections = inferChangedSectionsFromCorePatch(partialCore);
           const result = await electronAPI.storageReplaceCoreState(
             partialCore,
             normalizedOptions,
@@ -1448,7 +1649,7 @@
               normalizedOptions.reason.trim()
                 ? normalizedOptions.reason.trim()
                 : "core-replace",
-            changedSections: ["core"],
+            changedSections,
             source: "renderer",
           });
           return result;
@@ -1510,6 +1711,8 @@
           .then(async () => {
             window.clearTimeout(writeTimer);
             hasPendingStateChanges = false;
+            pendingElectronWriteReason = "";
+            clearPendingElectronStorageChangeMetadata();
             const reason =
               typeof payload?.reason === "string" && payload.reason.trim()
                 ? payload.reason.trim()
@@ -1599,7 +1802,9 @@
     let hasManagedCoreSnapshot = !!initialMirrorStateRaw.trim();
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
-    let pendingNativeSharedSectionChanges = new Set();
+    let pendingNativeSharedKeyWrites = new Set();
+    let pendingNativeStorageChangedSections = new Set();
+    let pendingNativeStorageChangedPeriods = {};
 
     function createManagedSectionCoverage() {
       return MANAGED_RANGE_SECTIONS.reduce((coverage, section) => {
@@ -1609,49 +1814,59 @@
     }
 
     function normalizeChangedSectionsList(changedSections = []) {
-      return Array.from(
-        new Set(
-          (Array.isArray(changedSections) ? changedSections : [])
-            .map((section) => String(section || "").trim())
-            .filter(Boolean),
-        ),
-      );
+      return normalizeChangedSectionEntries(changedSections);
     }
 
     function normalizeChangedPeriodsMap(changedPeriods = {}) {
-      const source =
-        changedPeriods && typeof changedPeriods === "object" ? changedPeriods : {};
-      const normalized = {};
-      Object.keys(source).forEach((section) => {
-        const normalizedSection = String(section || "").trim();
-        if (!normalizedSection) {
-          return;
-        }
-        const periodIds = Array.from(
-          new Set(
-            (Array.isArray(source[section]) ? source[section] : [])
-              .map((periodId) => String(periodId || "").trim())
-              .filter(Boolean),
-          ),
-        );
-        if (periodIds.length) {
-          normalized[normalizedSection] = periodIds;
-        }
-      });
-      return normalized;
+      return normalizeChangedPeriodEntries(changedPeriods);
     }
 
-    function markPendingNativeSharedSectionChanges(changedSections = []) {
-      normalizeChangedSectionsList(changedSections).forEach((section) => {
-        pendingNativeSharedSectionChanges.add(section);
+    function markPendingNativeSharedKeyChanges(sharedKeys = []) {
+      normalizeChangedSectionsList(sharedKeys).forEach((key) => {
+        if (isSharedStateKey(key)) {
+          pendingNativeSharedKeyWrites.add(key);
+        }
       });
+    }
+
+    function peekPendingNativeSharedKeyChanges() {
+      return Array.from(pendingNativeSharedKeyWrites);
+    }
+
+    function markPendingNativeStorageChangeMetadata(metadata = {}) {
+      normalizeChangedSectionsList(metadata.changedSections).forEach((section) => {
+        pendingNativeStorageChangedSections.add(section);
+      });
+      pendingNativeStorageChangedPeriods = mergeChangedPeriodEntries(
+        pendingNativeStorageChangedPeriods,
+        metadata.changedPeriods,
+      );
+    }
+
+    function markPendingNativeSharedSectionChanges(
+      changedSections = [],
+      options = {},
+    ) {
+      normalizeChangedSectionsList(changedSections).forEach((section) => {
+        pendingNativeStorageChangedSections.add(section);
+      });
+      pendingNativeStorageChangedPeriods = mergeChangedPeriodEntries(
+        pendingNativeStorageChangedPeriods,
+        options.changedPeriods,
+      );
     }
 
     function consumePendingNativeStorageChangeMetadata() {
-      const changedSections = Array.from(pendingNativeSharedSectionChanges);
-      pendingNativeSharedSectionChanges.clear();
+      const changedSections = Array.from(pendingNativeStorageChangedSections);
+      const changedPeriods = normalizeChangedPeriodsMap(
+        pendingNativeStorageChangedPeriods,
+      );
+      pendingNativeSharedKeyWrites.clear();
+      pendingNativeStorageChangedSections.clear();
+      pendingNativeStorageChangedPeriods = {};
       return {
         changedSections,
+        changedPeriods,
       };
     }
 
@@ -1779,6 +1994,37 @@
               : null,
         ...extra,
       };
+    }
+
+    function buildNativeWriteStateFromLatestSnapshot(
+      localState,
+      latestNativeState,
+      pendingSharedKeys = [],
+    ) {
+      const normalizedLocalState = normalizeState(
+        localState,
+        buildMobileMetadata(),
+      );
+      const normalizedNativeState = normalizeState(
+        latestNativeState && typeof latestNativeState === "object"
+          ? latestNativeState
+          : cachedState,
+        buildMobileMetadata(),
+      );
+      const rebasedSharedState = extractSharedState(normalizedNativeState);
+
+      pendingSharedKeys.forEach((key) => {
+        if (!isSharedStateKey(key)) {
+          return;
+        }
+        if (Object.prototype.hasOwnProperty.call(normalizedLocalState, key)) {
+          rebasedSharedState[key] = cloneValue(normalizedLocalState[key]);
+          return;
+        }
+        delete rebasedSharedState[key];
+      });
+
+      return normalizeState(rebasedSharedState, buildMobileMetadata());
     }
 
     function rebuildManagedSectionCoverage(state, options = {}) {
@@ -2138,11 +2384,31 @@
     }
 
     async function writeNativeState() {
-      const nextState = normalizeState(readState(), {
+      const pendingSharedKeys = peekPendingNativeSharedKeyChanges();
+      let nextState = normalizeState(readState(), {
         ...buildMobileMetadata(),
         touchModified: true,
         touchSyncSave: true,
       });
+      if (pendingSharedKeys.length) {
+        const latestSnapshot = await readNativeSnapshot({
+          suppressError: true,
+        });
+        if (latestSnapshot?.state) {
+          nextState = normalizeState(
+            buildNativeWriteStateFromLatestSnapshot(
+              nextState,
+              latestSnapshot.state,
+              pendingSharedKeys,
+            ),
+            {
+              ...buildMobileMetadata(latestSnapshot.status || {}),
+              touchModified: true,
+              touchSyncSave: true,
+            },
+          );
+        }
+      }
       cachedState = nextState;
       const serializedState = JSON.stringify(nextState, null, 2);
       const nextComparableSnapshot = createComparableSnapshot(nextState);
@@ -2203,17 +2469,41 @@
 
     function persistState(options = {}) {
       const normalizedKey = resolveLocalStateKey(options?.key);
-      if (isSharedStateKey(normalizedKey)) {
-        markPendingNativeSharedSectionChanges([normalizedKey]);
+      const normalizedChangedSections = normalizeChangedSectionsList(
+        options?.changedSections,
+      );
+      const normalizedChangedPeriods = normalizeChangedPeriodsMap(
+        options?.changedPeriods,
+      );
+      if (normalizedChangedSections.length) {
+        markPendingNativeStorageChangeMetadata({
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+        });
+      } else if (isSharedStateKey(normalizedKey)) {
+        markPendingNativeSharedKeyChanges([normalizedKey]);
+        markPendingNativeStorageChangeMetadata({
+          changedSections: getChangedSectionsForSharedStateKey(normalizedKey),
+          changedPeriods: normalizedChangedPeriods,
+        });
       } else if (options?.reason === "core-replace") {
-        markPendingNativeSharedSectionChanges(["core"]);
+        markPendingNativeStorageChangeMetadata({
+          changedSections: inferChangedSectionsFromCorePatch(options?.partialCore),
+          changedPeriods: normalizedChangedPeriods,
+        });
       } else if (options?.reason === "plans-recurring-replace") {
-        markPendingNativeSharedSectionChanges(["plansRecurring"]);
+        markPendingNativeStorageChangeMetadata({
+          changedSections: ["plansRecurring"],
+          changedPeriods: normalizedChangedPeriods,
+        });
       } else if (
         options?.reason === "clear" ||
         options?.reason === "replace-all"
       ) {
-        markPendingNativeSharedSectionChanges(DEFAULT_CHANGED_SECTIONS);
+        markPendingNativeStorageChangeMetadata({
+          changedSections: DEFAULT_CHANGED_SECTIONS,
+          changedPeriods: normalizedChangedPeriods,
+        });
       }
       hasPendingStateChanges = true;
       scheduleMirrorSnapshot();
@@ -2404,66 +2694,7 @@
       if (nextCore) {
         const currentSnapshot = createComparableSnapshot(readState());
         const nextState = normalizeState(
-          {
-            ...readState(),
-            projects: Array.isArray(nextCore.projects) ? nextCore.projects : [],
-            records: Array.isArray(readState()?.records) ? readState().records : [],
-            plans: [
-              ...(
-                Array.isArray(readState()?.plans)
-                  ? readState().plans.filter((item) =>
-                      typeof storageBundle?.isRecurringPlan === "function"
-                        ? !storageBundle.isRecurringPlan(item)
-                        : String(item?.repeat || "").trim().toLowerCase() === "none",
-                    )
-                  : []
-              ),
-              ...(
-                Array.isArray(nextCore.recurringPlans) ? nextCore.recurringPlans : []
-              ),
-            ],
-            todos: Array.isArray(nextCore.todos) ? nextCore.todos : [],
-            checkinItems: Array.isArray(nextCore.checkinItems)
-              ? nextCore.checkinItems
-              : [],
-            dailyCheckins: Array.isArray(readState()?.dailyCheckins)
-              ? readState().dailyCheckins
-              : [],
-            checkins: Array.isArray(readState()?.checkins) ? readState().checkins : [],
-            yearlyGoals:
-              nextCore.yearlyGoals &&
-              typeof nextCore.yearlyGoals === "object" &&
-              !Array.isArray(nextCore.yearlyGoals)
-                ? nextCore.yearlyGoals
-                : {},
-            diaryEntries: Array.isArray(readState()?.diaryEntries)
-              ? readState().diaryEntries
-              : [],
-            diaryCategories: Array.isArray(nextCore.diaryCategories)
-              ? nextCore.diaryCategories
-              : [],
-            customThemes: Array.isArray(nextCore.customThemes)
-              ? nextCore.customThemes
-              : [],
-            builtInThemeOverrides:
-              nextCore.builtInThemeOverrides &&
-              typeof nextCore.builtInThemeOverrides === "object" &&
-              !Array.isArray(nextCore.builtInThemeOverrides)
-                ? nextCore.builtInThemeOverrides
-                : {},
-            selectedTheme:
-              typeof nextCore.selectedTheme === "string" &&
-              nextCore.selectedTheme.trim()
-                ? nextCore.selectedTheme.trim()
-                : "default",
-            createdAt: nextCore.createdAt || null,
-            lastModified: nextCore.lastModified || null,
-            storagePath: nextCore.storagePath || null,
-            storageDirectory: nextCore.storageDirectory || null,
-            userDataPath: nextCore.userDataPath || null,
-            documentsPath: nextCore.documentsPath || null,
-            syncMeta: nextCore.syncMeta || null,
-          },
+          mergeManagedStateWithNativeCorePayload(nextCore, readState()),
           buildMobileMetadata(cachedStatus || {}),
         );
         const nextSnapshot = createComparableSnapshot(nextState);
@@ -2540,18 +2771,138 @@
       return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "undated";
     }
 
-    function getManagedPlanBootstrapStateSnapshot() {
-      const state = readState();
+    function getManagedRecurringPlans(state = readState()) {
       const planItems = Array.isArray(state?.plans) ? state.plans : [];
+      return planItems.filter((item) =>
+        typeof storageBundle?.isRecurringPlan === "function"
+          ? storageBundle.isRecurringPlan(item)
+          : String(item?.repeat || "").trim().toLowerCase() !== "none",
+      );
+    }
+
+    function buildManagedCoreStateSnapshot(state = readState()) {
+      const sourceState =
+        state && typeof state === "object" && !Array.isArray(state)
+          ? state
+          : readState();
+      const recurringPlans = getManagedRecurringPlans(sourceState);
       return {
-        yearlyGoals: cloneValue(state?.yearlyGoals || {}),
-        recurringPlans: cloneValue(
-          planItems.filter((item) =>
-            typeof storageBundle?.isRecurringPlan === "function"
-              ? storageBundle.isRecurringPlan(item)
-              : String(item?.repeat || "").trim().toLowerCase() !== "none",
-          ),
+        projects: cloneValue(sourceState?.projects || []),
+        todos: cloneValue(sourceState?.todos || []),
+        checkinItems: cloneValue(sourceState?.checkinItems || []),
+        yearlyGoals: cloneValue(sourceState?.yearlyGoals || {}),
+        diaryCategories: cloneValue(sourceState?.diaryCategories || []),
+        guideState:
+          cloneValue(
+            guideBundle?.normalizeGuideState?.(sourceState?.guideState) ||
+              sourceState?.guideState ||
+              getDefaultGuideStateFallback(),
+          ) || getDefaultGuideStateFallback(),
+        customThemes: cloneValue(sourceState?.customThemes || []),
+        builtInThemeOverrides: cloneValue(
+          sourceState?.builtInThemeOverrides || {},
         ),
+        selectedTheme:
+          typeof sourceState?.selectedTheme === "string" &&
+          sourceState.selectedTheme.trim()
+            ? sourceState.selectedTheme.trim()
+            : "default",
+        createdAt: sourceState?.createdAt || null,
+        lastModified: sourceState?.lastModified || null,
+        storagePath: sourceState?.storagePath || null,
+        storageDirectory: sourceState?.storageDirectory || null,
+        userDataPath: sourceState?.userDataPath || null,
+        documentsPath: sourceState?.documentsPath || null,
+        syncMeta: cloneValue(sourceState?.syncMeta || null),
+        recurringPlans: cloneValue(recurringPlans),
+      };
+    }
+
+    function mergeManagedStateWithNativeCorePayload(
+      corePayload = {},
+      baseState = readState(),
+    ) {
+      const currentState = normalizeState(
+        isPlainObject(baseState) ? baseState : readState(),
+        buildMobileMetadata(),
+      );
+      const currentCoreSnapshot = buildManagedCoreStateSnapshot(currentState);
+      const nextRecurringPlans = Array.isArray(corePayload?.recurringPlans)
+        ? corePayload.recurringPlans
+        : currentCoreSnapshot.recurringPlans;
+      return {
+        ...currentState,
+        projects: Array.isArray(corePayload?.projects)
+          ? corePayload.projects
+          : currentCoreSnapshot.projects,
+        todos: Array.isArray(corePayload?.todos)
+          ? corePayload.todos
+          : currentCoreSnapshot.todos,
+        checkinItems: Array.isArray(corePayload?.checkinItems)
+          ? corePayload.checkinItems
+          : currentCoreSnapshot.checkinItems,
+        yearlyGoals: isPlainObject(corePayload?.yearlyGoals)
+          ? corePayload.yearlyGoals
+          : currentCoreSnapshot.yearlyGoals,
+        diaryCategories: Array.isArray(corePayload?.diaryCategories)
+          ? corePayload.diaryCategories
+          : currentCoreSnapshot.diaryCategories,
+        guideState:
+          guideBundle?.normalizeGuideState?.(
+            isPlainObject(corePayload) &&
+              Object.prototype.hasOwnProperty.call(corePayload, "guideState")
+              ? corePayload.guideState
+              : currentCoreSnapshot.guideState,
+          ) || currentCoreSnapshot.guideState,
+        customThemes: Array.isArray(corePayload?.customThemes)
+          ? corePayload.customThemes
+          : currentCoreSnapshot.customThemes,
+        builtInThemeOverrides: isPlainObject(corePayload?.builtInThemeOverrides)
+          ? corePayload.builtInThemeOverrides
+          : currentCoreSnapshot.builtInThemeOverrides,
+        selectedTheme:
+          typeof corePayload?.selectedTheme === "string" &&
+          corePayload.selectedTheme.trim()
+            ? corePayload.selectedTheme.trim()
+            : currentCoreSnapshot.selectedTheme,
+        plans: [
+          ...(
+            Array.isArray(currentState?.plans)
+              ? currentState.plans.filter(
+                  (item) =>
+                    !(typeof storageBundle?.isRecurringPlan === "function"
+                      ? storageBundle.isRecurringPlan(item)
+                      : String(item?.repeat || "").trim().toLowerCase() !==
+                          "none"),
+                )
+              : []
+          ),
+          ...nextRecurringPlans,
+        ],
+        createdAt: corePayload?.createdAt || currentCoreSnapshot.createdAt || null,
+        lastModified:
+          corePayload?.lastModified || currentCoreSnapshot.lastModified || null,
+        storagePath:
+          corePayload?.storagePath || currentCoreSnapshot.storagePath || null,
+        storageDirectory:
+          corePayload?.storageDirectory ||
+          currentCoreSnapshot.storageDirectory ||
+          null,
+        userDataPath:
+          corePayload?.userDataPath || currentCoreSnapshot.userDataPath || null,
+        documentsPath:
+          corePayload?.documentsPath || currentCoreSnapshot.documentsPath || null,
+        syncMeta: isPlainObject(corePayload?.syncMeta)
+          ? corePayload.syncMeta
+          : currentCoreSnapshot.syncMeta,
+      };
+    }
+
+    function getManagedPlanBootstrapStateSnapshot() {
+      const coreStateSnapshot = buildManagedCoreStateSnapshot(readState());
+      return {
+        yearlyGoals: coreStateSnapshot.yearlyGoals,
+        recurringPlans: coreStateSnapshot.recurringPlans,
       };
     }
 
@@ -2590,29 +2941,7 @@
     }
 
     function getManagedCoreStateSnapshot() {
-      const state = readState();
-      const planBootstrapState = getManagedPlanBootstrapStateSnapshot();
-      return {
-        projects: cloneValue(state?.projects || []),
-        todos: cloneValue(state?.todos || []),
-        checkinItems: cloneValue(state?.checkinItems || []),
-        yearlyGoals: planBootstrapState.yearlyGoals,
-        diaryCategories: cloneValue(state?.diaryCategories || []),
-        customThemes: cloneValue(state?.customThemes || []),
-        builtInThemeOverrides: cloneValue(state?.builtInThemeOverrides || {}),
-        selectedTheme:
-          typeof state?.selectedTheme === "string" && state.selectedTheme.trim()
-            ? state.selectedTheme.trim()
-            : "default",
-        createdAt: state?.createdAt || null,
-        lastModified: state?.lastModified || null,
-        storagePath: state?.storagePath || null,
-        storageDirectory: state?.storageDirectory || null,
-        userDataPath: state?.userDataPath || null,
-        documentsPath: state?.documentsPath || null,
-        syncMeta: cloneValue(state?.syncMeta || null),
-        recurringPlans: planBootstrapState.recurringPlans,
-      };
+      return buildManagedCoreStateSnapshot(readState());
     }
 
     function loadManagedSectionRange(section, scope = {}) {
@@ -2721,50 +3050,10 @@
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               const currentState = readState();
-              cachedState = normalizeState({
-                ...currentState,
-                projects: parsed.projects || [],
-                todos: parsed.todos || [],
-                checkinItems: parsed.checkinItems || [],
-                yearlyGoals: parsed.yearlyGoals || {},
-                diaryCategories: parsed.diaryCategories || [],
-                customThemes:
-                  Array.isArray(parsed.customThemes)
-                    ? parsed.customThemes
-                    : currentState?.customThemes || [],
-                builtInThemeOverrides:
-                  parsed.builtInThemeOverrides &&
-                  typeof parsed.builtInThemeOverrides === "object" &&
-                  !Array.isArray(parsed.builtInThemeOverrides)
-                    ? parsed.builtInThemeOverrides
-                    : currentState?.builtInThemeOverrides || {},
-                selectedTheme:
-                  typeof parsed.selectedTheme === "string" && parsed.selectedTheme.trim()
-                    ? parsed.selectedTheme.trim()
-                    : currentState?.selectedTheme || "default",
-                plans: [
-                  ...(
-                    Array.isArray(currentState?.plans)
-                      ? currentState.plans.filter(
-                          (item) =>
-                            !(typeof storageBundle?.isRecurringPlan === "function"
-                              ? storageBundle.isRecurringPlan(item)
-                              : String(item?.repeat || "").trim().toLowerCase() !== "none"),
-                        )
-                      : []
-                  ),
-                  ...(Array.isArray(parsed.recurringPlans) ? parsed.recurringPlans : []),
-                ],
-                createdAt: parsed.createdAt || currentState?.createdAt || null,
-                lastModified: parsed.lastModified || currentState?.lastModified || null,
-                storagePath: parsed.storagePath || currentState?.storagePath || null,
-                storageDirectory:
-                  parsed.storageDirectory || currentState?.storageDirectory || null,
-                userDataPath: parsed.userDataPath || currentState?.userDataPath || null,
-                documentsPath:
-                  parsed.documentsPath || currentState?.documentsPath || null,
-                syncMeta: parsed.syncMeta || currentState?.syncMeta || null,
-              }, buildMobileMetadata(parsed));
+              cachedState = normalizeState(
+                mergeManagedStateWithNativeCorePayload(parsed, currentState),
+                buildMobileMetadata(parsed),
+              );
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
                 markFull:
@@ -2970,7 +3259,14 @@
           }
           hasManagedCoreSnapshot = true;
           markManagedSectionPeriodsLoaded(section, [periodId]);
-          persistState({ reason: "section-save", key: section });
+          persistState({
+            reason: "section-save",
+            key: section,
+            changedSections: [section],
+            changedPeriods: {
+              [section]: [periodId],
+            },
+          });
           return {
             section,
             periodId,
@@ -2980,6 +3276,7 @@
         async replaceCoreState(partialCore = {}, options = {}) {
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          const changedSections = inferChangedSectionsFromCorePatch(partialCore);
           try {
             const rawPayload = await reactNativeBridge.call("storage.replaceCoreState", {
               partialCore,
@@ -2996,7 +3293,7 @@
               hasPendingStateChanges = false;
               persistMirrorSnapshot(true);
               emitNativeStorageChangedBridgeEvent("core-replace", {
-                changedSections: ["core"],
+                changedSections,
               });
               touchRecentNativeLocalWriteWindow();
               touchNativeFastProbeWindow();
@@ -3016,6 +3313,8 @@
               normalizedOptions.reason.trim()
                 ? normalizedOptions.reason.trim()
                 : "core-replace",
+            changedSections,
+            partialCore,
           });
           return getManagedCoreStateSnapshot();
         },

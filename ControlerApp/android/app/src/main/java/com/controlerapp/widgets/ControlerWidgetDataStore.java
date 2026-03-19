@@ -387,6 +387,7 @@ public final class ControlerWidgetDataStore {
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
+            core.put("guideState", cloneJsonObject(root.optJSONObject("guideState")));
             core.put("customThemes", cloneJsonArray(root.optJSONArray("customThemes")));
             core.put(
                 "builtInThemeOverrides",
@@ -615,6 +616,7 @@ public final class ControlerWidgetDataStore {
             "checkinItems",
             "yearlyGoals",
             "diaryCategories",
+            "guideState",
             "customThemes",
             "builtInThemeOverrides",
             "selectedTheme",
@@ -1261,6 +1263,7 @@ public final class ControlerWidgetDataStore {
             "checkinItems",
             "yearlyGoals",
             "diaryCategories",
+            "guideState",
             "customThemes",
             "builtInThemeOverrides",
             "selectedTheme",
@@ -1377,6 +1380,7 @@ public final class ControlerWidgetDataStore {
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
+            core.put("guideState", cloneJsonObject(root.optJSONObject("guideState")));
             core.put("customThemes", cloneJsonArray(root.optJSONArray("customThemes")));
             core.put(
                 "builtInThemeOverrides",
@@ -1422,6 +1426,14 @@ public final class ControlerWidgetDataStore {
             return false;
         }
         boolean changed = false;
+        if (core.optJSONObject("guideState") == null) {
+            JSONObject guideState = new JSONObject();
+            guideState.put("bundleVersion", 2);
+            guideState.put("dismissedCardIds", new JSONArray());
+            guideState.put("dismissedGuideDiaryEntryIds", new JSONArray());
+            core.put("guideState", guideState);
+            changed = true;
+        }
         if (core.optJSONArray("customThemes") == null) {
             core.put("customThemes", new JSONArray());
             changed = true;

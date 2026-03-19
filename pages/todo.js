@@ -10,6 +10,7 @@ let currentView = "todos"; // 当前视图: "todos" 或 "checkins"
 let todoLayoutMode = "list"; // "list" | "quadrant"
 const uiTools = window.ControlerUI || null;
 const reminderTools = window.ControlerReminders || null;
+const storageBundleApi = window.ControlerStorageBundle || null;
 const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
 const TABLE_SIZE_EVENT_NAME = "ui:table-scale-settings-changed";
@@ -29,10 +30,15 @@ let todoWidgetViewListenerBound = false;
 let todoPlanSidebarInitialized = false;
 let todoPendingExternalStorageRefresh =
   window.__controlerTodoRuntimePendingExternalRefresh === true;
+let todoPersistChain = Promise.resolve();
+const todoLoadedSectionPeriods = {
+  dailyCheckins: new Set(),
+  checkins: new Set(),
+};
 const todoExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
-    run: async () => {
-      refreshTodoFromExternalStorageChange();
+    run: async (detail = {}) => {
+      await refreshTodoFromExternalStorageChange(detail);
     },
   }) || null;
 
@@ -55,13 +61,201 @@ function shouldRefreshTodoForExternalChange(detail = {}) {
     return true;
   }
   return changedSections.some((section) =>
-    ["todos", "checkinItems", "dailyCheckins", "checkins"].includes(section),
+    ["todos", "checkinItems", "dailyCheckins", "checkins", "core"].includes(section),
   );
 }
 
 function invalidateTodoDerivedCaches() {
   cachedTodoFilterKey = "";
   cachedFilteredTodos = [];
+}
+
+function cloneTodoValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return value;
+  }
+}
+
+function hydrateTodoCollection(section, items = []) {
+  const sourceItems = Array.isArray(items) ? items : [];
+  switch (section) {
+    case "todos":
+      return sourceItems.map((todo) => hydrateTodo(todo));
+    case "checkinItems":
+      return sourceItems.map((item) => hydrateCheckinItem(item));
+    case "checkins":
+      return sourceItems.map((checkin) => hydrateCheckin(checkin));
+    case "dailyCheckins":
+    default:
+      return sourceItems.map((item) => ({ ...(item || {}) }));
+  }
+}
+
+function applyTodoWorkspaceSnapshot(snapshot = {}) {
+  todos = hydrateTodoCollection("todos", snapshot.todos);
+  checkinItems = hydrateTodoCollection("checkinItems", snapshot.checkinItems);
+  dailyCheckins = hydrateTodoCollection("dailyCheckins", snapshot.dailyCheckins);
+  checkins = hydrateTodoCollection("checkins", snapshot.checkins);
+  todoLoadedSectionPeriods.dailyCheckins = new Set(
+    getTodoSectionPeriodIds("dailyCheckins", dailyCheckins),
+  );
+  todoLoadedSectionPeriods.checkins = new Set(
+    getTodoSectionPeriodIds("checkins", checkins),
+  );
+  invalidateTodoDerivedCaches();
+}
+
+function readTodoWorkspaceSnapshotFromLocalStorage() {
+  const readArray = (key) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  };
+  return {
+    todos: readArray("todos"),
+    checkinItems: readArray("checkinItems"),
+    dailyCheckins: readArray("dailyCheckins"),
+    checkins: readArray("checkins"),
+  };
+}
+
+function getTodoSectionPeriodId(section, item) {
+  if (typeof storageBundleApi?.getPeriodIdForSectionItem === "function") {
+    return storageBundleApi.getPeriodIdForSectionItem(section, item) || "undated";
+  }
+  const dateText =
+    typeof item?.date === "string" && item.date
+      ? item.date
+      : typeof item?.time === "string" && item.time
+        ? item.time
+        : typeof item?.timestamp === "string" && item.timestamp
+          ? item.timestamp
+          : typeof item?.updatedAt === "string" && item.updatedAt
+            ? item.updatedAt
+            : "";
+  return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "undated";
+}
+
+function getTodoSectionPeriodIds(section, items = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(items) ? items : [])
+        .map((item) => getTodoSectionPeriodId(section, item))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function mergeTodoSectionItemsByPeriods(
+  section,
+  existingItems = [],
+  incomingItems = [],
+  periodIds = [],
+) {
+  const normalizedPeriodIds = Array.from(
+    new Set(
+      (Array.isArray(periodIds) ? periodIds : [])
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  if (!normalizedPeriodIds.length) {
+    return hydrateTodoCollection(section, incomingItems);
+  }
+  const targetPeriods = new Set(normalizedPeriodIds);
+  const preservedItems = (Array.isArray(existingItems) ? existingItems : []).filter(
+    (item) => !targetPeriods.has(getTodoSectionPeriodId(section, item)),
+  );
+  return hydrateTodoCollection(section, [...preservedItems, ...(incomingItems || [])]);
+}
+
+async function persistTodoWorkspaceSnapshot(snapshot) {
+  const nextSnapshot =
+    snapshot && typeof snapshot === "object"
+      ? snapshot
+      : {
+          todos,
+          checkinItems,
+          dailyCheckins,
+          checkins,
+        };
+  const bundleStorage = window.ControlerStorage;
+  if (
+    typeof bundleStorage?.replaceCoreState === "function" &&
+    typeof bundleStorage?.saveSectionRange === "function"
+  ) {
+    await bundleStorage.replaceCoreState({
+      todos: cloneTodoValue(nextSnapshot.todos || []),
+      checkinItems: cloneTodoValue(nextSnapshot.checkinItems || []),
+    }, {
+      reason: "todo-workspace",
+    });
+
+    const persistRangeSection = async (section, items) => {
+      const periodIds = Array.from(
+        new Set([
+          ...getTodoSectionPeriodIds(section, items),
+          ...Array.from(todoLoadedSectionPeriods[section] || []),
+        ]),
+      );
+      if (!periodIds.length) {
+        todoLoadedSectionPeriods[section] = new Set();
+        return;
+      }
+      await Promise.all(
+        periodIds.map((periodId) =>
+          bundleStorage.saveSectionRange(section, {
+            periodId,
+            items: (items || []).filter(
+              (item) => getTodoSectionPeriodId(section, item) === periodId,
+            ),
+            mode: "replace",
+          }),
+        ),
+      );
+      todoLoadedSectionPeriods[section] = new Set(
+        getTodoSectionPeriodIds(section, items),
+      );
+    };
+
+    await persistRangeSection("dailyCheckins", nextSnapshot.dailyCheckins || []);
+    await persistRangeSection("checkins", nextSnapshot.checkins || []);
+    return true;
+  }
+
+  localStorage.setItem("todos", JSON.stringify(nextSnapshot.todos || []));
+  localStorage.setItem("checkins", JSON.stringify(nextSnapshot.checkins || []));
+  localStorage.setItem("checkinItems", JSON.stringify(nextSnapshot.checkinItems || []));
+  localStorage.setItem(
+    "dailyCheckins",
+    JSON.stringify(nextSnapshot.dailyCheckins || []),
+  );
+  return true;
+}
+
+function queueTodoPersist() {
+  const snapshot = {
+    todos: cloneTodoValue(todos),
+    checkinItems: cloneTodoValue(checkinItems),
+    dailyCheckins: cloneTodoValue(dailyCheckins),
+    checkins: cloneTodoValue(checkins),
+  };
+  todoPersistChain = todoPersistChain
+    .catch(() => undefined)
+    .then(() => persistTodoWorkspaceSnapshot(snapshot))
+    .catch((error) => {
+      console.error("保存待办数据失败:", error);
+      return false;
+    });
+  return todoPersistChain;
 }
 const TODO_WIDGET_CONTEXT = (() => {
   let params = null;
@@ -550,7 +744,7 @@ function bindTableScaleLiveRefresh() {
 
 let todoExternalStorageRefreshQueued = false;
 
-function refreshTodoFromExternalStorageChange() {
+async function refreshTodoFromExternalStorageChange(detail = {}) {
   if (!todoPlanSidebarInitialized) {
     todoExternalStorageRefreshQueued = false;
     todoPendingExternalStorageRefresh = true;
@@ -560,7 +754,71 @@ function refreshTodoFromExternalStorageChange() {
   todoExternalStorageRefreshQueued = false;
   todoPendingExternalStorageRefresh = false;
   window.__controlerTodoRuntimePendingExternalRefresh = false;
-  loadData();
+  const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
+  const bundleStorage = window.ControlerStorage;
+  const canUsePreciseRefresh =
+    changedSections.length > 0 &&
+    !changedSections.includes("core") &&
+    typeof bundleStorage?.getCoreState === "function" &&
+    typeof bundleStorage?.loadSectionRange === "function";
+
+  if (!canUsePreciseRefresh) {
+    loadData();
+    renderCurrentView();
+    updateStats();
+    updateCheckinStats();
+    return;
+  }
+
+  try {
+    if (changedSections.includes("todos") || changedSections.includes("checkinItems")) {
+      const coreSnapshot = await bundleStorage.getCoreState();
+      if (changedSections.includes("todos")) {
+        todos = hydrateTodoCollection("todos", coreSnapshot?.todos);
+      }
+      if (changedSections.includes("checkinItems")) {
+        checkinItems = hydrateTodoCollection(
+          "checkinItems",
+          coreSnapshot?.checkinItems,
+        );
+      }
+    }
+
+    const refreshRangeSection = async (section, currentItems) => {
+      const periodIds = Array.isArray(detail?.changedPeriods?.[section])
+        ? detail.changedPeriods[section]
+        : [];
+      if (!periodIds.length) {
+        throw new Error(`missing-changed-periods:${section}`);
+      }
+      const range = await bundleStorage.loadSectionRange(section, {
+        periodIds,
+      });
+      return mergeTodoSectionItemsByPeriods(
+        section,
+        currentItems,
+        Array.isArray(range?.items) ? range.items : [],
+        periodIds,
+      );
+    };
+
+    if (changedSections.includes("dailyCheckins")) {
+      dailyCheckins = await refreshRangeSection("dailyCheckins", dailyCheckins);
+    }
+    if (changedSections.includes("checkins")) {
+      checkins = await refreshRangeSection("checkins", checkins);
+    }
+    todoLoadedSectionPeriods.dailyCheckins = new Set(
+      getTodoSectionPeriodIds("dailyCheckins", dailyCheckins),
+    );
+    todoLoadedSectionPeriods.checkins = new Set(
+      getTodoSectionPeriodIds("checkins", checkins),
+    );
+    invalidateTodoDerivedCaches();
+  } catch (error) {
+    console.error("精确刷新待办数据失败，回退全量加载:", error);
+    loadData();
+  }
   renderCurrentView();
   updateStats();
   updateCheckinStats();
@@ -1197,73 +1455,24 @@ function hydrateCheckin(rawCheckin) {
 // 加载数据
 function loadData() {
   try {
-    // 从localStorage加载普通待办事项
-    const savedTodos = localStorage.getItem("todos");
-    if (savedTodos) {
-      const parsedTodos = JSON.parse(savedTodos);
-      todos = Array.isArray(parsedTodos)
-        ? parsedTodos.map((todo) => hydrateTodo(todo))
-        : [];
-    } else {
-      todos = [];
-    }
-
-    // 从localStorage加载打卡项目
-    const savedCheckinItems = localStorage.getItem("checkinItems");
-    if (savedCheckinItems) {
-      const parsedCheckinItems = JSON.parse(savedCheckinItems);
-      checkinItems = Array.isArray(parsedCheckinItems)
-        ? parsedCheckinItems.map((item) => hydrateCheckinItem(item))
-        : [];
-    } else {
-      checkinItems = [];
-    }
-
-    // 从localStorage加载每日打卡记录
-    const savedDailyCheckins = localStorage.getItem("dailyCheckins");
-    if (savedDailyCheckins) {
-      const parsedDailyCheckins = JSON.parse(savedDailyCheckins);
-      dailyCheckins = Array.isArray(parsedDailyCheckins)
-        ? parsedDailyCheckins
-        : [];
-    } else {
-      dailyCheckins = [];
-    }
-
-    // 从localStorage加载旧版打卡记录（兼容性）
-    const savedCheckins = localStorage.getItem("checkins");
-    if (savedCheckins) {
-      const parsedCheckins = JSON.parse(savedCheckins);
-      checkins = Array.isArray(parsedCheckins)
-        ? parsedCheckins.map((checkin) => hydrateCheckin(checkin))
-        : [];
-    } else {
-      checkins = [];
-    }
-    invalidateTodoDerivedCaches();
+    applyTodoWorkspaceSnapshot(readTodoWorkspaceSnapshotFromLocalStorage());
   } catch (e) {
     console.error("加载数据失败:", e);
-    todos = [];
-    checkinItems = [];
-    dailyCheckins = [];
-    checkins = [];
-    invalidateTodoDerivedCaches();
+    applyTodoWorkspaceSnapshot({});
   }
 }
 
 // 保存数据
 function saveData() {
   try {
-    localStorage.setItem("todos", JSON.stringify(todos));
-    localStorage.setItem("checkins", JSON.stringify(checkins));
-    localStorage.setItem("checkinItems", JSON.stringify(checkinItems));
-    localStorage.setItem("dailyCheckins", JSON.stringify(dailyCheckins));
     invalidateTodoDerivedCaches();
     reminderTools?.refresh?.({
       resetWindow: true,
     });
+    return queueTodoPersist();
   } catch (e) {
     console.error("保存数据失败:", e);
+    return Promise.resolve(false);
   }
 }
 

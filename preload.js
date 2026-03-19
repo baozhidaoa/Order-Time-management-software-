@@ -27,7 +27,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   storageLoadSnapshot: () => ipcRenderer.invoke("storage:loadSnapshot"),
   storageLoadSync: () => ipcRenderer.sendSync("storage:loadSync"),
   storageSave: (data) => ipcRenderer.invoke("storage:save", data),
-  storageSaveSnapshot: (data) => ipcRenderer.invoke("storage:saveSnapshot", data),
+  storageSaveSnapshot: (data, options = {}) =>
+    ipcRenderer.invoke("storage:saveSnapshot", data, options),
   storageSaveSync: (data) => ipcRenderer.sendSync("storage:saveSync", data),
   storageFlush: () => ipcRenderer.invoke("storage:flush"),
   storageStatus: () => ipcRenderer.invoke("storage:status"),
@@ -41,6 +42,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   storageImport: (filePath) => ipcRenderer.invoke("storage:import", filePath),
   storageGetManifest: () => ipcRenderer.invoke("storage:getManifest"),
   storageGetCoreState: () => ipcRenderer.invoke("storage:getCoreState"),
+  storageReplaceCoreStateSync: (partialCore, options = {}) =>
+    ipcRenderer.sendSync("storage:replaceCoreStateSync", partialCore, options),
   storageLoadSectionRange: (section, scope) =>
     ipcRenderer.invoke("storage:loadSectionRange", section, scope),
   storageSaveSectionRange: (section, payload) =>

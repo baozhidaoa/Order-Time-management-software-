@@ -12,6 +12,7 @@ const platformContract = require(path.join(
   "shared",
   "platform-contract.js",
 ));
+const guideBundle = require(path.join(repoRoot, "pages", "guide-bundle.js"));
 
 const failures = [];
 const mobileGeneratedBootFiles = new Set([
@@ -191,6 +192,81 @@ function assertMethodSet(methodNames, requiredNames, label) {
   }
 }
 
+function assertRegexMatch(sourceText, regex, message) {
+  if (!regex.test(sourceText)) {
+    recordFailure(message);
+  }
+}
+
+function extractFunctionBlock(sourceText, functionName) {
+  const declaration = `function ${functionName}`;
+  const startIndex = sourceText.indexOf(declaration);
+  if (startIndex === -1) {
+    return null;
+  }
+
+  const paramsStartIndex = sourceText.indexOf("(", startIndex);
+  if (paramsStartIndex === -1) {
+    return null;
+  }
+
+  let paramsDepth = 0;
+  let paramsEndIndex = -1;
+  for (let index = paramsStartIndex; index < sourceText.length; index += 1) {
+    const char = sourceText[index];
+    if (char === "(") {
+      paramsDepth += 1;
+      continue;
+    }
+    if (char !== ")") {
+      continue;
+    }
+    paramsDepth -= 1;
+    if (paramsDepth === 0) {
+      paramsEndIndex = index;
+      break;
+    }
+  }
+  if (paramsEndIndex === -1) {
+    return null;
+  }
+
+  const bodyStartIndex = sourceText.indexOf("{", paramsEndIndex);
+  if (bodyStartIndex === -1) {
+    return null;
+  }
+
+  let depth = 0;
+  for (let index = bodyStartIndex; index < sourceText.length; index += 1) {
+    const char = sourceText[index];
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char !== "}") {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return sourceText.slice(startIndex, index + 1);
+    }
+  }
+
+  return null;
+}
+
+function assertIncludesInOrder(sourceText, parts, message) {
+  let searchIndex = 0;
+  for (const part of parts) {
+    const nextIndex = sourceText.indexOf(part, searchIndex);
+    if (nextIndex === -1) {
+      recordFailure(message);
+      return;
+    }
+    searchIndex = nextIndex + part.length;
+  }
+}
+
 function parseWidgetKindsFromAndroidKindsSource(sourceText) {
   const regex = /public static final String [A-Z_]+\s*=\s*"([^"]+)";/g;
   const result = new Set();
@@ -309,7 +385,20 @@ async function main() {
     "pages 与 iOS Web 资源",
   );
 
-  const [androidBridgeSource, iosBridgeSource, appTsxSource, androidKindsSource, iosInfoPlistSource, iosProjectSource] =
+  const [
+    androidBridgeSource,
+    iosBridgeSource,
+    appTsxSource,
+    preloadSource,
+    mainProcessSource,
+    androidKindsSource,
+    iosInfoPlistSource,
+    iosProjectSource,
+    pagesStorageAdapterSource,
+    androidWidgetDataStoreSource,
+    guideUiSource,
+    diarySource,
+  ] =
     await Promise.all([
       readUtf8(
         path.join(
@@ -335,6 +424,8 @@ async function main() {
         ),
       ),
       readUtf8(path.join(repoRoot, "ControlerApp", "App.tsx")),
+      readUtf8(path.join(repoRoot, "preload.js")),
+      readUtf8(path.join(repoRoot, "main.js")),
       readUtf8(
         path.join(
           repoRoot,
@@ -368,6 +459,24 @@ async function main() {
           "project.pbxproj",
         ),
       ),
+      readUtf8(path.join(repoRoot, "pages", "storage-adapter.js")),
+      readUtf8(
+        path.join(
+          repoRoot,
+          "ControlerApp",
+          "android",
+          "app",
+          "src",
+          "main",
+          "java",
+          "com",
+          "controlerapp",
+          "widgets",
+          "ControlerWidgetDataStore.java",
+        ),
+      ),
+      readUtf8(path.join(repoRoot, "pages", "guide-ui.js")),
+      readUtf8(path.join(repoRoot, "pages", "diary.js")),
     ]);
 
   const requiredBridgeMethods = platformContract.getReactNativeBridgeMethodNames();
@@ -380,6 +489,161 @@ async function main() {
     parseIosBridgeMethods(iosBridgeSource),
     requiredBridgeMethods,
     "iOS 原生桥",
+  );
+
+  const managedCoreSnapshotFunction = extractFunctionBlock(
+    pagesStorageAdapterSource,
+    "buildManagedCoreStateSnapshot",
+  );
+  if (!managedCoreSnapshotFunction) {
+    recordFailure("找不到 React Native buildManagedCoreStateSnapshot 实现。");
+  } else {
+    assertIncludesInOrder(
+      managedCoreSnapshotFunction,
+      [
+        "guideState:",
+        "customThemes:",
+        "builtInThemeOverrides:",
+        "selectedTheme:",
+        "recurringPlans:",
+      ],
+      "React Native 受管核心快照缺少 guideState / 主题字段 / recurringPlans。",
+    );
+  }
+
+  const managedCoreMergeFunction = extractFunctionBlock(
+    pagesStorageAdapterSource,
+    "mergeManagedStateWithNativeCorePayload",
+  );
+  if (!managedCoreMergeFunction) {
+    recordFailure("找不到 React Native mergeManagedStateWithNativeCorePayload 实现。");
+  } else {
+    assertIncludesInOrder(
+      managedCoreMergeFunction,
+      [
+        "guideState:",
+        "customThemes:",
+        "builtInThemeOverrides:",
+        "selectedTheme:",
+      ],
+      "React Native 核心数据合并逻辑未覆盖 guideState 与主题字段。",
+    );
+  }
+  assertRegexMatch(
+    pagesStorageAdapterSource,
+    /initializeReactNativeStorage\(\)[\s\S]*mergeManagedStateWithNativeCorePayload\(nextCore,\s*readState\(\)\)/,
+    "React Native 初始化未复用完整核心快照合并逻辑。",
+  );
+  assertRegexMatch(
+    pagesStorageAdapterSource,
+    /async getCoreState\(\)\s*\{[\s\S]*mergeManagedStateWithNativeCorePayload\(parsed,\s*currentState\)/,
+    "React Native getCoreState 快路径未复用完整核心快照合并逻辑。",
+  );
+  assertRegexMatch(
+    iosBridgeSource,
+    /ControlerCoreSectionKeys\(\)[\s\S]*@"guideState"[\s\S]*@"customThemes"[\s\S]*@"builtInThemeOverrides"[\s\S]*@"selectedTheme"/,
+    "iOS 核心字段集合缺少 guideState 或主题字段。",
+  );
+  assertRegexMatch(
+    iosBridgeSource,
+    /normalizedState:[\s\S]*next\[@\"guideState\"\][\s\S]*next\[@\"builtInThemeOverrides\"\][\s\S]*next\[@\"selectedTheme\"\]/,
+    "iOS normalizedState 未为 guideState 或主题字段提供持久化默认值。",
+  );
+  assertRegexMatch(
+    iosBridgeSource,
+    /coreStatePayload[\s\S]*for \(NSString \*key in ControlerCoreSectionKeys\(\)\)/,
+    "iOS coreStatePayload 未由共享核心字段集合驱动。",
+  );
+  assertRegexMatch(
+    iosBridgeSource,
+    /replaceStorageCoreStateWithJson[\s\S]*for \(NSString \*key in ControlerCoreSectionKeys\(\)\)/,
+    "iOS replaceStorageCoreState 未由共享核心字段集合驱动。",
+  );
+  assertRegexMatch(
+    androidWidgetDataStoreSource,
+    /guideState\.put\("bundleVersion", 2\);[\s\S]*guideState\.put\("dismissedCardIds", new JSONArray\(\)\);[\s\S]*guideState\.put\("dismissedGuideDiaryEntryIds", new JSONArray\(\)\);/,
+    "Android guideState fallback 仍未升级到当前 schema。",
+  );
+  assertIncludesInOrder(
+    pagesStorageAdapterSource,
+    [
+      "const SHARED_BOOTSTRAP_MIRROR_KEYS = Object.freeze([",
+      "\"guideState\"",
+      "\"customThemes\"",
+      "\"builtInThemeOverrides\"",
+      "\"selectedTheme\"",
+    ],
+    "共享 bootstrap 镜像字段缺少 guideState，切页时仍可能回退到旧引导状态。",
+  );
+  assertIncludesInOrder(
+    guideUiSource,
+    [
+      "let pendingGuideStateSnapshot = null;",
+      "function getGuideStateSnapshot()",
+      "pending: true",
+      "getGuideStateSnapshot,",
+    ],
+      "共享引导 UI 未保留 guideState 待落盘快照或未通过 core replace 持久化。",
+  );
+  const guideUiSaveFunction = extractFunctionBlock(guideUiSource, "saveGuideState");
+  if (!guideUiSaveFunction) {
+    recordFailure("找不到共享引导 saveGuideState 实现。");
+  } else {
+    assertIncludesInOrder(
+      guideUiSaveFunction,
+      [
+        "pendingGuideStateSnapshot = cloneGuideState(normalizedState);",
+        "persistGuideStateViaManagedSetItem(",
+        "replaceCoreState(",
+      ],
+      "共享引导 UI 未先写入即时镜像，再通过 core replace 持久化 guideState。",
+    );
+  }
+  assertRegexMatch(
+    preloadSource,
+    /storageReplaceCoreStateSync:\s*\(partialCore,\s*options\s*=\s*\{\}\)\s*=>[\s\S]*ipcRenderer\.sendSync\(\"storage:replaceCoreStateSync\"/,
+    "preload 未暴露同步 replaceCoreState 桥接接口，桌面切页前仍可能丢失引导持久化。",
+  );
+  assertRegexMatch(
+    mainProcessSource,
+    /ipcMain\.on\(\"storage:replaceCoreStateSync\",[\s\S]*event\.returnValue\s*=\s*replaceStorageCoreState\(partialCore,\s*options\)/,
+    "主进程未接入同步 replaceCoreState IPC，桌面端无法保证引导删除立即落盘。",
+  );
+  if (guideBundle.getGuideCard("plan") !== null) {
+    recordFailure("计划页引导卡仍在 guide bundle 中启用。");
+  }
+  if (guideBundle.getGuideCard("diary") !== null) {
+    recordFailure("日记页引导卡仍在 guide bundle 中启用。");
+  }
+  if ((guideBundle.buildGuideDiaryEntries(new Date()) || []).length !== 0) {
+    recordFailure("日记引导条目仍在 guide bundle 中生成。");
+  }
+  if (
+    (guideBundle.synchronizeGuideDiaryEntries(
+      [
+        {
+          id: "guide-entry-import-backup",
+          title: "导入和导出到底怎么选",
+          date: "2026-03-19",
+        },
+      ],
+      new Date("2026-03-19T00:00:00.000Z"),
+      null,
+    ) || []).length !== 0
+  ) {
+    recordFailure("旧日记引导条目不会在同步时被清理。");
+  }
+  assertIncludesInOrder(
+    diarySource,
+    [
+      "window.ControlerGuideUI?.getGuideStateSnapshot",
+      "function resolveDiaryGuideStateForHydration",
+      "guideStateSnapshot.pending",
+      "resolveDiaryGuideStateForHydration(",
+      "guideStateChanged && Object.keys(partialCore).length",
+      "reason: \"diary-guide-state\"",
+    ],
+    "日记页未复用共享 guideState 快照，或未优先持久化 guideState 以避免自动补种。",
   );
 
   if (!appTsxSource.includes("getReactNativeRuntimeProfile")) {
