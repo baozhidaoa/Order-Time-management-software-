@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "prepare:web-assets": "node scripts/sync-web-assets.mjs",
+    "docs:screenshots": "node scripts/run-readme-screenshots.js",
     "ci:mac": "npm run dist:mac",
     "ci:ios": "npm run mobile:ios",
     "start": "npm run prepare:web-assets && electron-forge start",

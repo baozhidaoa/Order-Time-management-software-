@@ -16,8 +16,10 @@ const StorageManager = require("./storage-manager");
 const DesktopWidgetManager = require("./desktop-widget-manager");
 const DesktopNotificationScheduler = require("./desktop-notification-scheduler");
 const uiLanguage = require("./shared/ui-language.js");
+const generateReadmeScreenshots = require("./scripts/generate-readme-screenshots.js");
 
 const LOGIN_ITEM_LAUNCH_ARG = "--controler-launch-at-login";
+const GENERATE_README_SCREENSHOTS_ARG = "--generate-readme-screenshots";
 const APP_PUBLIC_NAME = "Order";
 const APP_PUBLIC_DESCRIPTION =
   "Local-first time tracking, planning, todos, check-ins, diary, and widgets.";
@@ -1212,8 +1214,25 @@ function createApplicationMenu() {
 }
 
 // 应用准备就绪
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   appendStartupDebugLog("app.whenReady resolved");
+
+  if (process.argv.includes(GENERATE_README_SCREENSHOTS_ARG)) {
+    appendStartupDebugLog("app.whenReady entering README screenshot mode");
+    try {
+      await generateReadmeScreenshots({
+        BrowserWindow,
+        baseDir: __dirname,
+      });
+    } catch (error) {
+      console.error("生成 README 截图失败:", error);
+      process.exitCode = 1;
+    } finally {
+      app.quit();
+    }
+    return;
+  }
+
   desktopWidgetManager.applyLoginItemSettings();
   desktopWidgetManager.setOpenMainActionHandler(openMainWindowAction);
   desktopNotificationScheduler.setOpenMainActionHandler(openMainWindowAction);
