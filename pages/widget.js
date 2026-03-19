@@ -525,6 +525,15 @@ function getDateText(dateValue = new Date()) {
   return date.toISOString().split("T")[0];
 }
 
+function getLocalDateText(dateValue = new Date()) {
+  const date = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function parseDate(dateValue) {
   const date = dateValue instanceof Date ? new Date(dateValue) : new Date(dateValue);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -589,7 +598,7 @@ function formatRelativeDateLabel(dateText) {
     return String(dateText || "");
   }
 
-  const today = parseDate(getDateText(new Date()));
+  const today = parseDate(getLocalDateText(new Date()));
   if (!today) {
     return isWidgetEnglish()
       ? `${date.getMonth() + 1}/${date.getDate()}`
@@ -750,7 +759,7 @@ function toggleCheckinInState(state, itemId) {
     return { ok: false, message: "未找到打卡项目。" };
   }
 
-  const today = getDateText(new Date());
+  const today = getLocalDateText(new Date());
   if (!Array.isArray(state.dailyCheckins)) {
     state.dailyCheckins = [];
   }
@@ -841,7 +850,7 @@ function getTodoRepeatSummary(todo = {}) {
   return todo?.dueDate ? `截止 ${formatRelativeDateLabel(todo.dueDate)}` : "待安排";
 }
 
-function getTodoDueState(todo = {}, today = getDateText(new Date())) {
+function getTodoDueState(todo = {}, today = getLocalDateText(new Date())) {
   if (todo?.completed) {
     return {
       eyebrow: "已完成",
@@ -908,7 +917,7 @@ function getTodoCardDescription(todo = {}, progressRecords = []) {
 }
 
 function getTodayTodoStats(state) {
-  const today = getDateText(new Date());
+  const today = getLocalDateText(new Date());
   const scheduled = (Array.isArray(state?.todos) ? state.todos : []).filter((todo) =>
     todoScheduledOn(todo, today),
   );
@@ -920,7 +929,7 @@ function getTodayTodoStats(state) {
   };
 }
 
-function isTodoWidgetOverdue(todo = {}, today = getDateText(new Date())) {
+function isTodoWidgetOverdue(todo = {}, today = getLocalDateText(new Date())) {
   if (todo?.completed) {
     return false;
   }
@@ -1049,7 +1058,7 @@ function createWidgetStateFromCore(coreState = {}) {
 
 async function loadWidgetDataPayload(widgetType) {
   const widgetKind = String(widgetType?.id || "").trim();
-  const todayText = getDateText(new Date());
+  const todayText = getLocalDateText(new Date());
 
   switch (widgetKind) {
     case "start-timer":
@@ -1146,7 +1155,7 @@ async function loadWidgetDataPayload(widgetType) {
   }
 }
 
-function findTodoNextScheduledDate(todo = {}, today = getDateText(new Date()), maxDays = 14) {
+function findTodoNextScheduledDate(todo = {}, today = getLocalDateText(new Date()), maxDays = 14) {
   for (let offset = 1; offset <= maxDays; offset += 1) {
     const dateText = addDaysToDateText(today, offset);
     if (dateText && todoScheduledOn(todo, dateText)) {
@@ -1156,7 +1165,7 @@ function findTodoNextScheduledDate(todo = {}, today = getDateText(new Date()), m
   return "";
 }
 
-function resolveTodoWidgetSortDate(todo = {}, today = getDateText(new Date())) {
+function resolveTodoWidgetSortDate(todo = {}, today = getLocalDateText(new Date())) {
   if (todoScheduledOn(todo, today)) {
     return today;
   }
@@ -1178,7 +1187,7 @@ function resolveTodoWidgetSortDate(todo = {}, today = getDateText(new Date())) {
   return "";
 }
 
-function compareTodoWidgetPriority(left, right, today = getDateText(new Date())) {
+function compareTodoWidgetPriority(left, right, today = getLocalDateText(new Date())) {
   const leftToday = todoScheduledOn(left, today);
   const rightToday = todoScheduledOn(right, today);
   if (leftToday !== rightToday) {
@@ -1215,7 +1224,7 @@ function compareTodoWidgetPriority(left, right, today = getDateText(new Date()))
 }
 
 function getWidgetTodoItems(state, limit = 6) {
-  const today = getDateText(new Date());
+  const today = getLocalDateText(new Date());
   return (Array.isArray(state?.todos) ? state.todos : [])
     .filter((todo) => todoScheduledOn(todo, today) || !todo?.completed)
     .slice()
@@ -1272,7 +1281,7 @@ function checkinScheduledOn(item, dateText) {
   return true;
 }
 
-function getCheckinTodayEntry(state, itemId, today = getDateText(new Date())) {
+function getCheckinTodayEntry(state, itemId, today = getLocalDateText(new Date())) {
   return (Array.isArray(state?.dailyCheckins) ? state.dailyCheckins : []).find(
     (entry) => String(entry?.itemId || "") === String(itemId || "") && entry?.date === today,
   );
@@ -1310,13 +1319,13 @@ function getCheckinStreakDays(state, itemId) {
 
   const cursor = new Date();
   cursor.setHours(0, 0, 0, 0);
-  if (!checkinScheduledOn(target, getDateText(cursor))) {
+  if (!checkinScheduledOn(target, getLocalDateText(cursor))) {
     return 0;
   }
 
   let streak = 0;
   for (let loop = 0; loop < 400; loop += 1) {
-    const currentDateText = getDateText(cursor);
+    const currentDateText = getLocalDateText(cursor);
     if (checkinScheduledOn(target, currentDateText)) {
       if (!checkedSet.has(currentDateText)) {
         break;
@@ -1330,7 +1339,7 @@ function getCheckinStreakDays(state, itemId) {
 }
 
 function getTodayCheckinStats(state) {
-  const today = getDateText(new Date());
+  const today = getLocalDateText(new Date());
   const scheduled = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
     (item) => checkinScheduledOn(item, today),
   );
@@ -1345,7 +1354,7 @@ function getTodayCheckinStats(state) {
 }
 
 function getTodayCheckinItems(state, limit = 6) {
-  const today = getDateText(new Date());
+  const today = getLocalDateText(new Date());
   return (Array.isArray(state?.checkinItems) ? state.checkinItems : [])
     .filter((item) => checkinScheduledOn(item, today))
     .slice()
@@ -1578,7 +1587,7 @@ function findLatestWidgetRecordDate(state) {
 }
 
 function resolveDayPieWidgetSnapshot(state) {
-  const todayText = getDateText(new Date());
+  const todayText = getLocalDateText(new Date());
   const todayRecords = getWidgetRecordsForDate(state, todayText);
   const activeDateText =
     todayRecords.length > 0 ? todayText : findLatestWidgetRecordDate(state) || todayText;
@@ -2014,7 +2023,7 @@ function buildWeekGridRows(state) {
   const startDay = new Date();
   startDay.setHours(0, 0, 0, 0);
   startDay.setDate(startDay.getDate() - 6);
-  const todayText = getDateText(new Date());
+  const todayText = getLocalDateText(new Date());
 
   for (let offset = 0; offset < 7; offset += 1) {
     const day = new Date(startDay);
@@ -2044,7 +2053,7 @@ function buildWeekGridRows(state) {
     lastDay.setHours(0, 0, 0, 0);
 
     while (cursor.getTime() <= lastDay.getTime()) {
-      const row = rowMap.get(getDateText(cursor));
+      const row = rowMap.get(getLocalDateText(cursor));
       if (row) {
         const dayStart = cursor.getTime();
         const dayEnd = dayStart + 86400000;
@@ -2229,7 +2238,7 @@ function fillWeekGridContent(content, state) {
   const rows = buildWeekGridRows(state);
   const projectSummary = buildRecordProjectSummary(
     state,
-    rows[0]?.dateText || getDateText(new Date()),
+    rows[0]?.dateText || getLocalDateText(new Date()),
     rows.length || 7,
   );
   content.subtitle = translateWidgetUiText("近 7 天时间分布");
@@ -2829,7 +2838,7 @@ async function persistWidgetCheckinMutation(item) {
     return result;
   }
 
-  const todayPeriodId = getWidgetPeriodIdFromDateText(getDateText(new Date()));
+  const todayPeriodId = getWidgetPeriodIdFromDateText(getLocalDateText(new Date()));
   if (!todayPeriodId) {
     return result;
   }

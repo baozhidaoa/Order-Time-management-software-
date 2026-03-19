@@ -216,8 +216,8 @@
   }
 
   function getGuideCard(pageKey) {
-    const card = GUIDE_CARD_MAP[String(pageKey || "").trim()];
-    return card ? cloneValue(card) : null;
+    void pageKey;
+    return null;
   }
 
   function hasMeaningfulBusinessData(rawState) {

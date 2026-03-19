@@ -3119,40 +3119,14 @@ function scheduleDiaryWidgetLaunchHandled(payload = {}, isHandled) {
   if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
     return false;
   }
-
-  let settled = false;
-  let attempts = 0;
-  const maxAttempts = 90;
-  const tryAck = () => {
-    if (settled) {
-      return;
-    }
-    if (typeof isHandled === "function" && !isHandled()) {
-      if (attempts >= maxAttempts) {
-        return;
-      }
-      attempts += 1;
-      window.setTimeout(() => {
-        if (typeof window.requestAnimationFrame === "function") {
-          window.requestAnimationFrame(tryAck);
-          return;
-        }
-        tryAck();
-      }, attempts <= 12 ? 16 : 40);
-      return;
-    }
-
-    settled = true;
-    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-      launchId,
-      page: "diary",
-      action,
-      handled: true,
-      source,
-    });
-  };
-
-  tryAck();
+  void isHandled;
+  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+    launchId,
+    page: "diary",
+    action,
+    handled: true,
+    source,
+  });
   return true;
 }
 

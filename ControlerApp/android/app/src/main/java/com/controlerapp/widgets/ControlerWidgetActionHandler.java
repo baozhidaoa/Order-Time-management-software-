@@ -2,6 +2,7 @@ package com.controlerapp.widgets;
 
 import android.appwidget.AppWidgetManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
@@ -21,6 +22,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Locale;
@@ -165,6 +167,18 @@ public final class ControlerWidgetActionHandler {
                     result.refreshKind,
                     new int[] { result.appWidgetId }
                 );
+                int[] siblingWidgetIds = getSiblingWidgetIds(
+                    context,
+                    result.refreshKind,
+                    result.appWidgetId
+                );
+                if (siblingWidgetIds.length > 0) {
+                    ControlerWidgetRenderer.scheduleUpdateWidgets(
+                        context,
+                        result.refreshKind,
+                        siblingWidgetIds
+                    );
+                }
             } else {
                 ControlerWidgetRenderer.refreshKind(context, result.refreshKind);
             }
@@ -178,6 +192,50 @@ public final class ControlerWidgetActionHandler {
                 }
             });
         }
+    }
+
+    private static int[] getSiblingWidgetIds(
+        Context context,
+        String kind,
+        int excludedAppWidgetId
+    ) {
+        if (context == null) {
+            return new int[0];
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return new int[0];
+        }
+
+        ComponentName componentName =
+            ControlerWidgetKinds.componentNameForKind(context, normalizedKind);
+        if (componentName == null) {
+            return new int[0];
+        }
+
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        if (appWidgetManager == null) {
+            return new int[0];
+        }
+
+        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+        if (appWidgetIds == null || appWidgetIds.length == 0) {
+            return new int[0];
+        }
+
+        ArrayList<Integer> siblingIds = new ArrayList<>();
+        for (int appWidgetId : appWidgetIds) {
+            if (appWidgetId != excludedAppWidgetId) {
+                siblingIds.add(appWidgetId);
+            }
+        }
+
+        int[] result = new int[siblingIds.size()];
+        for (int index = 0; index < siblingIds.size(); index++) {
+            result[index] = siblingIds.get(index);
+        }
+        return result;
     }
 
     private static void emitForegroundStorageChanged(
@@ -443,8 +501,11 @@ public final class ControlerWidgetActionHandler {
         }
 
         try {
-            JSONObject root = ControlerWidgetDataStore.loadRootForWidgets(context);
-            JSONArray todos = ensureArray(root, "todos");
+            JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(context);
+            JSONArray todos = coreState.optJSONArray("todos");
+            if (todos == null) {
+                todos = new JSONArray();
+            }
             String nowText = isoNow();
 
             for (int index = 0; index < todos.length(); index++) {
@@ -460,9 +521,9 @@ public final class ControlerWidgetActionHandler {
                 todo.put("completed", nextCompleted);
                 todo.put("completedAt", nextCompleted ? nowText : JSONObject.NULL);
 
-                if (!ControlerWidgetDataStore.saveRoot(context, root)) {
-                    return ActionResult.refreshKind(false, false, "更新待办失败。", ControlerWidgetKinds.TODOS);
-                }
+                JSONObject partialCore = new JSONObject();
+                partialCore.put("todos", todos);
+                ControlerWidgetDataStore.replaceStorageCoreState(context, partialCore);
 
                 emitForegroundStorageChanged(
                     context,
@@ -502,12 +563,16 @@ public final class ControlerWidgetActionHandler {
         }
 
         try {
-            JSONObject root = ControlerWidgetDataStore.loadRootForWidgets(context);
-            JSONArray checkinItems = ensureArray(root, "checkinItems");
-            JSONArray dailyCheckins = ensureArray(root, "dailyCheckins");
+            JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(context);
+            JSONArray checkinItems = coreState.optJSONArray("checkinItems");
+            if (checkinItems == null) {
+                checkinItems = new JSONArray();
+            }
             String today = todayText();
+            String periodId = today.length() >= 7 ? today.substring(0, 7) : "";
             String nowText = isoNow();
             String itemTitle = "打卡";
+            boolean itemFound = false;
 
             for (int index = 0; index < checkinItems.length(); index++) {
                 JSONObject item = checkinItems.optJSONObject(index);
@@ -516,8 +581,27 @@ public final class ControlerWidgetActionHandler {
                 }
                 if (targetId.equals(item.optString("id", ""))) {
                     itemTitle = item.optString("title", itemTitle);
+                    itemFound = true;
                     break;
                 }
+            }
+            if (!itemFound) {
+                return ActionResult.refreshKind(false, false, "未找到打卡项目。", ControlerWidgetKinds.CHECKINS);
+            }
+
+            JSONObject scope = new JSONObject();
+            JSONArray periodIds = new JSONArray();
+            periodIds.put(periodId);
+            scope.put("periodIds", periodIds);
+            JSONObject range = ControlerWidgetDataStore.loadStorageSectionRange(
+                context,
+                "dailyCheckins",
+                scope
+            );
+            JSONArray dailyCheckins =
+                range == null ? null : range.optJSONArray("items");
+            if (dailyCheckins == null) {
+                dailyCheckins = new JSONArray();
             }
 
             for (int index = 0; index < dailyCheckins.length(); index++) {
@@ -533,14 +617,20 @@ public final class ControlerWidgetActionHandler {
                     entry.put("checked", nextChecked);
                     entry.put("time", nowText);
 
-                    if (!ControlerWidgetDataStore.saveRoot(context, root)) {
-                        return ActionResult.refreshKind(false, false, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
-                    }
+                    JSONObject payload = new JSONObject();
+                    payload.put("periodId", periodId);
+                    payload.put("items", dailyCheckins);
+                    payload.put("mode", "replace");
+                    ControlerWidgetDataStore.saveStorageSectionRange(
+                        context,
+                        "dailyCheckins",
+                        payload
+                    );
 
                     emitForegroundStorageChanged(
                         context,
                         new String[] { "dailyCheckins" },
-                        buildChangedPeriodsPayload("dailyCheckins", today.substring(0, 7)),
+                        buildChangedPeriodsPayload("dailyCheckins", periodId),
                         "android-widget-direct-action"
                     );
 
@@ -571,14 +661,20 @@ public final class ControlerWidgetActionHandler {
             newEntry.put("time", nowText);
             dailyCheckins.put(newEntry);
 
-            if (!ControlerWidgetDataStore.saveRoot(context, root)) {
-                return ActionResult.refreshKind(false, false, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
-            }
+            JSONObject payload = new JSONObject();
+            payload.put("periodId", periodId);
+            payload.put("items", dailyCheckins);
+            payload.put("mode", "replace");
+            ControlerWidgetDataStore.saveStorageSectionRange(
+                context,
+                "dailyCheckins",
+                payload
+            );
 
             emitForegroundStorageChanged(
                 context,
                 new String[] { "dailyCheckins" },
-                buildChangedPeriodsPayload("dailyCheckins", today.substring(0, 7)),
+                buildChangedPeriodsPayload("dailyCheckins", periodId),
                 "android-widget-direct-action"
             );
 

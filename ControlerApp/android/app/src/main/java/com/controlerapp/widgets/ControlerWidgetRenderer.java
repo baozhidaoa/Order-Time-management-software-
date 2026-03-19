@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -2351,6 +2352,36 @@ public final class ControlerWidgetRenderer {
         );
     }
 
+    private static Uri buildWidgetPendingIntentData(
+        String type,
+        int appWidgetId,
+        String kind,
+        String action,
+        String targetId
+    ) {
+        Uri.Builder builder = new Uri.Builder()
+            .scheme("controler-widget")
+            .authority(TextUtils.isEmpty(type) ? "action" : type)
+            .appendPath(String.valueOf(appWidgetId));
+        if (!TextUtils.isEmpty(kind)) {
+            builder.appendQueryParameter("kind", kind);
+        }
+        if (!TextUtils.isEmpty(action)) {
+            builder.appendQueryParameter("action", action);
+        }
+        if (!TextUtils.isEmpty(targetId)) {
+            builder.appendQueryParameter("targetId", targetId);
+        }
+        return builder.build();
+    }
+
+    private static int buildStablePendingIntentRequestCode(Uri identityUri) {
+        if (identityUri == null) {
+            return 0;
+        }
+        return identityUri.toString().hashCode() & 0x7fffffff;
+    }
+
     private static PendingIntent buildOpenMainPendingIntent(
         Context context,
         int appWidgetId,
@@ -2367,8 +2398,16 @@ public final class ControlerWidgetRenderer {
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
         );
+        Uri identityUri = buildWidgetPendingIntentData(
+            "open",
+            appWidgetId,
+            kind,
+            content == null ? "" : content.action,
+            content == null ? "" : content.page
+        );
+        intent.setData(identityUri);
 
-        int requestCode = appWidgetId * 31 + Math.abs(kind.hashCode() % 10000);
+        int requestCode = buildStablePendingIntentRequestCode(identityUri);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -2407,11 +2446,16 @@ public final class ControlerWidgetRenderer {
         intent.putExtra(ControlerWidgetActionHandler.EXTRA_TARGET_ID, targetId);
         intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
         intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
+        Uri identityUri = buildWidgetPendingIntentData(
+            "direct",
+            appWidgetId,
+            kind,
+            command,
+            targetId
+        );
+        intent.setData(identityUri);
 
-        int requestCode = appWidgetId * 73
-            + Math.abs(kind.hashCode() % 10000)
-            + Math.abs(command.hashCode() % 1000)
-            + Math.abs(targetId.hashCode() % 1000);
+        int requestCode = buildStablePendingIntentRequestCode(identityUri);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -2435,8 +2479,16 @@ public final class ControlerWidgetRenderer {
         );
         intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
         intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
+        Uri identityUri = buildWidgetPendingIntentData(
+            "refresh",
+            appWidgetId,
+            kind,
+            ControlerWidgetActionHandler.COMMAND_REFRESH_WIDGET,
+            ""
+        );
+        intent.setData(identityUri);
 
-        int requestCode = appWidgetId * 97 + Math.abs(kind.hashCode() % 10000);
+        int requestCode = buildStablePendingIntentRequestCode(identityUri);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;

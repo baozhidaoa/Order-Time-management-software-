@@ -41,6 +41,8 @@ const todoExternalStorageRefreshCoordinator =
       await refreshTodoFromExternalStorageChange(detail);
     },
   }) || null;
+const TODO_SELF_REFRESH_IGNORE_WINDOW_MS = 1200;
+let todoIgnoredRefreshEvents = [];
 
 function getTodoNormalizedChangedSections(changedSections = []) {
   if (typeof uiTools?.normalizeChangedSections === "function") {
@@ -79,6 +81,17 @@ function cloneTodoValue(value) {
   } catch (error) {
     return value;
   }
+}
+
+function getLocalDateText(dateValue = new Date()) {
+  const date = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function hydrateTodoCollection(section, items = []) {
@@ -127,6 +140,36 @@ function readTodoWorkspaceSnapshotFromLocalStorage() {
   };
 }
 
+function readTodoWorkspaceSnapshotFromManagedStorage() {
+  try {
+    const snapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return null;
+    }
+    return {
+      todos: Array.isArray(snapshot.todos) ? snapshot.todos : [],
+      checkinItems: Array.isArray(snapshot.checkinItems) ? snapshot.checkinItems : [],
+      dailyCheckins: Array.isArray(snapshot.dailyCheckins)
+        ? snapshot.dailyCheckins
+        : [],
+      checkins: Array.isArray(snapshot.checkins) ? snapshot.checkins : [],
+    };
+  } catch (error) {
+    console.error("读取待办受管存储快照失败，回退本地快照:", error);
+    return null;
+  }
+}
+
+function readTodoWorkspaceSnapshot() {
+  return (
+    readTodoWorkspaceSnapshotFromManagedStorage() ||
+    readTodoWorkspaceSnapshotFromLocalStorage()
+  );
+}
+
 function getTodoSectionPeriodId(section, item) {
   if (typeof storageBundleApi?.getPeriodIdForSectionItem === "function") {
     return storageBundleApi.getPeriodIdForSectionItem(section, item) || "undated";
@@ -154,6 +197,16 @@ function getTodoSectionPeriodIds(section, items = []) {
   );
 }
 
+function getTodoNormalizedPeriodIds(periodIds = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(periodIds) ? periodIds : [])
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 function mergeTodoSectionItemsByPeriods(
   section,
   existingItems = [],
@@ -175,6 +228,225 @@ function mergeTodoSectionItemsByPeriods(
     (item) => !targetPeriods.has(getTodoSectionPeriodId(section, item)),
   );
   return hydrateTodoCollection(section, [...preservedItems, ...(incomingItems || [])]);
+}
+
+function getTodoNormalizedChangedPeriods(changedPeriods = {}) {
+  const source =
+    changedPeriods && typeof changedPeriods === "object" && !Array.isArray(changedPeriods)
+      ? changedPeriods
+      : {};
+  return Object.keys(source)
+    .sort()
+    .reduce((result, section) => {
+      const normalizedSection = String(section || "").trim();
+      if (!normalizedSection) {
+        return result;
+      }
+      const normalizedPeriodIds = getTodoNormalizedPeriodIds(source[section]);
+      if (normalizedPeriodIds.length) {
+        result[normalizedSection] = normalizedPeriodIds;
+      }
+      return result;
+    }, {});
+}
+
+function buildTodoStorageChangeSignature(changedSections = [], changedPeriods = {}) {
+  const normalizedSections = getTodoNormalizedChangedSections(changedSections);
+  const normalizedPeriods = getTodoNormalizedChangedPeriods(changedPeriods);
+  if (!normalizedSections.length && !Object.keys(normalizedPeriods).length) {
+    return "";
+  }
+  return JSON.stringify({
+    changedSections: normalizedSections,
+    changedPeriods: normalizedPeriods,
+  });
+}
+
+function pruneTodoIgnoredRefreshEvents(now = Date.now()) {
+  todoIgnoredRefreshEvents = todoIgnoredRefreshEvents.filter(
+    (entry) => Number(entry?.expiresAt) > now,
+  );
+}
+
+function markTodoSelfRefreshIgnored(changedSections = [], changedPeriods = {}) {
+  const signature = buildTodoStorageChangeSignature(changedSections, changedPeriods);
+  if (!signature) {
+    return;
+  }
+  const now = Date.now();
+  pruneTodoIgnoredRefreshEvents(now);
+  todoIgnoredRefreshEvents.push({
+    signature,
+    expiresAt: now + TODO_SELF_REFRESH_IGNORE_WINDOW_MS,
+  });
+}
+
+function shouldIgnoreTodoSelfRefresh(detail = {}) {
+  const source = String(detail?.source || "").trim().toLowerCase();
+  if (
+    source &&
+    !source.includes("renderer") &&
+    !source.includes("webview")
+  ) {
+    return false;
+  }
+  const signature = buildTodoStorageChangeSignature(
+    detail?.changedSections,
+    detail?.changedPeriods,
+  );
+  if (!signature) {
+    return false;
+  }
+  const now = Date.now();
+  pruneTodoIgnoredRefreshEvents(now);
+  const matchIndex = todoIgnoredRefreshEvents.findIndex(
+    (entry) => entry.signature === signature,
+  );
+  if (matchIndex === -1) {
+    return false;
+  }
+  todoIgnoredRefreshEvents.splice(matchIndex, 1);
+  return true;
+}
+
+function getTodoSectionStateSnapshot(section) {
+  switch (section) {
+    case "todos":
+      return cloneTodoValue(todos);
+    case "checkinItems":
+      return cloneTodoValue(checkinItems);
+    case "dailyCheckins":
+      return cloneTodoValue(dailyCheckins);
+    case "checkins":
+      return cloneTodoValue(checkins);
+    default:
+      return [];
+  }
+}
+
+function persistTodoLocalSection(section, items = []) {
+  localStorage.setItem(section, JSON.stringify(items));
+}
+
+function queueTodoPersistenceTask(task, options = {}) {
+  const {
+    errorLabel = "保存待办数据失败:",
+    refreshReminders = false,
+  } = options;
+  invalidateTodoDerivedCaches();
+  if (refreshReminders) {
+    reminderTools?.refresh?.({
+      resetWindow: true,
+    });
+  }
+  todoPersistChain = todoPersistChain
+    .catch(() => undefined)
+    .then(() => task())
+    .catch((error) => {
+      console.error(errorLabel, error);
+      return false;
+    });
+  return todoPersistChain;
+}
+
+function queueTodoCoreSave(partialCore = {}, options = {}) {
+  const source =
+    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+      ? partialCore
+      : {};
+  const changedSections = getTodoNormalizedChangedSections(Object.keys(source));
+  if (!changedSections.length) {
+    return Promise.resolve(true);
+  }
+  markTodoSelfRefreshIgnored(changedSections);
+  return queueTodoPersistenceTask(
+    async () => {
+      const bundleStorage = window.ControlerStorage;
+      if (typeof bundleStorage?.replaceCoreState === "function") {
+        await bundleStorage.replaceCoreState(cloneTodoValue(source), {
+          reason:
+            typeof options?.reason === "string" && options.reason.trim()
+              ? options.reason.trim()
+              : "todo-core-save",
+        });
+        return true;
+      }
+      changedSections.forEach((section) => {
+        persistTodoLocalSection(section, source[section] || []);
+      });
+      return true;
+    },
+    {
+      errorLabel: options?.errorLabel || "保存待办核心数据失败:",
+      refreshReminders: options?.refreshReminders === true,
+    },
+  );
+}
+
+function queueTodoSectionSave(section, options = {}) {
+  const normalizedSection =
+    section === "dailyCheckins" || section === "checkins" ? section : "";
+  if (!normalizedSection) {
+    return Promise.resolve(false);
+  }
+
+  const currentItems = getTodoSectionStateSnapshot(normalizedSection);
+  const explicitPeriodIds = getTodoNormalizedPeriodIds(options?.periodIds);
+  const previousPeriodIds = getTodoSectionPeriodIds(
+    normalizedSection,
+    options?.previousItems,
+  );
+  const periodIds = explicitPeriodIds.length
+    ? explicitPeriodIds
+    : getTodoNormalizedPeriodIds([
+        ...getTodoSectionPeriodIds(normalizedSection, currentItems),
+        ...previousPeriodIds,
+      ]);
+
+  if (!periodIds.length) {
+    todoLoadedSectionPeriods[normalizedSection] = new Set(
+      getTodoSectionPeriodIds(normalizedSection, currentItems),
+    );
+    return Promise.resolve(true);
+  }
+
+  periodIds.forEach((periodId) => {
+    markTodoSelfRefreshIgnored([normalizedSection], {
+      [normalizedSection]: [periodId],
+    });
+  });
+
+  return queueTodoPersistenceTask(
+    async () => {
+      const bundleStorage = window.ControlerStorage;
+      if (typeof bundleStorage?.saveSectionRange === "function") {
+        await Promise.all(
+          periodIds.map((periodId) =>
+            bundleStorage.saveSectionRange(normalizedSection, {
+              periodId,
+              items: currentItems.filter(
+                (item) =>
+                  getTodoSectionPeriodId(normalizedSection, item) === periodId,
+              ),
+              mode: "replace",
+            }),
+          ),
+        );
+      } else {
+        persistTodoLocalSection(normalizedSection, currentItems);
+      }
+      todoLoadedSectionPeriods[normalizedSection] = new Set(
+        getTodoSectionPeriodIds(normalizedSection, currentItems),
+      );
+      return true;
+    },
+    {
+      errorLabel:
+        options?.errorLabel ||
+        `保存${normalizedSection === "dailyCheckins" ? "每日打卡" : "进度记录"}分区数据失败:`,
+      refreshReminders: options?.refreshReminders === true,
+    },
+  );
 }
 
 async function persistTodoWorkspaceSnapshot(snapshot) {
@@ -347,7 +619,7 @@ function getTodoReminderBaseDate(todoLike = null) {
     todoLike?._occurrenceDate ||
     todoLike?.dueDate ||
     todoLike?.startDate ||
-    new Date().toISOString().split("T")[0]
+    getLocalDateText()
   );
 }
 
@@ -461,10 +733,10 @@ function bindTodoReminderBaseDateSync(modal, prefix = "todo") {
       repeatType === "none"
         ? dueDateInput?.value ||
           startDateInput?.value ||
-          new Date().toISOString().split("T")[0]
+          getLocalDateText()
         : startDateInput?.value ||
           dueDateInput?.value ||
-          new Date().toISOString().split("T")[0];
+          getLocalDateText();
     const timeText =
       (customInput.value.includes("T") ? customInput.value.split("T")[1] : "") ||
       "09:00";
@@ -659,7 +931,7 @@ function normalizeTodoScheduleFields({
   endDate = "",
 } = {}) {
   const normalizedRepeatType = normalizeTodoRepeatType(repeatType);
-  const todayText = new Date().toISOString().split("T")[0];
+  const todayText = getLocalDateText();
   const normalizedRepeatWeekdays =
     normalizedRepeatType === "weekly"
       ? Array.isArray(repeatWeekdays)
@@ -764,9 +1036,7 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
 
   if (!canUsePreciseRefresh) {
     loadData();
-    renderCurrentView();
-    updateStats();
-    updateCheckinStats();
+    refreshTodoInterface();
     return;
   }
 
@@ -819,9 +1089,7 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     console.error("精确刷新待办数据失败，回退全量加载:", error);
     loadData();
   }
-  renderCurrentView();
-  updateStats();
-  updateCheckinStats();
+  refreshTodoInterface();
 }
 
 function bindTodoExternalStorageRefresh() {
@@ -832,6 +1100,9 @@ function bindTodoExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
     if (!shouldRefreshTodoForExternalChange(detail)) {
+      return;
+    }
+    if (shouldIgnoreTodoSelfRefresh(detail)) {
       return;
     }
     if (todoExternalStorageRefreshQueued) {
@@ -1079,7 +1350,7 @@ class Todo {
   isDueToday() {
     if (this.completed) return false;
     if (this.repeatType !== "none") {
-      const todayText = new Date().toISOString().split("T")[0];
+      const todayText = getLocalDateText();
       return this.isScheduledOn(todayText);
     }
     const today = new Date();
@@ -1191,7 +1462,7 @@ class CheckinItem {
           .filter((day) => day >= 0 && day <= 6)
       : [];
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = getLocalDateText();
     this.startDate = startDate || today;
     this.endDate = endDate || "";
 
@@ -1234,7 +1505,7 @@ class CheckinItem {
 
   // 获取今日打卡状态
   getTodayCheckinStatus() {
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const today = getLocalDateText(); // YYYY-MM-DD
     const checkin = dailyCheckins.find(
       (c) => c.itemId === this.id && c.date === today,
     );
@@ -1243,18 +1514,20 @@ class CheckinItem {
 
   // 切换今日打卡状态
   toggleTodayCheckin() {
-    const today = new Date().toISOString().split("T")[0];
+    const today = getLocalDateText();
     if (!this.isScheduledOn(today)) {
       return false;
     }
+    const previousDailyCheckins = cloneTodoValue(dailyCheckins);
     const index = dailyCheckins.findIndex(
       (c) => c.itemId === this.id && c.date === today,
     );
+    const nowText = new Date().toISOString();
 
     if (index !== -1) {
       // 切换现有记录
       dailyCheckins[index].checked = !dailyCheckins[index].checked;
-      dailyCheckins[index].time = new Date().toISOString();
+      dailyCheckins[index].time = nowText;
     } else {
       // 创建新记录
       dailyCheckins.push({
@@ -1262,11 +1535,28 @@ class CheckinItem {
         itemId: this.id,
         date: today,
         checked: true,
-        time: new Date().toISOString(),
+        time: nowText,
       });
     }
 
-    saveData();
+    refreshTodoInterface();
+    const todayPeriodId = getTodoSectionPeriodId("dailyCheckins", {
+      date: today,
+      time: nowText,
+    });
+    void queueTodoSectionSave("dailyCheckins", {
+      periodIds: [todayPeriodId],
+      errorLabel: "保存今日打卡状态失败:",
+    }).then((saved) => {
+      if (saved) {
+        return;
+      }
+      dailyCheckins = hydrateTodoCollection(
+        "dailyCheckins",
+        previousDailyCheckins,
+      );
+      refreshTodoInterface();
+    });
     return true;
   }
 
@@ -1286,12 +1576,12 @@ class CheckinItem {
     let loops = 0;
     let streak = 0;
 
-    if (!this.isScheduledOn(startCursor.toISOString().split("T")[0])) {
+    if (!this.isScheduledOn(getLocalDateText(startCursor))) {
       return 0;
     }
 
     while (loops < maxLoop) {
-      const dateStr = startCursor.toISOString().split("T")[0];
+      const dateStr = getLocalDateText(startCursor);
       if (this.isScheduledOn(dateStr)) {
         if (!checkedSet.has(dateStr)) {
           break;
@@ -1455,7 +1745,7 @@ function hydrateCheckin(rawCheckin) {
 // 加载数据
 function loadData() {
   try {
-    applyTodoWorkspaceSnapshot(readTodoWorkspaceSnapshotFromLocalStorage());
+    applyTodoWorkspaceSnapshot(readTodoWorkspaceSnapshot());
   } catch (e) {
     console.error("加载数据失败:", e);
     applyTodoWorkspaceSnapshot({});
@@ -2116,7 +2406,16 @@ function toggleTodoCompletion(todoId) {
   if (todo) {
     todo.completed = !todo.completed;
     todo.completedAt = todo.completed ? new Date().toISOString() : null;
-    saveData();
+    void queueTodoCoreSave(
+      {
+        todos: getTodoSectionStateSnapshot("todos"),
+      },
+      {
+        reason: "todo-toggle-completion",
+        errorLabel: "保存待办完成状态失败:",
+        refreshReminders: true,
+      },
+    );
     refreshTodoInterface();
   }
 }
@@ -2141,9 +2440,25 @@ function deleteTodo(todoId, options = {}) {
   }
 
   // 删除相关打卡记录
+  const removedCheckins = checkins.filter((checkin) =>
+    matchesId(checkin.todoId, todoId),
+  );
   checkins = checkins.filter((checkin) => !matchesId(checkin.todoId, todoId));
 
-  saveData();
+  void queueTodoCoreSave(
+    {
+      todos: getTodoSectionStateSnapshot("todos"),
+    },
+    {
+      reason: "todo-delete",
+      errorLabel: "删除待办后保存列表失败:",
+      refreshReminders: true,
+    },
+  );
+  void queueTodoSectionSave("checkins", {
+    previousItems: removedCheckins,
+    errorLabel: "删除待办后保存进度记录失败:",
+  });
   if (refreshView) {
     refreshTodoInterface();
   }
@@ -2288,7 +2603,7 @@ function showTodoEditModal(todo = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="todo-start-date-input" class="modal-date-input" value="${todo?.startDate || todo?.dueDate || new Date().toISOString().split("T")[0]}" style="
+            <input type="date" id="todo-start-date-input" class="modal-date-input" value="${todo?.startDate || todo?.dueDate || getLocalDateText()}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -2500,7 +2815,7 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
   const rawStartDate =
     modal.querySelector("#todo-start-date-input")?.value ||
     dueDate ||
-    new Date().toISOString().split("T")[0];
+    getLocalDateText();
   const rawEndDate = modal.querySelector("#todo-end-date-input")?.value || "";
   const priority = modal.querySelector(
     'input[name="todo-priority"]:checked',
@@ -2608,8 +2923,23 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
     todos.push(newTodo);
   }
 
-  // 保存并更新UI
-  saveData();
+  const saved = await queueTodoCoreSave(
+    {
+      todos: getTodoSectionStateSnapshot("todos"),
+    },
+    {
+      reason: isEditMode ? "todo-edit" : "todo-create",
+      errorLabel: "保存待办事项失败:",
+      refreshReminders: true,
+    },
+  );
+  if (!saved) {
+    await showTodoAlert("保存待办事项失败，请稍后重试。", {
+      title: "保存失败",
+      danger: true,
+    });
+    return false;
+  }
   await reminderTools?.requestPermissionIfNeeded?.("待办", reminderConfig, {
     silentWhenDisabled: false,
   });
@@ -2685,7 +3015,7 @@ function showCheckinModal(todoId, checkinId = null) {
     closeModalElement(modal);
   };
 
-  const saveAction = () => {
+  const saveAction = async () => {
     const message = modal.querySelector("#checkin-message-input").value.trim();
     if (!message) {
       alert("请输入进度内容");
@@ -2698,7 +3028,20 @@ function showCheckinModal(todoId, checkinId = null) {
       return;
     }
 
-    saveData();
+    const targetCheckin = existingRecord?.id
+      ? getTodoCheckinById(existingRecord.id)
+      : checkins[checkins.length - 1] || null;
+    const persisted = await queueTodoSectionSave("checkins", {
+      periodIds: [getTodoSectionPeriodId("checkins", targetCheckin)],
+      errorLabel: "保存进度记录失败:",
+    });
+    if (!persisted) {
+      await showTodoAlert("保存进度记录失败，请稍后重试。", {
+        title: "保存失败",
+        danger: true,
+      });
+      return;
+    }
     finalizeTodoModalChange(closeModal);
   };
 
@@ -2719,7 +3062,18 @@ function showCheckinModal(todoId, checkinId = null) {
       });
       return;
     }
-    saveData();
+    const persisted = await queueTodoSectionSave("checkins", {
+      previousItems: [existingRecord],
+      periodIds: [getTodoSectionPeriodId("checkins", existingRecord)],
+      errorLabel: "删除进度记录失败:",
+    });
+    if (!persisted) {
+      await showTodoAlert("删除进度记录失败，请稍后重试。", {
+        title: "删除失败",
+        danger: true,
+      });
+      return;
+    }
     finalizeTodoModalChange(closeModal);
   };
 
@@ -2779,7 +3133,7 @@ function updateCheckinStats() {
   const maxStreakElement = document.getElementById("max-streak-days");
   if (!todayCountElement || !totalCountElement || !maxStreakElement) return;
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getLocalDateText();
   const scheduledItems = checkinItems.filter((item) =>
     typeof item.isScheduledOn === "function" ? item.isScheduledOn(today) : true,
   );
@@ -3147,7 +3501,7 @@ function showCheckinItemModal(item = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="checkin-start-date-input" class="modal-date-input" value="${item?.startDate || new Date().toISOString().split("T")[0]}" style="
+            <input type="date" id="checkin-start-date-input" class="modal-date-input" value="${item?.startDate || getLocalDateText()}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -3306,7 +3660,7 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
   ).map((input) => parseInt(input.value, 10));
   const startDate =
     modal.querySelector("#checkin-start-date-input")?.value ||
-    new Date().toISOString().split("T")[0];
+    getLocalDateText();
   const endDate = modal.querySelector("#checkin-end-date-input")?.value || "";
   const color = modal.querySelector(
     'input[name="checkin-color"]:checked',
@@ -3373,8 +3727,23 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
     checkinItems.push(newItem);
   }
 
-  // 保存并更新UI
-  saveData();
+  const saved = await queueTodoCoreSave(
+    {
+      checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+    },
+    {
+      reason: isEditMode ? "checkin-item-edit" : "checkin-item-create",
+      errorLabel: "保存打卡项目失败:",
+      refreshReminders: true,
+    },
+  );
+  if (!saved) {
+    await showTodoAlert("保存打卡项目失败，请稍后重试。", {
+      title: "保存失败",
+      danger: true,
+    });
+    return false;
+  }
   await reminderTools?.requestPermissionIfNeeded?.("打卡", reminderConfig, {
     silentWhenDisabled: false,
   });
@@ -3401,11 +3770,27 @@ function deleteCheckinItem(itemId, options = {}) {
   }
 
   // 删除相关打卡记录
+  const removedDailyCheckins = dailyCheckins.filter((checkin) =>
+    matchesId(checkin.itemId, itemId),
+  );
   dailyCheckins = dailyCheckins.filter(
     (checkin) => !matchesId(checkin.itemId, itemId),
   );
 
-  saveData();
+  void queueTodoCoreSave(
+    {
+      checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+    },
+    {
+      reason: "checkin-item-delete",
+      errorLabel: "删除打卡项目后保存项目列表失败:",
+      refreshReminders: true,
+    },
+  );
+  void queueTodoSectionSave("dailyCheckins", {
+    previousItems: removedDailyCheckins,
+    errorLabel: "删除打卡项目后保存打卡记录失败:",
+  });
   if (refreshView) {
     refreshTodoInterface();
   }
@@ -3489,7 +3874,7 @@ function createCheckinItemElement(item, listScale = 1) {
 
   const checked = item.getTodayCheckinStatus();
   const streakDays = item.getStreakDays();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getLocalDateText();
   const isScheduledToday =
     typeof item.isScheduledOn === "function" ? item.isScheduledOn(today) : true;
   const repeatSummary =
@@ -3566,9 +3951,6 @@ function createCheckinItemElement(item, listScale = 1) {
     event.stopPropagation();
     if (!isScheduledToday) return;
     item.toggleTodayCheckin();
-    renderCheckinList();
-    updateCheckinStats();
-    updateStatsPanel();
   });
 
   itemElement.addEventListener("click", () => {

@@ -8166,6 +8166,7 @@ async function init() {
     bindIndexShellVisibilityGate();
     initIndexPrimaryBindings();
     initIndexModalBindings();
+    initIndexWidgetLaunchAction();
     uiTools?.markPerfStage?.("shell-ready", {
       widgetMode: INDEX_WIDGET_CONTEXT.enabled,
     });
@@ -8180,7 +8181,6 @@ async function init() {
       updateRemainingTimeDisplay();
       updateDisplay();
       persistTimerSessionState();
-      initIndexWidgetLaunchAction();
       uiTools?.markPerfStage?.("first-data-ready", {
         projectCount: projects.length,
         recordCount: 0,
@@ -9126,40 +9126,14 @@ function scheduleIndexWidgetLaunchHandled(payload = {}, isHandled) {
   if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
     return false;
   }
-
-  let settled = false;
-  let attempts = 0;
-  const maxAttempts = 90;
-  const tryAck = () => {
-    if (settled) {
-      return;
-    }
-    if (typeof isHandled === "function" && !isHandled()) {
-      if (attempts >= maxAttempts) {
-        return;
-      }
-      attempts += 1;
-      window.setTimeout(() => {
-        if (typeof window.requestAnimationFrame === "function") {
-          window.requestAnimationFrame(tryAck);
-          return;
-        }
-        tryAck();
-      }, attempts <= 12 ? 16 : 40);
-      return;
-    }
-
-    settled = true;
-    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-      launchId,
-      page: "index",
-      action,
-      handled: true,
-      source,
-    });
-  };
-
-  tryAck();
+  void isHandled;
+  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+    launchId,
+    page: "index",
+    action,
+    handled: true,
+    source,
+  });
   return true;
 }
 
@@ -9171,14 +9145,17 @@ function handleIndexWidgetLaunchAction(payload = {}) {
   if (action !== "start-timer") {
     return false;
   }
-  window.setTimeout(() => {
-    requestSpendModalOpen();
+  const accepted =
+    requestSpendModalOpen() ||
+    isIndexWidgetTimerModalVisible() ||
+    !!pendingSpendModalState;
+  if (accepted) {
     scheduleIndexWidgetLaunchHandled(
       payload,
       isIndexWidgetTimerModalVisible,
     );
-  }, 24);
-  return true;
+  }
+  return accepted;
 }
 
 function initIndexWidgetLaunchAction() {

@@ -5161,40 +5161,14 @@ function schedulePlanWidgetLaunchHandled(payload = {}, isHandled) {
   if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
     return false;
   }
-
-  let settled = false;
-  let attempts = 0;
-  const maxAttempts = 120;
-  const tryAck = () => {
-    if (settled) {
-      return;
-    }
-    if (typeof isHandled === "function" && !isHandled()) {
-      if (attempts >= maxAttempts) {
-        return;
-      }
-      attempts += 1;
-      window.setTimeout(() => {
-        if (typeof window.requestAnimationFrame === "function") {
-          window.requestAnimationFrame(tryAck);
-          return;
-        }
-        tryAck();
-      }, attempts <= 18 ? 16 : 48);
-      return;
-    }
-
-    settled = true;
-    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-      launchId,
-      page: "plan",
-      action,
-      handled: true,
-      source,
-    });
-  };
-
-  tryAck();
+  void isHandled;
+  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+    launchId,
+    page: "plan",
+    action,
+    handled: true,
+    source,
+  });
   return true;
 }
 
@@ -5240,9 +5214,8 @@ function handlePlanWidgetLaunchAction(payload = {}) {
         reason: "widget-action",
         persistWidgetView: true,
       }).catch(() => undefined);
-      schedulePlanWidgetLaunchHandled(
-        payload,
-        () => isPlanWidgetTargetVisible(action),
+      schedulePlanWidgetLaunchHandled(payload, () =>
+        isPlanWidgetTargetVisible(action),
       );
       return true;
     }
@@ -5251,9 +5224,8 @@ function handlePlanWidgetLaunchAction(payload = {}) {
   }
 
   saveViewState();
-  schedulePlanWidgetLaunchHandled(
-    payload,
-    () => isPlanWidgetTargetVisible(action),
+  schedulePlanWidgetLaunchHandled(payload, () =>
+    isPlanWidgetTargetVisible(action),
   );
   if (!planInitialDataLoaded) {
     scheduleDeferredPlanBootstrap();
