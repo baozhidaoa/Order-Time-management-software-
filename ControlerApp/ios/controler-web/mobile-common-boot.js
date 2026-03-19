@@ -3474,12 +3474,80 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let hasManagedCoreSnapshot = !!initialMirrorStateRaw.trim();
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
+    let pendingNativeSharedSectionChanges = new Set();
 
     function createManagedSectionCoverage() {
       return MANAGED_RANGE_SECTIONS.reduce((coverage, section) => {
         coverage[section] = new Set();
         return coverage;
       }, {});
+    }
+
+    function normalizeChangedSectionsList(changedSections = []) {
+      return Array.from(
+        new Set(
+          (Array.isArray(changedSections) ? changedSections : [])
+            .map((section) => String(section || "").trim())
+            .filter(Boolean),
+        ),
+      );
+    }
+
+    function normalizeChangedPeriodsMap(changedPeriods = {}) {
+      const source =
+        changedPeriods && typeof changedPeriods === "object" ? changedPeriods : {};
+      const normalized = {};
+      Object.keys(source).forEach((section) => {
+        const normalizedSection = String(section || "").trim();
+        if (!normalizedSection) {
+          return;
+        }
+        const periodIds = Array.from(
+          new Set(
+            (Array.isArray(source[section]) ? source[section] : [])
+              .map((periodId) => String(periodId || "").trim())
+              .filter(Boolean),
+          ),
+        );
+        if (periodIds.length) {
+          normalized[normalizedSection] = periodIds;
+        }
+      });
+      return normalized;
+    }
+
+    function markPendingNativeSharedSectionChanges(changedSections = []) {
+      normalizeChangedSectionsList(changedSections).forEach((section) => {
+        pendingNativeSharedSectionChanges.add(section);
+      });
+    }
+
+    function consumePendingNativeStorageChangeMetadata() {
+      const changedSections = Array.from(pendingNativeSharedSectionChanges);
+      pendingNativeSharedSectionChanges.clear();
+      return {
+        changedSections,
+      };
+    }
+
+    function emitNativeStorageChangedBridgeEvent(reason, metadata = {}) {
+      const changedSections = normalizeChangedSectionsList(metadata.changedSections);
+      const changedPeriods = normalizeChangedPeriodsMap(metadata.changedPeriods);
+      if (!changedSections.length && !Object.keys(changedPeriods).length) {
+        return;
+      }
+      window.ControlerNativeBridge?.emitEvent?.("storage.changed", {
+        reason:
+          typeof reason === "string" && reason.trim()
+            ? reason.trim()
+            : "external-update",
+        changedSections,
+        changedPeriods,
+        source:
+          typeof metadata.source === "string" && metadata.source.trim()
+            ? metadata.source.trim()
+            : "renderer",
+      });
     }
 
     function getNativeStorageSyncErrorText(error) {
@@ -3955,6 +4023,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const nextComparableSnapshot = createComparableSnapshot(nextState);
 
       if (nextComparableSnapshot === lastWrittenComparableSnapshot) {
+        consumePendingNativeStorageChangeMetadata();
         if (cachedStatus && typeof cachedStatus === "object") {
           cachedStatus = {
             ...cachedStatus,
@@ -3998,12 +4067,29 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       persistMirrorSnapshot(true);
       updateVersionBaseline(cachedStatus);
       clearStorageSyncError();
+      emitNativeStorageChangedBridgeEvent(
+        "storage-write",
+        consumePendingNativeStorageChangeMetadata(),
+      );
       touchNativeFastProbeWindow();
       scheduleNativeProbeLoop();
       return cachedStatus;
     }
 
-    function persistState() {
+    function persistState(options = {}) {
+      const normalizedKey = resolveLocalStateKey(options?.key);
+      if (isSharedStateKey(normalizedKey)) {
+        markPendingNativeSharedSectionChanges([normalizedKey]);
+      } else if (options?.reason === "core-replace") {
+        markPendingNativeSharedSectionChanges(["core"]);
+      } else if (options?.reason === "plans-recurring-replace") {
+        markPendingNativeSharedSectionChanges(["plansRecurring"]);
+      } else if (
+        options?.reason === "clear" ||
+        options?.reason === "replace-all"
+      ) {
+        markPendingNativeSharedSectionChanges(DEFAULT_CHANGED_SECTIONS);
+      }
       hasPendingStateChanges = true;
       scheduleMirrorSnapshot();
       window.clearTimeout(writeTimer);
@@ -4033,7 +4119,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     async function syncStateFromNative(reason, options = {}) {
-      const { forceDispatch = false, suppressError = false } = options;
+      const {
+        forceDispatch = false,
+        suppressError = false,
+        changedSections = [],
+        changedPeriods = {},
+        source = "",
+      } = options;
       const next = await readNativeSnapshot({
         suppressError,
       });
@@ -4057,7 +4149,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       clearStorageSyncError();
 
       if (reason && (forceDispatch || nextSnapshot !== currentSnapshot)) {
-        dispatchStorageChangedEvent(reason, buildMergedState(cachedState), cachedStatus);
+        dispatchStorageChangedEvent(reason, buildMergedState(cachedState), cachedStatus, {
+          changedSections: normalizeChangedSectionsList(changedSections),
+          changedPeriods: normalizeChangedPeriodsMap(changedPeriods),
+          source,
+        });
       }
       return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
     }
@@ -4717,6 +4813,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               hasPendingStateChanges = false;
               markManagedSectionPeriodsLoaded(section, [periodId]);
               persistMirrorSnapshot(true);
+              emitNativeStorageChangedBridgeEvent("section-save", {
+                changedSections: [section],
+                changedPeriods: {
+                  [section]: [periodId],
+                },
+              });
               touchRecentNativeLocalWriteWindow();
               touchNativeFastProbeWindow();
               scheduleNativeProbeLoop();
@@ -4768,6 +4870,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
               hasPendingStateChanges = false;
               persistMirrorSnapshot(true);
+              emitNativeStorageChangedBridgeEvent("core-replace", {
+                changedSections: ["core"],
+              });
               touchRecentNativeLocalWriteWindow();
               touchNativeFastProbeWindow();
               scheduleNativeProbeLoop();
@@ -4815,6 +4920,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
               hasPendingStateChanges = false;
               persistMirrorSnapshot(true);
+              emitNativeStorageChangedBridgeEvent("plans-recurring-replace", {
+                changedSections: ["plansRecurring"],
+              });
               touchRecentNativeLocalWriteWindow();
               touchNativeFastProbeWindow();
               scheduleNativeProbeLoop();
@@ -5032,6 +5140,34 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         event && typeof event.detail === "object" && event.detail
           ? event.detail
           : {};
+      if (detail.name === "storage.changed") {
+        if (!shellPageActive) {
+          return;
+        }
+        touchNativeFastProbeWindow();
+        writeChain = writeChain
+          .then(async () => {
+            if (hasPendingStateChanges) {
+              await writeNativeState();
+            }
+            return syncStateFromNative(
+              typeof detail.reason === "string" && detail.reason.trim()
+                ? detail.reason.trim()
+                : "external-update",
+              {
+                forceDispatch: true,
+                changedSections: detail.changedSections || [],
+                changedPeriods: detail.changedPeriods || {},
+                source:
+                  typeof detail.source === "string" ? detail.source.trim() : "",
+              },
+            );
+          })
+          .catch((error) => {
+            console.error("同步 React Native 存储广播失败:", error);
+          });
+        return;
+      }
       if (detail.name !== "ui.shell-visibility") {
         return;
       }
@@ -5056,6 +5192,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           resetWindow: false,
         };
         stopNativeProbeLoop();
+        void persistNow().catch((error) => {
+          console.error("隐藏页面时刷新 React Native 存储失败:", error);
+        });
         return;
       }
 
@@ -5075,6 +5214,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
+        void persistNow().catch((error) => {
+          console.error("页面隐藏时刷新 React Native 存储失败:", error);
+        });
         stopNativeProbeLoop();
         return;
       }

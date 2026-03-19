@@ -67,6 +67,8 @@ type BridgeEnvelopePayload = {
   method?: string;
   name?: string;
   language?: string;
+  reason?: string;
+  source?: string;
   payload?: Record<string, unknown>;
   requestId?: string;
   hasOpenModal?: boolean;
@@ -77,6 +79,8 @@ type BridgeEnvelopePayload = {
   direction?: string;
   hiddenPages?: unknown;
   order?: unknown;
+  changedSections?: unknown;
+  changedPeriods?: unknown;
 };
 
 type BridgeEnvelope = {
@@ -2401,6 +2405,59 @@ function App(): JSX.Element {
     );
   }
 
+  const broadcastStorageChangeBridgeEvent = useCallback(
+    (sourceSlot: WebViewSlot, payload: BridgeEnvelopePayload | undefined) => {
+      const changedSections = Array.isArray(payload?.changedSections)
+        ? payload.changedSections
+            .map(section => String(section || '').trim())
+            .filter(Boolean)
+        : [];
+      const changedPeriods = Object.entries(
+        payload?.changedPeriods && typeof payload.changedPeriods === 'object'
+          ? payload.changedPeriods
+          : {},
+      ).reduce((acc: Record<string, string[]>, [section, periodIds]) => {
+        const normalizedSection = String(section || '').trim();
+        if (!normalizedSection) {
+          return acc;
+        }
+        const normalizedPeriods = Array.isArray(periodIds)
+          ? periodIds
+              .map(periodId => String(periodId || '').trim())
+              .filter(Boolean)
+          : [];
+        if (normalizedPeriods.length > 0) {
+          acc[normalizedSection] = normalizedPeriods;
+        }
+        return acc;
+      }, {});
+      const reason =
+        typeof payload?.reason === 'string' && payload.reason.trim()
+          ? payload.reason.trim()
+          : 'external-update';
+      const source =
+        typeof payload?.source === 'string' && payload.source.trim()
+          ? payload.source.trim()
+          : 'webview';
+
+      WEBVIEW_SLOTS.forEach(targetSlot => {
+        if (targetSlot === sourceSlot) {
+          return;
+        }
+        if (!webViewSlotsRef.current[targetSlot].uri) {
+          return;
+        }
+        postBridgeEventRef.current(targetSlot, 'storage.changed', {
+          reason,
+          source,
+          changedSections,
+          changedPeriods,
+        });
+      });
+    },
+    [],
+  );
+
   async function handleWebViewMessage(
     slot: WebViewSlot,
     event: WebViewMessageEvent,
@@ -2441,6 +2498,10 @@ function App(): JSX.Element {
           slot,
           ...(message.payload || {}),
         });
+        return;
+      }
+      if (eventName === 'storage.changed') {
+        broadcastStorageChangeBridgeEvent(slot, message.payload);
         return;
       }
       if (eventName === 'ui.page-ready') {
