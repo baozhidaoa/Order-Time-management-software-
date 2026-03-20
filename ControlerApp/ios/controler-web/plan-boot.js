@@ -604,6 +604,7 @@ let planDeferredBootstrapQueued = false;
 let todoSidebarRuntimePromise = null;
 let todoSidebarRuntimeReady = false;
 let todoSidebarIdleBootstrapQueued = false;
+let planDeferredRuntimeIdleBootstrapQueued = false;
 let pendingTodoSidebarRuntimeOptions = null;
 let planShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let planDeferredBootstrapPendingResume = false;
@@ -781,9 +782,9 @@ function normalizeTodoSidebarRuntimeOptions(options = {}) {
   };
 }
 
-async function readPlanBootstrapState() {
+async function readPlanBootstrapState(options = {}) {
   if (typeof window.ControlerStorage?.getPlanBootstrapState === "function") {
-    const payload = await window.ControlerStorage.getPlanBootstrapState();
+    const payload = await window.ControlerStorage.getPlanBootstrapState(options);
     if (payload && typeof payload === "object") {
       return payload;
     }
@@ -971,6 +972,41 @@ function scheduleTodoSidebarIdleBootstrap() {
     return;
   }
   window.setTimeout(scheduleAfterPaint, 64);
+}
+
+function schedulePlanDeferredRuntimeIdleBootstrap() {
+  if (planDeferredRuntimeIdleBootstrapQueued || planDeferredRuntimePromise) {
+    return;
+  }
+  if (!planShellPageActive) {
+    planDeferredRuntimePendingResume = true;
+    return;
+  }
+  planDeferredRuntimeIdleBootstrapQueued = true;
+  const run = () => {
+    planDeferredRuntimeIdleBootstrapQueued = false;
+    if (!planShellPageActive) {
+      planDeferredRuntimePendingResume = true;
+      return;
+    }
+    void ensurePlanDeferredRuntimeLoaded().catch(() => undefined);
+  };
+  const scheduleAfterPaint = () => {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, {
+        timeout: 1800,
+      });
+      return;
+    }
+    window.setTimeout(run, 420);
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scheduleAfterPaint);
+    });
+    return;
+  }
+  window.setTimeout(scheduleAfterPaint, 96);
 }
 
 function syncPlanDataIndex(fields = ["plans"]) {
@@ -2026,6 +2062,25 @@ async function showPlanAlert(message, options = {}) {
 // 加载数据
 async function readPlanWorkspace(options = {}) {
   try {
+    const targetView =
+      typeof options?.view === "string" && options.view.trim()
+        ? options.view.trim()
+        : currentView;
+    const shouldLoadPlans =
+      options.includePlans !== false && targetView !== "year";
+    const retainedPlans = Array.isArray(options?.basePlans)
+      ? options.basePlans
+      : Array.isArray(plans)
+        ? plans
+        : [];
+    const retainedPeriodIds = Array.isArray(options?.loadedPeriodIds)
+      ? options.loadedPeriodIds
+      : planLoadedPeriodIds;
+    const bootstrapOptions = {
+      includeYearlyGoals: options.includeYearlyGoals !== false,
+      includeRecurringPlans:
+        shouldLoadPlans && options.includeRecurringPlans !== false,
+    };
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       (
@@ -2033,32 +2088,60 @@ async function readPlanWorkspace(options = {}) {
         typeof window.ControlerStorage?.getCoreState === "function"
       )
     ) {
-      const periodIds =
-        Array.isArray(options.periodIds) && options.periodIds.length
+      const periodIds = shouldLoadPlans
+        ? Array.isArray(options.periodIds) && options.periodIds.length
           ? options.periodIds
-          : getPlanPeriodIdsForVisibleView();
+          : getPlanPeriodIdsForVisibleView()
+        : [];
       uiTools?.markPerfStage?.("plan-bootstrap-bridge-start", {
         allowRepeat: true,
         periodIds: periodIds.slice(),
+        view: targetView,
       });
       const [planResult, bootstrapState] = await Promise.all([
-        window.ControlerStorage.loadSectionRange("plans", { periodIds }),
-        readPlanBootstrapState(),
+        shouldLoadPlans
+          ? window.ControlerStorage.loadSectionRange("plans", { periodIds })
+          : Promise.resolve({
+              items: retainedPlans,
+            }),
+        readPlanBootstrapState(bootstrapOptions),
       ]);
       uiTools?.markPerfStage?.("plan-bootstrap-bridge-done", {
         allowRepeat: true,
         periodIds: periodIds.slice(),
         planCount: Array.isArray(planResult?.items) ? planResult.items.length : 0,
+        view: targetView,
       });
       const recurringPlans = Array.isArray(bootstrapState?.recurringPlans)
         ? bootstrapState.recurringPlans
         : [];
       return {
-        plans: [...(planResult?.items || []), ...recurringPlans].map((rawPlan) =>
+        plans: (
+          shouldLoadPlans
+            ? [...(planResult?.items || []), ...recurringPlans]
+            : retainedPlans
+        ).map((rawPlan) =>
           hydratePlan(rawPlan),
         ),
         yearlyGoals: normalizeYearlyGoalsState(bootstrapState?.yearlyGoals || {}),
-        loadedPeriodIds: periodIds.slice(),
+        loadedPeriodIds: shouldLoadPlans
+          ? periodIds.slice()
+          : Array.isArray(retainedPeriodIds)
+            ? retainedPeriodIds.slice()
+            : [],
+      };
+    }
+
+    if (!shouldLoadPlans) {
+      const savedGoals = localStorage.getItem("yearlyGoals");
+      return {
+        plans: retainedPlans.map((rawPlan) => hydratePlan(rawPlan)),
+        yearlyGoals: normalizeYearlyGoalsState(
+          savedGoals ? JSON.parse(savedGoals) : yearlyGoals,
+        ),
+        loadedPeriodIds: Array.isArray(retainedPeriodIds)
+          ? retainedPeriodIds.slice()
+          : [],
       };
     }
 
@@ -2206,13 +2289,12 @@ function queuePlanInitialReveal() {
   if (!(body instanceof HTMLElement) || planInitialRevealQueued) {
     return;
   }
-  if (!planInitialDataValidated) {
+  if (!planShellRendered) {
     return;
   }
   if (!body.classList.contains("plan-bootstrap-pending")) {
     planShellReady = true;
     uiTools?.markNativePageReady?.();
-    scheduleTodoSidebarIdleBootstrap();
     return;
   }
 
@@ -2227,7 +2309,6 @@ function queuePlanInitialReveal() {
       window.dispatchEvent(new CustomEvent("controler:plan-initial-ready"));
       uiTools?.markPerfStage?.("first-render-done");
       uiTools?.markNativePageReady?.();
-      scheduleTodoSidebarIdleBootstrap();
     });
   });
 }
@@ -2252,14 +2333,14 @@ function getPlanLoadingOverlayController() {
 }
 
 function getPlanLoadingMode(options = {}) {
-  if (!planInitialDataValidated || options?.blocking === true) {
+  if (options?.blocking === true) {
     return "fullscreen";
   }
   return planShellRendered ? "inline" : "fullscreen";
 }
 
 function getPlanLoadingDelayMs(options = {}) {
-  if (!planInitialDataValidated || options?.blocking === true) {
+  if (options?.blocking === true) {
     return 0;
   }
   return planShellRendered ? PLAN_LOADING_OVERLAY_DELAY_MS : 0;
@@ -5598,6 +5679,9 @@ function ensurePlansLoadedForCurrentView() {
   if (typeof window.ControlerStorage?.loadSectionRange !== "function") {
     return false;
   }
+  if (currentView === "year") {
+    return false;
+  }
   const neededPeriodIds = getPlanPeriodIdsForVisibleView();
   const coverageLoadKey = `${currentView}:${neededPeriodIds.join("|")}`;
   const hasCoverage =
@@ -5852,11 +5936,15 @@ async function loadInitialPlanWorkspace() {
   }
 
   const initialPeriodIds = getPlanPeriodIdsForVisibleView();
+  const initialView = currentView;
   const requestId = ++planLoadRequestId;
   const runInitialLoad = async () => {
     if (!planRefreshController) {
       const snapshot = await readPlanWorkspace({
         periodIds: initialPeriodIds,
+        view: initialView,
+        basePlans: plans,
+        loadedPeriodIds: planLoadedPeriodIds,
       });
       if (requestId !== planLoadRequestId) {
         return;
@@ -5890,6 +5978,7 @@ async function loadInitialPlanWorkspace() {
       }
       planInitialDataLoaded = true;
       planInitialDataValidated = true;
+      schedulePlanDeferredRuntimeIdleBootstrap();
       return;
     }
 
@@ -5937,6 +6026,7 @@ async function loadInitialPlanWorkspace() {
           }
           planInitialDataLoaded = true;
           planInitialDataValidated = true;
+          schedulePlanDeferredRuntimeIdleBootstrap();
         },
       },
     );
@@ -5984,11 +6074,9 @@ function scheduleDeferredPlanBootstrap() {
     planDeferredBootstrapQueued = false;
     if (!planShellPageActive) {
       planDeferredBootstrapPendingResume = true;
-      planDeferredRuntimePendingResume = true;
       return;
     }
     void loadInitialPlanWorkspace();
-    void ensurePlanDeferredRuntimeLoaded();
   };
 
   const scheduleAfterPaint = () => {
@@ -6076,8 +6164,6 @@ async function init() {
       active: false,
     });
     queuePlanInitialReveal();
-    scheduleTodoSidebarIdleBootstrap();
-    void ensurePlanDeferredRuntimeLoaded();
   }
 }
 

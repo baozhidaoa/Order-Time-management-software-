@@ -310,7 +310,7 @@ public final class ControlerWidgetDataStore {
                 return false;
             }
             try {
-                outputStream.write(normalizedRoot.toString(2).getBytes(StandardCharsets.UTF_8));
+                outputStream.write(normalizedRoot.toString().getBytes(StandardCharsets.UTF_8));
                 outputStream.flush();
             } finally {
                 outputStream.close();
@@ -414,16 +414,24 @@ public final class ControlerWidgetDataStore {
         return core;
     }
 
-    public static JSONObject getStoragePlanBootstrapState(Context context) {
+    public static JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
+        boolean includeYearlyGoals =
+            options == null || options.optBoolean("includeYearlyGoals", true);
+        boolean includeRecurringPlans =
+            options == null || options.optBoolean("includeRecurringPlans", true);
         if (usesDirectoryBundleStorage(context)) {
             JSONObject core = readBundleCore(context);
             JSONObject payload = new JSONObject();
             try {
-                payload.put(
-                    "yearlyGoals",
-                    cloneJsonObject(core == null ? null : core.optJSONObject("yearlyGoals"))
-                );
-                payload.put("recurringPlans", readBundleRecurringPlans(context));
+                if (includeYearlyGoals) {
+                    payload.put(
+                        "yearlyGoals",
+                        cloneJsonObject(core == null ? null : core.optJSONObject("yearlyGoals"))
+                    );
+                }
+                if (includeRecurringPlans) {
+                    payload.put("recurringPlans", readBundleRecurringPlans(context));
+                }
             } catch (Exception error) {
                 error.printStackTrace();
             }
@@ -433,8 +441,12 @@ public final class ControlerWidgetDataStore {
         JSONObject root = loadRoot(context);
         JSONObject payload = new JSONObject();
         try {
-            payload.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
-            payload.put("recurringPlans", collectRecurringPlans(root.optJSONArray("plans")));
+            if (includeYearlyGoals) {
+                payload.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
+            }
+            if (includeRecurringPlans) {
+                payload.put("recurringPlans", collectRecurringPlans(root.optJSONArray("plans")));
+            }
         } catch (Exception error) {
             error.printStackTrace();
         }
@@ -2413,7 +2425,7 @@ public final class ControlerWidgetDataStore {
         writeBundleText(
             context,
             relativePath,
-            value == null ? "{}" : value.toString(2)
+            value == null ? "{}" : value.toString()
         );
     }
 
@@ -2422,7 +2434,7 @@ public final class ControlerWidgetDataStore {
         writeBundleText(
             context,
             relativePath,
-            value == null ? "[]" : value.toString(2)
+            value == null ? "[]" : value.toString()
         );
     }
 

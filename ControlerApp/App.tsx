@@ -15,6 +15,10 @@ import {
   View,
 } from 'react-native';
 import WebView, {type WebViewMessageEvent} from 'react-native-webview';
+import {
+  isAndroidWidgetActionLaunch,
+  resolveWidgetLaunchPolicy,
+} from './systemFixPolicies';
 
 const platformContract = require('./platform-contract');
 
@@ -27,7 +31,7 @@ type NativeBridgeModule = {
   getStorageStatus: () => Promise<string>;
   getStorageManifest?: () => Promise<string>;
   getStorageCoreState?: () => Promise<string>;
-  getStoragePlanBootstrapState?: () => Promise<string>;
+  getStoragePlanBootstrapState?: (optionsJson?: string) => Promise<string>;
   getAutoBackupStatus?: () => Promise<string>;
   updateAutoBackupSettings?: (settingsJson: string) => Promise<string>;
   runAutoBackupNow?: () => Promise<string>;
@@ -60,6 +64,8 @@ type NativeBridgeModule = {
   exportData: (stateJson: string, fileName: string) => Promise<string>;
   requestNotificationPermission: (interactive: boolean) => Promise<string>;
   syncNotificationSchedule?: (scheduleJson: string) => Promise<string>;
+  setLastVisiblePage?: (pageKey: string) => Promise<string>;
+  showToast?: (message: string) => Promise<string>;
 };
 
 type BridgeEnvelopePayload = {
@@ -599,6 +605,7 @@ function App(): JSX.Element {
   const tertiaryWebViewRef = useRef<WebView>(null);
   const isPageReadyRef = useRef(false);
   const activeSlotRef = useRef<WebViewSlot>('primary');
+  const appStateRef = useRef(AppState.currentState || 'active');
   const transitionStateRef = useRef<TransitionState | null>(null);
   const transitionTokenRef = useRef(0);
   const transitionWatchdogTimerRef = useRef<ReturnType<
@@ -668,6 +675,7 @@ function App(): JSX.Element {
     secondary: '',
     tertiary: '',
   });
+  const lastVisiblePagePersistedRef = useRef<AppPageKey | ''>('');
   const postBridgeEventRef = useRef(
     (
       _slot: WebViewSlot,
@@ -791,6 +799,34 @@ function App(): JSX.Element {
     [],
   );
 
+  const showNativeToast = useCallback((message: string) => {
+    const normalizedMessage = String(message || '').trim();
+    if (
+      !normalizedMessage ||
+      typeof nativeBridge?.showToast !== 'function'
+    ) {
+      return;
+    }
+    nativeBridge.showToast(normalizedMessage).catch(() => undefined);
+  }, []);
+
+  const persistLastVisiblePage = useCallback((pageKey: AppPageKey | '') => {
+    if (
+      !IS_ANDROID ||
+      !pageKey ||
+      typeof nativeBridge?.setLastVisiblePage !== 'function'
+    ) {
+      return;
+    }
+    if (lastVisiblePagePersistedRef.current === pageKey) {
+      return;
+    }
+    lastVisiblePagePersistedRef.current = pageKey;
+    nativeBridge.setLastVisiblePage(pageKey).catch(() => {
+      lastVisiblePagePersistedRef.current = '';
+    });
+  }, []);
+
   useEffect(() => {
     webViewSlotsRef.current = webViewSlots;
   }, [webViewSlots]);
@@ -812,7 +848,7 @@ function App(): JSX.Element {
       }
     }
 
-    void loadShellLanguage();
+    loadShellLanguage().catch(() => undefined);
     return () => {
       mounted = false;
     };
@@ -825,6 +861,10 @@ function App(): JSX.Element {
   useEffect(() => {
     transitionStateRef.current = transitionState;
   }, [transitionState]);
+
+  useEffect(() => {
+    persistLastVisiblePage(webViewSlots[activeSlot].pageKey);
+  }, [activeSlot, persistLastVisiblePage, webViewSlots]);
 
   const getWebViewRef = (slot: WebViewSlot) =>
     slot === 'primary'
@@ -1030,6 +1070,10 @@ function App(): JSX.Element {
       !isPageReadyRef.current ||
       !widgetPrewarmPendingRef.current
     ) {
+      return;
+    }
+    if (isAndroidWidgetActionLaunch(launchContextRef.current, IS_ANDROID)) {
+      widgetPrewarmPendingRef.current = false;
       return;
     }
 
@@ -1475,55 +1519,6 @@ function App(): JSX.Element {
     [clearWidgetLaunchAckTimer],
   );
 
-  const forceReloadSlotToWidgetTarget = useCallback(
-    (
-      slot: WebViewSlot,
-      pageKey: AppPageKey,
-      launchContext: LaunchContext,
-      reason: string,
-    ) => {
-      const target = resolvePageTarget(webViewSlotsRef.current[slot].uri, {
-        page: pageKey,
-        href: buildWidgetLaunchHref(pageKey, launchContext),
-      });
-      if (!target) {
-        return false;
-      }
-
-      if (slot === activeSlotRef.current) {
-        resetWebViewPresentation();
-      }
-
-      updateWebViewSlotsRef(webViewSlotsRef, slot, {
-        uri: target.uri,
-        pageKey: target.pageKey,
-        revision: webViewSlotsRef.current[slot].revision + 1,
-      });
-      setWebViewSlots(current => ({
-        ...current,
-        [slot]: {
-          uri: target.uri,
-          pageKey: target.pageKey,
-          revision: current[slot].revision + 1,
-        },
-      }));
-      if (slot === activeSlotRef.current) {
-        activeSlotRef.current = slot;
-        setActiveSlot(slot);
-      }
-      markSlotUsed(slot);
-      logPerfMetric('launch-action-fallback-reload', {
-        reason,
-        slot,
-        page: pageKey,
-        action: launchContext.widgetAction,
-        widgetKind: launchContext.widgetKind,
-      });
-      return true;
-    },
-    [logPerfMetric, markSlotUsed, resetWebViewPresentation],
-  );
-
   const scheduleWidgetLaunchAckWatchdog = useCallback(
     (launchContext: LaunchContext, pageKey: AppPageKey) => {
       if (!launchContext.widgetAction || !launchContext.widgetLaunchId) {
@@ -1570,42 +1565,6 @@ function App(): JSX.Element {
             return;
           }
 
-          if (pendingAck.attempts <= 1) {
-            pendingAck.attempts = 2;
-            const fallbackHref = buildWidgetLaunchHref(
-              pageKey,
-              pendingAck.launchContext,
-            );
-            const navigationResult = requestPageNavigationRef.current(
-              {
-                page: pageKey,
-                href: fallbackHref,
-                direction: getNavigationDirection(activeState.pageKey, pageKey),
-              },
-              'bridge',
-            );
-            if (
-              navigationResult === 'noop' ||
-              activeState.pageKey === pageKey
-            ) {
-              forceReloadSlotToWidgetTarget(
-                activeSlotRef.current,
-                pageKey,
-                pendingAck.launchContext,
-                'launch-ack-timeout',
-              );
-            } else {
-              logPerfMetric('launch-action-fallback-navigation', {
-                page: pageKey,
-                action: pendingAck.launchContext.widgetAction,
-                widgetKind: pendingAck.launchContext.widgetKind,
-                navigationResult,
-              });
-            }
-            armWatchdog(PAGE_SWITCH_LOAD_TIMEOUT_MS);
-            return;
-          }
-
           pendingWidgetLaunchAckRef.current = null;
           clearWidgetLaunchAckTimer();
           logPerfMetric('launch-action-ack-timeout', {
@@ -1622,7 +1581,6 @@ function App(): JSX.Element {
       clearPendingWidgetLaunchAck,
       clearWidgetLaunchAckTimer,
       dispatchWidgetLaunchActionToSlot,
-      forceReloadSlotToWidgetTarget,
       logPerfMetric,
     ],
   );
@@ -1889,6 +1847,40 @@ function App(): JSX.Element {
       }
 
       const normalizedLaunchContext = ensureWidgetLaunchId(launchContext);
+      const activeState = webViewSlotsRef.current[activeSlotRef.current];
+      const launchPolicy = resolveWidgetLaunchPolicy({
+        isAndroid: IS_ANDROID,
+        activePageKey: activeState.pageKey,
+        fallbackPageKey: APP_PAGES[0].key,
+        launchContext: normalizedLaunchContext,
+      });
+      const targetPageKey = launchPolicy.targetPageKey;
+
+      if (!launchPolicy.allowLaunch) {
+        pendingWidgetLaunchDispatchRef.current = null;
+        clearPendingWidgetLaunchAck(
+          normalizedLaunchContext.widgetLaunchId,
+        );
+        widgetPrewarmPendingRef.current = false;
+        launchContextRef.current = {
+          ...normalizedLaunchContext,
+          active: false,
+          widgetKind: '',
+          widgetAction: '',
+          widgetLaunchId: '',
+          pageKey: activeState.pageKey || normalizedLaunchContext.pageKey,
+        };
+        showNativeToast(launchPolicy.rejectToast);
+        logPerfMetric('launch-action-rejected', {
+          reason,
+          page: targetPageKey,
+          activePage: activeState.pageKey,
+          action: normalizedLaunchContext.widgetAction,
+          widgetKind: normalizedLaunchContext.widgetKind,
+          appState: appStateRef.current,
+        });
+        return false;
+      }
 
       const signature = buildLaunchContextSignature(normalizedLaunchContext);
       const lastHandledLaunch = lastHandledWidgetLaunchRef.current;
@@ -1913,10 +1905,6 @@ function App(): JSX.Element {
 
       launchContextRef.current = normalizedLaunchContext;
       markWidgetLaunchWindow(normalizedLaunchContext);
-
-      const activeState = webViewSlotsRef.current[activeSlotRef.current];
-      const targetPageKey =
-        normalizedLaunchContext.pageKey || activeState.pageKey || APP_PAGES[0].key;
       const target = resolvePageTarget(activeState.uri, {
         page: targetPageKey,
         href: `${targetPageKey}.html`,
@@ -2028,6 +2016,7 @@ function App(): JSX.Element {
       markWidgetLaunchWindow,
       queueWidgetLaunchDispatch,
       scheduleWidgetLaunchAckWatchdog,
+      showNativeToast,
     ],
   );
 
@@ -2228,17 +2217,25 @@ function App(): JSX.Element {
 
     const handleAppActive = () => {
       dispatchResumeToLoadedSlots();
-      void consumePendingLaunchAction('app-state-active');
+      consumePendingLaunchAction('app-state-active').catch(() => undefined);
       if (launchRetryTimer !== null) {
         clearTimeout(launchRetryTimer);
       }
       launchRetryTimer = setTimeout(() => {
         launchRetryTimer = null;
-        void consumePendingLaunchAction('app-state-active-retry');
+        consumePendingLaunchAction('app-state-active-retry').catch(
+          () => undefined,
+        );
       }, 140);
     };
 
     const subscription = AppState.addEventListener('change', nextState => {
+      appStateRef.current = nextState;
+      if (nextState === 'background' || nextState === 'inactive') {
+        persistLastVisiblePage(
+          webViewSlotsRef.current[activeSlotRef.current].pageKey,
+        );
+      }
       if (nextState === 'active') {
         handleAppActive();
       }
@@ -2254,6 +2251,7 @@ function App(): JSX.Element {
   }, [
     handleWidgetLaunchContext,
     logPerfMetric,
+    persistLastVisiblePage,
   ]);
 
   useEffect(() => {
@@ -2380,6 +2378,12 @@ function App(): JSX.Element {
 
   useEffect(() => {
     const changeSubscription = AppState.addEventListener('change', nextState => {
+      appStateRef.current = nextState;
+      if (nextState === 'background' || nextState === 'inactive') {
+        persistLastVisiblePage(
+          webViewSlotsRef.current[activeSlotRef.current].pageKey,
+        );
+      }
       if (nextState === 'active') {
         getWebViewRef(activeSlotRef.current).current?.injectJavaScript(
           dispatchNativeResumeScript,
@@ -2400,7 +2404,7 @@ function App(): JSX.Element {
       changeSubscription.remove();
       memoryWarningSubscription.remove();
     };
-  }, [clearInactiveCachedSlots, logPerfMetric]);
+  }, [clearInactiveCachedSlots, logPerfMetric, persistLastVisiblePage]);
 
   async function callNativeMethod(
     method: string,
@@ -2448,7 +2452,15 @@ function App(): JSX.Element {
             'reading plan bootstrap data',
           );
         }
-        return parseBridgeJson(await nativeBridge.getStoragePlanBootstrapState());
+        return parseBridgeJson(
+          await nativeBridge.getStoragePlanBootstrapState(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
+          ),
+        );
       case 'storage.getAutoBackupStatus':
         if (typeof nativeBridge.getAutoBackupStatus !== 'function') {
           throw createUnsupportedBridgeError(
@@ -2724,6 +2736,28 @@ function App(): JSX.Element {
             ),
           ),
         );
+      case 'ui.setLastVisiblePage':
+        if (typeof nativeBridge.setLastVisiblePage !== 'function') {
+          throw createUnsupportedBridgeError(
+            '同步最后可见页面',
+            'persisting the last visible page',
+          );
+        }
+        return {
+          pageKey: await nativeBridge.setLastVisiblePage(
+            String(payload.pageKey || ''),
+          ),
+        };
+      case 'ui.showToast':
+        if (typeof nativeBridge.showToast !== 'function') {
+          throw createUnsupportedBridgeError(
+            '显示提示',
+            'showing a toast',
+          );
+        }
+        return {
+          shown: await nativeBridge.showToast(String(payload.message || '')),
+        };
       default:
         throw new Error(`Unsupported native bridge method: ${method}`);
     }
@@ -2802,7 +2836,7 @@ function App(): JSX.Element {
     }
 
     if (message.type === 'shell-language') {
-      void persistShellLanguage(message.payload?.language);
+      persistShellLanguage(message.payload?.language).catch(() => undefined);
       return;
     }
 
@@ -2810,7 +2844,9 @@ function App(): JSX.Element {
       const eventName =
         typeof message.payload?.name === 'string' ? message.payload.name : '';
       if (eventName === 'ui.language-changed') {
-        void persistShellLanguage(message.payload?.language);
+        persistShellLanguage(message.payload?.language).catch(
+          () => undefined,
+        );
         return;
       }
       if (eventName === 'ui.modal-state') {

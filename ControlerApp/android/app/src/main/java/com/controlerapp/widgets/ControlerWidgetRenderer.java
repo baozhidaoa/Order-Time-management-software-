@@ -128,6 +128,8 @@ public final class ControlerWidgetRenderer {
         String command = "";
         String targetId = "";
         int accentColor = Color.parseColor("#8ED6A4");
+        boolean pending = false;
+        boolean actionDisabled = false;
     }
 
     private static final class ThemePalette {
@@ -190,17 +192,20 @@ public final class ControlerWidgetRenderer {
         final WidgetMetrics metrics;
         final String renderKey;
         final boolean deferPreview;
+        final WidgetContent content;
 
         PendingWidgetUpdate(
             int appWidgetId,
             WidgetMetrics metrics,
             String renderKey,
-            boolean deferPreview
+            boolean deferPreview,
+            WidgetContent content
         ) {
             this.appWidgetId = appWidgetId;
             this.metrics = metrics;
             this.renderKey = renderKey == null ? "" : renderKey;
             this.deferPreview = deferPreview;
+            this.content = content;
         }
     }
 
@@ -881,20 +886,25 @@ public final class ControlerWidgetRenderer {
                 includePreview = true;
             }
         }
-        WidgetContent content = null;
-
-        try {
-            content = buildWidgetContent(context, normalizedKind, state, includePreview);
-        } catch (Exception error) {
-            error.printStackTrace();
-        }
-        if (content == null) {
-            content = buildFallbackWidgetContent(normalizedKind);
-        }
 
         List<PendingWidgetUpdate> pendingUpdates = new ArrayList<>();
         for (int appWidgetId : appWidgetIds) {
             WidgetMetrics metrics = metricsById.get(appWidgetId);
+            WidgetContent content = null;
+            try {
+                content = buildWidgetContent(
+                    context,
+                    normalizedKind,
+                    state,
+                    includePreview,
+                    appWidgetId
+                );
+            } catch (Exception error) {
+                error.printStackTrace();
+            }
+            if (content == null) {
+                content = buildFallbackWidgetContent(normalizedKind);
+            }
             String renderKey = buildRenderKey(normalizedKind, metrics, palette, content);
             if (hasSameRenderKey(appWidgetId, renderKey)) {
                 continue;
@@ -903,7 +913,7 @@ public final class ControlerWidgetRenderer {
                 TextUtils.isEmpty(getRememberedRenderKey(appWidgetId))
                     && shouldShowPreview(normalizedKind, content, metrics);
             pendingUpdates.add(
-                new PendingWidgetUpdate(appWidgetId, metrics, renderKey, deferPreview)
+                new PendingWidgetUpdate(appWidgetId, metrics, renderKey, deferPreview, content)
             );
         }
 
@@ -915,6 +925,7 @@ public final class ControlerWidgetRenderer {
         for (PendingWidgetUpdate pendingUpdate : pendingUpdates) {
             RemoteViews remoteViews;
             try {
+                WidgetContent content = pendingUpdate.content;
                 content.previewBitmap = shouldShowPreview(
                     normalizedKind,
                     content,
@@ -1974,6 +1985,7 @@ public final class ControlerWidgetRenderer {
             signature.addString(item == null ? "" : item.meta);
             signature.addString(item == null ? "" : item.actionLabel);
             signature.addInt(item == null ? 0 : item.accentColor);
+            signature.addBoolean(item != null && item.pending);
         }
         return signature.finish();
     }
@@ -1999,6 +2011,7 @@ public final class ControlerWidgetRenderer {
             WidgetItemCard item = content.itemCards.get(index);
             signature.addString(item == null ? "" : item.command);
             signature.addString(item == null ? "" : item.targetId);
+            signature.addBoolean(item != null && item.actionDisabled);
         }
         return signature.finish();
     }
@@ -2554,11 +2567,22 @@ public final class ControlerWidgetRenderer {
                 item.command,
                 item.targetId
             );
+        PendingIntent disabledIntent = buildRefreshPendingIntent(
+            context,
+            appWidgetId,
+            kind
+        );
+        PendingIntent effectiveActionIntent =
+            item.actionDisabled ? disabledIntent : actionIntent;
         views.setOnClickPendingIntent(
             containerId,
-            TextUtils.isEmpty(item.command) ? openIntent : actionIntent
+            item.actionDisabled
+                ? disabledIntent
+                : TextUtils.isEmpty(item.command)
+                    ? openIntent
+                    : actionIntent
         );
-        views.setOnClickPendingIntent(actionId, actionIntent);
+        views.setOnClickPendingIntent(actionId, effectiveActionIntent);
     }
 
     private static String defaultOpenActionLabel(String kind) {
@@ -2582,7 +2606,8 @@ public final class ControlerWidgetRenderer {
         Context context,
         String kind,
         ControlerWidgetDataStore.State state,
-        boolean includePreview
+        boolean includePreview,
+        int appWidgetId
     ) {
         WidgetContent content = new WidgetContent();
         content.title = ControlerWidgetKinds.label(kind);
@@ -2604,10 +2629,10 @@ public final class ControlerWidgetRenderer {
                 fillDayPieContent(content, state);
                 break;
             case ControlerWidgetKinds.TODOS:
-                fillTodosContent(content, state);
+                fillTodosContent(content, state, appWidgetId);
                 break;
             case ControlerWidgetKinds.CHECKINS:
-                fillCheckinsContent(content, state);
+                fillCheckinsContent(content, state, appWidgetId);
                 break;
             case ControlerWidgetKinds.WEEK_VIEW:
                 fillWeekViewContent(content, state);
@@ -2678,6 +2703,7 @@ public final class ControlerWidgetRenderer {
             signature.addString(item == null ? "" : item.meta);
             signature.addString(item == null ? "" : item.actionLabel);
             signature.addInt(item == null ? 0 : item.accentColor);
+            signature.addBoolean(item != null && item.pending);
         }
         return signature.finish();
     }
@@ -2695,6 +2721,7 @@ public final class ControlerWidgetRenderer {
             WidgetItemCard item = content.itemCards.get(index);
             signature.addString(item == null ? "" : item.command);
             signature.addString(item == null ? "" : item.targetId);
+            signature.addBoolean(item != null && item.actionDisabled);
         }
         return signature.finish();
     }
@@ -3001,9 +3028,59 @@ public final class ControlerWidgetRenderer {
         }
     }
 
+    private static boolean isTodoPendingForWidget(
+        ControlerWidgetDataStore.TodoInfo todo,
+        int appWidgetId
+    ) {
+        return todo != null
+            && ControlerWidgetPendingActionStore.get(
+                ControlerWidgetKinds.TODOS,
+                todo.id,
+                appWidgetId
+            ) != null;
+    }
+
+    private static boolean resolveTodoCompletedForWidget(
+        ControlerWidgetDataStore.TodoInfo todo,
+        int appWidgetId
+    ) {
+        ControlerWidgetPendingActionStore.PendingAction pendingAction =
+            todo == null
+                ? null
+                : ControlerWidgetPendingActionStore.get(
+                    ControlerWidgetKinds.TODOS,
+                    todo.id,
+                    appWidgetId
+                );
+        return pendingAction != null ? pendingAction.todoCompleted : todo != null && todo.completed;
+    }
+
+    private static boolean resolveCheckinDoneForWidget(
+        ControlerWidgetDataStore.State state,
+        String itemId,
+        String today,
+        int appWidgetId
+    ) {
+        ControlerWidgetPendingActionStore.PendingAction pendingAction =
+            ControlerWidgetPendingActionStore.get(
+                ControlerWidgetKinds.CHECKINS,
+                itemId,
+                appWidgetId
+            );
+        return pendingAction != null
+            ? pendingAction.checkinChecked
+            : isCheckinDoneForDate(state.dailyCheckins, itemId, today);
+    }
+
+    private static String appendPendingMeta(String meta) {
+        String normalized = safeText(meta);
+        return TextUtils.isEmpty(normalized) ? "保存中" : normalized + " · 保存中";
+    }
+
     private static void fillTodosContent(
         WidgetContent content,
-        ControlerWidgetDataStore.State state
+        ControlerWidgetDataStore.State state,
+        int appWidgetId
     ) {
         String today = todayText();
         List<ControlerWidgetDataStore.TodoInfo> visibleTodos = new ArrayList<>();
@@ -3012,14 +3089,15 @@ public final class ControlerWidgetRenderer {
         int pendingCount = 0;
         for (ControlerWidgetDataStore.TodoInfo todo : state.todos) {
             boolean scheduledToday = todoScheduledOn(todo, calendarFromDateText(today), today);
+            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
             if (scheduledToday) {
                 todayCount++;
                 visibleTodos.add(todo);
-                if (todo.completed) {
+                if (completed) {
                     doneCount++;
                 }
             }
-            if (!todo.completed) {
+            if (!completed) {
                 pendingCount++;
                 if (!scheduledToday) {
                     visibleTodos.add(todo);
@@ -3036,14 +3114,16 @@ public final class ControlerWidgetRenderer {
                 ) {
                     boolean leftToday = todoScheduledOn(left, calendarFromDateText(today), today);
                     boolean rightToday = todoScheduledOn(right, calendarFromDateText(today), today);
+                    boolean leftCompleted = resolveTodoCompletedForWidget(left, appWidgetId);
+                    boolean rightCompleted = resolveTodoCompletedForWidget(right, appWidgetId);
                     if (leftToday != rightToday) {
                         return leftToday ? -1 : 1;
                     }
-                    if (left.completed != right.completed) {
-                        return left.completed ? 1 : -1;
+                    if (leftCompleted != rightCompleted) {
+                        return leftCompleted ? 1 : -1;
                     }
-                    boolean leftOverdue = isWidgetTodoOverdue(left, today);
-                    boolean rightOverdue = isWidgetTodoOverdue(right, today);
+                    boolean leftOverdue = isWidgetTodoOverdue(left, today, leftCompleted);
+                    boolean rightOverdue = isWidgetTodoOverdue(right, today, rightCompleted);
                     if (leftOverdue != rightOverdue) {
                         return leftOverdue ? -1 : 1;
                     }
@@ -3073,20 +3153,28 @@ public final class ControlerWidgetRenderer {
                 : "下方卡片可直接完成或撤回"
         );
         for (ControlerWidgetDataStore.TodoInfo todo : visibleTodos) {
+            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
+            boolean pending = isTodoPendingForWidget(todo, appWidgetId);
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(todo.title);
-            card.meta = describeTodoCardMeta(todo, today);
-            card.actionLabel = todo.completed ? "撤回" : "完成";
+            card.meta = describeTodoCardMeta(todo, today, completed);
+            if (pending) {
+                card.meta = appendPendingMeta(card.meta);
+            }
+            card.actionLabel = pending ? "保存中" : completed ? "撤回" : "完成";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
             card.targetId = safeText(todo.id);
             card.accentColor = parseColor(todo.color, Color.parseColor("#ED8936"));
+            card.pending = pending;
+            card.actionDisabled = pending;
             content.itemCards.add(card);
         }
     }
 
     private static void fillCheckinsContent(
         WidgetContent content,
-        ControlerWidgetDataStore.State state
+        ControlerWidgetDataStore.State state,
+        int appWidgetId
     ) {
         String today = todayText();
         Calendar todayCalendar = Calendar.getInstance();
@@ -3099,7 +3187,12 @@ public final class ControlerWidgetRenderer {
             }
             scheduled.add(item);
             total++;
-            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
+            boolean checked = resolveCheckinDoneForWidget(
+                state,
+                item.id,
+                today,
+                appWidgetId
+            );
             if (checked) {
                 done++;
             }
@@ -3112,8 +3205,18 @@ public final class ControlerWidgetRenderer {
                     ControlerWidgetDataStore.CheckinItemInfo left,
                     ControlerWidgetDataStore.CheckinItemInfo right
                 ) {
-                    boolean leftDone = isCheckinDoneForDate(state.dailyCheckins, left.id, today);
-                    boolean rightDone = isCheckinDoneForDate(state.dailyCheckins, right.id, today);
+                    boolean leftDone = resolveCheckinDoneForWidget(
+                        state,
+                        left.id,
+                        today,
+                        appWidgetId
+                    );
+                    boolean rightDone = resolveCheckinDoneForWidget(
+                        state,
+                        right.id,
+                        today,
+                        appWidgetId
+                    );
                     if (leftDone != rightDone) {
                         return leftDone ? 1 : -1;
                     }
@@ -3132,7 +3235,18 @@ public final class ControlerWidgetRenderer {
         }
         content.lines.add("下方卡片可逐项打卡或撤回");
         for (ControlerWidgetDataStore.CheckinItemInfo item : scheduled) {
-            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
+            ControlerWidgetPendingActionStore.PendingAction pendingAction =
+                ControlerWidgetPendingActionStore.get(
+                    ControlerWidgetKinds.CHECKINS,
+                    item.id,
+                    appWidgetId
+                );
+            boolean checked = resolveCheckinDoneForWidget(
+                state,
+                item.id,
+                today,
+                appWidgetId
+            );
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(item.title);
             card.meta = describeCheckinCardMeta(
@@ -3140,10 +3254,16 @@ public final class ControlerWidgetRenderer {
                 checked,
                 countCheckinStreak(state, item, today)
             );
-            card.actionLabel = checked ? "撤回" : "打卡";
+            if (pendingAction != null) {
+                card.meta = appendPendingMeta(card.meta);
+            }
+            card.actionLabel =
+                pendingAction != null ? "保存中" : checked ? "撤回" : "打卡";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
             card.targetId = safeText(item.id);
             card.accentColor = parseColor(item.color, Color.parseColor("#4299E1"));
+            card.pending = pendingAction != null;
+            card.actionDisabled = pendingAction != null;
             content.itemCards.add(card);
         }
     }
@@ -5379,10 +5499,18 @@ public final class ControlerWidgetRenderer {
         ControlerWidgetDataStore.TodoInfo todo,
         String today
     ) {
+        return describeTodoCardMeta(todo, today, todo != null && todo.completed);
+    }
+
+    private static String describeTodoCardMeta(
+        ControlerWidgetDataStore.TodoInfo todo,
+        String today,
+        boolean completed
+    ) {
         if (todo == null) {
             return "";
         }
-        if (todo.completed) {
+        if (completed) {
             return "已完成";
         }
         if (!TextUtils.isEmpty(todo.repeatType) && !"none".equals(todo.repeatType)) {
@@ -5404,7 +5532,15 @@ public final class ControlerWidgetRenderer {
         ControlerWidgetDataStore.TodoInfo todo,
         String today
     ) {
-        if (todo == null || todo.completed) {
+        return isWidgetTodoOverdue(todo, today, todo != null && todo.completed);
+    }
+
+    private static boolean isWidgetTodoOverdue(
+        ControlerWidgetDataStore.TodoInfo todo,
+        String today,
+        boolean completed
+    ) {
+        if (todo == null || completed) {
             return false;
         }
         String repeatType = TextUtils.isEmpty(todo.repeatType) ? "none" : todo.repeatType;

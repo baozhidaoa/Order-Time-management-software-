@@ -1208,6 +1208,104 @@ function finalizeTodoModalChange(closeModal, options = {}) {
   return true;
 }
 
+function setTodoModalSubmissionLock(modal, locked) {
+  if (!(modal instanceof HTMLElement)) {
+    return;
+  }
+  const modalContent = modal.querySelector(".modal-content") || modal;
+  const controls = modalContent.querySelectorAll(
+    "button, input, textarea, select",
+  );
+  controls.forEach((control) => {
+    if (!(control instanceof HTMLElement)) {
+      return;
+    }
+    if (locked) {
+      control.dataset.todoModalDisabledBefore = control.disabled
+        ? "true"
+        : "false";
+      control.disabled = true;
+      return;
+    }
+    control.disabled = control.dataset.todoModalDisabledBefore === "true";
+    delete control.dataset.todoModalDisabledBefore;
+  });
+  modal.dataset.todoModalSubmitting = locked ? "true" : "false";
+}
+
+function acquireTodoModalSubmissionLock(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return false;
+  }
+  if (modal.dataset.todoModalSubmitting === "true") {
+    return false;
+  }
+  setTodoModalSubmissionLock(modal, true);
+  return true;
+}
+
+function releaseTodoModalSubmissionLock(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return;
+  }
+  if (modal.dataset.todoModalSubmitting !== "true") {
+    return;
+  }
+  setTodoModalSubmissionLock(modal, false);
+}
+
+function createTodoModalLockedAction(modal, action) {
+  return async (...args) => {
+    if (!acquireTodoModalSubmissionLock(modal)) {
+      return false;
+    }
+    try {
+      const result = await action(...args);
+      if (result === false && modal.isConnected) {
+        releaseTodoModalSubmissionLock(modal);
+      }
+      return result;
+    } catch (error) {
+      if (modal.isConnected) {
+        releaseTodoModalSubmissionLock(modal);
+      }
+      console.error("执行待办模态框操作失败:", error);
+      await showTodoAlert("操作失败，请稍后重试。", {
+        title: "操作失败",
+        danger: true,
+      });
+      return false;
+    }
+  };
+}
+
+function restoreTodoStateSnapshot(snapshot = {}) {
+  if (Object.prototype.hasOwnProperty.call(snapshot, "todos")) {
+    todos = hydrateTodoCollection("todos", snapshot.todos);
+  }
+  if (Object.prototype.hasOwnProperty.call(snapshot, "checkinItems")) {
+    checkinItems = hydrateTodoCollection("checkinItems", snapshot.checkinItems);
+  }
+  if (Object.prototype.hasOwnProperty.call(snapshot, "dailyCheckins")) {
+    dailyCheckins = hydrateTodoCollection("dailyCheckins", snapshot.dailyCheckins);
+  }
+  if (Object.prototype.hasOwnProperty.call(snapshot, "checkins")) {
+    checkins = hydrateTodoCollection("checkins", snapshot.checkins);
+  }
+}
+
+async function rollbackTodoOptimisticChange(snapshot = {}, options = {}) {
+  restoreTodoStateSnapshot(snapshot);
+  if (options.refreshView !== false) {
+    scheduleTodoInterfaceRefresh();
+  }
+  await showTodoAlert(options.message || "保存失败，本次修改已撤销。", {
+    title: options.title || "保存失败",
+    danger: true,
+  });
+  return false;
+}
+
 function bindTodoModalActions(modal, handlers = {}) {
   const modalContent = modal?.querySelector?.(".modal-content") || modal;
   if (!modalContent) {
@@ -1234,7 +1332,9 @@ function bindTodoModalActions(modal, handlers = {}) {
     if (typeof event.stopImmediatePropagation === "function") {
       event.stopImmediatePropagation();
     }
-    handler(actionButton, event);
+    Promise.resolve(handler(actionButton, event)).catch((error) => {
+      console.error("待办模态框按钮处理失败:", error);
+    });
   };
 
   modalContent.addEventListener("click", listener);
@@ -2422,13 +2522,20 @@ function toggleTodoCompletion(todoId) {
 
 // 删除待办事项
 function deleteTodo(todoId, options = {}) {
-  const { confirmDelete = true, refreshView = true } = options;
+  const {
+    confirmDelete = true,
+    refreshView = true,
+    closeModal = null,
+  } = options;
   if (
     confirmDelete &&
     !confirm("确定要删除这个待办事项吗？此操作不可撤销！")
   ) {
     return false;
   }
+
+  const previousTodos = getTodoSectionStateSnapshot("todos");
+  const previousCheckins = getTodoSectionStateSnapshot("checkins");
 
   // 删除待办事项
   const index = todos.findIndex((t) => matchesId(t.id, todoId));
@@ -2445,23 +2552,43 @@ function deleteTodo(todoId, options = {}) {
   );
   checkins = checkins.filter((checkin) => !matchesId(checkin.todoId, todoId));
 
-  void queueTodoCoreSave(
-    {
-      todos: getTodoSectionStateSnapshot("todos"),
-    },
-    {
-      reason: "todo-delete",
-      errorLabel: "删除待办后保存列表失败:",
-      refreshReminders: true,
-    },
-  );
-  void queueTodoSectionSave("checkins", {
-    previousItems: removedCheckins,
-    errorLabel: "删除待办后保存进度记录失败:",
-  });
-  if (refreshView) {
-    refreshTodoInterface();
+  if (typeof closeModal === "function") {
+    closeModal();
   }
+  if (refreshView) {
+    scheduleTodoInterfaceRefresh();
+  }
+  void Promise.all([
+    queueTodoCoreSave(
+      {
+        todos: getTodoSectionStateSnapshot("todos"),
+      },
+      {
+        reason: "todo-delete",
+        errorLabel: "删除待办后保存列表失败:",
+        refreshReminders: true,
+      },
+    ),
+    queueTodoSectionSave("checkins", {
+      previousItems: removedCheckins,
+      errorLabel: "删除待办后保存进度记录失败:",
+    }),
+  ]).then(async ([todoSaved, checkinsSaved]) => {
+    if (todoSaved && checkinsSaved) {
+      return;
+    }
+    await rollbackTodoOptimisticChange(
+      {
+        todos: previousTodos,
+        checkins: previousCheckins,
+      },
+      {
+        title: "删除失败",
+        message: "删除待办事项失败，本次修改已撤销。",
+        refreshView,
+      },
+    );
+  });
   return true;
 }
 
@@ -2758,14 +2885,14 @@ function showTodoEditModal(todo = null) {
 
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: closeTodoModal,
-    save: () => {
-      void saveTodo(modal, isEditMode, todo, {
+    save: createTodoModalLockedAction(modal, () =>
+      saveTodo(modal, isEditMode, todo, {
         closeModal: closeTodoModal,
-      });
-    },
-    "delete-todo": async () => {
+      }),
+    ),
+    "delete-todo": createTodoModalLockedAction(modal, async () => {
       if (!isEditMode || !todo) {
-        return;
+        return false;
       }
       const confirmed = await requestTodoConfirmation(
         "确定要删除这个待办事项吗？此操作不可撤销！",
@@ -2777,16 +2904,13 @@ function showTodoEditModal(todo = null) {
         },
       );
       if (!confirmed) {
-        return;
+        return false;
       }
-      const deleted = deleteTodo(todo.id, {
+      return deleteTodo(todo.id, {
         confirmDelete: false,
-        refreshView: false,
+        closeModal: closeTodoModal,
       });
-      if (deleted) {
-        finalizeTodoModalChange(closeTodoModal);
-      }
-    },
+    }),
   });
 
   // 点击外部关闭
@@ -2874,37 +2998,40 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
     return false;
   }
 
+  const previousTodos = getTodoSectionStateSnapshot("todos");
   if (isEditMode && todoData) {
     // 更新现有待办事项
     const index = todos.findIndex((t) => matchesId(t.id, todoData.id));
-    if (index !== -1) {
-      const isCompleted =
-        modal.querySelector("#todo-completed-checkbox")?.checked || false;
-
-      todos[index] = hydrateTodo({
-        ...todos[index],
-        title,
-        description,
-        dueDate: normalizedSchedule.dueDate,
-        priority,
-        tags,
-        repeatType: normalizedSchedule.repeatType,
-        repeatWeekdays: normalizedSchedule.repeatWeekdays,
-        startDate: normalizedSchedule.startDate,
-        endDate: normalizedSchedule.endDate,
-        notification: reminderConfig,
-        completed: isCompleted,
-        completedAt: isCompleted
-          ? todos[index].completedAt || new Date().toISOString()
-          : null,
-        color:
-          priority === "high"
-            ? "#f56565"
-            : priority === "medium"
-              ? "#ed8936"
-              : "#79af85",
-      });
+    if (index === -1) {
+      alert("保存失败：未找到该待办事项，请刷新后重试。");
+      return false;
     }
+    const isCompleted =
+      modal.querySelector("#todo-completed-checkbox")?.checked || false;
+
+    todos[index] = hydrateTodo({
+      ...todos[index],
+      title,
+      description,
+      dueDate: normalizedSchedule.dueDate,
+      priority,
+      tags,
+      repeatType: normalizedSchedule.repeatType,
+      repeatWeekdays: normalizedSchedule.repeatWeekdays,
+      startDate: normalizedSchedule.startDate,
+      endDate: normalizedSchedule.endDate,
+      notification: reminderConfig,
+      completed: isCompleted,
+      completedAt: isCompleted
+        ? todos[index].completedAt || new Date().toISOString()
+        : null,
+      color:
+        priority === "high"
+          ? "#f56565"
+          : priority === "medium"
+            ? "#ed8936"
+            : "#79af85",
+    });
   } else {
     // 创建新待办事项
     const newTodo = new Todo(
@@ -2923,7 +3050,9 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
     todos.push(newTodo);
   }
 
-  const saved = await queueTodoCoreSave(
+  finalizeTodoModalChange(closeModal, { refreshView });
+
+  void queueTodoCoreSave(
     {
       todos: getTodoSectionStateSnapshot("todos"),
     },
@@ -2932,18 +3061,28 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
       errorLabel: "保存待办事项失败:",
       refreshReminders: true,
     },
-  );
-  if (!saved) {
-    await showTodoAlert("保存待办事项失败，请稍后重试。", {
-      title: "保存失败",
-      danger: true,
-    });
-    return false;
-  }
-  await reminderTools?.requestPermissionIfNeeded?.("待办", reminderConfig, {
-    silentWhenDisabled: false,
+  ).then(async (saved) => {
+    if (!saved) {
+      await rollbackTodoOptimisticChange(
+        {
+          todos: previousTodos,
+        },
+        {
+          message: "保存待办事项失败，本次修改已撤销。",
+          refreshView,
+        },
+      );
+      return;
+    }
+    try {
+      await reminderTools?.requestPermissionIfNeeded?.("待办", reminderConfig, {
+        silentWhenDisabled: false,
+      });
+    } catch (error) {
+      console.error("请求待办提醒权限失败:", error);
+    }
   });
-  return finalizeTodoModalChange(closeModal, { refreshView });
+  return true;
 }
 
 function showCheckinModal(todoId, checkinId = null) {
@@ -3019,68 +3158,87 @@ function showCheckinModal(todoId, checkinId = null) {
     const message = modal.querySelector("#checkin-message-input").value.trim();
     if (!message) {
       alert("请输入进度内容");
-      return;
+      return false;
     }
 
-    const saved = saveTodoProgressRecord(todoId, message, existingRecord?.id || null);
+    const previousCheckins = getTodoSectionStateSnapshot("checkins");
+    const saved = saveTodoProgressRecord(
+      todoId,
+      message,
+      existingRecord?.id || null,
+    );
     if (!saved) {
       alert("保存失败，请刷新后重试");
-      return;
+      return false;
     }
 
     const targetCheckin = existingRecord?.id
       ? getTodoCheckinById(existingRecord.id)
       : checkins[checkins.length - 1] || null;
-    const persisted = await queueTodoSectionSave("checkins", {
+    finalizeTodoModalChange(closeModal);
+    void queueTodoSectionSave("checkins", {
       periodIds: [getTodoSectionPeriodId("checkins", targetCheckin)],
       errorLabel: "保存进度记录失败:",
+    }).then(async (persisted) => {
+      if (persisted) {
+        return;
+      }
+      await rollbackTodoOptimisticChange(
+        {
+          checkins: previousCheckins,
+        },
+        {
+          message: "保存进度记录失败，本次修改已撤销。",
+        },
+      );
     });
-    if (!persisted) {
-      await showTodoAlert("保存进度记录失败，请稍后重试。", {
-        title: "保存失败",
-        danger: true,
-      });
-      return;
-    }
-    finalizeTodoModalChange(closeModal);
+    return true;
   };
 
   const deleteAction = async () => {
-    if (!existingRecord) return;
+    if (!existingRecord) return false;
     const confirmed = await requestTodoConfirmation("确定删除这条进度记录吗？", {
       title: "删除进度记录",
       confirmText: "删除",
       cancelText: "取消",
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
+    const previousCheckins = getTodoSectionStateSnapshot("checkins");
     const deleted = deleteTodoProgressRecord(existingRecord.id);
     if (!deleted) {
       await showTodoAlert("删除失败，请刷新后重试", {
         title: "删除失败",
         danger: true,
       });
-      return;
+      return false;
     }
-    const persisted = await queueTodoSectionSave("checkins", {
+    finalizeTodoModalChange(closeModal);
+    void queueTodoSectionSave("checkins", {
       previousItems: [existingRecord],
       periodIds: [getTodoSectionPeriodId("checkins", existingRecord)],
       errorLabel: "删除进度记录失败:",
+    }).then(async (persisted) => {
+      if (persisted) {
+        return;
+      }
+      await rollbackTodoOptimisticChange(
+        {
+          checkins: previousCheckins,
+        },
+        {
+          title: "删除失败",
+          message: "删除进度记录失败，本次修改已撤销。",
+        },
+      );
     });
-    if (!persisted) {
-      await showTodoAlert("删除进度记录失败，请稍后重试。", {
-        title: "删除失败",
-        danger: true,
-      });
-      return;
-    }
-    finalizeTodoModalChange(closeModal);
+    return true;
   };
 
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: closeModal,
-    save: saveAction,
-    "delete-progress": deleteAction,
+    save: createTodoModalLockedAction(modal, saveAction),
+    "delete-progress": createTodoModalLockedAction(modal, deleteAction),
   });
 
   modal.addEventListener("click", function (event) {
@@ -3602,17 +3760,17 @@ function showCheckinItemModal(item = null) {
     closeCheckinItemModal();
   };
   const saveAction = () => {
-    void saveCheckinItem(modal, isEditMode, item, {
+    return saveCheckinItem(modal, isEditMode, item, {
       closeModal: closeCheckinItemModal,
     });
   };
 
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: cancelAction,
-    save: saveAction,
-    "delete-checkin-item": async () => {
+    save: createTodoModalLockedAction(modal, saveAction),
+    "delete-checkin-item": createTodoModalLockedAction(modal, async () => {
       if (!isEditMode || !item) {
-        return;
+        return false;
       }
       const confirmed = await requestTodoConfirmation(
         "确定要删除这个打卡项目吗？此操作不可撤销！",
@@ -3624,16 +3782,13 @@ function showCheckinItemModal(item = null) {
         },
       );
       if (!confirmed) {
-        return;
+        return false;
       }
-      const deleted = deleteCheckinItem(item.id, {
+      return deleteCheckinItem(item.id, {
         confirmDelete: false,
-        refreshView: false,
+        closeModal: closeCheckinItemModal,
       });
-      if (deleted) {
-        finalizeTodoModalChange(closeCheckinItemModal);
-      }
-    },
+    }),
   });
 
   // 点击外部关闭
@@ -3696,22 +3851,25 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
     return false;
   }
 
+  const previousCheckinItems = getTodoSectionStateSnapshot("checkinItems");
   if (isEditMode && itemData) {
     // 更新现有打卡项目
     const index = checkinItems.findIndex((c) => matchesId(c.id, itemData.id));
-    if (index !== -1) {
-      checkinItems[index] = hydrateCheckinItem({
-        ...checkinItems[index],
-        title,
-        description,
-        color,
-        repeatType,
-        repeatWeekdays,
-        startDate,
-        endDate,
-        notification: reminderConfig,
-      });
+    if (index === -1) {
+      alert("保存失败：未找到该打卡项目，请刷新后重试。");
+      return false;
     }
+    checkinItems[index] = hydrateCheckinItem({
+      ...checkinItems[index],
+      title,
+      description,
+      color,
+      repeatType,
+      repeatWeekdays,
+      startDate,
+      endDate,
+      notification: reminderConfig,
+    });
   } else {
     // 创建新打卡项目
     const newItem = new CheckinItem(
@@ -3727,7 +3885,9 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
     checkinItems.push(newItem);
   }
 
-  const saved = await queueTodoCoreSave(
+  finalizeTodoModalChange(closeModal, { refreshView });
+
+  void queueTodoCoreSave(
     {
       checkinItems: getTodoSectionStateSnapshot("checkinItems"),
     },
@@ -3736,29 +3896,46 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
       errorLabel: "保存打卡项目失败:",
       refreshReminders: true,
     },
-  );
-  if (!saved) {
-    await showTodoAlert("保存打卡项目失败，请稍后重试。", {
-      title: "保存失败",
-      danger: true,
-    });
-    return false;
-  }
-  await reminderTools?.requestPermissionIfNeeded?.("打卡", reminderConfig, {
-    silentWhenDisabled: false,
+  ).then(async (saved) => {
+    if (!saved) {
+      await rollbackTodoOptimisticChange(
+        {
+          checkinItems: previousCheckinItems,
+        },
+        {
+          message: "保存打卡项目失败，本次修改已撤销。",
+          refreshView,
+        },
+      );
+      return;
+    }
+    try {
+      await reminderTools?.requestPermissionIfNeeded?.("打卡", reminderConfig, {
+        silentWhenDisabled: false,
+      });
+    } catch (error) {
+      console.error("请求打卡提醒权限失败:", error);
+    }
   });
-  return finalizeTodoModalChange(closeModal, { refreshView });
+  return true;
 }
 
 // 删除打卡项目
 function deleteCheckinItem(itemId, options = {}) {
-  const { confirmDelete = true, refreshView = true } = options;
+  const {
+    confirmDelete = true,
+    refreshView = true,
+    closeModal = null,
+  } = options;
   if (
     confirmDelete &&
     !confirm("确定要删除这个打卡项目吗？此操作不可撤销！")
   ) {
     return false;
   }
+
+  const previousCheckinItems = getTodoSectionStateSnapshot("checkinItems");
+  const previousDailyCheckins = getTodoSectionStateSnapshot("dailyCheckins");
 
   // 删除打卡项目
   const index = checkinItems.findIndex((c) => matchesId(c.id, itemId));
@@ -3777,23 +3954,43 @@ function deleteCheckinItem(itemId, options = {}) {
     (checkin) => !matchesId(checkin.itemId, itemId),
   );
 
-  void queueTodoCoreSave(
-    {
-      checkinItems: getTodoSectionStateSnapshot("checkinItems"),
-    },
-    {
-      reason: "checkin-item-delete",
-      errorLabel: "删除打卡项目后保存项目列表失败:",
-      refreshReminders: true,
-    },
-  );
-  void queueTodoSectionSave("dailyCheckins", {
-    previousItems: removedDailyCheckins,
-    errorLabel: "删除打卡项目后保存打卡记录失败:",
-  });
-  if (refreshView) {
-    refreshTodoInterface();
+  if (typeof closeModal === "function") {
+    closeModal();
   }
+  if (refreshView) {
+    scheduleTodoInterfaceRefresh();
+  }
+  void Promise.all([
+    queueTodoCoreSave(
+      {
+        checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+      },
+      {
+        reason: "checkin-item-delete",
+        errorLabel: "删除打卡项目后保存项目列表失败:",
+        refreshReminders: true,
+      },
+    ),
+    queueTodoSectionSave("dailyCheckins", {
+      previousItems: removedDailyCheckins,
+      errorLabel: "删除打卡项目后保存打卡记录失败:",
+    }),
+  ]).then(async ([itemSaved, checkinSaved]) => {
+    if (itemSaved && checkinSaved) {
+      return;
+    }
+    await rollbackTodoOptimisticChange(
+      {
+        checkinItems: previousCheckinItems,
+        dailyCheckins: previousDailyCheckins,
+      },
+      {
+        title: "删除失败",
+        message: "删除打卡项目失败，本次修改已撤销。",
+        refreshView,
+      },
+    );
+  });
   return true;
 }
 

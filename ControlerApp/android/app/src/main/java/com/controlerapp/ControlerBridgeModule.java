@@ -13,14 +13,18 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
 import android.database.Cursor;
+import android.widget.Toast;
 
 import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetKinds;
+import com.controlerapp.widgets.ControlerWidgetLastPageStore;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
 import com.controlerapp.widgets.ControlerWidgetRenderer;
 import com.controlerapp.widgets.ControlerWidgetPinResultReceiver;
@@ -66,6 +70,7 @@ import java.util.zip.ZipOutputStream;
 import androidx.core.content.FileProvider;
 
 public class ControlerBridgeModule extends ReactContextBaseJavaModule {
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static final int REQUEST_SELECT_STORAGE_FILE = 41021;
     private static final int REQUEST_SELECT_STORAGE_DIRECTORY = 41022;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 41023;
@@ -425,10 +430,21 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
 
     private String buildStartUrl(Context context) throws Exception {
         JSONObject launchAction = ControlerWidgetLaunchStore.consumeLaunchAction(context);
-        String page = normalizeLaunchPage(launchAction.optString("page", ""));
+        String requestedPage = normalizeLaunchPage(launchAction.optString("page", ""));
+        String page = requestedPage;
         String action = String.valueOf(launchAction.optString("action", "")).trim();
         String widgetKind = String.valueOf(launchAction.optString("widgetKind", "")).trim();
         String source = String.valueOf(launchAction.optString("source", "android-widget")).trim();
+        String lastVisiblePage = ControlerWidgetLastPageStore.getLastVisiblePage(context);
+        boolean samePageOnlyWidgetAction =
+            "android-widget".equals(source) && !TextUtils.isEmpty(action);
+        if (samePageOnlyWidgetAction && !requestedPage.equals(lastVisiblePage)) {
+            showToastOnMainThread(getWidgetActionRejectToast(requestedPage, action));
+            page = TextUtils.isEmpty(lastVisiblePage) ? "index" : lastVisiblePage;
+            action = "";
+            widgetKind = "";
+            source = "";
+        }
 
         Uri.Builder builder = Uri.parse(
             "file:///android_asset/controler-web/" + page + ".html"
@@ -450,6 +466,57 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 + " widgetKind=" + (TextUtils.isEmpty(widgetKind) ? "-" : widgetKind)
         );
         return launchUrl;
+    }
+
+    private void showToastOnMainThread(final String message) {
+        final Context context = getReactApplicationContext();
+        final String normalizedMessage = message == null ? "" : message.trim();
+        if (context == null || TextUtils.isEmpty(normalizedMessage)) {
+            return;
+        }
+        MAIN_HANDLER.post(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(context, normalizedMessage, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private String getWidgetActionRejectToast(String page, String action) {
+        if ("start-timer".equals(action)) {
+            return "请先回到记录页后再使用开始计时小组件";
+        }
+        if ("new-diary".equals(action)) {
+            return "请先回到日记页后再使用写日记小组件";
+        }
+        if ("show-week-grid".equals(action)) {
+            return "请先回到统计页后再使用周表小组件";
+        }
+        if ("show-day-pie".equals(action)) {
+            return "请先回到统计页后再使用饼图小组件";
+        }
+        if ("show-week-view".equals(action)) {
+            return "请先回到计划页后再使用周视图小组件";
+        }
+        if ("show-year-view".equals(action)) {
+            return "请先回到计划页后再使用年视图小组件";
+        }
+        if ("show-todos".equals(action)) {
+            return "请先回到计划页后再使用待办小组件";
+        }
+        if ("show-checkins".equals(action)) {
+            return "请先回到计划页后再使用打卡小组件";
+        }
+        if ("plan".equals(page)) {
+            return "请先回到计划页后再使用该小组件";
+        }
+        if ("stats".equals(page)) {
+            return "请先回到统计页后再使用该小组件";
+        }
+        if ("diary".equals(page)) {
+            return "请先回到日记页后再使用该小组件";
+        }
+        return "请先回到目标页面后再使用该小组件";
     }
 
     private String normalizeLaunchPage(String page) {
@@ -591,15 +658,44 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void getStoragePlanBootstrapState(Promise promise) {
+    public void getStoragePlanBootstrapState(String optionsJson, Promise promise) {
         try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
             promise.resolve(
                 ControlerWidgetDataStore
-                    .getStoragePlanBootstrapState(getReactApplicationContext())
+                    .getStoragePlanBootstrapState(getReactApplicationContext(), options)
                     .toString()
             );
         } catch (Exception error) {
             promise.reject("storage_plan_bootstrap_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void setLastVisiblePage(String pageKey, Promise promise) {
+        try {
+            String normalizedPage = ControlerWidgetLastPageStore.normalizePage(pageKey);
+            if (!TextUtils.isEmpty(normalizedPage)) {
+                ControlerWidgetLastPageStore.setLastVisiblePage(
+                    getReactApplicationContext(),
+                    normalizedPage
+                );
+            }
+            promise.resolve(normalizedPage);
+        } catch (Exception error) {
+            promise.reject("last_visible_page_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void showToast(String message, Promise promise) {
+        try {
+            String normalizedMessage = message == null ? "" : message.trim();
+            showToastOnMainThread(normalizedMessage);
+            promise.resolve(normalizedMessage);
+        } catch (Exception error) {
+            promise.reject("show_toast_failed", error);
         }
     }
 

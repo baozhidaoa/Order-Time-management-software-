@@ -1880,6 +1880,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const BROWSER_STATE_KEY = "__controler_browser_state__";
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
   const MOBILE_MIRROR_STATUS_KEY = "__controler_mobile_status__";
+  const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
   const ELECTRON_WRITE_DELAY_MS = 250;
@@ -3167,19 +3168,25 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }
         return getStorageStatus();
       },
-      async getPlanBootstrapState() {
+      async getPlanBootstrapState(options = {}) {
+        const includeRecurringPlans = options?.includeRecurringPlans !== false;
+        const includeYearlyGoals = options?.includeYearlyGoals !== false;
         const state = readState();
         const planItems = Array.isArray(state?.plans) ? state.plans : [];
-        return {
-          yearlyGoals: cloneValue(state?.yearlyGoals || {}),
-          recurringPlans: cloneValue(
+        const payload = {};
+        if (includeYearlyGoals) {
+          payload.yearlyGoals = cloneValue(state?.yearlyGoals || {});
+        }
+        if (includeRecurringPlans) {
+          payload.recurringPlans = cloneValue(
             planItems.filter((item) =>
               typeof storageBundle?.isRecurringPlan === "function"
                 ? storageBundle.isRecurringPlan(item)
                 : String(item?.repeat || "").trim().toLowerCase() !== "none",
             ),
-          ),
-        };
+          );
+        }
+        return payload;
       },
       async syncFromSource(options = {}) {
         if (typeof syncFromSource === "function") {
@@ -3632,6 +3639,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const useAndroidProbeLoop = platform === "android";
     const initialMirrorStateRaw =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
+    const initialMirrorPendingWriteRaw =
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_PENDING_WRITE_KEY,
+      ) || "";
+    const initialMirrorPendingWrite =
+      initialMirrorPendingWriteRaw === "1" ||
+      initialMirrorPendingWriteRaw === "true";
     const initialMirrorState = parseJsonSafely(
       initialMirrorStateRaw,
       {},
@@ -3654,12 +3669,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let nativeFastProbeUntil = 0;
     let recentNativeLocalWriteAt = 0;
     let lastFallbackHashProbeAt = 0;
-    let lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+    let lastWrittenComparableSnapshot = initialMirrorPendingWrite
+      ? ""
+      : createComparableSnapshot(cachedState);
     let lastMirroredStateJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
-    let hasPendingStateChanges = false;
+    let lastMirroredPendingWriteValue = initialMirrorPendingWrite ? "1" : "0";
+    let hasPendingStateChanges = initialMirrorPendingWrite;
+    let managedStateRevision = initialMirrorPendingWrite ? 1 : 0;
     let lastKnownVersionProbe = normalizeVersionProbe(cachedStatus, cachedStatus);
     let nativeBaselineFingerprint = lastKnownVersionProbe?.fingerprint || "";
     const nativeSyncBootstrapStartedAt = Date.now();
@@ -4043,6 +4062,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
       });
+      managedStateRevision += 1;
       hasPendingStateChanges = true;
       scheduleMirrorSnapshot();
       return cachedState;
@@ -4070,6 +4090,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             lastMirroredStatusJson = nextStatusJson;
           }
         }
+        const nextPendingWriteValue = hasPendingStateChanges ? "1" : "0";
+        if (force || nextPendingWriteValue !== lastMirroredPendingWriteValue) {
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_WRITE_KEY,
+            nextPendingWriteValue,
+          );
+          lastMirroredPendingWriteValue = nextPendingWriteValue;
+        }
       } catch (error) {
         console.error("写入移动端镜像状态失败:", error);
       }
@@ -4080,6 +4109,62 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       mirrorFlushTimer = window.setTimeout(() => {
         persistMirrorSnapshot();
       }, MOBILE_MIRROR_FLUSH_DELAY_MS);
+    }
+
+    function createManagedStateCheckpoint() {
+      return {
+        revision: managedStateRevision,
+        comparableSnapshot: createComparableSnapshot(cachedState),
+      };
+    }
+
+    async function settleManagedNativeDirectWrite(checkpoint = null) {
+      touchRecentNativeLocalWriteWindow();
+      const nextStatus = await getNativeStatusSnapshot({
+        suppressError: true,
+      });
+      if (nextStatus && typeof nextStatus === "object") {
+        cachedStatus = nextStatus;
+      }
+      if (
+        checkpoint &&
+        checkpoint.revision === managedStateRevision
+      ) {
+        lastWrittenComparableSnapshot =
+          checkpoint.comparableSnapshot || createComparableSnapshot(cachedState);
+        hasPendingStateChanges = false;
+      }
+      persistMirrorSnapshot(true);
+      updateVersionBaseline(cachedStatus);
+      clearStorageSyncError();
+      touchNativeFastProbeWindow();
+      scheduleNativeProbeLoop();
+    }
+
+    function scheduleManagedPendingNativeFlush() {
+      hasPendingStateChanges = true;
+      scheduleMirrorSnapshot();
+      window.clearTimeout(writeTimer);
+      writeTimer = window.setTimeout(() => {
+        writeChain = writeChain
+          .then(() => writeNativeState())
+          .catch((error) => {
+            console.error("补写 React Native 存储失败:", error);
+          });
+      }, NATIVE_WRITE_DELAY_MS);
+    }
+
+    function queueManagedNativeDirectWrite(task, options = {}) {
+      const nextTask = writeChain
+        .catch(() => undefined)
+        .then(() => task());
+      writeChain = nextTask
+        .then(() => cachedStatus)
+        .catch((error) => {
+          console.error(options.errorLabel || "写入 React Native 存储失败:", error);
+          return cachedStatus;
+        });
+      return nextTask;
     }
 
     function updateVersionBaseline(versionProbe) {
@@ -4285,7 +4370,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }
       }
       cachedState = nextState;
-      const serializedState = JSON.stringify(nextState, null, 2);
+      const serializedState = JSON.stringify(nextState);
       const nextComparableSnapshot = createComparableSnapshot(nextState);
 
       if (nextComparableSnapshot === lastWrittenComparableSnapshot) {
@@ -4416,6 +4501,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         changedPeriods = {},
         source = "",
       } = options;
+      if (hasPendingStateChanges) {
+        await writeNativeState();
+        return createSourceSyncResult(
+          buildMergedState(cachedState, {
+            includeAliases: true,
+          }),
+          cachedStatus,
+        );
+      }
       const next = await readNativeSnapshot({
         suppressError,
       });
@@ -4560,6 +4654,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     async function initializeReactNativeStorage() {
+      if (hasPendingStateChanges) {
+        persistMirrorSnapshot(true);
+        try {
+          await writeNativeState();
+        } catch (error) {
+          console.error("恢复移动端待补写镜像失败:", error);
+          persistMirrorSnapshot(true);
+        }
+        updateVersionBaseline(cachedStatus);
+        return;
+      }
+
       const nextCore = await getNativeCoreStateSnapshot({
         suppressError: true,
       });
@@ -4773,19 +4879,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     }
 
-    function getManagedPlanBootstrapStateSnapshot() {
+    function getManagedPlanBootstrapStateSnapshot(options = {}) {
+      const includeRecurringPlans = options?.includeRecurringPlans !== false;
+      const includeYearlyGoals = options?.includeYearlyGoals !== false;
       const coreStateSnapshot = buildManagedCoreStateSnapshot(readState());
-      return {
-        yearlyGoals: coreStateSnapshot.yearlyGoals,
-        recurringPlans: coreStateSnapshot.recurringPlans,
-      };
+      const payload = {};
+      if (includeYearlyGoals) {
+        payload.yearlyGoals = coreStateSnapshot.yearlyGoals;
+      }
+      if (includeRecurringPlans) {
+        payload.recurringPlans = coreStateSnapshot.recurringPlans;
+      }
+      return payload;
     }
 
-    function applyManagedPlanBootstrapSnapshot(payload = {}) {
+    function applyManagedPlanBootstrapSnapshot(payload = {}, options = {}) {
+      const includeRecurringPlans = options?.includeRecurringPlans !== false;
+      const includeYearlyGoals = options?.includeYearlyGoals !== false;
       const currentState = readState();
+      const currentRecurringPlans = Array.isArray(currentState?.plans)
+        ? currentState.plans.filter((item) =>
+            typeof storageBundle?.isRecurringPlan === "function"
+              ? storageBundle.isRecurringPlan(item)
+              : String(item?.repeat || "").trim().toLowerCase() !== "none",
+          )
+        : [];
       cachedState = normalizeState({
         ...currentState,
         yearlyGoals:
+          includeYearlyGoals &&
           payload?.yearlyGoals &&
           typeof payload.yearlyGoals === "object" &&
           !Array.isArray(payload.yearlyGoals)
@@ -4802,7 +4924,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 )
               : []
           ),
-          ...(Array.isArray(payload?.recurringPlans) ? payload.recurringPlans : []),
+          ...(
+            includeRecurringPlans && Array.isArray(payload?.recurringPlans)
+              ? payload.recurringPlans
+              : currentRecurringPlans
+          ),
         ],
       }, buildMobileMetadata(payload));
       hasManagedCoreSnapshot = true;
@@ -4812,7 +4938,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       clearStorageSyncError();
       touchNativeFastProbeWindow();
       scheduleNativeProbeLoop();
-      return getManagedPlanBootstrapStateSnapshot();
+      return getManagedPlanBootstrapStateSnapshot(options);
     }
 
     function getManagedCoreStateSnapshot() {
@@ -4892,8 +5018,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return null;
           }
         },
-        async getPlanBootstrapState() {
-          const managedSnapshot = getManagedPlanBootstrapStateSnapshot();
+        async getPlanBootstrapState(options = {}) {
+          const normalizedOptions =
+            options && typeof options === "object" ? { ...options } : {};
+          const managedSnapshot = getManagedPlanBootstrapStateSnapshot(
+            normalizedOptions,
+          );
           if (hasManagedCoreSnapshot) {
             scheduleManagedFastValidation("plan-bootstrap-fast-path");
             return managedSnapshot;
@@ -4901,10 +5031,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           try {
             const rawPayload = await reactNativeBridge.call(
               "storage.getPlanBootstrapState",
+              {
+                options: normalizedOptions,
+              },
             );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
-              return applyManagedPlanBootstrapSnapshot(parsed);
+              return applyManagedPlanBootstrapSnapshot(
+                parsed,
+                normalizedOptions,
+              );
             }
           } catch (error) {
             console.error(
@@ -5074,124 +5210,115 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const remainingItems = sectionItems.filter(
             (item) => getManagedSectionPeriodId(section, item) !== periodId,
           );
-          try {
-            const rawPayload = await reactNativeBridge.call("storage.saveSectionRange", {
-              section,
-              payload,
-            });
-            const parsed = parseJsonSafely(rawPayload, null);
-            if (parsed && typeof parsed === "object") {
-              if (section === "plans") {
-                const recurringPlans = (state?.plans || []).filter((item) =>
-                  typeof storageBundle?.isRecurringPlan === "function"
-                    ? storageBundle.isRecurringPlan(item)
-                    : String(item?.repeat || "").trim().toLowerCase() !== "none",
-                );
-                assignState({
+          const nextState =
+            section === "plans"
+              ? {
                   ...state,
-                  plans: [...remainingItems, ...mergedItems, ...recurringPlans],
-                });
-              } else {
-                assignState({
+                  plans: [
+                    ...remainingItems,
+                    ...mergedItems,
+                    ...(state?.plans || []).filter((item) =>
+                      typeof storageBundle?.isRecurringPlan === "function"
+                        ? storageBundle.isRecurringPlan(item)
+                        : String(item?.repeat || "").trim().toLowerCase() !== "none",
+                    ),
+                  ],
+                }
+              : {
                   ...state,
                   [section]: [...remainingItems, ...mergedItems],
-                });
-              }
-              hasManagedCoreSnapshot = true;
-              lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
-              hasPendingStateChanges = false;
-              markManagedSectionPeriodsLoaded(section, [periodId]);
-              persistMirrorSnapshot(true);
-              emitNativeStorageChangedBridgeEvent("section-save", {
-                changedSections: [section],
-                changedPeriods: {
-                  [section]: [periodId],
-                },
-              });
-              touchRecentNativeLocalWriteWindow();
-              touchNativeFastProbeWindow();
-              scheduleNativeProbeLoop();
-              return parsed;
-            }
-          } catch (error) {
-            console.error("保存 React Native 分区范围失败，回退本地缓存:", error);
-          }
-          if (section === "plans") {
-            const recurringPlans = (state?.plans || []).filter((item) =>
-              typeof storageBundle?.isRecurringPlan === "function"
-                ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none",
-            );
-            assignState({
-              ...state,
-              plans: [...remainingItems, ...mergedItems, ...recurringPlans],
-            });
-          } else {
-            assignState({
-              ...state,
-              [section]: [...remainingItems, ...mergedItems],
-            });
-          }
+                };
+          assignState(nextState);
           hasManagedCoreSnapshot = true;
           markManagedSectionPeriodsLoaded(section, [periodId]);
-          persistState({
-            reason: "section-save",
-            key: section,
-            changedSections: [section],
-            changedPeriods: {
-              [section]: [periodId],
-            },
-          });
-          return {
+          persistMirrorSnapshot(true);
+          const checkpoint = createManagedStateCheckpoint();
+          const optimisticResult = {
             section,
             periodId,
             count: mergedItems.length,
           };
+          try {
+            return await queueManagedNativeDirectWrite(
+              async () => {
+                const rawPayload = await reactNativeBridge.call(
+                  "storage.saveSectionRange",
+                  {
+                    section,
+                    payload,
+                  },
+                );
+                const parsed = parseJsonSafely(rawPayload, null);
+                await settleManagedNativeDirectWrite(checkpoint);
+                emitNativeStorageChangedBridgeEvent("section-save", {
+                  changedSections: [section],
+                  changedPeriods: {
+                    [section]: periodId ? [periodId] : [],
+                  },
+                });
+                return parsed && typeof parsed === "object"
+                  ? parsed
+                  : optimisticResult;
+              },
+              {
+                errorLabel: "保存 React Native 分区范围失败:",
+              },
+            );
+          } catch (error) {
+            console.error("保存 React Native 分区范围失败，已保留本地镜像:", error);
+            markPendingNativeStorageChangeMetadata({
+              changedSections: [section],
+              changedPeriods: {
+                [section]: periodId ? [periodId] : [],
+              },
+            });
+            scheduleManagedPendingNativeFlush();
+            return optimisticResult;
+          }
         },
         async replaceCoreState(partialCore = {}, options = {}) {
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const changedSections = inferChangedSectionsFromCorePatch(partialCore);
-          try {
-            const rawPayload = await reactNativeBridge.call("storage.replaceCoreState", {
-              partialCore,
-              options: normalizedOptions,
-            });
-            const parsed = parseJsonSafely(rawPayload, null);
-            if (parsed && typeof parsed === "object") {
-              assignState({
-                ...readState(),
-                ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
-              });
-              hasManagedCoreSnapshot = true;
-              lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
-              hasPendingStateChanges = false;
-              persistMirrorSnapshot(true);
-              emitNativeStorageChangedBridgeEvent("core-replace", {
-                changedSections,
-              });
-              touchRecentNativeLocalWriteWindow();
-              touchNativeFastProbeWindow();
-              scheduleNativeProbeLoop();
-              return parsed;
-            }
-          } catch (error) {
-            console.error("替换 React Native 核心状态失败，回退本地缓存:", error);
-          }
           assignState({
             ...readState(),
             ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
           });
-          persistState({
-            reason:
-              typeof normalizedOptions.reason === "string" &&
-              normalizedOptions.reason.trim()
-                ? normalizedOptions.reason.trim()
-                : "core-replace",
-            changedSections,
-            partialCore,
-          });
-          return getManagedCoreStateSnapshot();
+          hasManagedCoreSnapshot = true;
+          persistMirrorSnapshot(true);
+          const checkpoint = createManagedStateCheckpoint();
+          const optimisticResult = getManagedCoreStateSnapshot();
+          try {
+            return await queueManagedNativeDirectWrite(
+              async () => {
+                const rawPayload = await reactNativeBridge.call(
+                  "storage.replaceCoreState",
+                  {
+                    partialCore,
+                    options: normalizedOptions,
+                  },
+                );
+                const parsed = parseJsonSafely(rawPayload, null);
+                await settleManagedNativeDirectWrite(checkpoint);
+                emitNativeStorageChangedBridgeEvent("core-replace", {
+                  changedSections,
+                });
+                return parsed && typeof parsed === "object"
+                  ? parsed
+                  : optimisticResult;
+              },
+              {
+                errorLabel: "替换 React Native 核心状态失败:",
+              },
+            );
+          } catch (error) {
+            console.error("替换 React Native 核心状态失败，已保留本地镜像:", error);
+            markPendingNativeStorageChangeMetadata({
+              changedSections,
+            });
+            scheduleManagedPendingNativeFlush();
+            return optimisticResult;
+          }
         },
         async replaceRecurringPlans(items = []) {
           const state = readState();
@@ -5202,40 +5329,41 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 : String(item?.repeat || "").trim().toLowerCase() !== "none"),
           );
           const recurringPlans = Array.isArray(items) ? items : [];
-          try {
-            const rawPayload = await reactNativeBridge.call(
-              "storage.replaceRecurringPlans",
-              {
-                items: recurringPlans,
-              },
-            );
-            const parsed = parseJsonSafely(rawPayload, null);
-            if (Array.isArray(parsed)) {
-              assignState({
-                ...state,
-                plans: [...oneTimePlans, ...parsed],
-              });
-              hasManagedCoreSnapshot = true;
-              lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
-              hasPendingStateChanges = false;
-              persistMirrorSnapshot(true);
-              emitNativeStorageChangedBridgeEvent("plans-recurring-replace", {
-                changedSections: ["plansRecurring"],
-              });
-              touchRecentNativeLocalWriteWindow();
-              touchNativeFastProbeWindow();
-              scheduleNativeProbeLoop();
-              return parsed;
-            }
-          } catch (error) {
-            console.error("替换 React Native 重复计划失败，回退本地缓存:", error);
-          }
           assignState({
             ...state,
             plans: [...oneTimePlans, ...recurringPlans],
           });
-          persistState({ reason: "plans-recurring-replace" });
-          return recurringPlans;
+          hasManagedCoreSnapshot = true;
+          persistMirrorSnapshot(true);
+          const checkpoint = createManagedStateCheckpoint();
+          try {
+            return await queueManagedNativeDirectWrite(
+              async () => {
+                const rawPayload = await reactNativeBridge.call(
+                  "storage.replaceRecurringPlans",
+                  {
+                    items: recurringPlans,
+                  },
+                );
+                const parsed = parseJsonSafely(rawPayload, null);
+                await settleManagedNativeDirectWrite(checkpoint);
+                emitNativeStorageChangedBridgeEvent("plans-recurring-replace", {
+                  changedSections: ["plansRecurring"],
+                });
+                return Array.isArray(parsed) ? parsed : recurringPlans;
+              },
+              {
+                errorLabel: "替换 React Native 重复计划失败:",
+              },
+            );
+          } catch (error) {
+            console.error("替换 React Native 重复计划失败，已保留本地镜像:", error);
+            markPendingNativeStorageChangeMetadata({
+              changedSections: ["plansRecurring"],
+            });
+            scheduleManagedPendingNativeFlush();
+            return recurringPlans;
+          }
         },
         async exportBundle(options = {}) {
           try {
@@ -5578,6 +5706,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         key === BROWSER_STATE_KEY ||
         key === MOBILE_MIRROR_STATE_KEY ||
         key === MOBILE_MIRROR_STATUS_KEY ||
+        key === MOBILE_MIRROR_PENDING_WRITE_KEY ||
         key.startsWith(LOCAL_ONLY_STORAGE_PREFIX)
       ) {
         continue;

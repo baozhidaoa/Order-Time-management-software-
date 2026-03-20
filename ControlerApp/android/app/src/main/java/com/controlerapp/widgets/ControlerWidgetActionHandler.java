@@ -157,7 +157,7 @@ public final class ControlerWidgetActionHandler {
             return;
         }
 
-        if (result.ok && result.changed) {
+        if (result.changed) {
             ControlerWidgetRenderer.invalidateRenderSourceCache();
             if (result.refreshAll || TextUtils.isEmpty(result.refreshKind)) {
                 ControlerWidgetRenderer.refreshAll(context);
@@ -192,6 +192,31 @@ public final class ControlerWidgetActionHandler {
                 }
             });
         }
+    }
+
+    private static void refreshWidgetPendingState(
+        Context context,
+        String widgetKind,
+        int appWidgetId
+    ) {
+        if (context == null) {
+            return;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return;
+        }
+
+        ControlerWidgetRenderer.invalidateRenderSourceCache();
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            ControlerWidgetRenderer.updateWidgets(
+                context,
+                normalizedKind,
+                new int[] { appWidgetId }
+            );
+            return;
+        }
+        ControlerWidgetRenderer.refreshKind(context, normalizedKind);
     }
 
     private static int[] getSiblingWidgetIds(
@@ -518,12 +543,49 @@ public final class ControlerWidgetActionHandler {
                 }
 
                 boolean nextCompleted = !todo.optBoolean("completed", false);
+                if (
+                    !ControlerWidgetPendingActionStore.beginTodo(
+                        targetId,
+                        appWidgetId,
+                        nextCompleted
+                    )
+                ) {
+                    return ActionResult.refreshSingleWidget(
+                        true,
+                        false,
+                        "",
+                        ControlerWidgetKinds.TODOS,
+                        appWidgetId
+                    );
+                }
+                refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
                 todo.put("completed", nextCompleted);
                 todo.put("completedAt", nextCompleted ? nowText : JSONObject.NULL);
 
-                JSONObject partialCore = new JSONObject();
-                partialCore.put("todos", todos);
-                ControlerWidgetDataStore.replaceStorageCoreState(context, partialCore);
+                try {
+                    JSONObject partialCore = new JSONObject();
+                    partialCore.put("todos", todos);
+                    ControlerWidgetDataStore.replaceStorageCoreState(context, partialCore);
+                } catch (Exception error) {
+                    ControlerWidgetPendingActionStore.clear(
+                        ControlerWidgetKinds.TODOS,
+                        targetId,
+                        appWidgetId
+                    );
+                    return ActionResult.refreshSingleWidget(
+                        false,
+                        true,
+                        "更新待办失败。",
+                        ControlerWidgetKinds.TODOS,
+                        appWidgetId
+                    );
+                }
+
+                ControlerWidgetPendingActionStore.clear(
+                    ControlerWidgetKinds.TODOS,
+                    targetId,
+                    appWidgetId
+                );
 
                 emitForegroundStorageChanged(
                     context,
@@ -550,8 +612,13 @@ public final class ControlerWidgetActionHandler {
                 );
             }
         } catch (Exception error) {
+            ControlerWidgetPendingActionStore.clear(
+                ControlerWidgetKinds.TODOS,
+                targetId,
+                appWidgetId
+            );
             error.printStackTrace();
-            return ActionResult.refreshKind(false, false, "更新待办失败。", ControlerWidgetKinds.TODOS);
+            return ActionResult.refreshKind(false, true, "更新待办失败。", ControlerWidgetKinds.TODOS);
         }
 
         return ActionResult.refreshKind(false, false, "未找到待办事项。", ControlerWidgetKinds.TODOS);
@@ -614,17 +681,54 @@ public final class ControlerWidgetActionHandler {
                         && today.equals(entry.optString("date", ""))
                 ) {
                     boolean nextChecked = !entry.optBoolean("checked", false);
+                    if (
+                        !ControlerWidgetPendingActionStore.beginCheckin(
+                            targetId,
+                            appWidgetId,
+                            nextChecked
+                        )
+                    ) {
+                        return ActionResult.refreshSingleWidget(
+                            true,
+                            false,
+                            "",
+                            ControlerWidgetKinds.CHECKINS,
+                            appWidgetId
+                        );
+                    }
+                    refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
                     entry.put("checked", nextChecked);
                     entry.put("time", nowText);
 
-                    JSONObject payload = new JSONObject();
-                    payload.put("periodId", periodId);
-                    payload.put("items", dailyCheckins);
-                    payload.put("mode", "replace");
-                    ControlerWidgetDataStore.saveStorageSectionRange(
-                        context,
-                        "dailyCheckins",
-                        payload
+                    try {
+                        JSONObject payload = new JSONObject();
+                        payload.put("periodId", periodId);
+                        payload.put("items", dailyCheckins);
+                        payload.put("mode", "replace");
+                        ControlerWidgetDataStore.saveStorageSectionRange(
+                            context,
+                            "dailyCheckins",
+                            payload
+                        );
+                    } catch (Exception error) {
+                        ControlerWidgetPendingActionStore.clear(
+                            ControlerWidgetKinds.CHECKINS,
+                            targetId,
+                            appWidgetId
+                        );
+                        return ActionResult.refreshSingleWidget(
+                            false,
+                            true,
+                            "更新打卡失败。",
+                            ControlerWidgetKinds.CHECKINS,
+                            appWidgetId
+                        );
+                    }
+
+                    ControlerWidgetPendingActionStore.clear(
+                        ControlerWidgetKinds.CHECKINS,
+                        targetId,
+                        appWidgetId
                     );
 
                     emitForegroundStorageChanged(
@@ -659,16 +763,53 @@ public final class ControlerWidgetActionHandler {
             newEntry.put("date", today);
             newEntry.put("checked", true);
             newEntry.put("time", nowText);
+            if (
+                !ControlerWidgetPendingActionStore.beginCheckin(
+                    targetId,
+                    appWidgetId,
+                    true
+                )
+            ) {
+                return ActionResult.refreshSingleWidget(
+                    true,
+                    false,
+                    "",
+                    ControlerWidgetKinds.CHECKINS,
+                    appWidgetId
+                );
+            }
+            refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
             dailyCheckins.put(newEntry);
 
-            JSONObject payload = new JSONObject();
-            payload.put("periodId", periodId);
-            payload.put("items", dailyCheckins);
-            payload.put("mode", "replace");
-            ControlerWidgetDataStore.saveStorageSectionRange(
-                context,
-                "dailyCheckins",
-                payload
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("periodId", periodId);
+                payload.put("items", dailyCheckins);
+                payload.put("mode", "replace");
+                ControlerWidgetDataStore.saveStorageSectionRange(
+                    context,
+                    "dailyCheckins",
+                    payload
+                );
+            } catch (Exception error) {
+                ControlerWidgetPendingActionStore.clear(
+                    ControlerWidgetKinds.CHECKINS,
+                    targetId,
+                    appWidgetId
+                );
+                return ActionResult.refreshSingleWidget(
+                    false,
+                    true,
+                    "更新打卡失败。",
+                    ControlerWidgetKinds.CHECKINS,
+                    appWidgetId
+                );
+            }
+
+            ControlerWidgetPendingActionStore.clear(
+                ControlerWidgetKinds.CHECKINS,
+                targetId,
+                appWidgetId
             );
 
             emitForegroundStorageChanged(
@@ -690,8 +831,13 @@ public final class ControlerWidgetActionHandler {
 
             return ActionResult.refreshKind(true, true, "已打卡：" + itemTitle, ControlerWidgetKinds.CHECKINS);
         } catch (Exception error) {
+            ControlerWidgetPendingActionStore.clear(
+                ControlerWidgetKinds.CHECKINS,
+                targetId,
+                appWidgetId
+            );
             error.printStackTrace();
-            return ActionResult.refreshKind(false, false, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
+            return ActionResult.refreshKind(false, true, "更新打卡失败。", ControlerWidgetKinds.CHECKINS);
         }
     }
 
