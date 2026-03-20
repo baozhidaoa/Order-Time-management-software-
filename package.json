@@ -20,6 +20,7 @@
     "mobile:android": "npm run prepare:web-assets && npm --prefix ControlerApp run android",
     "mobile:apk": "npm run prepare:web-assets && npm run verify:parity && npm --prefix ControlerApp run build:apk && node scripts/copy-android-apk.mjs",
     "mobile:ios": "npm run prepare:web-assets && npm run verify:parity && npm --prefix ControlerApp run build:ios",
+    "sync:local:release": "node scripts/sync-local-release.mjs",
     "verify:parity": "node scripts/verify-parity.mjs",
     "test": "npm run prepare:web-assets && npm run verify:parity",
     "package": "npm run prepare:web-assets && electron-forge package",

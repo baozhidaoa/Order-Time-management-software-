@@ -42,12 +42,14 @@
 - 构建 Android APK：`npm run mobile:apk`
 - 生成 Android release keystore：`npm run cert:android:release -- -StorePassword "change-me"`
 - 构建 iOS：`npm run mobile:ios`
+- 同步最新 `apk/exe` 和本地 `E:\App\Order`：`npm run sync:local:release`
 
 ### 平台说明
 
 - Android 通过 React Native 原生工程生成 `apk`
 - `npm run mobile:apk` 会在生成 `ControlerApp/android/app/build/outputs/apk/release/app-release.apk` 后，同步复制一份到 `dist/Order-<version>-android.apk`
 - Windows 可用 `npm run dist:win:self-signed -- -Password "change-me"` 生成自签名安装包
+- `npm run sync:local:release` 会把 `dist` 中当前最新版本同步到 `E:\App\Order`，并清理旧版 `apk / exe / setup / nupkg`
 - iOS 工程已经切换为 React Native，但正式生成 `.app/.ipa` 仍需要 macOS + Xcode
 - 移动端默认使用应用私有数据目录，不再保留旧的移动端同步目录切换逻辑
 - Android / Windows 内部分发免费签名流程见 [internal-signing-guide.md](/f:/code/Order/docs/internal-signing-guide.md)

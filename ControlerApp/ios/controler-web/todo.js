@@ -28,9 +28,12 @@ let todoUiBindingsInitialized = false;
 let todoExternalStorageListenerBound = false;
 let todoWidgetViewListenerBound = false;
 let todoPlanSidebarInitialized = false;
+let todoWidgetLaunchActionInitialized = false;
 let todoPendingExternalStorageRefresh =
   window.__controlerTodoRuntimePendingExternalRefresh === true;
 let todoPersistChain = Promise.resolve();
+const todoPendingTodoIds = new Set();
+const todoPendingCheckinIds = new Set();
 const todoLoadedSectionPeriods = {
   dailyCheckins: new Set(),
   checkins: new Set(),
@@ -137,6 +140,11 @@ function readTodoWorkspaceSnapshotFromLocalStorage() {
     checkinItems: readArray("checkinItems"),
     dailyCheckins: readArray("dailyCheckins"),
     checkins: readArray("checkins"),
+    __hasMirror:
+      localStorage.getItem("todos") !== null ||
+      localStorage.getItem("checkinItems") !== null ||
+      localStorage.getItem("dailyCheckins") !== null ||
+      localStorage.getItem("checkins") !== null,
   };
 }
 
@@ -164,10 +172,11 @@ function readTodoWorkspaceSnapshotFromManagedStorage() {
 }
 
 function readTodoWorkspaceSnapshot() {
-  return (
-    readTodoWorkspaceSnapshotFromManagedStorage() ||
-    readTodoWorkspaceSnapshotFromLocalStorage()
-  );
+  const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
+  if (localSnapshot?.__hasMirror) {
+    return localSnapshot;
+  }
+  return readTodoWorkspaceSnapshotFromManagedStorage() || localSnapshot;
 }
 
 function getTodoSectionPeriodId(section, item) {
@@ -328,6 +337,41 @@ function persistTodoLocalSection(section, items = []) {
   localStorage.setItem(section, JSON.stringify(items));
 }
 
+function persistTodoLocalMirrorCore(source = {}) {
+  Object.keys(source).forEach((section) => {
+    if (
+      section === "todos" ||
+      section === "checkinItems" ||
+      section === "dailyCheckins" ||
+      section === "checkins"
+    ) {
+      persistTodoLocalSection(section, cloneTodoValue(source[section] || []));
+    }
+  });
+}
+
+function setTodoActionPending(kind, targetId, pending) {
+  const normalizedId = String(targetId || "").trim();
+  if (!normalizedId) {
+    return;
+  }
+  const pendingSet = kind === "checkin" ? todoPendingCheckinIds : todoPendingTodoIds;
+  if (pending) {
+    pendingSet.add(normalizedId);
+    return;
+  }
+  pendingSet.delete(normalizedId);
+}
+
+function isTodoActionPending(kind, targetId) {
+  const normalizedId = String(targetId || "").trim();
+  if (!normalizedId) {
+    return false;
+  }
+  const pendingSet = kind === "checkin" ? todoPendingCheckinIds : todoPendingTodoIds;
+  return pendingSet.has(normalizedId);
+}
+
 function queueTodoPersistenceTask(task, options = {}) {
   const {
     errorLabel = "保存待办数据失败:",
@@ -358,6 +402,7 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
   if (!changedSections.length) {
     return Promise.resolve(true);
   }
+  persistTodoLocalMirrorCore(source);
   markTodoSelfRefreshIgnored(changedSections);
   return queueTodoPersistenceTask(
     async () => {
@@ -409,6 +454,8 @@ function queueTodoSectionSave(section, options = {}) {
     );
     return Promise.resolve(true);
   }
+
+  persistTodoLocalSection(normalizedSection, currentItems);
 
   periodIds.forEach((periodId) => {
     markTodoSelfRefreshIgnored([normalizedSection], {
@@ -520,6 +567,7 @@ function queueTodoPersist() {
     dailyCheckins: cloneTodoValue(dailyCheckins),
     checkins: cloneTodoValue(checkins),
   };
+  persistTodoLocalMirrorCore(snapshot);
   todoPersistChain = todoPersistChain
     .catch(() => undefined)
     .then(() => persistTodoWorkspaceSnapshot(snapshot))
@@ -540,10 +588,18 @@ const TODO_WIDGET_CONTEXT = (() => {
   return {
     enabled: params?.get("widgetMode") === "desktop-widget",
     kind: params?.get("widgetKind") || "",
+    launchAction: params?.get("widgetAction") || "",
+    launchSource: params?.get("widgetSource") || "",
   };
 })();
 
 function resolvePreferredTodoView() {
+  if (TODO_WIDGET_CONTEXT.launchAction === "show-checkins") {
+    return "checkins";
+  }
+  if (TODO_WIDGET_CONTEXT.launchAction === "show-todos") {
+    return "todos";
+  }
   if (window.__controlerTodoWidgetView === "checkins") {
     return "checkins";
   }
@@ -590,6 +646,55 @@ function applyTodoWidgetMode() {
   if (preferredView === "checkins" && todoViewBtn) {
     todoViewBtn.style.display = "none";
   }
+}
+
+function applyTodoDesktopWidgetMode() {
+  if (!TODO_WIDGET_CONTEXT.enabled) {
+    return;
+  }
+
+  document.body.classList.add("desktop-widget-page", "desktop-widget-todo-page");
+  document.body.dataset.widgetKind =
+    TODO_WIDGET_CONTEXT.kind ||
+    (resolvePreferredTodoView() === "checkins" ? "checkins" : "todos");
+  document.title =
+    resolvePreferredTodoView() === "checkins" ? "打卡列表 小组件" : "待办事项 小组件";
+
+  if (document.getElementById("desktop-widget-todo-style")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = "desktop-widget-todo-style";
+  style.textContent = `
+    body.desktop-widget-todo-page {
+      overflow: hidden;
+    }
+
+    body.desktop-widget-todo-page .app-sidebar,
+    body.desktop-widget-todo-page .todo-topbar {
+      display: none !important;
+    }
+
+    body.desktop-widget-todo-page .todo-main {
+      margin: 0 !important;
+      padding: 12px !important;
+      display: flex;
+      flex-direction: column;
+      min-height: 0 !important;
+      height: 100vh !important;
+      box-sizing: border-box;
+      overflow: hidden !important;
+    }
+
+    body.desktop-widget-todo-page .todo-shell {
+      margin: 0 !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow: hidden auto !important;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 function matchesId(left, right) {
@@ -1380,6 +1485,11 @@ function applyCenteredEmptyStateLayout(emptyCard, contentWidth) {
   emptyCard.style.maxWidth = `${contentWidth}px`;
   emptyCard.style.boxSizing = "border-box";
   emptyCard.style.alignSelf = "center";
+  emptyCard.style.flex = "1 1 auto";
+  emptyCard.style.display = "flex";
+  emptyCard.style.flexDirection = "column";
+  emptyCard.style.justifyContent = "center";
+  emptyCard.style.minHeight = "220px";
 }
 
 // 普通待办事项数据结构
@@ -1618,6 +1728,9 @@ class CheckinItem {
     if (!this.isScheduledOn(today)) {
       return false;
     }
+    if (isTodoActionPending("checkin", this.id)) {
+      return false;
+    }
     const previousDailyCheckins = cloneTodoValue(dailyCheckins);
     const index = dailyCheckins.findIndex(
       (c) => c.itemId === this.id && c.date === today,
@@ -1639,6 +1752,7 @@ class CheckinItem {
       });
     }
 
+    setTodoActionPending("checkin", this.id, true);
     refreshTodoInterface();
     const todayPeriodId = getTodoSectionPeriodId("dailyCheckins", {
       date: today,
@@ -1649,12 +1763,15 @@ class CheckinItem {
       errorLabel: "保存今日打卡状态失败:",
     }).then((saved) => {
       if (saved) {
+        setTodoActionPending("checkin", this.id, false);
+        refreshTodoInterface();
         return;
       }
       dailyCheckins = hydrateTodoCollection(
         "dailyCheckins",
         previousDailyCheckins,
       );
+      setTodoActionPending("checkin", this.id, false);
       refreshTodoInterface();
     });
     return true;
@@ -2371,7 +2488,7 @@ function createTodoElement(todo, listScale = 1) {
           data-action="add-progress"
           title="添加进度记录"
         >
-          ＋
+          +
         </button>
         <button type="button" class="todo-action-btn complete-btn" data-action="complete">
           ${todo.completed ? "取消完成" : "完成"}
@@ -2424,8 +2541,15 @@ function createTodoElement(todo, listScale = 1) {
     tagElement.style.borderRadius = `${Math.max(10, Math.round(14 * cardScale))}px`;
   });
   if (completeButton) {
+    const completionPending = isTodoActionPending("todo", todo.id);
     completeButton.style.fontSize = `${actionFontSize}px`;
     completeButton.style.padding = `${Math.max(5, Math.round(7 * cardScale))}px ${Math.max(10, Math.round(14 * cardScale))}px`;
+    completeButton.disabled = completionPending;
+    completeButton.textContent = completionPending
+      ? "保存中"
+      : todo.completed
+        ? "取消完成"
+        : "完成";
     completeButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -2504,6 +2628,11 @@ function createTodoElement(todo, listScale = 1) {
 function toggleTodoCompletion(todoId) {
   const todo = todos.find((t) => matchesId(t.id, todoId));
   if (todo) {
+    if (isTodoActionPending("todo", todo.id)) {
+      return false;
+    }
+    const previousTodos = getTodoSectionStateSnapshot("todos");
+    setTodoActionPending("todo", todo.id, true);
     todo.completed = !todo.completed;
     todo.completedAt = todo.completed ? new Date().toISOString() : null;
     void queueTodoCoreSave(
@@ -2515,7 +2644,16 @@ function toggleTodoCompletion(todoId) {
         errorLabel: "保存待办完成状态失败:",
         refreshReminders: true,
       },
-    );
+    ).then((saved) => {
+      if (saved) {
+        setTodoActionPending("todo", todo.id, false);
+        refreshTodoInterface();
+        return;
+      }
+      todos = hydrateTodoCollection("todos", previousTodos);
+      setTodoActionPending("todo", todo.id, false);
+      refreshTodoInterface();
+    });
     refreshTodoInterface();
   }
 }
@@ -4070,6 +4208,7 @@ function createCheckinItemElement(item, listScale = 1) {
   itemElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
 
   const checked = item.getTodayCheckinStatus();
+  const pending = isTodoActionPending("checkin", item.id);
   const streakDays = item.getStreakDays();
   const today = getLocalDateText();
   const isScheduledToday =
@@ -4096,15 +4235,15 @@ function createCheckinItemElement(item, listScale = 1) {
           border: none;
           background-color: ${checked ? item.color : "var(--bg-quaternary)"};
           color: white;
-          cursor: ${isScheduledToday ? "pointer" : "not-allowed"};
+          cursor: ${isScheduledToday && !pending ? "pointer" : "not-allowed"};
           font-size: ${Math.max(13, Math.round(20 * cardScale))}px;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.2s;
-          opacity: ${isScheduledToday ? "1" : "0.55"};
+          opacity: ${isScheduledToday ? (pending ? "0.72" : "1") : "0.55"};
         ">
-          ${checked ? "✓" : "○"}
+          ${pending ? "…" : checked ? "✓" : "○"}
         </button>
       </div>
     </div>
@@ -4146,7 +4285,7 @@ function createCheckinItemElement(item, listScale = 1) {
 
   toggleBtn.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!isScheduledToday) return;
+    if (!isScheduledToday || pending) return;
     item.toggleTodayCheckin();
   });
 
@@ -4302,10 +4441,12 @@ function renderTodoWorkspace() {
   renderCurrentView();
   updateStats();
   updateCheckinStats();
+  updateStatsPanel();
 }
 
 function ensureTodoBaseBindings() {
   loadThemeSettings();
+  applyTodoDesktopWidgetMode();
   if (!todoUiBindingsInitialized) {
     loadData();
     initFilters();
@@ -4334,7 +4475,91 @@ function ensureTodoBaseBindings() {
     }
     todoUiBindingsInitialized = true;
   }
+  initTodoWidgetLaunchAction();
   applyPendingTodoRefreshIfNeeded();
+}
+
+function scheduleTodoWidgetLaunchHandled(payload = {}) {
+  const launchId =
+    typeof payload?.launchId === "string" && payload.launchId.trim()
+      ? payload.launchId.trim()
+      : "";
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  const source =
+    typeof payload?.source === "string" && payload.source.trim()
+      ? payload.source.trim()
+      : "widget";
+  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    return false;
+  }
+  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+    launchId,
+    page: "todo",
+    action,
+    handled: true,
+    source,
+  });
+  return true;
+}
+
+function handleTodoWidgetLaunchAction(payload = {}) {
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  if (action !== "show-todos" && action !== "show-checkins") {
+    return false;
+  }
+  setTodoView(action === "show-checkins" ? "checkins" : "todos", {
+    persistWidgetView: true,
+  });
+  applyTodoWidgetMode();
+  renderTodoWorkspace();
+  scheduleTodoWidgetLaunchHandled(payload);
+  return true;
+}
+
+function initTodoWidgetLaunchAction() {
+  if (todoWidgetLaunchActionInitialized) {
+    return;
+  }
+  todoWidgetLaunchActionInitialized = true;
+  const eventName =
+    window.ControlerWidgetsBridge?.launchActionEventName ||
+    "controler:launch-action";
+  let consumedQuery = false;
+
+  const consumeQueryAction = () => {
+    if (consumedQuery) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search || "");
+    const action = params.get("widgetAction") || "";
+    if (!action) {
+      return;
+    }
+    consumedQuery = true;
+    handleTodoWidgetLaunchAction({
+      action,
+      source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
+    });
+    params.delete("widgetAction");
+    params.delete("widgetKind");
+    params.delete("widgetSource");
+    params.delete("widgetLaunchId");
+    const queryText = params.toString();
+    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, document.title, nextUrl);
+  };
+
+  window.addEventListener(eventName, (event) => {
+    handleTodoWidgetLaunchAction(event.detail || {});
+  });
+  consumeQueryAction();
 }
 
 function initPlanSidebar(options = {}) {

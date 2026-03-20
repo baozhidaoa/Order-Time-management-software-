@@ -431,20 +431,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private String buildStartUrl(Context context) throws Exception {
         JSONObject launchAction = ControlerWidgetLaunchStore.consumeLaunchAction(context);
         String requestedPage = normalizeLaunchPage(launchAction.optString("page", ""));
-        String page = requestedPage;
         String action = String.valueOf(launchAction.optString("action", "")).trim();
         String widgetKind = String.valueOf(launchAction.optString("widgetKind", "")).trim();
         String source = String.valueOf(launchAction.optString("source", "android-widget")).trim();
-        String lastVisiblePage = ControlerWidgetLastPageStore.getLastVisiblePage(context);
-        boolean samePageOnlyWidgetAction =
-            "android-widget".equals(source) && !TextUtils.isEmpty(action);
-        if (samePageOnlyWidgetAction && !requestedPage.equals(lastVisiblePage)) {
-            showToastOnMainThread(getWidgetActionRejectToast(requestedPage, action));
-            page = TextUtils.isEmpty(lastVisiblePage) ? "index" : lastVisiblePage;
-            action = "";
-            widgetKind = "";
-            source = "";
-        }
+        String page = normalizeLaunchTargetPage(requestedPage, action);
 
         Uri.Builder builder = Uri.parse(
             "file:///android_asset/controler-web/" + page + ".html"
@@ -482,43 +472,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         });
     }
 
-    private String getWidgetActionRejectToast(String page, String action) {
-        if ("start-timer".equals(action)) {
-            return "请先回到记录页后再使用开始计时小组件";
-        }
-        if ("new-diary".equals(action)) {
-            return "请先回到日记页后再使用写日记小组件";
-        }
-        if ("show-week-grid".equals(action)) {
-            return "请先回到统计页后再使用周表小组件";
-        }
-        if ("show-day-pie".equals(action)) {
-            return "请先回到统计页后再使用饼图小组件";
-        }
-        if ("show-week-view".equals(action)) {
-            return "请先回到计划页后再使用周视图小组件";
-        }
-        if ("show-year-view".equals(action)) {
-            return "请先回到计划页后再使用年视图小组件";
-        }
-        if ("show-todos".equals(action)) {
-            return "请先回到计划页后再使用待办小组件";
-        }
-        if ("show-checkins".equals(action)) {
-            return "请先回到计划页后再使用打卡小组件";
-        }
-        if ("plan".equals(page)) {
-            return "请先回到计划页后再使用该小组件";
-        }
-        if ("stats".equals(page)) {
-            return "请先回到统计页后再使用该小组件";
-        }
-        if ("diary".equals(page)) {
-            return "请先回到日记页后再使用该小组件";
-        }
-        return "请先回到目标页面后再使用该小组件";
-    }
-
     private String normalizeLaunchPage(String page) {
         String normalized = String.valueOf(page == null ? "" : page).trim();
         if ("stats".equals(normalized)) {
@@ -527,6 +480,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if ("plan".equals(normalized)) {
             return "plan";
         }
+        if ("todo".equals(normalized)) {
+            return "todo";
+        }
         if ("diary".equals(normalized)) {
             return "diary";
         }
@@ -534,6 +490,13 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             return "settings";
         }
         return "index";
+    }
+
+    private String normalizeLaunchTargetPage(String requestedPage, String action) {
+        if ("show-todos".equals(action) || "show-checkins".equals(action)) {
+            return "todo";
+        }
+        return normalizeLaunchPage(requestedPage);
     }
 
     @ReactMethod

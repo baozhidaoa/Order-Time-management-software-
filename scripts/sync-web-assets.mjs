@@ -137,6 +137,9 @@ const mobileBootBundleEntries = {
     },
     { label: "pages/plan.js", file: path.join(pagesSourceDir, "plan.js") },
   ],
+  "todo-boot.js": [
+    { label: "pages/todo.js", file: path.join(pagesSourceDir, "todo.js") },
+  ],
   "stats-boot.js": [
     {
       label: "pages/project-stats-utils.js",
@@ -150,7 +153,7 @@ const mobileBootBundleEntries = {
   ],
 };
 
-const mobileBootstrapPages = ["index", "diary", "plan", "stats"];
+const mobileBootstrapPages = ["index", "diary", "plan", "todo", "stats"];
 
 function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");

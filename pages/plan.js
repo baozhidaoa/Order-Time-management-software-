@@ -5256,6 +5256,30 @@ function schedulePlanWidgetLaunchHandled(payload = {}, isHandled) {
   return true;
 }
 
+function redirectLegacyTodoWidgetLaunch(payload = {}) {
+  const action =
+    typeof payload?.action === "string" && payload.action.trim()
+      ? payload.action.trim()
+      : "";
+  if (action !== "show-todos" && action !== "show-checkins") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search || "");
+  params.set("widgetAction", action);
+  params.set("widgetKind", action === "show-checkins" ? "checkins" : "todos");
+  if (typeof payload?.source === "string" && payload.source.trim()) {
+    params.set("widgetSource", payload.source.trim());
+  }
+  if (typeof payload?.launchId === "string" && payload.launchId.trim()) {
+    params.set("widgetLaunchId", payload.launchId.trim());
+  }
+  const queryText = params.toString();
+  const nextUrl = `todo.html${queryText ? `?${queryText}` : ""}`;
+  window.location.replace(nextUrl);
+  return true;
+}
+
 function handlePlanWidgetLaunchAction(payload = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -5285,24 +5309,8 @@ function handlePlanWidgetLaunchAction(payload = {}) {
       }
       break;
     case "show-todos":
-    case "show-checkins": {
-      const nextTodoView = action === "show-checkins" ? "checkins" : "todos";
-      window.__controlerTodoWidgetView = nextTodoView;
-      window.location.hash = "#todo-panel-anchor";
-      window.__controlerPlannerMobilePanel = "todos";
-      if (PLAN_WIDGET_CONTEXT.enabled) {
-        applyPlanDesktopWidgetMode();
-      }
-      void ensureTodoSidebarRuntimeLoaded({
-        initialView: nextTodoView,
-        reason: "widget-action",
-        persistWidgetView: true,
-      }).catch(() => undefined);
-      schedulePlanWidgetLaunchHandled(payload, () =>
-        isPlanWidgetTargetVisible(action),
-      );
-      return true;
-    }
+    case "show-checkins":
+      return redirectLegacyTodoWidgetLaunch(payload);
     default:
       return false;
   }

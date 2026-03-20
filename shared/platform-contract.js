@@ -78,7 +78,7 @@
       name: "待办事项",
       description: "展示今天待办，并支持在组件里直接完成。",
       subtitle: "可直接在小组件里完成今天的待办。",
-      page: "plan",
+      page: "todo",
       action: "show-todos",
       desktopWindow: Object.freeze({
         width: 400,
@@ -92,7 +92,7 @@
       name: "打卡列表",
       description: "展示今天打卡，并支持在组件里直接勾选。",
       subtitle: "可直接在小组件里完成今日打卡。",
-      page: "plan",
+      page: "todo",
       action: "show-checkins",
       desktopWindow: Object.freeze({
         width: 400,

@@ -1,6 +1,5 @@
 package com.controlerapp.widgets;
 
-import android.appwidget.AppWidgetManager;
 import android.text.TextUtils;
 
 import java.util.HashMap;
@@ -14,6 +13,8 @@ public final class ControlerWidgetPendingActionStore {
         public final boolean todoCompleted;
         public final boolean checkinChecked;
         public final long createdAtMs;
+        public boolean pending;
+        public long expiresAtMs;
 
         PendingAction(
             String kind,
@@ -28,6 +29,8 @@ public final class ControlerWidgetPendingActionStore {
             this.todoCompleted = todoCompleted;
             this.checkinChecked = checkinChecked;
             this.createdAtMs = System.currentTimeMillis();
+            this.pending = true;
+            this.expiresAtMs = 0L;
         }
     }
 
@@ -58,13 +61,39 @@ public final class ControlerWidgetPendingActionStore {
 
     public static PendingAction get(String kind, String targetId, int appWidgetId) {
         synchronized (LOCK) {
-            return PENDING_ACTIONS.get(buildKey(kind, targetId, appWidgetId));
+            String key = buildKey(kind, targetId, appWidgetId);
+            pruneExpiredLocked(key);
+            return PENDING_ACTIONS.get(key);
         }
     }
 
     public static void clear(String kind, String targetId, int appWidgetId) {
         synchronized (LOCK) {
             PENDING_ACTIONS.remove(buildKey(kind, targetId, appWidgetId));
+        }
+    }
+
+    public static void complete(
+        String kind,
+        String targetId,
+        int appWidgetId,
+        long cooldownMs
+    ) {
+        String key = buildKey(kind, targetId, appWidgetId);
+        if (TextUtils.isEmpty(key)) {
+            return;
+        }
+        synchronized (LOCK) {
+            PendingAction action = PENDING_ACTIONS.get(key);
+            if (action == null) {
+                return;
+            }
+            action.pending = false;
+            action.expiresAtMs =
+                System.currentTimeMillis() + Math.max(0L, cooldownMs);
+            if (action.expiresAtMs <= System.currentTimeMillis()) {
+                PENDING_ACTIONS.remove(key);
+            }
         }
     }
 
@@ -81,6 +110,7 @@ public final class ControlerWidgetPendingActionStore {
         }
 
         synchronized (LOCK) {
+            pruneExpiredLocked(key);
             if (PENDING_ACTIONS.containsKey(key)) {
                 return false;
             }
@@ -98,8 +128,20 @@ public final class ControlerWidgetPendingActionStore {
         if (TextUtils.isEmpty(normalizedKind) || TextUtils.isEmpty(normalizedTargetId)) {
           return "";
         }
-        int normalizedWidgetId =
-            appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID ? -1 : appWidgetId;
-        return normalizedKind + "|" + normalizedTargetId + "|" + normalizedWidgetId;
+        return normalizedKind + "|" + normalizedTargetId;
+    }
+
+    private static void pruneExpiredLocked(String key) {
+        if (TextUtils.isEmpty(key)) {
+            return;
+        }
+        PendingAction action = PENDING_ACTIONS.get(key);
+        if (action == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!action.pending && action.expiresAtMs > 0L && action.expiresAtMs <= now) {
+            PENDING_ACTIONS.remove(key);
+        }
     }
 }

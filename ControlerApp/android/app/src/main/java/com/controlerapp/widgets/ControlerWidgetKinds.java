@@ -78,6 +78,7 @@ public final class ControlerWidgetKinds {
                 return "stats";
             case TODOS:
             case CHECKINS:
+                return "todo";
             case WEEK_VIEW:
             case YEAR_VIEW:
                 return "plan";

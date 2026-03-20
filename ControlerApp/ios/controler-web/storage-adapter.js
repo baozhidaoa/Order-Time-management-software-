@@ -145,7 +145,7 @@
   function createDefaultNavigationVisibility() {
     return {
       hiddenPages: [],
-      order: ["index", "stats", "plan", "diary", "settings"],
+      order: ["index", "stats", "plan", "todo", "diary", "settings"],
     };
   }
 

@@ -63,7 +63,7 @@ private struct WidgetMetadata {
     kind: "todos",
     title: "待办事项",
     subtitle: "查看今天的待办列表",
-    page: "plan",
+    page: "todo",
     action: "show-todos",
     description: "查看待办列表。"
   )
@@ -71,7 +71,7 @@ private struct WidgetMetadata {
     kind: "checkins",
     title: "打卡列表",
     subtitle: "查看今天的打卡项",
-    page: "plan",
+    page: "todo",
     action: "show-checkins",
     description: "查看打卡列表。"
   )

@@ -717,8 +717,8 @@
       reminderAt: reminderDate.getTime(),
       title: "待办提醒",
       message: `${todoTitle} 计划于 ${occurrenceDateText} 提醒你处理`,
-      page: "plan",
-      action: "",
+      page: "todo",
+      action: "show-todos",
       source: "todo-reminder",
       payload: {
         itemType: "todo",
@@ -736,8 +736,8 @@
       reminderAt: reminderDate.getTime(),
       title: "打卡提醒",
       message: `${checkinTitle} 到时间了，记得完成今天的打卡`,
-      page: "plan",
-      action: "",
+      page: "todo",
+      action: "show-checkins",
       source: "checkin-reminder",
       payload: {
         itemType: "checkin",

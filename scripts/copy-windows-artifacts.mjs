@@ -11,11 +11,6 @@ const packageJson = await fs.readJson(packageJsonPath);
 const semverVersion = String(packageJson?.version || "1.0.0");
 const displayVersion = String(packageJson?.build?.buildVersion || semverVersion);
 
-if (displayVersion === semverVersion) {
-  console.log("Windows 构建产物版本名无需额外复制。");
-  process.exit(0);
-}
-
 const distDir = path.join(repoRoot, "dist");
 const expectedPrefix = `Order-${semverVersion}-win-`;
 const displayPrefix = `Order-${displayVersion}-win-`;
@@ -41,18 +36,18 @@ if (windowsArtifacts.length === 0 && displayArtifacts.length === 0) {
   throw new Error(`未找到 Windows 构建产物，匹配前缀: ${expectedPrefix}`);
 }
 
-for (const entry of windowsArtifacts) {
-  const sourcePath = path.join(distDir, entry);
-  const targetPath = path.join(
-    distDir,
-    entry.replace(`Order-${semverVersion}-`, `Order-${displayVersion}-`),
-  );
-  await fs.move(sourcePath, targetPath, { overwrite: true });
-  console.log(`已整理 Windows 产物到 ${targetPath}`);
-}
-
-if (windowsArtifacts.length === 0 && displayArtifacts.length > 0) {
-  console.log("Windows 构建产物已经是显示版本命名，无需再次重命名。");
+if (displayVersion !== semverVersion) {
+  for (const entry of windowsArtifacts) {
+    const sourcePath = path.join(distDir, entry);
+    const targetPath = path.join(
+      distDir,
+      entry.replace(`Order-${semverVersion}-`, `Order-${displayVersion}-`),
+    );
+    await fs.move(sourcePath, targetPath, { overwrite: true });
+    console.log(`已整理 Windows 产物到 ${targetPath}`);
+  }
+} else {
+  console.log("Windows 构建产物版本名无需额外复制。");
 }
 
 if (await fs.pathExists(latestYmlPath)) {
@@ -65,4 +60,17 @@ if (await fs.pathExists(latestYmlPath)) {
     await fs.writeFile(latestYmlPath, normalized, "utf8");
     console.log(`已更新 latest.yml 中的显示版本引用: ${latestYmlPath}`);
   }
+}
+
+const refreshedEntries = await fs.readdir(distDir);
+const staleWindowsArtifacts = refreshedEntries.filter(
+  (entry) =>
+    /^Order-[\d.]+-win-[^.]+\.exe(?:\.blockmap)?$/.test(entry) &&
+    !entry.startsWith(displayPrefix),
+);
+
+for (const entry of staleWindowsArtifacts) {
+  const stalePath = path.join(distDir, entry);
+  await fs.remove(stalePath);
+  console.log(`已删除旧版 Windows 产物: ${stalePath}`);
 }

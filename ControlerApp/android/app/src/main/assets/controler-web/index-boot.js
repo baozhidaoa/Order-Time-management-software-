@@ -1438,6 +1438,7 @@ let pendingSpendModalState = null;
 let pendingRecordRollbackState = null;
 let pendingDurationCarryoverState = null;
 let indexLoadedRecordPeriodIds = [];
+let indexDirtyRecordPeriodIds = new Set();
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
 const TIMER_STATE_STORAGE_VERSION = 2;
 const SPEND_BUTTON_MULTI_CLICK_GUARD_MS = 1200;
@@ -4757,6 +4758,38 @@ function setProjectInputValue(inputId, projectName) {
   input.value = matched ? getProjectPath(matched) : projectName;
 }
 
+function commitPrimaryModalProjectInput(options = {}) {
+  const projectNameInput = document.getElementById("project-name-input");
+  if (!(projectNameInput instanceof HTMLInputElement)) {
+    return false;
+  }
+
+  const resolvedName = resolveProjectNameFromInput(projectNameInput.value.trim());
+  if (!resolvedName) {
+    if (options.canonicalizeEmpty === true) {
+      projectNameInput.value = "";
+    }
+    return false;
+  }
+
+  if (!ensureProjectExists(resolvedName)) {
+    return false;
+  }
+
+  selectedProject = resolvedName;
+  lastEnteredProjectName = resolvedName;
+  setProjectInputValue("project-name-input", resolvedName);
+  updateProjectsList();
+  updateExistingProjectsList();
+  renderProjectSuggestionsForInput(
+    "project-name-input",
+    projectNameInput.value,
+    false,
+  );
+  persistTimerSessionState();
+  return true;
+}
+
 function getProjectSuggestionPopoverId(inputId) {
   if (inputId === "project-name-input") return "project-name-suggestions";
   if (inputId === "next-project-input") return "next-project-suggestions";
@@ -5255,6 +5288,7 @@ function save(options = {}) {
   const record = createRecordEntry(selectedProject, result, options);
 
   records.push(record);
+  markIndexRecordPeriodsDirty([record]);
   applyIndexProjectRecordDurationChanges({
     addedRecords: [record],
   });
@@ -5351,6 +5385,7 @@ async function saveRecordNameEdit(recordId) {
     name: nextName,
     projectId: nextProjectId,
   };
+  markIndexRecordPeriodsDirty([previousRecord, records[recordIndex]]);
   applyIndexProjectRecordDurationChanges({
     removedRecords: [previousRecord],
     addedRecords: [records[recordIndex]],
@@ -5858,6 +5893,9 @@ function openModal() {
 function closeModal() {
   spendModalClickLocked = false;
   clearPendingSpendModalState();
+  commitPrimaryModalProjectInput({
+    canonicalizeEmpty: true,
+  });
   const modal = document.getElementById("modal-overlay");
   isModalOpen = false;
   if (modal) {
@@ -6120,6 +6158,11 @@ function initIndexModalBindings() {
     input.addEventListener("change", applyPathHint);
     input.addEventListener("blur", () => {
       applyPathHint();
+      if (inputId === "project-name-input") {
+        commitPrimaryModalProjectInput({
+          canonicalizeEmpty: true,
+        });
+      }
       setTimeout(() => {
         hideProjectSuggestions(inputId);
       }, 120);
@@ -8408,6 +8451,7 @@ function showProjectEditModal(project) {
         updateProjectsList();
         updateExistingProjectsList();
         updateParentProjectSelect(1);
+        markAllLoadedRecordPeriodsDirty();
         await Promise.all([saveRecordsToStorage(), saveProjectsToStorage()]);
         await window.ControlerStorage?.flush?.();
         refreshIndexWorkspace({ immediate: true });
@@ -8687,6 +8731,7 @@ function showProjectEditModal(project) {
       updateProjectsList();
       updateExistingProjectsList();
       updateParentProjectSelect(1);
+      markAllLoadedRecordPeriodsDirty();
       await saveRecordsToStorage();
       saveProjectsToStorage();
       refreshIndexWorkspace({ immediate: true });
@@ -8873,6 +8918,7 @@ function saveProjectsToStorage() {
       projectTotalsExpansionState,
       projects,
     );
+    localStorage.setItem("projects", JSON.stringify(projects));
     if (typeof window.ControlerStorage?.replaceCoreState === "function") {
       saveProjectHierarchyExpansionState();
       return window.ControlerStorage.replaceCoreState({
@@ -8902,6 +8948,104 @@ function getIndexRecordPeriodId(record) {
   return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
 }
 
+function getIndexRecordPeriodIds(items = []) {
+  return [
+    ...new Set(
+      (Array.isArray(items) ? items : []).map((record) => getIndexRecordPeriodId(record)),
+    ),
+  ];
+}
+
+function markIndexRecordPeriodsDirty(items = []) {
+  getIndexRecordPeriodIds(items).forEach((periodId) => {
+    indexDirtyRecordPeriodIds.add(periodId);
+  });
+}
+
+function markAllLoadedRecordPeriodsDirty() {
+  getIndexRecordPeriodIds(records).forEach((periodId) => {
+    indexDirtyRecordPeriodIds.add(periodId);
+  });
+}
+
+function mergeIndexRecordsByPeriods(
+  existingItems = [],
+  incomingItems = [],
+  periodIds = [],
+) {
+  const targetPeriods = new Set(
+    (Array.isArray(periodIds) ? periodIds : [])
+      .map((periodId) => String(periodId || "").trim())
+      .filter(Boolean),
+  );
+  if (!targetPeriods.size) {
+    return Array.isArray(incomingItems) ? incomingItems.slice() : [];
+  }
+  const preserved = (Array.isArray(existingItems) ? existingItems : []).filter(
+    (record) => !targetPeriods.has(getIndexRecordPeriodId(record)),
+  );
+  return [...preserved, ...(Array.isArray(incomingItems) ? incomingItems : [])];
+}
+
+function readIndexLocalRecordSnapshot() {
+  try {
+    const raw = localStorage.getItem("records");
+    if (!raw) {
+      return {
+        items: [],
+        hasMirror: false,
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      items: Array.isArray(parsed) ? parsed : [],
+      hasMirror: true,
+    };
+  } catch (error) {
+    console.error("读取记录本地镜像失败:", error);
+    return {
+      items: [],
+      hasMirror: false,
+    };
+  }
+}
+
+function readIndexManagedRecordSnapshot() {
+  try {
+    const snapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    return Array.isArray(snapshot?.records) ? snapshot.records : [];
+  } catch (error) {
+    console.error("读取记录受管快照失败:", error);
+    return [];
+  }
+}
+
+function readIndexProjectMirrorState() {
+  try {
+    const raw = localStorage.getItem("projects");
+    if (!raw) {
+      return {
+        items: [],
+        hasMirror: false,
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      items: Array.isArray(parsed) ? parsed : [],
+      hasMirror: true,
+    };
+  } catch (error) {
+    console.error("读取项目本地镜像失败:", error);
+    return {
+      items: [],
+      hasMirror: false,
+    };
+  }
+}
+
 function getIndexDefaultRecordScope() {
   const endDate = new Date();
   const startDate = new Date(endDate);
@@ -8915,7 +9059,10 @@ function getIndexDefaultRecordScope() {
 async function loadProjectsFromStorage(options = {}) {
   const applyUi = options?.applyUi !== false;
   try {
-    if (typeof window.ControlerStorage?.getCoreState === "function") {
+    const localProjectMirror = readIndexProjectMirrorState();
+    if (localProjectMirror.hasMirror) {
+      projects = normalizeStoredProjects(localProjectMirror.items);
+    } else if (typeof window.ControlerStorage?.getCoreState === "function") {
       const coreState = await window.ControlerStorage.getCoreState();
       projects = normalizeStoredProjects(coreState?.projects || []);
     } else {
@@ -8955,8 +9102,13 @@ async function loadProjectsFromStorage(options = {}) {
 function saveRecordsToStorage() {
   try {
     persistTimerSessionState();
+    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    localStorage.setItem("records", JSON.stringify(records));
+    localStorage.setItem("projects", JSON.stringify(projects));
     if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      const periodIds = indexLoadedRecordPeriodIds.length
+      const periodIds = indexDirtyRecordPeriodIds.size
+        ? [...indexDirtyRecordPeriodIds]
+        : indexLoadedRecordPeriodIds.length
         ? indexLoadedRecordPeriodIds.slice()
         : [...new Set(records.map((record) => getIndexRecordPeriodId(record)))];
       return Promise.all(
@@ -8969,12 +9121,16 @@ function saveRecordsToStorage() {
             mode: "replace",
           }),
         ),
-      ).catch((error) => {
-        console.error("保存分片记录失败:", error);
-      });
+      )
+        .then(() => {
+          periodIds.forEach((periodId) => {
+            indexDirtyRecordPeriodIds.delete(periodId);
+          });
+        })
+        .catch((error) => {
+          console.error("保存分片记录失败:", error);
+        });
     }
-    localStorage.setItem("records", JSON.stringify(records));
-    localStorage.setItem("projects", JSON.stringify(projects));
     return Promise.resolve();
   } catch (e) {
     console.error("保存记录到localStorage失败:", e);
@@ -8999,6 +9155,7 @@ function deleteRecord(recordId) {
       if (isLastRecord) {
         rollbackTimerAfterDeletingLastRecord(deletedRecord, records);
       }
+      markIndexRecordPeriodsDirty([deletedRecord]);
       applyIndexProjectRecordDurationChanges({
         removedRecords: [deletedRecord],
       });
@@ -9063,6 +9220,7 @@ async function updateRecordsProjectName(oldName, newName, projectId = "") {
     });
 
     if (updated) {
+      markAllLoadedRecordPeriodsDirty();
       await saveRecordsToStorage();
       console.log(`已更新 ${oldName} 到 ${newName} 的记录`);
     }
@@ -9156,20 +9314,28 @@ function updateProjectNameReferences(oldName, newName, projectId = "") {
 // 从localStorage加载记录
 async function loadRecordsFromStorage() {
   try {
+    const localRecordMirror = readIndexLocalRecordSnapshot();
+    const mirrorItems = localRecordMirror.hasMirror
+      ? localRecordMirror.items
+      : readIndexManagedRecordSnapshot();
+    records = Array.isArray(mirrorItems) ? mirrorItems.slice() : [];
+    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+
     if (typeof window.ControlerStorage?.loadSectionRange === "function") {
       const result = await window.ControlerStorage.loadSectionRange(
         "records",
         getIndexDefaultRecordScope(),
       );
-      records = Array.isArray(result?.items) ? result.items : [];
-      indexLoadedRecordPeriodIds =
+      const rangeItems = Array.isArray(result?.items) ? result.items : [];
+      const rangePeriodIds =
         Array.isArray(result?.periodIds) && result.periodIds.length
           ? result.periodIds.slice()
-          : [...new Set(records.map((record) => getIndexRecordPeriodId(record)))];
-    } else {
-      const saved = localStorage.getItem("records");
-      records = saved ? JSON.parse(saved) : [];
-      indexLoadedRecordPeriodIds = [];
+          : getIndexRecordPeriodIds(rangeItems);
+      if (rangeItems.length || rangePeriodIds.length) {
+        records = localRecordMirror.hasMirror
+          ? mergeIndexRecordsByPeriods(records, rangeItems, rangePeriodIds)
+          : rangeItems;
+      }
     }
     if (Array.isArray(records) && records.length > 0) {
       // 确保每条记录都有必要的字段
@@ -9237,6 +9403,8 @@ async function loadRecordsFromStorage() {
     } else {
       records = [];
     }
+    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    indexDirtyRecordPeriodIds = new Set();
   } catch (e) {
     console.error("从localStorage加载记录失败:", e);
   }

@@ -97,7 +97,7 @@ type BridgeEnvelope = {
   payload?: BridgeEnvelopePayload;
 };
 
-type AppPageKey = 'index' | 'stats' | 'plan' | 'diary' | 'settings';
+type AppPageKey = 'index' | 'stats' | 'plan' | 'todo' | 'diary' | 'settings';
 type WebViewSlot = 'primary' | 'secondary' | 'tertiary';
 type NavigationDirection = 'forward' | 'back';
 type UiLanguage = 'zh-CN' | 'en-US';
@@ -184,6 +184,7 @@ const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
   {key: 'stats', href: 'stats.html'},
   {key: 'plan', href: 'plan.html'},
+  {key: 'todo', href: 'todo.html'},
   {key: 'diary', href: 'diary.html'},
   {key: 'settings', href: 'settings.html'},
 ];
@@ -920,7 +921,7 @@ function App(): JSX.Element {
       return true;
     }
 
-    return Platform.OS === 'android';
+    return false;
   }, []);
 
   const edgeBackPanResponder = useRef(
@@ -1092,16 +1093,18 @@ function App(): JSX.Element {
       priorityPages.push(launchPage);
     }
 
-    (['plan', 'stats', 'diary', 'index'] as AppPageKey[]).forEach(pageKey => {
-      if (
-        pageKey === activeState.pageKey ||
-        hiddenPageKeysRef.current.has(pageKey) ||
-        priorityPages.includes(pageKey)
-      ) {
-        return;
-      }
-      priorityPages.push(pageKey);
-    });
+    (['todo', 'plan', 'stats', 'diary', 'index'] as AppPageKey[]).forEach(
+      pageKey => {
+        if (
+          pageKey === activeState.pageKey ||
+          hiddenPageKeysRef.current.has(pageKey) ||
+          priorityPages.includes(pageKey)
+        ) {
+          return;
+        }
+        priorityPages.push(pageKey);
+      },
+    );
 
     const inactiveSlots = WEBVIEW_SLOTS.filter(
       slot => slot !== activeSlotRef.current,

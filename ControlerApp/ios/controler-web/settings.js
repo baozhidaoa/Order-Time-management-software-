@@ -475,7 +475,12 @@ const SETTINGS_NAVIGATION_ITEMS = [
   {
     key: "plan",
     title: "计划",
-    description: "显示计划与待办入口。",
+    description: "显示计划页面入口。",
+  },
+  {
+    key: "todo",
+    title: "待办",
+    description: "显示待办与打卡入口。",
   },
   {
     key: "diary",
@@ -488,6 +493,12 @@ const SETTINGS_NAVIGATION_ITEMS = [
     description: "显示设置页面入口。",
   },
 ];
+const SETTINGS_NAVIGATION_DEFAULT_AFTER_MAP = new Map(
+  SETTINGS_NAVIGATION_ITEMS.map((item, index) => [
+    item.key,
+    index > 0 ? SETTINGS_NAVIGATION_ITEMS[index - 1].key : "",
+  ]),
+);
 
 function normalizeNavigationVisibilityState(rawState) {
   const source =
@@ -514,9 +525,19 @@ function normalizeNavigationVisibilityState(rawState) {
     );
 
   SETTINGS_NAVIGATION_ITEMS.forEach((item) => {
-    if (!order.includes(item.key)) {
-      order.push(item.key);
+    if (order.includes(item.key)) {
+      return;
     }
+    const previousDefaultKey =
+      SETTINGS_NAVIGATION_DEFAULT_AFTER_MAP.get(item.key) || "";
+    const previousIndex = previousDefaultKey
+      ? order.indexOf(previousDefaultKey)
+      : -1;
+    if (previousIndex >= 0) {
+      order.splice(previousIndex + 1, 0, item.key);
+      return;
+    }
+    order.push(item.key);
   });
 
   return {

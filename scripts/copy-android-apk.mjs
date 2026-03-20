@@ -31,4 +31,15 @@ if (!(await fs.pathExists(sourceApkPath))) {
 await fs.ensureDir(distDir);
 await fs.copy(sourceApkPath, targetApkPath, { overwrite: true });
 
+const distEntries = await fs.readdir(distDir);
+const staleApks = distEntries.filter(
+  (entry) => /^Order-[\d.]+-android\.apk$/.test(entry) && entry !== path.basename(targetApkPath),
+);
+
+for (const entry of staleApks) {
+  const stalePath = path.join(distDir, entry);
+  await fs.remove(stalePath);
+  console.log(`已删除旧版 Android APK: ${stalePath}`);
+}
+
 console.log(`已复制 Android APK 到 ${targetApkPath}`);

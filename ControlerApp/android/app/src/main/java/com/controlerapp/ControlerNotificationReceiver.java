@@ -67,6 +67,7 @@ public class ControlerNotificationReceiver extends BroadcastReceiver {
 
         Intent launchIntent = new Intent(context, MainActivity.class);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        applyReminderLaunchTarget(launchIntent, type);
         PendingIntent contentIntent =
             PendingIntent.getActivity(
                 context,
@@ -93,5 +94,28 @@ public class ControlerNotificationReceiver extends BroadcastReceiver {
 
         NotificationManagerCompat notificationManager = NotificationManagerCompat.from(context);
         notificationManager.notify(notificationId, builder.build());
+    }
+
+    private void applyReminderLaunchTarget(Intent intent, String type) {
+        if (intent == null) {
+            return;
+        }
+
+        String normalizedType = type == null ? "" : type.trim();
+        if ("todo".equals(normalizedType)) {
+            intent.putExtra("widgetPage", "todo");
+            intent.putExtra("widgetAction", "show-todos");
+            intent.putExtra("widgetKind", "todos");
+            return;
+        }
+        if ("checkin".equals(normalizedType)) {
+            intent.putExtra("widgetPage", "todo");
+            intent.putExtra("widgetAction", "show-checkins");
+            intent.putExtra("widgetKind", "checkins");
+            return;
+        }
+        if ("plan".equals(normalizedType)) {
+            intent.putExtra("widgetPage", "plan");
+        }
     }
 }

@@ -7,39 +7,21 @@ import {
 import {describe, expect, it} from '@jest/globals';
 
 describe('resolveWidgetLaunchPolicy', () => {
-  it('rejects android widget actions that target another page', () => {
+  it('allows android widget actions to open todo across pages', () => {
     const result = resolveWidgetLaunchPolicy({
       isAndroid: true,
       activePageKey: 'index',
       fallbackPageKey: 'index',
       launchContext: {
-        pageKey: 'plan',
-        widgetAction: 'show-checkins',
-        widgetSource: 'android-widget',
-      },
-    });
-
-    expect(result.allowLaunch).toBe(false);
-    expect(result.samePageOnlyWidgetAction).toBe(true);
-    expect(result.targetPageKey).toBe('plan');
-    expect(result.rejectToast).toBe(
-      '请先回到计划页后再使用打卡小组件',
-    );
-  });
-
-  it('allows android widget actions when the app is already on the target page', () => {
-    const result = resolveWidgetLaunchPolicy({
-      isAndroid: true,
-      activePageKey: 'plan',
-      fallbackPageKey: 'index',
-      launchContext: {
-        pageKey: 'plan',
+        pageKey: 'todo',
         widgetAction: 'show-checkins',
         widgetSource: 'android-widget',
       },
     });
 
     expect(result.allowLaunch).toBe(true);
+    expect(result.samePageOnlyWidgetAction).toBe(false);
+    expect(result.targetPageKey).toBe('todo');
     expect(result.rejectToast).toBe('');
   });
 
@@ -49,7 +31,7 @@ describe('resolveWidgetLaunchPolicy', () => {
       activePageKey: 'index',
       fallbackPageKey: 'index',
       launchContext: {
-        pageKey: 'plan',
+        pageKey: 'todo',
         widgetAction: 'show-checkins',
         widgetSource: 'android-widget',
       },
@@ -125,6 +107,12 @@ describe('getWidgetLaunchRejectToast', () => {
   it('maps fallback copy by target page', () => {
     expect(getWidgetLaunchRejectToast('stats', 'unknown-action')).toBe(
       '请先回到统计页后再使用该小组件',
+    );
+  });
+
+  it('maps todo fallback copy by target page', () => {
+    expect(getWidgetLaunchRejectToast('todo', 'unknown-action')).toBe(
+      '请先回到待办页后再使用该小组件',
     );
   });
 });

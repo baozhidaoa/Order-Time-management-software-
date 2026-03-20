@@ -40,6 +40,7 @@ public final class ControlerWidgetActionHandler {
     public static final String COMMAND_TOGGLE_TODO = "toggle-todo";
     public static final String COMMAND_TOGGLE_CHECKIN = "toggle-checkin";
     public static final String COMMAND_REFRESH_WIDGET = "refresh-widget";
+    private static final long WIDGET_ACTION_DEDUP_WINDOW_MS = 1200L;
     private static final HandlerThread ACTION_THREAD = createActionThread();
     private static final Handler ACTION_HANDLER = new Handler(ACTION_THREAD.getLooper());
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
@@ -217,6 +218,27 @@ public final class ControlerWidgetActionHandler {
             return;
         }
         ControlerWidgetRenderer.refreshKind(context, normalizedKind);
+    }
+
+    private static void schedulePendingStateExpiryRefresh(
+        Context context,
+        String widgetKind
+    ) {
+        if (context == null) {
+            return;
+        }
+        final Context appContext = context.getApplicationContext();
+        final String normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return;
+        }
+        MAIN_HANDLER.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                ControlerWidgetRenderer.invalidateRenderSourceCache();
+                ControlerWidgetRenderer.refreshKind(appContext, normalizedKind);
+            }
+        }, WIDGET_ACTION_DEDUP_WINDOW_MS + 40L);
     }
 
     private static int[] getSiblingWidgetIds(
@@ -581,11 +603,13 @@ public final class ControlerWidgetActionHandler {
                     );
                 }
 
-                ControlerWidgetPendingActionStore.clear(
+                ControlerWidgetPendingActionStore.complete(
                     ControlerWidgetKinds.TODOS,
                     targetId,
-                    appWidgetId
+                    appWidgetId,
+                    WIDGET_ACTION_DEDUP_WINDOW_MS
                 );
+                schedulePendingStateExpiryRefresh(context, ControlerWidgetKinds.TODOS);
 
                 emitForegroundStorageChanged(
                     context,
@@ -725,11 +749,13 @@ public final class ControlerWidgetActionHandler {
                         );
                     }
 
-                    ControlerWidgetPendingActionStore.clear(
+                    ControlerWidgetPendingActionStore.complete(
                         ControlerWidgetKinds.CHECKINS,
                         targetId,
-                        appWidgetId
+                        appWidgetId,
+                        WIDGET_ACTION_DEDUP_WINDOW_MS
                     );
+                    schedulePendingStateExpiryRefresh(context, ControlerWidgetKinds.CHECKINS);
 
                     emitForegroundStorageChanged(
                         context,
@@ -806,11 +832,13 @@ public final class ControlerWidgetActionHandler {
                 );
             }
 
-            ControlerWidgetPendingActionStore.clear(
+            ControlerWidgetPendingActionStore.complete(
                 ControlerWidgetKinds.CHECKINS,
                 targetId,
-                appWidgetId
+                appWidgetId,
+                WIDGET_ACTION_DEDUP_WINDOW_MS
             );
+            schedulePendingStateExpiryRefresh(context, ControlerWidgetKinds.CHECKINS);
 
             emitForegroundStorageChanged(
                 context,

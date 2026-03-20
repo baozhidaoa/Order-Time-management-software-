@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>其他设置</title>
-    <script src="platform-contract.js"></script>
+    <script src="platform-contract-loader.js"></script>
     <script src="rn-bridge.js"></script>
     <script src="guide-bundle.js"></script>
     <script src="storage-bundle.js?v=20260317-bundle-storage"></script>
@@ -121,6 +121,18 @@
           "
         >
           计划
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="todo"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('todo')) return false;
+            window.location.href = 'todo.html';
+            return false;
+          "
+        >
+          待办
         </button>
         <button
           class="bts"

@@ -3,9 +3,9 @@
   const EXPAND_SURFACE_WIDTH_FACTOR_MIN = 0.4;
   const EXPAND_SURFACE_WIDTH_FACTOR_MAX = 1.5;
   const MODAL_GESTURE_MAX_WIDTH = 690;
-  const MODAL_EDGE_SWIPE_TRIGGER = 40;
-  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 56;
-  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 56;
+  const MODAL_EDGE_SWIPE_TRIGGER = 56;
+  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 44;
+  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 84;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -14,6 +14,166 @@
   const SHELL_VISIBILITY_EVENT_NAME =
     "controler:shell-visibility-changed";
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
+  const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
+
+  function clonePlatformContractValue(value) {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      if (Array.isArray(value)) {
+        return value.slice();
+      }
+      if (value && typeof value === "object") {
+        return { ...value };
+      }
+      return value;
+    }
+  }
+
+  function normalizeTodoWidgetPage(page, widgetKind = "", action = "") {
+    const normalizedWidgetKind = String(widgetKind || "").trim();
+    const normalizedAction = String(action || "").trim();
+    if (
+      TODO_WIDGET_KIND_IDS.has(normalizedWidgetKind) ||
+      normalizedAction === "show-todos" ||
+      normalizedAction === "show-checkins"
+    ) {
+      return "todo";
+    }
+    return String(page || "").trim();
+  }
+
+  function normalizePlatformContractWidgetEntry(entry = {}) {
+    if (!entry || typeof entry !== "object") {
+      return null;
+    }
+    const normalizedEntry = clonePlatformContractValue(entry) || {};
+    normalizedEntry.id = String(normalizedEntry.id || "").trim();
+    normalizedEntry.action = String(normalizedEntry.action || "").trim();
+    normalizedEntry.page = normalizeTodoWidgetPage(
+      normalizedEntry.page,
+      normalizedEntry.id,
+      normalizedEntry.action,
+    );
+    return normalizedEntry;
+  }
+
+  function normalizePlatformContractLaunchEntry(entry = {}) {
+    if (!entry || typeof entry !== "object") {
+      return null;
+    }
+    const normalizedEntry = clonePlatformContractValue(entry) || {};
+    normalizedEntry.id = String(
+      normalizedEntry.id || normalizedEntry.action || "",
+    ).trim();
+    normalizedEntry.widgetKind = String(normalizedEntry.widgetKind || "").trim();
+    normalizedEntry.page = normalizeTodoWidgetPage(
+      normalizedEntry.page,
+      normalizedEntry.widgetKind,
+      normalizedEntry.id,
+    );
+    return normalizedEntry;
+  }
+
+  function installNormalizedPlatformContract() {
+    const currentContract = window.ControlerPlatformContract;
+    if (!currentContract || typeof currentContract !== "object") {
+      return null;
+    }
+
+    const sourceWidgetKinds =
+      typeof currentContract.getWidgetKinds === "function"
+        ? currentContract.getWidgetKinds()
+        : Array.isArray(currentContract.widgetKinds)
+          ? currentContract.widgetKinds
+          : [];
+    const normalizedWidgetKinds = sourceWidgetKinds
+      .map((entry) => normalizePlatformContractWidgetEntry(entry))
+      .filter(Boolean);
+    if (!normalizedWidgetKinds.length) {
+      return currentContract;
+    }
+
+    const widgetKindIds = normalizedWidgetKinds
+      .map((entry) => String(entry?.id || "").trim())
+      .filter(Boolean);
+    const widgetKindActionMap = new Map(
+      normalizedWidgetKinds.map((entry) => [entry.id, entry.action]),
+    );
+    const widgetActionKindMap = new Map(
+      normalizedWidgetKinds.map((entry) => [entry.action, entry.id]),
+    );
+    const sourceLaunchActions =
+      typeof currentContract.getLaunchActions === "function"
+        ? currentContract.getLaunchActions()
+        : Array.isArray(currentContract.launchActions)
+          ? currentContract.launchActions
+          : normalizedWidgetKinds.map((entry) => ({
+              id: entry.action,
+              page: entry.page,
+              widgetKind: entry.id,
+            }));
+    const normalizedLaunchActions = sourceLaunchActions
+      .map((entry) => {
+        const normalizedEntry = normalizePlatformContractLaunchEntry(entry);
+        if (!normalizedEntry) {
+          return null;
+        }
+        if (!normalizedEntry.widgetKind && widgetActionKindMap.has(normalizedEntry.id)) {
+          normalizedEntry.widgetKind = widgetActionKindMap.get(normalizedEntry.id) || "";
+        }
+        if (
+          !normalizedEntry.id &&
+          normalizedEntry.widgetKind &&
+          widgetKindActionMap.has(normalizedEntry.widgetKind)
+        ) {
+          normalizedEntry.id =
+            widgetKindActionMap.get(normalizedEntry.widgetKind) || "";
+        }
+        normalizedEntry.page = normalizeTodoWidgetPage(
+          normalizedEntry.page,
+          normalizedEntry.widgetKind,
+          normalizedEntry.id,
+        );
+        return normalizedEntry.id ? normalizedEntry : null;
+      })
+      .filter(Boolean);
+    const launchActionIds = normalizedLaunchActions
+      .map((entry) => String(entry?.id || "").trim())
+      .filter(Boolean);
+
+    const nextContract = {
+      ...currentContract,
+      widgetKinds: normalizedWidgetKinds,
+      widgetKindIds,
+      launchActions: normalizedLaunchActions,
+      launchActionIds,
+      getWidgetKinds() {
+        return clonePlatformContractValue(normalizedWidgetKinds);
+      },
+      getWidgetKindIds() {
+        return widgetKindIds.slice();
+      },
+      getWidgetById(kind) {
+        const normalizedKind = String(kind || "").trim();
+        const matched = normalizedWidgetKinds.find(
+          (entry) => entry.id === normalizedKind,
+        );
+        return matched ? clonePlatformContractValue(matched) : null;
+      },
+      getLaunchActions() {
+        return clonePlatformContractValue(normalizedLaunchActions);
+      },
+      getLaunchActionIds() {
+        return launchActionIds.slice();
+      },
+    };
+    window.ControlerPlatformContract = nextContract;
+    return nextContract;
+  }
+
+  installNormalizedPlatformContract();
+
   const APP_NAV_ITEMS = [
     {
       key: "index",
@@ -52,6 +212,25 @@
           { tag: "path", attrs: { d: "M8 3.75v4" } },
           { tag: "path", attrs: { d: "M16 3.75v4" } },
           { tag: "path", attrs: { d: "M4.5 9.75h15" } },
+        ],
+      },
+    },
+    {
+      key: "todo",
+      label: "待办",
+      href: "todo.html",
+      icon: {
+        nodes: [
+          {
+            tag: "rect",
+            attrs: { x: "5.25", y: "4.75", width: "13.5", height: "14.5", rx: "3" },
+          },
+          { tag: "path", attrs: { d: "M8.5 9.25h6.75" } },
+          { tag: "path", attrs: { d: "M8.5 13h6.75" } },
+          { tag: "path", attrs: { d: "M8.5 16.75h4.25" } },
+          { tag: "path", attrs: { d: "M6.8 9.2h.01" } },
+          { tag: "path", attrs: { d: "M6.8 12.95h.01" } },
+          { tag: "path", attrs: { d: "M6.8 16.7h.01" } },
         ],
       },
     },
@@ -97,6 +276,12 @@
   ];
   const DEFAULT_APP_NAV_ORDER = APP_NAV_ITEMS.map((item) => item.key);
   const APP_NAV_ITEM_KEY_SET = new Set(APP_NAV_ITEMS.map((item) => item.key));
+  const APP_NAV_DEFAULT_AFTER_MAP = new Map(
+    DEFAULT_APP_NAV_ORDER.map((pageKey, index) => [
+      pageKey,
+      index > 0 ? DEFAULT_APP_NAV_ORDER[index - 1] : "",
+    ]),
+  );
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
@@ -603,9 +788,18 @@
       );
 
     DEFAULT_APP_NAV_ORDER.forEach((pageKey) => {
-      if (!nextOrder.includes(pageKey)) {
-        nextOrder.push(pageKey);
+      if (nextOrder.includes(pageKey)) {
+        return;
       }
+      const previousDefaultPage = APP_NAV_DEFAULT_AFTER_MAP.get(pageKey) || "";
+      const previousIndex = previousDefaultPage
+        ? nextOrder.indexOf(previousDefaultPage)
+        : -1;
+      if (previousIndex >= 0) {
+        nextOrder.splice(previousIndex + 1, 0, pageKey);
+        return;
+      }
+      nextOrder.push(pageKey);
     });
 
     return {

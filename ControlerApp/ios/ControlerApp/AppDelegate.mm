@@ -1515,8 +1515,8 @@ RCT_EXPORT_MODULE(ControlerBridge);
     @{@"id": @"write-diary", @"title": @"写日记", @"subtitle": @"打开记录页继续今天的日记", @"page": @"diary", @"action": @"new-diary"},
     @{@"id": @"week-grid", @"title": @"一周表格视图", @"subtitle": @"查看近 7 天时段分布", @"page": @"stats", @"action": @"show-week-grid"},
     @{@"id": @"day-pie", @"title": @"一天的饼状图", @"subtitle": @"查看今天的项目时间占比", @"page": @"stats", @"action": @"show-day-pie"},
-    @{@"id": @"todos", @"title": @"待办事项", @"subtitle": @"查看今天的待办列表", @"page": @"plan", @"action": @"show-todos"},
-    @{@"id": @"checkins", @"title": @"打卡列表", @"subtitle": @"查看今天的打卡项", @"page": @"plan", @"action": @"show-checkins"},
+    @{@"id": @"todos", @"title": @"待办事项", @"subtitle": @"查看今天的待办列表", @"page": @"todo", @"action": @"show-todos"},
+    @{@"id": @"checkins", @"title": @"打卡列表", @"subtitle": @"查看今天的打卡项", @"page": @"todo", @"action": @"show-checkins"},
     @{@"id": @"week-view", @"title": @"周视图", @"subtitle": @"查看未来一周计划", @"page": @"plan", @"action": @"show-week-view"},
     @{@"id": @"year-view", @"title": @"年视图", @"subtitle": @"查看全年目标摘要", @"page": @"plan", @"action": @"show-year-view"},
   ];

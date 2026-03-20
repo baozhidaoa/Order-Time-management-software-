@@ -2,6 +2,7 @@ export type WidgetPolicyPageKey =
   | 'index'
   | 'stats'
   | 'plan'
+  | 'todo'
   | 'diary'
   | 'settings';
 
@@ -75,8 +76,10 @@ export function getWidgetLaunchRejectToast(
     case 'show-checkins':
       return '请先回到计划页后再使用打卡小组件';
     default:
-      return targetPageKey === 'plan'
-        ? '请先回到计划页后再使用该小组件'
+      return targetPageKey === 'todo'
+        ? '请先回到待办页后再使用该小组件'
+        : targetPageKey === 'plan'
+          ? '请先回到计划页后再使用该小组件'
         : targetPageKey === 'stats'
           ? '请先回到统计页后再使用该小组件'
           : targetPageKey === 'diary'
@@ -93,12 +96,8 @@ export function resolveWidgetLaunchPolicy(
     input.activePageKey ||
     input.fallbackPageKey ||
     'index';
-  const samePageOnlyWidgetAction = isAndroidWidgetActionLaunch(
-    input.launchContext,
-    input.isAndroid,
-  );
-  const allowLaunch =
-    !samePageOnlyWidgetAction || input.activePageKey === targetPageKey;
+  const samePageOnlyWidgetAction = false;
+  const allowLaunch = true;
 
   return {
     targetPageKey,

@@ -16,6 +16,7 @@ public final class ControlerWidgetLastPageStore {
             "index".equals(normalized)
                 || "stats".equals(normalized)
                 || "plan".equals(normalized)
+                || "todo".equals(normalized)
                 || "diary".equals(normalized)
                 || "settings".equals(normalized)
         ) {
