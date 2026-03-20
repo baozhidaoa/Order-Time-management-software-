@@ -2355,11 +2355,23 @@
       if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }
+      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      if (platform === "android" || platform === "ios") {
+        return false;
+      }
+      const root = document.documentElement;
       const body = document.body;
       if (!(body instanceof HTMLElement)) {
         return false;
       }
-      if (body.classList.contains("controler-mobile-runtime")) {
+      if (
+        root?.classList.contains("controler-mobile-runtime") ||
+        root?.classList.contains("controler-android-native") ||
+        root?.classList.contains("controler-ios-native") ||
+        body.classList.contains("controler-mobile-runtime") ||
+        body.classList.contains("controler-android-native") ||
+        body.classList.contains("controler-ios-native")
+      ) {
         return false;
       }
       return body.classList.contains("row");
@@ -2482,6 +2494,7 @@
     window.addEventListener("pagehide", handlePageDispose);
     window.addEventListener("beforeunload", handlePageDispose);
     window.addEventListener("resize", handleViewportChange);
+    window.visualViewport?.addEventListener("resize", handleViewportChange);
 
     return {
       setState(nextState = {}) {
@@ -2555,6 +2568,7 @@
         window.removeEventListener("pagehide", handlePageDispose);
         window.removeEventListener("beforeunload", handlePageDispose);
         window.removeEventListener("resize", handleViewportChange);
+        window.visualViewport?.removeEventListener("resize", handleViewportChange);
         clearFullscreenGeometry();
       },
     };

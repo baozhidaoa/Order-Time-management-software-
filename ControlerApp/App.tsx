@@ -168,17 +168,17 @@ const ACCENT_COLOR = '#2f6f54';
 const DEFAULT_UI_LANGUAGE: UiLanguage = 'zh-CN';
 const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
 const IS_ANDROID = Platform.OS === 'android';
-const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 3200 : 2200;
-const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 4200 : 2200;
-const WIDGET_PREWARM_AFTER_READY_MS = 800;
-const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 5000;
-const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 900;
-const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 1800 : 1200;
-const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 800 : 500;
+const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
+const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
+const WIDGET_PREWARM_AFTER_READY_MS = 220;
+const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 2400;
+const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
+const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 720 : 520;
+const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 260 : 180;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
-const EDGE_BACK_SWIPE_REGION_WIDTH = 32;
-const EDGE_BACK_SWIPE_MIN_DISTANCE = 72;
-const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 64;
+const EDGE_BACK_SWIPE_REGION_WIDTH = 48;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = 56;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 72;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
@@ -335,7 +335,7 @@ function resolvePageTarget(
   }
 }
 
-function getComparableUrl(value: string | null): string {
+export function getComparableUrl(value: string | null): string {
   if (!value) {
     return '';
   }
@@ -448,7 +448,7 @@ function ensureWidgetLaunchId(context: LaunchContext): LaunchContext {
   };
 }
 
-function buildWidgetLaunchHref(
+export function buildWidgetLaunchHref(
   pageKey: AppPageKey,
   context: Pick<
     LaunchContext,
@@ -924,17 +924,33 @@ function App(): JSX.Element {
     return false;
   }, []);
 
+  const shouldCaptureEdgeBackSwipe = (gestureState: {
+    dx: number;
+    dy: number;
+  }) =>
+    canStartEdgeBackSwipe() &&
+    gestureState.dx >= 4 &&
+    Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1;
+
   const edgeBackPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_event, gestureState) =>
-        canStartEdgeBackSwipe() &&
-        gestureState.dx >= 8 &&
-        Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
-      onMoveShouldSetPanResponderCapture: () => false,
+        shouldCaptureEdgeBackSwipe(gestureState),
+      onMoveShouldSetPanResponderCapture: (_event, gestureState) =>
+        shouldCaptureEdgeBackSwipe(gestureState),
       onPanResponderTerminationRequest: () => true,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderRelease: (_event, gestureState) => {
+        if (
+          gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE &&
+          Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT
+        ) {
+          handleShellBackNavigation(true);
+        }
+      },
+      onPanResponderTerminate: (_event, gestureState) => {
         if (
           gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE &&
           Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT
@@ -1908,9 +1924,12 @@ function App(): JSX.Element {
 
       launchContextRef.current = normalizedLaunchContext;
       markWidgetLaunchWindow(normalizedLaunchContext);
+      const targetHref = normalizedLaunchContext.widgetAction
+        ? buildWidgetLaunchHref(targetPageKey, normalizedLaunchContext)
+        : `${targetPageKey}.html`;
       const target = resolvePageTarget(activeState.uri, {
         page: targetPageKey,
-        href: `${targetPageKey}.html`,
+        href: targetHref,
       });
       const comparableTargetUri = getComparableUrl(target?.uri || null);
       const shouldDispatchInPlace =
@@ -1988,7 +2007,7 @@ function App(): JSX.Element {
       const navigationResult = requestPageNavigationRef.current(
         {
           page: targetPageKey,
-          href: `${targetPageKey}.html`,
+          href: targetHref,
           direction: getNavigationDirection(activeState.pageKey, targetPageKey),
         },
         'bridge',
@@ -2882,6 +2901,13 @@ function App(): JSX.Element {
             : '';
         if (!launchId) {
           return;
+        }
+        const pendingDispatch = pendingWidgetLaunchDispatchRef.current;
+        if (
+          pendingDispatch?.launchContext.widgetLaunchId &&
+          pendingDispatch.launchContext.widgetLaunchId === launchId
+        ) {
+          pendingWidgetLaunchDispatchRef.current = null;
         }
         clearPendingWidgetLaunchAck(launchId);
         logPerfMetric('launch-action-acknowledged', {

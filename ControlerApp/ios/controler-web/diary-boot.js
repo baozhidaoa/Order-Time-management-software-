@@ -586,6 +586,7 @@ const DIARY_SEARCH_DEBOUNCE_MS = 160;
 const DIARY_PREFETCH_MONTH_OFFSETS = Object.freeze([-1, 0, 1]);
 const DIARY_LOADING_OVERLAY_DELAY_MS = 180;
 const DIARY_STORAGE_REQUEST_TIMEOUT_MS = 4000;
+const DIARY_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 let diaryFilteredEntriesCacheKey = "";
 let diaryFilteredEntriesCacheValue = [];
 let diarySearchInputTimer = 0;
@@ -683,6 +684,16 @@ function shouldRefreshDiaryForExternalChange(detail = {}) {
     return true;
   }
   return false;
+}
+
+function waitForDiaryStorageReady() {
+  if (typeof window.ControlerStorage?.whenReady !== "function") {
+    return Promise.resolve(true);
+  }
+  return window.ControlerStorage.whenReady().catch((error) => {
+    console.error("等待日记页原生存储就绪失败，继续使用当前快照:", error);
+    return false;
+  });
 }
 
 function ensureDiaryDeferredRuntimeLoaded() {
@@ -3103,7 +3114,26 @@ function isDiaryWidgetModalVisible() {
   );
 }
 
-function scheduleDiaryWidgetLaunchHandled(payload = {}, isHandled) {
+function clearDiaryWidgetLaunchQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("widgetAction")) {
+    return false;
+  }
+  params.delete("widgetAction");
+  params.delete("widgetKind");
+  params.delete("widgetSource");
+  params.delete("widgetLaunchId");
+  const queryText = params.toString();
+  const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+  return true;
+}
+
+function scheduleDiaryWidgetLaunchHandled(
+  payload = {},
+  isHandled = () => true,
+  options = {},
+) {
   const launchId =
     typeof payload?.launchId === "string" && payload.launchId.trim()
       ? payload.launchId.trim()
@@ -3116,21 +3146,48 @@ function scheduleDiaryWidgetLaunchHandled(payload = {}, isHandled) {
     typeof payload?.source === "string" && payload.source.trim()
       ? payload.source.trim()
       : "widget";
-  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-    return false;
+
+  const finalizeHandled = () => {
+    if (options.clearQuery === true) {
+      clearDiaryWidgetLaunchQuery();
+    }
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+      return true;
+    }
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "diary",
+      action,
+      handled: true,
+      source,
+    });
+    return true;
+  };
+
+  if (isHandled()) {
+    return finalizeHandled();
   }
-  void isHandled;
-  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-    launchId,
-    page: "diary",
-    action,
-    handled: true,
-    source,
-  });
+
+  const startedAt = Date.now();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const waitForHandled = () => {
+    if (isHandled()) {
+      finalizeHandled();
+      return;
+    }
+    if (Date.now() - startedAt >= DIARY_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS) {
+      return;
+    }
+    schedule(waitForHandled);
+  };
+  schedule(waitForHandled);
   return true;
 }
 
-function handleDiaryWidgetLaunchAction(payload = {}) {
+function handleDiaryWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
@@ -3152,6 +3209,7 @@ function handleDiaryWidgetLaunchAction(payload = {}) {
   scheduleDiaryWidgetLaunchHandled(
     payload,
     isDiaryWidgetModalVisible,
+    options,
   );
   return true;
 }
@@ -3189,14 +3247,9 @@ function initDiaryWidgetLaunchAction() {
       action,
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
+    }, {
+      clearQuery: true,
     });
-    params.delete("widgetAction");
-    params.delete("widgetKind");
-    params.delete("widgetSource");
-    params.delete("widgetLaunchId");
-    const queryText = params.toString();
-    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
-    window.history.replaceState({}, document.title, nextUrl);
   };
 
   window.addEventListener(eventName, (event) => {
@@ -3211,6 +3264,7 @@ async function init() {
     diaryPendingWidgetLaunchAction?.action === "new-diary";
 
   applyDiaryDesktopWidgetMode();
+  await waitForDiaryStorageReady();
   const bootstrappedFromSnapshot = bootstrapDiaryFromCachedSnapshot();
   initDiaryPeriodSelectors();
   initDiaryCategoryFilterSelector();

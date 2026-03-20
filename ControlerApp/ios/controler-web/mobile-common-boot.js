@@ -1932,6 +1932,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       reactNativeBridge?.platform === "ios" ||
       typeof window.ReactNativeWebView?.postMessage === "function"
     );
+  let storageReady = !hasReactNativeStorageBridge;
+  let storageReadyPromiseResolved = storageReady;
+  let resolveStorageReadyPromise = () => {};
+  const storageReadyPromise = new Promise((resolve) => {
+    resolveStorageReadyPromise = () => {
+      if (storageReadyPromiseResolved) {
+        return;
+      }
+      storageReadyPromiseResolved = true;
+      storageReady = true;
+      resolve(true);
+    };
+    if (storageReadyPromiseResolved) {
+      resolve(true);
+    }
+  });
+
+  function markStorageReady() {
+    storageReady = true;
+    resolveStorageReadyPromise();
+  }
 
   const reservedMetadataKeys = new Set([
     "storagePath",
@@ -2802,10 +2823,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       isElectron: false,
       isNativeApp: false,
       platform: extra.platform || "web",
+      get isReady() {
+        return storageReady;
+      },
       capabilities:
         extra.capabilities && typeof extra.capabilities === "object"
           ? { ...extra.capabilities }
           : {},
+      async whenReady() {
+        await storageReadyPromise;
+        return true;
+      },
       getItem(key) {
         return window.localStorage.getItem(key);
       },
@@ -3093,8 +3121,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       isElectron,
       isNativeApp,
       platform,
+      get isReady() {
+        return storageReady;
+      },
       capabilities:
         capabilities && typeof capabilities === "object" ? { ...capabilities } : {},
+      async whenReady() {
+        await storageReadyPromise;
+        return true;
+      },
       getItem(key) {
         return safeSerialize(getValue(String(key)));
       },
@@ -5550,6 +5585,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     void initializeReactNativeStorage().finally(() => {
       nativeInitializationSettled = true;
+      markStorageReady();
       const queuedForegroundSync = pendingForegroundSyncRequest;
       if (queuedForegroundSync && shellPageActive) {
         pendingForegroundSyncRequest = null;
@@ -11176,11 +11212,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }
+      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      if (platform === "android" || platform === "ios") {
+        return false;
+      }
+      const root = document.documentElement;
       const body = document.body;
       if (!(body instanceof HTMLElement)) {
         return false;
       }
-      if (body.classList.contains("controler-mobile-runtime")) {
+      if (
+        root?.classList.contains("controler-mobile-runtime") ||
+        root?.classList.contains("controler-android-native") ||
+        root?.classList.contains("controler-ios-native") ||
+        body.classList.contains("controler-mobile-runtime") ||
+        body.classList.contains("controler-android-native") ||
+        body.classList.contains("controler-ios-native")
+      ) {
         return false;
       }
       return body.classList.contains("row");
@@ -11303,6 +11351,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     window.addEventListener("pagehide", handlePageDispose);
     window.addEventListener("beforeunload", handlePageDispose);
     window.addEventListener("resize", handleViewportChange);
+    window.visualViewport?.addEventListener("resize", handleViewportChange);
 
     return {
       setState(nextState = {}) {
@@ -11376,6 +11425,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.removeEventListener("pagehide", handlePageDispose);
         window.removeEventListener("beforeunload", handlePageDispose);
         window.removeEventListener("resize", handleViewportChange);
+        window.visualViewport?.removeEventListener("resize", handleViewportChange);
         clearFullscreenGeometry();
       },
     };

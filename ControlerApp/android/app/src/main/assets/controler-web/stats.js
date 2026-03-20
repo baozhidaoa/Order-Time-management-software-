@@ -113,11 +113,22 @@ const MOBILE_HEATMAP_FILTER_WIDTH_FACTOR = 2 / 3;
 const MOBILE_HEATMAP_CELL_SHRINK_RATIO = 0.92;
 const STATS_PREFERENCES_STORAGE_KEY = "statsPreferences";
 const STATS_LOADING_OVERLAY_DELAY_MS = 180;
+const STATS_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const HEATMAP_THRESHOLD_DEFAULTS = Object.freeze({
   lightMaxHours: 2,
   mediumMaxHours: 6,
 });
 const DOUBLE_TAP_ACTIVATION_DELAY_MS = 320;
+
+function waitForStatsStorageReady() {
+  if (typeof window.ControlerStorage?.whenReady !== "function") {
+    return Promise.resolve(true);
+  }
+  return window.ControlerStorage.whenReady().catch((error) => {
+    console.error("等待统计页原生存储就绪失败，继续使用当前快照:", error);
+    return false;
+  });
+}
 const DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX = 24;
 const IS_ELECTRON_DESKTOP = !!window.electronAPI?.isElectron;
 const HAS_COARSE_POINTER =
@@ -6731,7 +6742,27 @@ function isStatsWidgetTargetVisible(action = "") {
   );
 }
 
-function scheduleStatsWidgetLaunchHandled(payload = {}, isHandled) {
+function clearStatsWidgetLaunchQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("widgetAction")) {
+    return false;
+  }
+  params.delete("widgetAction");
+  params.delete("widgetKind");
+  params.delete("widgetSource");
+  params.delete("widgetLaunchId");
+  params.delete("widgetAnchorDate");
+  const queryText = params.toString();
+  const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+  return true;
+}
+
+function scheduleStatsWidgetLaunchHandled(
+  payload = {},
+  isHandled = () => true,
+  options = {},
+) {
   const launchId =
     typeof payload?.launchId === "string" && payload.launchId.trim()
       ? payload.launchId.trim()
@@ -6744,21 +6775,48 @@ function scheduleStatsWidgetLaunchHandled(payload = {}, isHandled) {
     typeof payload?.source === "string" && payload.source.trim()
       ? payload.source.trim()
       : "widget";
-  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-    return false;
+
+  const finalizeHandled = () => {
+    if (options.clearQuery === true) {
+      clearStatsWidgetLaunchQuery();
+    }
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+      return true;
+    }
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "stats",
+      action,
+      handled: true,
+      source,
+    });
+    return true;
+  };
+
+  if (isHandled()) {
+    return finalizeHandled();
   }
-  void isHandled;
-  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-    launchId,
-    page: "stats",
-    action,
-    handled: true,
-    source,
-  });
+
+  const startedAt = Date.now();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const waitForHandled = () => {
+    if (isHandled()) {
+      finalizeHandled();
+      return;
+    }
+    if (Date.now() - startedAt >= STATS_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS) {
+      return;
+    }
+    schedule(waitForHandled);
+  };
+  schedule(waitForHandled);
   return true;
 }
 
-function handleStatsWidgetLaunchAction(payload = {}) {
+function handleStatsWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
@@ -6810,6 +6868,7 @@ function handleStatsWidgetLaunchAction(payload = {}) {
   scheduleStatsWidgetLaunchHandled(
     payload,
     () => isStatsWidgetTargetVisible(action),
+    options,
   );
   if (!statsInitialDataLoaded) {
     applyStatsRange(statsRangeState.unit, statsRangeState.anchorDate, false);
@@ -6841,15 +6900,9 @@ function initStatsWidgetLaunchAction() {
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
       widgetAnchorDate: params.get("widgetAnchorDate") || "",
+    }, {
+      clearQuery: true,
     });
-    params.delete("widgetAction");
-    params.delete("widgetKind");
-    params.delete("widgetSource");
-    params.delete("widgetLaunchId");
-    params.delete("widgetAnchorDate");
-    const queryText = params.toString();
-    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
-    window.history.replaceState({}, document.title, nextUrl);
   };
 
   window.addEventListener(eventName, (event) => {
@@ -6870,6 +6923,7 @@ async function init() {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
     initStatsWidgetLaunchAction();
+    await waitForStatsStorageReady();
     if (useWidgetLaunchFastPath) {
       queueStatsToolbarReveal();
     }

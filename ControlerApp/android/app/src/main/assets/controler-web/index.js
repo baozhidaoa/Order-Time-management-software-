@@ -23,6 +23,17 @@ function ensureIndexChartRuntimeLoaded() {
 function localizeIndexUiText(value) {
   return window.ControlerI18n?.translateUiText?.(String(value ?? "")) || String(value ?? "");
 }
+
+function waitForIndexStorageReady() {
+  if (typeof window.ControlerStorage?.whenReady !== "function") {
+    return Promise.resolve(true);
+  }
+  return window.ControlerStorage.whenReady().catch((error) => {
+    console.error("等待记录页原生存储就绪失败，继续使用当前快照:", error);
+    return false;
+  });
+}
+
 async function requestIndexConfirmation(message, options = {}) {
   if (uiTools?.confirmDialog) {
     return uiTools.confirmDialog({
@@ -82,6 +93,7 @@ const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
 const TABLE_SIZE_EVENT_NAME = "ui:table-scale-settings-changed";
 const INDEX_LOADING_OVERLAY_DELAY_MS = 150;
+const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
 const PROJECT_HIERARCHY_EXPANSION_STORAGE_KEY =
@@ -8335,6 +8347,7 @@ async function init() {
     initIndexPrimaryBindings();
     initIndexModalBindings();
     initIndexWidgetLaunchAction();
+    await waitForIndexStorageReady();
     uiTools?.markPerfStage?.("shell-ready", {
       widgetMode: INDEX_WIDGET_CONTEXT.enabled,
     });
@@ -9278,7 +9291,26 @@ function isIndexWidgetTimerModalVisible() {
   );
 }
 
-function scheduleIndexWidgetLaunchHandled(payload = {}, isHandled) {
+function clearIndexWidgetLaunchQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("widgetAction")) {
+    return false;
+  }
+  params.delete("widgetAction");
+  params.delete("widgetKind");
+  params.delete("widgetSource");
+  params.delete("widgetLaunchId");
+  const queryText = params.toString();
+  const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+  return true;
+}
+
+function scheduleIndexWidgetLaunchHandled(
+  payload = {},
+  isHandled = () => true,
+  options = {},
+) {
   const launchId =
     typeof payload?.launchId === "string" && payload.launchId.trim()
       ? payload.launchId.trim()
@@ -9291,21 +9323,48 @@ function scheduleIndexWidgetLaunchHandled(payload = {}, isHandled) {
     typeof payload?.source === "string" && payload.source.trim()
       ? payload.source.trim()
       : "widget";
-  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-    return false;
+
+  const finalizeHandled = () => {
+    if (options.clearQuery === true) {
+      clearIndexWidgetLaunchQuery();
+    }
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+      return true;
+    }
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "index",
+      action,
+      handled: true,
+      source,
+    });
+    return true;
+  };
+
+  if (isHandled()) {
+    return finalizeHandled();
   }
-  void isHandled;
-  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-    launchId,
-    page: "index",
-    action,
-    handled: true,
-    source,
-  });
+
+  const startedAt = Date.now();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const waitForHandled = () => {
+    if (isHandled()) {
+      finalizeHandled();
+      return;
+    }
+    if (Date.now() - startedAt >= INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS) {
+      return;
+    }
+    schedule(waitForHandled);
+  };
+  schedule(waitForHandled);
   return true;
 }
 
-function handleIndexWidgetLaunchAction(payload = {}) {
+function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
@@ -9321,6 +9380,7 @@ function handleIndexWidgetLaunchAction(payload = {}) {
     scheduleIndexWidgetLaunchHandled(
       payload,
       isIndexWidgetTimerModalVisible,
+      options,
     );
   }
   return accepted;
@@ -9350,14 +9410,9 @@ function initIndexWidgetLaunchAction() {
       action,
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
+    }, {
+      clearQuery: true,
     });
-    params.delete("widgetAction");
-    params.delete("widgetKind");
-    params.delete("widgetSource");
-    params.delete("widgetLaunchId");
-    const queryText = params.toString();
-    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
-    window.history.replaceState({}, document.title, nextUrl);
   };
 
   window.addEventListener(eventName, (event) => {

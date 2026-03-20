@@ -254,6 +254,10 @@
         justify-content: center;
       }
 
+      .widget-card--list-first {
+        min-height: 0;
+      }
+
       .widget-card-header,
       .widget-preview,
       .widget-stats,
@@ -645,6 +649,12 @@
         overflow-x: hidden;
         overflow-y: auto;
         scrollbar-gutter: stable both-edges;
+      }
+
+      .widget-card--list-first .widget-item-list {
+        flex: 1 1 auto;
+        min-height: 0;
+        overscroll-behavior: contain;
       }
 
       .widget-item-card {

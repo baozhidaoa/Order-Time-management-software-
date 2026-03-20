@@ -1223,13 +1223,12 @@ function compareTodoWidgetPriority(left, right, today = getLocalDateText(new Dat
   return String(left?.title || "").localeCompare(String(right?.title || ""), "zh-CN");
 }
 
-function getWidgetTodoItems(state, limit = 6) {
+function getWidgetTodoItems(state) {
   const today = getLocalDateText(new Date());
   return (Array.isArray(state?.todos) ? state.todos : [])
     .filter((todo) => todoScheduledOn(todo, today) || !todo?.completed)
     .slice()
     .sort((left, right) => compareTodoWidgetPriority(left, right, today))
-    .slice(0, limit)
     .map((todo) => {
       const progressRecords = getTodoProgressRecords(state, todo?.id || "");
       const lastProgress = progressRecords[0] || null;
@@ -1353,7 +1352,7 @@ function getTodayCheckinStats(state) {
   };
 }
 
-function getTodayCheckinItems(state, limit = 6) {
+function getTodayCheckinItems(state) {
   const today = getLocalDateText(new Date());
   return (Array.isArray(state?.checkinItems) ? state.checkinItems : [])
     .filter((item) => checkinScheduledOn(item, today))
@@ -1371,7 +1370,6 @@ function getTodayCheckinItems(state, limit = 6) {
       }
       return new Date(left?.createdAt || 0).getTime() - new Date(right?.createdAt || 0).getTime();
     })
-    .slice(0, limit)
     .map((item) => {
       const todayEntry = getCheckinTodayEntry(state, item?.id, today);
       const streak = getCheckinStreakDays(state, item?.id);
@@ -1859,26 +1857,10 @@ function resolveVisibleItemCount(kind, itemCards, metrics) {
   if (!Array.isArray(itemCards) || itemCards.length === 0 || !metrics) {
     return 0;
   }
-  if (!isListFirstKind(kind)) {
-    return 0;
+  if (isListFirstKind(kind)) {
+    return itemCards.length;
   }
-  if (shouldUseMinimalListCards(kind, metrics)) {
-    return Math.min(itemCards.length, metrics.height >= 168 ? 4 : 3);
-  }
-  if (metrics.height < 155 || metrics.width < 170) {
-    return Math.min(itemCards.length, 3);
-  }
-  if (
-    metrics.sizeClass === "medium" ||
-    metrics.height < 215 ||
-    metrics.width < 200
-  ) {
-    return Math.min(itemCards.length, 4);
-  }
-  if (metrics.sizeClass === "xlarge") {
-    return Math.min(itemCards.length, metrics.height >= 440 ? 8 : 7);
-  }
-  return Math.min(itemCards.length, metrics.height >= 320 ? 7 : 6);
+  return 0;
 }
 
 function resolvePreviewSupplementaryItemCount(kind, itemCards, metrics) {
@@ -2284,7 +2266,7 @@ function fillTodosContent(content, state) {
   const pendingCount = (Array.isArray(state?.todos) ? state.todos : []).filter(
     (todo) => !todo?.completed,
   ).length;
-  const items = getWidgetTodoItems(state, 5).map((item) => ({
+  const items = getWidgetTodoItems(state).map((item) => ({
     ...item,
     command: TODO_TOGGLE_COMMAND,
     targetId: item.id,
@@ -2311,7 +2293,7 @@ function fillTodosContent(content, state) {
 
 function fillCheckinsContent(content, state) {
   const stats = getTodayCheckinStats(state);
-  const items = getTodayCheckinItems(state, 5).map((item) => ({
+  const items = getTodayCheckinItems(state).map((item) => ({
     ...item,
     command: CHECKIN_TOGGLE_COMMAND,
     targetId: item.id,

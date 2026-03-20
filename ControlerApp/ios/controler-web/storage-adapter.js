@@ -57,6 +57,27 @@
       reactNativeBridge?.platform === "ios" ||
       typeof window.ReactNativeWebView?.postMessage === "function"
     );
+  let storageReady = !hasReactNativeStorageBridge;
+  let storageReadyPromiseResolved = storageReady;
+  let resolveStorageReadyPromise = () => {};
+  const storageReadyPromise = new Promise((resolve) => {
+    resolveStorageReadyPromise = () => {
+      if (storageReadyPromiseResolved) {
+        return;
+      }
+      storageReadyPromiseResolved = true;
+      storageReady = true;
+      resolve(true);
+    };
+    if (storageReadyPromiseResolved) {
+      resolve(true);
+    }
+  });
+
+  function markStorageReady() {
+    storageReady = true;
+    resolveStorageReadyPromise();
+  }
 
   const reservedMetadataKeys = new Set([
     "storagePath",
@@ -927,10 +948,17 @@
       isElectron: false,
       isNativeApp: false,
       platform: extra.platform || "web",
+      get isReady() {
+        return storageReady;
+      },
       capabilities:
         extra.capabilities && typeof extra.capabilities === "object"
           ? { ...extra.capabilities }
           : {},
+      async whenReady() {
+        await storageReadyPromise;
+        return true;
+      },
       getItem(key) {
         return window.localStorage.getItem(key);
       },
@@ -1218,8 +1246,15 @@
       isElectron,
       isNativeApp,
       platform,
+      get isReady() {
+        return storageReady;
+      },
       capabilities:
         capabilities && typeof capabilities === "object" ? { ...capabilities } : {},
+      async whenReady() {
+        await storageReadyPromise;
+        return true;
+      },
       getItem(key) {
         return safeSerialize(getValue(String(key)));
       },
@@ -3675,6 +3710,7 @@
 
     void initializeReactNativeStorage().finally(() => {
       nativeInitializationSettled = true;
+      markStorageReady();
       const queuedForegroundSync = pendingForegroundSyncRequest;
       if (queuedForegroundSync && shellPageActive) {
         pendingForegroundSyncRequest = null;

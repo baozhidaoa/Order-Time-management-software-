@@ -55,15 +55,15 @@ public final class ControlerWidgetRenderer {
     private static final Pattern RGB_PATTERN = Pattern.compile(
         "rgba?\\(\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})(?:\\s*,\\s*([\\d.]+))?\\s*\\)"
     );
-    private static final long DEBOUNCED_REFRESH_DELAY_MS = 220L;
-    private static final long SAME_KIND_REFRESH_DELAY_MS = 300L;
-    private static final long AFFECTED_REFRESH_DELAY_MS = 1800L;
-    private static final long THEME_REFRESH_DELAY_MS = 2200L;
-    private static final long DEFERRED_PREVIEW_REFRESH_DELAY_MS = 180L;
+    private static final long DEBOUNCED_REFRESH_DELAY_MS = 120L;
+    private static final long SAME_KIND_REFRESH_DELAY_MS = 90L;
+    private static final long AFFECTED_REFRESH_DELAY_MS = 320L;
+    private static final long THEME_REFRESH_DELAY_MS = 1200L;
+    private static final long DEFERRED_PREVIEW_REFRESH_DELAY_MS = 100L;
     private static final String PREVIEW_SIGNATURE_NONE = "preview:none";
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
-    private static final long RENDER_SOURCE_CACHE_TTL_MS = 1200L;
+    private static final long RENDER_SOURCE_CACHE_TTL_MS = 260L;
     private static final Object REFRESH_LOCK = new Object();
     private static final Object RENDER_STATE_LOCK = new Object();
     private static final HandlerThread REFRESH_THREAD = createRefreshThread();
@@ -3074,7 +3074,7 @@ public final class ControlerWidgetRenderer {
 
     private static String appendPendingMeta(String meta) {
         String normalized = safeText(meta);
-        return TextUtils.isEmpty(normalized) ? "保存中" : normalized + " · 保存中";
+        return TextUtils.isEmpty(normalized) ? "同步中" : normalized + " · 同步中";
     }
 
     private static void fillTodosContent(
@@ -3161,7 +3161,9 @@ public final class ControlerWidgetRenderer {
             if (pending) {
                 card.meta = appendPendingMeta(card.meta);
             }
-            card.actionLabel = pending ? "保存中" : completed ? "撤回" : "完成";
+            card.actionLabel = pending
+                ? (completed ? "已完成" : "待办中")
+                : completed ? "撤回" : "完成";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
             card.targetId = safeText(todo.id);
             card.accentColor = parseColor(todo.color, Color.parseColor("#ED8936"));
@@ -3258,7 +3260,9 @@ public final class ControlerWidgetRenderer {
                 card.meta = appendPendingMeta(card.meta);
             }
             card.actionLabel =
-                pendingAction != null ? "保存中" : checked ? "撤回" : "打卡";
+                pendingAction != null
+                    ? (checked ? "已打卡" : "待打卡")
+                    : checked ? "撤回" : "打卡";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
             card.targetId = safeText(item.id);
             card.accentColor = parseColor(item.color, Color.parseColor("#4299E1"));

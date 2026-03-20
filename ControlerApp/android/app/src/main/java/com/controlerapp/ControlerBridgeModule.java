@@ -301,7 +301,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     private void scheduleWidgetRefresh(JSONObject payload) {
-        ControlerWidgetRenderer.scheduleRefresh(getReactApplicationContext(), payload);
+        JSONObject safePayload = payload == null ? new JSONObject() : payload;
+        try {
+            if (TextUtils.isEmpty(safePayload.optString("widgetKindHint", ""))) {
+                String widgetKindHint = resolveWidgetKindHint(
+                    safePayload.optJSONArray("changedSections")
+                );
+                if (!TextUtils.isEmpty(widgetKindHint)) {
+                    safePayload.put("widgetKindHint", widgetKindHint);
+                }
+            }
+        } catch (Exception ignored) {
+            // Keep the refresh request usable even if hint inference fails.
+        }
+        ControlerWidgetRenderer.scheduleRefresh(getReactApplicationContext(), safePayload);
     }
 
     private void scheduleWidgetRefresh(JSONArray changedSections, String source) throws Exception {
@@ -326,6 +339,59 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
         }
         return array;
+    }
+
+    private String resolveWidgetKindHint(JSONArray changedSections) {
+        if (changedSections == null || changedSections.length() == 0) {
+            return "";
+        }
+
+        boolean sawYearView = false;
+        boolean sawWeekView = false;
+        boolean sawStartTimer = false;
+
+        for (int index = 0; index < changedSections.length(); index++) {
+            String section = changedSections.optString(index, "").trim();
+            if (TextUtils.isEmpty(section)) {
+                continue;
+            }
+            if ("todos".equals(section)) {
+                return ControlerWidgetKinds.TODOS;
+            }
+            if (
+                "checkinItems".equals(section)
+                    || "dailyCheckins".equals(section)
+                    || "checkins".equals(section)
+            ) {
+                return ControlerWidgetKinds.CHECKINS;
+            }
+            if (
+                "timerSessionState".equals(section)
+                    || "records".equals(section)
+                    || "projects".equals(section)
+            ) {
+                sawStartTimer = true;
+                continue;
+            }
+            if ("yearlyGoals".equals(section)) {
+                sawYearView = true;
+                continue;
+            }
+            if ("plans".equals(section) || "plansRecurring".equals(section)) {
+                sawWeekView = true;
+            }
+        }
+
+        if (sawStartTimer) {
+            return ControlerWidgetKinds.START_TIMER;
+        }
+        if (sawWeekView) {
+            return ControlerWidgetKinds.WEEK_VIEW;
+        }
+        if (sawYearView) {
+            return ControlerWidgetKinds.YEAR_VIEW;
+        }
+        return "";
     }
 
     private JSONArray inferChangedSectionsFromCorePatch(JSONObject partialCore) {

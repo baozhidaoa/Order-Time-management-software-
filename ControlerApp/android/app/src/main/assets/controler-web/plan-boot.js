@@ -588,6 +588,7 @@ const MOBILE_LAYOUT_MAX_WIDTH = 690;
 const MOBILE_TABLE_SCALE_RATIO = 0.82 * (2 / 3);
 const PLAN_YEAR_VIEW_CARD_SHRINK_RATIO = 2 / 3;
 const PLAN_LOADING_OVERLAY_DELAY_MS = 180;
+const PLAN_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const PLAN_TODO_RUNTIME_ASSET_URL = "todo.js?v=20260310-modal-fix";
 let reminderTools = window.ControlerReminders || null;
 let planLoadedPeriodIds = [];
@@ -615,6 +616,16 @@ let planCoverageLoadKey = "";
 let planCalendarMountDeferred = false;
 let planShellRefs = null;
 let planShellVisibilityBound = false;
+
+function waitForPlanStorageReady() {
+  if (typeof window.ControlerStorage?.whenReady !== "function") {
+    return Promise.resolve(true);
+  }
+  return window.ControlerStorage.whenReady().catch((error) => {
+    console.error("等待计划页原生存储就绪失败，继续使用当前快照:", error);
+    return false;
+  });
+}
 
 function getReminderTools() {
   reminderTools = window.ControlerReminders || reminderTools || null;
@@ -5801,7 +5812,26 @@ function isPlanWidgetTargetVisible(action = "") {
   }
 }
 
-function schedulePlanWidgetLaunchHandled(payload = {}, isHandled) {
+function clearPlanWidgetLaunchQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("widgetAction")) {
+    return false;
+  }
+  params.delete("widgetAction");
+  params.delete("widgetKind");
+  params.delete("widgetSource");
+  params.delete("widgetLaunchId");
+  const queryText = params.toString();
+  const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+  return true;
+}
+
+function schedulePlanWidgetLaunchHandled(
+  payload = {},
+  isHandled = () => true,
+  options = {},
+) {
   const launchId =
     typeof payload?.launchId === "string" && payload.launchId.trim()
       ? payload.launchId.trim()
@@ -5814,17 +5844,44 @@ function schedulePlanWidgetLaunchHandled(payload = {}, isHandled) {
     typeof payload?.source === "string" && payload.source.trim()
       ? payload.source.trim()
       : "widget";
-  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-    return false;
+
+  const finalizeHandled = () => {
+    if (options.clearQuery === true) {
+      clearPlanWidgetLaunchQuery();
+    }
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+      return true;
+    }
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "plan",
+      action,
+      handled: true,
+      source,
+    });
+    return true;
+  };
+
+  if (isHandled()) {
+    return finalizeHandled();
   }
-  void isHandled;
-  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-    launchId,
-    page: "plan",
-    action,
-    handled: true,
-    source,
-  });
+
+  const startedAt = Date.now();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const waitForHandled = () => {
+    if (isHandled()) {
+      finalizeHandled();
+      return;
+    }
+    if (Date.now() - startedAt >= PLAN_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS) {
+      return;
+    }
+    schedule(waitForHandled);
+  };
+  schedule(waitForHandled);
   return true;
 }
 
@@ -5852,7 +5909,7 @@ function redirectLegacyTodoWidgetLaunch(payload = {}) {
   return true;
 }
 
-function handlePlanWidgetLaunchAction(payload = {}) {
+function handlePlanWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
@@ -5890,6 +5947,7 @@ function handlePlanWidgetLaunchAction(payload = {}) {
   saveViewState();
   schedulePlanWidgetLaunchHandled(payload, () =>
     isPlanWidgetTargetVisible(action),
+    options,
   );
   if (!planInitialDataLoaded) {
     scheduleDeferredPlanBootstrap();
@@ -5919,14 +5977,9 @@ function initPlanWidgetLaunchAction() {
       action,
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
+    }, {
+      clearQuery: true,
     });
-    params.delete("widgetAction");
-    params.delete("widgetKind");
-    params.delete("widgetSource");
-    params.delete("widgetLaunchId");
-    const queryText = params.toString();
-    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
-    window.history.replaceState({}, document.title, nextUrl);
   };
 
   window.addEventListener(eventName, (event) => {
@@ -6123,6 +6176,7 @@ async function init() {
     // 加载视图状态
     loadViewState();
     applyPlanDesktopWidgetMode();
+    await waitForPlanStorageReady();
 
     // 尺寸设置实时联动
     bindTableScaleLiveRefresh();

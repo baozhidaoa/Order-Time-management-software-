@@ -22,6 +22,7 @@ const MOBILE_GENERATED_ITEM_SHRINK_RATIO = 2 / 3;
 const MOBILE_TODO_DROPDOWN_WIDTH_FACTOR = 0.5;
 const TODO_WIDGET_VIEW_EVENT = "controler:todo-widget-view";
 const TODO_SEARCH_DEBOUNCE_MS = 160;
+const TODO_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 let todoSearchTimer = 0;
 let cachedTodoFilterKey = "";
 let cachedFilteredTodos = [];
@@ -33,6 +34,8 @@ let todoWidgetLaunchActionInitialized = false;
 let todoPendingExternalStorageRefresh =
   window.__controlerTodoRuntimePendingExternalRefresh === true;
 let todoPersistChain = Promise.resolve();
+let todoInitialRevealQueued = false;
+let todoInitialReadyReported = false;
 const todoPendingTodoIds = new Set();
 const todoPendingCheckinIds = new Set();
 const todoLoadedSectionPeriods = {
@@ -174,10 +177,44 @@ function readTodoWorkspaceSnapshotFromManagedStorage() {
 
 function readTodoWorkspaceSnapshot() {
   const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
+  const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
+  if (window.ControlerStorage?.isNativeApp) {
+    return managedSnapshot || localSnapshot;
+  }
   if (localSnapshot?.__hasMirror) {
     return localSnapshot;
   }
-  return readTodoWorkspaceSnapshotFromManagedStorage() || localSnapshot;
+  return managedSnapshot || localSnapshot;
+}
+
+function clearTodoWidgetLaunchQuery() {
+  const params = new URLSearchParams(window.location.search || "");
+  if (!params.get("widgetAction")) {
+    return false;
+  }
+  params.delete("widgetAction");
+  params.delete("widgetKind");
+  params.delete("widgetSource");
+  params.delete("widgetLaunchId");
+  const queryText = params.toString();
+  const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, nextUrl);
+  return true;
+}
+
+function waitForTodoStorageReady() {
+  if (typeof window.ControlerStorage?.whenReady !== "function") {
+    return Promise.resolve(true);
+  }
+  return window.ControlerStorage.whenReady().catch((error) => {
+    console.error("等待待办页原生存储就绪失败，继续使用当前快照:", error);
+    return false;
+  });
+}
+
+function isTodoWidgetTargetVisible(action = "") {
+  const expectedView = action === "show-checkins" ? "checkins" : "todos";
+  return todoPlanSidebarInitialized && currentView === expectedView;
 }
 
 function getTodoSectionPeriodId(section, item) {
@@ -1102,22 +1139,39 @@ function getTableScaleSetting(tableKey, fallback = 1, legacyKeys = []) {
 }
 
 function bindTableScaleLiveRefresh() {
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  let rerenderQueued = false;
   const rerender = () => {
     renderCurrentView();
   };
+  const scheduleRerender = () => {
+    if (rerenderQueued) {
+      return;
+    }
+    rerenderQueued = true;
+    schedule(() => {
+      rerenderQueued = false;
+      rerender();
+    });
+  };
 
-  window.addEventListener(TABLE_SIZE_EVENT_NAME, rerender);
+  window.addEventListener(TABLE_SIZE_EVENT_NAME, scheduleRerender);
   window.addEventListener("storage", (event) => {
     if (
       event.key === TABLE_SIZE_STORAGE_KEY ||
       event.key === TABLE_SIZE_UPDATED_AT_KEY
     ) {
-      rerender();
+      scheduleRerender();
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) rerender();
+    if (!document.hidden) scheduleRerender();
   });
+  window.addEventListener("resize", scheduleRerender);
+  window.visualViewport?.addEventListener("resize", scheduleRerender);
 }
 
 let todoExternalStorageRefreshQueued = false;
@@ -1237,6 +1291,35 @@ function closeModalElement(modal) {
   }
 }
 
+const TODO_MANAGED_MODAL_SELECTOR =
+  '.modal-overlay[data-todo-managed-modal="true"]';
+
+function closeTodoManagedModals() {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.querySelectorAll(TODO_MANAGED_MODAL_SELECTOR).forEach((modal) => {
+    if (modal instanceof HTMLElement) {
+      closeModalElement(modal);
+    }
+  });
+}
+
+function appendTodoManagedModal(modal, role = "") {
+  if (
+    !(modal instanceof HTMLElement) ||
+    !(typeof document !== "undefined" && document.body instanceof HTMLElement)
+  ) {
+    return;
+  }
+  closeTodoManagedModals();
+  modal.dataset.todoManagedModal = "true";
+  if (typeof role === "string" && role.trim()) {
+    modal.dataset.todoModalRole = role.trim();
+  }
+  document.body.appendChild(modal);
+}
+
 async function requestTodoConfirmation(message, options = {}) {
   if (uiTools?.confirmDialog) {
     return uiTools.confirmDialog({
@@ -1306,6 +1389,7 @@ function finalizeTodoModalChange(closeModal, options = {}) {
   if (typeof closeModal === "function") {
     closeModal();
   }
+  closeTodoManagedModals();
 
   if (refreshView) {
     scheduleTodoInterfaceRefresh();
@@ -1470,6 +1554,10 @@ function getTodoListCardScale(listScale) {
   );
 }
 
+function getTodoListDensityScale(listScale) {
+  return Math.min(Math.max(getTodoListCardScale(listScale), 0.1), 2.2);
+}
+
 function getCompactTodoCardWidth(listScale, baseWidth = 560) {
   const widthScale = Math.max(getTodoListCardScale(listScale), 0.1);
   const minWidth = isCompactMobileLayout()
@@ -1478,14 +1566,24 @@ function getCompactTodoCardWidth(listScale, baseWidth = 560) {
   return Math.max(minWidth, Math.round(baseWidth * widthScale));
 }
 
+function getTodoListCardMaxWidth(listScale, baseWidth = 560) {
+  if (isCompactMobileLayout()) {
+    return null;
+  }
+  return getCompactTodoCardWidth(listScale, baseWidth);
+}
+
 function applyCenteredEmptyStateLayout(emptyCard, contentWidth) {
   if (!(emptyCard instanceof HTMLElement)) {
     return;
   }
   emptyCard.style.width = "100%";
-  emptyCard.style.maxWidth = `${contentWidth}px`;
+  emptyCard.style.maxWidth =
+    Number.isFinite(contentWidth) && contentWidth > 0
+      ? `${contentWidth}px`
+      : "100%";
   emptyCard.style.boxSizing = "border-box";
-  emptyCard.style.alignSelf = "center";
+  emptyCard.style.alignSelf = isCompactMobileLayout() ? "stretch" : "center";
   emptyCard.style.flex = "1 1 auto";
   emptyCard.style.display = "flex";
   emptyCard.style.flexDirection = "column";
@@ -2176,13 +2274,14 @@ function renderTodoList() {
     Math.max(getTableScaleSetting("todoListView", 1, ["todoLists"]), 0.1),
     2.2,
   );
-  const contentWidth = getCompactTodoCardWidth(listScale);
-  container.style.fontSize = `${Math.max(10, Math.round(14 * listScale))}px`;
-  container.style.padding = `${Math.max(8, Math.round(15 * listScale))}px`;
+  const densityScale = getTodoListDensityScale(listScale);
+  const contentWidth = getTodoListCardMaxWidth(listScale);
+  container.style.fontSize = `${Math.max(10, Math.round(14 * densityScale))}px`;
+  container.style.padding = `${Math.max(8, Math.round(15 * densityScale))}px`;
   container.style.display = "flex";
   container.style.flexDirection = "column";
   container.style.alignItems = isCompactMobileLayout() ? "stretch" : "center";
-  container.style.gap = `${Math.max(6, Math.round(10 * listScale))}px`;
+  container.style.gap = `${Math.max(6, Math.round(10 * densityScale))}px`;
   container.style.overflow = "visible";
   const filteredTodos = getFilteredSortedTodos();
 
@@ -2201,8 +2300,12 @@ function renderTodoList() {
         createBtn.addEventListener("click", openTodoCreateFlow);
       }
     } else {
+      const emptyStateWidthStyle =
+        Number.isFinite(contentWidth) && contentWidth > 0
+          ? `max-width: ${contentWidth}px; width: 100%;`
+          : "width: 100%; max-width: 100%;";
       container.innerHTML = `
-        <div class="empty-state" style="max-width: ${contentWidth}px; width: 100%;">
+        <div class="empty-state" style="${emptyStateWidthStyle}">
           <div class="empty-state-icon">📝</div>
           <h3 style="color: var(--text-color)">暂无待办事项</h3>
           <p style="color: var(--muted-text-color); margin-bottom: 20px">
@@ -2381,14 +2484,12 @@ function renderTodoArea() {
 // 创建待办事项元素
 function createTodoElement(todo, listScale = 1) {
   const todoElement = document.createElement("div");
-  const cardScale = getTodoListCardScale(listScale);
+  const cardScale = getTodoListDensityScale(listScale);
   const titleFontSize = Math.max(12, Math.round(20 * cardScale));
   const descriptionFontSize = Math.max(10, Math.round(14 * cardScale));
   const metaFontSize = Math.max(9, Math.round(12 * cardScale));
   const actionFontSize = Math.max(10, Math.round(13 * cardScale));
-  const cardMaxWidth = isCompactMobileLayout()
-    ? null
-    : getCompactTodoCardWidth(listScale);
+  const cardMaxWidth = getTodoListCardMaxWidth(listScale);
   const progressCardWidth = Math.max(116, Math.round(192 * cardScale));
   todoElement.className = `todo-item ${todo.completed ? "completed" : ""}`;
   todoElement.dataset.todoId = todo.id;
@@ -2500,17 +2601,26 @@ function createTodoElement(todo, listScale = 1) {
 
   const completeButton = todoElement.querySelector('[data-action="complete"]');
   const progressButton = todoElement.querySelector('[data-action="add-progress"]');
+  const headerElement = todoElement.querySelector(".todo-header");
   const titleElement = todoElement.querySelector(".todo-title");
   const dueDateElement = todoElement.querySelector(".todo-due-date");
   const descriptionElement = todoElement.querySelector(".todo-description");
+  const reminderSummaryElement = todoElement.querySelector(".todo-reminder-summary");
+  const tagsContainerElement = todoElement.querySelector(".todo-tags");
   const tagElements = todoElement.querySelectorAll(".todo-tag");
+  const footerElement = todoElement.querySelector(".todo-footer");
+  const actionStackElement = todoElement.querySelector(".todo-action-stack");
   const repeatSummaryElement = todoElement.querySelector(".todo-repeat-summary");
   const progressCaptionElement = todoElement.querySelector(".todo-progress-caption");
   const progressEmptyElement = todoElement.querySelector(".todo-progress-empty");
+  const progressRecordsContainer = todoElement.querySelector(".checkin-records-inline");
   const progressRecords = todoElement.querySelectorAll(".todo-progress-record");
   const progressDateElements = todoElement.querySelectorAll(".checkin-date");
   const progressMessageElements = todoElement.querySelectorAll(".checkin-message");
 
+  if (headerElement) {
+    headerElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
+  }
   if (titleElement) {
     titleElement.style.fontSize = `${titleFontSize}px`;
   }
@@ -2522,19 +2632,33 @@ function createTodoElement(todo, listScale = 1) {
   if (descriptionElement) {
     descriptionElement.style.fontSize = `${descriptionFontSize}px`;
     descriptionElement.style.marginBottom = "0";
-    if (isCompactMobileLayout()) {
-      descriptionElement.style.webkitLineClamp = "1";
-    }
+    descriptionElement.style.webkitLineClamp = isCompactMobileLayout() ? "1" : "2";
   }
   if (repeatSummaryElement) {
     repeatSummaryElement.style.fontSize = `${metaFontSize}px`;
     repeatSummaryElement.style.marginBottom = "0";
+  }
+  if (reminderSummaryElement) {
+    reminderSummaryElement.style.fontSize = `${metaFontSize}px`;
+    reminderSummaryElement.style.marginTop = "0";
+  }
+  if (tagsContainerElement) {
+    tagsContainerElement.style.gap = `${Math.max(4, Math.round(8 * cardScale))}px`;
   }
   if (progressCaptionElement) {
     progressCaptionElement.style.fontSize = `${Math.max(9, Math.round(11 * cardScale))}px`;
   }
   if (progressEmptyElement) {
     progressEmptyElement.style.fontSize = `${metaFontSize}px`;
+  }
+  if (footerElement) {
+    footerElement.style.gap = `${Math.max(8, Math.round(12 * cardScale))}px`;
+  }
+  if (actionStackElement) {
+    actionStackElement.style.gap = `${Math.max(6, Math.round(8 * cardScale))}px`;
+  }
+  if (progressRecordsContainer) {
+    progressRecordsContainer.style.gap = `${Math.max(4, Math.round(6 * cardScale))}px`;
   }
   tagElements.forEach((tagElement) => {
     tagElement.style.fontSize = `${metaFontSize}px`;
@@ -2973,7 +3097,7 @@ function showTodoEditModal(todo = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
+  appendTodoManagedModal(modal, "todo-edit");
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
@@ -3284,7 +3408,7 @@ function showCheckinModal(todoId, checkinId = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
+  appendTodoManagedModal(modal, "todo-progress");
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
@@ -3621,6 +3745,11 @@ function createTestTodos() {
 // 显示类型选择弹窗
 function showTodoTypeModal() {
   const modal = document.createElement("div");
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  let nextModalQueued = false;
   modal.className = "modal-overlay";
   modal.style.display = "flex";
   modal.style.zIndex = "2000";
@@ -3661,27 +3790,41 @@ function showTodoTypeModal() {
     </div>
   `;
 
-  document.body.appendChild(modal);
+  appendTodoManagedModal(modal, "todo-type");
+  uiTools?.stopModalContentPropagation?.(modal);
+  const closeThenOpen = (openNext) => {
+    if (nextModalQueued || typeof openNext !== "function") {
+      return;
+    }
+    nextModalQueued = true;
+    closeModalElement(modal);
+    schedule(() => {
+      nextModalQueued = false;
+      openNext();
+    });
+  };
 
   // 绑定事件
   modal.querySelector("#cancel-type-btn").addEventListener("click", () => {
-    document.body.removeChild(modal);
+    closeModalElement(modal);
   });
 
   modal.querySelector("#create-todo-btn").addEventListener("click", () => {
-    document.body.removeChild(modal);
-    showTodoEditModal();
+    closeThenOpen(() => {
+      showTodoEditModal();
+    });
   });
 
   modal.querySelector("#create-checkin-btn").addEventListener("click", () => {
-    document.body.removeChild(modal);
-    showCheckinItemModal();
+    closeThenOpen(() => {
+      showCheckinItemModal();
+    });
   });
 
   // 点击外部关闭
   modal.addEventListener("click", function (e) {
     if (e.target === this) {
-      document.body.removeChild(modal);
+      closeModalElement(modal);
     }
   });
 }
@@ -3875,7 +4018,7 @@ function showCheckinItemModal(item = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
+  appendTodoManagedModal(modal, "checkin-item");
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
@@ -4141,13 +4284,14 @@ function renderCheckinList() {
     Math.max(getTableScaleSetting("todoListView", 1, ["todoLists"]), 0.1),
     2.2,
   );
-  const contentWidth = getCompactTodoCardWidth(listScale, 540);
-  container.style.fontSize = `${Math.max(10, Math.round(14 * listScale))}px`;
-  container.style.padding = `${Math.max(8, Math.round(15 * listScale))}px`;
+  const densityScale = getTodoListDensityScale(listScale);
+  const contentWidth = getTodoListCardMaxWidth(listScale, 540);
+  container.style.fontSize = `${Math.max(10, Math.round(14 * densityScale))}px`;
+  container.style.padding = `${Math.max(8, Math.round(15 * densityScale))}px`;
   container.style.display = "flex";
   container.style.flexDirection = "column";
   container.style.alignItems = isCompactMobileLayout() ? "stretch" : "center";
-  container.style.gap = `${Math.max(6, Math.round(10 * listScale))}px`;
+  container.style.gap = `${Math.max(6, Math.round(10 * densityScale))}px`;
   container.style.overflow = "visible";
 
   // 清除容器内容
@@ -4155,8 +4299,12 @@ function renderCheckinList() {
 
   // 如果没有打卡项目，显示空状态
   if (checkinItems.length === 0) {
+    const emptyStateWidthStyle =
+      Number.isFinite(contentWidth) && contentWidth > 0
+        ? `max-width: ${contentWidth}px;`
+        : "max-width: 100%;";
     container.innerHTML = `
-      <div class="empty-state" style="text-align: center; padding: 40px 20px; color: var(--text-color); max-width: ${contentWidth}px;">
+      <div class="empty-state" style="text-align: center; padding: 40px 20px; color: var(--text-color); ${emptyStateWidthStyle}">
         <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
         <h3 style="color: var(--text-color)">暂无打卡项目</h3>
         <p style="color: var(--muted-text-color); margin-bottom: 20px">
@@ -4186,12 +4334,10 @@ function renderCheckinList() {
 // 创建打卡项目元素
 function createCheckinItemElement(item, listScale = 1) {
   const itemElement = document.createElement("div");
-  const cardScale = getTodoListCardScale(listScale);
+  const cardScale = getTodoListDensityScale(listScale);
   const titleFontSize = Math.max(12, Math.round(20 * cardScale));
   const metaFontSize = Math.max(10, Math.round(14 * cardScale));
-  const cardMaxWidth = isCompactMobileLayout()
-    ? null
-    : getCompactTodoCardWidth(listScale, 540);
+  const cardMaxWidth = getTodoListCardMaxWidth(listScale, 540);
   itemElement.className = "checkin-item";
   itemElement.dataset.itemId = item.id;
   itemElement.style.backgroundColor = "var(--bg-tertiary)";
@@ -4282,7 +4428,12 @@ function createCheckinItemElement(item, listScale = 1) {
   `;
 
   // 添加事件监听器
+  const descriptionElement = itemElement.querySelector(".checkin-description");
   const toggleBtn = itemElement.querySelector(".checkin-toggle-btn");
+
+  if (descriptionElement && isCompactMobileLayout()) {
+    descriptionElement.style.webkitLineClamp = "1";
+  }
 
   toggleBtn.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -4480,7 +4631,11 @@ function ensureTodoBaseBindings() {
   applyPendingTodoRefreshIfNeeded();
 }
 
-function scheduleTodoWidgetLaunchHandled(payload = {}) {
+function scheduleTodoWidgetLaunchHandled(
+  payload = {},
+  isHandled = () => true,
+  options = {},
+) {
   const launchId =
     typeof payload?.launchId === "string" && payload.launchId.trim()
       ? payload.launchId.trim()
@@ -4493,20 +4648,48 @@ function scheduleTodoWidgetLaunchHandled(payload = {}) {
     typeof payload?.source === "string" && payload.source.trim()
       ? payload.source.trim()
       : "widget";
-  if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-    return false;
+
+  const finalizeHandled = () => {
+    if (options.clearQuery === true) {
+      clearTodoWidgetLaunchQuery();
+    }
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+      return true;
+    }
+    window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
+      launchId,
+      page: "todo",
+      action,
+      handled: true,
+      source,
+    });
+    return true;
+  };
+
+  if (isHandled()) {
+    return finalizeHandled();
   }
-  window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
-    launchId,
-    page: "todo",
-    action,
-    handled: true,
-    source,
-  });
+
+  const startedAt = Date.now();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const waitForHandled = () => {
+    if (isHandled()) {
+      finalizeHandled();
+      return;
+    }
+    if (Date.now() - startedAt >= TODO_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS) {
+      return;
+    }
+    schedule(waitForHandled);
+  };
+  schedule(waitForHandled);
   return true;
 }
 
-function handleTodoWidgetLaunchAction(payload = {}) {
+function handleTodoWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
@@ -4519,7 +4702,11 @@ function handleTodoWidgetLaunchAction(payload = {}) {
   });
   applyTodoWidgetMode();
   renderTodoWorkspace();
-  scheduleTodoWidgetLaunchHandled(payload);
+  scheduleTodoWidgetLaunchHandled(
+    payload,
+    () => isTodoWidgetTargetVisible(action),
+    options,
+  );
   return true;
 }
 
@@ -4547,14 +4734,9 @@ function initTodoWidgetLaunchAction() {
       action,
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
+    }, {
+      clearQuery: true,
     });
-    params.delete("widgetAction");
-    params.delete("widgetKind");
-    params.delete("widgetSource");
-    params.delete("widgetLaunchId");
-    const queryText = params.toString();
-    const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
-    window.history.replaceState({}, document.title, nextUrl);
   };
 
   window.addEventListener(eventName, (event) => {
@@ -4581,6 +4763,40 @@ function initPlanSidebar(options = {}) {
   };
 }
 
+function queueTodoInitialReveal() {
+  if (todoInitialReadyReported) {
+    return;
+  }
+  const body = document.body;
+  if (!(body instanceof HTMLElement)) {
+    return;
+  }
+  if (!body.classList.contains("todo-bootstrap-pending")) {
+    todoInitialReadyReported = true;
+    uiTools?.markNativePageReady?.();
+    return;
+  }
+  if (todoInitialRevealQueued) {
+    return;
+  }
+
+  todoInitialRevealQueued = true;
+  todoInitialReadyReported = true;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    schedule(() => {
+      todoInitialRevealQueued = false;
+      body.classList.remove("todo-bootstrap-pending");
+      body.classList.add("todo-bootstrap-ready");
+      uiTools?.markPerfStage?.("first-render-done");
+      uiTools?.markNativePageReady?.();
+    });
+  });
+}
+
 window.ControlerTodoRuntime = {
   initPlanSidebar,
   switchView(view) {
@@ -4603,11 +4819,14 @@ window.ControlerTodoRuntime = {
 };
 
 // 初始化
-function init() {
+async function init() {
+  initTodoWidgetLaunchAction();
+  await waitForTodoStorageReady();
   ensureTodoBaseBindings();
   applyTodoWidgetMode();
   renderTodoWorkspace();
   todoPlanSidebarInitialized = true;
+  queueTodoInitialReveal();
 }
 
 // 页面加载完成后初始化
