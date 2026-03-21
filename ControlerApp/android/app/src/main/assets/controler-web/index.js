@@ -93,6 +93,7 @@ let indexLastPersistenceError = null;
 let indexBeforePageLeaveGuardBound = false;
 let indexRecordMutationRevision = 0;
 let indexRecordPersistenceChain = Promise.resolve();
+let indexProjectPersistenceChain = Promise.resolve();
 let indexRecordLoadRequestId = 0;
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
 const TIMER_STATE_STORAGE_VERSION = 2;
@@ -556,27 +557,11 @@ function scheduleSilentIndexProjectDurationCachePersist() {
   indexPendingDurationCachePersist = true;
   const persist = () => {
     indexPendingDurationCachePersist = false;
-    if (typeof window.ControlerStorage?.replaceCoreState === "function") {
-      window.ControlerStorage
-        .replaceCoreState(
-          {
-            projects,
-          },
-          {
-            emitChange: false,
-            reason: "duration-cache-repair",
-          },
-        )
-        .catch((error) => {
-          console.error("静默持久化项目时长缓存失败:", error);
-        });
-      return;
-    }
-    try {
-      localStorage.setItem("projects", JSON.stringify(projects));
-    } catch (error) {
-      console.error("本地持久化项目时长缓存失败:", error);
-    }
+    void persistIndexProjectSnapshot(projects, {
+      emitChange: false,
+      reason: "duration-cache-repair",
+      errorLabel: "静默持久化项目时长缓存失败:",
+    });
   };
 
   if (typeof window.requestIdleCallback === "function") {
@@ -608,9 +593,12 @@ async function hydrateIndexWorkspace(options = {}) {
     const data =
       bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
     if (data) {
-      projects = normalizeStoredProjects(
-        Array.isArray(data.projects) ? data.projects : [],
-      );
+      const sourceProjects = Array.isArray(data.projects) ? data.projects : [];
+      projects = normalizeStoredProjects(sourceProjects);
+      syncIndexProjectMirrorIfNeeded(projects);
+      persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
+        reason: "project-hierarchy-repair:index-bootstrap",
+      });
       records = Array.isArray(data.recentRecords) ? data.recentRecords.slice() : [];
       indexLoadedRecordPeriodIds =
         Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
@@ -3335,6 +3323,25 @@ function serializeIndexProjectsForComparison(projectList = []) {
   }
 }
 
+function syncIndexProjectMirrorIfNeeded(projectList = projects) {
+  const snapshot = serializeIndexProjectsForComparison(projectList);
+  if (!snapshot) {
+    return false;
+  }
+
+  try {
+    const previousSnapshot = localStorage.getItem("projects") || "";
+    if (previousSnapshot === snapshot) {
+      return false;
+    }
+    localStorage.setItem("projects", snapshot);
+    return true;
+  } catch (error) {
+    console.error("同步项目本地镜像失败:", error);
+    return false;
+  }
+}
+
 function persistNormalizedProjectsRepairIfNeeded(
   sourceProjects = [],
   normalizedProjects = projects,
@@ -3343,34 +3350,24 @@ function persistNormalizedProjectsRepairIfNeeded(
   const sourceSnapshot = serializeIndexProjectsForComparison(sourceProjects);
   const normalizedSnapshot =
     serializeIndexProjectsForComparison(normalizedProjects);
+  const mirrorUpdated = syncIndexProjectMirrorIfNeeded(normalizedProjects);
   if (!normalizedSnapshot || sourceSnapshot === normalizedSnapshot) {
+    return mirrorUpdated;
+  }
+
+  if (typeof window.ControlerStorage?.replaceCoreState !== "function") {
     return;
   }
 
-  try {
-    localStorage.setItem("projects", normalizedSnapshot);
-  } catch (error) {
-    console.error("写入修复后的项目镜像失败:", error);
-  }
-
-  if (typeof window.ControlerStorage?.replaceCoreState === "function") {
-    Promise.resolve(
-      window.ControlerStorage.replaceCoreState(
-        {
-          projects: normalizedProjects,
-        },
-        {
-          emitChange: false,
-          reason:
-            typeof options.reason === "string" && options.reason.trim()
-              ? options.reason.trim()
-              : "project-hierarchy-repair",
-        },
-      ),
-    ).catch((error) => {
-      console.error("持久化修复后的项目层级失败:", error);
-    });
-  }
+  void persistIndexProjectSnapshot(normalizedProjects, {
+    emitChange: false,
+    reason:
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "project-hierarchy-repair",
+    errorLabel: "持久化修复后的项目层级失败:",
+  });
+  return true;
 }
 
 function getIndexProjectHierarchyIndex(projectList = projects) {
@@ -4894,15 +4891,14 @@ function updateExistingProjectsList() {
   container.innerHTML = "";
 
   const hierarchyIndex = getIndexProjectHierarchyIndex(projects);
-  const level1Sorted = (Array.isArray(hierarchyIndex?.roots)
+  const level1Projects = (Array.isArray(hierarchyIndex?.roots)
     ? hierarchyIndex.roots
     : []
   )
     .map((node) => node?.raw || node)
-    .filter(Boolean)
-    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    .filter(Boolean);
 
-  level1Sorted.forEach((project) => {
+  level1Projects.forEach((project) => {
     const option = document.createElement("div");
     option.className = `project-option ${project.name === selectedProject ? "selected" : ""}`;
     option.dataset.project = project.name;
@@ -7964,6 +7960,15 @@ function queueIndexRecordPersistence(task) {
   return queuedTask;
 }
 
+function queueIndexProjectPersistence(task) {
+  const queuedTask = indexProjectPersistenceChain.then(
+    () => (typeof task === "function" ? task() : true),
+    () => (typeof task === "function" ? task() : true),
+  );
+  indexProjectPersistenceChain = queuedTask.catch(() => true);
+  return queuedTask;
+}
+
 async function flushIndexPendingPersistence() {
   const pendingTasks = Array.from(indexPendingPersistenceTasks);
   if (!pendingTasks.length && !indexLastPersistenceError) {
@@ -7995,26 +8000,55 @@ function registerIndexBeforePageLeaveGuard() {
 }
 
 // 存储功能
+function persistIndexProjectSnapshot(projectList = projects, options = {}) {
+  const projectSnapshot = cloneIndexValue(
+    Array.isArray(projectList) ? projectList : [],
+  );
+  const reason =
+    typeof options.reason === "string" && options.reason.trim()
+      ? options.reason.trim()
+      : "project-save";
+  const errorLabel =
+    typeof options.errorLabel === "string" && options.errorLabel.trim()
+      ? options.errorLabel.trim()
+      : "保存项目到存储失败:";
+
+  return trackIndexPersistenceTask(
+    () =>
+      queueIndexProjectPersistence(async () => {
+        syncIndexProjectMirrorIfNeeded(projectSnapshot);
+        if (typeof window.ControlerStorage?.replaceCoreState === "function") {
+          return window.ControlerStorage.replaceCoreState(
+            {
+              projects: projectSnapshot,
+            },
+            {
+              emitChange: options.emitChange !== false,
+              reason,
+            },
+          );
+        }
+        return true;
+      }),
+    errorLabel,
+  );
+}
+
 function saveProjectsToStorage() {
-  return trackIndexPersistenceTask(() => {
-    projects = normalizeStoredProjects(projects);
-    projectHierarchyExpansionState = normalizeProjectHierarchyExpansionState(
-      projectHierarchyExpansionState,
-      projects,
-    );
-    projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
-      projectTotalsExpansionState,
-      projects,
-    );
-    localStorage.setItem("projects", JSON.stringify(projects));
-    saveProjectHierarchyExpansionState();
-    if (typeof window.ControlerStorage?.replaceCoreState === "function") {
-      return window.ControlerStorage.replaceCoreState({
-        projects,
-      });
-    }
-    return true;
-  }, "保存项目到存储失败:");
+  projects = normalizeStoredProjects(projects);
+  projectHierarchyExpansionState = normalizeProjectHierarchyExpansionState(
+    projectHierarchyExpansionState,
+    projects,
+  );
+  projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+    projectTotalsExpansionState,
+    projects,
+  );
+  saveProjectHierarchyExpansionState();
+  return persistIndexProjectSnapshot(projects, {
+    reason: "project-save",
+    errorLabel: "保存项目到存储失败:",
+  });
 }
 
 function getIndexRecordPeriodId(record) {
@@ -8244,29 +8278,35 @@ function getIndexDefaultRecordScope() {
 async function loadProjectsFromStorage(options = {}) {
   const applyUi = options?.applyUi !== false;
   try {
-    const localProjectMirror = readIndexProjectMirrorState();
-    if (localProjectMirror.hasMirror) {
-      projects = normalizeStoredProjects(localProjectMirror.items);
-      persistNormalizedProjectsRepairIfNeeded(localProjectMirror.items, projects, {
-        reason: "project-hierarchy-repair:local-mirror",
-      });
-    } else if (typeof window.ControlerStorage?.getCoreState === "function") {
-      const coreState = await window.ControlerStorage.getCoreState();
-      const sourceProjects = Array.isArray(coreState?.projects)
-        ? coreState.projects
-        : [];
-      projects = normalizeStoredProjects(sourceProjects);
-      persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
-        reason: "project-hierarchy-repair:core-state",
-      });
-    } else {
-      const saved = localStorage.getItem("projects");
-      if (saved) {
-        const parsedProjects = JSON.parse(saved);
-        projects = normalizeStoredProjects(parsedProjects);
-        persistNormalizedProjectsRepairIfNeeded(parsedProjects, projects, {
-          reason: "project-hierarchy-repair:local-storage",
+    let loadedProjects = false;
+    if (typeof window.ControlerStorage?.getCoreState === "function") {
+      try {
+        const coreState = await window.ControlerStorage.getCoreState();
+        const sourceProjects = Array.isArray(coreState?.projects)
+          ? coreState.projects
+          : [];
+        projects = normalizeStoredProjects(sourceProjects);
+        syncIndexProjectMirrorIfNeeded(projects);
+        persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
+          reason: "project-hierarchy-repair:core-state",
         });
+        loadedProjects = true;
+      } catch (error) {
+        console.error("读取受管项目状态失败，回退本地镜像:", error);
+      }
+    }
+
+    if (!loadedProjects) {
+      const localProjectMirror = readIndexProjectMirrorState();
+      if (localProjectMirror.hasMirror) {
+        projects = normalizeStoredProjects(localProjectMirror.items);
+        persistNormalizedProjectsRepairIfNeeded(
+          localProjectMirror.items,
+          projects,
+          {
+            reason: "project-hierarchy-repair:local-mirror",
+          },
+        );
       }
     }
     loadProjectHierarchyExpansionStateFromStorage();
@@ -8320,8 +8360,8 @@ function saveRecordsToStorage() {
     () =>
       queueIndexRecordPersistence(async () => {
         indexLoadedRecordPeriodIds = loadedPeriodIdsSnapshot.slice();
-        localStorage.setItem("projects", JSON.stringify(projectsSnapshot));
         if (!managedStorage) {
+          syncIndexProjectMirrorIfNeeded(projectsSnapshot);
           localStorage.setItem("records", JSON.stringify(recordsSnapshot));
           if (saveRevision === indexRecordMutationRevision) {
             indexDirtyRecordPeriodIds = new Set();

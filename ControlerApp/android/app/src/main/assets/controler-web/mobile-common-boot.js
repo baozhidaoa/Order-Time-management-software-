@@ -11576,6 +11576,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
   const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
+  const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在保存最新数据";
+  const APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE =
+    "请稍候，保存完成后会自动切换页面";
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -12602,8 +12605,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     overlay.setAttribute("aria-hidden", "true");
     overlay.innerHTML = `
       <div class="page-loading-card" role="status" aria-live="polite">
-        <div class="page-loading-title" data-loading-title>正在保存最新数据</div>
-        <div class="page-loading-message" data-loading-message>请稍候，保存完成后会自动切换页面</div>
+        <div class="page-loading-title" data-loading-title>${APP_PAGE_LEAVE_GUARD_LOADING_TITLE}</div>
+        <div class="page-loading-message" data-loading-message>${APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE}</div>
       </div>
     `;
     if (document.body instanceof HTMLElement) {
@@ -12645,8 +12648,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     overlayController?.setState({
       active: true,
       mode: "fullscreen",
-      title: "正在保存最新数据",
-      message: "请稍候，保存完成后会自动切换页面",
+      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
       delayMs: APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
     });
 
@@ -12657,8 +12660,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         overlayController?.setState({
           active: true,
           mode: "fullscreen",
-          title: "仍在保存最新数据",
-          message: "保存时间比平时稍长，完成后会自动切换页面",
+          title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+          message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
           delayMs: 0,
         });
       }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
