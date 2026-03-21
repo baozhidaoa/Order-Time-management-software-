@@ -1,6 +1,6 @@
 {
   "name": "order",
-  "version": "1.258.0",
+  "version": "1.259.0",
   "description": "Order is a local-first time tracker for desktop and mobile.",
   "main": "main.js",
   "scripts": {
@@ -64,7 +64,7 @@
   "build": {
     "appId": "com.controler.timetracker",
     "productName": "Order",
-    "buildVersion": "1.258",
+    "buildVersion": "1.259",
     "electronDist": "node_modules/electron/dist",
     "afterPack": "scripts/after-pack-windows.js",
     "asar": true,

@@ -40,8 +40,11 @@ let todoLastPersistenceError = null;
 let todoBeforePageLeaveGuardBound = false;
 let todoInitialRevealQueued = false;
 let todoInitialReadyReported = false;
-const todoPendingTodoIds = new Set();
-const todoPendingCheckinIds = new Set();
+const TODO_TOGGLE_PERSIST_DEBOUNCE_MS = 180;
+const todoDeferredToggleCommits = {
+  checkin: new Map(),
+  todo: new Map(),
+};
 const todoLoadedSectionPeriods = {
   dailyCheckins: new Set(),
   checkins: new Set(),
@@ -54,6 +57,7 @@ const todoExternalStorageRefreshCoordinator =
   }) || null;
 const TODO_SELF_REFRESH_IGNORE_WINDOW_MS = 1200;
 let todoIgnoredRefreshEvents = [];
+let todoQueuedExternalStorageRefreshDetail = null;
 
 function getTodoNormalizedChangedSections(changedSections = []) {
   if (typeof uiTools?.normalizeChangedSections === "function") {
@@ -591,6 +595,107 @@ function shouldIgnoreTodoSelfRefresh(detail = {}) {
   return true;
 }
 
+function mergeTodoStorageChangeDetails(base = {}, detail = {}) {
+  const normalizedBase =
+    base && typeof base === "object" && !Array.isArray(base) ? base : {};
+  const normalizedDetail =
+    detail && typeof detail === "object" && !Array.isArray(detail) ? detail : {};
+  const changedSections = getTodoNormalizedChangedSections([
+    ...(normalizedBase.changedSections || []),
+    ...(normalizedDetail.changedSections || []),
+  ]);
+  const changedPeriods = {};
+  Array.from(
+    new Set([
+      ...Object.keys(normalizedBase.changedPeriods || {}),
+      ...Object.keys(normalizedDetail.changedPeriods || {}),
+    ]),
+  ).forEach((section) => {
+    const periodIds = getTodoNormalizedPeriodIds([
+      ...(normalizedBase.changedPeriods?.[section] || []),
+      ...(normalizedDetail.changedPeriods?.[section] || []),
+    ]);
+    if (periodIds.length) {
+      changedPeriods[section] = periodIds;
+    }
+  });
+  return {
+    ...normalizedBase,
+    ...normalizedDetail,
+    changedSections,
+    changedPeriods,
+    reason:
+      typeof normalizedDetail.reason === "string" && normalizedDetail.reason.trim()
+        ? normalizedDetail.reason.trim()
+        : typeof normalizedBase.reason === "string" && normalizedBase.reason.trim()
+          ? normalizedBase.reason.trim()
+          : "",
+    source:
+      typeof normalizedDetail.source === "string" && normalizedDetail.source.trim()
+        ? normalizedDetail.source.trim()
+        : typeof normalizedBase.source === "string" && normalizedBase.source.trim()
+          ? normalizedBase.source.trim()
+          : "",
+  };
+}
+
+function getTodoToggleCommitMap(kind) {
+  return kind === "checkin"
+    ? todoDeferredToggleCommits.checkin
+    : todoDeferredToggleCommits.todo;
+}
+
+function hasTodoPendingLocalMutations() {
+  if (todoPendingPersistenceCount > 0) {
+    return true;
+  }
+  return Object.values(todoDeferredToggleCommits).some((commitMap) =>
+    Array.from(commitMap.values()).some(
+      (controller) =>
+        controller &&
+        (controller.pending === true ||
+          controller.running === true ||
+          Number(controller.timer) > 0),
+    ),
+  );
+}
+
+function scheduleTodoExternalStorageRefresh(detail = {}) {
+  todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+    todoQueuedExternalStorageRefreshDetail,
+    detail,
+  );
+  if (hasTodoPendingLocalMutations()) {
+    todoPendingExternalStorageRefresh = true;
+    window.__controlerTodoRuntimePendingExternalRefresh = true;
+    return;
+  }
+  if (todoExternalStorageRefreshQueued) {
+    return;
+  }
+  todoExternalStorageRefreshQueued = true;
+  if (todoExternalStorageRefreshCoordinator) {
+    todoExternalStorageRefreshCoordinator.enqueue({});
+    return;
+  }
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    void refreshTodoFromExternalStorageChange({});
+  });
+}
+
+function flushTodoDeferredExternalRefreshIfNeeded() {
+  if (!todoPendingExternalStorageRefresh || hasTodoPendingLocalMutations()) {
+    return;
+  }
+  todoPendingExternalStorageRefresh = false;
+  window.__controlerTodoRuntimePendingExternalRefresh = false;
+  scheduleTodoExternalStorageRefresh(todoQueuedExternalStorageRefreshDetail || {});
+}
+
 function getTodoSectionStateSnapshot(section) {
   switch (section) {
     case "todos":
@@ -691,28 +796,6 @@ function dedupeTodoDailyCheckinsForDate(itemId, date) {
     : latest;
 }
 
-function setTodoActionPending(kind, targetId, pending) {
-  const normalizedId = String(targetId || "").trim();
-  if (!normalizedId) {
-    return;
-  }
-  const pendingSet = kind === "checkin" ? todoPendingCheckinIds : todoPendingTodoIds;
-  if (pending) {
-    pendingSet.add(normalizedId);
-    return;
-  }
-  pendingSet.delete(normalizedId);
-}
-
-function isTodoActionPending(kind, targetId) {
-  const normalizedId = String(targetId || "").trim();
-  if (!normalizedId) {
-    return false;
-  }
-  const pendingSet = kind === "checkin" ? todoPendingCheckinIds : todoPendingTodoIds;
-  return pendingSet.has(normalizedId);
-}
-
 function queueTodoPersistenceTask(task, options = {}) {
   const {
     errorLabel = "保存待办数据失败:",
@@ -737,6 +820,9 @@ function queueTodoPersistenceTask(task, options = {}) {
     })
     .finally(() => {
       todoPendingPersistenceCount = Math.max(0, todoPendingPersistenceCount - 1);
+      if (todoPendingPersistenceCount <= 0) {
+        flushTodoDeferredExternalRefreshIfNeeded();
+      }
     });
   return todoPersistChain;
 }
@@ -942,6 +1028,93 @@ function handleTodoNonBlockingSaveFailure(message, options = {}) {
     title: options.title || "保存失败",
     danger: true,
   }).catch?.(() => {});
+}
+
+function scheduleTodoToggleCommit(
+  kind,
+  targetId,
+  buildCommitPlan,
+  rollbackSnapshot = null,
+) {
+  const normalizedId = String(targetId || "").trim();
+  if (!normalizedId || typeof buildCommitPlan !== "function") {
+    return false;
+  }
+  const commitMap = getTodoToggleCommitMap(kind);
+  let controller = commitMap.get(normalizedId);
+  if (!controller) {
+    controller = {
+      timer: 0,
+      running: false,
+      pending: false,
+      buildCommitPlan: null,
+      rollbackSnapshot: null,
+    };
+    commitMap.set(normalizedId, controller);
+  }
+  controller.pending = true;
+  controller.buildCommitPlan = buildCommitPlan;
+  if (!controller.rollbackSnapshot && rollbackSnapshot) {
+    controller.rollbackSnapshot = rollbackSnapshot;
+  }
+  if (controller.timer) {
+    window.clearTimeout(controller.timer);
+  }
+  controller.timer = window.setTimeout(() => {
+    controller.timer = 0;
+    void flushTodoToggleCommit(kind, normalizedId);
+  }, TODO_TOGGLE_PERSIST_DEBOUNCE_MS);
+  return true;
+}
+
+async function flushTodoToggleCommit(kind, targetId) {
+  const commitMap = getTodoToggleCommitMap(kind);
+  const controller = commitMap.get(targetId);
+  if (!controller || controller.running) {
+    return;
+  }
+  controller.running = true;
+  try {
+    while (controller.pending) {
+      controller.pending = false;
+      const commitPlan =
+        typeof controller.buildCommitPlan === "function"
+          ? controller.buildCommitPlan()
+          : null;
+      if (!commitPlan || typeof commitPlan.save !== "function") {
+        controller.rollbackSnapshot = null;
+        continue;
+      }
+      const saved = await commitPlan.save();
+      if (!saved) {
+        if (controller.pending) {
+          continue;
+        }
+        if (typeof commitPlan.onFailure === "function") {
+          await commitPlan.onFailure(controller.rollbackSnapshot);
+        }
+        controller.rollbackSnapshot = null;
+        break;
+      }
+      if (typeof commitPlan.onSuccess === "function") {
+        commitPlan.onSuccess();
+      }
+      if (controller.pending) {
+        continue;
+      }
+      controller.rollbackSnapshot = null;
+    }
+  } finally {
+    controller.running = false;
+    if (!controller.timer && controller.pending) {
+      void flushTodoToggleCommit(kind, targetId);
+      return;
+    }
+    if (!controller.timer && !controller.pending) {
+      commitMap.delete(targetId);
+    }
+    flushTodoDeferredExternalRefreshIfNeeded();
+  }
 }
 
 async function persistTodoWorkspaceSnapshot(snapshot) {
@@ -1633,16 +1806,37 @@ function bindTableScaleLiveRefresh() {
 let todoExternalStorageRefreshQueued = false;
 
 async function refreshTodoFromExternalStorageChange(detail = {}) {
+  const refreshDetail = mergeTodoStorageChangeDetails(
+    todoQueuedExternalStorageRefreshDetail,
+    detail,
+  );
+  todoQueuedExternalStorageRefreshDetail = null;
   if (!todoPlanSidebarInitialized) {
     todoExternalStorageRefreshQueued = false;
     todoPendingExternalStorageRefresh = true;
     window.__controlerTodoRuntimePendingExternalRefresh = true;
+    todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+      todoQueuedExternalStorageRefreshDetail,
+      refreshDetail,
+    );
+    return;
+  }
+  if (hasTodoPendingLocalMutations()) {
+    todoExternalStorageRefreshQueued = false;
+    todoPendingExternalStorageRefresh = true;
+    window.__controlerTodoRuntimePendingExternalRefresh = true;
+    todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+      todoQueuedExternalStorageRefreshDetail,
+      refreshDetail,
+    );
     return;
   }
   todoExternalStorageRefreshQueued = false;
   todoPendingExternalStorageRefresh = false;
   window.__controlerTodoRuntimePendingExternalRefresh = false;
-  const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getTodoNormalizedChangedSections(
+    refreshDetail?.changedSections,
+  );
   const bundleStorage = window.ControlerStorage;
   const canUsePreciseRefresh =
     changedSections.length > 0 &&
@@ -1651,19 +1845,33 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     typeof bundleStorage?.loadSectionRange === "function";
 
   if (!canUsePreciseRefresh) {
-    loadData();
+    const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
+    if (hasTodoPendingLocalMutations()) {
+      todoPendingExternalStorageRefresh = true;
+      window.__controlerTodoRuntimePendingExternalRefresh = true;
+      todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+        todoQueuedExternalStorageRefreshDetail,
+        refreshDetail,
+      );
+      return;
+    }
+    applyTodoWorkspaceSnapshot(freshSnapshot);
     refreshTodoInterface();
     return;
   }
 
   try {
+    let nextTodos = null;
+    let nextCheckinItems = null;
+    let nextDailyCheckins = null;
+    let nextCheckins = null;
     if (changedSections.includes("todos") || changedSections.includes("checkinItems")) {
       const coreSnapshot = await bundleStorage.getCoreState();
       if (changedSections.includes("todos")) {
-        todos = hydrateTodoCollection("todos", coreSnapshot?.todos);
+        nextTodos = hydrateTodoCollection("todos", coreSnapshot?.todos);
       }
       if (changedSections.includes("checkinItems")) {
-        checkinItems = hydrateTodoCollection(
+        nextCheckinItems = hydrateTodoCollection(
           "checkinItems",
           coreSnapshot?.checkinItems,
         );
@@ -1671,8 +1879,8 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     }
 
     const refreshRangeSection = async (section, currentItems) => {
-      const periodIds = Array.isArray(detail?.changedPeriods?.[section])
-        ? detail.changedPeriods[section]
+      const periodIds = Array.isArray(refreshDetail?.changedPeriods?.[section])
+        ? refreshDetail.changedPeriods[section]
         : [];
       if (!periodIds.length) {
         throw new Error(`missing-changed-periods:${section}`);
@@ -1689,10 +1897,31 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     };
 
     if (changedSections.includes("dailyCheckins")) {
-      dailyCheckins = await refreshRangeSection("dailyCheckins", dailyCheckins);
+      nextDailyCheckins = await refreshRangeSection("dailyCheckins", dailyCheckins);
     }
     if (changedSections.includes("checkins")) {
-      checkins = await refreshRangeSection("checkins", checkins);
+      nextCheckins = await refreshRangeSection("checkins", checkins);
+    }
+    if (hasTodoPendingLocalMutations()) {
+      todoPendingExternalStorageRefresh = true;
+      window.__controlerTodoRuntimePendingExternalRefresh = true;
+      todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+        todoQueuedExternalStorageRefreshDetail,
+        refreshDetail,
+      );
+      return;
+    }
+    if (nextTodos) {
+      todos = nextTodos;
+    }
+    if (nextCheckinItems) {
+      checkinItems = nextCheckinItems;
+    }
+    if (nextDailyCheckins) {
+      dailyCheckins = nextDailyCheckins;
+    }
+    if (nextCheckins) {
+      checkins = nextCheckins;
     }
     todoLoadedSectionPeriods.dailyCheckins = new Set(
       getTodoSectionPeriodIds("dailyCheckins", dailyCheckins),
@@ -1721,19 +1950,7 @@ function bindTodoExternalStorageRefresh() {
     if (shouldIgnoreTodoSelfRefresh(detail)) {
       return;
     }
-    if (todoExternalStorageRefreshQueued) {
-      return;
-    }
-    todoExternalStorageRefreshQueued = true;
-    if (todoExternalStorageRefreshCoordinator) {
-      todoExternalStorageRefreshCoordinator.enqueue(detail);
-      return;
-    }
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(refreshTodoFromExternalStorageChange);
+    scheduleTodoExternalStorageRefresh(detail);
   });
 }
 
@@ -2281,10 +2498,6 @@ class CheckinItem {
     if (!this.isScheduledOn(today)) {
       return false;
     }
-    if (isTodoActionPending("checkin", this.id)) {
-      return false;
-    }
-    setTodoActionPending("checkin", this.id, true);
     const previousSnapshot = captureTodoWorkspaceSnapshot();
     const latestMatch = dedupeTodoDailyCheckinsForDate(this.id, today);
     const index = latestMatch ? latestMatch.index : -1;
@@ -2315,27 +2528,33 @@ class CheckinItem {
       date: today,
       time: nowText,
     });
-    void queueTodoSectionSave("dailyCheckins", {
-      periodIds: [todayPeriodId],
-      errorLabel: "保存今日打卡状态失败:",
-    }).then((saved) => {
-      if (saved) {
-        clearTodoPersistenceError();
-        uiTools?.markPerfStage?.("todo-action-storage-acked", {
-          allowRepeat: true,
-          action: "toggle-checkin",
-          itemId: this.id,
-        });
-        return;
-      }
-      handleTodoNonBlockingSaveFailure("保存今日打卡状态失败。", {
-        message: "今日打卡同步失败，已尝试恢复当前数据。",
-        rollbackSnapshot: previousSnapshot,
-      });
-    }).finally(() => {
-      setTodoActionPending("checkin", this.id, false);
-      scheduleTodoInterfaceRefresh();
-    });
+    scheduleTodoToggleCommit(
+      "checkin",
+      this.id,
+      () => ({
+        save: () =>
+          queueTodoSectionSave("dailyCheckins", {
+            periodIds: [todayPeriodId],
+            errorLabel: "保存今日打卡状态失败:",
+          }),
+        onSuccess: () => {
+          clearTodoPersistenceError();
+          uiTools?.markPerfStage?.("todo-action-storage-acked", {
+            allowRepeat: true,
+            action: "toggle-checkin",
+            itemId: this.id,
+          });
+          scheduleTodoInterfaceRefresh();
+        },
+        onFailure: async (rollbackSnapshot) => {
+          handleTodoNonBlockingSaveFailure("保存今日打卡状态失败。", {
+            message: "今日打卡同步失败，已尝试恢复当前数据。",
+            rollbackSnapshot: rollbackSnapshot || previousSnapshot,
+          });
+        },
+      }),
+      previousSnapshot,
+    );
     return true;
   }
 
@@ -3219,11 +3438,10 @@ function createTodoElement(todo, listScale = 1) {
 // 切换待办事项完成状态
 function toggleTodoCompletion(todoId) {
   const todo = todos.find((t) => matchesId(t.id, todoId));
-  if (!todo || isTodoActionPending("todo", todo.id)) {
+  if (!todo) {
     return false;
   }
   const previousSnapshot = captureTodoWorkspaceSnapshot();
-  setTodoActionPending("todo", todo.id, true);
   todo.completed = !todo.completed;
   todo.completedAt = todo.completed ? new Date().toISOString() : null;
   uiTools?.markPerfStage?.("todo-action-ui-committed", {
@@ -3232,33 +3450,39 @@ function toggleTodoCompletion(todoId) {
     todoId: todo.id,
   });
   scheduleTodoInterfaceRefresh();
-  void queueTodoCoreSave(
-    {
-      todos: getTodoSectionStateSnapshot("todos"),
-    },
-    {
-      reason: "todo-toggle-completion",
-      errorLabel: "保存待办完成状态失败:",
-      refreshReminders: true,
-    },
-  ).then((saved) => {
-    if (saved) {
-      clearTodoPersistenceError();
-      uiTools?.markPerfStage?.("todo-action-storage-acked", {
-        allowRepeat: true,
-        action: "toggle-todo-completion",
-        todoId: todo.id,
-      });
-      return;
-    }
-    handleTodoNonBlockingSaveFailure("保存待办完成状态失败。", {
-      message: "待办完成状态同步失败，已尝试恢复当前数据。",
-      rollbackSnapshot: previousSnapshot,
-    });
-  }).finally(() => {
-    setTodoActionPending("todo", todo.id, false);
-    scheduleTodoInterfaceRefresh();
-  });
+  scheduleTodoToggleCommit(
+    "todo",
+    todo.id,
+    () => ({
+      save: () =>
+        queueTodoCoreSave(
+          {
+            todos: getTodoSectionStateSnapshot("todos"),
+          },
+          {
+            reason: "todo-toggle-completion",
+            errorLabel: "保存待办完成状态失败:",
+            refreshReminders: true,
+          },
+        ),
+      onSuccess: () => {
+        clearTodoPersistenceError();
+        uiTools?.markPerfStage?.("todo-action-storage-acked", {
+          allowRepeat: true,
+          action: "toggle-todo-completion",
+          todoId: todo.id,
+        });
+        scheduleTodoInterfaceRefresh();
+      },
+      onFailure: async (rollbackSnapshot) => {
+        handleTodoNonBlockingSaveFailure("保存待办完成状态失败。", {
+          message: "待办完成状态同步失败，已尝试恢复当前数据。",
+          rollbackSnapshot: rollbackSnapshot || previousSnapshot,
+        });
+      },
+    }),
+    previousSnapshot,
+  );
   return true;
 }
 
@@ -4870,7 +5094,6 @@ function createCheckinItemElement(item, listScale = 1) {
   itemElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
 
   const checked = item.getTodayCheckinStatus();
-  const pending = isTodoActionPending("checkin", item.id);
   const checkedDays = item.getCheckedDaysCount();
   const today = getLocalDateText();
   const isScheduledToday =
@@ -4897,13 +5120,13 @@ function createCheckinItemElement(item, listScale = 1) {
           border: none;
           background-color: ${checked ? item.color : "var(--bg-quaternary)"};
           color: white;
-          cursor: ${!isScheduledToday ? "not-allowed" : pending ? "wait" : "pointer"};
+          cursor: ${!isScheduledToday ? "not-allowed" : "pointer"};
           font-size: ${Math.max(13, Math.round(20 * cardScale))}px;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.2s;
-          opacity: ${!isScheduledToday ? "0.55" : pending ? "0.72" : "1"};
+          opacity: ${!isScheduledToday ? "0.55" : "1"};
         ">
           ${checked ? "✓" : "○"}
         </button>
@@ -4950,12 +5173,12 @@ function createCheckinItemElement(item, listScale = 1) {
     descriptionElement.style.webkitLineClamp = "1";
   }
 
-  toggleBtn.disabled = !isScheduledToday || pending;
-  toggleBtn.setAttribute("aria-busy", pending ? "true" : "false");
+  toggleBtn.disabled = !isScheduledToday;
+  toggleBtn.setAttribute("aria-busy", "false");
   toggleBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!isScheduledToday || pending) return;
+    if (!isScheduledToday) return;
     item.toggleTodayCheckin();
   });
 
@@ -5102,9 +5325,7 @@ function applyPendingTodoRefreshIfNeeded() {
   if (!todoPendingExternalStorageRefresh) {
     return;
   }
-  todoPendingExternalStorageRefresh = false;
-  window.__controlerTodoRuntimePendingExternalRefresh = false;
-  loadData();
+  flushTodoDeferredExternalRefreshIfNeeded();
 }
 
 function renderTodoWorkspace() {

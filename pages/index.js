@@ -244,6 +244,7 @@ let indexWidgetLaunchActionInitialized = false;
 let indexPendingDurationCachePersist = false;
 let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
+let indexExternalStorageRefreshRequested = false;
 let indexDeferredWorkspaceHydrationPromise = null;
 let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let indexWidgetLaunchCoreReady = false;
@@ -258,6 +259,31 @@ const indexExternalStorageRefreshCoordinator =
       await refreshIndexFromExternalStorageChange();
     },
   }) || null;
+
+function flushDeferredIndexExternalRefreshIfNeeded() {
+  if (!indexExternalStorageRefreshRequested) {
+    return;
+  }
+  if (!indexShellPageActive) {
+    indexExternalRefreshPendingResume = true;
+    return;
+  }
+  if (indexPendingPersistenceTasks.size > 0 || indexExternalStorageRefreshQueued) {
+    return;
+  }
+  indexExternalStorageRefreshQueued = true;
+  if (indexExternalStorageRefreshCoordinator) {
+    indexExternalStorageRefreshCoordinator.enqueue({});
+    return;
+  }
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    void refreshIndexFromExternalStorageChange();
+  });
+}
 
 function bindIndexShellVisibilityGate() {
   if (indexShellVisibilityBound) {
@@ -283,8 +309,9 @@ function bindIndexShellVisibilityGate() {
 
     if (indexExternalRefreshPendingResume) {
       indexExternalRefreshPendingResume = false;
-      void refreshIndexFromExternalStorageChange();
+      flushDeferredIndexExternalRefreshIfNeeded();
     }
+    flushDeferredIndexExternalRefreshIfNeeded();
     if (indexDeferredHydrationPendingResume) {
       indexDeferredHydrationPendingResume = false;
       if (!indexInitialDataLoaded) {
@@ -605,7 +632,7 @@ async function hydrateIndexWorkspace(options = {}) {
           ? bootstrap.loadedPeriodIds.slice()
           : getIndexRecordPeriodIds(records);
       loadProjectHierarchyExpansionStateFromStorage();
-      projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+      projectTotalsExpansionState = normalizeVisibleProjectHierarchyExpansionState(
         projectTotalsExpansionState,
         projects,
       );
@@ -680,11 +707,17 @@ async function refreshIndexFromExternalStorageChange() {
     indexExternalStorageRefreshQueued = false;
     return;
   }
+  if (indexPendingPersistenceTasks.size > 0) {
+    indexExternalStorageRefreshQueued = false;
+    indexExternalStorageRefreshRequested = true;
+    return;
+  }
   const forceTimerSessionSync = indexExternalStorageRefreshForceTimerSessionSync;
   const changedSections = Array.from(indexExternalStorageRefreshChangedSections);
   indexExternalStorageRefreshQueued = false;
   indexExternalStorageRefreshForceTimerSessionSync = false;
   indexExternalStorageRefreshChangedSections = new Set();
+  indexExternalStorageRefreshRequested = false;
   hideAllProjectSuggestions();
   const includeProjects =
     changedSections.length === 0 || changedSections.includes("core");
@@ -765,19 +798,14 @@ function bindIndexExternalStorageRefresh() {
         indexExternalStorageRefreshChangedSections.add(normalizedSection);
       }
     });
+    indexExternalStorageRefreshRequested = true;
+    if (indexPendingPersistenceTasks.size > 0) {
+      return;
+    }
     if (indexExternalStorageRefreshQueued) {
       return;
     }
-    indexExternalStorageRefreshQueued = true;
-    if (indexExternalStorageRefreshCoordinator) {
-      indexExternalStorageRefreshCoordinator.enqueue(detail);
-      return;
-    }
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(refreshIndexFromExternalStorageChange);
+    flushDeferredIndexExternalRefreshIfNeeded();
   });
 }
 
@@ -909,6 +937,61 @@ function normalizeProjectHierarchyExpansionState(
   return normalized;
 }
 
+function createDefaultProjectHierarchyExpansionState(
+  projectList = projects,
+  options = {},
+) {
+  const expandLevel1 = options.expandLevel1 !== false;
+  const expandLevel2 = options.expandLevel2 !== false;
+  const expandedState = createEmptyProjectHierarchyExpansionState();
+
+  (Array.isArray(projectList) ? projectList : []).forEach((project) => {
+    const projectId = String(project?.id || "").trim();
+    if (!projectId) {
+      return;
+    }
+
+    const projectLevel = normalizeProjectLevel(project.level);
+    if (expandLevel1 && projectLevel === 1) {
+      expandedState.level1[projectId] = true;
+      return;
+    }
+    if (expandLevel2 && projectLevel === 2) {
+      expandedState.level2[projectId] = true;
+    }
+  });
+
+  return expandedState;
+}
+
+function hasExpandedProjectHierarchyState(rawState = null) {
+  const state =
+    rawState && typeof rawState === "object"
+      ? rawState
+      : createEmptyProjectHierarchyExpansionState();
+  return (
+    Object.keys(state.level1 || {}).length > 0 ||
+    Object.keys(state.level2 || {}).length > 0
+  );
+}
+
+function normalizeVisibleProjectHierarchyExpansionState(
+  rawState = null,
+  projectList = projects,
+  options = {},
+) {
+  const normalized = normalizeProjectHierarchyExpansionState(rawState, projectList);
+  const hasNestedProjects = (Array.isArray(projectList) ? projectList : []).some(
+    (project) => normalizeProjectLevel(project?.level) >= 2,
+  );
+
+  if (!hasNestedProjects || hasExpandedProjectHierarchyState(normalized)) {
+    return normalized;
+  }
+
+  return createDefaultProjectHierarchyExpansionState(projectList, options);
+}
+
 function loadProjectHierarchyExpansionStateFromStorage() {
   let rawSerialized = "";
   let parsedState = null;
@@ -921,7 +1004,7 @@ function loadProjectHierarchyExpansionStateFromStorage() {
     console.error("读取项目表格展开状态失败:", error);
   }
 
-  const normalized = normalizeProjectHierarchyExpansionState(
+  const normalized = normalizeVisibleProjectHierarchyExpansionState(
     parsedState,
     projects,
   );
@@ -1171,19 +1254,19 @@ function renderProjectTotalTreeNode(
     ) || getThemeProjectColor(projectLevel);
 
   if (compactProjectTotals) {
-    const gap = Math.max(5, Math.round(6 * summaryScale));
-    const leadingGap = Math.max(6, Math.round(7 * summaryScale));
+    const gap = Math.max(4, Math.round(5 * summaryScale));
+    const leadingGap = Math.max(5, Math.round(6 * summaryScale));
     const dotSize = Math.max(
-      projectLevel === 1 ? 8 : 7,
-      Math.round((projectLevel === 1 ? 9 : 8) * summaryScale),
+      projectLevel === 1 ? 7 : 6,
+      Math.round((projectLevel === 1 ? 8 : 7) * summaryScale),
     );
     const labelStartPadding = dotSize + leadingGap;
     const card = document.createElement("div");
     card.style.display = "flex";
     card.style.flexDirection = "column";
     card.style.gap = `${gap}px`;
-    card.style.padding = `${Math.max(8, Math.round(10 * summaryScale))}px`;
-    card.style.borderRadius = `${Math.max(10, Math.round(12 * summaryScale))}px`;
+    card.style.padding = `${Math.max(7, Math.round(8 * summaryScale))}px`;
+    card.style.borderRadius = `${Math.max(9, Math.round(11 * summaryScale))}px`;
     card.style.background =
       depth === 1
         ? "color-mix(in srgb, var(--bg-tertiary) 88%, transparent)"
@@ -1192,13 +1275,13 @@ function renderProjectTotalTreeNode(
     card.style.boxSizing = "border-box";
     card.style.minWidth = "0";
     if (depth > 1) {
-      card.style.marginLeft = `${Math.max(5, Math.round(6 * summaryScale))}px`;
+      card.style.marginLeft = `${Math.max(4, Math.round(4 * summaryScale))}px`;
     }
 
     const header = document.createElement("div");
-    header.style.display = "flex";
-    header.style.flexDirection = "column";
-    header.style.gap = `${Math.max(4, Math.round(5 * summaryScale))}px`;
+    header.style.display = "grid";
+    header.style.gridTemplateColumns = "minmax(0, 1fr)";
+    header.style.rowGap = `${Math.max(4, Math.round(4 * summaryScale))}px`;
     header.style.minWidth = "0";
     header.style.cursor = expandable ? "pointer" : "default";
     header.setAttribute(
@@ -1220,6 +1303,7 @@ function renderProjectTotalTreeNode(
     topRow.style.justifyContent = "flex-start";
     topRow.style.gap = `${gap}px`;
     topRow.style.minWidth = "0";
+    topRow.style.width = "100%";
 
     const leading = document.createElement("div");
     leading.style.display = "flex";
@@ -1237,16 +1321,17 @@ function renderProjectTotalTreeNode(
     colorDot.style.flex = "0 0 auto";
     colorDot.style.marginTop = `${Math.max(3, Math.round(3 * summaryScale))}px`;
 
+    const compactTextFontSize = `${Math.max(
+      projectLevel === 1 ? 9 : 8,
+      Math.round(
+        (projectLevel === 1 ? 11 : projectLevel === 2 ? 10 : 9) * summaryScale,
+      ),
+    )}px`;
+
     const label = document.createElement("span");
     label.style.color = "var(--text-color)";
-    label.style.fontWeight = projectLevel === 3 ? "500" : "600";
-    label.style.fontSize = `${Math.max(
-      projectLevel === 1 ? 10 : 9,
-      Math.round(
-        (projectLevel === 1 ? 13 : projectLevel === 2 ? 12 : 11) *
-          summaryScale,
-      ) - 1,
-    )}px`;
+    label.style.fontWeight = projectLevel === 3 ? "600" : "700";
+    label.style.setProperty("font-size", compactTextFontSize, "important");
     label.style.lineHeight = "1.28";
     label.style.minWidth = "0";
     label.style.flex = "1 1 auto";
@@ -1259,20 +1344,20 @@ function renderProjectTotalTreeNode(
     topRow.appendChild(leading);
 
     const value = document.createElement("div");
-    value.style.color =
-      totalMs > 0 ? "var(--text-color)" : "var(--muted-text-color)";
-    value.style.fontSize = `${Math.max(9, Math.round(11 * summaryScale) - 1)}px`;
-    value.style.fontWeight = totalMs > 0 ? "600" : "500";
-    value.style.lineHeight = "1.3";
     value.style.paddingLeft = `${labelStartPadding}px`;
     value.style.minWidth = "0";
-    value.style.whiteSpace = "normal";
+    value.style.display = "block";
     value.style.overflowWrap = "anywhere";
-    value.textContent = `总时长：${
+    value.style.lineHeight = "1.3";
+    value.style.color =
+      totalMs > 0 ? "var(--text-color)" : "var(--muted-text-color)";
+    value.style.setProperty("font-size", compactTextFontSize, "important");
+    value.style.fontWeight = totalMs > 0 ? "700" : "600";
+    value.style.whiteSpace = "normal";
+    value.textContent =
       totalMs > 0
         ? formatProjectTotalDurationForCard(totalMs, { compact: true })
-        : "暂无"
-    }`;
+        : "暂无";
 
     header.appendChild(topRow);
     header.appendChild(value);
@@ -1303,7 +1388,7 @@ function renderProjectTotalTreeNode(
       childrenContainer.style.flexDirection = "column";
       childrenContainer.style.gap = `${gap}px`;
       childrenContainer.style.minWidth = "0";
-      childrenContainer.style.paddingLeft = `${Math.max(4, Math.round(6 * summaryScale))}px`;
+      childrenContainer.style.paddingLeft = `${Math.max(3, Math.round(4 * summaryScale))}px`;
       childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.28)}`;
 
       children.forEach((childNode) => {
@@ -1403,8 +1488,8 @@ function renderProjectTotalTreeNode(
   value.style.whiteSpace = "nowrap";
   value.textContent =
     totalMs > 0
-      ? formatProjectTotalDurationForCard(totalMs)
-      : "暂无用时记录";
+      ? `总时长：${formatProjectTotalDurationForCard(totalMs)}`
+      : "总时长：暂无";
 
   header.appendChild(leading);
   header.appendChild(value);
@@ -3213,11 +3298,17 @@ function isMobileViewport() {
   return window.innerWidth <= 690;
 }
 
-function isCompactAndroidProjectTotalsLayout() {
+function isAndroidNativeRuntimeForIndex() {
   return (
-    isMobileViewport() &&
-    window.ControlerNativeBridge?.platform === "android"
+    document.documentElement.classList.contains("controler-android-native") ||
+    document.body?.classList.contains("controler-android-native") ||
+    window.ControlerNativeBridge?.platform === "android" ||
+    window.__CONTROLER_RN_META__?.platform === "android"
   );
+}
+
+function isCompactAndroidProjectTotalsLayout() {
+  return isMobileViewport() || isAndroidNativeRuntimeForIndex();
 }
 
 function createProjectId(prefix = "project") {
@@ -7056,21 +7147,16 @@ function updateProjectsList() {
   const container = document.getElementById("projects-list");
   if (!container) return;
 
-  if (
-    container.style.display === "none" ||
-    container.getAttribute("hidden") !== null
-  ) {
-    container.textContent = "";
-    return;
-  }
-
   container.innerHTML = "";
+  container.style.display = "flex";
+  container.style.flexWrap = "wrap";
   const fragment = document.createDocumentFragment();
 
   projects.forEach((project, index) => {
     const projectElement = document.createElement("div");
     projectElement.className = "project-item";
     const projectLevel = normalizeProjectLevel(project.level);
+    projectElement.classList.add(`level-${projectLevel}`);
     const projectColor = normalizeProjectColorToHex(
       project.color,
       getDefaultProjectColorByLevel(projectLevel),
@@ -7803,16 +7889,14 @@ function updateProjectTotals() {
     compactProjectTotals ? 8 : 10,
     Math.round(13 * summaryScale) - (compactProjectTotals ? 2 : 0),
   );
-  const cardMinWidth = compactProjectTotals
-    ? Math.max(132, Math.round(164 * summaryScale))
-    : Math.max(148, Math.round(220 * summaryScale));
+  const cardMinWidth = Math.max(148, Math.round(220 * summaryScale));
 
   const stylePriority = compactProjectTotals ? "important" : "";
   container.style.setProperty("display", "grid");
   container.style.setProperty(
     "grid-template-columns",
     compactProjectTotals
-      ? `repeat(auto-fit, minmax(${cardMinWidth}px, 1fr))`
+      ? "repeat(2, minmax(0, 1fr))"
       : `repeat(auto-fit, minmax(${cardMinWidth}px, 1fr))`,
     stylePriority,
   );
@@ -7948,6 +8032,9 @@ function trackIndexPersistenceTask(task, errorLabel = "保存记录页数据失�
   indexPendingPersistenceTasks.add(trackedTask);
   return trackedTask.finally(() => {
     indexPendingPersistenceTasks.delete(trackedTask);
+    if (indexPendingPersistenceTasks.size === 0) {
+      flushDeferredIndexExternalRefreshIfNeeded();
+    }
   });
 }
 
@@ -8310,7 +8397,7 @@ async function loadProjectsFromStorage(options = {}) {
       }
     }
     loadProjectHierarchyExpansionStateFromStorage();
-    projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+    projectTotalsExpansionState = normalizeVisibleProjectHierarchyExpansionState(
       projectTotalsExpansionState,
       projects,
     );

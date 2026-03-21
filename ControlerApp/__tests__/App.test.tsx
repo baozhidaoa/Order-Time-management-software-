@@ -17,7 +17,11 @@ jest.mock('react-native-webview', () => {
   };
 });
 
-import App, {buildWidgetLaunchHref, getComparableUrl} from '../App';
+import App, {
+  buildWidgetLaunchHref,
+  getComparableUrl,
+  resolveAppPageUri,
+} from '../App';
 
 // Note: import explicitly to use the types shiped with jest.
 import {describe, expect, it, jest} from '@jest/globals';
@@ -50,6 +54,33 @@ describe('buildWidgetLaunchHref', () => {
       }),
     ).toBe('stats.html?widgetKind=day-pie&widgetLaunchId=launch-456');
   });
+
+  it('does not depend on URL base parsing for android asset hrefs', () => {
+    const NativeURL = global.URL;
+    global.URL = class extends NativeURL {
+      constructor(input: string | URL, base?: string | URL) {
+        if (typeof base !== 'undefined') {
+          throw new TypeError('Invalid base URL');
+        }
+        super(input);
+      }
+    } as typeof URL;
+
+    try {
+      expect(
+        buildWidgetLaunchHref('todo', {
+          widgetAction: 'show-todos',
+          widgetKind: 'todos',
+          widgetSource: 'android-widget',
+          widgetLaunchId: 'launch-hermes',
+        }),
+      ).toBe(
+        'todo.html?widgetAction=show-todos&widgetSource=android-widget&widgetKind=todos&widgetLaunchId=launch-hermes',
+      );
+    } finally {
+      global.URL = NativeURL;
+    }
+  });
 });
 
 describe('getComparableUrl', () => {
@@ -59,5 +90,24 @@ describe('getComparableUrl', () => {
         'file:///android_asset/controler-web/stats.html?widgetAction=open-day&widgetSource=android-widget&widgetKind=day-pie&widgetLaunchId=launch-789&widgetAnchorDate=2026-03-20#details',
       ),
     ).toBe('file:///android_asset/controler-web/stats.html');
+  });
+});
+
+describe('resolveAppPageUri', () => {
+  it('keeps the current iOS bundle asset root when switching pages', () => {
+    expect(
+      resolveAppPageUri(
+        'file:///var/containers/Bundle/Application/Order.app/controler-web/stats.html',
+        'index.html',
+      ),
+    ).toBe(
+      'file:///var/containers/Bundle/Application/Order.app/controler-web/index.html',
+    );
+  });
+
+  it('falls back to the android asset root when there is no current page url', () => {
+    expect(resolveAppPageUri(null, 'index.html')).toBe(
+      'file:///android_asset/controler-web/index.html',
+    );
   });
 });

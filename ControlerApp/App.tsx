@@ -337,6 +337,8 @@ const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = 20;
 const EDGE_BACK_SWIPE_MIN_VELOCITY = 0.32;
 const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 84;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
+const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
+const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
   {key: 'stats', href: 'stats.html'},
@@ -517,6 +519,49 @@ function getPageByKey(value: unknown): {key: AppPageKey; href: string} | null {
   return APP_PAGES.find(page => page.key === pageKey) || null;
 }
 
+function isAbsoluteUrlString(value: string): boolean {
+  return ABSOLUTE_URL_PATTERN.test(String(value || '').trim());
+}
+
+function normalizeAppHref(value: string, fallback = 'index.html'): string {
+  const trimmed = String(value || '').trim();
+  const normalized = trimmed.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
+  return normalized || fallback;
+}
+
+function buildAndroidAssetUrl(value: string, fallback = 'index.html'): string {
+  const trimmed = String(value || '').trim();
+  if (isAbsoluteUrlString(trimmed)) {
+    return trimmed;
+  }
+  return `${ANDROID_ASSET_WEB_ROOT}/${normalizeAppHref(trimmed, fallback)}`;
+}
+
+export function resolveAppPageUri(
+  baseUrl: string | null,
+  value: string,
+  fallback = 'index.html',
+): string {
+  const trimmedValue = String(value || '').trim();
+  if (isAbsoluteUrlString(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  const normalizedHref = normalizeAppHref(trimmedValue, fallback);
+  const normalizedBaseUrl = String(baseUrl || '').trim();
+  if (!normalizedBaseUrl) {
+    return buildAndroidAssetUrl(normalizedHref, fallback);
+  }
+
+  const sanitizedBaseUrl = normalizedBaseUrl.split('#')[0].split('?')[0];
+  const lastSlashIndex = sanitizedBaseUrl.lastIndexOf('/');
+  if (lastSlashIndex >= 0) {
+    return `${sanitizedBaseUrl.slice(0, lastSlashIndex + 1)}${normalizedHref}`;
+  }
+
+  return buildAndroidAssetUrl(normalizedHref, fallback);
+}
+
 function getPathTail(value: string): string {
   try {
     const parsed = new URL(value);
@@ -595,14 +640,9 @@ function resolvePageTarget(
   }
 
   const nextHref = hrefInput || matchedPage.href;
-  const baseHref =
-    typeof baseUrl === 'string' && baseUrl.trim()
-      ? baseUrl
-      : `file:///android_asset/controler-web/${matchedPage.href}`;
-
   try {
     return {
-      uri: new URL(nextHref, baseHref).toString(),
+      uri: resolveAppPageUri(baseUrl, nextHref, matchedPage.href),
       pageKey: matchedPage.key,
     };
   } catch {
@@ -767,10 +807,17 @@ export function buildWidgetLaunchHref(
   > &
     Partial<Pick<LaunchContext, 'widgetTargetId' | 'widgetCreatedAt'>>,
 ): string {
-  const url = new URL(
-    `${pageKey}.html`,
-    'file:///android_asset/controler-web/index.html',
-  );
+  const pageHref = getPageByKey(pageKey)?.href || `${pageKey}.html`;
+  const queryParts: string[] = [];
+  const appendQueryPart = (key: string, value: string) => {
+    const normalizedValue = String(value || '').trim();
+    if (!normalizedValue) {
+      return;
+    }
+    queryParts.push(
+      `${encodeURIComponent(key)}=${encodeURIComponent(normalizedValue)}`,
+    );
+  };
   const widgetAction = String(context.widgetAction || '').trim();
   const widgetKind = String(context.widgetKind || '').trim();
   const widgetSource =
@@ -779,22 +826,22 @@ export function buildWidgetLaunchHref(
   const widgetTargetId = String(context.widgetTargetId || '').trim();
   const widgetCreatedAt = Math.max(0, Number(context.widgetCreatedAt) || 0);
   if (widgetAction) {
-    url.searchParams.set('widgetAction', widgetAction);
-    url.searchParams.set('widgetSource', widgetSource);
+    appendQueryPart('widgetAction', widgetAction);
+    appendQueryPart('widgetSource', widgetSource);
   }
   if (widgetKind) {
-    url.searchParams.set('widgetKind', widgetKind);
+    appendQueryPart('widgetKind', widgetKind);
   }
   if (widgetLaunchId) {
-    url.searchParams.set('widgetLaunchId', widgetLaunchId);
+    appendQueryPart('widgetLaunchId', widgetLaunchId);
   }
   if (widgetTargetId) {
-    url.searchParams.set('widgetTargetId', widgetTargetId);
+    appendQueryPart('widgetTargetId', widgetTargetId);
   }
   if (widgetCreatedAt > 0) {
-    url.searchParams.set('widgetCreatedAt', String(Math.round(widgetCreatedAt)));
+    appendQueryPart('widgetCreatedAt', String(Math.round(widgetCreatedAt)));
   }
-  return `${url.pathname.split('/').pop() || `${pageKey}.html`}${url.search}`;
+  return queryParts.length > 0 ? `${pageHref}?${queryParts.join('&')}` : pageHref;
 }
 
 function buildLaunchContextSignature(

@@ -80,7 +80,6 @@
         style="padding: 15px; min-height: 200px;height: 50%;overflow-y: auto"
         id="project-container"
       >
-        
         <div
           style="
             display: flex;
@@ -103,52 +102,68 @@
             </button>
           </div>
         </div>
-        <!-- 表格视图容器 -->
-        <div id="projects-table-container" style="display: block; margin-bottom: 15px;">
-          <div
-            class="projects-table resizable-panel"
-            id="projects-table"
-            style="
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-              gap: 10px;
-              overflow: auto;
-              min-height: 260px;
-            "
-          >
-            <!-- 表格视图将动态添加到这里 -->
+
+        <section
+          class="record-section-block"
+          id="record-hierarchy-section"
+          aria-label="三级分类系统"
+        >
+          <div class="record-section-body">
+            <div id="projects-table-container" style="display: block; margin-bottom: 0;">
+              <div
+                class="projects-table resizable-panel"
+                id="projects-table"
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                  gap: 10px;
+                  overflow: auto;
+                  min-height: 260px;
+                "
+              >
+                <!-- 表格视图将动态添加到这里 -->
+              </div>
+            </div>
           </div>
-        </div>
-        
-        <!-- 原始项目列表视图 -->
-        <div
-          class="projects-list flex wrap"
-          id="projects-list"
-          style="gap: 10px; display: none"
+        </section>
+
+        <section
+          class="record-section-block"
+          id="project-totals-section"
+          aria-label="项目总时长"
         >
-          <!-- 项目将动态添加到这里 -->
-        </div>
-        <div
-          class="project-totals"
-          id="project-totals"
-          style="
-            margin-top: 15px;
-            color: var(--text-color);
-            font-size: 14px;
-          "
-        >
-          <!-- 项目总用时将显示在这里 -->
-        </div>
+          <div class="record-section-body">
+            <div
+              class="project-totals"
+              id="project-totals"
+              style="
+                margin-top: 0;
+                color: var(--text-color);
+                font-size: 14px;
+              "
+            >
+              <!-- 项目总用时将显示在这里 -->
+            </div>
+          </div>
+        </section>
+
       </div>
       <div
-        class="flex ms mg column resizable-panel"
-        id="output"
+        class="flex ms mg column resizable-panel record-output-panel"
         style="height: 30%;overflow-y: auto"
-      ></div>
-<div class="record-action-bar flex juzhong ms mg ss" style="height: 7%">
+        aria-label="记录列表"
+      >
+        <div
+          id="output"
+          class="record-output-surface"
+          style="flex: 1 1 auto; overflow-y: auto"
+        ></div>
+      </div>
+      <div class="record-action-bar flex juzhong ms mg ss" style="height: 7%">
         <!-- 计时按钮 -->
         <button class="bts" id="spend">开始计时</button>
       </div>
+    </div>
     <!-- 弹窗模态框 -->
     <div
       class="modal-overlay"
