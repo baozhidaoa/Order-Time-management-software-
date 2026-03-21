@@ -87,6 +87,8 @@ type BridgeEnvelopePayload = {
   handled?: boolean;
   isBusy?: boolean;
   busy?: boolean;
+  lockNavigation?: boolean;
+  queued?: boolean;
   modalCount?: number;
   page?: string;
   href?: string;
@@ -145,6 +147,12 @@ type PendingWidgetLaunchDispatch = {
   pageKey: AppPageKey;
   comparableUri: string;
   launchContext: LaunchContext;
+  queuedAt: number;
+};
+
+type QueuedNavigationRequest = {
+  payload: Record<string, unknown>;
+  source: NavigationRequestSource;
   queuedAt: number;
 };
 
@@ -746,6 +754,7 @@ function App(): JSX.Element {
     secondary: '',
     tertiary: '',
   });
+  const queuedNavigationRequestRef = useRef<QueuedNavigationRequest | null>(null);
   const lastVisiblePagePersistedRef = useRef<AppPageKey | ''>('');
   const postBridgeEventRef = useRef(
     (
@@ -1580,6 +1589,7 @@ function App(): JSX.Element {
       secondary: false,
       tertiary: false,
     };
+    queuedNavigationRequestRef.current = null;
     transitionStateRef.current = null;
     setTransitionState(null);
   }, [
@@ -1705,7 +1715,45 @@ function App(): JSX.Element {
     if (!currentTransition.reuseCachedSlot) {
       clearCachedSlot(slot);
     }
+    if (queuedNavigationRequestRef.current) {
+      requestAnimationFrame(() => {
+        const queuedRequest = queuedNavigationRequestRef.current;
+        if (
+          !queuedRequest ||
+          transitionStateRef.current ||
+          busyLockBySlotRef.current[activeSlotRef.current]
+        ) {
+          return;
+        }
+        queuedNavigationRequestRef.current = null;
+        requestPageNavigationRef.current(
+          queuedRequest.payload,
+          queuedRequest.source,
+        );
+      });
+    }
   };
+
+  const queueNavigationRequest = useCallback(
+    (
+      payload: Record<string, unknown> = {},
+      source: NavigationRequestSource = 'bridge',
+    ) => {
+      queuedNavigationRequestRef.current = {
+        payload: {...payload},
+        source,
+        queuedAt: Date.now(),
+      };
+      logPerfMetric('navigation-queued', {
+        source,
+        page:
+          typeof payload.page === 'string'
+            ? payload.page
+            : getPageByHref(payload.href)?.key || '',
+      });
+    },
+    [logPerfMetric],
+  );
 
   const finalizeTransition = (completedTransition: TransitionState) => {
     const nextActiveSlot = completedTransition.toSlot;
@@ -1728,6 +1776,32 @@ function App(): JSX.Element {
     setTransitionState(null);
     transitionProgress.setValue(0);
     clearHiddenCachedSlots();
+    if (queuedNavigationRequestRef.current) {
+      requestAnimationFrame(() => {
+        const queuedRequest = queuedNavigationRequestRef.current;
+        if (
+          !queuedRequest ||
+          transitionStateRef.current ||
+          busyLockBySlotRef.current[activeSlotRef.current]
+        ) {
+          return;
+        }
+        queuedNavigationRequestRef.current = null;
+        const navigationResult = requestPageNavigationRef.current(
+          queuedRequest.payload,
+          queuedRequest.source,
+        );
+        logPerfMetric('navigation-replayed', {
+          source: queuedRequest.source,
+          page:
+            typeof queuedRequest.payload.page === 'string'
+              ? queuedRequest.payload.page
+              : getPageByHref(queuedRequest.payload.href)?.key || '',
+          queuedForMs: Date.now() - queuedRequest.queuedAt,
+          navigationResult,
+        });
+      });
+    }
   };
 
   const fallbackTransitionToDirectNavigation = (
@@ -2993,7 +3067,10 @@ function App(): JSX.Element {
         return;
       }
       if (eventName === 'ui.busy-state') {
-        const nextBusy = !!message.payload?.isBusy;
+        const nextBusy =
+          message.payload?.lockNavigation === true ||
+          (message.payload?.lockNavigation === undefined &&
+            !!message.payload?.isBusy);
         if (busyLockBySlotRef.current[slot] !== nextBusy) {
           busyLockBySlotRef.current[slot] = nextBusy;
           setBusyStateVersion(version => version + 1);
@@ -3089,25 +3166,34 @@ function App(): JSX.Element {
       }
       if (eventName === 'ui.navigate') {
         const activeSlot = activeSlotRef.current;
-        const shellBusy =
-          !!transitionStateRef.current || busyLockBySlotRef.current[activeSlot];
-        const navigationResult = shellBusy
-          ? 'noop'
-          : requestPageNavigation(message.payload || {}, 'bridge');
+        const transitionBusy = !!transitionStateRef.current;
+        const navigationLocked = busyLockBySlotRef.current[activeSlot];
+        let navigationResult: NavigationRequestResult = 'noop';
+        let accepted = false;
+        let queued = false;
+        if (transitionBusy) {
+          queueNavigationRequest(message.payload || {}, 'bridge');
+          accepted = true;
+          queued = true;
+        } else if (!navigationLocked) {
+          navigationResult = requestPageNavigation(message.payload || {}, 'bridge');
+          accepted = navigationResult === 'intercept';
+        }
         const requestId =
           typeof message.payload?.requestId === 'string'
             ? message.payload.requestId
             : '';
         if (requestId) {
-          const retryAfterMs = shellBusy
+          const retryAfterMs = transitionBusy || navigationLocked
             ? transitionStateRef.current
               ? 220
               : 140
             : 0;
           postBridgeEvent(slot, 'ui.navigate-ack', {
             requestId,
-            accepted: !shellBusy && navigationResult === 'intercept',
-            busy: shellBusy,
+            accepted,
+            busy: transitionBusy || navigationLocked,
+            queued,
             retryAfterMs,
           });
         }

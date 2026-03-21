@@ -3433,15 +3433,21 @@ function getSettingsLoadingOverlayController() {
   return settingsLoadingOverlayController;
 }
 
-function syncSettingsNativeBusyLock(active) {
+function syncSettingsNativeBusyLock(active, lockNavigation = false) {
   const nextActive = !!active;
-  if (settingsNativeBusyLockActive === nextActive) {
+  const nextLockNavigation = !!lockNavigation;
+  if (
+    settingsNativeBusyLockActive === nextActive &&
+    window.__controlerSettingsNativeLockNavigation === nextLockNavigation
+  ) {
     return;
   }
   settingsNativeBusyLockActive = nextActive;
+  window.__controlerSettingsNativeLockNavigation = nextLockNavigation;
   window.ControlerNativeBridge?.emitEvent?.("ui.busy-state", {
     href: window.location.href,
     isBusy: nextActive,
+    lockNavigation: nextLockNavigation,
   });
 }
 
@@ -3464,7 +3470,7 @@ function setSettingsBusyState(options = {}) {
     runAutoBackupNowBtn.setAttribute("aria-busy", active ? "true" : "false");
   }
 
-  syncSettingsNativeBusyLock(active && lockNativeExit);
+  syncSettingsNativeBusyLock(active, active && lockNativeExit);
 
   if (!overlay) {
     return;

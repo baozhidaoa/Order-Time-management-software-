@@ -2033,6 +2033,21 @@ function loadYearlyGoals() {
 function saveYearlyGoals() {
   try {
     yearlyGoals = normalizeYearlyGoalsState(yearlyGoals);
+    if (typeof window.ControlerStorage?.appendJournal === "function") {
+      return window.ControlerStorage.appendJournal(
+        [
+          {
+            kind: "replaceCoreState",
+            partialCore: {
+              yearlyGoals,
+            },
+          },
+        ],
+        {
+          reason: "plan-yearly-goals-save",
+        },
+      );
+    }
     if (typeof window.ControlerStorage?.replaceCoreState === "function") {
       return window.ControlerStorage.replaceCoreState({
         yearlyGoals,
@@ -2068,6 +2083,35 @@ async function showPlanAlert(message, options = {}) {
     return;
   }
   alert(localizePlanUiText(message));
+}
+
+function handlePlanNonBlockingSaveFailure(message, options = {}) {
+  console.error(message, options.error || "");
+  if (typeof window.ControlerStorage?.syncFromSource === "function") {
+    void window.ControlerStorage
+      .syncFromSource({
+        reason: "plan-save-recovery",
+      })
+      .then((result) => {
+        if (!result?.state || typeof result.state !== "object") {
+          return;
+        }
+        applyPlanWorkspaceState({
+          plans: result.state.plans || [],
+          yearlyGoals: result.state.yearlyGoals || {},
+          loadedPeriodIds: planLoadedPeriodIds,
+        });
+        renderPlanGuideCard();
+        renderCalendarContent();
+      })
+      .catch((error) => {
+        console.error("恢复计划工作区失败:", error);
+      });
+  }
+  void showPlanAlert(options.message || "保存计划失败，请稍后重试。", {
+    title: options.title || "保存失败",
+    danger: true,
+  }).catch?.(() => {});
 }
 
 // 加载数据
@@ -2196,15 +2240,59 @@ async function loadPlans(options = {}) {
 // 保存数据
 async function savePlans() {
   try {
+    const oneTimePlans = plans.filter(
+      (plan) => String(plan?.repeat || "").trim() === "none",
+    );
+    const recurringPlans = plans.filter(
+      (plan) => String(plan?.repeat || "").trim() !== "none",
+    );
+    const periodIds = planLoadedPeriodIds.length
+      ? planLoadedPeriodIds
+      : [
+          ...new Set(
+            oneTimePlans
+              .map((plan) => String(plan?.date || "").slice(0, 7))
+              .filter(Boolean),
+          ),
+        ];
+    if (typeof window.ControlerStorage?.appendJournal === "function") {
+      await window.ControlerStorage.appendJournal(
+        [
+          ...periodIds.map((periodId) => ({
+            kind: "saveSectionRange",
+            section: "plans",
+            payload: {
+              periodId,
+              items: oneTimePlans.filter(
+                (plan) => String(plan?.date || "").slice(0, 7) === periodId,
+              ),
+              mode: "replace",
+            },
+          })),
+          {
+            kind: "replaceRecurringPlans",
+            items: recurringPlans,
+          },
+        ],
+        {
+          reason: "plan-save",
+        },
+      );
+      syncPlanDataIndex(["plans"]);
+      getReminderTools()?.refresh?.({
+        resetWindow: true,
+      });
+      uiTools?.markPerfStage?.("plan-action-storage-acked", {
+        allowRepeat: true,
+        oneTimeCount: oneTimePlans.length,
+        recurringCount: recurringPlans.length,
+      });
+      return;
+    }
     if (
       typeof window.ControlerStorage?.saveSectionRange === "function" &&
       typeof window.ControlerStorage?.replaceRecurringPlans === "function"
     ) {
-      const oneTimePlans = plans.filter((plan) => String(plan?.repeat || "").trim() === "none");
-      const recurringPlans = plans.filter((plan) => String(plan?.repeat || "").trim() !== "none");
-      const periodIds = planLoadedPeriodIds.length
-        ? planLoadedPeriodIds
-        : [...new Set(oneTimePlans.map((plan) => String(plan?.date || "").slice(0, 7)).filter(Boolean))];
       await Promise.all(
         periodIds.map((periodId) =>
           window.ControlerStorage.saveSectionRange("plans", {
@@ -2231,6 +2319,10 @@ async function savePlans() {
     });
   } catch (e) {
     console.error("保存计划数据失败:", e);
+    handlePlanNonBlockingSaveFailure("保存计划数据失败:", {
+      error: e,
+      message: "计划数据同步失败，已尝试恢复当前页面内容。",
+    });
   }
 }
 

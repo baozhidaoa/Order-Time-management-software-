@@ -1883,6 +1883,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
+  const JOURNAL_BATCH_DELAY_MS = 90;
   const ELECTRON_WRITE_DELAY_MS = 250;
   const EXTERNAL_RELOAD_DELAY_MS = 120;
   const NATIVE_WRITE_DELAY_MS = 240;
@@ -2665,6 +2666,287 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return merged;
   }
 
+  function getStorageSectionPeriodId(section, item) {
+    if (typeof storageBundle?.getPeriodIdForSectionItem === "function") {
+      return storageBundle.getPeriodIdForSectionItem(section, item) || "undated";
+    }
+    const dateText =
+      typeof item?.date === "string" && item.date
+        ? item.date
+        : typeof item?.endTime === "string" && item.endTime
+          ? item.endTime
+          : typeof item?.timestamp === "string" && item.timestamp
+            ? item.timestamp
+            : typeof item?.updatedAt === "string" && item.updatedAt
+              ? item.updatedAt
+              : "";
+    return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "undated";
+  }
+
+  function getStorageRecurringPlans(state = {}) {
+    const planItems = Array.isArray(state?.plans) ? state.plans : [];
+    return planItems.filter((item) =>
+      typeof storageBundle?.isRecurringPlan === "function"
+        ? storageBundle.isRecurringPlan(item)
+        : String(item?.repeat || "").trim().toLowerCase() !== "none",
+    );
+  }
+
+  function normalizeStorageJournalOperations(operations = []) {
+    return (Array.isArray(operations) ? operations : [])
+      .map((operation) => {
+        const kind = String(operation?.kind || "").trim();
+        if (kind === "replaceCoreState") {
+          const partialCore =
+            operation?.partialCore &&
+            typeof operation.partialCore === "object" &&
+            !Array.isArray(operation.partialCore)
+              ? cloneValue(operation.partialCore)
+              : {};
+          return {
+            kind,
+            partialCore,
+          };
+        }
+        if (kind === "saveSectionRange") {
+          const section = String(operation?.section || "").trim();
+          const payload =
+            operation?.payload &&
+            typeof operation.payload === "object" &&
+            !Array.isArray(operation.payload)
+              ? cloneValue(operation.payload)
+              : {};
+          if (!section) {
+            return null;
+          }
+          return {
+            kind,
+            section,
+            payload,
+          };
+        }
+        if (kind === "replaceRecurringPlans") {
+          return {
+            kind,
+            items: cloneValue(
+              Array.isArray(operation?.items) ? operation.items : [],
+            ),
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  function coalesceStorageJournalOperations(operations = []) {
+    const orderedKeys = [];
+    const operationsByKey = new Map();
+    normalizeStorageJournalOperations(operations).forEach((operation) => {
+      let key = "";
+      let nextOperation = operation;
+      if (operation.kind === "replaceCoreState") {
+        key = "replaceCoreState";
+        const existing = operationsByKey.get(key);
+        nextOperation = {
+          kind: "replaceCoreState",
+          partialCore: {
+            ...(existing?.partialCore &&
+            typeof existing.partialCore === "object" &&
+            !Array.isArray(existing.partialCore)
+              ? existing.partialCore
+              : {}),
+            ...(operation.partialCore &&
+            typeof operation.partialCore === "object" &&
+            !Array.isArray(operation.partialCore)
+              ? operation.partialCore
+              : {}),
+          },
+        };
+      } else if (operation.kind === "saveSectionRange") {
+        const periodId = String(operation?.payload?.periodId || "").trim();
+        key = `saveSectionRange:${operation.section}:${periodId}`;
+        nextOperation = {
+          kind: "saveSectionRange",
+          section: operation.section,
+          payload: cloneValue(operation.payload || {}),
+        };
+      } else if (operation.kind === "replaceRecurringPlans") {
+        key = "replaceRecurringPlans";
+        nextOperation = {
+          kind: "replaceRecurringPlans",
+          items: cloneValue(operation.items || []),
+        };
+      }
+      if (!key) {
+        return;
+      }
+      if (!operationsByKey.has(key)) {
+        orderedKeys.push(key);
+      }
+      operationsByKey.set(key, nextOperation);
+    });
+    return orderedKeys
+      .map((key) => operationsByKey.get(key))
+      .filter(Boolean);
+  }
+
+  function collectStorageJournalMetadata(operations = []) {
+    const changedSections = [];
+    let changedPeriods = {};
+    coalesceStorageJournalOperations(operations).forEach((operation) => {
+      if (operation.kind === "replaceCoreState") {
+        changedSections.push(
+          ...inferChangedSectionsFromCorePatch(operation.partialCore),
+        );
+        return;
+      }
+      if (operation.kind === "saveSectionRange") {
+        changedSections.push(operation.section);
+        const periodId = String(operation?.payload?.periodId || "").trim();
+        if (periodId) {
+          changedPeriods = mergeChangedPeriodEntries(changedPeriods, {
+            [operation.section]: [periodId],
+          });
+        }
+        return;
+      }
+      if (operation.kind === "replaceRecurringPlans") {
+        changedSections.push("plansRecurring");
+      }
+    });
+    return {
+      changedSections: normalizeChangedSectionEntries(changedSections),
+      changedPeriods: normalizeChangedPeriodEntries(changedPeriods),
+    };
+  }
+
+  function applyStorageJournalOperations(currentState, operations = []) {
+    let nextState =
+      currentState && typeof currentState === "object" && !Array.isArray(currentState)
+        ? cloneValue(currentState)
+        : {};
+
+    coalesceStorageJournalOperations(operations).forEach((operation) => {
+      if (operation.kind === "replaceCoreState") {
+        nextState = {
+          ...nextState,
+          ...(operation.partialCore &&
+          typeof operation.partialCore === "object" &&
+          !Array.isArray(operation.partialCore)
+            ? cloneValue(operation.partialCore)
+            : {}),
+        };
+        return;
+      }
+
+      if (operation.kind === "saveSectionRange") {
+        const section = String(operation.section || "").trim();
+        const periodId = String(operation?.payload?.periodId || "").trim();
+        if (!section || !periodId) {
+          return;
+        }
+        const sectionItems =
+          section === "plans"
+            ? (Array.isArray(nextState?.plans) ? nextState.plans : []).filter(
+                (item) =>
+                  !(typeof storageBundle?.isRecurringPlan === "function"
+                    ? storageBundle.isRecurringPlan(item)
+                    : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+              )
+            : Array.isArray(nextState?.[section])
+              ? nextState[section]
+              : [];
+        const existingItems = sectionItems.filter(
+          (item) => getStorageSectionPeriodId(section, item) === periodId,
+        );
+        const incomingItems = cloneValue(operation?.payload?.items || []);
+        const mergedItems =
+          storageBundle?.mergePartitionItems?.(
+            section,
+            existingItems,
+            incomingItems,
+            operation?.payload?.mode === "merge" ? "merge" : "replace",
+          ) || incomingItems;
+        const remainingItems = sectionItems.filter(
+          (item) => getStorageSectionPeriodId(section, item) !== periodId,
+        );
+        if (section === "plans") {
+          nextState = {
+            ...nextState,
+            plans: [
+              ...remainingItems,
+              ...mergedItems,
+              ...getStorageRecurringPlans(nextState),
+            ],
+          };
+          return;
+        }
+        nextState = {
+          ...nextState,
+          [section]: [...remainingItems, ...mergedItems],
+        };
+        return;
+      }
+
+      if (operation.kind === "replaceRecurringPlans") {
+        const recurringPlans = Array.isArray(operation.items)
+          ? cloneValue(operation.items)
+          : [];
+        const oneTimePlans = (Array.isArray(nextState?.plans) ? nextState.plans : []).filter(
+          (item) =>
+            !(typeof storageBundle?.isRecurringPlan === "function"
+              ? storageBundle.isRecurringPlan(item)
+              : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+        );
+        nextState = {
+          ...nextState,
+          plans: [...oneTimePlans, ...recurringPlans],
+        };
+      }
+    });
+
+    return nextState;
+  }
+
+  function buildStorageJournalResult(
+    operations = [],
+    metadata = {},
+    extra = {},
+  ) {
+    const normalizedOperations = coalesceStorageJournalOperations(operations);
+    const normalizedMetadata = collectStorageJournalMetadata(normalizedOperations);
+    const changedSections =
+      normalizedMetadata.changedSections.length ||
+      Object.keys(normalizedMetadata.changedPeriods).length
+        ? normalizedMetadata.changedSections
+        : normalizeChangedSectionEntries(metadata.changedSections);
+    const changedPeriods =
+      Object.keys(normalizedMetadata.changedPeriods).length
+        ? normalizedMetadata.changedPeriods
+        : normalizeChangedPeriodEntries(metadata.changedPeriods);
+    const result = {
+      ok: extra?.ok !== false,
+      opCount: normalizedOperations.length,
+      changedSections,
+      changedPeriods,
+      generatedAt: new Date().toISOString(),
+    };
+    if (Array.isArray(extra?.results)) {
+      result.results = cloneValue(extra.results);
+    }
+    if (typeof extra?.snapshotVersion === "string") {
+      result.snapshotVersion = extra.snapshotVersion;
+    }
+    if (
+      extra?.status &&
+      typeof extra.status === "object" &&
+      !Array.isArray(extra.status)
+    ) {
+      result.status = cloneValue(extra.status);
+    }
+    return result;
+  }
+
   function getChangedSectionsForSharedStateKey(key) {
     const normalizedKey = resolveLocalStateKey(key);
     if (!normalizedKey || !isSharedStateKey(normalizedKey)) {
@@ -2888,6 +3170,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       async getStorageStatus() {
         return null;
       },
+      async appendJournal(ops = [], options = {}) {
+        const normalizedOperations = coalesceStorageJournalOperations(ops);
+        const metadata = collectStorageJournalMetadata(normalizedOperations);
+        if (!normalizedOperations.length) {
+          return buildStorageJournalResult([], metadata);
+        }
+        this.replaceAll(
+          applyStorageJournalOperations(this.dump(), normalizedOperations),
+        );
+        await this.persistNow();
+        return buildStorageJournalResult(normalizedOperations, metadata);
+      },
+      async flushJournal() {
+        return this.flush();
+      },
       async syncFromSource() {
         return {
           state: this.dump(),
@@ -2975,8 +3272,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       reloadState,
       getStorageStatus,
       syncFromSource,
+      appendJournalImpl = null,
+      flushJournalImpl = null,
+      afterJournalStateApplied = null,
+      journalBatchDelayMs = JOURNAL_BATCH_DELAY_MS,
       extraMethods = {},
     } = options;
+
+    const normalizedJournalBatchDelayMs = Number.isFinite(journalBatchDelayMs)
+      ? Math.max(0, Math.round(Number(journalBatchDelayMs)))
+      : JOURNAL_BATCH_DELAY_MS;
+    let pendingJournalEntries = [];
+    let journalFlushTimer = 0;
+    let journalCommitChain = Promise.resolve(null);
 
     function buildCurrentMergedState() {
       return buildMergedState(readState(), {
@@ -3064,6 +3372,93 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ),
       );
       persistState({ reason: "clear" });
+    }
+
+    function clearJournalFlushTimer() {
+      if (journalFlushTimer) {
+        window.clearTimeout(journalFlushTimer);
+        journalFlushTimer = 0;
+      }
+    }
+
+    function scheduleJournalFlush() {
+      clearJournalFlushTimer();
+      if (normalizedJournalBatchDelayMs <= 0) {
+        void flushQueuedJournal().catch((error) => {
+          console.error("批量追加存储日志失败:", error);
+        });
+        return;
+      }
+      journalFlushTimer = window.setTimeout(() => {
+        journalFlushTimer = 0;
+        void flushQueuedJournal().catch((error) => {
+          console.error("批量追加存储日志失败:", error);
+        });
+      }, normalizedJournalBatchDelayMs);
+    }
+
+    async function runJournalCommit(entries = [], flushOptions = {}) {
+      const operations = coalesceStorageJournalOperations(
+        entries.flatMap((entry) => entry.operations || []),
+      );
+      const metadata = collectStorageJournalMetadata(operations);
+      if (!operations.length) {
+        return buildStorageJournalResult([], metadata);
+      }
+      if (typeof appendJournalImpl === "function") {
+        return appendJournalImpl(operations, metadata, flushOptions);
+      }
+      persistState({
+        reason:
+          typeof flushOptions?.reason === "string" && flushOptions.reason.trim()
+            ? flushOptions.reason.trim()
+            : "journal-append",
+        changedSections: metadata.changedSections,
+        changedPeriods: metadata.changedPeriods,
+      });
+      if (typeof persistNow === "function") {
+        const nextStatus = await persistNow();
+        return buildStorageJournalResult(operations, metadata, {
+          status:
+            nextStatus && typeof nextStatus === "object" ? nextStatus : null,
+        });
+      }
+      return buildStorageJournalResult(operations, metadata);
+    }
+
+    async function flushQueuedJournal(options = {}) {
+      clearJournalFlushTimer();
+      const pendingEntries = pendingJournalEntries;
+      pendingJournalEntries = [];
+
+      if (!pendingEntries.length) {
+        const lastCommit = await journalCommitChain.catch(() => null);
+        if (typeof flushJournalImpl === "function") {
+          return flushJournalImpl(options, lastCommit);
+        }
+        if (typeof persistNow === "function") {
+          return persistNow();
+        }
+        return cloneValue(readState());
+      }
+
+      const nextCommit = journalCommitChain
+        .catch(() => null)
+        .then(() => runJournalCommit(pendingEntries, options));
+      journalCommitChain = nextCommit.catch(() => null);
+
+      try {
+        const result = await nextCommit;
+        pendingEntries.forEach((entry) => {
+          entry.resolve(cloneValue(result));
+        });
+        return result;
+      } catch (error) {
+        pendingEntries.forEach((entry) => {
+          entry.reject(error);
+        });
+        throw error;
+      }
     }
 
     nativeStoragePrototype.getItem = function getItem(key) {
@@ -3188,20 +3583,77 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         persistState({ reason: "manual-persist" });
       },
       async persistNow() {
-        if (typeof persistNow === "function") {
-          return persistNow();
-        }
-        persistState({ reason: "manual-persist-now" });
-        return cloneValue(readState());
+        return flushQueuedJournal({
+          immediate: true,
+          reason: "manual-persist-now",
+        });
       },
       async flush() {
-        return this.persistNow();
+        return this.flushJournal();
       },
       async getStorageStatus() {
         if (typeof getStorageStatus !== "function") {
           return null;
         }
         return getStorageStatus();
+      },
+      async appendJournal(ops = [], options = {}) {
+        const normalizedOptions =
+          options && typeof options === "object" ? { ...options } : {};
+        const normalizedOperations = coalesceStorageJournalOperations(ops);
+        const metadata = collectStorageJournalMetadata(normalizedOperations);
+        if (!normalizedOperations.length) {
+          return buildStorageJournalResult([], metadata);
+        }
+
+        const nextState = applyStorageJournalOperations(
+          readState(),
+          normalizedOperations,
+        );
+        assignState(nextState);
+        if (typeof afterJournalStateApplied === "function") {
+          afterJournalStateApplied(
+            nextState,
+            normalizedOperations,
+            metadata,
+            normalizedOptions,
+          );
+        }
+
+        const pendingPromise = new Promise((resolve, reject) => {
+          pendingJournalEntries.push({
+            operations: normalizedOperations,
+            metadata,
+            resolve,
+            reject,
+          });
+        });
+
+        if (
+          normalizedOptions.flush === true ||
+          normalizedOptions.immediate === true
+        ) {
+          return flushQueuedJournal({
+            ...normalizedOptions,
+            immediate: true,
+          });
+        }
+
+        scheduleJournalFlush();
+        return pendingPromise;
+      },
+      async flushJournal(options = {}) {
+        const normalizedOptions =
+          options && typeof options === "object" ? { ...options } : {};
+        return flushQueuedJournal({
+          ...normalizedOptions,
+          immediate: true,
+          reason:
+            typeof normalizedOptions.reason === "string" &&
+            normalizedOptions.reason.trim()
+              ? normalizedOptions.reason.trim()
+              : "journal-flush",
+        });
       },
       async getPlanBootstrapState(options = {}) {
         const includeRecurringPlans = options?.includeRecurringPlans !== false;
@@ -3482,6 +3934,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
       syncFromSource(options = {}) {
         return syncFromElectronSource(options);
+      },
+      appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
+        markPendingElectronStorageChangeMetadata(metadata);
+        pendingElectronWriteReason =
+          typeof options?.reason === "string" && options.reason.trim()
+            ? options.reason.trim()
+            : "journal-append";
+        hasPendingStateChanges = true;
+        const nextStatus = await flushElectronState();
+        return buildStorageJournalResult(operations, metadata, {
+          status: nextStatus,
+          snapshotVersion:
+            typeof nextStatus?.fingerprint === "string"
+              ? nextStatus.fingerprint
+              : "",
+        });
+      },
+      flushJournalImpl: async () => {
+        if (hasPendingStateChanges) {
+          return flushElectronState();
+        }
+        if (cachedStatus) {
+          return cachedStatus;
+        }
+        cachedStatus = await electronAPI.storageStatus().catch((error) => {
+          console.error("获取 Electron 存储状态失败:", error);
+          return null;
+        });
+        return cachedStatus;
       },
       extraMethods: {
         async getManifest() {
@@ -5042,6 +5523,128 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return syncStateFromNative(reason, {
           suppressError: false,
         });
+      },
+      afterJournalStateApplied(nextState, operations = [], metadata = {}) {
+        hasManagedCoreSnapshot = true;
+        coalesceStorageJournalOperations(operations).forEach((operation) => {
+          if (operation.kind !== "saveSectionRange") {
+            return;
+          }
+          const periodId = String(operation?.payload?.periodId || "").trim();
+          if (!periodId) {
+            return;
+          }
+          markManagedSectionPeriodsLoaded(operation.section, [periodId]);
+        });
+        persistMirrorSnapshot(true);
+      },
+      appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
+        const optimisticResult = buildStorageJournalResult(operations, metadata, {
+          status: cachedStatus,
+          snapshotVersion:
+            typeof cachedStatus?.fingerprint === "string"
+              ? cachedStatus.fingerprint
+              : "",
+        });
+        const canUseNativeJournal =
+          reactNativeBridge?.platform === "android" &&
+          typeof reactNativeBridge?.call === "function";
+
+        if (canUseNativeJournal) {
+          const checkpoint = createManagedStateCheckpoint();
+          const runJournalAppend = async () => {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.appendJournal",
+              {
+                payload: {
+                  ops: operations,
+                },
+              },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            await settleManagedNativeDirectWrite(checkpoint);
+            const changedSections = normalizeChangedSectionsList(
+              parsed?.changedSections || metadata.changedSections,
+            );
+            const changedPeriods = normalizeChangedPeriodsMap(
+              parsed?.changedPeriods || metadata.changedPeriods,
+            );
+            emitNativeStorageChangedBridgeEvent(
+              typeof options?.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "journal-append",
+              {
+                changedSections,
+                changedPeriods,
+              },
+            );
+            if (parsed && typeof parsed === "object") {
+              return {
+                ...optimisticResult,
+                ...parsed,
+                changedSections,
+                changedPeriods,
+              };
+            }
+            return optimisticResult;
+          };
+
+          try {
+            return await queueManagedNativeDirectWrite(runJournalAppend, {
+              errorLabel: "追加 React Native 存储日志失败:",
+            });
+          } catch (firstError) {
+            console.error("首次追加 React Native 存储日志失败，准备重试:", firstError);
+            try {
+              return await queueManagedNativeDirectWrite(runJournalAppend, {
+                errorLabel: "重试追加 React Native 存储日志失败:",
+              });
+            } catch (secondError) {
+              console.error("重试追加 React Native 存储日志失败，回退整包补写:", secondError);
+              markPendingNativeStorageChangeMetadata(metadata);
+              scheduleManagedPendingNativeFlush();
+              return optimisticResult;
+            }
+          }
+        }
+
+        markPendingNativeStorageChangeMetadata(metadata);
+        const nextStatus = await persistNow();
+        return buildStorageJournalResult(operations, metadata, {
+          status:
+            nextStatus && typeof nextStatus === "object" ? nextStatus : cachedStatus,
+          snapshotVersion:
+            typeof nextStatus?.fingerprint === "string"
+              ? nextStatus.fingerprint
+              : typeof cachedStatus?.fingerprint === "string"
+                ? cachedStatus.fingerprint
+                : "",
+        });
+      },
+      flushJournalImpl: async () => {
+        if (hasPendingStateChanges) {
+          return writeNativeState();
+        }
+        if (
+          reactNativeBridge?.platform === "android" &&
+          typeof reactNativeBridge?.call === "function"
+        ) {
+          try {
+            const rawPayload = await reactNativeBridge.call("storage.flushJournal");
+            const parsed = parseJsonSafely(rawPayload, null);
+            const nextStatus = await getNativeStatusSnapshot({
+              suppressError: true,
+            });
+            if (nextStatus && typeof nextStatus === "object") {
+              cachedStatus = nextStatus;
+            }
+            return parsed && typeof parsed === "object" ? parsed : cachedStatus;
+          } catch (error) {
+            console.error("刷新 React Native 存储日志失败:", error);
+          }
+        }
+        persistMirrorSnapshot(true);
+        return cachedStatus;
       },
       extraMethods: {
         async getManifest() {

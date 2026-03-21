@@ -456,15 +456,21 @@ function getIndexLoadingOverlayController() {
   return indexLoadingOverlayController;
 }
 
-function syncIndexNativeBusyLock(active) {
+function syncIndexNativeBusyLock(active, lockNavigation = false) {
   const nextActive = !!active;
-  if (indexNativeBusyLockActive === nextActive) {
+  const nextLockNavigation = !!lockNavigation;
+  if (
+    indexNativeBusyLockActive === nextActive &&
+    window.__controlerIndexNativeLockNavigation === nextLockNavigation
+  ) {
     return;
   }
   indexNativeBusyLockActive = nextActive;
+  window.__controlerIndexNativeLockNavigation = nextLockNavigation;
   window.ControlerNativeBridge?.emitEvent?.("ui.busy-state", {
     href: window.location.href,
     isBusy: nextActive,
+    lockNavigation: nextLockNavigation,
   });
 }
 
@@ -487,7 +493,7 @@ function setIndexLoadingState(options = {}) {
         : "正在刷新当前内容，请稍候",
   } = options;
   const loadingController = getIndexLoadingOverlayController();
-  syncIndexNativeBusyLock(active && lockNativeExit);
+  syncIndexNativeBusyLock(active, active && lockNativeExit);
 
   if (!loadingController) {
     syncIndexNativeBusyLock(false);

@@ -63,6 +63,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -96,6 +98,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
     private static final int DEFAULT_AUTO_BACKUP_INTERVAL_VALUE = 1;
     private static final int DEFAULT_AUTO_BACKUP_MAX_BACKUPS = 7;
+    private static final long STORAGE_SIDE_EFFECT_DELAY_MS = 560L;
+    private static final long STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS = 30_000L;
 
     private static final class WidgetPinSupportState {
         final String kind;
@@ -217,6 +221,90 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private JSONObject pendingPickImportSourceOptions = null;
     private String cachedImportPayloadUri = "";
     private Object cachedImportPayload = null;
+    private final ExecutorService storageSideEffectExecutor =
+        Executors.newSingleThreadExecutor();
+    private final Object storageSideEffectLock = new Object();
+    private final LinkedHashSet<String> pendingStorageSideEffectSections =
+        new LinkedHashSet<>();
+    private boolean pendingStorageNotificationReschedule = false;
+    private boolean pendingStorageWidgetRefresh = false;
+    private boolean pendingStorageAutoBackupCheck = false;
+    private long lastDeferredAutoBackupQueuedAt = 0L;
+    private final Runnable storageSideEffectDrainRunnable = new Runnable() {
+        @Override
+        public void run() {
+            final JSONArray changedSections;
+            final boolean runNotifications;
+            final boolean runWidgets;
+            final boolean runAutoBackup;
+            long rescheduleAutoBackupAfterMs = 0L;
+            final long now = System.currentTimeMillis();
+
+            synchronized (storageSideEffectLock) {
+                changedSections = toJsonArray(pendingStorageSideEffectSections);
+                pendingStorageSideEffectSections.clear();
+                runNotifications = pendingStorageNotificationReschedule;
+                pendingStorageNotificationReschedule = false;
+                runWidgets = pendingStorageWidgetRefresh;
+                pendingStorageWidgetRefresh = false;
+
+                if (pendingStorageAutoBackupCheck) {
+                    long remaining =
+                        STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS
+                            - Math.max(0L, now - lastDeferredAutoBackupQueuedAt);
+                    if (remaining <= 0L) {
+                        runAutoBackup = true;
+                        pendingStorageAutoBackupCheck = false;
+                        lastDeferredAutoBackupQueuedAt = now;
+                    } else {
+                        runAutoBackup = false;
+                        rescheduleAutoBackupAfterMs = remaining;
+                    }
+                } else {
+                    runAutoBackup = false;
+                }
+            }
+
+            if (rescheduleAutoBackupAfterMs > 0L) {
+                MAIN_HANDLER.postDelayed(
+                    storageSideEffectDrainRunnable,
+                    rescheduleAutoBackupAfterMs
+                );
+            }
+
+            if (!runNotifications && !runWidgets && !runAutoBackup) {
+                return;
+            }
+
+            storageSideEffectExecutor.execute(() -> {
+                Context context = getReactApplicationContext();
+                if (runNotifications) {
+                    try {
+                        ControlerNotificationScheduler.rescheduleAll(context);
+                    } catch (Exception error) {
+                        error.printStackTrace();
+                    }
+                }
+                if (runWidgets) {
+                    try {
+                        scheduleWidgetRefresh(
+                            changedSections,
+                            "deferred-storage-side-effects"
+                        );
+                    } catch (Exception error) {
+                        error.printStackTrace();
+                    }
+                }
+                if (runAutoBackup) {
+                    try {
+                        maybeRunAutoBackup(context);
+                    } catch (Exception error) {
+                        error.printStackTrace();
+                    }
+                }
+            });
+        }
+    };
     private final PermissionListener notificationPermissionListener =
         new PermissionListener() {
             @Override
@@ -339,6 +427,40 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
         }
         return array;
+    }
+
+    private void appendPendingStorageSideEffectSections(JSONArray changedSections) {
+        if (changedSections == null) {
+            return;
+        }
+        for (int index = 0; index < changedSections.length(); index++) {
+            String section = changedSections.optString(index, "").trim();
+            if (!TextUtils.isEmpty(section)) {
+                pendingStorageSideEffectSections.add(section);
+            }
+        }
+    }
+
+    private void enqueueStorageSideEffects(
+        JSONArray changedSections,
+        boolean refreshNotifications,
+        boolean refreshWidgets,
+        boolean checkAutoBackup
+    ) {
+        synchronized (storageSideEffectLock) {
+            appendPendingStorageSideEffectSections(changedSections);
+            pendingStorageNotificationReschedule =
+                pendingStorageNotificationReschedule || refreshNotifications;
+            pendingStorageWidgetRefresh =
+                pendingStorageWidgetRefresh || refreshWidgets;
+            pendingStorageAutoBackupCheck =
+                pendingStorageAutoBackupCheck || checkAutoBackup;
+        }
+        MAIN_HANDLER.removeCallbacks(storageSideEffectDrainRunnable);
+        MAIN_HANDLER.postDelayed(
+            storageSideEffectDrainRunnable,
+            STORAGE_SIDE_EFFECT_DELAY_MS
+        );
     }
 
     private String resolveWidgetKindHint(JSONArray changedSections) {
@@ -602,9 +724,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 return;
             }
 
-            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext(), root);
-            scheduleWidgetRefresh(buildDefaultChangedSections(), "storage-write");
-            maybeRunAutoBackup(getReactApplicationContext());
+            enqueueStorageSideEffects(
+                buildDefaultChangedSections(),
+                true,
+                true,
+                true
+            );
 
             JSONObject payload = new JSONObject();
             payload.put(
@@ -739,9 +864,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     payload
                 );
-            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            scheduleWidgetRefresh(result);
-            maybeRunAutoBackup(getReactApplicationContext());
+            enqueueStorageSideEffects(
+                result.optJSONArray("changedSections"),
+                true,
+                true,
+                true
+            );
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_journal_append_failed", error);
@@ -812,9 +940,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     section,
                     payload
                 );
-            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            scheduleWidgetRefresh(new JSONArray().put(section), "section-save");
-            maybeRunAutoBackup(getReactApplicationContext());
+            enqueueStorageSideEffects(
+                new JSONArray().put(section),
+                true,
+                true,
+                true
+            );
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_range_save_failed", error);
@@ -833,12 +964,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     partialCore
                 );
-            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            scheduleWidgetRefresh(
+            enqueueStorageSideEffects(
                 inferChangedSectionsFromCorePatch(partialCore),
-                "core-replace"
+                true,
+                true,
+                true
             );
-            maybeRunAutoBackup(getReactApplicationContext());
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_core_replace_failed", error);
@@ -855,9 +986,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     items
                 );
-            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-            scheduleWidgetRefresh(new JSONArray().put("plansRecurring"), "plans-recurring");
-            maybeRunAutoBackup(getReactApplicationContext());
+            enqueueStorageSideEffects(
+                new JSONArray().put("plansRecurring"),
+                true,
+                true,
+                true
+            );
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_recurring_replace_failed", error);

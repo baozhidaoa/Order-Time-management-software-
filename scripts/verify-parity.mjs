@@ -20,12 +20,14 @@ const mobileGeneratedBootFiles = new Set([
   "index-boot.js",
   "diary-boot.js",
   "plan-boot.js",
+  "todo-boot.js",
   "stats-boot.js",
 ]);
 const mobileBootstrapHtmlPages = new Set([
   "index.html",
   "diary.html",
   "plan.html",
+  "todo.html",
   "stats.html",
 ]);
 

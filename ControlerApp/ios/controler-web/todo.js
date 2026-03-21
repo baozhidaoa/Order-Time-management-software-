@@ -444,6 +444,23 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
   return queueTodoPersistenceTask(
     async () => {
       const bundleStorage = window.ControlerStorage;
+      if (typeof bundleStorage?.appendJournal === "function") {
+        await bundleStorage.appendJournal(
+          [
+            {
+              kind: "replaceCoreState",
+              partialCore: cloneTodoValue(source),
+            },
+          ],
+          {
+            reason:
+              typeof options?.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "todo-core-save",
+          },
+        );
+        return true;
+      }
       if (typeof bundleStorage?.replaceCoreState === "function") {
         await bundleStorage.replaceCoreState(cloneTodoValue(source), {
           reason:
@@ -503,7 +520,25 @@ function queueTodoSectionSave(section, options = {}) {
   return queueTodoPersistenceTask(
     async () => {
       const bundleStorage = window.ControlerStorage;
-      if (typeof bundleStorage?.saveSectionRange === "function") {
+      if (typeof bundleStorage?.appendJournal === "function") {
+        await bundleStorage.appendJournal(
+          periodIds.map((periodId) => ({
+            kind: "saveSectionRange",
+            section: normalizedSection,
+            payload: {
+              periodId,
+              items: currentItems.filter(
+                (item) =>
+                  getTodoSectionPeriodId(normalizedSection, item) === periodId,
+              ),
+              mode: "replace",
+            },
+          })),
+          {
+            reason: `todo-section-save:${normalizedSection}`,
+          },
+        );
+      } else if (typeof bundleStorage?.saveSectionRange === "function") {
         await Promise.all(
           periodIds.map((periodId) =>
             bundleStorage.saveSectionRange(normalizedSection, {
@@ -533,6 +568,30 @@ function queueTodoSectionSave(section, options = {}) {
   );
 }
 
+function handleTodoNonBlockingSaveFailure(message, options = {}) {
+  console.error(message, options.error || "");
+  const bundleStorage = window.ControlerStorage;
+  if (typeof bundleStorage?.syncFromSource === "function") {
+    void bundleStorage
+      .syncFromSource({
+        reason: "todo-save-recovery",
+      })
+      .then((result) => {
+        if (result?.state && typeof result.state === "object") {
+          applyTodoWorkspaceSnapshot(result.state);
+          scheduleTodoInterfaceRefresh();
+        }
+      })
+      .catch((error) => {
+        console.error("恢复待办工作区失败:", error);
+      });
+  }
+  void showTodoAlert(options.message || "保存失败，请稍后重试。", {
+    title: options.title || "保存失败",
+    danger: true,
+  }).catch?.(() => {});
+}
+
 async function persistTodoWorkspaceSnapshot(snapshot) {
   const nextSnapshot =
     snapshot && typeof snapshot === "object"
@@ -544,6 +603,54 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
           checkins,
         };
   const bundleStorage = window.ControlerStorage;
+  if (
+    typeof bundleStorage?.appendJournal === "function"
+  ) {
+    const sectionOps = ["dailyCheckins", "checkins"].flatMap((section) => {
+      const items = nextSnapshot[section] || [];
+      const periodIds = Array.from(
+        new Set([
+          ...getTodoSectionPeriodIds(section, items),
+          ...Array.from(todoLoadedSectionPeriods[section] || []),
+        ]),
+      );
+      if (!periodIds.length) {
+        todoLoadedSectionPeriods[section] = new Set();
+        return [];
+      }
+      todoLoadedSectionPeriods[section] = new Set(
+        getTodoSectionPeriodIds(section, items),
+      );
+      return periodIds.map((periodId) => ({
+        kind: "saveSectionRange",
+        section,
+        payload: {
+          periodId,
+          items: (items || []).filter(
+            (item) => getTodoSectionPeriodId(section, item) === periodId,
+          ),
+          mode: "replace",
+        },
+      }));
+    });
+    await bundleStorage.appendJournal(
+      [
+        {
+          kind: "replaceCoreState",
+          partialCore: {
+            todos: cloneTodoValue(nextSnapshot.todos || []),
+            checkinItems: cloneTodoValue(nextSnapshot.checkinItems || []),
+          },
+        },
+        ...sectionOps,
+      ],
+      {
+        reason: "todo-workspace",
+        flush: true,
+      },
+    );
+    return true;
+  }
   if (
     typeof bundleStorage?.replaceCoreState === "function" &&
     typeof bundleStorage?.saveSectionRange === "function"
@@ -1826,10 +1933,6 @@ class CheckinItem {
     if (!this.isScheduledOn(today)) {
       return false;
     }
-    if (isTodoActionPending("checkin", this.id)) {
-      return false;
-    }
-    const previousDailyCheckins = cloneTodoValue(dailyCheckins);
     const index = dailyCheckins.findIndex(
       (c) => c.itemId === this.id && c.date === today,
     );
@@ -1850,8 +1953,12 @@ class CheckinItem {
       });
     }
 
-    setTodoActionPending("checkin", this.id, true);
-    refreshTodoInterface();
+    uiTools?.markPerfStage?.("todo-action-ui-committed", {
+      allowRepeat: true,
+      action: "toggle-checkin",
+      itemId: this.id,
+    });
+    scheduleTodoInterfaceRefresh();
     const todayPeriodId = getTodoSectionPeriodId("dailyCheckins", {
       date: today,
       time: nowText,
@@ -1861,16 +1968,16 @@ class CheckinItem {
       errorLabel: "保存今日打卡状态失败:",
     }).then((saved) => {
       if (saved) {
-        setTodoActionPending("checkin", this.id, false);
-        refreshTodoInterface();
+        uiTools?.markPerfStage?.("todo-action-storage-acked", {
+          allowRepeat: true,
+          action: "toggle-checkin",
+          itemId: this.id,
+        });
         return;
       }
-      dailyCheckins = hydrateTodoCollection(
-        "dailyCheckins",
-        previousDailyCheckins,
-      );
-      setTodoActionPending("checkin", this.id, false);
-      refreshTodoInterface();
+      handleTodoNonBlockingSaveFailure("保存今日打卡状态失败。", {
+        message: "今日打卡同步失败，已尝试恢复当前数据。",
+      });
     });
     return true;
   }
@@ -2674,15 +2781,10 @@ function createTodoElement(todo, listScale = 1) {
     tagElement.style.borderRadius = `${Math.max(10, Math.round(14 * cardScale))}px`;
   });
   if (completeButton) {
-    const completionPending = isTodoActionPending("todo", todo.id);
     completeButton.style.fontSize = `${actionFontSize}px`;
     completeButton.style.padding = `${Math.max(5, Math.round(7 * cardScale))}px ${Math.max(10, Math.round(14 * cardScale))}px`;
-    completeButton.disabled = completionPending;
-    completeButton.textContent = completionPending
-      ? "保存中"
-      : todo.completed
-        ? "取消完成"
-        : "完成";
+    completeButton.disabled = false;
+    completeButton.textContent = todo.completed ? "取消完成" : "完成";
     completeButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -2761,13 +2863,13 @@ function createTodoElement(todo, listScale = 1) {
 function toggleTodoCompletion(todoId) {
   const todo = todos.find((t) => matchesId(t.id, todoId));
   if (todo) {
-    if (isTodoActionPending("todo", todo.id)) {
-      return false;
-    }
-    const previousTodos = getTodoSectionStateSnapshot("todos");
-    setTodoActionPending("todo", todo.id, true);
     todo.completed = !todo.completed;
     todo.completedAt = todo.completed ? new Date().toISOString() : null;
+    uiTools?.markPerfStage?.("todo-action-ui-committed", {
+      allowRepeat: true,
+      action: "toggle-todo-completion",
+      todoId: todo.id,
+    });
     void queueTodoCoreSave(
       {
         todos: getTodoSectionStateSnapshot("todos"),
@@ -2779,15 +2881,18 @@ function toggleTodoCompletion(todoId) {
       },
     ).then((saved) => {
       if (saved) {
-        setTodoActionPending("todo", todo.id, false);
-        refreshTodoInterface();
+        uiTools?.markPerfStage?.("todo-action-storage-acked", {
+          allowRepeat: true,
+          action: "toggle-todo-completion",
+          todoId: todo.id,
+        });
         return;
       }
-      todos = hydrateTodoCollection("todos", previousTodos);
-      setTodoActionPending("todo", todo.id, false);
-      refreshTodoInterface();
+      handleTodoNonBlockingSaveFailure("保存待办完成状态失败。", {
+        message: "待办完成状态同步失败，已尝试恢复当前数据。",
+      });
     });
-    refreshTodoInterface();
+    scheduleTodoInterfaceRefresh();
   }
 }
 
@@ -4363,7 +4468,6 @@ function createCheckinItemElement(item, listScale = 1) {
   itemElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
 
   const checked = item.getTodayCheckinStatus();
-  const pending = isTodoActionPending("checkin", item.id);
   const checkedDays = item.getCheckedDaysCount();
   const today = getLocalDateText();
   const isScheduledToday =
@@ -4390,15 +4494,15 @@ function createCheckinItemElement(item, listScale = 1) {
           border: none;
           background-color: ${checked ? item.color : "var(--bg-quaternary)"};
           color: white;
-          cursor: ${isScheduledToday && !pending ? "pointer" : "not-allowed"};
+          cursor: ${isScheduledToday ? "pointer" : "not-allowed"};
           font-size: ${Math.max(13, Math.round(20 * cardScale))}px;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.2s;
-          opacity: ${isScheduledToday ? (pending ? "0.72" : "1") : "0.55"};
+          opacity: ${isScheduledToday ? "1" : "0.55"};
         ">
-          ${pending ? "…" : checked ? "✓" : "○"}
+          ${checked ? "✓" : "○"}
         </button>
       </div>
     </div>
