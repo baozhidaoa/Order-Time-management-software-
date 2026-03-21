@@ -99,14 +99,18 @@ function rewriteMobileBootstrapHtml(sourceText, relativePath) {
   }
 
   const bootstrapScripts =
-    `    <script src="mobile-common-boot.js"></script>\n` +
-    `    <script src="${pageKey}-boot.js"></script>\n`;
+    `    <script defer src="mobile-common-boot.js"></script>\n` +
+    `    <script defer src="${pageKey}-boot.js"></script>\n`;
+  const pageScriptPattern = new RegExp(
+    `\\s*<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>\\s*`,
+    "i",
+  );
 
   return (
     sourceText.slice(0, firstScriptIndex) +
     bootstrapScripts +
     sourceText.slice(stylesheetIndex)
-  );
+  ).replace(pageScriptPattern, "\n");
 }
 
 async function compareDirectories(sourceDir, targetDir, label) {

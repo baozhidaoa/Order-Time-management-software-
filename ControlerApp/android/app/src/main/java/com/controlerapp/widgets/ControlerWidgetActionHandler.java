@@ -392,7 +392,7 @@ public final class ControlerWidgetActionHandler {
         );
 
         if (COMMAND_TOGGLE_TIMER.equals(command)) {
-            return toggleTimer(context);
+            return routeWidgetCommandToApp(context, command, targetId, widgetKind, appWidgetId);
         }
         if (COMMAND_TOGGLE_TODO.equals(command)) {
             return toggleTodo(context, targetId, appWidgetId);

@@ -3008,11 +3008,10 @@ public final class ControlerWidgetRenderer {
         WidgetContent content,
         ControlerWidgetDataStore.State state
     ) {
-        boolean timerActive = isTimerSessionActive(state);
         content.actionOnly = true;
         content.subtitle = "";
-        content.actionLabel = timerActive ? "停止计时" : "开始计时";
-        content.directCommand = ControlerWidgetActionHandler.COMMAND_TOGGLE_TIMER;
+        content.actionLabel = "开始计时";
+        content.directCommand = "";
         content.directTargetId = "";
         content.statPrimary = "";
         content.statSecondary = "";

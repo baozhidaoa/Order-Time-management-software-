@@ -4682,7 +4682,7 @@
               console.error("重试追加 React Native 存储日志失败，回退整包补写:", secondError);
               markPendingNativeStorageChangeMetadata(metadata);
               scheduleManagedPendingNativeFlush();
-              return optimisticResult;
+              throw secondError;
             }
           }
         }
@@ -5191,7 +5191,7 @@
               },
             });
             scheduleManagedPendingNativeFlush();
-            return optimisticResult;
+            throw error;
           }
         },
         async replaceCoreState(partialCore = {}, options = {}) {
@@ -5235,7 +5235,7 @@
               changedSections,
             });
             scheduleManagedPendingNativeFlush();
-            return optimisticResult;
+            throw error;
           }
         },
         async replaceRecurringPlans(items = []) {
@@ -5280,7 +5280,7 @@
               changedSections: ["plansRecurring"],
             });
             scheduleManagedPendingNativeFlush();
-            return recurringPlans;
+            throw error;
           }
         },
         async exportBundle(options = {}) {

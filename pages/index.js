@@ -647,10 +647,10 @@ async function hydrateIndexWorkspace(options = {}) {
   };
 }
 
-function commitIndexWorkspaceSnapshot(options = {}) {
+async function commitIndexWorkspaceSnapshot(options = {}) {
   const forceTimerSessionSync = options.forceTimerSessionSync === true;
   const markFirstCommit = options.markFirstCommit === true;
-  const repairedDurationCache = ensureIndexProjectDurationCaches({
+  const repairedDurationCache = await ensureIndexProjectDurationCaches({
     persist: false,
   });
   loadTimerSessionState({
@@ -3343,7 +3343,19 @@ function reconcileIndexProjectDurationCaches(previousProjects = []) {
   return true;
 }
 
-function ensureIndexProjectDurationCaches(options = {}) {
+async function loadAllIndexRecordsFromStorage() {
+  if (typeof window.ControlerStorage?.loadSectionRange === "function") {
+    const range = await window.ControlerStorage.loadSectionRange("records", {});
+    return Array.isArray(range?.items) ? range.items : [];
+  }
+  const localSnapshot = readIndexLocalRecordSnapshot();
+  if (localSnapshot.hasMirror) {
+    return localSnapshot.items;
+  }
+  return cloneIndexValue(records);
+}
+
+async function ensureIndexProjectDurationCaches(options = {}) {
   const { persist = false } = options;
   if (typeof storageBundleApi?.rebuildProjectDurationCaches !== "function") {
     return false;
@@ -3354,11 +3366,23 @@ function ensureIndexProjectDurationCaches(options = {}) {
   ) {
     return false;
   }
+  let authoritativeRecords = records;
+  if (hasManagedIndexRecordStorage()) {
+    try {
+      authoritativeRecords = await loadAllIndexRecordsFromStorage();
+    } catch (error) {
+      console.error("读取全量记录以修复项目时长缓存失败:", error);
+      return false;
+    }
+  }
   projects = normalizeStoredProjects(
-    storageBundleApi.rebuildProjectDurationCaches(projects, records),
+    storageBundleApi.rebuildProjectDurationCaches(
+      projects,
+      Array.isArray(authoritativeRecords) ? authoritativeRecords : [],
+    ),
   );
   if (persist) {
-    saveProjectsToStorage();
+    await saveProjectsToStorage();
   }
   return true;
 }
@@ -7749,14 +7773,47 @@ function updateProjectTotals() {
   container.appendChild(fragment);
 }
 
+function clearIndexPersistenceError() {
+  indexLastPersistenceError = null;
+}
+
+async function recoverIndexWorkspaceAfterPersistenceFailure() {
+  if (typeof window.ControlerStorage?.syncFromSource !== "function") {
+    return false;
+  }
+  try {
+    await window.ControlerStorage.syncFromSource({
+      reason: "index-save-recovery",
+    });
+    if (!indexShellPageActive) {
+      indexExternalRefreshPendingResume = true;
+      clearIndexPersistenceError();
+      return true;
+    }
+    await hydrateIndexWorkspace({
+      includeProjects: true,
+      includeRecords: true,
+    });
+    await commitIndexWorkspaceSnapshot({
+      forceTimerSessionSync: true,
+    });
+    clearIndexPersistenceError();
+    return true;
+  } catch (error) {
+    console.error("恢复记录页工作区失败:", error);
+    return false;
+  }
+}
+
 function trackIndexPersistenceTask(task, errorLabel = "保存记录页数据失败:") {
   indexLastPersistenceError = null;
   const trackedTask = Promise.resolve()
     .then(() => (typeof task === "function" ? task() : true))
-    .catch((error) => {
+    .catch(async (error) => {
       indexLastPersistenceError =
         error instanceof Error ? error : new Error(String(error || "保存失败"));
       console.error(errorLabel, indexLastPersistenceError);
+      await recoverIndexWorkspaceAfterPersistenceFailure();
       return false;
     });
   indexPendingPersistenceTasks.add(trackedTask);
@@ -8097,6 +8154,8 @@ async function loadProjectsFromStorage(options = {}) {
 function saveRecordsToStorage() {
   persistTimerSessionState();
   const managedStorage = hasManagedIndexRecordStorage();
+  const supportsRecordPartitionPatch =
+    window.ControlerStorage?.capabilities?.recordPartitionPatch === true;
   const saveRevision = indexRecordMutationRevision;
   const recordsSnapshot = cloneIndexValue(records);
   const projectsSnapshot = cloneIndexValue(projects);
@@ -8141,6 +8200,7 @@ function saveRecordsToStorage() {
           periodIds.map((periodId) => {
             const patch = patchSnapshotByPeriod.get(periodId) || null;
             const canUsePatch =
+              supportsRecordPartitionPatch &&
               !forceReplacePeriods.has(periodId) &&
               patch &&
               (patch.upserts.length > 0 || patch.removed.length > 0) &&
@@ -9811,13 +9871,6 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
       ? payload.action.trim()
       : "";
   if (action !== "start-timer") {
-    return false;
-  }
-  const nativePlatform = String(window.ControlerNativeBridge?.platform || "")
-    .trim()
-    .toLowerCase();
-  if (nativePlatform === "android") {
-    scheduleIndexWidgetLaunchHandled(payload, () => true, options);
     return false;
   }
   if (!indexWidgetLaunchCoreReady) {

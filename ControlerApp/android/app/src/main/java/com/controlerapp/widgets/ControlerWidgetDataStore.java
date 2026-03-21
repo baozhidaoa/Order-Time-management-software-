@@ -1562,12 +1562,21 @@ public final class ControlerWidgetDataStore {
             normalizedExistingItems = attachProjectIdsToRecords(existingItems, currentProjects);
             normalizedIncomingItems = attachProjectIdsToRecords(incomingItems, currentProjects);
         }
-        ArrayList<JSONObject> mergedItems = mergePartitionItems(
-            section,
-            normalizedExistingItems,
-            normalizedIncomingItems,
-            payload != null && "merge".equals(payload.optString("mode", "replace"))
-        );
+        String mode = payload == null ? "replace" : payload.optString("mode", "replace");
+        ArrayList<JSONObject> mergedItems =
+            "records".equals(section) && "patch".equals(mode)
+                ? applyRecordPartitionPatch(
+                    normalizedExistingItems,
+                    normalizedIncomingItems,
+                    payload == null ? null : payload.optJSONArray("removedItems"),
+                    payload == null ? null : payload.optJSONArray("removeIds")
+                )
+                : mergePartitionItems(
+                    section,
+                    normalizedExistingItems,
+                    normalizedIncomingItems,
+                    "merge".equals(mode)
+                );
 
         if (mergedItems.isEmpty()) {
             deleteBundlePath(context, relativePath);
@@ -4540,6 +4549,59 @@ public final class ControlerWidgetDataStore {
         }
         ArrayList<JSONObject> mergedItems = new ArrayList<>(merged.values());
         sortJsonItems(section, mergedItems);
+        return mergedItems;
+    }
+
+    private static ArrayList<JSONObject> applyRecordPartitionPatch(
+        ArrayList<JSONObject> existingItems,
+        ArrayList<JSONObject> incomingItems,
+        JSONArray removedItems,
+        JSONArray removeIds
+    ) {
+        Map<String, JSONObject> merged = new HashMap<>();
+        if (existingItems != null) {
+            for (JSONObject item : existingItems) {
+                merged.put(buildPartitionMergeKey("records", item), cloneJsonObject(item));
+            }
+        }
+
+        Set<String> removedKeys = new HashSet<>();
+        if (removeIds != null) {
+            for (int index = 0; index < removeIds.length(); index += 1) {
+                String recordId = removeIds.optString(index, "").trim();
+                if (!TextUtils.isEmpty(recordId)) {
+                    removedKeys.add("id:" + recordId);
+                }
+            }
+        }
+        if (removedItems != null) {
+            for (int index = 0; index < removedItems.length(); index += 1) {
+                JSONObject item = removedItems.optJSONObject(index);
+                if (item == null) {
+                    continue;
+                }
+                String recordId = item.optString("id", "").trim();
+                if (!TextUtils.isEmpty(recordId)) {
+                    removedKeys.add("id:" + recordId);
+                }
+                String mergeKey = buildPartitionMergeKey("records", item);
+                if (!TextUtils.isEmpty(mergeKey)) {
+                    removedKeys.add(mergeKey);
+                }
+            }
+        }
+        for (String removedKey : removedKeys) {
+            merged.remove(removedKey);
+        }
+
+        if (incomingItems != null) {
+            for (JSONObject item : incomingItems) {
+                merged.put(buildPartitionMergeKey("records", item), cloneJsonObject(item));
+            }
+        }
+
+        ArrayList<JSONObject> mergedItems = new ArrayList<>(merged.values());
+        sortJsonItems("records", mergedItems);
         return mergedItems;
     }
 

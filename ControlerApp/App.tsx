@@ -167,6 +167,17 @@ type WidgetRefreshPayload = {
   source?: string;
 };
 
+type ShellBootTheme = {
+  screenBg: string;
+  cardBg: string;
+  cardBorder: string;
+  accent: string;
+  text: string;
+  mutedText: string;
+  indicatorBg: string;
+  transitionOverlay: string;
+};
+
 function updateWebViewSlotsRef(
   ref: React.MutableRefObject<Record<WebViewSlot, WebViewSlotState>>,
   slot: WebViewSlot,
@@ -186,6 +197,128 @@ const nativeBridge = NativeModules.ControlerBridge as
   | undefined;
 const SCREEN_BG = '#0f1512';
 const ACCENT_COLOR = '#2f6f54';
+const DEFAULT_SHELL_BOOT_THEME: ShellBootTheme = {
+  screenBg: SCREEN_BG,
+  cardBg: 'rgba(22, 31, 27, 0.88)',
+  cardBorder: 'rgba(142, 214, 164, 0.14)',
+  accent: ACCENT_COLOR,
+  text: '#d4f5df',
+  mutedText: 'rgba(212, 245, 223, 0.68)',
+  indicatorBg: 'rgba(47, 111, 84, 0.14)',
+  transitionOverlay: 'rgba(15, 21, 18, 0.26)',
+};
+const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
+  default: {
+    screenBg: '#1f2f28',
+    cardBg: 'rgba(31, 53, 42, 0.74)',
+    cardBorder: 'rgba(142, 214, 164, 0.28)',
+    accent: '#8ed6a4',
+    text: '#f5fff8',
+    mutedText: 'rgba(245, 255, 248, 0.72)',
+    indicatorBg: 'rgba(142, 214, 164, 0.14)',
+    transitionOverlay: 'rgba(8, 10, 12, 0.26)',
+  },
+  'blue-ocean': {
+    screenBg: '#12263f',
+    cardBg: 'rgba(22, 45, 73, 0.76)',
+    cardBorder: 'rgba(126, 198, 255, 0.28)',
+    accent: '#7ec6ff',
+    text: '#eef6ff',
+    mutedText: 'rgba(238, 246, 255, 0.72)',
+    indicatorBg: 'rgba(126, 198, 255, 0.16)',
+    transitionOverlay: 'rgba(10, 22, 39, 0.24)',
+  },
+  'sunset-orange': {
+    screenBg: '#4b261b',
+    cardBg: 'rgba(88, 46, 31, 0.76)',
+    cardBorder: 'rgba(255, 191, 120, 0.3)',
+    accent: '#ffbf78',
+    text: '#fff5ea',
+    mutedText: 'rgba(255, 245, 234, 0.74)',
+    indicatorBg: 'rgba(255, 191, 120, 0.16)',
+    transitionOverlay: 'rgba(42, 21, 15, 0.24)',
+  },
+  'minimal-gray': {
+    screenBg: '#1f252e',
+    cardBg: 'rgba(40, 47, 58, 0.78)',
+    cardBorder: 'rgba(209, 217, 227, 0.3)',
+    accent: '#d1d9e3',
+    text: '#f6f8fb',
+    mutedText: 'rgba(246, 248, 251, 0.72)',
+    indicatorBg: 'rgba(209, 217, 227, 0.16)',
+    transitionOverlay: 'rgba(20, 24, 31, 0.24)',
+  },
+  'obsidian-mono': {
+    screenBg: '#0d0f12',
+    cardBg: 'rgba(20, 23, 28, 0.82)',
+    cardBorder: 'rgba(215, 221, 232, 0.22)',
+    accent: '#f1f4fa',
+    text: '#f4f6fb',
+    mutedText: 'rgba(244, 246, 251, 0.76)',
+    indicatorBg: 'rgba(241, 244, 250, 0.14)',
+    transitionOverlay: 'rgba(7, 8, 10, 0.3)',
+  },
+  'ivory-light': {
+    screenBg: '#eceff3',
+    cardBg: 'rgba(249, 252, 255, 0.86)',
+    cardBorder: 'rgba(110, 122, 143, 0.24)',
+    accent: '#3f495f',
+    text: '#202633',
+    mutedText: 'rgba(32, 38, 51, 0.7)',
+    indicatorBg: 'rgba(63, 73, 95, 0.12)',
+    transitionOverlay: 'rgba(27, 31, 38, 0.18)',
+  },
+  'graphite-mist': {
+    screenBg: '#2a2d32',
+    cardBg: 'rgba(53, 57, 64, 0.78)',
+    cardBorder: 'rgba(224, 227, 234, 0.26)',
+    accent: '#f0f3fa',
+    text: '#f8f9fc',
+    mutedText: 'rgba(248, 249, 252, 0.74)',
+    indicatorBg: 'rgba(240, 243, 250, 0.14)',
+    transitionOverlay: 'rgba(20, 22, 26, 0.24)',
+  },
+  'aurora-mist': {
+    screenBg: '#162a2d',
+    cardBg: 'rgba(26, 49, 52, 0.78)',
+    cardBorder: 'rgba(143, 211, 209, 0.26)',
+    accent: '#8fd3d1',
+    text: '#effcfb',
+    mutedText: 'rgba(239, 252, 251, 0.74)',
+    indicatorBg: 'rgba(143, 211, 209, 0.14)',
+    transitionOverlay: 'rgba(11, 22, 24, 0.24)',
+  },
+  'velvet-bordeaux': {
+    screenBg: '#2f141d',
+    cardBg: 'rgba(57, 26, 37, 0.8)',
+    cardBorder: 'rgba(216, 166, 184, 0.26)',
+    accent: '#d8a6b8',
+    text: '#fff3f6',
+    mutedText: 'rgba(255, 243, 246, 0.74)',
+    indicatorBg: 'rgba(216, 166, 184, 0.14)',
+    transitionOverlay: 'rgba(22, 10, 14, 0.26)',
+  },
+  'champagne-sandstone': {
+    screenBg: '#f1ebe2',
+    cardBg: 'rgba(250, 245, 239, 0.9)',
+    cardBorder: 'rgba(143, 119, 95, 0.22)',
+    accent: '#8b6f57',
+    text: '#2f261f',
+    mutedText: 'rgba(47, 38, 31, 0.68)',
+    indicatorBg: 'rgba(139, 111, 87, 0.12)',
+    transitionOverlay: 'rgba(40, 34, 28, 0.18)',
+  },
+  'midnight-indigo': {
+    screenBg: '#111a35',
+    cardBg: 'rgba(21, 33, 64, 0.8)',
+    cardBorder: 'rgba(156, 184, 255, 0.28)',
+    accent: '#9cb8ff',
+    text: '#eef3ff',
+    mutedText: 'rgba(238, 243, 255, 0.74)',
+    indicatorBg: 'rgba(156, 184, 255, 0.14)',
+    transitionOverlay: 'rgba(10, 16, 31, 0.26)',
+  },
+};
 const DEFAULT_UI_LANGUAGE: UiLanguage = 'zh-CN';
 const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
 const IS_ANDROID = Platform.OS === 'android';
@@ -234,6 +367,100 @@ function parseBridgeJson(value: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeBootThemeColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function buildShellBootTheme(
+  colors: Record<string, unknown> | null | undefined,
+  fallback: ShellBootTheme = DEFAULT_SHELL_BOOT_THEME,
+): ShellBootTheme {
+  return {
+    screenBg: normalizeBootThemeColor(colors?.primary, fallback.screenBg),
+    cardBg: normalizeBootThemeColor(
+      colors?.panelStrong ?? colors?.panel,
+      fallback.cardBg,
+    ),
+    cardBorder: normalizeBootThemeColor(
+      colors?.panelBorder ?? colors?.border,
+      fallback.cardBorder,
+    ),
+    accent: normalizeBootThemeColor(colors?.accent, fallback.accent),
+    text: normalizeBootThemeColor(colors?.text, fallback.text),
+    mutedText: normalizeBootThemeColor(colors?.mutedText, fallback.mutedText),
+    indicatorBg: normalizeBootThemeColor(
+      colors?.navButtonBg ?? colors?.panelBorder,
+      fallback.indicatorBg,
+    ),
+    transitionOverlay: normalizeBootThemeColor(
+      colors?.overlay,
+      fallback.transitionOverlay,
+    ),
+  };
+}
+
+function areShellBootThemesEqual(
+  left: ShellBootTheme,
+  right: ShellBootTheme,
+): boolean {
+  return (
+    left.screenBg === right.screenBg &&
+    left.cardBg === right.cardBg &&
+    left.cardBorder === right.cardBorder &&
+    left.accent === right.accent &&
+    left.text === right.text &&
+    left.mutedText === right.mutedText &&
+    left.indicatorBg === right.indicatorBg &&
+    left.transitionOverlay === right.transitionOverlay
+  );
+}
+
+function resolveShellBootTheme(coreState: Record<string, unknown> | null): ShellBootTheme {
+  if (!coreState) {
+    return DEFAULT_SHELL_BOOT_THEME;
+  }
+  const selectedTheme =
+    typeof coreState.selectedTheme === 'string' && coreState.selectedTheme.trim()
+      ? coreState.selectedTheme.trim()
+      : 'default';
+  const customThemes = Array.isArray(coreState.customThemes)
+    ? coreState.customThemes
+    : [];
+  const builtInOverrides = isPlainObject(coreState.builtInThemeOverrides)
+    ? coreState.builtInThemeOverrides
+    : {};
+  const builtInBase = buildShellBootTheme(
+    BUILT_IN_SHELL_BOOT_THEME_MAP[selectedTheme] || null,
+  );
+  const customTheme = customThemes.find(theme => {
+    return (
+      isPlainObject(theme) &&
+      typeof theme.id === 'string' &&
+      theme.id.trim() === selectedTheme
+    );
+  });
+  if (isPlainObject(customTheme)) {
+    return buildShellBootTheme(
+      isPlainObject(customTheme.colors) ? customTheme.colors : customTheme,
+      DEFAULT_SHELL_BOOT_THEME,
+    );
+  }
+  const selectedOverride = builtInOverrides[selectedTheme];
+  if (isPlainObject(selectedOverride)) {
+    return buildShellBootTheme(
+      isPlainObject(selectedOverride.colors)
+        ? selectedOverride.colors
+        : selectedOverride,
+      builtInBase,
+    );
+  }
+  return builtInBase;
 }
 
 function buildInjectionScript(message: Record<string, unknown>): string {
@@ -808,6 +1035,8 @@ function App(): JSX.Element {
   const [bootError, setBootError] = useState<string | null>(null);
   const [shellLanguage, setShellLanguage] =
     useState<UiLanguage>(DEFAULT_UI_LANGUAGE);
+  const [shellBootTheme, setShellBootTheme] =
+    useState<ShellBootTheme>(DEFAULT_SHELL_BOOT_THEME);
   const [isPageReady, setIsPageReady] = useState(false);
   const [busyStateVersion, setBusyStateVersion] = useState(0);
   const [activeSlot, setActiveSlot] = useState<WebViewSlot>('primary');
@@ -967,6 +1196,35 @@ function App(): JSX.Element {
       mounted = false;
     };
   }, [updateShellLanguage]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadShellBootTheme() {
+      if (typeof nativeBridge?.getStorageCoreState !== 'function') {
+        return;
+      }
+      try {
+        const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
+        if (!mounted) {
+          return;
+        }
+        const resolvedBootTheme = resolveShellBootTheme(coreState);
+        setShellBootTheme(currentTheme =>
+          areShellBootThemesEqual(currentTheme, resolvedBootTheme)
+            ? currentTheme
+            : resolvedBootTheme,
+        );
+      } catch {
+        // The shell keeps the default palette if the saved theme is unavailable.
+      }
+    }
+
+    loadShellBootTheme().catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     activeSlotRef.current = activeSlot;
@@ -3649,6 +3907,10 @@ function App(): JSX.Element {
       style={[
         styles.bootCard,
         {
+          backgroundColor: shellBootTheme.cardBg,
+          borderColor: shellBootTheme.cardBorder,
+        },
+        {
           transform: [{scale: bootCardScale}],
         },
       ]}>
@@ -3656,20 +3918,42 @@ function App(): JSX.Element {
         style={[
           styles.bootIndicator,
           {
+            backgroundColor: shellBootTheme.indicatorBg,
+          },
+          {
             opacity: bootPulseOpacity,
             transform: [{scale: bootPulseScale}],
           },
         ]}>
-        <View style={styles.bootIndicatorDot} />
+        <View
+          style={[
+            styles.bootIndicatorDot,
+            {
+              backgroundColor: shellBootTheme.accent,
+            },
+          ]}
+        />
       </Animated.View>
-      <Text style={styles.loadingText}>
+      <Text
+        style={[
+          styles.loadingText,
+          {
+            color: shellBootTheme.text,
+          },
+        ]}>
         {selectShellText(
           shellLanguage,
           '正在加载数据中',
           'Loading your data',
         )}
       </Text>
-      <Text style={styles.loadingSubText}>
+      <Text
+        style={[
+          styles.loadingSubText,
+          {
+            color: shellBootTheme.mutedText,
+          },
+        ]}>
         {selectShellText(
           shellLanguage,
           '页面资源与本地数据正在就绪',
@@ -3691,7 +3975,10 @@ function App(): JSX.Element {
         ? currentTransition.fromSlot
         : activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
-    let wrapperStyle: Array<object> = [styles.webviewLayer];
+    let wrapperStyle: Array<object> = [
+      styles.webviewLayer,
+      {backgroundColor: shellBootTheme.screenBg},
+    ];
     const interactiveLayer =
       !currentTransition
         ? slot === activeSlot
@@ -3699,17 +3986,26 @@ function App(): JSX.Element {
           slot === currentTransition.fromSlot;
 
     if (!currentTransition) {
-      wrapperStyle = [
-        styles.webviewLayer,
-        slot === activeSlot
-          ? styles.webviewLayerVisible
-          : styles.webviewLayerHidden,
+        wrapperStyle = [
+          styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
+          slot === activeSlot
+            ? styles.webviewLayerVisible
+            : styles.webviewLayerHidden,
       ];
     } else if (currentTransition.status === 'loading') {
       if (slot === currentTransition.fromSlot) {
-        wrapperStyle = [styles.webviewLayer, styles.webviewLayerVisible];
+        wrapperStyle = [
+          styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
+          styles.webviewLayerVisible,
+        ];
       } else {
-        wrapperStyle = [styles.webviewLayer, styles.webviewLayerHidden];
+        wrapperStyle = [
+          styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
+          styles.webviewLayerHidden,
+        ];
       }
     } else {
       const enterDistance = IS_ANDROID
@@ -3730,6 +4026,7 @@ function App(): JSX.Element {
       if (slot === currentTransition.fromSlot) {
         wrapperStyle = [
           styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
           {
             zIndex: 2,
             opacity: transitionProgress.interpolate({
@@ -3755,6 +4052,7 @@ function App(): JSX.Element {
       } else if (slot === currentTransition.toSlot) {
         wrapperStyle = [
           styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
           {
             zIndex: 3,
             opacity: transitionProgress.interpolate({
@@ -3778,7 +4076,11 @@ function App(): JSX.Element {
           },
         ];
       } else {
-        wrapperStyle = [styles.webviewLayer, styles.webviewLayerHidden];
+        wrapperStyle = [
+          styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
+          styles.webviewLayerHidden,
+        ];
       }
     }
 
@@ -3854,7 +4156,7 @@ function App(): JSX.Element {
           onShouldStartLoadWithRequest={request =>
             handleSlotShouldStartLoad(slot, request.url || '')
           }
-          style={styles.webview}
+          style={[styles.webview, {backgroundColor: shellBootTheme.screenBg}]}
         />
       </Animated.View>
     );
@@ -3862,7 +4164,8 @@ function App(): JSX.Element {
 
   if (bootError) {
     return (
-      <ScreenContainer style={styles.screen}>
+      <ScreenContainer
+        style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
         <StatusBar
           barStyle="light-content"
           backgroundColor="transparent"
@@ -3907,7 +4210,8 @@ function App(): JSX.Element {
   }
 
   return (
-    <ScreenContainer style={styles.screen}>
+    <ScreenContainer
+      style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
       <StatusBar
         barStyle="light-content"
         backgroundColor="transparent"
@@ -3915,7 +4219,7 @@ function App(): JSX.Element {
         hidden={Platform.OS === 'android'}
       />
       <View
-        style={styles.webviewHost}
+        style={[styles.webviewHost, {backgroundColor: shellBootTheme.screenBg}]}
         onLayout={event => {
           const nextWidth = Math.max(
             Math.round(event.nativeEvent.layout.width) || 0,
@@ -3929,9 +4233,23 @@ function App(): JSX.Element {
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
         {transitionState?.status === 'loading' ? (
-          <View style={styles.transitionLoadingOverlay}>
+          <View
+            style={[
+              styles.transitionLoadingOverlay,
+              {
+                backgroundColor: shellBootTheme.transitionOverlay,
+              },
+            ]}>
             <View style={styles.center}>
-              <View style={[styles.bootCard, styles.transitionLoadingCard]}>
+              <View
+                style={[
+                  styles.bootCard,
+                  styles.transitionLoadingCard,
+                  {
+                    backgroundColor: shellBootTheme.cardBg,
+                    borderColor: shellBootTheme.cardBorder,
+                  },
+                ]}>
                 <Animated.View
                   style={[
                     styles.bootIndicator,
@@ -3976,7 +4294,13 @@ function App(): JSX.Element {
         {!isPageReady ? (
           <Animated.View
             pointerEvents="none"
-            style={[styles.bootOverlay, {opacity: bootOverlayOpacity}]}>
+            style={[
+              styles.bootOverlay,
+              {
+                opacity: bootOverlayOpacity,
+                backgroundColor: shellBootTheme.screenBg,
+              },
+            ]}>
             <View style={styles.center}>{bootCard}</View>
           </Animated.View>
         ) : null}

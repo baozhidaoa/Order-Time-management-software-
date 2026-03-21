@@ -19,8 +19,8 @@
     Object.freeze({
       id: "start-timer",
       name: "开始计时",
-      description: "显示一个“开始计时”按钮，点击后进入记录页开始或结束计时。",
-      subtitle: "显示一个“开始计时”按钮，点击后进入记录页。",
+      description: "显示一个“开始计时”按钮，点击后进入记录页并打开计时模态框。",
+      subtitle: "显示一个“开始计时”按钮，点击后进入记录页并打开计时模态框。",
       page: "index",
       action: "start-timer",
       widgetSection: "timer",
@@ -202,6 +202,7 @@
       storageSourceSwitch: false,
       bundleExportImport: false,
       nativeReminders: false,
+      recordPartitionPatch: false,
       widgets: false,
       widgetKinds: [],
       launchActions: [],
@@ -242,6 +243,7 @@
       storageSourceSwitch: true,
       bundleExportImport: true,
       nativeReminders: true,
+      recordPartitionPatch: true,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -259,6 +261,7 @@
       storageSourceSwitch: true,
       bundleExportImport: true,
       nativeReminders: true,
+      recordPartitionPatch: true,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -276,6 +279,7 @@
       storageSourceSwitch: true,
       bundleExportImport: true,
       nativeReminders: true,
+      recordPartitionPatch: false,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -344,7 +348,7 @@
   }
 
   return Object.freeze({
-    version: "2026-03-18",
+    version: "2026-03-21",
     widgetKinds: WIDGET_KINDS,
     widgetKindIds: WIDGET_KIND_IDS,
     launchActions: LAUNCH_ACTIONS,

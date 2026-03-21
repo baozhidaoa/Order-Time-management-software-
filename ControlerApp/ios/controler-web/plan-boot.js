@@ -811,6 +811,10 @@ function queuePlanPersistenceTask(
   return queuedTask;
 }
 
+function clearPlanPersistenceError() {
+  planLastPersistenceError = null;
+}
+
 async function flushPlanPendingPersistence() {
   if (planPendingPersistenceCount > 0) {
     await planPersistChain.catch(() => false);
@@ -2365,6 +2369,7 @@ function handlePlanNonBlockingSaveFailure(message, options = {}) {
         });
         renderPlanGuideCard();
         renderCalendarContent();
+        clearPlanPersistenceError();
       })
       .catch((error) => {
         console.error("恢复计划工作区失败:", error);

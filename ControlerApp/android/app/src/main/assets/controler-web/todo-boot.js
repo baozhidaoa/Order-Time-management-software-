@@ -94,6 +94,15 @@ function cloneTodoValue(value) {
   }
 }
 
+function captureTodoWorkspaceSnapshot() {
+  return {
+    todos: cloneTodoValue(todos),
+    checkinItems: cloneTodoValue(checkinItems),
+    dailyCheckins: cloneTodoValue(dailyCheckins),
+    checkins: cloneTodoValue(checkins),
+  };
+}
+
 function getLocalDateText(dateValue = new Date()) {
   const date = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
   if (Number.isNaN(date.getTime())) {
@@ -289,6 +298,10 @@ function applyTodoWorkspaceSnapshot(snapshot = {}) {
     getTodoSectionPeriodIds("checkins", checkins),
   );
   invalidateTodoDerivedCaches();
+}
+
+function clearTodoPersistenceError() {
+  todoLastPersistenceError = null;
 }
 
 function readTodoWorkspaceSnapshotFromLocalStorage() {
@@ -578,6 +591,74 @@ function persistTodoLocalMirrorCore(source = {}) {
   });
 }
 
+function getTodoCheckinEntryTimestamp(entry = {}) {
+  const candidate = Date.parse(String(entry?.time || entry?.updatedAt || ""));
+  return Number.isFinite(candidate) ? candidate : 0;
+}
+
+function isTodoCheckinEntryNewer(candidate, current) {
+  if (!current) {
+    return true;
+  }
+  if (candidate.timestamp !== current.timestamp) {
+    return candidate.timestamp > current.timestamp;
+  }
+  return candidate.index > current.index;
+}
+
+function findLatestTodoDailyCheckinMatch(itemId, date) {
+  const normalizedItemId = String(itemId || "").trim();
+  const normalizedDate = String(date || "").trim();
+  if (!normalizedItemId || !normalizedDate) {
+    return null;
+  }
+  let latest = null;
+  dailyCheckins.forEach((entry, index) => {
+    if (
+      String(entry?.itemId || "").trim() !== normalizedItemId ||
+      String(entry?.date || "").trim() !== normalizedDate
+    ) {
+      return;
+    }
+    const candidate = {
+      entry,
+      index,
+      timestamp: getTodoCheckinEntryTimestamp(entry),
+    };
+    if (isTodoCheckinEntryNewer(candidate, latest)) {
+      latest = candidate;
+    }
+  });
+  return latest;
+}
+
+function getLatestTodoDailyCheckinEntry(itemId, date) {
+  return findLatestTodoDailyCheckinMatch(itemId, date)?.entry || null;
+}
+
+function dedupeTodoDailyCheckinsForDate(itemId, date) {
+  const latest = findLatestTodoDailyCheckinMatch(itemId, date);
+  if (!latest) {
+    return null;
+  }
+  const normalizedItemId = String(itemId || "").trim();
+  const normalizedDate = String(date || "").trim();
+  let duplicateCount = 0;
+  dailyCheckins = dailyCheckins.filter((entry, index) => {
+    if (
+      String(entry?.itemId || "").trim() !== normalizedItemId ||
+      String(entry?.date || "").trim() !== normalizedDate
+    ) {
+      return true;
+    }
+    duplicateCount += 1;
+    return index === latest.index;
+  });
+  return duplicateCount > 1
+    ? findLatestTodoDailyCheckinMatch(itemId, date)
+    : latest;
+}
+
 function setTodoActionPending(kind, targetId, pending) {
   const normalizedId = String(targetId || "").trim();
   if (!normalizedId) {
@@ -797,6 +878,17 @@ function queueTodoSectionSave(section, options = {}) {
 
 function handleTodoNonBlockingSaveFailure(message, options = {}) {
   console.error(message, options.error || "");
+  const rollbackSnapshot =
+    options?.rollbackSnapshot &&
+    typeof options.rollbackSnapshot === "object" &&
+    !Array.isArray(options.rollbackSnapshot)
+      ? options.rollbackSnapshot
+      : null;
+  if (rollbackSnapshot) {
+    applyTodoWorkspaceSnapshot(rollbackSnapshot);
+    clearTodoPersistenceError();
+    scheduleTodoInterfaceRefresh();
+  }
   const bundleStorage = window.ControlerStorage;
   if (typeof bundleStorage?.syncFromSource === "function") {
     void bundleStorage
@@ -806,6 +898,7 @@ function handleTodoNonBlockingSaveFailure(message, options = {}) {
       .then((result) => {
         if (result?.state && typeof result.state === "object") {
           applyTodoWorkspaceSnapshot(result.state);
+          clearTodoPersistenceError();
           scheduleTodoInterfaceRefresh();
         }
       })
@@ -2146,9 +2239,7 @@ class CheckinItem {
   // 获取今日打卡状态
   getTodayCheckinStatus() {
     const today = getLocalDateText(); // YYYY-MM-DD
-    const checkin = dailyCheckins.find(
-      (c) => c.itemId === this.id && c.date === today,
-    );
+    const checkin = getLatestTodoDailyCheckinEntry(this.id, today);
     return checkin ? checkin.checked : false;
   }
 
@@ -2162,9 +2253,9 @@ class CheckinItem {
       return false;
     }
     setTodoActionPending("checkin", this.id, true);
-    const index = dailyCheckins.findIndex(
-      (c) => c.itemId === this.id && c.date === today,
-    );
+    const previousSnapshot = captureTodoWorkspaceSnapshot();
+    const latestMatch = dedupeTodoDailyCheckinsForDate(this.id, today);
+    const index = latestMatch ? latestMatch.index : -1;
     const nowText = new Date().toISOString();
 
     if (index !== -1) {
@@ -2197,6 +2288,7 @@ class CheckinItem {
       errorLabel: "保存今日打卡状态失败:",
     }).then((saved) => {
       if (saved) {
+        clearTodoPersistenceError();
         uiTools?.markPerfStage?.("todo-action-storage-acked", {
           allowRepeat: true,
           action: "toggle-checkin",
@@ -2206,6 +2298,7 @@ class CheckinItem {
       }
       handleTodoNonBlockingSaveFailure("保存今日打卡状态失败。", {
         message: "今日打卡同步失败，已尝试恢复当前数据。",
+        rollbackSnapshot: previousSnapshot,
       });
     }).finally(() => {
       setTodoActionPending("checkin", this.id, false);
@@ -3094,38 +3187,47 @@ function createTodoElement(todo, listScale = 1) {
 // 切换待办事项完成状态
 function toggleTodoCompletion(todoId) {
   const todo = todos.find((t) => matchesId(t.id, todoId));
-  if (todo) {
-    todo.completed = !todo.completed;
-    todo.completedAt = todo.completed ? new Date().toISOString() : null;
-    uiTools?.markPerfStage?.("todo-action-ui-committed", {
-      allowRepeat: true,
-      action: "toggle-todo-completion",
-      todoId: todo.id,
-    });
-    void queueTodoCoreSave(
-      {
-        todos: getTodoSectionStateSnapshot("todos"),
-      },
-      {
-        reason: "todo-toggle-completion",
-        errorLabel: "保存待办完成状态失败:",
-        refreshReminders: true,
-      },
-    ).then((saved) => {
-      if (saved) {
-        uiTools?.markPerfStage?.("todo-action-storage-acked", {
-          allowRepeat: true,
-          action: "toggle-todo-completion",
-          todoId: todo.id,
-        });
-        return;
-      }
-      handleTodoNonBlockingSaveFailure("保存待办完成状态失败。", {
-        message: "待办完成状态同步失败，已尝试恢复当前数据。",
-      });
-    });
-    scheduleTodoInterfaceRefresh();
+  if (!todo || isTodoActionPending("todo", todo.id)) {
+    return false;
   }
+  const previousSnapshot = captureTodoWorkspaceSnapshot();
+  setTodoActionPending("todo", todo.id, true);
+  todo.completed = !todo.completed;
+  todo.completedAt = todo.completed ? new Date().toISOString() : null;
+  uiTools?.markPerfStage?.("todo-action-ui-committed", {
+    allowRepeat: true,
+    action: "toggle-todo-completion",
+    todoId: todo.id,
+  });
+  scheduleTodoInterfaceRefresh();
+  void queueTodoCoreSave(
+    {
+      todos: getTodoSectionStateSnapshot("todos"),
+    },
+    {
+      reason: "todo-toggle-completion",
+      errorLabel: "保存待办完成状态失败:",
+      refreshReminders: true,
+    },
+  ).then((saved) => {
+    if (saved) {
+      clearTodoPersistenceError();
+      uiTools?.markPerfStage?.("todo-action-storage-acked", {
+        allowRepeat: true,
+        action: "toggle-todo-completion",
+        todoId: todo.id,
+      });
+      return;
+    }
+    handleTodoNonBlockingSaveFailure("保存待办完成状态失败。", {
+      message: "待办完成状态同步失败，已尝试恢复当前数据。",
+      rollbackSnapshot: previousSnapshot,
+    });
+  }).finally(() => {
+    setTodoActionPending("todo", todo.id, false);
+    scheduleTodoInterfaceRefresh();
+  });
+  return true;
 }
 
 // 删除待办事项
