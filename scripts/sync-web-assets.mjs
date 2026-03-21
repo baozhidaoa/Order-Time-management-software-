@@ -305,12 +305,17 @@ async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
   }
 
   const bootstrapScripts =
-    `    <script src="mobile-common-boot.js"></script>\n` +
-    `    <script src="${pageKey}-boot.js"></script>\n`;
-  const rewrittenHtml =
+    `    <script defer src="mobile-common-boot.js"></script>\n` +
+    `    <script defer src="${pageKey}-boot.js"></script>\n`;
+  const pageScriptPattern = new RegExp(
+    `\\s*<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>\\s*`,
+    "i",
+  );
+  const rewrittenHtml = (
     html.slice(0, firstScriptIndex) +
     bootstrapScripts +
-    html.slice(stylesheetIndex);
+    html.slice(stylesheetIndex)
+  ).replace(pageScriptPattern, "\n");
 
   await fs.writeFile(htmlPath, rewrittenHtml, "utf8");
 }

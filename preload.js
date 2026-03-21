@@ -42,6 +42,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   storageImport: (filePath) => ipcRenderer.invoke("storage:import", filePath),
   storageGetManifest: () => ipcRenderer.invoke("storage:getManifest"),
   storageGetCoreState: () => ipcRenderer.invoke("storage:getCoreState"),
+  storageGetPageBootstrapState: (pageKey, options = {}) =>
+    ipcRenderer.invoke("storage:getPageBootstrapState", pageKey, options),
+  storageGetPageBootstrapStateSync: (pageKey, options = {}) =>
+    ipcRenderer.sendSync("storage:getPageBootstrapStateSync", pageKey, options),
+  storageGetDraft: (key, options = {}) =>
+    ipcRenderer.invoke("storage:getDraft", key, options),
+  storageSetDraft: (key, value, options = {}) =>
+    ipcRenderer.invoke("storage:setDraft", key, value, options),
+  storageRemoveDraft: (key) => ipcRenderer.invoke("storage:removeDraft", key),
   storageReplaceCoreStateSync: (partialCore, options = {}) =>
     ipcRenderer.sendSync("storage:replaceCoreStateSync", partialCore, options),
   storageLoadSectionRange: (section, scope) =>

@@ -2470,10 +2470,16 @@ public final class ControlerWidgetRenderer {
         String kind,
         WidgetContent content
     ) {
+        String launchAction =
+            ControlerWidgetKinds.START_TIMER.equals(ControlerWidgetKinds.normalize(kind))
+                    && content != null
+                    && ControlerWidgetActionHandler.COMMAND_TOGGLE_TIMER.equals(content.directCommand)
+                ? ""
+                : content == null ? "" : content.action;
         Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(OPEN_WIDGET_ACTION_PREFIX + "." + kind + "." + appWidgetId);
         intent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, content.page);
-        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, content.action);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, launchAction);
         intent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
         intent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK
@@ -2484,7 +2490,7 @@ public final class ControlerWidgetRenderer {
             "open",
             appWidgetId,
             kind,
-            content == null ? "" : content.action,
+            launchAction,
             content == null ? "" : content.page
         );
         intent.setData(identityUri);

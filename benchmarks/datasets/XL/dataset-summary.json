@@ -1,0 +1,11 @@
+{
+  "dataset": "XL",
+  "records": 1000000,
+  "plans": 32000,
+  "diaryEntries": 12000,
+  "checkins": 72000,
+  "projectCount": 24,
+  "todoCount": 2667,
+  "checkinItemCount": 1280,
+  "dailyCheckinCount": 12000
+}

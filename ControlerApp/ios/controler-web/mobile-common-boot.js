@@ -2692,6 +2692,690 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
+  const PAGE_BOOTSTRAP_KEYS = Object.freeze([
+    "index",
+    "plan",
+    "todo",
+    "diary",
+    "stats",
+    "settings",
+  ]);
+
+  function normalizePageBootstrapKey(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return PAGE_BOOTSTRAP_KEYS.includes(normalized) ? normalized : "index";
+  }
+
+  function normalizeBootstrapPeriodIds(periodIds = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(periodIds) ? periodIds : [])
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+  }
+
+  function formatBootstrapDateKey(value = new Date()) {
+    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function formatBootstrapPeriodId(value = new Date()) {
+    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function buildRecentHoursBootstrapScope(hours = 48) {
+    const endDate = new Date();
+    const startDate = new Date(endDate.getTime());
+    startDate.setHours(startDate.getHours() - Math.max(1, Number(hours) || 48));
+    return {
+      startDate: formatBootstrapDateKey(startDate),
+      endDate: formatBootstrapDateKey(endDate),
+    };
+  }
+
+  function buildCurrentMonthBootstrapScope(anchorDate = new Date()) {
+    const periodId = formatBootstrapPeriodId(anchorDate);
+    return periodId ? { periodIds: [periodId] } : { periodIds: [] };
+  }
+
+  function buildCurrentDayBootstrapScope(anchorDate = new Date()) {
+    const dayKey = formatBootstrapDateKey(anchorDate);
+    const periodId = formatBootstrapPeriodId(anchorDate);
+    return {
+      startDate: dayKey || null,
+      endDate: dayKey || null,
+      periodIds: periodId ? [periodId] : [],
+    };
+  }
+
+  function getBootstrapSectionDateText(section, item = {}) {
+    switch (String(section || "").trim()) {
+      case "records":
+        return item?.endTime || item?.timestamp || item?.startTime || "";
+      case "plans":
+        return item?.date || "";
+      case "diaryEntries":
+        return item?.date || item?.updatedAt || "";
+      case "dailyCheckins":
+        return item?.date || "";
+      case "checkins":
+        return item?.time || item?.timestamp || "";
+      default:
+        return item?.updatedAt || item?.createdAt || "";
+    }
+  }
+
+  function bootstrapItemMatchesDateScope(section, item = {}, scope = {}) {
+    const startValue = scope?.startDate || scope?.start || null;
+    const endValue = scope?.endDate || scope?.end || null;
+    const rangeStart = storageBundle?.normalizeDateInput?.(startValue) || null;
+    const rangeEnd = storageBundle?.normalizeDateInput?.(endValue) || null;
+    if (!rangeStart || !rangeEnd) {
+      return true;
+    }
+
+    const itemDate =
+      storageBundle?.normalizeDateInput?.(
+        getBootstrapSectionDateText(section, item),
+      ) || null;
+    if (!itemDate) {
+      return false;
+    }
+
+    const lower = rangeStart.getTime() <= rangeEnd.getTime() ? rangeStart : rangeEnd;
+    const upper = rangeStart.getTime() <= rangeEnd.getTime() ? rangeEnd : rangeStart;
+    lower.setHours(0, 0, 0, 0);
+    upper.setHours(23, 59, 59, 999);
+    const itemTime = itemDate.getTime();
+    return itemTime >= lower.getTime() && itemTime <= upper.getTime();
+  }
+
+  function sortBootstrapSectionItems(section, items = []) {
+    if (typeof storageBundle?.sortPartitionItems === "function") {
+      return storageBundle.sortPartitionItems(section, items);
+    }
+    return Array.isArray(items) ? items.slice() : [];
+  }
+
+  function loadBootstrapSectionRangeFromState(state = {}, section, scope = {}) {
+    const normalizedScope =
+      storageBundle?.normalizeRangeInput?.(scope) || {
+        periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
+        startDate: scope?.startDate || scope?.start || null,
+        endDate: scope?.endDate || scope?.end || null,
+      };
+    const requestedPeriodIds = new Set(
+      normalizeBootstrapPeriodIds(normalizedScope.periodIds),
+    );
+    const sourceItems =
+      section === "plans"
+        ? (Array.isArray(state?.plans) ? state.plans : []).filter(
+            (item) =>
+              !(typeof storageBundle?.isRecurringPlan === "function"
+                ? storageBundle.isRecurringPlan(item)
+                : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+          )
+        : Array.isArray(state?.[section])
+          ? state[section]
+          : [];
+    const matchedItems = sourceItems.filter((item) => {
+      const periodId = getStorageSectionPeriodId(section, item);
+      if (requestedPeriodIds.size > 0 && !requestedPeriodIds.has(periodId)) {
+        return false;
+      }
+      return bootstrapItemMatchesDateScope(section, item, normalizedScope);
+    });
+    const sortedItems = sortBootstrapSectionItems(section, matchedItems);
+    return {
+      items: cloneValue(sortedItems),
+      periodIds: normalizeBootstrapPeriodIds(
+        sortedItems.map((item) => getStorageSectionPeriodId(section, item)),
+      ),
+      startDate: normalizedScope?.startDate || null,
+      endDate: normalizedScope?.endDate || null,
+    };
+  }
+
+  function buildProjectTotalsSummary(projectItems = []) {
+    const projects = Array.isArray(projectItems) ? projectItems : [];
+    const totals = projects.reduce(
+      (summary, project) => {
+        const cachedTotalDurationMs = Number.isFinite(project?.cachedTotalDurationMs)
+          ? Number(project.cachedTotalDurationMs)
+          : Number.isFinite(project?.totalDurationMs)
+            ? Number(project.totalDurationMs)
+            : 0;
+        summary.projectCount += 1;
+        summary.totalDurationMs += Math.max(0, cachedTotalDurationMs);
+        return summary;
+      },
+      {
+        projectCount: 0,
+        totalDurationMs: 0,
+      },
+    );
+    return totals;
+  }
+
+  function buildThemeSummary(state = {}) {
+    const customThemes = Array.isArray(state?.customThemes)
+      ? state.customThemes
+      : [];
+    const builtInThemeOverrides =
+      state?.builtInThemeOverrides &&
+      typeof state.builtInThemeOverrides === "object" &&
+      !Array.isArray(state.builtInThemeOverrides)
+        ? state.builtInThemeOverrides
+        : {};
+    return {
+      selectedTheme:
+        typeof state?.selectedTheme === "string" && state.selectedTheme.trim()
+          ? state.selectedTheme.trim()
+          : "default",
+      customThemeCount: customThemes.length,
+      hasBuiltInOverrides: Object.keys(builtInThemeOverrides).length > 0,
+    };
+  }
+
+  function buildPageBootstrapStateFromState(
+    sourceState = {},
+    pageKey,
+    options = {},
+    extra = {},
+  ) {
+    const state =
+      sourceState && typeof sourceState === "object" && !Array.isArray(sourceState)
+        ? sourceState
+        : {};
+    const normalizedPage = normalizePageBootstrapKey(pageKey);
+    const sourceFingerprint =
+      typeof extra?.sourceFingerprint === "string" ? extra.sourceFingerprint : "";
+    const builtAt =
+      typeof extra?.builtAt === "string" && extra.builtAt
+        ? extra.builtAt
+        : new Date().toISOString();
+    let loadedPeriodIds = [];
+    let data = {};
+
+    if (normalizedPage === "index") {
+      const recordScope =
+        options?.recordScope && typeof options.recordScope === "object"
+          ? options.recordScope
+          : buildRecentHoursBootstrapScope(48);
+      const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
+      loadedPeriodIds = range.periodIds.slice();
+      data = {
+        projects: cloneValue(Array.isArray(state?.projects) ? state.projects : []),
+        recentRecords: cloneValue(range.items),
+        timerSessionState: cloneValue(state?.timerSessionState || null),
+        projectTotalsSummary: buildProjectTotalsSummary(state?.projects),
+      };
+    } else if (normalizedPage === "plan") {
+      const planScope =
+        options?.planScope && typeof options.planScope === "object"
+          ? options.planScope
+          : Array.isArray(options?.periodIds) && options.periodIds.length
+            ? { periodIds: options.periodIds }
+            : buildCurrentMonthBootstrapScope();
+      const range = loadBootstrapSectionRangeFromState(state, "plans", planScope);
+      loadedPeriodIds = range.periodIds.slice();
+      data = {
+        visiblePlans: cloneValue(range.items),
+        recurringPlans: cloneValue(getStorageRecurringPlans(state)),
+        yearlyGoals: cloneValue(state?.yearlyGoals || {}),
+      };
+    } else if (normalizedPage === "todo") {
+      const dailyCheckinScope =
+        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+          ? options.dailyCheckinScope
+          : buildCurrentDayBootstrapScope();
+      const checkinScope =
+        options?.checkinScope && typeof options.checkinScope === "object"
+          ? options.checkinScope
+          : buildCurrentMonthBootstrapScope();
+      const dailyRange = loadBootstrapSectionRangeFromState(
+        state,
+        "dailyCheckins",
+        dailyCheckinScope,
+      );
+      const checkinRange = loadBootstrapSectionRangeFromState(
+        state,
+        "checkins",
+        checkinScope,
+      );
+      loadedPeriodIds = normalizeBootstrapPeriodIds([
+        ...dailyRange.periodIds,
+        ...checkinRange.periodIds,
+      ]);
+      data = {
+        todos: cloneValue(Array.isArray(state?.todos) ? state.todos : []),
+        checkinItems: cloneValue(
+          Array.isArray(state?.checkinItems) ? state.checkinItems : [],
+        ),
+        todayDailyCheckins: cloneValue(dailyRange.items),
+        recentCheckins: cloneValue(checkinRange.items),
+      };
+    } else if (normalizedPage === "diary") {
+      const diaryScope =
+        options?.diaryScope && typeof options.diaryScope === "object"
+          ? options.diaryScope
+          : Array.isArray(options?.periodIds) && options.periodIds.length
+            ? { periodIds: options.periodIds }
+            : buildCurrentMonthBootstrapScope();
+      const range = loadBootstrapSectionRangeFromState(
+        state,
+        "diaryEntries",
+        diaryScope,
+      );
+      loadedPeriodIds = range.periodIds.slice();
+      data = {
+        currentMonthEntries: cloneValue(range.items),
+        diaryCategories: cloneValue(
+          Array.isArray(state?.diaryCategories) ? state.diaryCategories : [],
+        ),
+        guideState: cloneValue(state?.guideState || getDefaultGuideStateFallback()),
+      };
+    } else if (normalizedPage === "stats") {
+      const recordScope =
+        options?.recordScope && typeof options.recordScope === "object"
+          ? options.recordScope
+          : buildCurrentMonthBootstrapScope();
+      const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
+      loadedPeriodIds = range.periodIds.slice();
+      data = {
+        projects: cloneValue(Array.isArray(state?.projects) ? state.projects : []),
+        defaultRangeRecordsOrAggregate: cloneValue(range.items),
+        statsPreferences: cloneValue(
+          normalizeStatsPreferences(state?.statsPreferences || {}),
+        ),
+      };
+    } else {
+      data = {
+        storageStatus:
+          extra?.storageStatus &&
+          typeof extra.storageStatus === "object" &&
+          !Array.isArray(extra.storageStatus)
+            ? cloneValue(extra.storageStatus)
+            : null,
+        autoBackupStatus:
+          extra?.autoBackupStatus &&
+          typeof extra.autoBackupStatus === "object" &&
+          !Array.isArray(extra.autoBackupStatus)
+            ? cloneValue(extra.autoBackupStatus)
+            : null,
+        themeSummary: buildThemeSummary(state),
+        navigationVisibility: cloneValue(
+          normalizeNavigationVisibilityState(state?.appNavigationVisibility || {}),
+        ),
+      };
+    }
+
+    return {
+      page: normalizedPage,
+      sourceFingerprint,
+      builtAt,
+      loadedPeriodIds: normalizeBootstrapPeriodIds(loadedPeriodIds),
+      data,
+    };
+  }
+
+  function normalizePageBootstrapEnvelope(
+    pageKey,
+    payload = null,
+    options = {},
+    fallbackState = {},
+    extra = {},
+  ) {
+    const normalizedPage = normalizePageBootstrapKey(
+      payload?.page || pageKey,
+    );
+    const fallback = buildPageBootstrapStateFromState(
+      fallbackState,
+      normalizedPage,
+      options,
+      extra,
+    );
+    const source =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload
+        : {};
+
+    if (
+      source.data &&
+      typeof source.data === "object" &&
+      !Array.isArray(source.data)
+    ) {
+      return {
+        ...fallback,
+        page: normalizedPage,
+        sourceFingerprint:
+          typeof source.sourceFingerprint === "string" && source.sourceFingerprint
+            ? source.sourceFingerprint
+            : typeof source.snapshotVersion === "string" &&
+                source.snapshotVersion.trim()
+              ? source.snapshotVersion.trim()
+              : fallback.sourceFingerprint,
+        builtAt:
+          typeof source.builtAt === "string" && source.builtAt
+            ? source.builtAt
+            : typeof source.generatedAt === "string" && source.generatedAt
+              ? source.generatedAt
+              : fallback.builtAt,
+        loadedPeriodIds:
+          Array.isArray(source.loadedPeriodIds) && source.loadedPeriodIds.length
+            ? normalizeBootstrapPeriodIds(source.loadedPeriodIds)
+            : fallback.loadedPeriodIds,
+        data: {
+          ...fallback.data,
+          ...cloneValue(source.data),
+        },
+      };
+    }
+
+    if (
+      source.pageData &&
+      typeof source.pageData === "object" &&
+      !Array.isArray(source.pageData)
+    ) {
+      const legacyPageData = source.pageData;
+      let nextLoadedPeriodIds = fallback.loadedPeriodIds;
+      let nextData = fallback.data;
+
+      if (normalizedPage === "index") {
+        nextLoadedPeriodIds = normalizeBootstrapPeriodIds(
+          legacyPageData.recordPeriodIds || fallback.loadedPeriodIds,
+        );
+        nextData = {
+          ...fallback.data,
+          projects: cloneValue(legacyPageData.projects || fallback.data.projects),
+          recentRecords: cloneValue(
+            legacyPageData.recentRecords ||
+              legacyPageData.records ||
+              fallback.data.recentRecords,
+          ),
+          timerSessionState: cloneValue(
+            legacyPageData.timerSessionState || fallback.data.timerSessionState,
+          ),
+          projectTotalsSummary: buildProjectTotalsSummary(
+            legacyPageData.projects || fallback.data.projects || [],
+          ),
+        };
+      } else if (normalizedPage === "plan") {
+        nextLoadedPeriodIds = normalizeBootstrapPeriodIds(
+          legacyPageData.planPeriodIds || fallback.loadedPeriodIds,
+        );
+        nextData = {
+          ...fallback.data,
+          visiblePlans: cloneValue(
+            legacyPageData.visiblePlans ||
+              legacyPageData.plans ||
+              fallback.data.visiblePlans,
+          ),
+          recurringPlans: cloneValue(
+            legacyPageData.recurringPlans || fallback.data.recurringPlans,
+          ),
+          yearlyGoals: cloneValue(
+            legacyPageData.yearlyGoals || fallback.data.yearlyGoals,
+          ),
+        };
+      } else if (normalizedPage === "todo") {
+        nextLoadedPeriodIds = normalizeBootstrapPeriodIds([
+          ...(legacyPageData.dailyCheckinPeriodIds || []),
+          ...(legacyPageData.checkinPeriodIds || []),
+          ...fallback.loadedPeriodIds,
+        ]);
+        nextData = {
+          ...fallback.data,
+          todos: cloneValue(legacyPageData.todos || fallback.data.todos),
+          checkinItems: cloneValue(
+            legacyPageData.checkinItems || fallback.data.checkinItems,
+          ),
+          todayDailyCheckins: cloneValue(
+            legacyPageData.todayDailyCheckins ||
+              legacyPageData.dailyCheckins ||
+              fallback.data.todayDailyCheckins,
+          ),
+          recentCheckins: cloneValue(
+            legacyPageData.recentCheckins ||
+              legacyPageData.checkins ||
+              fallback.data.recentCheckins,
+          ),
+        };
+      } else if (normalizedPage === "diary") {
+        nextLoadedPeriodIds = normalizeBootstrapPeriodIds(
+          legacyPageData.loadedPeriodIds ||
+            legacyPageData.diaryPeriodIds ||
+            fallback.loadedPeriodIds,
+        );
+        nextData = {
+          ...fallback.data,
+          currentMonthEntries: cloneValue(
+            legacyPageData.currentMonthEntries ||
+              legacyPageData.entries ||
+              fallback.data.currentMonthEntries,
+          ),
+          diaryCategories: cloneValue(
+            legacyPageData.diaryCategories || fallback.data.diaryCategories,
+          ),
+          guideState: cloneValue(
+            legacyPageData.guideState || fallback.data.guideState,
+          ),
+        };
+      } else if (normalizedPage === "stats") {
+        nextLoadedPeriodIds = normalizeBootstrapPeriodIds(
+          legacyPageData.recordPeriodIds || fallback.loadedPeriodIds,
+        );
+        nextData = {
+          ...fallback.data,
+          projects: cloneValue(legacyPageData.projects || fallback.data.projects),
+          defaultRangeRecordsOrAggregate: cloneValue(
+            legacyPageData.defaultRangeRecordsOrAggregate ||
+              legacyPageData.records ||
+              fallback.data.defaultRangeRecordsOrAggregate,
+          ),
+        };
+      } else if (normalizedPage === "settings") {
+        nextData = {
+          ...fallback.data,
+          ...cloneValue(legacyPageData),
+        };
+      }
+
+      return {
+        ...fallback,
+        page: normalizedPage,
+        sourceFingerprint:
+          typeof source.snapshotVersion === "string" && source.snapshotVersion
+            ? source.snapshotVersion
+            : fallback.sourceFingerprint,
+        builtAt:
+          typeof source.generatedAt === "string" && source.generatedAt
+            ? source.generatedAt
+            : fallback.builtAt,
+        loadedPeriodIds: nextLoadedPeriodIds,
+        data: nextData,
+      };
+    }
+
+    return fallback;
+  }
+
+  async function buildPageBootstrapStateFromAsyncLoaders(
+    pageKey,
+    options = {},
+    loaders = {},
+  ) {
+    const normalizedPage = normalizePageBootstrapKey(pageKey);
+    const fallbackState =
+      loaders?.fallbackState &&
+      typeof loaders.fallbackState === "object" &&
+      !Array.isArray(loaders.fallbackState)
+        ? loaders.fallbackState
+        : {};
+    const coreState =
+      typeof loaders?.getCoreState === "function"
+        ? (await loaders.getCoreState()) || {}
+        : {};
+    const mergedBaseState = {
+      ...fallbackState,
+      ...(coreState && typeof coreState === "object" && !Array.isArray(coreState)
+        ? coreState
+        : {}),
+    };
+    const extra = {
+      sourceFingerprint:
+        typeof loaders?.sourceFingerprint === "string"
+          ? loaders.sourceFingerprint
+          : "",
+      builtAt:
+        typeof loaders?.builtAt === "string" ? loaders.builtAt : undefined,
+      storageStatus:
+        typeof loaders?.getStorageStatus === "function"
+          ? await loaders.getStorageStatus()
+          : null,
+      autoBackupStatus:
+        typeof loaders?.getAutoBackupStatus === "function"
+          ? await loaders.getAutoBackupStatus()
+          : null,
+    };
+    const fallback = buildPageBootstrapStateFromState(
+      mergedBaseState,
+      normalizedPage,
+      options,
+      extra,
+    );
+
+    if (typeof loaders?.loadSectionRange !== "function") {
+      return fallback;
+    }
+
+    if (normalizedPage === "index") {
+      const recordScope =
+        options?.recordScope && typeof options.recordScope === "object"
+          ? options.recordScope
+          : buildRecentHoursBootstrapScope(48);
+      const range = await loaders.loadSectionRange("records", recordScope);
+      const projects = Array.isArray(coreState?.projects)
+        ? coreState.projects
+        : fallback.data.projects;
+      return {
+        ...fallback,
+        loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
+        data: {
+          ...fallback.data,
+          projects: cloneValue(projects),
+          recentRecords: cloneValue(range?.items || []),
+          projectTotalsSummary: buildProjectTotalsSummary(projects),
+        },
+      };
+    }
+
+    if (normalizedPage === "plan") {
+      const planScope =
+        options?.planScope && typeof options.planScope === "object"
+          ? options.planScope
+          : Array.isArray(options?.periodIds) && options.periodIds.length
+            ? { periodIds: options.periodIds }
+            : buildCurrentMonthBootstrapScope();
+      const range = await loaders.loadSectionRange("plans", planScope);
+      return {
+        ...fallback,
+        loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
+        data: {
+          ...fallback.data,
+          visiblePlans: cloneValue(range?.items || []),
+          recurringPlans: cloneValue(
+            Array.isArray(coreState?.recurringPlans)
+              ? coreState.recurringPlans
+              : fallback.data.recurringPlans,
+          ),
+          yearlyGoals: cloneValue(coreState?.yearlyGoals || fallback.data.yearlyGoals || {}),
+        },
+      };
+    }
+
+    if (normalizedPage === "todo") {
+      const dailyCheckinScope =
+        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+          ? options.dailyCheckinScope
+          : buildCurrentDayBootstrapScope();
+      const checkinScope =
+        options?.checkinScope && typeof options.checkinScope === "object"
+          ? options.checkinScope
+          : buildCurrentMonthBootstrapScope();
+      const [dailyRange, checkinRange] = await Promise.all([
+        loaders.loadSectionRange("dailyCheckins", dailyCheckinScope),
+        loaders.loadSectionRange("checkins", checkinScope),
+      ]);
+      return {
+        ...fallback,
+        loadedPeriodIds: normalizeBootstrapPeriodIds([
+          ...(dailyRange?.periodIds || []),
+          ...(checkinRange?.periodIds || []),
+        ]),
+        data: {
+          ...fallback.data,
+          todos: cloneValue(coreState?.todos || fallback.data.todos || []),
+          checkinItems: cloneValue(
+            coreState?.checkinItems || fallback.data.checkinItems || [],
+          ),
+          todayDailyCheckins: cloneValue(dailyRange?.items || []),
+          recentCheckins: cloneValue(checkinRange?.items || []),
+        },
+      };
+    }
+
+    if (normalizedPage === "diary") {
+      const diaryScope =
+        options?.diaryScope && typeof options.diaryScope === "object"
+          ? options.diaryScope
+          : Array.isArray(options?.periodIds) && options.periodIds.length
+            ? { periodIds: options.periodIds }
+            : buildCurrentMonthBootstrapScope();
+      const range = await loaders.loadSectionRange("diaryEntries", diaryScope);
+      return {
+        ...fallback,
+        loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
+        data: {
+          ...fallback.data,
+          currentMonthEntries: cloneValue(range?.items || []),
+          diaryCategories: cloneValue(
+            coreState?.diaryCategories || fallback.data.diaryCategories || [],
+          ),
+          guideState: cloneValue(coreState?.guideState || fallback.data.guideState || {}),
+        },
+      };
+    }
+
+    if (normalizedPage === "stats") {
+      const recordScope =
+        options?.recordScope && typeof options.recordScope === "object"
+          ? options.recordScope
+          : buildCurrentMonthBootstrapScope();
+      const range = await loaders.loadSectionRange("records", recordScope);
+      return {
+        ...fallback,
+        loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
+        data: {
+          ...fallback.data,
+          projects: cloneValue(coreState?.projects || fallback.data.projects || []),
+          defaultRangeRecordsOrAggregate: cloneValue(range?.items || []),
+        },
+      };
+    }
+
+    return fallback;
+  }
+
   function normalizeStorageJournalOperations(operations = []) {
     return (Array.isArray(operations) ? operations : [])
       .map((operation) => {
@@ -3499,6 +4183,57 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return nativeMethods.key?.call(this, index) ?? null;
     };
 
+    function normalizeDraftStorageKey(key) {
+      return String(key || "").trim();
+    }
+
+    function getDraftFallbackStorageKey(key) {
+      const normalizedKey = normalizeDraftStorageKey(key);
+      return normalizedKey
+        ? `${LOCAL_ONLY_STORAGE_PREFIX}draft:${normalizedKey}`
+        : "";
+    }
+
+    function readFallbackDraftEnvelope(key) {
+      const storageKey = getDraftFallbackStorageKey(key);
+      if (!storageKey) {
+        return null;
+      }
+      const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+      if (rawValue === null || rawValue === undefined) {
+        return null;
+      }
+      const parsed = safeDeserialize(rawValue);
+      return isPlainObject(parsed) ? parsed : null;
+    }
+
+    function writeFallbackDraftEnvelope(key, value) {
+      const storageKey = getDraftFallbackStorageKey(key);
+      if (!storageKey) {
+        return null;
+      }
+      const envelope = {
+        key: normalizeDraftStorageKey(key),
+        updatedAt: new Date().toISOString(),
+        value: cloneValue(typeof value === "undefined" ? null : value),
+      };
+      nativeMethods.setItem?.call(
+        window.localStorage,
+        storageKey,
+        safeSerialize(envelope),
+      );
+      return envelope;
+    }
+
+    function removeFallbackDraftEnvelope(key) {
+      const storageKey = getDraftFallbackStorageKey(key);
+      if (!storageKey) {
+        return false;
+      }
+      nativeMethods.removeItem?.call(window.localStorage, storageKey);
+      return true;
+    }
+
     if (nativeLengthDescriptor?.configurable) {
       Object.defineProperty(nativeStoragePrototype, "length", {
         configurable: true,
@@ -3655,25 +4390,49 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : "journal-flush",
         });
       },
+      peekPageBootstrapState(pageKey, options = {}) {
+        return buildPageBootstrapStateFromState(
+          buildCurrentMergedState(),
+          pageKey,
+          options,
+        );
+      },
+      async getDraft(key, options = {}) {
+        const envelope = readFallbackDraftEnvelope(key);
+        if (!envelope) {
+          return null;
+        }
+        return options?.includeEnvelope === true
+          ? cloneValue(envelope)
+          : cloneValue(envelope.value);
+      },
+      async setDraft(key, value) {
+        const envelope = writeFallbackDraftEnvelope(key, value);
+        return envelope ? cloneValue(envelope) : null;
+      },
+      async removeDraft(key) {
+        return removeFallbackDraftEnvelope(key);
+      },
+      getPageBootstrapStateSync(pageKey, options = {}) {
+        return this.peekPageBootstrapState(pageKey, options);
+      },
+      async getPageBootstrapState(pageKey, options = {}) {
+        return this.peekPageBootstrapState(pageKey, options);
+      },
       async getPlanBootstrapState(options = {}) {
-        const includeRecurringPlans = options?.includeRecurringPlans !== false;
-        const includeYearlyGoals = options?.includeYearlyGoals !== false;
-        const state = readState();
-        const planItems = Array.isArray(state?.plans) ? state.plans : [];
-        const payload = {};
-        if (includeYearlyGoals) {
-          payload.yearlyGoals = cloneValue(state?.yearlyGoals || {});
-        }
-        if (includeRecurringPlans) {
-          payload.recurringPlans = cloneValue(
-            planItems.filter((item) =>
-              typeof storageBundle?.isRecurringPlan === "function"
-                ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none",
-            ),
-          );
-        }
-        return payload;
+        const pageBootstrap = await this.getPageBootstrapState("plan", options);
+        return (
+          pageBootstrap?.data && typeof pageBootstrap.data === "object"
+            ? {
+                yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+                recurringPlans: cloneValue(
+                  Array.isArray(pageBootstrap.data.recurringPlans)
+                    ? pageBootstrap.data.recurringPlans
+                    : [],
+                ),
+              }
+            : {}
+        );
       },
       async syncFromSource(options = {}) {
         if (typeof syncFromSource === "function") {
@@ -4009,6 +4768,142 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return cachedStatus;
       },
       extraMethods: {
+        peekPageBootstrapState(pageKey, options = {}) {
+          if (typeof electronAPI.storageGetPageBootstrapStateSync === "function") {
+            try {
+              const payload = electronAPI.storageGetPageBootstrapStateSync(
+                pageKey,
+                options,
+              );
+              return normalizePageBootstrapEnvelope(
+                pageKey,
+                payload,
+                options,
+                buildCurrentMergedState(),
+                {
+                  storageStatus: cachedStatus,
+                },
+              );
+            } catch (error) {
+              console.error("同步读取 Electron 页面引导状态失败，回退内存快照:", error);
+            }
+          }
+          return buildPageBootstrapStateFromState(
+            buildCurrentMergedState(),
+            pageKey,
+            options,
+            {
+              storageStatus: cachedStatus,
+            },
+          );
+        },
+        getPageBootstrapStateSync(pageKey, options = {}) {
+          return this.peekPageBootstrapState(pageKey, options);
+        },
+        async getPageBootstrapState(pageKey, options = {}) {
+          if (typeof electronAPI.storageGetPageBootstrapState === "function") {
+            try {
+              const payload = await electronAPI.storageGetPageBootstrapState(
+                pageKey,
+                options,
+              );
+              return normalizePageBootstrapEnvelope(
+                pageKey,
+                payload,
+                options,
+                buildCurrentMergedState(),
+                {
+                  storageStatus: cachedStatus,
+                },
+              );
+            } catch (error) {
+              console.error("读取 Electron 页面引导状态失败，回退本地快照:", error);
+            }
+          }
+          try {
+            return await buildPageBootstrapStateFromAsyncLoaders(
+              pageKey,
+              options,
+              {
+                fallbackState: buildCurrentMergedState(),
+                getCoreState: async () =>
+                  typeof electronAPI.storageGetCoreState === "function"
+                    ? electronAPI.storageGetCoreState()
+                    : null,
+                loadSectionRange: async (section, scope = {}) =>
+                  typeof electronAPI.storageLoadSectionRange === "function"
+                    ? electronAPI.storageLoadSectionRange(section, scope)
+                    : null,
+                getStorageStatus: async () =>
+                  typeof electronAPI.storageStatus === "function"
+                    ? electronAPI.storageStatus()
+                    : cachedStatus,
+                getAutoBackupStatus: async () =>
+                  typeof electronAPI.storageGetAutoBackupStatus === "function"
+                    ? electronAPI.storageGetAutoBackupStatus()
+                    : null,
+              },
+            );
+          } catch (error) {
+            console.error("拼装 Electron 页面引导状态失败，回退同步快照:", error);
+          }
+          return this.peekPageBootstrapState(pageKey, options);
+        },
+        async getDraft(key, options = {}) {
+          if (typeof electronAPI.storageGetDraft === "function") {
+            try {
+              return await electronAPI.storageGetDraft(key, options);
+            } catch (error) {
+              console.error("读取 Electron 草稿失败，回退本地缓存:", error);
+            }
+          }
+          const storageKey = `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`;
+          const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+          if (rawValue === null || rawValue === undefined) {
+            return null;
+          }
+          const parsed = safeDeserialize(rawValue);
+          if (!isPlainObject(parsed)) {
+            return null;
+          }
+          return options?.includeEnvelope === true
+            ? parsed
+            : cloneValue(parsed.value);
+        },
+        async setDraft(key, value, options = {}) {
+          if (typeof electronAPI.storageSetDraft === "function") {
+            try {
+              return await electronAPI.storageSetDraft(key, value, options);
+            } catch (error) {
+              console.error("写入 Electron 草稿失败，回退本地缓存:", error);
+            }
+          }
+          const envelope = {
+            key: String(key || "").trim(),
+            updatedAt: new Date().toISOString(),
+            value: cloneValue(typeof value === "undefined" ? null : value),
+          };
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            `${LOCAL_ONLY_STORAGE_PREFIX}draft:${envelope.key}`,
+            safeSerialize(envelope),
+          );
+          return envelope;
+        },
+        async removeDraft(key) {
+          if (typeof electronAPI.storageRemoveDraft === "function") {
+            try {
+              return await electronAPI.storageRemoveDraft(key);
+            } catch (error) {
+              console.error("删除 Electron 草稿失败，回退本地缓存:", error);
+            }
+          }
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`,
+          );
+          return true;
+        },
         async getManifest() {
           if (typeof electronAPI.storageGetManifest !== "function") {
             return null;
@@ -4020,6 +4915,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return null;
           }
           return electronAPI.storageGetCoreState();
+        },
+        async getPlanBootstrapState(options = {}) {
+          const pageBootstrap = await this.getPageBootstrapState("plan", options);
+          return (
+            pageBootstrap?.data && typeof pageBootstrap.data === "object"
+              ? {
+                  yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+                  recurringPlans: cloneValue(
+                    Array.isArray(pageBootstrap.data.recurringPlans)
+                      ? pageBootstrap.data.recurringPlans
+                      : [],
+                  ),
+                }
+              : {}
+          );
         },
         async getAutoBackupStatus() {
           if (typeof electronAPI.storageGetAutoBackupStatus !== "function") {
@@ -5700,37 +6610,192 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return null;
           }
         },
-        async getPlanBootstrapState(options = {}) {
+        peekPageBootstrapState(pageKey, options = {}) {
+          return buildPageBootstrapStateFromState(
+            buildCurrentMergedState(),
+            pageKey,
+            options,
+            {
+              storageStatus: cachedStatus,
+            },
+          );
+        },
+        getPageBootstrapStateSync(pageKey, options = {}) {
+          return this.peekPageBootstrapState(pageKey, options);
+        },
+        async getPageBootstrapState(pageKey, options = {}) {
+          const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const managedSnapshot = getManagedPlanBootstrapStateSnapshot(
-            normalizedOptions,
-          );
           if (hasManagedCoreSnapshot) {
-            scheduleManagedFastValidation("plan-bootstrap-fast-path");
-            return managedSnapshot;
+            scheduleManagedFastValidation(
+              `${normalizedPage}-bootstrap-fast-path`,
+            );
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
           try {
-            const rawPayload = await reactNativeBridge.call(
-              "storage.getPlanBootstrapState",
-              {
-                options: normalizedOptions,
-              },
-            );
+            const rawPayload =
+              typeof reactNativeBridge?.call === "function"
+                ? await reactNativeBridge.call("storage.getPageBootstrapState", {
+                    pageKey: normalizedPage,
+                    options: normalizedOptions,
+                  }).catch(async () =>
+                    reactNativeBridge.call("storage.getBootstrapState", {
+                      options: {
+                        ...normalizedOptions,
+                        page: normalizedPage,
+                      },
+                    }),
+                  )
+                : null;
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
-              return applyManagedPlanBootstrapSnapshot(
+              return normalizePageBootstrapEnvelope(
+                normalizedPage,
                 parsed,
                 normalizedOptions,
+                buildCurrentMergedState(),
+                {
+                  storageStatus: cachedStatus,
+                },
               );
             }
           } catch (error) {
             console.error(
-              "读取 React Native 计划引导状态失败，回退本地快照:",
+              "读取 React Native 页面引导状态失败，回退本地快照:",
               error,
             );
           }
-          return managedSnapshot;
+          try {
+            return await buildPageBootstrapStateFromAsyncLoaders(
+              normalizedPage,
+              normalizedOptions,
+              {
+                fallbackState: buildCurrentMergedState(),
+                getCoreState: async () => {
+                  const rawPayload = await reactNativeBridge.call(
+                    "storage.getCoreState",
+                  );
+                  return parseJsonSafely(rawPayload, null);
+                },
+                loadSectionRange: async (section, scope = {}) => {
+                  const rawPayload = await reactNativeBridge.call(
+                    "storage.loadSectionRange",
+                    {
+                      section,
+                      scope,
+                    },
+                  );
+                  return parseJsonSafely(rawPayload, null);
+                },
+                getStorageStatus: async () => {
+                  const rawPayload = await reactNativeBridge.call(
+                    "storage.getStatus",
+                  );
+                  return parseJsonSafely(rawPayload, null);
+                },
+                getAutoBackupStatus: async () => {
+                  const rawPayload = await reactNativeBridge.call(
+                    "storage.getAutoBackupStatus",
+                  );
+                  return parseJsonSafely(rawPayload, null);
+                },
+              },
+            );
+          } catch (loaderError) {
+            console.error(
+              "拼装 React Native 页面引导状态失败，回退内存快照:",
+              loaderError,
+            );
+          }
+          return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+        },
+        async getDraft(key, options = {}) {
+          try {
+            if (typeof reactNativeBridge?.call === "function") {
+              const rawPayload = await reactNativeBridge.call("storage.getDraft", {
+                key,
+                options,
+              });
+              const parsed = parseJsonSafely(rawPayload, null);
+              return parsed ?? null;
+            }
+          } catch (error) {
+            console.error("读取 React Native 草稿失败，回退本地缓存:", error);
+          }
+          const storageKey = `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`;
+          const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+          if (rawValue === null || rawValue === undefined) {
+            return null;
+          }
+          const parsed = safeDeserialize(rawValue);
+          if (!isPlainObject(parsed)) {
+            return null;
+          }
+          return options?.includeEnvelope === true
+            ? parsed
+            : cloneValue(parsed.value);
+        },
+        async setDraft(key, value, options = {}) {
+          try {
+            if (typeof reactNativeBridge?.call === "function") {
+              const rawPayload = await reactNativeBridge.call("storage.setDraft", {
+                key,
+                value,
+                options,
+              });
+              return parseJsonSafely(rawPayload, null);
+            }
+          } catch (error) {
+            console.error("写入 React Native 草稿失败，回退本地缓存:", error);
+          }
+          const envelope = {
+            key: String(key || "").trim(),
+            updatedAt: new Date().toISOString(),
+            value: cloneValue(typeof value === "undefined" ? null : value),
+          };
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            `${LOCAL_ONLY_STORAGE_PREFIX}draft:${envelope.key}`,
+            safeSerialize(envelope),
+          );
+          return envelope;
+        },
+        async removeDraft(key) {
+          try {
+            if (typeof reactNativeBridge?.call === "function") {
+              const rawPayload = await reactNativeBridge.call(
+                "storage.removeDraft",
+                { key },
+              );
+              const parsed = parseJsonSafely(rawPayload, null);
+              if (parsed !== null) {
+                return parsed;
+              }
+            }
+          } catch (error) {
+            console.error("删除 React Native 草稿失败，回退本地缓存:", error);
+          }
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`,
+          );
+          return true;
+        },
+        async getPlanBootstrapState(options = {}) {
+          const pageBootstrap = await this.getPageBootstrapState("plan", options);
+          return (
+            pageBootstrap?.data && typeof pageBootstrap.data === "object"
+              ? {
+                  yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+                  recurringPlans: cloneValue(
+                    Array.isArray(pageBootstrap.data.recurringPlans)
+                      ? pageBootstrap.data.recurringPlans
+                      : [],
+                  ),
+                }
+              : {}
+          );
         },
         async getCoreState() {
           const managedSnapshot = getManagedCoreStateSnapshot();
@@ -5883,12 +6948,58 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             (item) => getManagedSectionPeriodId(section, item) === periodId,
           );
           const mergedItems =
-            storageBundle?.mergePartitionItems?.(
-              section,
-              existingItems,
-              payload?.items || [],
-              payload?.mode === "merge" ? "merge" : "replace",
-            ) || cloneValue(payload?.items || []);
+            section === "records" && payload?.mode === "patch"
+              ? (() => {
+                  const removeIds = new Set(
+                    [
+                      ...(Array.isArray(payload?.removeIds) ? payload.removeIds : []),
+                      ...(Array.isArray(payload?.removedItems)
+                        ? payload.removedItems.map((item) => item?.id)
+                        : []),
+                    ]
+                      .map((recordId) => String(recordId || "").trim())
+                      .filter(Boolean),
+                  );
+                  const buildRecordMergeKey = (item = {}) => {
+                    const recordId = String(item?.id || "").trim();
+                    if (recordId) {
+                      return `id:${recordId}`;
+                    }
+                    if (typeof storageBundle?.buildPartitionMergeKey === "function") {
+                      return storageBundle.buildPartitionMergeKey("records", item);
+                    }
+                    return JSON.stringify({
+                      name: item?.name || "",
+                      projectId: item?.projectId || "",
+                      startTime: item?.startTime || "",
+                      endTime: item?.endTime || "",
+                      timestamp: item?.timestamp || "",
+                      spendtime: item?.spendtime || "",
+                    });
+                  };
+                  const merged = new Map();
+                  (Array.isArray(existingItems) ? existingItems : []).forEach((item) => {
+                    merged.set(buildRecordMergeKey(item), cloneValue(item));
+                  });
+                  removeIds.forEach((recordId) => {
+                    merged.delete(`id:${recordId}`);
+                  });
+                  (Array.isArray(payload?.items) ? payload.items : []).forEach((item) => {
+                    merged.set(buildRecordMergeKey(item), cloneValue(item));
+                  });
+                  return typeof storageBundle?.sortPartitionItems === "function"
+                    ? storageBundle.sortPartitionItems(
+                        "records",
+                        Array.from(merged.values()),
+                      )
+                    : Array.from(merged.values());
+                })()
+              : storageBundle?.mergePartitionItems?.(
+                  section,
+                  existingItems,
+                  payload?.items || [],
+                  payload?.mode === "merge" ? "merge" : "replace",
+                ) || cloneValue(payload?.items || []);
           const remainingItems = sectionItems.filter(
             (item) => getManagedSectionPeriodId(section, item) !== periodId,
           );

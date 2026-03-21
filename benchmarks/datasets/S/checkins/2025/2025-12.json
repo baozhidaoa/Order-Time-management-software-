@@ -1,0 +1,236 @@
+{
+  "formatVersion": 1,
+  "section": "checkins",
+  "periodUnit": "month",
+  "periodId": "2025-12",
+  "count": 32,
+  "minDate": "2025-12-01",
+  "maxDate": "2025-12-31",
+  "fingerprint": "checkins:2025-12:32:2025-12-01:2025-12-31:4289",
+  "items": [
+    {
+      "id": "checkin_618",
+      "todoId": "todo_18",
+      "time": "2025-11-30T21:36:00.000Z",
+      "updatedAt": "2025-11-30T21:36:00.000Z",
+      "message": "进度记录 619"
+    },
+    {
+      "id": "checkin_619",
+      "todoId": "todo_19",
+      "time": "2025-12-01T21:53:00.000Z",
+      "updatedAt": "2025-12-01T21:53:00.000Z",
+      "message": "进度记录 620"
+    },
+    {
+      "id": "checkin_620",
+      "todoId": "todo_20",
+      "time": "2025-12-02T22:10:00.000Z",
+      "updatedAt": "2025-12-02T22:10:00.000Z",
+      "message": "进度记录 621"
+    },
+    {
+      "id": "checkin_621",
+      "todoId": "todo_21",
+      "time": "2025-12-03T22:27:00.000Z",
+      "updatedAt": "2025-12-03T22:27:00.000Z",
+      "message": "进度记录 622"
+    },
+    {
+      "id": "checkin_622",
+      "todoId": "todo_22",
+      "time": "2025-12-04T00:44:00.000Z",
+      "updatedAt": "2025-12-04T00:44:00.000Z",
+      "message": "进度记录 623"
+    },
+    {
+      "id": "checkin_623",
+      "todoId": "todo_23",
+      "time": "2025-12-05T01:01:00.000Z",
+      "updatedAt": "2025-12-05T01:01:00.000Z",
+      "message": "进度记录 624"
+    },
+    {
+      "id": "checkin_624",
+      "todoId": "todo_24",
+      "time": "2025-12-06T01:18:00.000Z",
+      "updatedAt": "2025-12-06T01:18:00.000Z",
+      "message": "进度记录 625"
+    },
+    {
+      "id": "checkin_625",
+      "todoId": "todo_25",
+      "time": "2025-12-07T01:35:00.000Z",
+      "updatedAt": "2025-12-07T01:35:00.000Z",
+      "message": "进度记录 626"
+    },
+    {
+      "id": "checkin_626",
+      "todoId": "todo_26",
+      "time": "2025-12-08T01:52:00.000Z",
+      "updatedAt": "2025-12-08T01:52:00.000Z",
+      "message": "进度记录 627"
+    },
+    {
+      "id": "checkin_627",
+      "todoId": "todo_27",
+      "time": "2025-12-09T02:09:00.000Z",
+      "updatedAt": "2025-12-09T02:09:00.000Z",
+      "message": "进度记录 628"
+    },
+    {
+      "id": "checkin_628",
+      "todoId": "todo_28",
+      "time": "2025-12-10T02:26:00.000Z",
+      "updatedAt": "2025-12-10T02:26:00.000Z",
+      "message": "进度记录 629"
+    },
+    {
+      "id": "checkin_629",
+      "todoId": "todo_29",
+      "time": "2025-12-11T02:43:00.000Z",
+      "updatedAt": "2025-12-11T02:43:00.000Z",
+      "message": "进度记录 630"
+    },
+    {
+      "id": "checkin_630",
+      "todoId": "todo_30",
+      "time": "2025-12-12T03:00:00.000Z",
+      "updatedAt": "2025-12-12T03:00:00.000Z",
+      "message": "进度记录 631"
+    },
+    {
+      "id": "checkin_631",
+      "todoId": "todo_31",
+      "time": "2025-12-13T03:17:00.000Z",
+      "updatedAt": "2025-12-13T03:17:00.000Z",
+      "message": "进度记录 632"
+    },
+    {
+      "id": "checkin_632",
+      "todoId": "todo_32",
+      "time": "2025-12-14T03:34:00.000Z",
+      "updatedAt": "2025-12-14T03:34:00.000Z",
+      "message": "进度记录 633"
+    },
+    {
+      "id": "checkin_633",
+      "todoId": "todo_33",
+      "time": "2025-12-15T03:51:00.000Z",
+      "updatedAt": "2025-12-15T03:51:00.000Z",
+      "message": "进度记录 634"
+    },
+    {
+      "id": "checkin_634",
+      "todoId": "todo_34",
+      "time": "2025-12-16T04:08:00.000Z",
+      "updatedAt": "2025-12-16T04:08:00.000Z",
+      "message": "进度记录 635"
+    },
+    {
+      "id": "checkin_635",
+      "todoId": "todo_35",
+      "time": "2025-12-17T04:25:00.000Z",
+      "updatedAt": "2025-12-17T04:25:00.000Z",
+      "message": "进度记录 636"
+    },
+    {
+      "id": "checkin_636",
+      "todoId": "todo_36",
+      "time": "2025-12-18T04:42:00.000Z",
+      "updatedAt": "2025-12-18T04:42:00.000Z",
+      "message": "进度记录 637"
+    },
+    {
+      "id": "checkin_637",
+      "todoId": "todo_37",
+      "time": "2025-12-19T04:59:00.000Z",
+      "updatedAt": "2025-12-19T04:59:00.000Z",
+      "message": "进度记录 638"
+    },
+    {
+      "id": "checkin_638",
+      "todoId": "todo_38",
+      "time": "2025-12-20T05:16:00.000Z",
+      "updatedAt": "2025-12-20T05:16:00.000Z",
+      "message": "进度记录 639"
+    },
+    {
+      "id": "checkin_639",
+      "todoId": "todo_39",
+      "time": "2025-12-21T05:33:00.000Z",
+      "updatedAt": "2025-12-21T05:33:00.000Z",
+      "message": "进度记录 640"
+    },
+    {
+      "id": "checkin_640",
+      "todoId": "todo_40",
+      "time": "2025-12-22T05:50:00.000Z",
+      "updatedAt": "2025-12-22T05:50:00.000Z",
+      "message": "进度记录 641"
+    },
+    {
+      "id": "checkin_641",
+      "todoId": "todo_41",
+      "time": "2025-12-23T06:07:00.000Z",
+      "updatedAt": "2025-12-23T06:07:00.000Z",
+      "message": "进度记录 642"
+    },
+    {
+      "id": "checkin_642",
+      "todoId": "todo_42",
+      "time": "2025-12-24T06:24:00.000Z",
+      "updatedAt": "2025-12-24T06:24:00.000Z",
+      "message": "进度记录 643"
+    },
+    {
+      "id": "checkin_643",
+      "todoId": "todo_43",
+      "time": "2025-12-25T06:41:00.000Z",
+      "updatedAt": "2025-12-25T06:41:00.000Z",
+      "message": "进度记录 644"
+    },
+    {
+      "id": "checkin_644",
+      "todoId": "todo_44",
+      "time": "2025-12-26T06:58:00.000Z",
+      "updatedAt": "2025-12-26T06:58:00.000Z",
+      "message": "进度记录 645"
+    },
+    {
+      "id": "checkin_645",
+      "todoId": "todo_45",
+      "time": "2025-12-27T07:15:00.000Z",
+      "updatedAt": "2025-12-27T07:15:00.000Z",
+      "message": "进度记录 646"
+    },
+    {
+      "id": "checkin_646",
+      "todoId": "todo_46",
+      "time": "2025-12-28T07:32:00.000Z",
+      "updatedAt": "2025-12-28T07:32:00.000Z",
+      "message": "进度记录 647"
+    },
+    {
+      "id": "checkin_647",
+      "todoId": "todo_47",
+      "time": "2025-12-29T07:49:00.000Z",
+      "updatedAt": "2025-12-29T07:49:00.000Z",
+      "message": "进度记录 648"
+    },
+    {
+      "id": "checkin_648",
+      "todoId": "todo_48",
+      "time": "2025-12-30T08:06:00.000Z",
+      "updatedAt": "2025-12-30T08:06:00.000Z",
+      "message": "进度记录 649"
+    },
+    {
+      "id": "checkin_649",
+      "todoId": "todo_49",
+      "time": "2025-12-31T08:23:00.000Z",
+      "updatedAt": "2025-12-31T08:23:00.000Z",
+      "message": "进度记录 650"
+    }
+  ]
+}

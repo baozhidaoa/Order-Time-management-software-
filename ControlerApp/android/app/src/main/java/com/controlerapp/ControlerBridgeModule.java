@@ -16,6 +16,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.AtomicFile;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
@@ -625,13 +626,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         String launchId = String.valueOf(launchAction.optString("launchId", "")).trim();
         long createdAt = launchAction.optLong("createdAt", 0L);
         String source = String.valueOf(launchAction.optString("source", "android-widget")).trim();
-        String page = normalizeLaunchTargetPage(requestedPage, action);
+        boolean suppressLaunchAction =
+            "start-timer".equals(action)
+                && ControlerWidgetKinds.START_TIMER.equals(widgetKind);
+        String launchActionParam = suppressLaunchAction ? "" : action;
+        String page = normalizeLaunchTargetPage(requestedPage, launchActionParam);
 
         Uri.Builder builder = Uri.parse(
             "file:///android_asset/controler-web/" + page + ".html"
         ).buildUpon();
-        if (!TextUtils.isEmpty(action)) {
-            builder.appendQueryParameter("widgetAction", action);
+        if (!TextUtils.isEmpty(launchActionParam)) {
+            builder.appendQueryParameter("widgetAction", launchActionParam);
         }
         if (!TextUtils.isEmpty(widgetKind)) {
             builder.appendQueryParameter("widgetKind", widgetKind);
@@ -645,14 +650,14 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (createdAt > 0L) {
             builder.appendQueryParameter("widgetCreatedAt", String.valueOf(createdAt));
         }
-        if (!TextUtils.isEmpty(source) && !TextUtils.isEmpty(action)) {
+        if (!TextUtils.isEmpty(source) && !TextUtils.isEmpty(launchActionParam)) {
             builder.appendQueryParameter("widgetSource", source);
         }
         String launchUrl = builder.build().toString();
         ControlerStartupTrace.mark(
             "start_url_built",
             "page=" + page
-                + " action=" + (TextUtils.isEmpty(action) ? "-" : action)
+                + " action=" + (TextUtils.isEmpty(launchActionParam) ? "-" : launchActionParam)
                 + " widgetKind=" + (TextUtils.isEmpty(widgetKind) ? "-" : widgetKind)
                 + " targetId=" + (TextUtils.isEmpty(targetId) ? "-" : targetId)
         );
@@ -836,6 +841,67 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         } catch (Exception error) {
             promise.reject("storage_plan_bootstrap_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void getStoragePageBootstrapState(String optionsJson, Promise promise) {
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            promise.resolve(
+                ControlerWidgetDataStore
+                    .getStoragePageBootstrapState(getReactApplicationContext(), options)
+                    .toString()
+            );
+        } catch (Exception error) {
+            promise.reject("storage_page_bootstrap_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void getStorageDraft(String optionsJson, Promise promise) {
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            JSONObject result =
+                ControlerWidgetDataStore.getStorageDraft(getReactApplicationContext(), options);
+            promise.resolve(result == null ? "null" : result.toString());
+        } catch (Exception error) {
+            promise.reject("storage_draft_get_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void setStorageDraft(String optionsJson, Promise promise) {
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            promise.resolve(
+                ControlerWidgetDataStore
+                    .setStorageDraft(getReactApplicationContext(), options)
+                    .toString()
+            );
+        } catch (Exception error) {
+            promise.reject("storage_draft_set_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void removeStorageDraft(String optionsJson, Promise promise) {
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            promise.resolve(
+                String.valueOf(
+                    ControlerWidgetDataStore.removeStorageDraft(
+                        getReactApplicationContext(),
+                        options
+                    )
+                )
+            );
+        } catch (Exception error) {
+            promise.reject("storage_draft_remove_failed", error);
         }
     }
 
@@ -2011,12 +2077,21 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
         }
-        FileOutputStream outputStream = new FileOutputStream(file, false);
+        AtomicFile atomicFile = new AtomicFile(file);
+        FileOutputStream outputStream = atomicFile.startWrite();
         try {
             outputStream.write(String.valueOf(content).getBytes(StandardCharsets.UTF_8));
             outputStream.flush();
+            outputStream.getFD().sync();
+            atomicFile.finishWrite(outputStream);
+            outputStream = null;
+        } catch (Exception error) {
+            atomicFile.failWrite(outputStream);
+            throw error;
         } finally {
-            outputStream.close();
+            if (outputStream != null) {
+                outputStream.close();
+            }
         }
     }
 

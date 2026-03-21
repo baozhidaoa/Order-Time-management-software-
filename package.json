@@ -5,6 +5,10 @@
   "main": "main.js",
   "scripts": {
     "prepare:web-assets": "node scripts/sync-web-assets.mjs",
+    "bench:generate": "node scripts/generate-benchmark-datasets.mjs",
+    "bench:cold-start": "node scripts/benchmark-storage-cold-start.mjs",
+    "bench:matrix": "node scripts/benchmark-storage-matrix.mjs",
+    "bench:recovery": "node scripts/test-storage-recovery.mjs",
     "docs:screenshots": "node scripts/run-readme-screenshots.js",
     "ci:mac": "npm run dist:mac",
     "ci:ios": "npm run mobile:ios",
@@ -54,7 +58,8 @@
     "d3": "^7.9.0",
     "electron-squirrel-startup": "^1.0.1",
     "fs-extra": "^11.2.0",
-    "path": "^0.12.7"
+    "path": "^0.12.7",
+    "sql.js": "^1.13.0"
   },
   "build": {
     "appId": "com.controler.timetracker",

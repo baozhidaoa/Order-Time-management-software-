@@ -1,0 +1,11 @@
+{
+  "dataset": "S",
+  "records": 1000,
+  "plans": 1200,
+  "diaryEntries": 240,
+  "checkins": 900,
+  "projectCount": 12,
+  "todoCount": 120,
+  "checkinItemCount": 80,
+  "dailyCheckinCount": 300
+}

@@ -31,8 +31,12 @@ type NativeBridgeModule = {
   getStorageStatus: () => Promise<string>;
   getStorageManifest?: () => Promise<string>;
   getStorageCoreState?: () => Promise<string>;
+  getStoragePageBootstrapState?: (optionsJson?: string) => Promise<string>;
   getStorageBootstrapState?: (optionsJson?: string) => Promise<string>;
   getStoragePlanBootstrapState?: (optionsJson?: string) => Promise<string>;
+  getStorageDraft?: (optionsJson?: string) => Promise<string>;
+  setStorageDraft?: (optionsJson?: string) => Promise<string>;
+  removeStorageDraft?: (optionsJson?: string) => Promise<string>;
   getAutoBackupStatus?: () => Promise<string>;
   updateAutoBackupSettings?: (settingsJson: string) => Promise<string>;
   runAutoBackupNow?: () => Promise<string>;
@@ -2773,6 +2777,25 @@ function App(): JSX.Element {
           );
         }
         return parseBridgeJson(await nativeBridge.getStorageCoreState());
+      case 'storage.getPageBootstrapState':
+        if (typeof nativeBridge.getStoragePageBootstrapState !== 'function') {
+          throw createUnsupportedBridgeError(
+            '读取页面引导数据',
+            'reading page bootstrap data',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.getStoragePageBootstrapState(
+            JSON.stringify({
+              pageKey:
+                typeof payload.pageKey === 'string' ? payload.pageKey : 'index',
+              options:
+                payload.options && typeof payload.options === 'object'
+                  ? payload.options
+                  : {},
+            }),
+          ),
+        );
       case 'storage.getBootstrapState':
         if (typeof nativeBridge.getStorageBootstrapState !== 'function') {
           throw createUnsupportedBridgeError(
@@ -2803,6 +2826,48 @@ function App(): JSX.Element {
                 ? payload.options
                 : {},
             ),
+          ),
+        );
+      case 'storage.getDraft':
+        if (typeof nativeBridge.getStorageDraft !== 'function') {
+          throw createUnsupportedBridgeError('读取草稿', 'reading a draft');
+        }
+        return parseBridgeJson(
+          await nativeBridge.getStorageDraft(
+            JSON.stringify({
+              key: typeof payload.key === 'string' ? payload.key : '',
+              options:
+                payload.options && typeof payload.options === 'object'
+                  ? payload.options
+                  : {},
+            }),
+          ),
+        );
+      case 'storage.setDraft':
+        if (typeof nativeBridge.setStorageDraft !== 'function') {
+          throw createUnsupportedBridgeError('保存草稿', 'saving a draft');
+        }
+        return parseBridgeJson(
+          await nativeBridge.setStorageDraft(
+            JSON.stringify({
+              key: typeof payload.key === 'string' ? payload.key : '',
+              value: payload.value,
+              options:
+                payload.options && typeof payload.options === 'object'
+                  ? payload.options
+                  : {},
+            }),
+          ),
+        );
+      case 'storage.removeDraft':
+        if (typeof nativeBridge.removeStorageDraft !== 'function') {
+          throw createUnsupportedBridgeError('删除草稿', 'removing a draft');
+        }
+        return parseBridgeJson(
+          await nativeBridge.removeStorageDraft(
+            JSON.stringify({
+              key: typeof payload.key === 'string' ? payload.key : '',
+            }),
           ),
         );
       case 'storage.getAutoBackupStatus':

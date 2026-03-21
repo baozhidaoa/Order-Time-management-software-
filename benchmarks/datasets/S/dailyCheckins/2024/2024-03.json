@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "section": "dailyCheckins",
+  "periodUnit": "month",
+  "periodId": "2024-03",
+  "count": 10,
+  "minDate": "2024-03-22",
+  "maxDate": "2024-03-31",
+  "fingerprint": "dailyCheckins:2024-03:10:2024-03-22:2024-03-31:634",
+  "items": [
+    {
+      "itemId": "checkin_item_0",
+      "date": "2024-03-22",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_1",
+      "date": "2024-03-23",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_2",
+      "date": "2024-03-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_3",
+      "date": "2024-03-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_4",
+      "date": "2024-03-26",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_5",
+      "date": "2024-03-27",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_6",
+      "date": "2024-03-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_7",
+      "date": "2024-03-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_8",
+      "date": "2024-03-30",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_9",
+      "date": "2024-03-31",
+      "checked": true
+    }
+  ]
+}

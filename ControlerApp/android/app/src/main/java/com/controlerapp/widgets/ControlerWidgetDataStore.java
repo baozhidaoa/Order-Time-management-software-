@@ -9,6 +9,7 @@ import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
+import android.util.AtomicFile;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -527,6 +528,140 @@ public final class ControlerWidgetDataStore {
         return payload;
     }
 
+    public static JSONObject getStoragePageBootstrapState(Context context, JSONObject options) {
+        JSONObject source = options == null ? new JSONObject() : options;
+        JSONObject sourceOptions = source.optJSONObject("options");
+        JSONObject pageOptions = sourceOptions == null ? source : sourceOptions;
+        String page = normalizeBootstrapPage(
+            firstNonEmpty(source.optString("pageKey", ""), source.optString("page", ""))
+        );
+        JSONObject payload = new JSONObject();
+        JSONObject data = new JSONObject();
+        JSONArray loadedPeriodIds = new JSONArray();
+        try {
+            StorageVersion version = probeStorageVersion(context, false);
+            JSONObject core = getStorageCoreState(context);
+            payload.put("page", page);
+            payload.put("sourceFingerprint", version == null ? "" : safeText(version.fingerprint));
+            payload.put("builtAt", isoNow());
+
+            if ("index".equals(page)) {
+                JSONObject recordScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "records",
+                    buildDefaultRecordBootstrapScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "records", recordScope);
+                loadedPeriodIds = cloneJsonArray(range.optJSONArray("periodIds"));
+                data.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+                data.put("recentRecords", cloneJsonArray(range.optJSONArray("items")));
+                data.put(
+                    "timerSessionState",
+                    cloneJsonObject(core.optJSONObject("timerSessionState"))
+                );
+                data.put(
+                    "projectTotalsSummary",
+                    buildProjectTotalsSummary(core.optJSONArray("projects"))
+                );
+            } else if ("plan".equals(page)) {
+                JSONObject planScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "plans",
+                    buildCurrentMonthScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "plans", planScope);
+                JSONObject planBootstrap = getStoragePlanBootstrapState(context, pageOptions);
+                loadedPeriodIds = cloneJsonArray(range.optJSONArray("periodIds"));
+                data.put("visiblePlans", cloneJsonArray(range.optJSONArray("items")));
+                data.put(
+                    "recurringPlans",
+                    cloneJsonArray(planBootstrap.optJSONArray("recurringPlans"))
+                );
+                data.put(
+                    "yearlyGoals",
+                    cloneJsonObject(planBootstrap.optJSONObject("yearlyGoals"))
+                );
+            } else if ("todo".equals(page)) {
+                JSONObject dailyCheckinScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "dailyCheckins",
+                    buildCurrentDayScope()
+                );
+                JSONObject checkinScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "checkins",
+                    buildCurrentMonthScope()
+                );
+                JSONObject dailyRange =
+                    loadStorageSectionRange(context, "dailyCheckins", dailyCheckinScope);
+                JSONObject checkinRange =
+                    loadStorageSectionRange(context, "checkins", checkinScope);
+                LinkedHashSet<String> periodIds = new LinkedHashSet<>();
+                appendStringArrayToSet(periodIds, dailyRange.optJSONArray("periodIds"));
+                appendStringArrayToSet(periodIds, checkinRange.optJSONArray("periodIds"));
+                loadedPeriodIds = buildJsonArrayFromStrings(new ArrayList<>(periodIds));
+                data.put("todos", cloneJsonArray(core.optJSONArray("todos")));
+                data.put("checkinItems", cloneJsonArray(core.optJSONArray("checkinItems")));
+                data.put(
+                    "todayDailyCheckins",
+                    cloneJsonArray(dailyRange.optJSONArray("items"))
+                );
+                data.put("recentCheckins", cloneJsonArray(checkinRange.optJSONArray("items")));
+            } else if ("diary".equals(page)) {
+                JSONObject diaryScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "diaryEntries",
+                    buildCurrentMonthScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "diaryEntries", diaryScope);
+                loadedPeriodIds = cloneJsonArray(range.optJSONArray("periodIds"));
+                data.put(
+                    "currentMonthEntries",
+                    cloneJsonArray(range.optJSONArray("items"))
+                );
+                data.put(
+                    "diaryCategories",
+                    cloneJsonArray(core.optJSONArray("diaryCategories"))
+                );
+                data.put("guideState", cloneJsonObject(core.optJSONObject("guideState")));
+            } else if ("stats".equals(page)) {
+                JSONObject recordScope = resolveBootstrapSectionScope(
+                    pageOptions,
+                    "records",
+                    buildCurrentMonthScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "records", recordScope);
+                loadedPeriodIds = cloneJsonArray(range.optJSONArray("periodIds"));
+                data.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+                data.put(
+                    "defaultRangeRecordsOrAggregate",
+                    cloneJsonArray(range.optJSONArray("items"))
+                );
+                data.put("statsPreferences", new JSONObject());
+            } else {
+                data.put("storageStatus", JSONObject.NULL);
+                data.put("autoBackupStatus", JSONObject.NULL);
+                data.put("themeSummary", buildThemeSummary(core));
+                data.put("navigationVisibility", JSONObject.NULL);
+            }
+
+            payload.put("loadedPeriodIds", loadedPeriodIds);
+            payload.put("data", data);
+        } catch (Exception error) {
+            error.printStackTrace();
+            try {
+                payload.put("page", page);
+                payload.put("sourceFingerprint", "");
+                payload.put("builtAt", isoNow());
+                payload.put("loadedPeriodIds", loadedPeriodIds);
+                payload.put("data", data);
+            } catch (Exception ignored) {
+                // Ignore bootstrap fallback serialization errors.
+            }
+        }
+        return payload;
+    }
+
     public static JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
         boolean includeYearlyGoals =
             options == null || options.optBoolean("includeYearlyGoals", true);
@@ -564,6 +699,99 @@ public final class ControlerWidgetDataStore {
             error.printStackTrace();
         }
         return payload;
+    }
+
+    public static JSONObject getStorageDraft(Context context, JSONObject options) {
+        String key =
+            safeText(options == null ? "" : options.optString("key", ""));
+        if (TextUtils.isEmpty(key)) {
+            return null;
+        }
+        JSONObject envelope = readDraftEnvelope(context, key);
+        JSONObject latestOperation = readLatestDraftOperation(context, key);
+        JSONObject resolvedEnvelope = envelope == null ? null : cloneJsonObject(envelope);
+        if (latestOperation != null && "remove".equals(latestOperation.optString("action", ""))) {
+            if (
+                resolvedEnvelope == null
+                    || !safeText(resolvedEnvelope.optString("lastOperationId", ""))
+                        .equals(safeText(latestOperation.optString("operationId", "")))
+            ) {
+                resolvedEnvelope = null;
+            }
+        } else if (
+            latestOperation != null
+                && "set".equals(latestOperation.optString("action", ""))
+                && (
+                    resolvedEnvelope == null
+                        || !safeText(resolvedEnvelope.optString("lastOperationId", ""))
+                            .equals(safeText(latestOperation.optString("operationId", "")))
+                )
+        ) {
+            resolvedEnvelope = new JSONObject();
+            try {
+                resolvedEnvelope.put("key", key);
+                resolvedEnvelope.put(
+                    "updatedAt",
+                    safeText(latestOperation.optString("updatedAt", isoNow()))
+                );
+                resolvedEnvelope.put(
+                    "lastOperationId",
+                    safeText(latestOperation.optString("operationId", ""))
+                );
+                resolvedEnvelope.put(
+                    "value",
+                    cloneJsonValue(latestOperation.opt("value"))
+                );
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return resolvedEnvelope;
+    }
+
+    public static JSONObject setStorageDraft(Context context, JSONObject options) throws Exception {
+        String key =
+            safeText(options == null ? "" : options.optString("key", ""));
+        if (TextUtils.isEmpty(key)) {
+            throw new Exception("草稿 key 不能为空");
+        }
+        JSONObject operation = buildDraftOperation(
+            "set",
+            key,
+            options == null ? JSONObject.NULL : options.opt("value")
+        );
+        appendDraftOperation(context, key, operation);
+        JSONObject envelope = new JSONObject();
+        envelope.put("key", key);
+        envelope.put("updatedAt", safeText(operation.optString("updatedAt", isoNow())));
+        envelope.put(
+            "lastOperationId",
+            safeText(operation.optString("operationId", ""))
+        );
+        envelope.put(
+            "value",
+            cloneJsonValue(options == null ? JSONObject.NULL : options.opt("value"))
+        );
+        JSONObject sourceOptions = options == null ? null : options.optJSONObject("options");
+        if (sourceOptions != null) {
+            envelope.put("options", cloneJsonObject(sourceOptions));
+        }
+        writeTextToFile(getDraftFile(context, key), envelope.toString(2));
+        return envelope;
+    }
+
+    public static boolean removeStorageDraft(Context context, JSONObject options) throws Exception {
+        String key =
+            safeText(options == null ? "" : options.optString("key", ""));
+        if (TextUtils.isEmpty(key)) {
+            return false;
+        }
+        appendDraftOperation(context, key, buildDraftOperation("remove", key, null));
+        File draftFile = getDraftFile(context, key);
+        if (draftFile.exists()) {
+            draftFile.delete();
+        }
+        return true;
     }
 
     public static JSONObject loadStorageSectionRange(
@@ -2936,6 +3164,164 @@ public final class ControlerWidgetDataStore {
         }
     }
 
+    private static File getRuntimeSidecarBaseDirectory(Context context) {
+        File root =
+            context == null
+                ? null
+                : (
+                    context.getNoBackupFilesDir() != null
+                        ? context.getNoBackupFilesDir()
+                        : context.getFilesDir()
+                );
+        File target = new File(root == null ? new File(".") : root, "runtime-sidecar");
+        if (!target.exists()) {
+            target.mkdirs();
+        }
+        return target;
+    }
+
+    private static String buildDraftNamespaceSeed(Context context) {
+        StorageLocation location = getStorageLocation(context);
+        return firstNonEmpty(
+            safeText(location.actualUri),
+            safeText(location.storageDirectory),
+            safeText(location.storagePath),
+            "default"
+        );
+    }
+
+    private static String sha256Text(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(String.valueOf(value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            return toHex(digest.digest());
+        } catch (Exception ignored) {
+            return String.valueOf(value == null ? "" : value);
+        }
+    }
+
+    private static File getRuntimeSidecarNamespaceDirectory(Context context) {
+        File target = new File(
+            getRuntimeSidecarBaseDirectory(context),
+            sha256Text(buildDraftNamespaceSeed(context))
+        );
+        if (!target.exists()) {
+            target.mkdirs();
+        }
+        return target;
+    }
+
+    private static String buildDraftStem(String key) {
+        String normalizedKey = safeText(key);
+        String preview =
+            normalizedKey
+                .replaceAll("[^a-zA-Z0-9_-]+", "_")
+                .replaceAll("^_+|_+$", "")
+                .toLowerCase(Locale.US);
+        if (preview.length() > 48) {
+            preview = preview.substring(0, 48);
+        }
+        return (TextUtils.isEmpty(preview) ? "draft" : preview)
+            + "-"
+            + sha256Text(normalizedKey);
+    }
+
+    private static File getDraftDirectory(Context context) {
+        File target = new File(getRuntimeSidecarNamespaceDirectory(context), "drafts");
+        if (!target.exists()) {
+            target.mkdirs();
+        }
+        return target;
+    }
+
+    private static File getDraftOplogDirectory(Context context) {
+        File target = new File(getRuntimeSidecarNamespaceDirectory(context), "oplog/drafts");
+        if (!target.exists()) {
+            target.mkdirs();
+        }
+        return target;
+    }
+
+    private static File getDraftFile(Context context, String key) {
+        return new File(getDraftDirectory(context), buildDraftStem(key) + ".json");
+    }
+
+    private static File getDraftLogFile(Context context, String key) {
+        return new File(getDraftOplogDirectory(context), buildDraftStem(key) + ".jsonl");
+    }
+
+    private static JSONObject buildDraftOperation(String action, String key, Object value)
+        throws Exception {
+        JSONObject operation = new JSONObject();
+        String updatedAt = isoNow();
+        String operationId =
+            sha256Text(
+                safeText(key)
+                    + ":"
+                    + safeText(action)
+                    + ":"
+                    + updatedAt
+                    + ":"
+                    + System.nanoTime()
+            );
+        operation.put("operationId", operationId);
+        operation.put("action", safeText(action));
+        operation.put("key", safeText(key));
+        operation.put("updatedAt", updatedAt);
+        operation.put("value", cloneJsonValue(value == null ? JSONObject.NULL : value));
+        return operation;
+    }
+
+    private static void appendDraftOperation(Context context, String key, JSONObject operation)
+        throws Exception {
+        File target = getDraftLogFile(context, key);
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        FileOutputStream outputStream = new FileOutputStream(target, true);
+        try {
+            outputStream.write((operation.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+            outputStream.flush();
+            outputStream.getFD().sync();
+        } finally {
+            outputStream.close();
+        }
+    }
+
+    private static JSONObject readDraftEnvelope(Context context, String key) {
+        try {
+            File target = getDraftFile(context, key);
+            if (!target.exists()) {
+                return null;
+            }
+            JSONObject parsed = new JSONObject(readTextFromFile(target));
+            return cloneJsonObject(parsed);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static JSONObject readLatestDraftOperation(Context context, String key) {
+        try {
+            File target = getDraftLogFile(context, key);
+            if (!target.exists()) {
+                return null;
+            }
+            String raw = readTextFromFile(target).trim();
+            if (TextUtils.isEmpty(raw)) {
+                return null;
+            }
+            String[] lines = raw.split("\\r?\\n");
+            if (lines.length == 0) {
+                return null;
+            }
+            return new JSONObject(lines[lines.length - 1]);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private static String readTextFromFile(File file) throws Exception {
         FileInputStream inputStream = new FileInputStream(file);
         BufferedReader reader = new BufferedReader(
@@ -2954,12 +3340,25 @@ public final class ControlerWidgetDataStore {
     }
 
     private static void writeTextToFile(File file, String content) throws Exception {
-        FileOutputStream outputStream = new FileOutputStream(file, false);
+        File parent = file == null ? null : file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        AtomicFile atomicFile = new AtomicFile(file);
+        FileOutputStream outputStream = atomicFile.startWrite();
         try {
             outputStream.write(String.valueOf(content).getBytes(StandardCharsets.UTF_8));
             outputStream.flush();
+            outputStream.getFD().sync();
+            atomicFile.finishWrite(outputStream);
+            outputStream = null;
+        } catch (Exception error) {
+            atomicFile.failWrite(outputStream);
+            throw error;
         } finally {
-            outputStream.close();
+            if (outputStream != null) {
+                outputStream.close();
+            }
         }
     }
 
@@ -3781,6 +4180,22 @@ public final class ControlerWidgetDataStore {
         return scope;
     }
 
+    private static JSONObject buildCurrentDayScope() {
+        Calendar day = Calendar.getInstance();
+        day.set(Calendar.HOUR_OF_DAY, 0);
+        day.set(Calendar.MINUTE, 0);
+        day.set(Calendar.SECOND, 0);
+        day.set(Calendar.MILLISECOND, 0);
+        JSONObject scope = new JSONObject();
+        try {
+            String dateText = formatDateText(day);
+            scope.put("startDate", dateText);
+            scope.put("endDate", dateText);
+        } catch (Exception ignored) {
+        }
+        return scope;
+    }
+
     private static ArrayList<String> inferBootstrapChangedSectionsFromCorePatch(
         JSONObject partialCore
     ) {
@@ -4280,6 +4695,69 @@ public final class ControlerWidgetDataStore {
             array.put(item);
         }
         return array;
+    }
+
+    private static void appendStringArrayToSet(
+        Set<String> target,
+        JSONArray items
+    ) {
+        if (target == null || items == null) {
+            return;
+        }
+        for (int index = 0; index < items.length(); index += 1) {
+            String value = safeText(items.optString(index, ""));
+            if (!TextUtils.isEmpty(value)) {
+                target.add(value);
+            }
+        }
+    }
+
+    private static JSONObject buildProjectTotalsSummary(JSONArray projectItems) {
+        JSONObject summary = new JSONObject();
+        int projectCount = 0;
+        long totalDurationMs = 0L;
+        JSONArray safeProjects = projectItems == null ? new JSONArray() : projectItems;
+        for (int index = 0; index < safeProjects.length(); index += 1) {
+            JSONObject project = safeProjects.optJSONObject(index);
+            if (project == null) {
+                continue;
+            }
+            projectCount += 1;
+            long durationMs = project.optLong(
+                "cachedTotalDurationMs",
+                project.optLong("totalDurationMs", 0L)
+            );
+            totalDurationMs += Math.max(0L, durationMs);
+        }
+        try {
+            summary.put("projectCount", projectCount);
+            summary.put("totalDurationMs", totalDurationMs);
+        } catch (Exception ignored) {
+            // Ignore summary serialization failures.
+        }
+        return summary;
+    }
+
+    private static JSONObject buildThemeSummary(JSONObject core) {
+        JSONObject summary = new JSONObject();
+        JSONObject safeCore = core == null ? new JSONObject() : core;
+        String selectedTheme = safeText(safeCore.optString("selectedTheme", "default"));
+        if (TextUtils.isEmpty(selectedTheme)) {
+            selectedTheme = "default";
+        }
+        JSONArray customThemes = safeCore.optJSONArray("customThemes");
+        JSONObject builtInThemeOverrides = safeCore.optJSONObject("builtInThemeOverrides");
+        try {
+            summary.put("selectedTheme", selectedTheme);
+            summary.put("customThemeCount", customThemes == null ? 0 : customThemes.length());
+            summary.put(
+                "hasBuiltInOverrides",
+                builtInThemeOverrides != null && builtInThemeOverrides.length() > 0
+            );
+        } catch (Exception ignored) {
+            // Ignore theme summary serialization failures.
+        }
+        return summary;
     }
 
     private static JSONObject cloneJsonObject(JSONObject object) {

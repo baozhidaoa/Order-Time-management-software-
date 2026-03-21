@@ -1450,11 +1450,18 @@ let pendingRecordRollbackState = null;
 let pendingDurationCarryoverState = null;
 let indexLoadedRecordPeriodIds = [];
 let indexDirtyRecordPeriodIds = new Set();
+const indexPendingRecordPatchByPeriod = new Map();
+const indexForceReplaceRecordPeriods = new Set();
 const indexPendingPersistenceTasks = new Set();
 let indexLastPersistenceError = null;
 let indexBeforePageLeaveGuardBound = false;
+let indexRecordMutationRevision = 0;
+let indexRecordPersistenceChain = Promise.resolve();
+let indexRecordLoadRequestId = 0;
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
 const TIMER_STATE_STORAGE_VERSION = 2;
+const INDEX_TIMER_DRAFT_KEY = "draft:index:timer-session";
+const INDEX_TIMER_DRAFT_SAVE_DELAY_MS = 300;
 const SPEND_BUTTON_MULTI_CLICK_GUARD_MS = 1200;
 const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
@@ -1469,6 +1476,8 @@ const PROJECT_HIERARCHY_EXPANSION_STATE_VERSION = 1;
 const PROJECT_TABLE_HEADER_DOUBLE_CLICK_DELAY_MS = 240;
 let projectHierarchyExpansionState = createEmptyProjectHierarchyExpansionState();
 let projectTotalsExpansionState = createEmptyProjectHierarchyExpansionState();
+let timerSessionDraftSnapshot = null;
+let timerSessionDraftTimer = 0;
 const indexWorkspaceRefreshScheduler = uiTools?.createFrameScheduler?.(() => {
   renderProjectsTable();
   updateProjectTotals();
@@ -1952,6 +1961,39 @@ function scheduleSilentIndexProjectDurationCachePersist() {
 async function hydrateIndexWorkspace(options = {}) {
   const includeProjects = options.includeProjects !== false;
   const includeRecords = options.includeRecords !== false;
+  if (
+    includeProjects &&
+    includeRecords &&
+    typeof window.ControlerStorage?.getPageBootstrapState === "function"
+  ) {
+    const bootstrap = await window.ControlerStorage.getPageBootstrapState("index", {
+      recordScope: getIndexDefaultRecordScope(),
+    });
+    const data =
+      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
+    if (data) {
+      projects = normalizeStoredProjects(
+        Array.isArray(data.projects) ? data.projects : [],
+      );
+      records = Array.isArray(data.recentRecords) ? data.recentRecords.slice() : [];
+      indexLoadedRecordPeriodIds =
+        Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
+          ? bootstrap.loadedPeriodIds.slice()
+          : getIndexRecordPeriodIds(records);
+      loadProjectHierarchyExpansionStateFromStorage();
+      projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+        projectTotalsExpansionState,
+        projects,
+      );
+      return {
+        includeProjects,
+        includeRecords,
+        projectCount: Array.isArray(projects) ? projects.length : 0,
+        recordCount: Array.isArray(records) ? records.length : 0,
+        periodIds: indexLoadedRecordPeriodIds.slice(),
+      };
+    }
+  }
   await Promise.all([
     includeProjects
       ? loadProjectsFromStorage({
@@ -3397,27 +3439,113 @@ function resetShortenTimeInputs(shouldRefreshDisplay = false) {
   }
 }
 
+function buildTimerSessionSnapshotForPersistence() {
+  const modalProjectInput = document.getElementById("project-name-input");
+  const modalNextProjectInput = document.getElementById("next-project-input");
+  const shortenHoursInput = document.getElementById("shorten-hours");
+  const shortenMinutesInput = document.getElementById("shorten-minutes");
+  return {
+    sessionVersion: TIMER_STATE_STORAGE_VERSION,
+    ptn:
+      Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
+    fpt: serializeTimerDate(fpt),
+    spt: serializeTimerDate(spt),
+    lastspt: serializeTimerDate(lastspt),
+    diffMs: Number.isFinite(diffMs) ? Math.max(diffMs, 0) : null,
+    selectedProject,
+    nextProject,
+    lastEnteredProjectName,
+    pendingDurationCarryoverState: pendingDurationCarryoverState
+      ? { ...pendingDurationCarryoverState }
+      : null,
+    modalOpen: isModalOpen,
+    projectInputValue:
+      isModalOpen && modalProjectInput
+        ? modalProjectInput.value || ""
+        : "",
+    nextProjectInputValue:
+      isModalOpen && modalNextProjectInput
+        ? modalNextProjectInput.value || ""
+        : "",
+    shortenHours:
+      isModalOpen && shortenHoursInput ? shortenHoursInput.value || "" : "",
+    shortenMinutes:
+      isModalOpen && shortenMinutesInput ? shortenMinutesInput.value || "" : "",
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function scheduleTimerSessionDraftPersist() {
+  window.clearTimeout(timerSessionDraftTimer);
+  timerSessionDraftTimer = window.setTimeout(() => {
+    void persistTimerSessionDraftImmediately();
+  }, INDEX_TIMER_DRAFT_SAVE_DELAY_MS);
+}
+
+async function persistTimerSessionDraftImmediately() {
+  window.clearTimeout(timerSessionDraftTimer);
+  if (typeof window.ControlerStorage?.setDraft !== "function") {
+    return false;
+  }
+  const snapshot = buildTimerSessionSnapshotForPersistence();
+  try {
+    await window.ControlerStorage.setDraft(INDEX_TIMER_DRAFT_KEY, snapshot, {
+      scope: "timer-session",
+    });
+    return true;
+  } catch (error) {
+    console.error("保存计时草稿失败:", error);
+    return false;
+  }
+}
+
+window.addEventListener("pagehide", () => {
+  void persistTimerSessionDraftImmediately();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    void persistTimerSessionDraftImmediately();
+  }
+});
+
+async function restoreTimerSessionDraftFromStorage() {
+  if (typeof window.ControlerStorage?.getDraft !== "function") {
+    return null;
+  }
+  try {
+    const draftEnvelope = await window.ControlerStorage.getDraft(
+      INDEX_TIMER_DRAFT_KEY,
+      {
+        includeEnvelope: true,
+      },
+    );
+    const draftValue =
+      draftEnvelope && typeof draftEnvelope === "object"
+        ? Object.prototype.hasOwnProperty.call(draftEnvelope, "value")
+          ? draftEnvelope.value
+          : draftEnvelope
+        : null;
+    if (!draftValue || typeof draftValue !== "object") {
+      return null;
+    }
+    timerSessionDraftSnapshot = { ...draftValue };
+    localStorage.setItem(TIMER_STATE_STORAGE_KEY, JSON.stringify(draftValue));
+    return draftValue;
+  } catch (error) {
+    console.error("恢复计时草稿失败:", error);
+    return null;
+  }
+}
+
 function persistTimerSessionState() {
   try {
+    const snapshot = buildTimerSessionSnapshotForPersistence();
+    timerSessionDraftSnapshot = { ...snapshot };
     localStorage.setItem(
       TIMER_STATE_STORAGE_KEY,
-      JSON.stringify({
-        sessionVersion: TIMER_STATE_STORAGE_VERSION,
-        ptn:
-          Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
-        fpt: serializeTimerDate(fpt),
-        spt: serializeTimerDate(spt),
-        lastspt: serializeTimerDate(lastspt),
-        diffMs: Number.isFinite(diffMs) ? Math.max(diffMs, 0) : null,
-        selectedProject,
-        nextProject,
-        lastEnteredProjectName,
-        pendingDurationCarryoverState: pendingDurationCarryoverState
-          ? { ...pendingDurationCarryoverState }
-          : null,
-        savedAt: new Date().toISOString(),
-      }),
+      JSON.stringify(snapshot),
     );
+    scheduleTimerSessionDraftPersist();
   } catch (error) {
     console.error("保存计时状态失败:", error);
   }
@@ -3529,6 +3657,8 @@ function loadTimerSessionState(options = {}) {
     pendingDurationCarryoverState = normalizeDurationCarryoverState(
       parsed?.pendingDurationCarryoverState,
     );
+    timerSessionDraftSnapshot =
+      parsed && typeof parsed === "object" ? { ...parsed } : null;
 
     if (ptn >= 2 && fpt instanceof Date && spt instanceof Date) {
       if (hasStoredDiffKey) {
@@ -5319,7 +5449,9 @@ function save(options = {}) {
   const record = createRecordEntry(selectedProject, result, options);
 
   records.push(record);
+  bumpIndexRecordMutationRevision();
   markIndexRecordPeriodsDirty([record]);
+  queueIndexRecordPatchUpserts([record]);
   applyIndexProjectRecordDurationChanges({
     addedRecords: [record],
   });
@@ -5416,7 +5548,10 @@ async function saveRecordNameEdit(recordId) {
     name: nextName,
     projectId: nextProjectId,
   };
+  bumpIndexRecordMutationRevision();
   markIndexRecordPeriodsDirty([previousRecord, records[recordIndex]]);
+  queueIndexRecordPatchRemovals([previousRecord]);
+  queueIndexRecordPatchUpserts([records[recordIndex]]);
   applyIndexProjectRecordDurationChanges({
     removedRecords: [previousRecord],
     addedRecords: [records[recordIndex]],
@@ -5875,19 +6010,30 @@ function openModal() {
 
   // 更新现有项目列表
   updateExistingProjectsList();
+  const modalDraft = timerSessionDraftSnapshot;
   const projectToPrefill =
     selectedProject || nextProject || lastEnteredProjectName || "";
-  setProjectInputValue("project-name-input", projectToPrefill);
+  setProjectInputValue(
+    "project-name-input",
+    typeof modalDraft?.projectInputValue === "string" &&
+      modalDraft.projectInputValue.trim()
+      ? modalDraft.projectInputValue
+      : projectToPrefill,
+  );
   renderProjectSuggestionsForInput(
     "project-name-input",
-    projectToPrefill,
+    document.getElementById("project-name-input")?.value || projectToPrefill,
     false,
   );
 
   const nextProjectInput = document.getElementById("next-project-input");
   if (nextProjectInput) {
     const nextToPrefill =
-      nextProject && nextProject !== projectToPrefill ? nextProject : "";
+      typeof modalDraft?.nextProjectInputValue === "string"
+        ? modalDraft.nextProjectInputValue
+        : nextProject && nextProject !== projectToPrefill
+          ? nextProject
+          : "";
     setProjectInputValue("next-project-input", nextToPrefill);
     renderNextProjectSuggestions(nextProjectInput.value, false);
   }
@@ -5899,6 +6045,14 @@ function openModal() {
   setModalProjectInputTarget(defaultTarget);
 
   resetShortenTimeInputs(false);
+  const shortenHoursInput = document.getElementById("shorten-hours");
+  const shortenMinutesInput = document.getElementById("shorten-minutes");
+  if (shortenHoursInput && typeof modalDraft?.shortenHours === "string") {
+    shortenHoursInput.value = modalDraft.shortenHours;
+  }
+  if (shortenMinutesInput && typeof modalDraft?.shortenMinutes === "string") {
+    shortenMinutesInput.value = modalDraft.shortenMinutes;
+  }
   updateRemainingTimeDisplay();
 
   if (modalDurationTimer) {
@@ -6190,8 +6344,12 @@ function initIndexModalBindings() {
     input.addEventListener("input", () => {
       setModalProjectInputTarget(inputId, { manual: true });
       renderProjectSuggestionsForInput(inputId, input.value, true);
+      persistTimerSessionState();
     });
-    input.addEventListener("change", applyPathHint);
+    input.addEventListener("change", () => {
+      applyPathHint();
+      persistTimerSessionState();
+    });
     input.addEventListener("blur", () => {
       applyPathHint();
       if (inputId === "project-name-input") {
@@ -6339,7 +6497,12 @@ async function handleIndexModalConfirmClick() {
   setProjectInputValue("next-project-input", "");
   resetShortenTimeInputs(false);
   setModalProjectInputTarget("next-project-input", { manual: false });
-  persistTimerSessionState();
+  {
+    const previousModalOpen = isModalOpen;
+    isModalOpen = false;
+    persistTimerSessionState();
+    isModalOpen = previousModalOpen;
+  }
 
   closeModal({ discardUnsavedClick: false });
   lastSpendButtonAcceptedAt = Date.now();
@@ -6403,10 +6566,16 @@ function initIndexPrimaryBindings() {
   const shortenHoursInput = document.getElementById("shorten-hours");
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput) {
-    shortenHoursInput.addEventListener("input", updateRemainingTimeDisplay);
+    shortenHoursInput.addEventListener("input", () => {
+      updateRemainingTimeDisplay();
+      persistTimerSessionState();
+    });
   }
   if (shortenMinutesInput) {
-    shortenMinutesInput.addEventListener("input", updateRemainingTimeDisplay);
+    shortenMinutesInput.addEventListener("input", () => {
+      updateRemainingTimeDisplay();
+      persistTimerSessionState();
+    });
   }
 
   document
@@ -8487,6 +8656,7 @@ function showProjectEditModal(project) {
         updateProjectsList();
         updateExistingProjectsList();
         updateParentProjectSelect(1);
+        bumpIndexRecordMutationRevision();
         markAllLoadedRecordPeriodsDirty();
         await Promise.all([saveRecordsToStorage(), saveProjectsToStorage()]);
         await window.ControlerStorage?.flush?.();
@@ -8767,6 +8937,7 @@ function showProjectEditModal(project) {
       updateProjectsList();
       updateExistingProjectsList();
       updateParentProjectSelect(1);
+      bumpIndexRecordMutationRevision();
       markAllLoadedRecordPeriodsDirty();
       await saveRecordsToStorage();
       saveProjectsToStorage();
@@ -8958,6 +9129,15 @@ function trackIndexPersistenceTask(task, errorLabel = "保存记录页数据失�
   });
 }
 
+function queueIndexRecordPersistence(task) {
+  const queuedTask = indexRecordPersistenceChain.then(
+    () => (typeof task === "function" ? task() : true),
+    () => (typeof task === "function" ? task() : true),
+  );
+  indexRecordPersistenceChain = queuedTask.catch(() => true);
+  return queuedTask;
+}
+
 async function flushIndexPendingPersistence() {
   const pendingTasks = Array.from(indexPendingPersistenceTasks);
   if (!pendingTasks.length && !indexLastPersistenceError) {
@@ -9031,15 +9211,119 @@ function getIndexRecordPeriodIds(items = []) {
   ];
 }
 
+function cloneIndexValue(value) {
+  if (typeof storageBundleApi?.cloneValue === "function") {
+    return storageBundleApi.cloneValue(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneIndexValue(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).reduce((result, key) => {
+      result[key] = cloneIndexValue(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
+}
+
+function hasManagedIndexRecordStorage() {
+  return (
+    typeof window.ControlerStorage?.loadSectionRange === "function" &&
+    typeof window.ControlerStorage?.saveSectionRange === "function"
+  );
+}
+
+function bumpIndexRecordMutationRevision() {
+  indexRecordMutationRevision += 1;
+  return indexRecordMutationRevision;
+}
+
+function buildIndexRecordPatchKey(record = {}) {
+  const recordId = String(record?.id || "").trim();
+  if (recordId) {
+    return `id:${recordId}`;
+  }
+  if (typeof storageBundleApi?.buildPartitionMergeKey === "function") {
+    return storageBundleApi.buildPartitionMergeKey("records", record);
+  }
+  return JSON.stringify({
+    name: record?.name || "",
+    projectId: record?.projectId || "",
+    startTime: record?.startTime || "",
+    endTime: record?.endTime || "",
+    timestamp: record?.timestamp || "",
+    spendtime: record?.spendtime || "",
+  });
+}
+
+function ensureIndexPendingRecordPatch(periodId) {
+  if (!indexPendingRecordPatchByPeriod.has(periodId)) {
+    indexPendingRecordPatchByPeriod.set(periodId, {
+      upserts: new Map(),
+      removed: new Map(),
+    });
+  }
+  return indexPendingRecordPatchByPeriod.get(periodId);
+}
+
 function markIndexRecordPeriodsDirty(items = []) {
   getIndexRecordPeriodIds(items).forEach((periodId) => {
     indexDirtyRecordPeriodIds.add(periodId);
   });
 }
 
-function markAllLoadedRecordPeriodsDirty() {
+function queueIndexRecordPatchUpserts(items = []) {
+  (Array.isArray(items) ? items : []).forEach((record) => {
+    const periodId = getIndexRecordPeriodId(record);
+    if (!periodId) {
+      return;
+    }
+    if (indexForceReplaceRecordPeriods.has(periodId)) {
+      return;
+    }
+    const patch = ensureIndexPendingRecordPatch(periodId);
+    const patchKey = buildIndexRecordPatchKey(record);
+    patch.upserts.set(patchKey, cloneIndexValue(record));
+    patch.removed.delete(patchKey);
+    const recordId = String(record?.id || "").trim();
+    if (recordId) {
+      patch.removed.delete(`id:${recordId}`);
+    }
+  });
+}
+
+function queueIndexRecordPatchRemovals(items = []) {
+  (Array.isArray(items) ? items : []).forEach((record) => {
+    const periodId = getIndexRecordPeriodId(record);
+    if (!periodId) {
+      return;
+    }
+    if (indexForceReplaceRecordPeriods.has(periodId)) {
+      return;
+    }
+    const recordId = String(record?.id || "").trim();
+    if (!recordId) {
+      indexForceReplaceRecordPeriods.add(periodId);
+      indexPendingRecordPatchByPeriod.delete(periodId);
+      return;
+    }
+    const patch = ensureIndexPendingRecordPatch(periodId);
+    const patchKey = buildIndexRecordPatchKey(record);
+    patch.upserts.delete(patchKey);
+    patch.upserts.delete(`id:${recordId}`);
+    patch.removed.set(`id:${recordId}`, cloneIndexValue(record));
+  });
+}
+
+function markAllLoadedRecordPeriodsDirty(options = {}) {
+  const forceReplace = options?.forceReplace !== false;
   getIndexRecordPeriodIds(records).forEach((periodId) => {
     indexDirtyRecordPeriodIds.add(periodId);
+    if (forceReplace) {
+      indexForceReplaceRecordPeriods.add(periodId);
+      indexPendingRecordPatchByPeriod.delete(periodId);
+    }
   });
 }
 
@@ -9175,36 +9459,90 @@ async function loadProjectsFromStorage(options = {}) {
 
 // 存储记录到localStorage
 function saveRecordsToStorage() {
-  return trackIndexPersistenceTask(() => {
-    persistTimerSessionState();
-    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
-    localStorage.setItem("records", JSON.stringify(records));
-    localStorage.setItem("projects", JSON.stringify(projects));
-    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      const periodIds = indexDirtyRecordPeriodIds.size
-        ? [...indexDirtyRecordPeriodIds]
-        : indexLoadedRecordPeriodIds.length
-        ? indexLoadedRecordPeriodIds.slice()
-        : [...new Set(records.map((record) => getIndexRecordPeriodId(record)))];
-      return Promise.all(
-        periodIds.map((periodId) =>
-          window.ControlerStorage.saveSectionRange("records", {
-            periodId,
-            items: records.filter(
-              (record) => getIndexRecordPeriodId(record) === periodId,
-            ),
-            mode: "replace",
-          }),
+  persistTimerSessionState();
+  const managedStorage = hasManagedIndexRecordStorage();
+  const saveRevision = indexRecordMutationRevision;
+  const recordsSnapshot = cloneIndexValue(records);
+  const projectsSnapshot = cloneIndexValue(projects);
+  const loadedPeriodIdsSnapshot = getIndexRecordPeriodIds(recordsSnapshot);
+  const periodIds = indexDirtyRecordPeriodIds.size
+    ? [...indexDirtyRecordPeriodIds]
+    : loadedPeriodIdsSnapshot.length
+      ? loadedPeriodIdsSnapshot.slice()
+      : [...new Set(recordsSnapshot.map((record) => getIndexRecordPeriodId(record)))];
+  const forceReplacePeriods = new Set(indexForceReplaceRecordPeriods);
+  const patchSnapshotByPeriod = new Map(
+    Array.from(indexPendingRecordPatchByPeriod.entries()).map(([periodId, patch]) => [
+      periodId,
+      {
+        upserts: Array.from(patch?.upserts?.values?.() || []).map((record) =>
+          cloneIndexValue(record),
         ),
-      ).then(() => {
-        periodIds.forEach((periodId) => {
-          indexDirtyRecordPeriodIds.delete(periodId);
-        });
+        removed: Array.from(patch?.removed?.values?.() || []).map((record) =>
+          cloneIndexValue(record),
+        ),
+      },
+    ]),
+  );
+
+  return trackIndexPersistenceTask(
+    () =>
+      queueIndexRecordPersistence(async () => {
+        indexLoadedRecordPeriodIds = loadedPeriodIdsSnapshot.slice();
+        localStorage.setItem("projects", JSON.stringify(projectsSnapshot));
+        if (!managedStorage) {
+          localStorage.setItem("records", JSON.stringify(recordsSnapshot));
+          if (saveRevision === indexRecordMutationRevision) {
+            indexDirtyRecordPeriodIds = new Set();
+            indexPendingRecordPatchByPeriod.clear();
+            indexForceReplaceRecordPeriods.clear();
+          }
+          return true;
+        }
+
+        localStorage.removeItem("records");
+        await Promise.all(
+          periodIds.map((periodId) => {
+            const patch = patchSnapshotByPeriod.get(periodId) || null;
+            const canUsePatch =
+              !forceReplacePeriods.has(periodId) &&
+              patch &&
+              (patch.upserts.length > 0 || patch.removed.length > 0) &&
+              patch.removed.every(
+                (record) => typeof record?.id === "string" && record.id.trim(),
+              );
+            if (canUsePatch) {
+              return window.ControlerStorage.saveSectionRange("records", {
+                periodId,
+                mode: "patch",
+                items: patch.upserts,
+                removedItems: patch.removed,
+                removeIds: patch.removed
+                  .map((record) => String(record?.id || "").trim())
+                  .filter(Boolean),
+              });
+            }
+            return window.ControlerStorage.saveSectionRange("records", {
+              periodId,
+              items: recordsSnapshot.filter(
+                (record) => getIndexRecordPeriodId(record) === periodId,
+              ),
+              mode: "replace",
+            });
+          }),
+        );
+
+        if (saveRevision === indexRecordMutationRevision) {
+          periodIds.forEach((periodId) => {
+            indexDirtyRecordPeriodIds.delete(periodId);
+            indexPendingRecordPatchByPeriod.delete(periodId);
+            indexForceReplaceRecordPeriods.delete(periodId);
+          });
+        }
         return true;
-      });
-    }
-    return true;
-  }, "保存记录到存储失败:");
+      }),
+    "保存记录到存储失败:",
+  );
 }
 
 // 删除记录
@@ -9224,7 +9562,9 @@ function deleteRecord(recordId) {
       if (isLastRecord) {
         rollbackTimerAfterDeletingLastRecord(deletedRecord, records);
       }
+      bumpIndexRecordMutationRevision();
       markIndexRecordPeriodsDirty([deletedRecord]);
+      queueIndexRecordPatchRemovals([deletedRecord]);
       applyIndexProjectRecordDurationChanges({
         removedRecords: [deletedRecord],
       });
@@ -9289,6 +9629,7 @@ async function updateRecordsProjectName(oldName, newName, projectId = "") {
     });
 
     if (updated) {
+      bumpIndexRecordMutationRevision();
       markAllLoadedRecordPeriodsDirty();
       await saveRecordsToStorage();
       console.log(`已更新 ${oldName} 到 ${newName} 的记录`);
@@ -9383,12 +9724,21 @@ function updateProjectNameReferences(oldName, newName, projectId = "") {
 // 从localStorage加载记录
 async function loadRecordsFromStorage() {
   try {
-    const localRecordMirror = readIndexLocalRecordSnapshot();
-    const mirrorItems = localRecordMirror.hasMirror
-      ? localRecordMirror.items
-      : readIndexManagedRecordSnapshot();
-    records = Array.isArray(mirrorItems) ? mirrorItems.slice() : [];
-    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    const loadRequestId = ++indexRecordLoadRequestId;
+    const loadRevision = indexRecordMutationRevision;
+    const managedStorage = hasManagedIndexRecordStorage();
+    const existingRecordsSnapshot = Array.isArray(records) ? records.slice() : [];
+    let nextRecords = [];
+
+    if (managedStorage) {
+      nextRecords = existingRecordsSnapshot.slice();
+    } else {
+      const localRecordMirror = readIndexLocalRecordSnapshot();
+      const mirrorItems = localRecordMirror.hasMirror
+        ? localRecordMirror.items
+        : readIndexManagedRecordSnapshot();
+      nextRecords = Array.isArray(mirrorItems) ? mirrorItems.slice() : [];
+    }
 
     if (typeof window.ControlerStorage?.loadSectionRange === "function") {
       const result = await window.ControlerStorage.loadSectionRange(
@@ -9401,11 +9751,18 @@ async function loadRecordsFromStorage() {
           ? result.periodIds.slice()
           : getIndexRecordPeriodIds(rangeItems);
       if (rangeItems.length || rangePeriodIds.length) {
-        records = localRecordMirror.hasMirror
-          ? mergeIndexRecordsByPeriods(records, rangeItems, rangePeriodIds)
-          : rangeItems;
+        nextRecords = managedStorage
+          ? mergeIndexRecordsByPeriods(existingRecordsSnapshot, rangeItems, rangePeriodIds)
+          : mergeIndexRecordsByPeriods(nextRecords, rangeItems, rangePeriodIds);
       }
     }
+    if (
+      loadRequestId !== indexRecordLoadRequestId ||
+      loadRevision !== indexRecordMutationRevision
+    ) {
+      return records;
+    }
+    records = Array.isArray(nextRecords) ? nextRecords.slice() : [];
     if (Array.isArray(records) && records.length > 0) {
       // 确保每条记录都有必要的字段
       records = records.map((record) => {
@@ -9473,7 +9830,11 @@ async function loadRecordsFromStorage() {
       records = [];
     }
     indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
-    indexDirtyRecordPeriodIds = new Set();
+    if (loadRevision === indexRecordMutationRevision) {
+      indexDirtyRecordPeriodIds = new Set();
+      indexPendingRecordPatchByPeriod.clear();
+      indexForceReplaceRecordPeriods.clear();
+    }
   } catch (e) {
     console.error("从localStorage加载记录失败:", e);
   }
@@ -9771,6 +10132,7 @@ async function init() {
     initIndexModalBindings();
     initIndexWidgetLaunchAction();
     await waitForIndexStorageReady();
+    await restoreTimerSessionDraftFromStorage();
     uiTools?.markPerfStage?.("shell-ready", {
       widgetMode: INDEX_WIDGET_CONTEXT.enabled,
     });
@@ -10815,6 +11177,13 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   if (action !== "start-timer") {
     return false;
   }
+  const nativePlatform = String(window.ControlerNativeBridge?.platform || "")
+    .trim()
+    .toLowerCase();
+  if (nativePlatform === "android") {
+    scheduleIndexWidgetLaunchHandled(payload, () => true, options);
+    return false;
+  }
   if (!indexWidgetLaunchCoreReady) {
     return queueIndexWidgetLaunchAction(payload, options);
   }
@@ -10859,6 +11228,7 @@ function initIndexWidgetLaunchAction() {
     consumedQuery = true;
     handleIndexWidgetLaunchAction({
       action,
+      widgetKind: params.get("widgetKind") || "",
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
     }, {

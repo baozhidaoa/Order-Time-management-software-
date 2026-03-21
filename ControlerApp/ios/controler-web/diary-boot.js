@@ -583,6 +583,7 @@ const MOBILE_DIARY_SCALE_RATIO = 0.82 * (2 / 3);
 const DIARY_CATEGORY_WIDTH_FACTOR = 0.5;
 const DIARY_LIST_BATCH_SIZE = 60;
 const DIARY_SEARCH_DEBOUNCE_MS = 160;
+const DIARY_DRAFT_SAVE_DELAY_MS = 300;
 const DIARY_PREFETCH_MONTH_OFFSETS = Object.freeze([-1, 0, 1]);
 const DIARY_LOADING_OVERLAY_DELAY_MS = 180;
 const DIARY_STORAGE_REQUEST_TIMEOUT_MS = 4000;
@@ -1205,6 +1206,7 @@ function normalizeDiaryPersistMeta(value = {}) {
 
 async function commitDiaryLocalChange({
   applyChange,
+  beforeClose = null,
   closeModal,
   failureTitle = "保存失败",
   failureMessage = "保存日记失败，已恢复修改前内容。",
@@ -1232,6 +1234,13 @@ async function commitDiaryLocalChange({
 
   const persistMeta = normalizeDiaryPersistMeta(applyResult);
   syncDiaryDataIndex();
+  if (typeof beforeClose === "function") {
+    try {
+      await beforeClose();
+    } catch (error) {
+      console.error("清理日记草稿失败:", error);
+    }
+  }
   if (typeof closeModal === "function") {
     closeModal();
   }
@@ -1370,6 +1379,28 @@ function applyDiaryLoadedState(payload = {}) {
 }
 
 function readDiaryCachedSnapshotState() {
+  try {
+    if (typeof window.ControlerStorage?.peekPageBootstrapState === "function") {
+      const bootstrap = window.ControlerStorage.peekPageBootstrapState("diary", {
+        periodIds: getDiaryPrefetchPeriodIds(currentDate),
+      });
+      const data =
+        bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
+      if (data) {
+        return normalizeDiaryLoadedState({
+          entries: data.currentMonthEntries,
+          categories: data.diaryCategories,
+          loadedPeriodIds:
+            Array.isArray(bootstrap.loadedPeriodIds) &&
+            bootstrap.loadedPeriodIds.length
+              ? bootstrap.loadedPeriodIds
+              : getDiaryPrefetchPeriodIds(currentDate),
+        });
+      }
+    }
+  } catch (error) {
+    console.error("读取日记引导快照失败:", error);
+  }
   try {
     const storageSnapshot =
       typeof window.ControlerStorage?.dump === "function"
@@ -1619,6 +1650,58 @@ async function refreshDiaryVisibleData(options = {}) {
 
 async function loadDiaryData(options = {}) {
   const bundleStorage = window.ControlerStorage;
+  if (typeof bundleStorage?.getPageBootstrapState === "function") {
+    const periodIds =
+      Array.isArray(options.periodIds) && options.periodIds.length
+        ? options.periodIds
+        : getDiaryPrefetchPeriodIds(options.anchorDate || currentDate);
+    const bootstrap = await withDiaryTimeout(
+      bundleStorage.getPageBootstrapState("diary", {
+        periodIds,
+      }),
+      "读取日记引导数据",
+    );
+    const data =
+      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
+    if (data) {
+      const effectiveGuideState = resolveDiaryGuideStateForHydration(
+        data.guideState || null,
+      );
+      let shouldPersist = false;
+      const entries = Array.isArray(data.currentMonthEntries)
+        ? data.currentMonthEntries
+            .map((entry) => {
+              const normalized = normalizeDiaryEntry(entry);
+              if (normalized.changed) {
+                shouldPersist = true;
+              }
+              return normalized.value;
+            })
+            .filter(Boolean)
+        : [];
+      const synchronizedEntries = synchronizeDiaryEntriesWithGuideState(
+        entries,
+        effectiveGuideState,
+      );
+      if (synchronizedEntries.changed) {
+        shouldPersist = true;
+      }
+      return normalizeDiaryLoadedState({
+        entries: synchronizedEntries.entries,
+        categories: Array.isArray(data.diaryCategories) ? data.diaryCategories : [],
+        loadedPeriodIds:
+          Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
+            ? bootstrap.loadedPeriodIds
+            : periodIds.slice(),
+        shouldPersist,
+        persistMeta: shouldPersist
+          ? {
+              changedPeriodIds: periodIds,
+            }
+          : {},
+      });
+    }
+  }
   if (
     typeof bundleStorage?.loadSectionRange === "function" &&
     typeof bundleStorage?.getCoreState === "function"
@@ -2527,6 +2610,7 @@ async function confirmDiaryModalDelete({
   confirmMessage,
   deleteOperation,
   notFoundMessage = "未找到要删除的内容",
+  beforeClose = null,
   closeModal,
   failureTitle = "删除失败",
   failureMessage = "删除后保存失败，已恢复删除前内容。",
@@ -2553,6 +2637,7 @@ async function confirmDiaryModalDelete({
       deleteResult = deleteOperation();
       return deleteResult;
     },
+    beforeClose,
     closeModal,
     failureTitle,
     failureMessage,
@@ -2604,13 +2689,14 @@ function bindDiaryModalActions(modal, handlers = {}) {
   };
 }
 
-function createDiaryCategorySelector(container, selectedValue = "") {
+function createDiaryCategorySelector(container, selectedValue = "", config = {}) {
   if (!container) {
     return {
       destroy() {},
       getValue() {
         return selectedValue || "";
       },
+      setValue() {},
     };
   }
 
@@ -2747,6 +2833,9 @@ function createDiaryCategorySelector(container, selectedValue = "") {
     optionButtons.forEach(({ button, value }) => {
       button.classList.toggle("selected", value === currentValue);
     });
+    if (typeof config?.onChange === "function") {
+      config.onChange(currentValue);
+    }
   };
 
   options.forEach((optionData) => {
@@ -2815,6 +2904,9 @@ function createDiaryCategorySelector(container, selectedValue = "") {
     getValue() {
       return currentValue;
     },
+    setValue(nextValue) {
+      setSelectedValue(nextValue);
+    },
   };
 }
 
@@ -2822,6 +2914,7 @@ function showDiaryModal(dateText, entryId = null) {
   const existing = findDiaryEntry(dateText, entryId);
   const isEditMode = !!existing;
   const activeEntryId = existing?.id || entryId || null;
+  const diaryDraftKey = `draft:diary:${activeEntryId || "new"}:${dateText}`;
 
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
@@ -2878,13 +2971,100 @@ function showDiaryModal(dateText, entryId = null) {
     contentInput.value = existing?.content || "";
   }
 
+  let draftTimer = 0;
+  let scheduleDraftSave = () => {};
   const categorySelector = createDiaryCategorySelector(
     modal.querySelector("#diary-category-selector"),
     existing?.categoryId || "",
+    {
+      onChange() {
+        scheduleDraftSave();
+      },
+    },
   );
+
+  const persistDiaryDraft = async () => {
+    if (!modal.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+      return;
+    }
+    const payload = {
+      dateText,
+      entryId: activeEntryId,
+      title: titleInput?.value || "",
+      content: contentInput?.value || "",
+      categoryId: categorySelector.getValue(),
+    };
+    if (!payload.title.trim() && !payload.content.trim() && !payload.categoryId) {
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(diaryDraftKey);
+      }
+      return;
+    }
+    await window.ControlerStorage.setDraft(diaryDraftKey, payload, {
+      scope: "diary",
+    });
+  };
+  scheduleDraftSave = () => {
+    window.clearTimeout(draftTimer);
+    draftTimer = window.setTimeout(() => {
+      void persistDiaryDraft();
+    }, DIARY_DRAFT_SAVE_DELAY_MS);
+  };
+  const handleDiaryDraftPageHide = () => {
+    void persistDiaryDraft();
+  };
+  const handleDiaryDraftVisibilityChange = () => {
+    if (document.hidden) {
+      void persistDiaryDraft();
+    }
+  };
+  window.addEventListener("pagehide", handleDiaryDraftPageHide);
+  document.addEventListener(
+    "visibilitychange",
+    handleDiaryDraftVisibilityChange,
+  );
+  [titleInput, contentInput].forEach((input) => {
+    input?.addEventListener("input", scheduleDraftSave);
+    input?.addEventListener("change", scheduleDraftSave);
+  });
+  if (typeof window.ControlerStorage?.getDraft === "function") {
+    void window.ControlerStorage
+      .getDraft(diaryDraftKey, {
+        includeEnvelope: true,
+      })
+      .then((draftEnvelope) => {
+        const draftValue =
+          draftEnvelope && typeof draftEnvelope === "object"
+            ? Object.prototype.hasOwnProperty.call(draftEnvelope, "value")
+              ? draftEnvelope.value
+              : draftEnvelope
+            : null;
+        if (!draftValue || !modal.isConnected) {
+          return;
+        }
+        if (titleInput && typeof draftValue.title === "string") {
+          titleInput.value = draftValue.title;
+        }
+        if (contentInput && typeof draftValue.content === "string") {
+          contentInput.value = draftValue.content;
+        }
+        if (typeof draftValue.categoryId === "string") {
+          categorySelector.setValue(draftValue.categoryId);
+        }
+      })
+      .catch((error) => {
+        console.error("恢复日记草稿失败:", error);
+      });
+  }
 
   let unbindModalActions = () => {};
   const closeModal = () => {
+    window.clearTimeout(draftTimer);
+    window.removeEventListener("pagehide", handleDiaryDraftPageHide);
+    document.removeEventListener(
+      "visibilitychange",
+      handleDiaryDraftVisibilityChange,
+    );
     unbindModalActions();
     categorySelector.destroy();
     if (modal.parentNode) {
@@ -2922,6 +3102,11 @@ function showDiaryModal(dateText, entryId = null) {
           changedPeriodIds: [getDiaryEntryPeriodId(existing || { date: dateText })],
         };
       },
+      beforeClose: async () => {
+        if (typeof window.ControlerStorage?.removeDraft === "function") {
+          await window.ControlerStorage.removeDraft(diaryDraftKey);
+        }
+      },
       closeModal,
       failureTitle: "保存失败",
       failureMessage: "保存日记失败，已恢复修改前内容。",
@@ -2958,6 +3143,11 @@ function showDiaryModal(dateText, entryId = null) {
           changedPeriodIds: [getDiaryEntryPeriodId(targetEntry || { date: dateText })],
           guideStateChanged,
         };
+      },
+      beforeClose: async () => {
+        if (typeof window.ControlerStorage?.removeDraft === "function") {
+          await window.ControlerStorage.removeDraft(diaryDraftKey);
+        }
       },
       notFoundMessage: "未找到要删除的日记",
       closeModal,

@@ -26,8 +26,13 @@ const APP_PUBLIC_DESCRIPTION =
 const APP_PUBLIC_COPYRIGHT = "© 2026 Order contributors";
 const UI_PREFERENCES_FILE_NAME = "ui-preferences.json";
 const STARTUP_DEBUG_LOG_FILE_NAME = "startup-debug.log";
+const GPU_KILL_SWITCH_FILE_NAME = "gpu-kill-switch.json";
+const ENABLE_STARTUP_DEBUG_LOG = process.env.ORDER_STARTUP_DEBUG === "1";
 
 function appendStartupDebugLog(message) {
+  if (!ENABLE_STARTUP_DEBUG_LOG) {
+    return;
+  }
   try {
     const baseDir = process.env.APPDATA
       ? path.join(process.env.APPDATA, APP_PUBLIC_NAME)
@@ -43,6 +48,46 @@ function appendStartupDebugLog(message) {
   }
 }
 
+function getGpuKillSwitchPath() {
+  return path.join(app.getPath("userData"), GPU_KILL_SWITCH_FILE_NAME);
+}
+
+function readGpuKillSwitchState() {
+  try {
+    if (!fs.existsSync(getGpuKillSwitchPath())) {
+      return {};
+    }
+    const parsed = JSON.parse(fs.readFileSync(getGpuKillSwitchPath(), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeGpuKillSwitchState(state = {}) {
+  try {
+    fs.mkdirSync(path.dirname(getGpuKillSwitchPath()), { recursive: true });
+    fs.writeFileSync(
+      getGpuKillSwitchPath(),
+      JSON.stringify(
+        {
+          ...(state && typeof state === "object" && !Array.isArray(state)
+            ? state
+            : {}),
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  } catch (error) {
+    console.error("写入 GPU kill-switch 失败:", error);
+  }
+}
+
 process.on("uncaughtException", (error) => {
   appendStartupDebugLog(`uncaughtException: ${error?.stack || error?.message || String(error)}`);
 });
@@ -55,14 +100,26 @@ app.setName(APP_PUBLIC_NAME);
 appendStartupDebugLog("main.js loaded");
 if (process.platform === "win32") {
   app.setAppUserModelId("com.controler.timetracker");
-  // Electron 28 on Windows still hits Chromium/DirectComposition stale-pixel
-  // rendering bugs in custom chrome + heavy dashboard layouts. Falling back to
-  // software rendering avoids the "only repaints on hover/focus" failure mode
-  // until the app can move to an Electron version with the upstream fix.
-  app.commandLine.appendSwitch("disable-gpu-compositing");
-  app.commandLine.appendSwitch("disable-direct-composition");
-  app.disableHardwareAcceleration();
+  if (readGpuKillSwitchState().disabled === true) {
+    appendStartupDebugLog("GPU kill-switch active, disabling hardware acceleration");
+    app.commandLine.appendSwitch("disable-gpu-compositing");
+    app.commandLine.appendSwitch("disable-direct-composition");
+    app.disableHardwareAcceleration();
+  }
 }
+
+app.on("child-process-gone", (_event, details = {}) => {
+  if (process.platform !== "win32" || details?.type !== "GPU") {
+    return;
+  }
+  writeGpuKillSwitchState({
+    disabled: true,
+    reason:
+      typeof details?.reason === "string" && details.reason.trim()
+        ? details.reason.trim()
+        : "gpu-process-gone",
+  });
+});
 
 let mainWindow;
 let appTray = null;
@@ -531,6 +588,22 @@ function getStorageManifest() {
 
 function getStorageCoreState() {
   return storageManager.getCoreState();
+}
+
+function getStoragePageBootstrapState(pageKey, options = {}) {
+  return storageManager.getPageBootstrapState(pageKey, options);
+}
+
+function getStorageDraft(key, options = {}) {
+  return storageManager.getDraftValue(key, options);
+}
+
+function setStorageDraft(key, value, options = {}) {
+  return storageManager.setDraftValue(key, value, options);
+}
+
+function removeStorageDraft(key) {
+  return storageManager.removeDraftValue(key);
 }
 
 function loadStorageSectionRange(section, scope) {
@@ -1241,7 +1314,6 @@ app.whenReady().then(async () => {
   desktopWidgetManager.setOpenMainActionHandler(openMainWindowAction);
   desktopNotificationScheduler.setOpenMainActionHandler(openMainWindowAction);
   setupIpcHandlers();
-  createTray();
 
   const loginItemSettings =
     typeof app.getLoginItemSettings === "function"
@@ -1262,15 +1334,23 @@ app.whenReady().then(async () => {
       delayMs: 180,
     });
   };
+  const finalizePostWindowStartup = () => {
+    createTray();
+    desktopNotificationScheduler.markReady();
+  };
 
   if (shouldCreateMainWindow) {
     appendStartupDebugLog("app.whenReady creating main window");
     const createdWindow = createWindow();
-    createdWindow?.once("show", scheduleWidgetRestore);
+    createdWindow?.once("show", () => {
+      finalizePostWindowStartup();
+      scheduleWidgetRestore();
+    });
   }
 
   if (!shouldCreateMainWindow) {
     appendStartupDebugLog("app.whenReady skipping main window because shouldCreateMainWindow=false");
+    finalizePostWindowStartup();
     scheduleWidgetRestore();
   }
   if (!shouldCreateMainWindow && !desktopWidgetManager.hasSavedWidgets()) {
@@ -1282,7 +1362,6 @@ app.whenReady().then(async () => {
     broadcastStorageDataChanged(payload);
   });
 
-  desktopNotificationScheduler.markReady();
   appendStartupDebugLog("app.whenReady completed");
 });
 
@@ -1369,6 +1448,26 @@ function setupIpcHandlers() {
 
   ipcMain.handle("storage:getCoreState", async () => {
     return getStorageCoreState();
+  });
+
+  ipcMain.handle("storage:getPageBootstrapState", async (event, pageKey, options = {}) => {
+    return getStoragePageBootstrapState(pageKey, options);
+  });
+
+  ipcMain.on("storage:getPageBootstrapStateSync", (event, pageKey, options = {}) => {
+    event.returnValue = getStoragePageBootstrapState(pageKey, options);
+  });
+
+  ipcMain.handle("storage:getDraft", async (event, key, options = {}) => {
+    return getStorageDraft(key, options);
+  });
+
+  ipcMain.handle("storage:setDraft", async (event, key, value, options = {}) => {
+    return setStorageDraft(key, value, options);
+  });
+
+  ipcMain.handle("storage:removeDraft", async (event, key) => {
+    return removeStorageDraft(key);
   });
 
   ipcMain.on("storage:replaceCoreStateSync", (event, partialCore, options = {}) => {

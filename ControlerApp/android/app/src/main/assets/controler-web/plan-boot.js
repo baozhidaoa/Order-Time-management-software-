@@ -588,6 +588,7 @@ const MOBILE_LAYOUT_MAX_WIDTH = 690;
 const MOBILE_TABLE_SCALE_RATIO = 0.82 * (2 / 3);
 const PLAN_YEAR_VIEW_CARD_SHRINK_RATIO = 2 / 3;
 const PLAN_LOADING_OVERLAY_DELAY_MS = 180;
+const PLAN_DRAFT_SAVE_DELAY_MS = 300;
 const PLAN_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const PLAN_TODO_RUNTIME_ASSET_URL = "todo.js?v=20260310-modal-fix";
 let reminderTools = window.ControlerReminders || null;
@@ -629,6 +630,163 @@ function waitForPlanStorageReady() {
     console.error("等待计划页原生存储就绪失败，继续使用当前快照:", error);
     return false;
   });
+}
+
+function escapePlanSelectorValue(value) {
+  if (typeof window.CSS?.escape === "function") {
+    return window.CSS.escape(String(value ?? ""));
+  }
+  return String(value ?? "").replace(/["\\]/g, "\\$&");
+}
+
+function capturePlanModalDraftFields(modal) {
+  const fields = {};
+  const checkboxGroupCounts = {};
+  modal
+    ?.querySelectorAll?.('input[type="checkbox"][name]')
+    ?.forEach?.((control) => {
+      checkboxGroupCounts[control.name] =
+        (checkboxGroupCounts[control.name] || 0) + 1;
+    });
+  modal?.querySelectorAll?.("input, textarea, select")?.forEach?.((control) => {
+    const key = control.id || control.name;
+    if (!key) {
+      return;
+    }
+    if (control.type === "radio") {
+      if (control.checked) {
+        fields[key] = control.value;
+      }
+      return;
+    }
+    if (control.type === "checkbox") {
+      if (control.name && checkboxGroupCounts[control.name] > 1) {
+        if (!Array.isArray(fields[key])) {
+          fields[key] = [];
+        }
+        if (control.checked) {
+          fields[key].push(control.value);
+        }
+        return;
+      }
+      fields[key] = !!control.checked;
+      return;
+    }
+    fields[key] = control.value;
+  });
+  return fields;
+}
+
+function applyPlanModalDraftFields(modal, fields = {}) {
+  const source = fields && typeof fields === "object" ? fields : {};
+  Object.keys(source).forEach((key) => {
+    const idSelector = `#${escapePlanSelectorValue(key)}`;
+    const namedControls = Array.from(
+      modal?.querySelectorAll?.(`[name="${escapePlanSelectorValue(key)}"]`) || [],
+    );
+    const controlById = modal?.querySelector?.(idSelector) || null;
+    if (namedControls.length && namedControls[0]?.type === "radio") {
+      namedControls.forEach((control) => {
+        control.checked = String(control.value) === String(source[key] ?? "");
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      return;
+    }
+    if (
+      namedControls.length > 1 &&
+      namedControls[0]?.type === "checkbox" &&
+      Array.isArray(source[key])
+    ) {
+      const selectedValues = new Set(source[key].map((value) => String(value)));
+      namedControls.forEach((control) => {
+        control.checked = selectedValues.has(String(control.value));
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      return;
+    }
+    const targetControl = controlById || namedControls[0] || null;
+    if (!targetControl) {
+      return;
+    }
+    if (targetControl.type === "checkbox") {
+      targetControl.checked = !!source[key];
+    } else {
+      targetControl.value = source[key] ?? "";
+    }
+    targetControl.dispatchEvent(new Event("input", { bubbles: true }));
+    targetControl.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function createPlanModalDraftSession(modal, draftKey) {
+  let timer = 0;
+  const persistDraft = async () => {
+    if (!modal?.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+      return;
+    }
+    await window.ControlerStorage.setDraft(
+      draftKey,
+      {
+        fields: capturePlanModalDraftFields(modal),
+      },
+      {
+        scope: "plan",
+      },
+    );
+  };
+  const scheduleSave = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      void persistDraft();
+    }, PLAN_DRAFT_SAVE_DELAY_MS);
+  };
+  const handlePageHide = () => {
+    void persistDraft();
+  };
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      void persistDraft();
+    }
+  };
+  modal?.querySelectorAll?.("input, textarea, select")?.forEach?.((control) => {
+    control.addEventListener("input", scheduleSave);
+    control.addEventListener("change", scheduleSave);
+  });
+  window.addEventListener("pagehide", handlePageHide);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return {
+    async restore() {
+      if (typeof window.ControlerStorage?.getDraft !== "function") {
+        return null;
+      }
+      const draftEnvelope = await window.ControlerStorage.getDraft(draftKey, {
+        includeEnvelope: true,
+      });
+      const draftValue =
+        draftEnvelope && typeof draftEnvelope === "object"
+          ? Object.prototype.hasOwnProperty.call(draftEnvelope, "value")
+            ? draftEnvelope.value
+            : draftEnvelope
+          : null;
+      if (!draftValue?.fields || !modal?.isConnected) {
+        return null;
+      }
+      applyPlanModalDraftFields(modal, draftValue.fields);
+      return draftValue;
+    },
+    async clear() {
+      window.clearTimeout(timer);
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(draftKey);
+      }
+      return true;
+    },
+    destroy() {
+      window.clearTimeout(timer);
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    },
+  };
 }
 
 function queuePlanPersistenceTask(
@@ -790,6 +948,21 @@ function readPlanCachedSnapshotState(options = {}) {
       ? options.periodIds
       : getPlanPeriodIdsForVisibleView();
   try {
+    if (typeof window.ControlerStorage?.peekPageBootstrapState === "function") {
+      const bootstrapState = window.ControlerStorage.peekPageBootstrapState(
+        "plan",
+        {
+          periodIds,
+        },
+      );
+      if (bootstrapState && typeof bootstrapState === "object") {
+        return normalizePlanPageBootstrapSnapshot(bootstrapState);
+      }
+    }
+  } catch (error) {
+    console.error("读取计划同步引导快照失败:", error);
+  }
+  try {
     const storageSnapshot =
       typeof window.ControlerStorage?.dump === "function"
         ? window.ControlerStorage.dump()
@@ -848,7 +1021,42 @@ function normalizeTodoSidebarRuntimeOptions(options = {}) {
   };
 }
 
+function normalizePlanPageBootstrapSnapshot(payload = {}) {
+  const data =
+    payload?.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+      ? payload.data
+      : {};
+  const visiblePlans = Array.isArray(data.visiblePlans) ? data.visiblePlans : [];
+  const recurringPlans = Array.isArray(data.recurringPlans)
+    ? data.recurringPlans
+    : [];
+  return {
+    plans: [...visiblePlans, ...recurringPlans].map((rawPlan) => hydratePlan(rawPlan)),
+    yearlyGoals: normalizeYearlyGoalsState(data.yearlyGoals || {}),
+    loadedPeriodIds:
+      Array.isArray(payload?.loadedPeriodIds) && payload.loadedPeriodIds.length
+        ? payload.loadedPeriodIds.slice()
+        : [],
+  };
+}
+
 async function readPlanBootstrapState(options = {}) {
+  if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
+    const payload = await window.ControlerStorage.getPageBootstrapState(
+      "plan",
+      options,
+    );
+    if (payload && typeof payload === "object") {
+      const data =
+        payload.data && typeof payload.data === "object" ? payload.data : {};
+      return {
+        yearlyGoals: data.yearlyGoals || {},
+        recurringPlans: Array.isArray(data.recurringPlans)
+          ? data.recurringPlans
+          : [],
+      };
+    }
+  }
   if (typeof window.ControlerStorage?.getPlanBootstrapState === "function") {
     const payload = await window.ControlerStorage.getPlanBootstrapState(options);
     if (payload && typeof payload === "object") {
@@ -2190,6 +2398,45 @@ async function readPlanWorkspace(options = {}) {
       includeRecurringPlans:
         shouldLoadPlans && options.includeRecurringPlans !== false,
     };
+    if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
+      const periodIds = shouldLoadPlans
+        ? Array.isArray(options.periodIds) && options.periodIds.length
+          ? options.periodIds
+          : getPlanPeriodIdsForVisibleView()
+        : [];
+      uiTools?.markPerfStage?.("plan-bootstrap-bridge-start", {
+        allowRepeat: true,
+        periodIds: periodIds.slice(),
+        view: targetView,
+      });
+      const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
+        "plan",
+        {
+          ...bootstrapOptions,
+          periodIds,
+        },
+      );
+      uiTools?.markPerfStage?.("plan-bootstrap-bridge-done", {
+        allowRepeat: true,
+        periodIds: periodIds.slice(),
+        planCount: Array.isArray(pageBootstrap?.data?.visiblePlans)
+          ? pageBootstrap.data.visiblePlans.length
+          : 0,
+        view: targetView,
+      });
+      if (pageBootstrap && typeof pageBootstrap === "object") {
+        const snapshot = normalizePlanPageBootstrapSnapshot(pageBootstrap);
+        return shouldLoadPlans
+          ? snapshot
+          : {
+              plans: retainedPlans.map((rawPlan) => hydratePlan(rawPlan)),
+              yearlyGoals: snapshot.yearlyGoals,
+              loadedPeriodIds: Array.isArray(retainedPeriodIds)
+                ? retainedPeriodIds.slice()
+                : [],
+            };
+      }
+    }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       (
@@ -5036,8 +5283,16 @@ function showWeeklyGridPlanModal(planData = null) {
     startTimeSelector: "#weekly-plan-start-time-input",
     repeatSelector: 'input[name="weekly-plan-repeat"]',
   });
+  const weeklyPlanDraftSession = createPlanModalDraftSession(
+    modal,
+    `draft:plan:weekly:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
+  );
+  void weeklyPlanDraftSession.restore().catch((error) => {
+    console.error("恢复周视图计划草稿失败:", error);
+  });
 
   const closeWeeklyPlanModal = () => {
+    weeklyPlanDraftSession.destroy();
     if (uiTools?.closeModal) {
       uiTools.closeModal(modal);
     } else if (modal.parentNode) {
@@ -5053,7 +5308,9 @@ function showWeeklyGridPlanModal(planData = null) {
       closeWeeklyPlanModal,
     );
     uiTools.bindModalAction(modal, "#weekly-save-plan-btn", () => {
-      void saveWeeklyGridPlan(modal, planData);
+      void saveWeeklyGridPlan(modal, planData, {
+        draftSession: weeklyPlanDraftSession,
+      });
     });
   } else {
     modal
@@ -5062,7 +5319,9 @@ function showWeeklyGridPlanModal(planData = null) {
     modal
       .querySelector("#weekly-save-plan-btn")
       .addEventListener("click", () => {
-        void saveWeeklyGridPlan(modal, planData);
+        void saveWeeklyGridPlan(modal, planData, {
+          draftSession: weeklyPlanDraftSession,
+        });
       });
   }
 
@@ -5072,6 +5331,12 @@ function showWeeklyGridPlanModal(planData = null) {
         planData.id,
         planData._occurrenceDate || planData.date,
       );
+      if (deleted) {
+        await weeklyPlanDraftSession.clear().catch((error) => {
+          console.error("清理周视图计划草稿失败:", error);
+        });
+        weeklyPlanDraftSession.destroy();
+      }
       if (deleted && modal.parentNode) {
         document.body.removeChild(modal);
       }
@@ -5098,7 +5363,8 @@ function showWeeklyGridPlanModal(planData = null) {
 }
 
 // 保存表格视图的计划
-async function saveWeeklyGridPlan(modal, planData) {
+async function saveWeeklyGridPlan(modal, planData, options = {}) {
+  const draftSession = options?.draftSession || null;
   const name = modal.querySelector("#weekly-plan-name-input").value.trim();
   const date = modal.querySelector("#weekly-plan-date-input").value;
   const startTime = modal.querySelector("#weekly-plan-start-time-input").value;
@@ -5195,6 +5461,11 @@ async function saveWeeklyGridPlan(modal, planData) {
 
   // 保存并更新UI
   savePlans();
+  if (draftSession && typeof draftSession.clear === "function") {
+    await draftSession.clear().catch((error) => {
+      console.error("清理周视图计划草稿失败:", error);
+    });
+  }
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });
@@ -5429,8 +5700,16 @@ function showPlanEditModal(planData = null) {
     startTimeSelector: "#plan-start-time-input",
     repeatSelector: 'input[name="plan-repeat"]',
   });
+  const planDraftSession = createPlanModalDraftSession(
+    modal,
+    `draft:plan:main:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
+  );
+  void planDraftSession.restore().catch((error) => {
+    console.error("恢复计划草稿失败:", error);
+  });
 
   const closePlanModal = () => {
+    planDraftSession.destroy();
     if (uiTools?.closeModal) {
       uiTools.closeModal(modal);
     } else if (modal.parentNode) {
@@ -5442,14 +5721,18 @@ function showPlanEditModal(planData = null) {
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(modal, "#cancel-plan-btn", closePlanModal);
     uiTools.bindModalAction(modal, "#save-plan-btn", () => {
-      void savePlan(modal, isEditMode, planData);
+      void savePlan(modal, isEditMode, planData, {
+        draftSession: planDraftSession,
+      });
     });
   } else {
     modal
       .querySelector("#cancel-plan-btn")
       .addEventListener("click", closePlanModal);
     modal.querySelector("#save-plan-btn").addEventListener("click", () => {
-      void savePlan(modal, isEditMode, planData);
+      void savePlan(modal, isEditMode, planData, {
+        draftSession: planDraftSession,
+      });
     });
   }
 
@@ -5459,6 +5742,12 @@ function showPlanEditModal(planData = null) {
         planData.id,
         planData._occurrenceDate || planData.date,
       );
+      if (deleted) {
+        await planDraftSession.clear().catch((error) => {
+          console.error("清理计划草稿失败:", error);
+        });
+        planDraftSession.destroy();
+      }
       if (deleted && modal.parentNode) {
         document.body.removeChild(modal);
       }
@@ -5481,7 +5770,8 @@ function showPlanEditModal(planData = null) {
 }
 
 // 保存计划
-async function savePlan(modal, isEditMode, planData) {
+async function savePlan(modal, isEditMode, planData, options = {}) {
+  const draftSession = options?.draftSession || null;
   const name = modal.querySelector("#plan-name-input").value.trim();
   const date = modal.querySelector("#plan-date-input").value;
   const startTime = modal.querySelector("#plan-start-time-input").value;
@@ -5571,6 +5861,11 @@ async function savePlan(modal, isEditMode, planData) {
 
   // 保存并更新UI
   savePlans();
+  if (draftSession && typeof draftSession.clear === "function") {
+    await draftSession.clear().catch((error) => {
+      console.error("清理计划草稿失败:", error);
+    });
+  }
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });

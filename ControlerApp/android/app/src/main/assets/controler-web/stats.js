@@ -1934,6 +1934,37 @@ function applyStatsWorkspaceState(snapshot = {}) {
 async function readStatsWorkspace(scope = getStatsLoadScope()) {
   const preferences = readStatsPreferencesFromStorage();
   try {
+    if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
+      const recordScope = getExpandedStatsRecordLoadScope(scope);
+      const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
+        "stats",
+        {
+          recordScope,
+        },
+      );
+      const data =
+        pageBootstrap?.data && typeof pageBootstrap.data === "object"
+          ? pageBootstrap.data
+          : null;
+      if (data) {
+        const nextRecords = Array.isArray(data.defaultRangeRecordsOrAggregate)
+          ? data.defaultRangeRecordsOrAggregate
+          : [];
+        return {
+          preferences:
+            data.statsPreferences && typeof data.statsPreferences === "object"
+              ? data.statsPreferences
+              : preferences,
+          records: nextRecords,
+          projects: Array.isArray(data.projects) ? data.projects : [],
+          loadedRecordPeriodIds:
+            Array.isArray(pageBootstrap.loadedPeriodIds) &&
+            pageBootstrap.loadedPeriodIds.length
+              ? pageBootstrap.loadedPeriodIds.slice()
+              : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+        };
+      }
+    }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       typeof window.ControlerStorage?.getCoreState === "function"

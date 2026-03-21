@@ -296,6 +296,12 @@ RCT_EXPORT_MODULE(ControlerBridge);
   return paths.firstObject ?: NSTemporaryDirectory();
 }
 
+- (NSString *)applicationSupportPath
+{
+  NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+  return paths.firstObject ?: [self documentsPath];
+}
+
 - (NSString *)defaultBundleDirectoryPath { return [[self documentsPath] stringByAppendingPathComponent:@"Order/app_data"]; }
 - (NSString *)defaultManifestPath { return [[self defaultBundleDirectoryPath] stringByAppendingPathComponent:kBundleManifestFileName]; }
 - (NSString *)storedUiLanguage { return ControlerNormalizeUiLanguage([[NSUserDefaults standardUserDefaults] stringForKey:kUiLanguageDefaultsKey]); }
@@ -457,6 +463,63 @@ RCT_EXPORT_MODULE(ControlerBridge);
     ? [self bundleDirectoryPathForSelection:selection]
     : [self defaultBundleDirectoryPath];
   return [root stringByAppendingPathComponent:@"backups"];
+}
+
+- (NSString *)sha1HexForString:(NSString *)value
+{
+  NSData *data = [ControlerTrimmedString(value ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+  if (data.length == 0) return @"";
+  unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+  CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
+  NSMutableString *hash = [NSMutableString stringWithCapacity:(CC_SHA1_DIGEST_LENGTH * 2)];
+  for (NSInteger index = 0; index < CC_SHA1_DIGEST_LENGTH; index += 1) [hash appendFormat:@"%02x", digest[index]];
+  return hash;
+}
+
+- (NSString *)runtimeSidecarBasePath
+{
+  return [[self applicationSupportPath] stringByAppendingPathComponent:@"runtime-sidecar"];
+}
+
+- (NSString *)runtimeSidecarNamespaceSeed
+{
+  NSDictionary *version = [self probeStorageVersionIncludeHash:NO];
+  return ControlerOptionalTrimmedString(version[@"actualUri"])
+    ?: [self storageDirectoryPath]
+    ?: [self manifestPath];
+}
+
+- (NSString *)runtimeSidecarNamespacePath
+{
+  return [[self runtimeSidecarBasePath] stringByAppendingPathComponent:([self sha1HexForString:[self runtimeSidecarNamespaceSeed]] ?: @"default")];
+}
+
+- (NSString *)runtimeDraftsPath
+{
+  return [[self runtimeSidecarNamespacePath] stringByAppendingPathComponent:@"drafts"];
+}
+
+- (NSString *)runtimeDraftLogsPath
+{
+  return [[self runtimeSidecarNamespacePath] stringByAppendingPathComponent:@"oplog/drafts"];
+}
+
+- (NSString *)draftFileStemForKey:(NSString *)key
+{
+  NSString *normalizedKey = ControlerTrimmedString(key);
+  NSString *preview = [[[[normalizedKey lowercaseString] componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]] componentsJoinedByString:@"_"] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"_"]];
+  if (preview.length > 48) preview = [preview substringToIndex:48];
+  return [NSString stringWithFormat:@"%@-%@", preview.length > 0 ? preview : @"draft", [self sha1HexForString:normalizedKey] ?: @""];
+}
+
+- (NSString *)draftFilePathForKey:(NSString *)key
+{
+  return [[self runtimeDraftsPath] stringByAppendingPathComponent:[[self draftFileStemForKey:key] stringByAppendingPathExtension:@"json"]];
+}
+
+- (NSString *)draftLogPathForKey:(NSString *)key
+{
+  return [[self runtimeDraftLogsPath] stringByAppendingPathComponent:[[self draftFileStemForKey:key] stringByAppendingPathExtension:@"jsonl"]];
 }
 
 - (NSDictionary *)bundlePathsForSelection:(NSDictionary *)selection
@@ -1273,6 +1336,250 @@ RCT_EXPORT_MODULE(ControlerBridge);
     @"yearlyGoals": ControlerDeepCopyJSON(ControlerEnsureDictionary(core[@"yearlyGoals"])) ?: @{},
     @"recurringPlans": ControlerDeepCopyJSON([self readRecurringPlansArray]) ?: @[],
   };
+}
+
+- (NSString *)normalizedBootstrapPage:(id)value
+{
+  NSString *page = [[ControlerTrimmedString(value) lowercaseString] copy];
+  NSSet *supported = [NSSet setWithArray:@[@"index", @"plan", @"todo", @"diary", @"stats", @"settings"]];
+  return [supported containsObject:page] ? page : @"index";
+}
+
+- (NSDictionary *)recentRecordBootstrapScope
+{
+  NSDate *endDate = [NSDate date];
+  NSDate *startDate = [endDate dateByAddingTimeInterval:(-48.0 * 60.0 * 60.0)];
+  return @{
+    @"startDate": ControlerJSONValue([self dateKeyFromDate:startDate]),
+    @"endDate": ControlerJSONValue([self dateKeyFromDate:endDate]),
+  };
+}
+
+- (NSDictionary *)currentMonthBootstrapScope
+{
+  NSString *periodId = [self periodIdFromDate:[NSDate date]] ?: @"";
+  return @{@"periodIds": periodId.length > 0 ? @[periodId] : @[]};
+}
+
+- (NSDictionary *)currentDayBootstrapScope
+{
+  NSString *dateKey = [self dateKeyFromDate:[NSDate date]] ?: @"";
+  NSString *periodId = [self periodIdFromDate:[NSDate date]] ?: @"";
+  return @{
+    @"startDate": ControlerJSONValue(dateKey.length > 0 ? dateKey : nil),
+    @"endDate": ControlerJSONValue(dateKey.length > 0 ? dateKey : nil),
+    @"periodIds": periodId.length > 0 ? @[periodId] : @[],
+  };
+}
+
+- (NSDictionary *)rangePayloadForSection:(NSString *)section scope:(NSDictionary *)scope
+{
+  NSString *normalizedSection = ControlerTrimmedString(section);
+  if (![ControlerPartitionedSections() containsObject:normalizedSection]) return nil;
+  NSDictionary *range = [self normalizedRangeFromScope:ControlerEnsureDictionary(scope)];
+  NSSet<NSString *> *requestedPeriodIds = [NSSet setWithArray:ControlerEnsureArray(range[@"periodIds"])];
+  NSDictionary *manifest = [self readManifest] ?: @{};
+  NSDictionary *sectionManifest = ControlerEnsureDictionary(ControlerEnsureDictionary(manifest[@"sections"])[normalizedSection]);
+  NSMutableArray *matchedPartitions = [NSMutableArray array], *items = [NSMutableArray array];
+  for (id partitionValue in ControlerEnsureArray(sectionManifest[@"partitions"])) {
+    NSDictionary *partition = ControlerEnsureDictionary(partitionValue);
+    NSString *periodId = [self normalizedPeriodId:partition[@"periodId"]];
+    if (requestedPeriodIds.count > 0 && ![requestedPeriodIds containsObject:periodId]) continue;
+    if (periodId.length == 0) continue;
+    [matchedPartitions addObject:partition];
+    [items addObjectsFromArray:ControlerEnsureArray([self readPartitionEnvelopeForSection:normalizedSection periodId:periodId][@"items"])];
+  }
+  return @{
+    @"section": normalizedSection,
+    @"periodUnit": kPeriodUnit,
+    @"periodIds": requestedPeriodIds.count > 0 ? [[requestedPeriodIds allObjects] sortedArrayUsingSelector:@selector(compare:)] : ([matchedPartitions valueForKey:@"periodId"] ?: @[]),
+    @"startDate": range[@"startDate"] ?: [NSNull null],
+    @"endDate": range[@"endDate"] ?: [NSNull null],
+    @"items": [self sortedItems:items forSection:normalizedSection],
+    @"manifestPartitions": matchedPartitions,
+  };
+}
+
+- (NSDictionary *)projectTotalsSummaryForProjects:(NSArray *)projects
+{
+  NSInteger projectCount = 0;
+  long long totalDurationMs = 0LL;
+  for (id projectValue in ControlerEnsureArray(projects)) {
+    NSDictionary *project = ControlerEnsureDictionary(projectValue);
+    long long durationMs = [project[@"cachedTotalDurationMs"] respondsToSelector:@selector(longLongValue)]
+      ? [project[@"cachedTotalDurationMs"] longLongValue]
+      : ([project[@"totalDurationMs"] respondsToSelector:@selector(longLongValue)] ? [project[@"totalDurationMs"] longLongValue] : 0LL);
+    projectCount += 1;
+    totalDurationMs += MAX(0LL, durationMs);
+  }
+  return @{@"projectCount": @(projectCount), @"totalDurationMs": @(MAX(0LL, totalDurationMs))};
+}
+
+- (NSDictionary *)themeSummaryForCore:(NSDictionary *)core
+{
+  NSDictionary *safeCore = ControlerEnsureDictionary(core);
+  return @{
+    @"selectedTheme": ControlerOptionalTrimmedString(safeCore[@"selectedTheme"]) ?: @"default",
+    @"customThemeCount": @([ControlerEnsureArray(safeCore[@"customThemes"]) count]),
+    @"hasBuiltInOverrides": @(ControlerEnsureDictionary(safeCore[@"builtInThemeOverrides"]).count > 0),
+  };
+}
+
+- (NSDictionary *)pageBootstrapPayloadForPage:(NSString *)page options:(NSDictionary *)options
+{
+  NSString *normalizedPage = [self normalizedBootstrapPage:page];
+  NSDictionary *pageOptions = ControlerEnsureDictionary(options);
+  NSDictionary *core = [self readCoreStateDictionary] ?: @{};
+  NSString *sourceFingerprint = ControlerTrimmedString([self storageStatusForState:[self loadBundleState] ?: @{}][@"fingerprint"]);
+  NSMutableArray *loadedPeriodIds = [NSMutableArray array];
+  NSDictionary *data = @{};
+
+  if ([normalizedPage isEqualToString:@"index"]) {
+    NSDictionary *range = [self rangePayloadForSection:@"records" scope:ControlerEnsureDictionary(pageOptions[@"recordScope"]).count > 0 ? pageOptions[@"recordScope"] : [self recentRecordBootstrapScope]] ?: @{};
+    [loadedPeriodIds addObjectsFromArray:ControlerEnsureArray(range[@"periodIds"])];
+    data = @{
+      @"projects": ControlerDeepCopyJSON(ControlerEnsureArray(core[@"projects"])) ?: @[],
+      @"recentRecords": ControlerDeepCopyJSON(ControlerEnsureArray(range[@"items"])) ?: @[],
+      @"timerSessionState": [NSNull null],
+      @"projectTotalsSummary": [self projectTotalsSummaryForProjects:ControlerEnsureArray(core[@"projects"])],
+    };
+  } else if ([normalizedPage isEqualToString:@"plan"]) {
+    NSDictionary *scope = ControlerEnsureDictionary(pageOptions[@"planScope"]).count > 0 ? pageOptions[@"planScope"] : [self currentMonthBootstrapScope];
+    NSDictionary *range = [self rangePayloadForSection:@"plans" scope:scope] ?: @{};
+    [loadedPeriodIds addObjectsFromArray:ControlerEnsureArray(range[@"periodIds"])];
+    data = @{
+      @"visiblePlans": ControlerDeepCopyJSON(ControlerEnsureArray(range[@"items"])) ?: @[],
+      @"recurringPlans": ControlerDeepCopyJSON([self readRecurringPlansArray]) ?: @[],
+      @"yearlyGoals": ControlerDeepCopyJSON(ControlerEnsureDictionary(core[@"yearlyGoals"])) ?: @{},
+    };
+  } else if ([normalizedPage isEqualToString:@"todo"]) {
+    NSDictionary *dailyRange = [self rangePayloadForSection:@"dailyCheckins" scope:ControlerEnsureDictionary(pageOptions[@"dailyCheckinScope"]).count > 0 ? pageOptions[@"dailyCheckinScope"] : [self currentDayBootstrapScope]] ?: @{};
+    NSDictionary *checkinRange = [self rangePayloadForSection:@"checkins" scope:ControlerEnsureDictionary(pageOptions[@"checkinScope"]).count > 0 ? pageOptions[@"checkinScope"] : [self currentMonthBootstrapScope]] ?: @{};
+    NSMutableOrderedSet *periodIds = [NSMutableOrderedSet orderedSet];
+    [periodIds addObjectsFromArray:ControlerEnsureArray(dailyRange[@"periodIds"])];
+    [periodIds addObjectsFromArray:ControlerEnsureArray(checkinRange[@"periodIds"])];
+    [loadedPeriodIds addObjectsFromArray:periodIds.array];
+    data = @{
+      @"todos": ControlerDeepCopyJSON(ControlerEnsureArray(core[@"todos"])) ?: @[],
+      @"checkinItems": ControlerDeepCopyJSON(ControlerEnsureArray(core[@"checkinItems"])) ?: @[],
+      @"todayDailyCheckins": ControlerDeepCopyJSON(ControlerEnsureArray(dailyRange[@"items"])) ?: @[],
+      @"recentCheckins": ControlerDeepCopyJSON(ControlerEnsureArray(checkinRange[@"items"])) ?: @[],
+    };
+  } else if ([normalizedPage isEqualToString:@"diary"]) {
+    NSDictionary *scope = ControlerEnsureDictionary(pageOptions[@"diaryScope"]).count > 0 ? pageOptions[@"diaryScope"] : [self currentMonthBootstrapScope];
+    NSDictionary *range = [self rangePayloadForSection:@"diaryEntries" scope:scope] ?: @{};
+    [loadedPeriodIds addObjectsFromArray:ControlerEnsureArray(range[@"periodIds"])];
+    data = @{
+      @"currentMonthEntries": ControlerDeepCopyJSON(ControlerEnsureArray(range[@"items"])) ?: @[],
+      @"diaryCategories": ControlerDeepCopyJSON(ControlerEnsureArray(core[@"diaryCategories"])) ?: @[],
+      @"guideState": ControlerDeepCopyJSON(ControlerNormalizedGuideState(ControlerEnsureDictionary(core[@"guideState"]))) ?: @{},
+    };
+  } else if ([normalizedPage isEqualToString:@"stats"]) {
+    NSDictionary *range = [self rangePayloadForSection:@"records" scope:ControlerEnsureDictionary(pageOptions[@"recordScope"]).count > 0 ? pageOptions[@"recordScope"] : [self currentMonthBootstrapScope]] ?: @{};
+    [loadedPeriodIds addObjectsFromArray:ControlerEnsureArray(range[@"periodIds"])];
+    data = @{
+      @"projects": ControlerDeepCopyJSON(ControlerEnsureArray(core[@"projects"])) ?: @[],
+      @"defaultRangeRecordsOrAggregate": ControlerDeepCopyJSON(ControlerEnsureArray(range[@"items"])) ?: @[],
+      @"statsPreferences": @{},
+    };
+  } else {
+    data = @{
+      @"storageStatus": [self storageStatusForState:[self loadBundleState] ?: @{}],
+      @"autoBackupStatus": [self autoBackupStatusWithError:nil],
+      @"themeSummary": [self themeSummaryForCore:core],
+      @"navigationVisibility": [NSNull null],
+    };
+  }
+
+  return @{
+    @"page": normalizedPage,
+    @"sourceFingerprint": sourceFingerprint ?: @"",
+    @"builtAt": [self isoNow] ?: @"",
+    @"loadedPeriodIds": loadedPeriodIds,
+    @"data": data,
+  };
+}
+
+- (NSDictionary *)draftOperationForAction:(NSString *)action key:(NSString *)key value:(id)value
+{
+  NSString *updatedAt = [self isoNow] ?: @"";
+  NSString *operationId = [self sha1HexForString:[NSString stringWithFormat:@"%@:%@:%@:%f", ControlerTrimmedString(key), ControlerTrimmedString(action), updatedAt, [[NSDate date] timeIntervalSince1970]]] ?: @"";
+  return @{
+    @"operationId": operationId,
+    @"action": ControlerTrimmedString(action),
+    @"key": ControlerTrimmedString(key),
+    @"updatedAt": updatedAt,
+    @"value": ControlerDeepCopyJSON(value ?: [NSNull null]) ?: [NSNull null],
+  };
+}
+
+- (NSDictionary *)readDraftEnvelopeForKey:(NSString *)key
+{
+  return ControlerEnsureDictionary([self jsonObjectFromFile:[self draftFilePathForKey:key] fallback:nil]);
+}
+
+- (NSDictionary *)readLatestDraftOperationForKey:(NSString *)key
+{
+  NSString *logPath = [self draftLogPathForKey:key];
+  if (logPath.length == 0 || ![[self fileManager] fileExistsAtPath:logPath]) return nil;
+  NSString *raw = [[NSString alloc] initWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+  NSArray<NSString *> *lines = [[raw ?: @"" componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *evaluatedObject, NSDictionary<NSString *,id> * _Nullable bindings) {
+    return ControlerTrimmedString(evaluatedObject).length > 0;
+  }]];
+  if (lines.count == 0) return nil;
+  NSData *data = [ControlerTrimmedString(lines.lastObject) dataUsingEncoding:NSUTF8StringEncoding];
+  if (data.length == 0) return nil;
+  id object = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil];
+  return [object isKindOfClass:[NSDictionary class]] ? (NSDictionary *)object : nil;
+}
+
+- (BOOL)appendDraftOperation:(NSDictionary *)operation forKey:(NSString *)key error:(NSError **)error
+{
+  NSString *logsPath = [self runtimeDraftLogsPath];
+  if (![self ensureDirectoryAtPath:logsPath error:error]) return NO;
+  NSString *serialized = [self serializeObject:operation] ?: @"{}";
+  NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:[self draftLogPathForKey:key]];
+  if (!handle) {
+    if (![[NSFileManager defaultManager] createFileAtPath:[self draftLogPathForKey:key] contents:nil attributes:nil]) {
+      if (error) *error = [self bridgeErrorWithDescription:@"创建草稿日志失败。" code:1019];
+      return NO;
+    }
+    handle = [NSFileHandle fileHandleForWritingAtPath:[self draftLogPathForKey:key]];
+  }
+  @try {
+    [handle seekToEndOfFile];
+    NSData *data = [[serialized stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding];
+    [handle writeData:data];
+    [handle synchronizeFile];
+  } @catch (NSException *exception) {
+    if (error) *error = [self bridgeErrorWithDescription:@"写入草稿日志失败。" code:1020];
+    [handle closeFile];
+    return NO;
+  }
+  [handle closeFile];
+  return YES;
+}
+
+- (NSDictionary *)draftEnvelopeForKey:(NSString *)key
+{
+  NSDictionary *envelope = [self readDraftEnvelopeForKey:key];
+  NSDictionary *latestOperation = [self readLatestDraftOperationForKey:key];
+  if ([ControlerTrimmedString(latestOperation[@"action"]) isEqualToString:@"remove"]) {
+    NSString *operationId = ControlerTrimmedString(latestOperation[@"operationId"]);
+    if (operationId.length > 0 && ![ControlerTrimmedString(envelope[@"lastOperationId"]) isEqualToString:operationId]) return nil;
+  }
+  if ([ControlerTrimmedString(latestOperation[@"action"]) isEqualToString:@"set"]) {
+    NSString *operationId = ControlerTrimmedString(latestOperation[@"operationId"]);
+    if (operationId.length > 0 && ![ControlerTrimmedString(envelope[@"lastOperationId"]) isEqualToString:operationId]) {
+      return @{
+        @"key": ControlerTrimmedString(key),
+        @"updatedAt": ControlerOptionalTrimmedString(latestOperation[@"updatedAt"]) ?: @"",
+        @"lastOperationId": operationId,
+        @"value": ControlerDeepCopyJSON(latestOperation[@"value"]) ?: [NSNull null],
+      };
+    }
+  }
+  return envelope.count > 0 ? envelope : nil;
 }
 
 - (NSDictionary *)normalizeAutoBackupSettings:(NSDictionary *)settings
@@ -2164,6 +2471,115 @@ RCT_REMAP_METHOD(getStoragePlanBootstrapState,
     return;
   }
   resolve([self serializeObject:[self planBootstrapPayload]]);
+}
+
+RCT_REMAP_METHOD(getStoragePageBootstrapState,
+                 getStoragePageBootstrapStateWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSError *error = nil;
+  if (![self ensureStorageReady:&error]) {
+    reject(@"storage_page_bootstrap_failed", error.localizedDescription, error);
+    return;
+  }
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_page_bootstrap_failed", @"解析页面引导参数失败。", parseError);
+    return;
+  }
+  NSDictionary *payloadOptions = ControlerEnsureDictionary(optionsObject);
+  NSDictionary *pageOptions = ControlerEnsureDictionary(payloadOptions[@"options"]).count > 0 ? ControlerEnsureDictionary(payloadOptions[@"options"]) : payloadOptions;
+  NSString *pageKey = [self normalizedBootstrapPage:(ControlerOptionalTrimmedString(payloadOptions[@"pageKey"]) ?: payloadOptions[@"page"])];
+  resolve([self serializeObject:[self pageBootstrapPayloadForPage:pageKey options:pageOptions]]);
+}
+
+RCT_REMAP_METHOD(getStorageDraft,
+                 getStorageDraftWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_draft_get_failed", @"解析草稿读取参数失败。", parseError);
+    return;
+  }
+  NSString *key = ControlerTrimmedString(ControlerEnsureDictionary(optionsObject)[@"key"]);
+  if (key.length == 0) {
+    resolve(@"null");
+    return;
+  }
+  NSDictionary *envelope = [self draftEnvelopeForKey:key];
+  resolve(envelope ? [self serializeObject:envelope] : @"null");
+}
+
+RCT_REMAP_METHOD(setStorageDraft,
+                 setStorageDraftWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_draft_set_failed", @"解析草稿保存参数失败。", parseError);
+    return;
+  }
+  NSDictionary *payload = ControlerEnsureDictionary(optionsObject);
+  NSString *key = ControlerTrimmedString(payload[@"key"]);
+  if (key.length == 0) {
+    reject(@"storage_draft_set_failed", @"草稿 key 不能为空。", nil);
+    return;
+  }
+  NSError *error = nil;
+  NSDictionary *operation = [self draftOperationForAction:@"set" key:key value:payload[@"value"] ?: [NSNull null]];
+  if (![self appendDraftOperation:operation forKey:key error:&error]) {
+    reject(@"storage_draft_set_failed", error.localizedDescription, error);
+    return;
+  }
+  NSDictionary *envelope = @{
+    @"key": key,
+    @"updatedAt": ControlerOptionalTrimmedString(operation[@"updatedAt"]) ?: @"",
+    @"lastOperationId": ControlerOptionalTrimmedString(operation[@"operationId"]) ?: @"",
+    @"value": ControlerDeepCopyJSON(payload[@"value"] ?: [NSNull null]) ?: [NSNull null],
+    @"options": ControlerDeepCopyJSON(ControlerEnsureDictionary(payload[@"options"])) ?: @{},
+  };
+  if (![self writeJsonObject:envelope toFile:[self draftFilePathForKey:key] error:&error]) {
+    reject(@"storage_draft_set_failed", error.localizedDescription, error);
+    return;
+  }
+  resolve([self serializeObject:envelope]);
+}
+
+RCT_REMAP_METHOD(removeStorageDraft,
+                 removeStorageDraftWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_draft_remove_failed", @"解析草稿删除参数失败。", parseError);
+    return;
+  }
+  NSString *key = ControlerTrimmedString(ControlerEnsureDictionary(optionsObject)[@"key"]);
+  if (key.length == 0) {
+    resolve(@"false");
+    return;
+  }
+  NSError *error = nil;
+  NSDictionary *operation = [self draftOperationForAction:@"remove" key:key value:[NSNull null]];
+  if (![self appendDraftOperation:operation forKey:key error:&error]) {
+    reject(@"storage_draft_remove_failed", error.localizedDescription, error);
+    return;
+  }
+  [[self fileManager] removeItemAtPath:[self draftFilePathForKey:key] error:nil];
+  resolve(@"true");
 }
 
 RCT_REMAP_METHOD(loadStorageSectionRange,

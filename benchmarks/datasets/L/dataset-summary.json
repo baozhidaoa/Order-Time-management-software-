@@ -1,0 +1,11 @@
+{
+  "dataset": "L",
+  "records": 500000,
+  "plans": 18000,
+  "diaryEntries": 6000,
+  "checkins": 36000,
+  "projectCount": 24,
+  "todoCount": 1500,
+  "checkinItemCount": 720,
+  "dailyCheckinCount": 6000
+}

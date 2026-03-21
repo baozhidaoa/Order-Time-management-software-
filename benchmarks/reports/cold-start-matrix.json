@@ -1,0 +1,1353 @@
+{
+  "generatedAt": "2026-03-21T11:30:33.083Z",
+  "datasets": [
+    "S",
+    "M",
+    "L",
+    "XL"
+  ],
+  "scenarios": [
+    "warm-sidecar",
+    "sidecar-missing"
+  ],
+  "pages": [
+    "index",
+    "plan",
+    "todo",
+    "diary",
+    "stats",
+    "settings"
+  ],
+  "results": [
+    {
+      "dataset": "S",
+      "scenario": "warm-sidecar",
+      "runs": 2,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 613.62,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 14.08,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 22.49,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 26.71,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 23.9,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 25.37,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 0
+            },
+            {
+              "page": "stats",
+              "durationMs": 22.91,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 21.85,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "managerInitMs": 15.54,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 25.13,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 29.04,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 22.43,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 21.11,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 0
+            },
+            {
+              "page": "stats",
+              "durationMs": 23.31,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 22.5,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 14.81,
+        "averagePageBootstrapMs": 23.9,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 23.81,
+            "maxMs": 25.13,
+            "minMs": 22.49
+          },
+          {
+            "page": "plan",
+            "avgMs": 27.88,
+            "maxMs": 29.04,
+            "minMs": 26.71
+          },
+          {
+            "page": "todo",
+            "avgMs": 23.16,
+            "maxMs": 23.9,
+            "minMs": 22.43
+          },
+          {
+            "page": "diary",
+            "avgMs": 23.24,
+            "maxMs": 25.37,
+            "minMs": 21.11
+          },
+          {
+            "page": "stats",
+            "avgMs": 23.11,
+            "maxMs": 23.31,
+            "minMs": 22.91
+          },
+          {
+            "page": "settings",
+            "avgMs": 22.18,
+            "maxMs": 22.5,
+            "minMs": 21.85
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "S",
+      "scenario": "sidecar-missing",
+      "runs": 2,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 456.26,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 14.69,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 45.96,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 60.94,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 46.25,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 44.23,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 0
+            },
+            {
+              "page": "stats",
+              "durationMs": 46.18,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 57.93,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "managerInitMs": 14.54,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 46.05,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 77.05,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 48.61,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 46.83,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 0
+            },
+            {
+              "page": "stats",
+              "durationMs": 46.39,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 56.13,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 14.61,
+        "averagePageBootstrapMs": 51.88,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 46,
+            "maxMs": 46.05,
+            "minMs": 45.96
+          },
+          {
+            "page": "plan",
+            "avgMs": 69,
+            "maxMs": 77.05,
+            "minMs": 60.94
+          },
+          {
+            "page": "todo",
+            "avgMs": 47.43,
+            "maxMs": 48.61,
+            "minMs": 46.25
+          },
+          {
+            "page": "diary",
+            "avgMs": 45.53,
+            "maxMs": 46.83,
+            "minMs": 44.23
+          },
+          {
+            "page": "stats",
+            "avgMs": 46.28,
+            "maxMs": 46.39,
+            "minMs": 46.18
+          },
+          {
+            "page": "settings",
+            "avgMs": 57.03,
+            "maxMs": 57.93,
+            "minMs": 56.13
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "M",
+      "scenario": "warm-sidecar",
+      "runs": 2,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 4886.53,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 21.77,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 25.45,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 36.18,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 27.12,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 24.77,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 35.87,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 24.67,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "managerInitMs": 17.07,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 28.99,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 36.86,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 28.99,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 27.48,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 34.43,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 28,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 19.42,
+        "averagePageBootstrapMs": 29.9,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 27.22,
+            "maxMs": 28.99,
+            "minMs": 25.45
+          },
+          {
+            "page": "plan",
+            "avgMs": 36.52,
+            "maxMs": 36.86,
+            "minMs": 36.18
+          },
+          {
+            "page": "todo",
+            "avgMs": 28.05,
+            "maxMs": 28.99,
+            "minMs": 27.12
+          },
+          {
+            "page": "diary",
+            "avgMs": 26.13,
+            "maxMs": 27.48,
+            "minMs": 24.77
+          },
+          {
+            "page": "stats",
+            "avgMs": 35.15,
+            "maxMs": 35.87,
+            "minMs": 34.43
+          },
+          {
+            "page": "settings",
+            "avgMs": 26.34,
+            "maxMs": 28,
+            "minMs": 24.67
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "M",
+      "scenario": "sidecar-missing",
+      "runs": 2,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 4690.43,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 19.54,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 100.55,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 73.86,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 79.97,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 58.48,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 120.16,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 74.75,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "managerInitMs": 21.49,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 100.24,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 75.99,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 64.57,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 58.13,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 113.09,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 72.46,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 20.52,
+        "averagePageBootstrapMs": 82.69,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 100.39,
+            "maxMs": 100.55,
+            "minMs": 100.24
+          },
+          {
+            "page": "plan",
+            "avgMs": 74.92,
+            "maxMs": 75.99,
+            "minMs": 73.86
+          },
+          {
+            "page": "todo",
+            "avgMs": 72.27,
+            "maxMs": 79.97,
+            "minMs": 64.57
+          },
+          {
+            "page": "diary",
+            "avgMs": 58.3,
+            "maxMs": 58.48,
+            "minMs": 58.13
+          },
+          {
+            "page": "stats",
+            "avgMs": 116.63,
+            "maxMs": 120.16,
+            "minMs": 113.09
+          },
+          {
+            "page": "settings",
+            "avgMs": 73.6,
+            "maxMs": 74.75,
+            "minMs": 72.46
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "L",
+      "scenario": "warm-sidecar",
+      "runs": 1,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 23592.89,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 21.76,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 26.91,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 42.81,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 30.69,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 28.62,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 75.57,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 27.33,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 21.76,
+        "averagePageBootstrapMs": 38.66,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 26.91,
+            "maxMs": 26.91,
+            "minMs": 26.91
+          },
+          {
+            "page": "plan",
+            "avgMs": 42.81,
+            "maxMs": 42.81,
+            "minMs": 42.81
+          },
+          {
+            "page": "todo",
+            "avgMs": 30.69,
+            "maxMs": 30.69,
+            "minMs": 30.69
+          },
+          {
+            "page": "diary",
+            "avgMs": 28.62,
+            "maxMs": 28.62,
+            "minMs": 28.62
+          },
+          {
+            "page": "stats",
+            "avgMs": 75.57,
+            "maxMs": 75.57,
+            "minMs": 75.57
+          },
+          {
+            "page": "settings",
+            "avgMs": 27.33,
+            "maxMs": 27.33,
+            "minMs": 27.33
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "L",
+      "scenario": "sidecar-missing",
+      "runs": 1,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 22790.8,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 17.97,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 289.76,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 109.9,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 91.99,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 67.18,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 374.78,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 84.05,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 17.97,
+        "averagePageBootstrapMs": 169.61,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 289.76,
+            "maxMs": 289.76,
+            "minMs": 289.76
+          },
+          {
+            "page": "plan",
+            "avgMs": 109.9,
+            "maxMs": 109.9,
+            "minMs": 109.9
+          },
+          {
+            "page": "todo",
+            "avgMs": 91.99,
+            "maxMs": 91.99,
+            "minMs": 91.99
+          },
+          {
+            "page": "diary",
+            "avgMs": 67.18,
+            "maxMs": 67.18,
+            "minMs": 67.18
+          },
+          {
+            "page": "stats",
+            "avgMs": 374.78,
+            "maxMs": 374.78,
+            "minMs": 374.78
+          },
+          {
+            "page": "settings",
+            "avgMs": 84.05,
+            "maxMs": 84.05,
+            "minMs": 84.05
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "XL",
+      "scenario": "warm-sidecar",
+      "runs": 1,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 47069.04,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 22.77,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 34.07,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 58.73,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 43.9,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 29.79,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 133.59,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 35.89,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 22.77,
+        "averagePageBootstrapMs": 55.99,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 34.07,
+            "maxMs": 34.07,
+            "minMs": 34.07
+          },
+          {
+            "page": "plan",
+            "avgMs": 58.73,
+            "maxMs": 58.73,
+            "minMs": 58.73
+          },
+          {
+            "page": "todo",
+            "avgMs": 43.9,
+            "maxMs": 43.9,
+            "minMs": 43.9
+          },
+          {
+            "page": "diary",
+            "avgMs": 29.79,
+            "maxMs": 29.79,
+            "minMs": 29.79
+          },
+          {
+            "page": "stats",
+            "avgMs": 133.59,
+            "maxMs": 133.59,
+            "minMs": 133.59
+          },
+          {
+            "page": "settings",
+            "avgMs": 35.89,
+            "maxMs": 35.89,
+            "minMs": 35.89
+          }
+        ]
+      }
+    },
+    {
+      "dataset": "XL",
+      "scenario": "sidecar-missing",
+      "runs": 1,
+      "pages": [
+        "index",
+        "plan",
+        "todo",
+        "diary",
+        "stats",
+        "settings"
+      ],
+      "primeRebuildMs": 46828.27,
+      "measurements": [
+        {
+          "run": 1,
+          "managerInitMs": 23.53,
+          "pages": [
+            {
+              "page": "index",
+              "durationMs": 502.53,
+              "dataKeys": [
+                "projects",
+                "recentRecords",
+                "timerSessionState",
+                "projectTotalsSummary"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "plan",
+              "durationMs": 172.47,
+              "dataKeys": [
+                "visiblePlans",
+                "recurringPlans",
+                "yearlyGoals"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "todo",
+              "durationMs": 126.62,
+              "dataKeys": [
+                "todos",
+                "checkinItems",
+                "todayDailyCheckins",
+                "recentCheckins"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "diary",
+              "durationMs": 86.28,
+              "dataKeys": [
+                "currentMonthEntries",
+                "diaryCategories",
+                "guideState"
+              ],
+              "loadedPeriodCount": 1
+            },
+            {
+              "page": "stats",
+              "durationMs": 656.71,
+              "dataKeys": [
+                "projects",
+                "defaultRangeRecordsOrAggregate",
+                "statsPreferences"
+              ],
+              "loadedPeriodCount": 2
+            },
+            {
+              "page": "settings",
+              "durationMs": 132.98,
+              "dataKeys": [
+                "storageStatus",
+                "autoBackupStatus",
+                "themeSummary",
+                "navigationVisibility"
+              ],
+              "loadedPeriodCount": 0
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "averageManagerInitMs": 23.53,
+        "averagePageBootstrapMs": 279.6,
+        "pages": [
+          {
+            "page": "index",
+            "avgMs": 502.53,
+            "maxMs": 502.53,
+            "minMs": 502.53
+          },
+          {
+            "page": "plan",
+            "avgMs": 172.47,
+            "maxMs": 172.47,
+            "minMs": 172.47
+          },
+          {
+            "page": "todo",
+            "avgMs": 126.62,
+            "maxMs": 126.62,
+            "minMs": 126.62
+          },
+          {
+            "page": "diary",
+            "avgMs": 86.28,
+            "maxMs": 86.28,
+            "minMs": 86.28
+          },
+          {
+            "page": "stats",
+            "avgMs": 656.71,
+            "maxMs": 656.71,
+            "minMs": 656.71
+          },
+          {
+            "page": "settings",
+            "avgMs": 132.98,
+            "maxMs": 132.98,
+            "minMs": 132.98
+          }
+        ]
+      }
+    }
+  ],
+  "warmSidecarVariation": [
+    {
+      "page": "index",
+      "minAvgMs": 23.81,
+      "maxAvgMs": 34.07,
+      "variationPct": 30.11
+    },
+    {
+      "page": "plan",
+      "minAvgMs": 27.88,
+      "maxAvgMs": 58.73,
+      "variationPct": 52.53
+    },
+    {
+      "page": "todo",
+      "minAvgMs": 23.16,
+      "maxAvgMs": 43.9,
+      "variationPct": 47.24
+    },
+    {
+      "page": "diary",
+      "minAvgMs": 23.24,
+      "maxAvgMs": 29.79,
+      "variationPct": 21.99
+    },
+    {
+      "page": "stats",
+      "minAvgMs": 23.11,
+      "maxAvgMs": 133.59,
+      "variationPct": 82.7
+    },
+    {
+      "page": "settings",
+      "minAvgMs": 22.18,
+      "maxAvgMs": 35.89,
+      "variationPct": 38.2
+    }
+  ]
+}

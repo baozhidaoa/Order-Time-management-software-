@@ -22,6 +22,7 @@ const MOBILE_GENERATED_ITEM_SHRINK_RATIO = 2 / 3;
 const MOBILE_TODO_DROPDOWN_WIDTH_FACTOR = 0.5;
 const TODO_WIDGET_VIEW_EVENT = "controler:todo-widget-view";
 const TODO_SEARCH_DEBOUNCE_MS = 160;
+const TODO_DRAFT_SAVE_DELAY_MS = 300;
 const TODO_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 let todoSearchTimer = 0;
 let cachedTodoFilterKey = "";
@@ -104,6 +105,163 @@ function getLocalDateText(dateValue = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function escapeTodoSelectorValue(value) {
+  if (typeof window.CSS?.escape === "function") {
+    return window.CSS.escape(String(value ?? ""));
+  }
+  return String(value ?? "").replace(/["\\]/g, "\\$&");
+}
+
+function captureTodoModalDraftFields(modal) {
+  const fields = {};
+  const checkboxGroupCounts = {};
+  modal
+    ?.querySelectorAll?.('input[type="checkbox"][name]')
+    ?.forEach?.((control) => {
+      checkboxGroupCounts[control.name] =
+        (checkboxGroupCounts[control.name] || 0) + 1;
+    });
+  modal?.querySelectorAll?.("input, textarea, select")?.forEach?.((control) => {
+    const key = control.id || control.name;
+    if (!key) {
+      return;
+    }
+    if (control.type === "radio") {
+      if (control.checked) {
+        fields[key] = control.value;
+      }
+      return;
+    }
+    if (control.type === "checkbox") {
+      if (control.name && checkboxGroupCounts[control.name] > 1) {
+        if (!Array.isArray(fields[key])) {
+          fields[key] = [];
+        }
+        if (control.checked) {
+          fields[key].push(control.value);
+        }
+        return;
+      }
+      fields[key] = !!control.checked;
+      return;
+    }
+    fields[key] = control.value;
+  });
+  return fields;
+}
+
+function applyTodoModalDraftFields(modal, fields = {}) {
+  const source = fields && typeof fields === "object" ? fields : {};
+  Object.keys(source).forEach((key) => {
+    const idSelector = `#${escapeTodoSelectorValue(key)}`;
+    const namedControls = Array.from(
+      modal?.querySelectorAll?.(`[name="${escapeTodoSelectorValue(key)}"]`) || [],
+    );
+    const controlById = modal?.querySelector?.(idSelector) || null;
+    if (namedControls.length && namedControls[0]?.type === "radio") {
+      namedControls.forEach((control) => {
+        control.checked = String(control.value) === String(source[key] ?? "");
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      return;
+    }
+    if (
+      namedControls.length > 1 &&
+      namedControls[0]?.type === "checkbox" &&
+      Array.isArray(source[key])
+    ) {
+      const selectedValues = new Set(source[key].map((value) => String(value)));
+      namedControls.forEach((control) => {
+        control.checked = selectedValues.has(String(control.value));
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      return;
+    }
+    const targetControl = controlById || namedControls[0] || null;
+    if (!targetControl) {
+      return;
+    }
+    if (targetControl.type === "checkbox") {
+      targetControl.checked = !!source[key];
+    } else {
+      targetControl.value = source[key] ?? "";
+    }
+    targetControl.dispatchEvent(new Event("input", { bubbles: true }));
+    targetControl.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function createTodoModalDraftSession(modal, draftKey, scope = "todo") {
+  let timer = 0;
+  const persistDraft = async () => {
+    if (!modal?.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+      return;
+    }
+    await window.ControlerStorage.setDraft(
+      draftKey,
+      {
+        fields: captureTodoModalDraftFields(modal),
+      },
+      {
+        scope,
+      },
+    );
+  };
+  const scheduleSave = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      void persistDraft();
+    }, TODO_DRAFT_SAVE_DELAY_MS);
+  };
+  const handlePageHide = () => {
+    void persistDraft();
+  };
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      void persistDraft();
+    }
+  };
+  modal?.querySelectorAll?.("input, textarea, select")?.forEach?.((control) => {
+    control.addEventListener("input", scheduleSave);
+    control.addEventListener("change", scheduleSave);
+  });
+  window.addEventListener("pagehide", handlePageHide);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return {
+    async restore() {
+      if (typeof window.ControlerStorage?.getDraft !== "function") {
+        return null;
+      }
+      const draftEnvelope = await window.ControlerStorage.getDraft(draftKey, {
+        includeEnvelope: true,
+      });
+      const draftValue =
+        draftEnvelope && typeof draftEnvelope === "object"
+          ? Object.prototype.hasOwnProperty.call(draftEnvelope, "value")
+            ? draftEnvelope.value
+            : draftEnvelope
+          : null;
+      if (!draftValue?.fields || !modal?.isConnected) {
+        return null;
+      }
+      applyTodoModalDraftFields(modal, draftValue.fields);
+      return draftValue;
+    },
+    async clear() {
+      window.clearTimeout(timer);
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(draftKey);
+      }
+      return true;
+    },
+    destroy() {
+      window.clearTimeout(timer);
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    },
+  };
+}
+
 function hydrateTodoCollection(section, items = []) {
   const sourceItems = Array.isArray(items) ? items : [];
   switch (section) {
@@ -178,7 +336,36 @@ function readTodoWorkspaceSnapshotFromManagedStorage() {
   }
 }
 
+function readTodoWorkspaceSnapshotFromPageBootstrap() {
+  try {
+    if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
+      return null;
+    }
+    const bootstrap = window.ControlerStorage.peekPageBootstrapState("todo");
+    const data =
+      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
+    if (!data) {
+      return null;
+    }
+    return {
+      todos: Array.isArray(data.todos) ? data.todos : [],
+      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+      dailyCheckins: Array.isArray(data.todayDailyCheckins)
+        ? data.todayDailyCheckins
+        : [],
+      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+    };
+  } catch (error) {
+    console.error("读取待办页引导快照失败，回退旧快照:", error);
+    return null;
+  }
+}
+
 function readTodoWorkspaceSnapshot() {
+  const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
+  if (bootstrapSnapshot) {
+    return bootstrapSnapshot;
+  }
   const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
   const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
   if (window.ControlerStorage?.isNativeApp) {
@@ -3259,7 +3446,16 @@ function showTodoEditModal(todo = null) {
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
+  const todoDraftSession = createTodoModalDraftSession(
+    modal,
+    `draft:todo:${todo?.id || "new"}:${isEditMode ? "edit" : "create"}`,
+    "todo",
+  );
+  void todoDraftSession.restore().catch((error) => {
+    console.error("恢复待办草稿失败:", error);
+  });
   const closeTodoModal = () => {
+    todoDraftSession.destroy();
     unbindModalActions();
     closeModalElement(modal);
   };
@@ -3303,11 +3499,11 @@ function showTodoEditModal(todo = null) {
   syncTodoScheduleInputs();
   bindTodoReminderInputs(modal, "todo");
   bindTodoReminderBaseDateSync(modal, "todo");
-
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: closeTodoModal,
     save: createTodoModalLockedAction(modal, () =>
       saveTodo(modal, isEditMode, todo, {
+        draftSession: todoDraftSession,
         closeModal: closeTodoModal,
       }),
     ),
@@ -3327,6 +3523,9 @@ function showTodoEditModal(todo = null) {
       if (!confirmed) {
         return false;
       }
+      await todoDraftSession.clear().catch((error) => {
+        console.error("清理待办草稿失败:", error);
+      });
       return deleteTodo(todo.id, {
         confirmDelete: false,
         closeModal: closeTodoModal,
@@ -3344,7 +3543,11 @@ function showTodoEditModal(todo = null) {
 
 // 保存待办事项
 async function saveTodo(modal, isEditMode, todoData, options = {}) {
-  const { closeModal = () => closeModalElement(modal), refreshView = true } =
+  const {
+    closeModal = () => closeModalElement(modal),
+    refreshView = true,
+    draftSession = null,
+  } =
     options;
   const title = modal.querySelector("#todo-title-input").value.trim();
   const description = modal
@@ -3471,6 +3674,11 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
     todos.push(newTodo);
   }
 
+  if (draftSession && typeof draftSession.clear === "function") {
+    await draftSession.clear().catch((error) => {
+      console.error("清理待办草稿失败:", error);
+    });
+  }
   finalizeTodoModalChange(closeModal, { refreshView });
 
   void queueTodoCoreSave(
@@ -3570,7 +3778,16 @@ function showCheckinModal(todoId, checkinId = null) {
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
+  const progressDraftSession = createTodoModalDraftSession(
+    modal,
+    `draft:todo-progress:${todoId}:${existingRecord?.id || "new"}`,
+    "todo-progress",
+  );
+  void progressDraftSession.restore().catch((error) => {
+    console.error("恢复进度草稿失败:", error);
+  });
   const closeModal = () => {
+    progressDraftSession.destroy();
     unbindModalActions();
     closeModalElement(modal);
   };
@@ -3596,6 +3813,9 @@ function showCheckinModal(todoId, checkinId = null) {
     const targetCheckin = existingRecord?.id
       ? getTodoCheckinById(existingRecord.id)
       : checkins[checkins.length - 1] || null;
+    await progressDraftSession.clear().catch((error) => {
+      console.error("清理进度草稿失败:", error);
+    });
     finalizeTodoModalChange(closeModal);
     void queueTodoSectionSave("checkins", {
       periodIds: [getTodoSectionPeriodId("checkins", targetCheckin)],
@@ -3634,6 +3854,9 @@ function showCheckinModal(todoId, checkinId = null) {
       });
       return false;
     }
+    await progressDraftSession.clear().catch((error) => {
+      console.error("清理进度草稿失败:", error);
+    });
     finalizeTodoModalChange(closeModal);
     void queueTodoSectionSave("checkins", {
       previousItems: [existingRecord],

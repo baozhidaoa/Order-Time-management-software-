@@ -1,0 +1,912 @@
+{
+  "formatVersion": 1,
+  "section": "dailyCheckins",
+  "periodUnit": "month",
+  "periodId": "2024-04",
+  "count": 180,
+  "minDate": "2024-04-01",
+  "maxDate": "2024-04-30",
+  "fingerprint": "dailyCheckins:2024-04:180:2024-04-01:2024-04-30:11686",
+  "items": [
+    {
+      "itemId": "checkin_item_10",
+      "date": "2024-04-01",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_55",
+      "date": "2024-04-01",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_100",
+      "date": "2024-04-01",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_145",
+      "date": "2024-04-01",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_190",
+      "date": "2024-04-01",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_235",
+      "date": "2024-04-01",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_11",
+      "date": "2024-04-02",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_56",
+      "date": "2024-04-02",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_101",
+      "date": "2024-04-02",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_146",
+      "date": "2024-04-02",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_191",
+      "date": "2024-04-02",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_236",
+      "date": "2024-04-02",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_12",
+      "date": "2024-04-03",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_57",
+      "date": "2024-04-03",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_102",
+      "date": "2024-04-03",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_147",
+      "date": "2024-04-03",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_192",
+      "date": "2024-04-03",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_237",
+      "date": "2024-04-03",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_13",
+      "date": "2024-04-04",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_58",
+      "date": "2024-04-04",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_103",
+      "date": "2024-04-04",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_148",
+      "date": "2024-04-04",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_193",
+      "date": "2024-04-04",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_238",
+      "date": "2024-04-04",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_14",
+      "date": "2024-04-05",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_59",
+      "date": "2024-04-05",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_104",
+      "date": "2024-04-05",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_149",
+      "date": "2024-04-05",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_194",
+      "date": "2024-04-05",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_239",
+      "date": "2024-04-05",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_15",
+      "date": "2024-04-06",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_60",
+      "date": "2024-04-06",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_105",
+      "date": "2024-04-06",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_150",
+      "date": "2024-04-06",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_195",
+      "date": "2024-04-06",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_240",
+      "date": "2024-04-06",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_16",
+      "date": "2024-04-07",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_61",
+      "date": "2024-04-07",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_106",
+      "date": "2024-04-07",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_151",
+      "date": "2024-04-07",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_196",
+      "date": "2024-04-07",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_241",
+      "date": "2024-04-07",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_17",
+      "date": "2024-04-08",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_62",
+      "date": "2024-04-08",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_107",
+      "date": "2024-04-08",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_152",
+      "date": "2024-04-08",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_197",
+      "date": "2024-04-08",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_242",
+      "date": "2024-04-08",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_18",
+      "date": "2024-04-09",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_63",
+      "date": "2024-04-09",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_108",
+      "date": "2024-04-09",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_153",
+      "date": "2024-04-09",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_198",
+      "date": "2024-04-09",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_243",
+      "date": "2024-04-09",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_19",
+      "date": "2024-04-10",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_64",
+      "date": "2024-04-10",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_109",
+      "date": "2024-04-10",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_154",
+      "date": "2024-04-10",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_199",
+      "date": "2024-04-10",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_244",
+      "date": "2024-04-10",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_20",
+      "date": "2024-04-11",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_65",
+      "date": "2024-04-11",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_110",
+      "date": "2024-04-11",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_155",
+      "date": "2024-04-11",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_200",
+      "date": "2024-04-11",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_245",
+      "date": "2024-04-11",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_21",
+      "date": "2024-04-12",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_66",
+      "date": "2024-04-12",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_111",
+      "date": "2024-04-12",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_156",
+      "date": "2024-04-12",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_201",
+      "date": "2024-04-12",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_246",
+      "date": "2024-04-12",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_22",
+      "date": "2024-04-13",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_67",
+      "date": "2024-04-13",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_112",
+      "date": "2024-04-13",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_157",
+      "date": "2024-04-13",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_202",
+      "date": "2024-04-13",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_247",
+      "date": "2024-04-13",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_23",
+      "date": "2024-04-14",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_68",
+      "date": "2024-04-14",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_113",
+      "date": "2024-04-14",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_158",
+      "date": "2024-04-14",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_203",
+      "date": "2024-04-14",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_248",
+      "date": "2024-04-14",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_24",
+      "date": "2024-04-15",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_69",
+      "date": "2024-04-15",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_114",
+      "date": "2024-04-15",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_159",
+      "date": "2024-04-15",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_204",
+      "date": "2024-04-15",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_249",
+      "date": "2024-04-15",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_25",
+      "date": "2024-04-16",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_70",
+      "date": "2024-04-16",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_115",
+      "date": "2024-04-16",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_160",
+      "date": "2024-04-16",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_205",
+      "date": "2024-04-16",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_250",
+      "date": "2024-04-16",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_26",
+      "date": "2024-04-17",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_71",
+      "date": "2024-04-17",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_116",
+      "date": "2024-04-17",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_161",
+      "date": "2024-04-17",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_206",
+      "date": "2024-04-17",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_251",
+      "date": "2024-04-17",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_27",
+      "date": "2024-04-18",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_72",
+      "date": "2024-04-18",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_117",
+      "date": "2024-04-18",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_162",
+      "date": "2024-04-18",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_207",
+      "date": "2024-04-18",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_252",
+      "date": "2024-04-18",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_28",
+      "date": "2024-04-19",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_73",
+      "date": "2024-04-19",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_118",
+      "date": "2024-04-19",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_163",
+      "date": "2024-04-19",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_208",
+      "date": "2024-04-19",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_253",
+      "date": "2024-04-19",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_29",
+      "date": "2024-04-20",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_74",
+      "date": "2024-04-20",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_119",
+      "date": "2024-04-20",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_164",
+      "date": "2024-04-20",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_209",
+      "date": "2024-04-20",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_254",
+      "date": "2024-04-20",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_30",
+      "date": "2024-04-21",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_75",
+      "date": "2024-04-21",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_120",
+      "date": "2024-04-21",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_165",
+      "date": "2024-04-21",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_210",
+      "date": "2024-04-21",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_255",
+      "date": "2024-04-21",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_31",
+      "date": "2024-04-22",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_76",
+      "date": "2024-04-22",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_121",
+      "date": "2024-04-22",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_166",
+      "date": "2024-04-22",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_211",
+      "date": "2024-04-22",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_256",
+      "date": "2024-04-22",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_32",
+      "date": "2024-04-23",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_77",
+      "date": "2024-04-23",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_122",
+      "date": "2024-04-23",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_167",
+      "date": "2024-04-23",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_212",
+      "date": "2024-04-23",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_257",
+      "date": "2024-04-23",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_33",
+      "date": "2024-04-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_78",
+      "date": "2024-04-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_123",
+      "date": "2024-04-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_168",
+      "date": "2024-04-24",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_213",
+      "date": "2024-04-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_258",
+      "date": "2024-04-24",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_34",
+      "date": "2024-04-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_79",
+      "date": "2024-04-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_124",
+      "date": "2024-04-25",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_169",
+      "date": "2024-04-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_214",
+      "date": "2024-04-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_259",
+      "date": "2024-04-25",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_35",
+      "date": "2024-04-26",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_80",
+      "date": "2024-04-26",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_125",
+      "date": "2024-04-26",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_170",
+      "date": "2024-04-26",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_215",
+      "date": "2024-04-26",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_260",
+      "date": "2024-04-26",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_36",
+      "date": "2024-04-27",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_81",
+      "date": "2024-04-27",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_126",
+      "date": "2024-04-27",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_171",
+      "date": "2024-04-27",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_216",
+      "date": "2024-04-27",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_261",
+      "date": "2024-04-27",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_37",
+      "date": "2024-04-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_82",
+      "date": "2024-04-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_127",
+      "date": "2024-04-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_172",
+      "date": "2024-04-28",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_217",
+      "date": "2024-04-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_262",
+      "date": "2024-04-28",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_38",
+      "date": "2024-04-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_83",
+      "date": "2024-04-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_128",
+      "date": "2024-04-29",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_173",
+      "date": "2024-04-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_218",
+      "date": "2024-04-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_263",
+      "date": "2024-04-29",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_39",
+      "date": "2024-04-30",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_84",
+      "date": "2024-04-30",
+      "checked": false
+    },
+    {
+      "itemId": "checkin_item_129",
+      "date": "2024-04-30",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_174",
+      "date": "2024-04-30",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_219",
+      "date": "2024-04-30",
+      "checked": true
+    },
+    {
+      "itemId": "checkin_item_264",
+      "date": "2024-04-30",
+      "checked": false
+    }
+  ]
+}
