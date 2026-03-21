@@ -158,9 +158,9 @@ public class MainActivity extends ReactActivity {
   private Bundle buildInitialProps() {
     Bundle initialProps = new Bundle();
     initialProps.putString("initialUiLanguage", readStoredUiLanguage());
-    String initialCoreStateJson = readStorageCoreStateJson();
-    if (initialCoreStateJson != null && !initialCoreStateJson.isEmpty()) {
-      initialProps.putString("initialCoreStateJson", initialCoreStateJson);
+    String initialThemeStateJson = readLaunchThemeStateJson();
+    if (initialThemeStateJson != null && !initialThemeStateJson.isEmpty()) {
+      initialProps.putString("initialCoreStateJson", initialThemeStateJson);
     }
     return initialProps;
   }
@@ -177,10 +177,11 @@ public class MainActivity extends ReactActivity {
     return DEFAULT_UI_LANGUAGE;
   }
 
-  private String readStorageCoreStateJson() {
+  private String readLaunchThemeStateJson() {
     try {
-      JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(getApplicationContext());
-      return coreState == null ? "" : coreState.toString();
+      JSONObject themeState =
+          ControlerWidgetDataStore.getStorageLaunchThemeState(getApplicationContext());
+      return themeState == null ? "" : themeState.toString();
     } catch (Exception ignored) {
       return "";
     }

@@ -421,6 +421,17 @@ public final class ControlerWidgetDataStore {
         return core;
     }
 
+    public static JSONObject getStorageLaunchThemeState(Context context) {
+        JSONObject source = null;
+        if (usesDirectoryBundleStorage(context)) {
+            source = readBundleCoreState(context);
+        }
+        if (source == null) {
+            source = loadRoot(context);
+        }
+        return extractLaunchThemeState(source);
+    }
+
     public static JSONObject getStorageBootstrapState(Context context, JSONObject options) {
         JSONObject source = options == null ? new JSONObject() : options;
         String page = normalizeBootstrapPage(source.optString("page", ""));
@@ -5270,6 +5281,28 @@ public final class ControlerWidgetDataStore {
             // Ignore theme summary serialization failures.
         }
         return summary;
+    }
+
+    private static JSONObject extractLaunchThemeState(JSONObject source) {
+        JSONObject themeState = new JSONObject();
+        JSONObject safeSource = source == null ? new JSONObject() : source;
+        try {
+            themeState.put(
+                "customThemes",
+                cloneJsonArray(safeSource.optJSONArray("customThemes"))
+            );
+            themeState.put(
+                "builtInThemeOverrides",
+                cloneJsonObject(safeSource.optJSONObject("builtInThemeOverrides"))
+            );
+            themeState.put(
+                "selectedTheme",
+                sanitizeJsonString(safeSource.optString("selectedTheme", "default"))
+            );
+        } catch (Exception error) {
+            error.printStackTrace();
+        }
+        return themeState;
     }
 
     private static JSONObject cloneJsonObject(JSONObject object) {
