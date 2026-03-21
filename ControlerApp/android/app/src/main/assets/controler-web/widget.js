@@ -1337,6 +1337,15 @@ function getCheckinStreakDays(state, itemId) {
   return streak;
 }
 
+function getCheckinCheckedDaysCount(state, itemId) {
+  return new Set(
+    (Array.isArray(state?.dailyCheckins) ? state.dailyCheckins : [])
+      .filter((entry) => String(entry?.itemId || "") === String(itemId || "") && entry?.checked)
+      .map((entry) => entry?.date)
+      .filter(Boolean),
+  ).size;
+}
+
 function getTodayCheckinStats(state) {
   const today = getLocalDateText(new Date());
   const scheduled = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
@@ -1372,7 +1381,7 @@ function getTodayCheckinItems(state) {
     })
     .map((item) => {
       const todayEntry = getCheckinTodayEntry(state, item?.id, today);
-      const streak = getCheckinStreakDays(state, item?.id);
+      const checkedDays = getCheckinCheckedDaysCount(state, item?.id);
       return {
         id: item?.id || "",
         title: item?.title || "未命名打卡",
@@ -1381,7 +1390,7 @@ function getTodayCheckinItems(state) {
         meta: todayEntry?.checked
           ? `打卡时间 ${formatTimeLabel(todayEntry?.time) || "已记录"}`
           : "可直接在这里完成打卡",
-        note: streak > 0 ? `连续 ${streak} 天` : "从今天开始保持连击",
+        note: `已打卡天数: ${checkedDays}`,
         accent: item?.color || "#4299e1",
         actionLabel: todayEntry?.checked ? "撤回" : "打卡",
         actionTone: todayEntry?.checked ? "muted" : "accent",

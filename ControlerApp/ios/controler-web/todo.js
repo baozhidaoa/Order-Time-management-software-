@@ -1875,6 +1875,15 @@ class CheckinItem {
     return true;
   }
 
+  getCheckedDaysCount() {
+    return new Set(
+      dailyCheckins
+        .filter((checkin) => checkin.itemId === this.id && checkin.checked)
+        .map((checkin) => checkin.date)
+        .filter(Boolean),
+    ).size;
+  }
+
   // 获取连续打卡天数
   getStreakDays() {
     if (dailyCheckins.length === 0) return 0;
@@ -4355,7 +4364,7 @@ function createCheckinItemElement(item, listScale = 1) {
 
   const checked = item.getTodayCheckinStatus();
   const pending = isTodoActionPending("checkin", item.id);
-  const streakDays = item.getStreakDays();
+  const checkedDays = item.getCheckedDaysCount();
   const today = getLocalDateText();
   const isScheduledToday =
     typeof item.isScheduledOn === "function" ? item.isScheduledOn(today) : true;
@@ -4372,7 +4381,7 @@ function createCheckinItemElement(item, listScale = 1) {
       </h3>
       <div class="checkin-status" style="display: flex; align-items: center; gap: ${Math.max(6, Math.round(10 * cardScale))}px;">
         <span class="streak-days" style="font-size: ${metaFontSize}px; color: var(--accent-color); background-color: rgba(var(--accent-color-rgb), 0.18); padding: ${Math.max(3, Math.round(4 * cardScale))}px ${Math.max(8, Math.round(10 * cardScale))}px; border-radius: ${Math.max(10, Math.round(14 * cardScale))}px;">
-          🔥 ${streakDays}天
+          🔥 ${checkedDays}天
         </span>
         <button class="checkin-toggle-btn" style="
           width: ${Math.max(28, Math.round(38 * cardScale))}px;
