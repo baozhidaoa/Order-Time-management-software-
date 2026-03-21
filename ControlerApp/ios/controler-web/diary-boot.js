@@ -595,6 +595,7 @@ let diaryInitialReadyReported = false;
 let diaryDeferredRuntimePromise = null;
 let diaryInitialHydrationPromise = null;
 let diaryInitialDataLoaded = false;
+let diaryInitialDataValidated = false;
 let diaryLoadRequestId = 0;
 let diaryLoadingOverlayTimer = 0;
 let diaryLoadingOverlayController = null;
@@ -1403,6 +1404,7 @@ function bootstrapDiaryFromCachedSnapshot() {
     renderDiaryGuideCard();
     renderCurrentView();
     diaryInitialDataLoaded = true;
+    diaryInitialDataValidated = false;
     return true;
   } catch (error) {
     console.error("使用日记缓存快照引导首屏失败:", error);
@@ -1519,12 +1521,13 @@ function hydrateDiaryInitialData(options = {}) {
 
 async function refreshDiaryVisibleData(options = {}) {
   const requestId = ++diaryLoadRequestId;
-  const mode = options.mode || (diaryInitialDataLoaded ? "inline" : "fullscreen");
+  const mode =
+    options.mode || (diaryInitialDataValidated ? "inline" : "fullscreen");
   const anchorDate = options.anchorDate || currentDate;
   const delayMs =
     Number.isFinite(options.delayMs) && options.delayMs >= 0
       ? options.delayMs
-      : diaryInitialDataLoaded
+      : diaryInitialDataValidated
         ? DIARY_LOADING_OVERLAY_DELAY_MS
         : 0;
   const message =
@@ -1552,6 +1555,7 @@ async function refreshDiaryVisibleData(options = {}) {
     renderDiaryGuideCard();
     renderCurrentView();
     diaryInitialDataLoaded = true;
+    diaryInitialDataValidated = true;
     if (options.reportFirstData) {
       uiTools?.markPerfStage?.("first-data-ready", {
         periodIds: diaryLoadedPeriodIds.slice(),
@@ -1602,6 +1606,7 @@ async function refreshDiaryVisibleData(options = {}) {
     renderDiaryGuideCard();
     renderCurrentView();
     diaryInitialDataLoaded = true;
+    diaryInitialDataValidated = true;
     return false;
   } finally {
     if (!diaryRefreshController && requestId === diaryLoadRequestId) {
@@ -3123,6 +3128,8 @@ function clearDiaryWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -3260,12 +3267,10 @@ function initDiaryWidgetLaunchAction() {
 
 async function init() {
   let lastCompactLayout = isCompactMobileLayout();
-  const useWidgetLaunchFastPath =
-    diaryPendingWidgetLaunchAction?.action === "new-diary";
 
   applyDiaryDesktopWidgetMode();
   await waitForDiaryStorageReady();
-  const bootstrappedFromSnapshot = bootstrapDiaryFromCachedSnapshot();
+  bootstrapDiaryFromCachedSnapshot();
   initDiaryPeriodSelectors();
   initDiaryCategoryFilterSelector();
   initDiarySearchControls();
@@ -3282,14 +3287,8 @@ async function init() {
   });
   try {
     const hydrationPromise = hydrateDiaryInitialData({
-      mode:
-        useWidgetLaunchFastPath || bootstrappedFromSnapshot
-          ? "inline"
-          : "fullscreen",
+      mode: diaryInitialDataValidated ? "inline" : "fullscreen",
     });
-    if (useWidgetLaunchFastPath || bootstrappedFromSnapshot) {
-      queueDiaryInitialReveal();
-    }
     const hydrated = await hydrationPromise;
     if (hydrated !== false) {
       flushDiaryPendingWidgetLaunchAction();

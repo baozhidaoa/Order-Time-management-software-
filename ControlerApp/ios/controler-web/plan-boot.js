@@ -2344,14 +2344,14 @@ function getPlanLoadingOverlayController() {
 }
 
 function getPlanLoadingMode(options = {}) {
-  if (options?.blocking === true) {
+  if (options?.blocking === true || !planInitialDataValidated) {
     return "fullscreen";
   }
   return planShellRendered ? "inline" : "fullscreen";
 }
 
 function getPlanLoadingDelayMs(options = {}) {
-  if (options?.blocking === true) {
+  if (options?.blocking === true || !planInitialDataValidated) {
     return 0;
   }
   return planShellRendered ? PLAN_LOADING_OVERLAY_DELAY_MS : 0;
@@ -5821,6 +5821,8 @@ function clearPlanWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -6100,6 +6102,7 @@ async function loadInitialPlanWorkspace() {
       console.error("初始化计划数据失败:", error);
       renderCalendarView();
       planInitialDataLoaded = true;
+      planInitialDataValidated = true;
     })
     .finally(() => {
       planInitialDataLoadPromise = null;

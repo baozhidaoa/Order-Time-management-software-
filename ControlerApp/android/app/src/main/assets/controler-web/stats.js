@@ -1875,29 +1875,6 @@ function applyStatsWorkspaceState(snapshot = {}) {
 async function readStatsWorkspace(scope = getStatsLoadScope()) {
   const preferences = readStatsPreferencesFromStorage();
   try {
-    if (typeof window.ControlerStorage?.getBootstrapState === "function") {
-      const recordScope = getExpandedStatsRecordLoadScope(scope);
-      const bootstrap = await window.ControlerStorage.getBootstrapState({
-        page: "stats",
-        recordsScope: recordScope,
-      });
-      const pageData =
-        bootstrap?.pageData && typeof bootstrap.pageData === "object"
-          ? bootstrap.pageData
-          : null;
-      if (pageData) {
-        const nextRecords = Array.isArray(pageData.records) ? pageData.records : [];
-        return {
-          preferences,
-          records: nextRecords,
-          projects: Array.isArray(pageData.projects) ? pageData.projects : [],
-          loadedRecordPeriodIds:
-            Array.isArray(pageData.recordPeriodIds) && pageData.recordPeriodIds.length
-              ? pageData.recordPeriodIds.slice()
-              : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
-        };
-      }
-    }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       typeof window.ControlerStorage?.getCoreState === "function"
@@ -6774,8 +6751,6 @@ function clearStatsWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
-  params.delete("widgetTargetId");
-  params.delete("widgetCreatedAt");
   params.delete("widgetAnchorDate");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;

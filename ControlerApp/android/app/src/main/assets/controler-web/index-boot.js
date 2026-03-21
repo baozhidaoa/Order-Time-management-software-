@@ -1597,6 +1597,8 @@ let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
 let indexDeferredWorkspaceHydrationPromise = null;
 let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let indexWidgetLaunchCoreReady = false;
+let indexPendingWidgetLaunchAction = null;
 let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
@@ -3480,10 +3482,14 @@ function loadTimerSessionState(options = {}) {
   try {
     const raw = localStorage.getItem(TIMER_STATE_STORAGE_KEY);
     if (!raw) {
-      syncTimerSessionStateWithLatestRecord({
+      const restored = syncTimerSessionStateWithLatestRecord({
         force: true,
         persist: true,
       });
+      if (!restored) {
+        resetTimerCoreState();
+        persistTimerSessionState();
+      }
       return;
     }
 
@@ -3540,10 +3546,14 @@ function loadTimerSessionState(options = {}) {
     });
   } catch (error) {
     console.error("读取计时状态失败:", error);
-    syncTimerSessionStateWithLatestRecord({
+    const restored = syncTimerSessionStateWithLatestRecord({
       force: true,
       persist: true,
     });
+    if (!restored) {
+      resetTimerCoreState();
+      persistTimerSessionState();
+    }
   }
 }
 
@@ -6104,8 +6114,13 @@ function spend(options = {}) {
   return true;
 }
 
-function requestSpendModalOpen() {
+function requestSpendModalOpen(requestedClickTime = new Date()) {
   const now = Date.now();
+  const clickTime =
+    requestedClickTime instanceof Date &&
+    !Number.isNaN(requestedClickTime.getTime())
+      ? requestedClickTime
+      : new Date(now);
   if (
     spendModalClickLocked ||
     isModalOpen ||
@@ -6117,7 +6132,7 @@ function requestSpendModalOpen() {
 
   lastSpendButtonAcceptedAt = now;
   spendModalClickLocked = true;
-  capturePendingSpendModalState(new Date(now));
+  capturePendingSpendModalState(clickTime);
 
   if (openModal()) {
     return true;
@@ -9605,6 +9620,7 @@ function finalizeIndexInitialHydration(options = {}) {
   initIndexSecondaryBindings();
   persistTimerSessionState();
   initIndexWidgetLaunchAction();
+  markIndexWidgetLaunchCoreReady();
   setIndexLoadingState({
     active: false,
   });
@@ -9717,27 +9733,11 @@ async function init() {
     });
 
     if (isIndexWidgetTimerFastPath()) {
-      await loadProjectsFromStorage({
-        applyUi: true,
-      });
-      loadTimerSessionState({
-        forceLatestRecord: false,
-      });
-      updateRemainingTimeDisplay();
-      updateDisplay();
-      persistTimerSessionState();
-      uiTools?.markPerfStage?.("first-data-ready", {
-        projectCount: projects.length,
-        recordCount: 0,
-        periodIds: [],
-        fastPath: true,
-        stage: "core",
-      });
-      setIndexLoadingState({
-        active: false,
-      });
-      queueRecordInitialReveal();
-      void scheduleIndexDeferredWorkspaceHydration();
+      if (!indexShellPageActive) {
+        indexDeferredHydrationPendingResume = true;
+        return;
+      }
+      await hydrateIndexInitialForegroundWorkspace();
       return;
     }
 
@@ -10664,6 +10664,8 @@ function clearIndexWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -10728,6 +10730,40 @@ function scheduleIndexWidgetLaunchHandled(
   return true;
 }
 
+function queueIndexWidgetLaunchAction(payload = {}, options = {}) {
+  const requestedAt = Number(payload?.requestedAt);
+  indexPendingWidgetLaunchAction = {
+    payload: {
+      ...payload,
+      requestedAt:
+        Number.isFinite(requestedAt) && requestedAt > 0
+          ? Math.round(requestedAt)
+          : Date.now(),
+    },
+    options: {
+      ...options,
+    },
+  };
+  return true;
+}
+
+function flushIndexPendingWidgetLaunchAction() {
+  if (!indexWidgetLaunchCoreReady || !indexPendingWidgetLaunchAction) {
+    return false;
+  }
+  const pendingAction = indexPendingWidgetLaunchAction;
+  indexPendingWidgetLaunchAction = null;
+  return handleIndexWidgetLaunchAction(
+    pendingAction.payload,
+    pendingAction.options,
+  );
+}
+
+function markIndexWidgetLaunchCoreReady() {
+  indexWidgetLaunchCoreReady = true;
+  return flushIndexPendingWidgetLaunchAction();
+}
+
 function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -10736,8 +10772,16 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   if (action !== "start-timer") {
     return false;
   }
+  if (!indexWidgetLaunchCoreReady) {
+    return queueIndexWidgetLaunchAction(payload, options);
+  }
+  const requestedAt = Number(payload?.requestedAt);
+  const clickTime =
+    Number.isFinite(requestedAt) && requestedAt > 0
+      ? new Date(requestedAt)
+      : new Date();
   const accepted =
-    requestSpendModalOpen() ||
+    requestSpendModalOpen(clickTime) ||
     isIndexWidgetTimerModalVisible() ||
     !!pendingSpendModalState;
   if (accepted) {

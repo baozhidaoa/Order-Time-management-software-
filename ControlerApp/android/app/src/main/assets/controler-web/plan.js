@@ -1520,43 +1520,6 @@ async function readPlanWorkspace(options = {}) {
       includeRecurringPlans:
         shouldLoadPlans && options.includeRecurringPlans !== false,
     };
-    if (typeof window.ControlerStorage?.getBootstrapState === "function") {
-      const periodIds = shouldLoadPlans
-        ? Array.isArray(options.periodIds) && options.periodIds.length
-          ? options.periodIds
-          : getPlanPeriodIdsForVisibleView()
-        : [];
-      const bootstrap = await window.ControlerStorage.getBootstrapState({
-        page: "plan",
-        plansScope: {
-          periodIds,
-        },
-      });
-      const pageData =
-        bootstrap?.pageData && typeof bootstrap.pageData === "object"
-          ? bootstrap.pageData
-          : null;
-      if (pageData) {
-        const recurringPlans = Array.isArray(pageData.recurringPlans)
-          ? pageData.recurringPlans
-          : [];
-        return {
-          plans: (
-            shouldLoadPlans
-              ? [...(pageData.plans || []), ...recurringPlans]
-              : retainedPlans
-          ).map((rawPlan) => hydratePlan(rawPlan)),
-          yearlyGoals: normalizeYearlyGoalsState(pageData.yearlyGoals || {}),
-          loadedPeriodIds: shouldLoadPlans
-            ? Array.isArray(pageData.planPeriodIds)
-              ? pageData.planPeriodIds.slice()
-              : periodIds.slice()
-            : Array.isArray(retainedPeriodIds)
-              ? retainedPeriodIds.slice()
-              : [],
-        };
-      }
-    }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       (

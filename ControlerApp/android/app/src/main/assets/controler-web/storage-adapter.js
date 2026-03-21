@@ -96,7 +96,6 @@
     "checkinItems",
     "dailyCheckins",
     "checkins",
-    "timerSessionState",
     "yearlyGoals",
     "diaryEntries",
     "diaryCategories",
@@ -106,7 +105,6 @@
     "selectedTheme",
   ]);
   const LEGACY_LOCAL_ONLY_SHARED_KEYS = Object.freeze([
-    "timerSessionState",
     "guideState",
     "customThemes",
     "builtInThemeOverrides",
@@ -126,7 +124,6 @@
     "checkinItems",
     "dailyCheckins",
     "checkins",
-    "timerSessionState",
     "yearlyGoals",
     "diaryEntries",
     "diaryCategories",
@@ -140,7 +137,6 @@
     "projects",
     "todos",
     "checkinItems",
-    "timerSessionState",
     "yearlyGoals",
     "diaryCategories",
     "guideState",
@@ -159,6 +155,7 @@
     "autoSave",
     "notifications",
     "planViewState",
+    "timerSessionState",
     "statsPreferences",
     "projectHierarchyExpansionState",
     "projectTableScale",
@@ -224,7 +221,6 @@
     checkinItems: [],
     dailyCheckins: [],
     checkins: [],
-    timerSessionState: {},
     yearlyGoals: {},
     diaryEntries: [],
     diaryCategories: [],
@@ -634,13 +630,6 @@
     if (!Array.isArray(base.diaryEntries)) base.diaryEntries = [];
     if (!Array.isArray(base.diaryCategories)) base.diaryCategories = [];
     if (!Array.isArray(base.customThemes)) base.customThemes = [];
-    if (
-      !base.timerSessionState ||
-      typeof base.timerSessionState !== "object" ||
-      Array.isArray(base.timerSessionState)
-    ) {
-      base.timerSessionState = {};
-    }
     if (!base.yearlyGoals || typeof base.yearlyGoals !== "object") {
       base.yearlyGoals = {};
     }
@@ -2932,72 +2921,6 @@
       );
     }
 
-    function applyManagedCorePatch(partialCore = {}) {
-      assignState({
-        ...readState(),
-        ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
-      });
-      hasManagedCoreSnapshot = true;
-      persistMirrorSnapshot(true);
-      return getManagedCoreStateSnapshot();
-    }
-
-    function applyManagedSectionRangeSnapshot(section, payload = {}) {
-      const periodId = String(payload?.periodId || "").trim();
-      const state = readState();
-      const sectionItems =
-        section === "plans"
-          ? (state?.plans || []).filter(
-              (item) =>
-                !(typeof storageBundle?.isRecurringPlan === "function"
-                  ? storageBundle.isRecurringPlan(item)
-                  : String(item?.repeat || "").trim().toLowerCase() !== "none"),
-            )
-          : state?.[section] || [];
-      const existingItems = sectionItems.filter(
-        (item) => getManagedSectionPeriodId(section, item) === periodId,
-      );
-      const mergedItems =
-        storageBundle?.mergePartitionItems?.(
-          section,
-          existingItems,
-          payload?.items || [],
-          payload?.mode === "merge" ? "merge" : "replace",
-        ) || cloneValue(payload?.items || []);
-      const remainingItems = sectionItems.filter(
-        (item) => getManagedSectionPeriodId(section, item) !== periodId,
-      );
-      const nextState =
-        section === "plans"
-          ? {
-              ...state,
-              plans: [
-                ...remainingItems,
-                ...mergedItems,
-                ...(state?.plans || []).filter((item) =>
-                  typeof storageBundle?.isRecurringPlan === "function"
-                    ? storageBundle.isRecurringPlan(item)
-                    : String(item?.repeat || "").trim().toLowerCase() !== "none",
-                ),
-              ],
-            }
-          : {
-              ...state,
-              [section]: [...remainingItems, ...mergedItems],
-            };
-      assignState(nextState);
-      hasManagedCoreSnapshot = true;
-      if (periodId) {
-        markManagedSectionPeriodsLoaded(section, [periodId]);
-      }
-      persistMirrorSnapshot(true);
-      return {
-        section,
-        periodId,
-        count: mergedItems.length,
-      };
-    }
-
     function buildManagedCoreStateSnapshot(state = readState()) {
       const sourceState =
         state && typeof state === "object" && !Array.isArray(state)
@@ -3008,7 +2931,6 @@
         projects: cloneValue(sourceState?.projects || []),
         todos: cloneValue(sourceState?.todos || []),
         checkinItems: cloneValue(sourceState?.checkinItems || []),
-        timerSessionState: cloneValue(sourceState?.timerSessionState || {}),
         yearlyGoals: cloneValue(sourceState?.yearlyGoals || {}),
         diaryCategories: cloneValue(sourceState?.diaryCategories || []),
         guideState:
@@ -3060,12 +2982,6 @@
         checkinItems: Array.isArray(corePayload?.checkinItems)
           ? corePayload.checkinItems
           : currentCoreSnapshot.checkinItems,
-        timerSessionState:
-          corePayload?.timerSessionState &&
-          typeof corePayload.timerSessionState === "object" &&
-          !Array.isArray(corePayload.timerSessionState)
-            ? corePayload.timerSessionState
-            : currentCoreSnapshot.timerSessionState,
         yearlyGoals: isPlainObject(corePayload?.yearlyGoals)
           ? corePayload.yearlyGoals
           : currentCoreSnapshot.yearlyGoals,
@@ -3183,332 +3099,6 @@
       touchNativeFastProbeWindow();
       scheduleNativeProbeLoop();
       return getManagedPlanBootstrapStateSnapshot(options);
-    }
-
-    function normalizeBootstrapPage(page) {
-      const normalized = String(page || "").trim().toLowerCase();
-      if (
-        normalized === "index" ||
-        normalized === "todo" ||
-        normalized === "stats" ||
-        normalized === "plan"
-      ) {
-        return normalized;
-      }
-      return "index";
-    }
-
-    function formatBootstrapDate(dateLike) {
-      const date = dateLike instanceof Date ? new Date(dateLike.getTime()) : new Date(dateLike);
-      if (Number.isNaN(date.getTime())) {
-        return "";
-      }
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      return `${year}-${month}-${day}`;
-    }
-
-    function buildDefaultRecordBootstrapScope() {
-      const end = new Date();
-      end.setHours(0, 0, 0, 0);
-      const start = new Date(end.getTime());
-      start.setDate(start.getDate() - 1);
-      return {
-        startDate: formatBootstrapDate(start),
-        endDate: formatBootstrapDate(end),
-      };
-    }
-
-    function buildCurrentMonthBootstrapScope() {
-      const start = new Date();
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start.getTime());
-      end.setMonth(end.getMonth() + 1, 0);
-      return {
-        startDate: formatBootstrapDate(start),
-        endDate: formatBootstrapDate(end),
-      };
-    }
-
-    function resolveBootstrapScope(options, section, fallbackScope = {}) {
-      const source =
-        options && typeof options === "object" && !Array.isArray(options)
-          ? options
-          : {};
-      const scopes =
-        source.scopes && typeof source.scopes === "object" && !Array.isArray(source.scopes)
-          ? source.scopes
-          : {};
-      const explicitScope =
-        source?.[`${section}Scope`] &&
-        typeof source[`${section}Scope`] === "object" &&
-        !Array.isArray(source[`${section}Scope`])
-          ? source[`${section}Scope`]
-          : scopes?.[section] &&
-              typeof scopes[section] === "object" &&
-              !Array.isArray(scopes[section])
-            ? scopes[section]
-            : null;
-      return cloneValue(explicitScope || fallbackScope || {});
-    }
-
-    function buildManagedBootstrapStateSnapshot(options = {}) {
-      const normalizedOptions =
-        options && typeof options === "object" && !Array.isArray(options)
-          ? { ...options }
-          : {};
-      const page = normalizeBootstrapPage(normalizedOptions.page);
-      const coreStateSnapshot = buildManagedCoreStateSnapshot(readState());
-      const payload = {
-        page,
-        snapshotVersion:
-          typeof cachedStatus?.fingerprint === "string" ? cachedStatus.fingerprint : "",
-        generatedAt: new Date().toISOString(),
-        changedSections: [],
-        changedPeriods: {},
-        pendingCompaction: false,
-        pageData: {},
-      };
-
-      switch (page) {
-        case "index": {
-          const recordScope = resolveBootstrapScope(
-            normalizedOptions,
-            "records",
-            buildDefaultRecordBootstrapScope(),
-          );
-          const recordRange = loadManagedSectionRange("records", recordScope);
-          payload.pageData = {
-            projects: cloneValue(coreStateSnapshot.projects),
-            timerSessionState: cloneValue(coreStateSnapshot.timerSessionState),
-            records: cloneValue(recordRange?.items || []),
-            recordPeriodIds: cloneValue(recordRange?.periodIds || []),
-            recordScope,
-          };
-          break;
-        }
-        case "todo": {
-          const dailyCheckinScope = resolveBootstrapScope(
-            normalizedOptions,
-            "dailyCheckins",
-            buildCurrentMonthBootstrapScope(),
-          );
-          const checkinScope = resolveBootstrapScope(
-            normalizedOptions,
-            "checkins",
-            buildCurrentMonthBootstrapScope(),
-          );
-          const dailyCheckinRange = loadManagedSectionRange(
-            "dailyCheckins",
-            dailyCheckinScope,
-          );
-          const checkinRange = loadManagedSectionRange("checkins", checkinScope);
-          payload.pageData = {
-            todos: cloneValue(coreStateSnapshot.todos),
-            checkinItems: cloneValue(coreStateSnapshot.checkinItems),
-            dailyCheckins: cloneValue(dailyCheckinRange?.items || []),
-            checkins: cloneValue(checkinRange?.items || []),
-            dailyCheckinPeriodIds: cloneValue(dailyCheckinRange?.periodIds || []),
-            checkinPeriodIds: cloneValue(checkinRange?.periodIds || []),
-          };
-          break;
-        }
-        case "stats": {
-          const recordScope = resolveBootstrapScope(
-            normalizedOptions,
-            "records",
-            buildCurrentMonthBootstrapScope(),
-          );
-          const recordRange = loadManagedSectionRange("records", recordScope);
-          payload.pageData = {
-            projects: cloneValue(coreStateSnapshot.projects),
-            records: cloneValue(recordRange?.items || []),
-            recordPeriodIds: cloneValue(recordRange?.periodIds || []),
-            recordScope,
-          };
-          break;
-        }
-        case "plan": {
-          const planScope = resolveBootstrapScope(
-            normalizedOptions,
-            "plans",
-            buildCurrentMonthBootstrapScope(),
-          );
-          const planRange = loadManagedSectionRange("plans", planScope);
-          const planBootstrap = getManagedPlanBootstrapStateSnapshot({
-            includeRecurringPlans: true,
-            includeYearlyGoals: true,
-          });
-          payload.pageData = {
-            plans: cloneValue(planRange?.items || []),
-            planPeriodIds: cloneValue(planRange?.periodIds || []),
-            recurringPlans: cloneValue(planBootstrap?.recurringPlans || []),
-            yearlyGoals: cloneValue(planBootstrap?.yearlyGoals || {}),
-          };
-          break;
-        }
-        default:
-          payload.pageData = {
-            core: cloneValue(coreStateSnapshot),
-          };
-          break;
-      }
-
-      return payload;
-    }
-
-    function applyManagedBootstrapSnapshot(snapshot = {}, options = {}) {
-      const page = normalizeBootstrapPage(snapshot?.page || options?.page);
-      const pageData =
-        snapshot?.pageData && typeof snapshot.pageData === "object"
-          ? snapshot.pageData
-          : {};
-      const currentState = readState();
-      let nextState = {
-        ...currentState,
-      };
-
-      switch (page) {
-        case "index": {
-          if (Array.isArray(pageData.projects)) {
-            nextState.projects = cloneValue(pageData.projects);
-          }
-          if (
-            pageData.timerSessionState &&
-            typeof pageData.timerSessionState === "object" &&
-            !Array.isArray(pageData.timerSessionState)
-          ) {
-            nextState.timerSessionState = cloneValue(pageData.timerSessionState);
-          }
-          cachedState = normalizeState(nextState, buildMobileMetadata(cachedStatus || {}));
-          hasManagedCoreSnapshot = true;
-          const recordScope =
-            pageData.recordScope &&
-            typeof pageData.recordScope === "object" &&
-            !Array.isArray(pageData.recordScope)
-              ? pageData.recordScope
-              : {
-                  periodIds: Array.isArray(pageData.recordPeriodIds)
-                    ? pageData.recordPeriodIds
-                    : [],
-                };
-          mergeManagedSectionRange("records", recordScope, pageData.records || []);
-          break;
-        }
-        case "todo": {
-          if (Array.isArray(pageData.todos)) {
-            nextState.todos = cloneValue(pageData.todos);
-          }
-          if (Array.isArray(pageData.checkinItems)) {
-            nextState.checkinItems = cloneValue(pageData.checkinItems);
-          }
-          cachedState = normalizeState(nextState, buildMobileMetadata(cachedStatus || {}));
-          hasManagedCoreSnapshot = true;
-          mergeManagedSectionRange(
-            "dailyCheckins",
-            {
-              periodIds: Array.isArray(pageData.dailyCheckinPeriodIds)
-                ? pageData.dailyCheckinPeriodIds
-                : [],
-            },
-            pageData.dailyCheckins || [],
-          );
-          mergeManagedSectionRange(
-            "checkins",
-            {
-              periodIds: Array.isArray(pageData.checkinPeriodIds)
-                ? pageData.checkinPeriodIds
-                : [],
-            },
-            pageData.checkins || [],
-          );
-          break;
-        }
-        case "stats": {
-          if (Array.isArray(pageData.projects)) {
-            nextState.projects = cloneValue(pageData.projects);
-          }
-          cachedState = normalizeState(nextState, buildMobileMetadata(cachedStatus || {}));
-          hasManagedCoreSnapshot = true;
-          mergeManagedSectionRange(
-            "records",
-            pageData.recordScope &&
-              typeof pageData.recordScope === "object" &&
-              !Array.isArray(pageData.recordScope)
-              ? pageData.recordScope
-              : {
-                  periodIds: Array.isArray(pageData.recordPeriodIds)
-                    ? pageData.recordPeriodIds
-                    : [],
-                },
-            pageData.records || [],
-          );
-          break;
-        }
-        case "plan": {
-          const nextRecurringPlans = Array.isArray(pageData.recurringPlans)
-            ? cloneValue(pageData.recurringPlans)
-            : getManagedRecurringPlans(currentState);
-          nextState = normalizeState(
-            {
-              ...currentState,
-              yearlyGoals:
-                pageData.yearlyGoals &&
-                typeof pageData.yearlyGoals === "object" &&
-                !Array.isArray(pageData.yearlyGoals)
-                  ? cloneValue(pageData.yearlyGoals)
-                  : currentState?.yearlyGoals || {},
-              plans: [
-                ...(
-                  Array.isArray(currentState?.plans)
-                    ? currentState.plans.filter(
-                        (item) =>
-                          !(typeof storageBundle?.isRecurringPlan === "function"
-                            ? storageBundle.isRecurringPlan(item)
-                            : String(item?.repeat || "").trim().toLowerCase() !== "none"),
-                      )
-                    : []
-                ),
-                ...nextRecurringPlans,
-              ],
-            },
-            buildMobileMetadata(cachedStatus || {}),
-          );
-          cachedState = nextState;
-          hasManagedCoreSnapshot = true;
-          mergeManagedSectionRange(
-            "plans",
-            {
-              periodIds: Array.isArray(pageData.planPeriodIds)
-                ? pageData.planPeriodIds
-                : [],
-            },
-            pageData.plans || [],
-          );
-          break;
-        }
-        default: {
-          cachedState = normalizeState(
-            mergeManagedStateWithNativeCorePayload(pageData.core || snapshot, currentState),
-            buildMobileMetadata(cachedStatus || {}),
-          );
-          hasManagedCoreSnapshot = true;
-          break;
-        }
-      }
-
-      lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
-      hasPendingStateChanges = false;
-      persistMirrorSnapshot(true);
-      clearStorageSyncError();
-      touchNativeFastProbeWindow();
-      scheduleNativeProbeLoop();
-      return buildManagedBootstrapStateSnapshot({
-        ...options,
-        page,
-      });
     }
 
     function getManagedCoreStateSnapshot() {
@@ -3653,34 +3243,6 @@
           }
           return managedSnapshot;
         },
-        async getBootstrapState(options = {}) {
-          const normalizedOptions =
-            options && typeof options === "object" ? { ...options } : {};
-          const managedSnapshot = buildManagedBootstrapStateSnapshot(
-            normalizedOptions,
-          );
-          if (hasManagedCoreSnapshot) {
-            scheduleManagedFastValidation(
-              `bootstrap-fast-path:${normalizeBootstrapPage(normalizedOptions.page)}`,
-            );
-            return managedSnapshot;
-          }
-          try {
-            const rawPayload = await reactNativeBridge.call(
-              "storage.getBootstrapState",
-              {
-                options: normalizedOptions,
-              },
-            );
-            const parsed = parseJsonSafely(rawPayload, null);
-            if (parsed && typeof parsed === "object") {
-              return applyManagedBootstrapSnapshot(parsed, normalizedOptions);
-            }
-          } catch (error) {
-            console.error("读取 React Native 页面引导数据失败，回退本地快照:", error);
-          }
-          return managedSnapshot;
-        },
         async getAutoBackupStatus() {
           try {
             const rawPayload = await reactNativeBridge.call("storage.getAutoBackupStatus");
@@ -3785,8 +3347,57 @@
         },
         async saveSectionRange(section, payload = {}) {
           const periodId = String(payload?.periodId || "").trim();
-          const optimisticResult = applyManagedSectionRangeSnapshot(section, payload);
+          const state = readState();
+          const sectionItems =
+            section === "plans"
+              ? (state?.plans || []).filter(
+                  (item) =>
+                    !(typeof storageBundle?.isRecurringPlan === "function"
+                      ? storageBundle.isRecurringPlan(item)
+                      : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                )
+              : state?.[section] || [];
+          const existingItems = sectionItems.filter(
+            (item) => getManagedSectionPeriodId(section, item) === periodId,
+          );
+          const mergedItems =
+            storageBundle?.mergePartitionItems?.(
+              section,
+              existingItems,
+              payload?.items || [],
+              payload?.mode === "merge" ? "merge" : "replace",
+            ) || cloneValue(payload?.items || []);
+          const remainingItems = sectionItems.filter(
+            (item) => getManagedSectionPeriodId(section, item) !== periodId,
+          );
+          const nextState =
+            section === "plans"
+              ? {
+                  ...state,
+                  plans: [
+                    ...remainingItems,
+                    ...mergedItems,
+                    ...(state?.plans || []).filter((item) =>
+                      typeof storageBundle?.isRecurringPlan === "function"
+                        ? storageBundle.isRecurringPlan(item)
+                        : String(item?.repeat || "").trim().toLowerCase() !== "none",
+                    ),
+                  ],
+                }
+              : {
+                  ...state,
+                  [section]: [...remainingItems, ...mergedItems],
+                };
+          assignState(nextState);
+          hasManagedCoreSnapshot = true;
+          markManagedSectionPeriodsLoaded(section, [periodId]);
+          persistMirrorSnapshot(true);
           const checkpoint = createManagedStateCheckpoint();
+          const optimisticResult = {
+            section,
+            periodId,
+            count: mergedItems.length,
+          };
           try {
             return await queueManagedNativeDirectWrite(
               async () => {
@@ -3829,8 +3440,14 @@
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const changedSections = inferChangedSectionsFromCorePatch(partialCore);
-          const optimisticResult = applyManagedCorePatch(partialCore);
+          assignState({
+            ...readState(),
+            ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
+          });
+          hasManagedCoreSnapshot = true;
+          persistMirrorSnapshot(true);
           const checkpoint = createManagedStateCheckpoint();
+          const optimisticResult = getManagedCoreStateSnapshot();
           try {
             return await queueManagedNativeDirectWrite(
               async () => {
@@ -3862,132 +3479,6 @@
             scheduleManagedPendingNativeFlush();
             return optimisticResult;
           }
-        },
-        async appendJournal(payload = {}) {
-          const operations = Array.isArray(payload?.ops) ? payload.ops : [];
-          if (!operations.length) {
-            return {
-              ok: true,
-              results: [],
-              changedSections: [],
-              changedPeriods: {},
-              snapshotVersion:
-                typeof cachedStatus?.fingerprint === "string"
-                  ? cachedStatus.fingerprint
-                  : "",
-              generatedAt: new Date().toISOString(),
-            };
-          }
-
-          const changedSections = new Set();
-          const changedPeriods = {};
-          const optimisticResults = [];
-          operations.forEach((operation) => {
-            const kind = String(operation?.kind || "").trim();
-            if (kind === "replaceCoreState") {
-              const partialCore =
-                operation?.partialCore &&
-                typeof operation.partialCore === "object" &&
-                !Array.isArray(operation.partialCore)
-                  ? operation.partialCore
-                  : {};
-              optimisticResults.push(applyManagedCorePatch(partialCore));
-              inferChangedSectionsFromCorePatch(partialCore).forEach((sectionName) => {
-                changedSections.add(sectionName);
-              });
-              return;
-            }
-            if (kind === "saveSectionRange") {
-              const section = String(operation?.section || "").trim();
-              if (!section) {
-                return;
-              }
-              const sectionPayload =
-                operation?.payload &&
-                typeof operation.payload === "object" &&
-                !Array.isArray(operation.payload)
-                  ? operation.payload
-                  : {};
-              optimisticResults.push(
-                applyManagedSectionRangeSnapshot(section, sectionPayload),
-              );
-              changedSections.add(section);
-              const periodId = String(sectionPayload?.periodId || "").trim();
-              if (periodId) {
-                changedPeriods[section] = Array.from(
-                  new Set([...(changedPeriods[section] || []), periodId]),
-                );
-              }
-            }
-          });
-
-          const checkpoint = createManagedStateCheckpoint();
-          const optimisticPayload = {
-            ok: true,
-            results: optimisticResults,
-            changedSections: Array.from(changedSections),
-            changedPeriods,
-            snapshotVersion:
-              typeof cachedStatus?.fingerprint === "string"
-                ? cachedStatus.fingerprint
-                : "",
-            generatedAt: new Date().toISOString(),
-          };
-
-          try {
-            return await queueManagedNativeDirectWrite(
-              async () => {
-                const rawPayload = await reactNativeBridge.call(
-                  "storage.appendJournal",
-                  {
-                    payload,
-                  },
-                );
-                const parsed = parseJsonSafely(rawPayload, null);
-                await settleManagedNativeDirectWrite(checkpoint);
-                emitNativeStorageChangedBridgeEvent("journal-append", {
-                  changedSections: optimisticPayload.changedSections,
-                  changedPeriods: optimisticPayload.changedPeriods,
-                });
-                return parsed && typeof parsed === "object"
-                  ? parsed
-                  : optimisticPayload;
-              },
-              {
-                errorLabel: "追加 React Native 存储日志失败:",
-              },
-            );
-          } catch (error) {
-            console.error("追加 React Native 存储日志失败，已保留本地镜像:", error);
-            markPendingNativeStorageChangeMetadata({
-              changedSections: optimisticPayload.changedSections,
-              changedPeriods: optimisticPayload.changedPeriods,
-            });
-            scheduleManagedPendingNativeFlush();
-            return optimisticPayload;
-          }
-        },
-        async flushJournal() {
-          try {
-            const rawPayload = await reactNativeBridge.call("storage.flushJournal");
-            const parsed = parseJsonSafely(rawPayload, null);
-            if (parsed && typeof parsed === "object") {
-              clearStorageSyncError();
-              touchNativeFastProbeWindow();
-              scheduleNativeProbeLoop();
-              return parsed;
-            }
-          } catch (error) {
-            console.error("刷新 React Native 存储日志失败:", error);
-          }
-          return {
-            ok: true,
-            snapshotVersion:
-              typeof cachedStatus?.fingerprint === "string"
-                ? cachedStatus.fingerprint
-                : "",
-            generatedAt: new Date().toISOString(),
-          };
         },
         async replaceRecurringPlans(items = []) {
           const state = readState();

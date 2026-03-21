@@ -285,8 +285,6 @@
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
-  const RN_APP_PAGE_TRANSITION_RETRY_AFTER_MS = 140;
-  const RN_APP_PAGE_TRANSITION_MAX_ATTEMPTS = 4;
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -627,111 +625,7 @@
     if (pendingRequest.timeoutId) {
       window.clearTimeout(pendingRequest.timeoutId);
     }
-    if (pendingRequest.retryTimerId) {
-      window.clearTimeout(pendingRequest.retryTimerId);
-    }
     return pendingRequest;
-  }
-
-  function buildNativeNavigationRetryDelay(detail = {}) {
-    const requestedDelay = Number(detail.retryAfterMs);
-    if (Number.isFinite(requestedDelay) && requestedDelay >= 40) {
-      return Math.min(Math.max(Math.round(requestedDelay), 40), 900);
-    }
-    return RN_APP_PAGE_TRANSITION_RETRY_AFTER_MS;
-  }
-
-  function dispatchPendingNativeNavigationRequest(pendingRequest) {
-    if (!pendingRequest || pendingNativeNavigationRequest !== pendingRequest) {
-      return false;
-    }
-    if (!pendingRequest.targetItem) {
-      clearPendingNativeNavigationRequest();
-      return false;
-    }
-
-    const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
-    const requested = window.ControlerNativeBridge?.emitEvent?.("ui.navigate", {
-      page: pendingRequest.targetItem.key,
-      href: pendingRequest.targetHref,
-      direction: pendingRequest.direction,
-      requestId,
-    });
-    if (!requested) {
-      clearPendingNativeNavigationRequest();
-      window.location.href = pendingRequest.targetHref;
-      return false;
-    }
-
-    pendingRequest.requestId = requestId;
-    pendingRequest.attempts =
-      Math.max(0, Number(pendingRequest.attempts) || 0) + 1;
-    pendingRequest.timeoutId = window.setTimeout(() => {
-      if (
-        pendingNativeNavigationRequest !== pendingRequest ||
-        pendingRequest.requestId !== requestId
-      ) {
-        return;
-      }
-      schedulePendingNativeNavigationRetry(pendingRequest);
-    }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS);
-    return true;
-  }
-
-  function schedulePendingNativeNavigationRetry(
-    pendingRequest,
-    retryAfterMs = RN_APP_PAGE_TRANSITION_RETRY_AFTER_MS,
-  ) {
-    if (!pendingRequest || pendingNativeNavigationRequest !== pendingRequest) {
-      return false;
-    }
-
-    if (pendingRequest.timeoutId) {
-      window.clearTimeout(pendingRequest.timeoutId);
-      pendingRequest.timeoutId = 0;
-    }
-    if (pendingRequest.retryTimerId) {
-      window.clearTimeout(pendingRequest.retryTimerId);
-      pendingRequest.retryTimerId = 0;
-    }
-
-    if (
-      Math.max(0, Number(pendingRequest.attempts) || 0) >=
-      RN_APP_PAGE_TRANSITION_MAX_ATTEMPTS
-    ) {
-      clearPendingNativeNavigationRequest();
-      window.location.href = pendingRequest.targetHref;
-      return false;
-    }
-
-    pendingRequest.requestId = "";
-    pendingRequest.retryTimerId = window.setTimeout(() => {
-      if (pendingNativeNavigationRequest !== pendingRequest) {
-        return;
-      }
-      pendingRequest.retryTimerId = 0;
-      dispatchPendingNativeNavigationRequest(pendingRequest);
-    }, Math.max(40, Math.round(retryAfterMs)));
-    return true;
-  }
-
-  function beginPendingNativeNavigationRequest(targetItem, direction) {
-    const existingRequest = pendingNativeNavigationRequest;
-    if (existingRequest?.targetHref === targetItem?.href) {
-      return true;
-    }
-
-    clearPendingNativeNavigationRequest();
-    pendingNativeNavigationRequest = {
-      requestId: "",
-      targetItem,
-      targetHref: targetItem?.href || "",
-      direction: direction || "forward",
-      attempts: 0,
-      timeoutId: 0,
-      retryTimerId: 0,
-    };
-    return dispatchPendingNativeNavigationRequest(pendingNativeNavigationRequest);
   }
 
   function initNativeNavigationBridge() {
@@ -763,19 +657,6 @@
 
       const pendingRequest = clearPendingNativeNavigationRequest();
       if (!pendingRequest) {
-        return;
-      }
-
-      if (detail.accepted === true) {
-        return;
-      }
-
-      if (detail.busy === true || detail.status === "busy") {
-        pendingNativeNavigationRequest = pendingRequest;
-        schedulePendingNativeNavigationRetry(
-          pendingRequest,
-          buildNativeNavigationRetryDelay(detail),
-        );
         return;
       }
 
@@ -1357,7 +1238,31 @@
       resetAppPageTransitionRuntimeState();
       initNativeNavigationBridge();
       const direction = getNavigationDirection(currentItem?.key || "", targetItem.key);
-      beginPendingNativeNavigationRequest(targetItem, direction);
+      const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
+      const requested = window.ControlerNativeBridge?.emitEvent?.("ui.navigate", {
+        page: targetItem.key,
+        href: targetItem.href,
+        direction,
+        requestId,
+      });
+      if (!requested) {
+        window.location.href = targetItem.href;
+        return true;
+      }
+      pendingNativeNavigationRequest = {
+        requestId,
+        targetHref: targetItem.href,
+        timeoutId: window.setTimeout(() => {
+          if (
+            !pendingNativeNavigationRequest ||
+            pendingNativeNavigationRequest.requestId !== requestId
+          ) {
+            return;
+          }
+          clearPendingNativeNavigationRequest();
+          window.location.href = targetItem.href;
+        }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS),
+      };
       return true;
     }
 

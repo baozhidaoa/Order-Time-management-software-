@@ -9186,6 +9186,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let pendingNativeNavigationRequest = null;
+  let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
   let lastReportedAppNavigationStateSignature = "";
@@ -10444,6 +10445,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const root = document.documentElement;
     const body = document.body;
     const active = hasVisibleBlockingOverlay();
+    applyBlockingOverlayScrollLock(active);
     root?.classList.toggle("controler-blocking-overlay-active", active);
     body?.classList.toggle("controler-blocking-overlay-active", active);
     if (lastReportedBlockingOverlayActive !== active) {
@@ -10467,12 +10469,88 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     blockingOverlaySyncQueued = true;
 
     const schedule =
-      typeof window !== "undefined" &&
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => setTimeout(callback, 0);
+      typeof queueMicrotask === "function"
+        ? queueMicrotask
+        : (callback) => Promise.resolve().then(callback);
 
     schedule(syncBlockingOverlayState);
+  }
+
+  function applyBlockingOverlayScrollLock(active) {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    const body = document.body;
+    if (!root || !body) {
+      return;
+    }
+
+    if (active) {
+      if (blockingOverlayScrollLockState) {
+        return;
+      }
+
+      const scrollTop = Math.max(
+        window.scrollY || window.pageYOffset || root.scrollTop || body.scrollTop || 0,
+        0,
+      );
+      blockingOverlayScrollLockState = {
+        scrollTop,
+        rootOverflow: root.style.overflow,
+        rootOverscrollBehavior: root.style.overscrollBehavior,
+        bodyOverflow: body.style.overflow,
+        bodyPosition: body.style.position,
+        bodyTop: body.style.top,
+        bodyLeft: body.style.left,
+        bodyRight: body.style.right,
+        bodyWidth: body.style.width,
+        bodyTouchAction: body.style.touchAction,
+      };
+      root.style.overflow = "hidden";
+      root.style.overscrollBehavior = "none";
+      body.style.overflow = "hidden";
+      body.style.position = "fixed";
+      body.style.top = `-${scrollTop}px`;
+      body.style.left = "0";
+      body.style.right = "0";
+      body.style.width = "100%";
+      body.style.touchAction = "none";
+      root.classList.add("controler-scroll-locked");
+      body.classList.add("controler-scroll-locked");
+      return;
+    }
+
+    if (!blockingOverlayScrollLockState) {
+      return;
+    }
+
+    const {
+      scrollTop,
+      rootOverflow,
+      rootOverscrollBehavior,
+      bodyOverflow,
+      bodyPosition,
+      bodyTop,
+      bodyLeft,
+      bodyRight,
+      bodyWidth,
+      bodyTouchAction,
+    } = blockingOverlayScrollLockState;
+    blockingOverlayScrollLockState = null;
+    root.style.overflow = rootOverflow || "";
+    root.style.overscrollBehavior = rootOverscrollBehavior || "";
+    body.style.overflow = bodyOverflow || "";
+    body.style.position = bodyPosition || "";
+    body.style.top = bodyTop || "";
+    body.style.left = bodyLeft || "";
+    body.style.right = bodyRight || "";
+    body.style.width = bodyWidth || "";
+    body.style.touchAction = bodyTouchAction || "";
+    root.classList.remove("controler-scroll-locked");
+    body.classList.remove("controler-scroll-locked");
+    window.scrollTo(0, Math.max(0, Number(scrollTop) || 0));
   }
 
   function buildModalHistoryState(token) {
