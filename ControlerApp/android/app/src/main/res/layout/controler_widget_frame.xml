@@ -125,6 +125,43 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <FrameLayout
+            android:id="@+id/widget_collection_shell"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="10dp"
+            android:layout_weight="1"
+            android:visibility="gone">
+
+            <ListView
+                android:id="@+id/widget_collection_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:cacheColorHint="@android:color/transparent"
+                android:clipToPadding="false"
+                android:divider="@android:color/transparent"
+                android:dividerHeight="6dp"
+                android:fadingEdge="none"
+                android:listSelector="@android:color/transparent"
+                android:overScrollMode="never"
+                android:paddingBottom="2dp"
+                android:paddingTop="2dp"
+                android:scrollbars="none"
+                android:transcriptMode="disabled" />
+
+            <TextView
+                android:id="@+id/widget_collection_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="@drawable/controler_widget_stat_background"
+                android:gravity="center"
+                android:padding="14dp"
+                android:text="暂无可展示项目"
+                android:textColor="#D2E4D7"
+                android:textSize="11sp" />
+        </FrameLayout>
+
         <LinearLayout
             android:id="@+id/widget_item_list"
             android:layout_width="match_parent"

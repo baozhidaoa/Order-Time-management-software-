@@ -233,6 +233,8 @@ let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
 let indexDeferredWorkspaceHydrationPromise = null;
 let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let indexWidgetLaunchCoreReady = false;
+let indexPendingWidgetLaunchAction = null;
 let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
@@ -577,6 +579,52 @@ function scheduleSilentIndexProjectDurationCachePersist() {
 async function hydrateIndexWorkspace(options = {}) {
   const includeProjects = options.includeProjects !== false;
   const includeRecords = options.includeRecords !== false;
+  const recordScope =
+    options?.recordScope && typeof options.recordScope === "object"
+      ? options.recordScope
+      : getIndexDefaultRecordScope();
+  if (
+    (includeProjects || includeRecords) &&
+    typeof window.ControlerStorage?.getBootstrapState === "function"
+  ) {
+    try {
+      const bootstrap = await window.ControlerStorage.getBootstrapState({
+        page: "index",
+        recordsScope: recordScope,
+      });
+      const pageData =
+        bootstrap?.pageData && typeof bootstrap.pageData === "object"
+          ? bootstrap.pageData
+          : null;
+      if (pageData) {
+        if (includeProjects) {
+          projects = normalizeStoredProjects(pageData.projects || []);
+          loadProjectHierarchyExpansionStateFromStorage();
+          projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+            projectTotalsExpansionState,
+            projects,
+          );
+        }
+        if (includeRecords) {
+          records = normalizeIndexLoadedRecords(pageData.records || []);
+          indexLoadedRecordPeriodIds =
+            Array.isArray(pageData.recordPeriodIds) && pageData.recordPeriodIds.length
+              ? pageData.recordPeriodIds.slice()
+              : getIndexRecordPeriodIds(records);
+          indexDirtyRecordPeriodIds = new Set();
+        }
+        return {
+          includeProjects,
+          includeRecords,
+          projectCount: Array.isArray(projects) ? projects.length : 0,
+          recordCount: Array.isArray(records) ? records.length : 0,
+          periodIds: indexLoadedRecordPeriodIds.slice(),
+        };
+      }
+    } catch (error) {
+      console.error("读取记录页 bootstrap 数据失败，回退常规分区加载:", error);
+    }
+  }
   await Promise.all([
     includeProjects
       ? loadProjectsFromStorage({
@@ -2023,29 +2071,32 @@ function resetShortenTimeInputs(shouldRefreshDisplay = false) {
 }
 
 function persistTimerSessionState() {
+  const payload = buildTimerSessionStatePayload();
   try {
-    localStorage.setItem(
-      TIMER_STATE_STORAGE_KEY,
-      JSON.stringify({
-        sessionVersion: TIMER_STATE_STORAGE_VERSION,
-        ptn:
-          Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
-        fpt: serializeTimerDate(fpt),
-        spt: serializeTimerDate(spt),
-        lastspt: serializeTimerDate(lastspt),
-        diffMs: Number.isFinite(diffMs) ? Math.max(diffMs, 0) : null,
-        selectedProject,
-        nextProject,
-        lastEnteredProjectName,
-        pendingDurationCarryoverState: pendingDurationCarryoverState
-          ? { ...pendingDurationCarryoverState }
-          : null,
-        savedAt: new Date().toISOString(),
-      }),
-    );
+    localStorage.setItem(TIMER_STATE_STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
     console.error("保存计时状态失败:", error);
   }
+  return payload;
+}
+
+function buildTimerSessionStatePayload() {
+  return {
+    sessionVersion: TIMER_STATE_STORAGE_VERSION,
+    ptn:
+      Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
+    fpt: serializeTimerDate(fpt),
+    spt: serializeTimerDate(spt),
+    lastspt: serializeTimerDate(lastspt),
+    diffMs: Number.isFinite(diffMs) ? Math.max(diffMs, 0) : null,
+    selectedProject,
+    nextProject,
+    lastEnteredProjectName,
+    pendingDurationCarryoverState: pendingDurationCarryoverState
+      ? { ...pendingDurationCarryoverState }
+      : null,
+    savedAt: new Date().toISOString(),
+  };
 }
 
 function repairLegacyTimerSessionState(rawState) {
@@ -2116,10 +2167,14 @@ function loadTimerSessionState(options = {}) {
   try {
     const raw = localStorage.getItem(TIMER_STATE_STORAGE_KEY);
     if (!raw) {
-      syncTimerSessionStateWithLatestRecord({
+      const restored = syncTimerSessionStateWithLatestRecord({
         force: true,
         persist: true,
       });
+      if (!restored) {
+        resetTimerCoreState();
+        persistTimerSessionState();
+      }
       return;
     }
 
@@ -2176,10 +2231,14 @@ function loadTimerSessionState(options = {}) {
     });
   } catch (error) {
     console.error("读取计时状态失败:", error);
-    syncTimerSessionStateWithLatestRecord({
+    const restored = syncTimerSessionStateWithLatestRecord({
       force: true,
       persist: true,
     });
+    if (!restored) {
+      resetTimerCoreState();
+      persistTimerSessionState();
+    }
   }
 }
 
@@ -3935,14 +3994,135 @@ function save(options = {}) {
 
   const record = createRecordEntry(selectedProject, result, options);
 
+  appendIndexRecord(record);
+  updateProjectTotals();
+  return record;
+}
+
+function appendIndexRecord(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
   records.push(record);
   markIndexRecordPeriodsDirty([record]);
   applyIndexProjectRecordDurationChanges({
     addedRecords: [record],
   });
-  saveRecordsToStorage();
-  updateProjectTotals();
   return record;
+}
+
+function removeIndexRecord(record) {
+  const recordId = String(record?.id || "").trim();
+  if (!recordId) {
+    return false;
+  }
+
+  const recordIndex = records.findIndex(
+    (candidate) => String(candidate?.id || "").trim() === recordId,
+  );
+  if (recordIndex === -1) {
+    return false;
+  }
+
+  const [removedRecord] = records.splice(recordIndex, 1);
+  applyIndexProjectRecordDurationChanges({
+    removedRecords: [removedRecord],
+  });
+  return true;
+}
+
+function cloneIndexProjectSnapshot(projectList = projects) {
+  try {
+    return normalizeStoredProjects(JSON.parse(JSON.stringify(projectList || [])));
+  } catch (error) {
+    console.error("克隆项目快照失败，回退浅层归一化:", error);
+    return normalizeStoredProjects(Array.isArray(projectList) ? projectList : []);
+  }
+}
+
+function captureIndexSaveTransactionSnapshot() {
+  return {
+    projects: cloneIndexProjectSnapshot(projects),
+    timerCoreState: captureTimerCoreState(),
+    selectedProject,
+    nextProject,
+    lastEnteredProjectName,
+    pendingDurationCarryoverState: pendingDurationCarryoverState
+      ? { ...pendingDurationCarryoverState }
+      : null,
+    dirtyRecordPeriodIds: [...indexDirtyRecordPeriodIds],
+    loadedRecordPeriodIds: indexLoadedRecordPeriodIds.slice(),
+  };
+}
+
+function restoreIndexSaveTransactionSnapshot(snapshot = {}) {
+  projects = cloneIndexProjectSnapshot(snapshot.projects || []);
+  restoreTimerCoreState(snapshot.timerCoreState);
+  selectedProject =
+    typeof snapshot.selectedProject === "string" ? snapshot.selectedProject : "";
+  nextProject = typeof snapshot.nextProject === "string" ? snapshot.nextProject : "";
+  lastEnteredProjectName =
+    typeof snapshot.lastEnteredProjectName === "string"
+      ? snapshot.lastEnteredProjectName
+      : "";
+  pendingDurationCarryoverState = normalizeDurationCarryoverState(
+    snapshot.pendingDurationCarryoverState,
+  );
+  indexDirtyRecordPeriodIds = new Set(
+    Array.isArray(snapshot.dirtyRecordPeriodIds) ? snapshot.dirtyRecordPeriodIds : [],
+  );
+  indexLoadedRecordPeriodIds = Array.isArray(snapshot.loadedRecordPeriodIds)
+    ? snapshot.loadedRecordPeriodIds.slice()
+    : getIndexRecordPeriodIds(records);
+  pendingRecordRollbackState = null;
+  loadProjectHierarchyExpansionStateFromStorage();
+  projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+    projectTotalsExpansionState,
+    projects,
+  );
+  updateProjectsList();
+  updateExistingProjectsList();
+  updateParentProjectSelect(1);
+  updateProjectTotals();
+}
+
+function transitionTimerSessionAfterRecordSave(options = {}) {
+  const currentProjectName =
+    typeof options.currentProjectName === "string"
+      ? options.currentProjectName.trim()
+      : "";
+  const nextProjectName =
+    typeof options.nextProjectName === "string" && options.nextProjectName.trim()
+      ? options.nextProjectName.trim()
+      : currentProjectName;
+  const rawEndTime =
+    options.rawEndTime instanceof Date && !Number.isNaN(options.rawEndTime.getTime())
+      ? new Date(options.rawEndTime)
+      : deserializeTimerDate(options.rawEndTime) || new Date();
+  const carryoverMs =
+    Number.isFinite(options.carryoverMs) && options.carryoverMs > 0
+      ? Math.max(0, Math.round(options.carryoverMs))
+      : 0;
+  const nextSessionStart =
+    carryoverMs > 0
+      ? new Date(rawEndTime.getTime() - carryoverMs)
+      : new Date(rawEndTime);
+  const normalizedCarryoverState = normalizeDurationCarryoverState(
+    options.pendingDurationCarryoverState,
+  );
+
+  ptn = 1;
+  fpt = new Date(nextSessionStart);
+  spt = null;
+  lastspt = new Date(rawEndTime);
+  diffMs = null;
+  pendingRecordRollbackState = null;
+  pendingDurationCarryoverState = normalizedCarryoverState
+    ? { ...normalizedCarryoverState }
+    : null;
+  selectedProject = nextProjectName || currentProjectName;
+  nextProject = nextProjectName || currentProjectName;
+  lastEnteredProjectName = nextProjectName || currentProjectName;
 }
 
 function getRecordNameInputElement(recordId) {
@@ -4740,8 +4920,13 @@ function spend(options = {}) {
   return true;
 }
 
-function requestSpendModalOpen() {
+function requestSpendModalOpen(requestedClickTime = new Date()) {
   const now = Date.now();
+  const clickTime =
+    requestedClickTime instanceof Date &&
+    !Number.isNaN(requestedClickTime.getTime())
+      ? requestedClickTime
+      : new Date(now);
   if (
     spendModalClickLocked ||
     isModalOpen ||
@@ -4753,7 +4938,7 @@ function requestSpendModalOpen() {
 
   lastSpendButtonAcceptedAt = now;
   spendModalClickLocked = true;
-  capturePendingSpendModalState(new Date(now));
+  capturePendingSpendModalState(clickTime);
 
   if (openModal()) {
     return true;
@@ -4868,9 +5053,8 @@ async function handleIndexModalConfirmClick() {
     return;
   }
 
-  selectedProject = currentProjectName;
-  lastEnteredProjectName = currentProjectName;
   const resolvedNextProjectName = nextProjectName || currentProjectName;
+  const transactionSnapshot = captureIndexSaveTransactionSnapshot();
 
   const shortenResult = applyShortenTime();
   if (!shortenResult.valid) {
@@ -4893,7 +5077,10 @@ async function handleIndexModalConfirmClick() {
     return;
   }
 
-  if (ptn >= 2) {
+  const isRecordCommit = ptn >= 2;
+  let savedRecord = null;
+
+  if (isRecordCommit) {
     const rawEndTime =
       spt instanceof Date && !Number.isNaN(spt.getTime()) ? new Date(spt) : new Date();
     const startTime =
@@ -4907,7 +5094,7 @@ async function handleIndexModalConfirmClick() {
       ? { ...pendingDurationCarryoverState }
       : null;
     result = formatDurationFromMs(shortenResult.remainingMs);
-    const savedRecord = save({
+    savedRecord = save({
       startTime,
       endTime: adjustedEndTime,
       rawEndTime,
@@ -4924,30 +5111,54 @@ async function handleIndexModalConfirmClick() {
         (project) => project.name === resolvedNextProjectName,
       )?.id || null,
     });
-    pendingDurationCarryoverState = null;
-
     if (shortenResult.shortenMs > 0) {
       ensureProjectExists(targetProject);
-      pendingDurationCarryoverState = normalizeDurationCarryoverState({
-        carryoverMs: shortenResult.shortenMs,
-        sourceRecordId: savedRecord?.id || "",
-        sourceProject: currentProjectName,
-        targetProject,
-        createdAt: new Date().toISOString(),
-      });
-      applyShortenCarryoverToNextInterval(shortenResult.shortenMs);
     }
-
+    transitionTimerSessionAfterRecordSave({
+      currentProjectName,
+      nextProjectName: resolvedNextProjectName,
+      rawEndTime,
+      carryoverMs: shortenResult.shortenMs,
+      pendingDurationCarryoverState:
+        shortenResult.shortenMs > 0
+          ? {
+              carryoverMs: shortenResult.shortenMs,
+              sourceRecordId: savedRecord?.id || "",
+              sourceProject: currentProjectName,
+              targetProject,
+              createdAt: new Date().toISOString(),
+            }
+          : null,
+    });
     updateDisplay();
+  } else {
+    selectedProject = currentProjectName;
+    nextProject = currentProjectName;
+    lastEnteredProjectName = currentProjectName;
+    pendingDurationCarryoverState = null;
+    pendingRecordRollbackState = null;
   }
 
-  if (nextProjectName) {
-    ensureProjectExists(nextProjectName);
+  const persisted = await saveRecordsToStorage({
+    includeRecords: isRecordCommit,
+  });
+  if (!persisted) {
+    if (savedRecord) {
+      removeIndexRecord(savedRecord);
+    }
+    restoreIndexSaveTransactionSnapshot(transactionSnapshot);
+    updateDisplay();
+    updateRemainingTimeDisplay();
+    await showIndexAlert("保存失败，本次记录已撤销，请重试。", {
+      title: "保存记录失败",
+      danger: true,
+    });
+    return;
   }
-  nextProject = resolvedNextProjectName;
 
-  selectedProject = nextProject;
-  setProjectInputValue("project-name-input", nextProject);
+  const nextSessionProjectName =
+    isRecordCommit ? resolvedNextProjectName : currentProjectName;
+  setProjectInputValue("project-name-input", nextSessionProjectName);
   setProjectInputValue("next-project-input", "");
   resetShortenTimeInputs(false);
   setModalProjectInputTarget("next-project-input", { manual: false });
@@ -7604,6 +7815,104 @@ function getIndexRecordPeriodIds(items = []) {
   ];
 }
 
+function buildIndexRecordMergeKey(record) {
+  if (record?.id) {
+    return `id:${record.id}`;
+  }
+  return [
+    record?.projectId || "",
+    record?.name || "",
+    record?.startTime || "",
+    record?.endTime || "",
+    record?.timestamp || "",
+    record?.spendtime || "",
+  ].join("|");
+}
+
+function sortIndexRecordsByTime(items = []) {
+  return (Array.isArray(items) ? items : []).slice().sort((left, right) => {
+    const leftTime = resolveRecordTime(left)?.getTime() || 0;
+    const rightTime = resolveRecordTime(right)?.getTime() || 0;
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    const leftClickCount = normalizeClickCount(left?.clickCount);
+    const rightClickCount = normalizeClickCount(right?.clickCount);
+    if (leftClickCount !== rightClickCount) {
+      return leftClickCount - rightClickCount;
+    }
+    return buildIndexRecordMergeKey(left).localeCompare(buildIndexRecordMergeKey(right));
+  });
+}
+
+function normalizeIndexLoadedRecords(items = []) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
+  }
+  const normalizedRecords = items.map((record) => {
+    const canonicalEndDate =
+      deserializeTimerDate(record?.endTime) ||
+      deserializeTimerDate(record?.sptTime) ||
+      deserializeTimerDate(record?.timestamp) ||
+      new Date();
+    const canonicalEndText = canonicalEndDate.toISOString();
+    const normalizedDurationMeta = normalizeRecordDurationMeta(
+      record.durationMeta,
+    );
+    const explicitStartDate = deserializeTimerDate(record?.startTime);
+    const boundedDurationMs =
+      explicitStartDate instanceof Date &&
+      !Number.isNaN(explicitStartDate.getTime())
+        ? Math.max(canonicalEndDate.getTime() - explicitStartDate.getTime(), 0)
+        : null;
+    const normalizedDurationMs =
+      Number.isFinite(boundedDurationMs)
+        ? Math.round(boundedDurationMs)
+        : Number.isFinite(record?.durationMs) && record.durationMs >= 0
+          ? Math.round(record.durationMs)
+          : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+              normalizedDurationMeta.recordedMs >= 0
+            ? Math.round(normalizedDurationMeta.recordedMs)
+            : parseSpendtimeToMs(record?.spendtime);
+    const startDate =
+      explicitStartDate ||
+      (normalizedDurationMs > 0
+        ? new Date(canonicalEndDate.getTime() - normalizedDurationMs)
+        : null);
+    const rawEndDate =
+      deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
+    const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
+    const normalizedNextProjectName = resolveRecordNextProjectName(
+      record,
+      projects,
+    );
+    return {
+      ...record,
+      timestamp: canonicalEndText,
+      sptTime: canonicalEndText,
+      endTime: canonicalEndText,
+      rawEndTime: rawEndDate.toISOString(),
+      startTime: serializeTimerDate(startDate),
+      durationMs: Number.isFinite(normalizedDurationMs)
+        ? normalizedDurationMs
+        : null,
+      spendtime: normalizedSpendtime,
+      name: record.name || "未命名项目",
+      nextProjectName: normalizedNextProjectName,
+      nextProjectId: String(record?.nextProjectId || "").trim() || null,
+      clickCount:
+        Number.isFinite(record.clickCount) && record.clickCount > 0
+          ? Math.max(1, Math.floor(record.clickCount))
+          : null,
+      timerRollbackState: normalizeTimerRollbackState(
+        record.timerRollbackState,
+      ),
+      durationMeta: normalizedDurationMeta,
+    };
+  });
+  return sortIndexRecordsByTime(normalizedRecords);
+}
+
 function markIndexRecordPeriodsDirty(items = []) {
   getIndexRecordPeriodIds(items).forEach((periodId) => {
     indexDirtyRecordPeriodIds.add(periodId);
@@ -7620,19 +7929,46 @@ function mergeIndexRecordsByPeriods(
   existingItems = [],
   incomingItems = [],
   periodIds = [],
+  scope = null,
 ) {
+  const isDateSliceBootstrap =
+    scope &&
+    typeof scope === "object" &&
+    !Array.isArray(scope) &&
+    !(
+      Array.isArray(scope.periodIds) &&
+      scope.periodIds.some((periodId) => String(periodId || "").trim())
+    ) &&
+    !!(
+      String(scope.startDate || scope.start || "").trim() ||
+      String(scope.endDate || scope.end || "").trim()
+    );
+  if (isDateSliceBootstrap) {
+    const mergedByKey = new Map();
+    (Array.isArray(existingItems) ? existingItems : []).forEach((record) => {
+      mergedByKey.set(buildIndexRecordMergeKey(record), record);
+    });
+    (Array.isArray(incomingItems) ? incomingItems : []).forEach((record) => {
+      mergedByKey.set(buildIndexRecordMergeKey(record), record);
+    });
+    return sortIndexRecordsByTime(Array.from(mergedByKey.values()));
+  }
+
   const targetPeriods = new Set(
     (Array.isArray(periodIds) ? periodIds : [])
       .map((periodId) => String(periodId || "").trim())
       .filter(Boolean),
   );
   if (!targetPeriods.size) {
-    return Array.isArray(incomingItems) ? incomingItems.slice() : [];
+    return sortIndexRecordsByTime(Array.isArray(incomingItems) ? incomingItems.slice() : []);
   }
   const preserved = (Array.isArray(existingItems) ? existingItems : []).filter(
     (record) => !targetPeriods.has(getIndexRecordPeriodId(record)),
   );
-  return [...preserved, ...(Array.isArray(incomingItems) ? incomingItems : [])];
+  return sortIndexRecordsByTime([
+    ...preserved,
+    ...(Array.isArray(incomingItems) ? incomingItems : []),
+  ]);
 }
 
 function readIndexLocalRecordSnapshot() {
@@ -7747,20 +8083,68 @@ async function loadProjectsFromStorage(options = {}) {
 }
 
 // 存储记录到localStorage
-function saveRecordsToStorage() {
+function saveRecordsToStorage(options = {}) {
   try {
-    persistTimerSessionState();
-    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    const includeRecords = options?.includeRecords !== false;
+    const timerSessionState = persistTimerSessionState();
     localStorage.setItem("records", JSON.stringify(records));
     localStorage.setItem("projects", JSON.stringify(projects));
-    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      const periodIds = indexDirtyRecordPeriodIds.size
+    indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    const periodIds = includeRecords
+      ? indexDirtyRecordPeriodIds.size
         ? [...indexDirtyRecordPeriodIds]
         : indexLoadedRecordPeriodIds.length
-        ? indexLoadedRecordPeriodIds.slice()
-        : [...new Set(records.map((record) => getIndexRecordPeriodId(record)))];
-      return Promise.all(
-        periodIds.map((periodId) =>
+          ? indexLoadedRecordPeriodIds.slice()
+          : [...new Set(records.map((record) => getIndexRecordPeriodId(record)))]
+      : [];
+    if (typeof window.ControlerStorage?.appendJournal === "function") {
+      return window.ControlerStorage.appendJournal({
+        ops: [
+          {
+            kind: "replaceCoreState",
+            partialCore: {
+              projects,
+              timerSessionState,
+            },
+          },
+          ...periodIds.map((periodId) => ({
+            kind: "saveSectionRange",
+            section: "records",
+            payload: {
+              periodId,
+              items: records.filter(
+                (record) => getIndexRecordPeriodId(record) === periodId,
+              ),
+              mode: "replace",
+            },
+          })),
+        ],
+      })
+        .then(() => {
+          periodIds.forEach((periodId) => {
+            indexDirtyRecordPeriodIds.delete(periodId);
+          });
+          return true;
+        })
+        .catch((error) => {
+          console.error("追加记录日志失败:", error);
+          return false;
+        });
+    }
+    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
+      const persistCore =
+        typeof window.ControlerStorage?.replaceCoreState === "function"
+          ? window.ControlerStorage.replaceCoreState({
+              projects,
+              timerSessionState,
+            }).catch((error) => {
+              console.error("保存记录核心状态失败:", error);
+              return false;
+            })
+          : Promise.resolve(true);
+      return Promise.all([
+        persistCore,
+        ...periodIds.map((periodId) =>
           window.ControlerStorage.saveSectionRange("records", {
             periodId,
             items: records.filter(
@@ -7769,20 +8153,22 @@ function saveRecordsToStorage() {
             mode: "replace",
           }),
         ),
-      )
+      ])
         .then(() => {
           periodIds.forEach((periodId) => {
             indexDirtyRecordPeriodIds.delete(periodId);
           });
+          return true;
         })
         .catch((error) => {
           console.error("保存分片记录失败:", error);
+          return false;
         });
     }
-    return Promise.resolve();
+    return Promise.resolve(true);
   } catch (e) {
     console.error("保存记录到localStorage失败:", e);
-    return Promise.resolve();
+    return Promise.resolve(false);
   }
 }
 
@@ -7968,11 +8354,12 @@ async function loadRecordsFromStorage() {
       : readIndexManagedRecordSnapshot();
     records = Array.isArray(mirrorItems) ? mirrorItems.slice() : [];
     indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
+    const rangeScope = getIndexDefaultRecordScope();
 
     if (typeof window.ControlerStorage?.loadSectionRange === "function") {
       const result = await window.ControlerStorage.loadSectionRange(
         "records",
-        getIndexDefaultRecordScope(),
+        rangeScope,
       );
       const rangeItems = Array.isArray(result?.items) ? result.items : [];
       const rangePeriodIds =
@@ -7981,76 +8368,16 @@ async function loadRecordsFromStorage() {
           : getIndexRecordPeriodIds(rangeItems);
       if (rangeItems.length || rangePeriodIds.length) {
         records = localRecordMirror.hasMirror
-          ? mergeIndexRecordsByPeriods(records, rangeItems, rangePeriodIds)
+          ? mergeIndexRecordsByPeriods(
+              records,
+              rangeItems,
+              rangePeriodIds,
+              result?.recordScope || rangeScope,
+            )
           : rangeItems;
       }
     }
-    if (Array.isArray(records) && records.length > 0) {
-      // 确保每条记录都有必要的字段
-      records = records.map((record) => {
-        const canonicalEndDate =
-          deserializeTimerDate(record?.endTime) ||
-          deserializeTimerDate(record?.sptTime) ||
-          deserializeTimerDate(record?.timestamp) ||
-          new Date();
-        const canonicalEndText = canonicalEndDate.toISOString();
-        const normalizedDurationMeta = normalizeRecordDurationMeta(
-          record.durationMeta,
-        );
-        const explicitStartDate = deserializeTimerDate(record?.startTime);
-        const boundedDurationMs =
-          explicitStartDate instanceof Date &&
-          !Number.isNaN(explicitStartDate.getTime())
-            ? Math.max(canonicalEndDate.getTime() - explicitStartDate.getTime(), 0)
-            : null;
-        const normalizedDurationMs =
-          Number.isFinite(boundedDurationMs)
-            ? Math.round(boundedDurationMs)
-            : Number.isFinite(record?.durationMs) && record.durationMs >= 0
-              ? Math.round(record.durationMs)
-              : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
-                  normalizedDurationMeta.recordedMs >= 0
-                ? Math.round(normalizedDurationMeta.recordedMs)
-                : parseSpendtimeToMs(record?.spendtime);
-        const startDate =
-          explicitStartDate ||
-          (normalizedDurationMs > 0
-            ? new Date(canonicalEndDate.getTime() - normalizedDurationMs)
-            : null);
-        const rawEndDate =
-          deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
-        const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
-        const normalizedNextProjectName = resolveRecordNextProjectName(
-          record,
-          projects,
-        );
-        return {
-          ...record,
-          timestamp: canonicalEndText,
-          sptTime: canonicalEndText,
-          endTime: canonicalEndText,
-          rawEndTime: rawEndDate.toISOString(),
-          startTime: serializeTimerDate(startDate),
-          durationMs: Number.isFinite(normalizedDurationMs)
-            ? normalizedDurationMs
-            : null,
-          spendtime: normalizedSpendtime,
-          name: record.name || "未命名项目",
-          nextProjectName: normalizedNextProjectName,
-          nextProjectId: String(record?.nextProjectId || "").trim() || null,
-          clickCount:
-            Number.isFinite(record.clickCount) && record.clickCount > 0
-              ? Math.max(1, Math.floor(record.clickCount))
-              : null,
-          timerRollbackState: normalizeTimerRollbackState(
-            record.timerRollbackState,
-          ),
-          durationMeta: normalizedDurationMeta,
-        };
-      });
-    } else {
-      records = [];
-    }
+    records = normalizeIndexLoadedRecords(records);
     indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
     indexDirtyRecordPeriodIds = new Set();
   } catch (e) {
@@ -8241,6 +8568,7 @@ function finalizeIndexInitialHydration(options = {}) {
   initIndexSecondaryBindings();
   persistTimerSessionState();
   initIndexWidgetLaunchAction();
+  markIndexWidgetLaunchCoreReady();
   setIndexLoadingState({
     active: false,
   });
@@ -8353,27 +8681,11 @@ async function init() {
     });
 
     if (isIndexWidgetTimerFastPath()) {
-      await loadProjectsFromStorage({
-        applyUi: true,
-      });
-      loadTimerSessionState({
-        forceLatestRecord: false,
-      });
-      updateRemainingTimeDisplay();
-      updateDisplay();
-      persistTimerSessionState();
-      uiTools?.markPerfStage?.("first-data-ready", {
-        projectCount: projects.length,
-        recordCount: 0,
-        periodIds: [],
-        fastPath: true,
-        stage: "core",
-      });
-      setIndexLoadingState({
-        active: false,
-      });
-      queueRecordInitialReveal();
-      void scheduleIndexDeferredWorkspaceHydration();
+      if (!indexShellPageActive) {
+        indexDeferredHydrationPendingResume = true;
+        return;
+      }
+      await hydrateIndexInitialForegroundWorkspace();
       return;
     }
 
@@ -9300,6 +9612,8 @@ function clearIndexWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -9364,6 +9678,40 @@ function scheduleIndexWidgetLaunchHandled(
   return true;
 }
 
+function queueIndexWidgetLaunchAction(payload = {}, options = {}) {
+  const requestedAt = Number(payload?.requestedAt);
+  indexPendingWidgetLaunchAction = {
+    payload: {
+      ...payload,
+      requestedAt:
+        Number.isFinite(requestedAt) && requestedAt > 0
+          ? Math.round(requestedAt)
+          : Date.now(),
+    },
+    options: {
+      ...options,
+    },
+  };
+  return true;
+}
+
+function flushIndexPendingWidgetLaunchAction() {
+  if (!indexWidgetLaunchCoreReady || !indexPendingWidgetLaunchAction) {
+    return false;
+  }
+  const pendingAction = indexPendingWidgetLaunchAction;
+  indexPendingWidgetLaunchAction = null;
+  return handleIndexWidgetLaunchAction(
+    pendingAction.payload,
+    pendingAction.options,
+  );
+}
+
+function markIndexWidgetLaunchCoreReady() {
+  indexWidgetLaunchCoreReady = true;
+  return flushIndexPendingWidgetLaunchAction();
+}
+
 function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -9372,8 +9720,16 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
   if (action !== "start-timer") {
     return false;
   }
+  if (!indexWidgetLaunchCoreReady) {
+    return queueIndexWidgetLaunchAction(payload, options);
+  }
+  const requestedAt = Number(payload?.requestedAt);
+  const clickTime =
+    Number.isFinite(requestedAt) && requestedAt > 0
+      ? new Date(requestedAt)
+      : new Date();
   const accepted =
-    requestSpendModalOpen() ||
+    requestSpendModalOpen(clickTime) ||
     isIndexWidgetTimerModalVisible() ||
     !!pendingSpendModalState;
   if (accepted) {

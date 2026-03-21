@@ -1520,6 +1520,43 @@ async function readPlanWorkspace(options = {}) {
       includeRecurringPlans:
         shouldLoadPlans && options.includeRecurringPlans !== false,
     };
+    if (typeof window.ControlerStorage?.getBootstrapState === "function") {
+      const periodIds = shouldLoadPlans
+        ? Array.isArray(options.periodIds) && options.periodIds.length
+          ? options.periodIds
+          : getPlanPeriodIdsForVisibleView()
+        : [];
+      const bootstrap = await window.ControlerStorage.getBootstrapState({
+        page: "plan",
+        plansScope: {
+          periodIds,
+        },
+      });
+      const pageData =
+        bootstrap?.pageData && typeof bootstrap.pageData === "object"
+          ? bootstrap.pageData
+          : null;
+      if (pageData) {
+        const recurringPlans = Array.isArray(pageData.recurringPlans)
+          ? pageData.recurringPlans
+          : [];
+        return {
+          plans: (
+            shouldLoadPlans
+              ? [...(pageData.plans || []), ...recurringPlans]
+              : retainedPlans
+          ).map((rawPlan) => hydratePlan(rawPlan)),
+          yearlyGoals: normalizeYearlyGoalsState(pageData.yearlyGoals || {}),
+          loadedPeriodIds: shouldLoadPlans
+            ? Array.isArray(pageData.planPeriodIds)
+              ? pageData.planPeriodIds.slice()
+              : periodIds.slice()
+            : Array.isArray(retainedPeriodIds)
+              ? retainedPeriodIds.slice()
+              : [],
+        };
+      }
+    }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
       (
@@ -1772,14 +1809,14 @@ function getPlanLoadingOverlayController() {
 }
 
 function getPlanLoadingMode(options = {}) {
-  if (options?.blocking === true) {
+  if (options?.blocking === true || !planInitialDataValidated) {
     return "fullscreen";
   }
   return planShellRendered ? "inline" : "fullscreen";
 }
 
 function getPlanLoadingDelayMs(options = {}) {
-  if (options?.blocking === true) {
+  if (options?.blocking === true || !planInitialDataValidated) {
     return 0;
   }
   return planShellRendered ? PLAN_LOADING_OVERLAY_DELAY_MS : 0;
@@ -5249,6 +5286,8 @@ function clearPlanWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -5528,6 +5567,7 @@ async function loadInitialPlanWorkspace() {
       console.error("初始化计划数据失败:", error);
       renderCalendarView();
       planInitialDataLoaded = true;
+      planInitialDataValidated = true;
     })
     .finally(() => {
       planInitialDataLoadPromise = null;

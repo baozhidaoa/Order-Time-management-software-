@@ -31,6 +31,7 @@ type NativeBridgeModule = {
   getStorageStatus: () => Promise<string>;
   getStorageManifest?: () => Promise<string>;
   getStorageCoreState?: () => Promise<string>;
+  getStorageBootstrapState?: (optionsJson?: string) => Promise<string>;
   getStoragePlanBootstrapState?: (optionsJson?: string) => Promise<string>;
   getAutoBackupStatus?: () => Promise<string>;
   updateAutoBackupSettings?: (settingsJson: string) => Promise<string>;
@@ -45,6 +46,8 @@ type NativeBridgeModule = {
     payloadJson: string,
   ) => Promise<string>;
   replaceStorageCoreState?: (partialCoreJson: string) => Promise<string>;
+  appendStorageJournal?: (payloadJson: string) => Promise<string>;
+  flushStorageJournal?: () => Promise<string>;
   replaceStorageRecurringPlans?: (itemsJson: string) => Promise<string>;
   probeStorageStateVersion?: (includeFallbackHash: boolean) => Promise<string>;
   exportStorageBundle?: (optionsJson: string) => Promise<string>;
@@ -75,6 +78,7 @@ type BridgeEnvelopePayload = {
   action?: string;
   language?: string;
   launchId?: string;
+  targetId?: string;
   reason?: string;
   source?: string;
   payload?: Record<string, unknown>;
@@ -82,6 +86,7 @@ type BridgeEnvelopePayload = {
   hasOpenModal?: boolean;
   handled?: boolean;
   isBusy?: boolean;
+  busy?: boolean;
   modalCount?: number;
   page?: string;
   href?: string;
@@ -90,6 +95,8 @@ type BridgeEnvelopePayload = {
   order?: unknown;
   changedSections?: unknown;
   changedPeriods?: unknown;
+  createdAt?: unknown;
+  retryAfterMs?: unknown;
 };
 
 type BridgeEnvelope = {
@@ -130,6 +137,8 @@ type LaunchContext = {
   widgetAction: string;
   widgetSource: string;
   widgetLaunchId: string;
+  widgetTargetId: string;
+  widgetCreatedAt: number;
 };
 
 type PendingWidgetLaunchDispatch = {
@@ -346,6 +355,8 @@ export function getComparableUrl(value: string | null): string {
     parsed.searchParams.delete('widgetKind');
     parsed.searchParams.delete('widgetSource');
     parsed.searchParams.delete('widgetLaunchId');
+    parsed.searchParams.delete('widgetTargetId');
+    parsed.searchParams.delete('widgetCreatedAt');
     parsed.searchParams.delete('widgetAnchorDate');
     parsed.hash = '';
     return parsed.toString();
@@ -363,6 +374,8 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
     widgetAction: '',
     widgetSource: '',
     widgetLaunchId: '',
+    widgetTargetId: '',
+    widgetCreatedAt: 0,
   };
 
   try {
@@ -380,6 +393,12 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
     const widgetLaunchId = String(
       parsed.searchParams.get('widgetLaunchId') || '',
     ).trim();
+    const widgetTargetId = String(
+      parsed.searchParams.get('widgetTargetId') || '',
+    ).trim();
+    const widgetCreatedAt = Number(
+      parsed.searchParams.get('widgetCreatedAt') || 0,
+    );
     return {
       active:
         !!widgetAction ||
@@ -391,6 +410,11 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
       widgetAction,
       widgetSource,
       widgetLaunchId,
+      widgetTargetId,
+      widgetCreatedAt:
+        Number.isFinite(widgetCreatedAt) && widgetCreatedAt > 0
+          ? Math.round(widgetCreatedAt)
+          : 0,
     };
   } catch {
     return emptyContext;
@@ -413,6 +437,19 @@ function parseLaunchContextFromPayload(
       : typeof payload?.widgetLaunchId === 'string'
         ? payload.widgetLaunchId.trim()
         : '';
+  const widgetTargetId =
+    typeof payload?.targetId === 'string'
+      ? payload.targetId.trim()
+      : typeof payload?.widgetTargetId === 'string'
+        ? payload.widgetTargetId.trim()
+        : '';
+  const createdAtCandidate =
+    typeof payload?.createdAt === 'number' || typeof payload?.createdAt === 'string'
+      ? Number(payload.createdAt)
+      : typeof payload?.widgetCreatedAt === 'number' ||
+          typeof payload?.widgetCreatedAt === 'string'
+        ? Number(payload.widgetCreatedAt)
+        : 0;
 
   return {
     active:
@@ -425,6 +462,11 @@ function parseLaunchContextFromPayload(
     widgetAction,
     widgetSource,
     widgetLaunchId,
+    widgetTargetId,
+    widgetCreatedAt:
+      Number.isFinite(createdAtCandidate) && createdAtCandidate > 0
+        ? Math.round(createdAtCandidate)
+        : 0,
   };
 }
 
@@ -437,14 +479,17 @@ function ensureWidgetLaunchId(context: LaunchContext): LaunchContext {
     return {
       ...context,
       widgetLaunchId: '',
+      widgetCreatedAt: 0,
     };
   }
-  if (context.widgetLaunchId) {
+  if (context.widgetLaunchId && context.widgetCreatedAt > 0) {
     return context;
   }
   return {
     ...context,
-    widgetLaunchId: createWidgetLaunchId(),
+    widgetLaunchId: context.widgetLaunchId || createWidgetLaunchId(),
+    widgetCreatedAt:
+      context.widgetCreatedAt > 0 ? context.widgetCreatedAt : Date.now(),
   };
 }
 
@@ -453,7 +498,8 @@ export function buildWidgetLaunchHref(
   context: Pick<
     LaunchContext,
     'widgetAction' | 'widgetKind' | 'widgetSource' | 'widgetLaunchId'
-  >,
+  > &
+    Partial<Pick<LaunchContext, 'widgetTargetId' | 'widgetCreatedAt'>>,
 ): string {
   const url = new URL(
     `${pageKey}.html`,
@@ -464,6 +510,8 @@ export function buildWidgetLaunchHref(
   const widgetSource =
     String(context.widgetSource || '').trim() || 'android-widget';
   const widgetLaunchId = String(context.widgetLaunchId || '').trim();
+  const widgetTargetId = String(context.widgetTargetId || '').trim();
+  const widgetCreatedAt = Math.max(0, Number(context.widgetCreatedAt) || 0);
   if (widgetAction) {
     url.searchParams.set('widgetAction', widgetAction);
     url.searchParams.set('widgetSource', widgetSource);
@@ -474,13 +522,24 @@ export function buildWidgetLaunchHref(
   if (widgetLaunchId) {
     url.searchParams.set('widgetLaunchId', widgetLaunchId);
   }
+  if (widgetTargetId) {
+    url.searchParams.set('widgetTargetId', widgetTargetId);
+  }
+  if (widgetCreatedAt > 0) {
+    url.searchParams.set('widgetCreatedAt', String(Math.round(widgetCreatedAt)));
+  }
   return `${url.pathname.split('/').pop() || `${pageKey}.html`}${url.search}`;
 }
 
 function buildLaunchContextSignature(
   context: Pick<
     LaunchContext,
-    'pageKey' | 'widgetAction' | 'widgetKind' | 'widgetSource'
+    | 'pageKey'
+    | 'widgetAction'
+    | 'widgetKind'
+    | 'widgetSource'
+    | 'widgetLaunchId'
+    | 'widgetTargetId'
   >,
 ): string {
   return [
@@ -488,6 +547,8 @@ function buildLaunchContextSignature(
     String(context.widgetAction || '').trim(),
     String(context.widgetKind || '').trim(),
     String(context.widgetSource || '').trim(),
+    String(context.widgetLaunchId || '').trim(),
+    String(context.widgetTargetId || '').trim(),
   ].join('|');
 }
 
@@ -495,7 +556,12 @@ function buildWidgetLaunchDispatchScript(
   pageKey: AppPageKey,
   context: Pick<
     LaunchContext,
-    'widgetAction' | 'widgetKind' | 'widgetSource' | 'widgetLaunchId'
+    | 'widgetAction'
+    | 'widgetKind'
+    | 'widgetSource'
+    | 'widgetLaunchId'
+    | 'widgetTargetId'
+    | 'widgetCreatedAt'
   >,
 ): string {
   const serialized = JSON.stringify({
@@ -504,6 +570,8 @@ function buildWidgetLaunchDispatchScript(
     widgetKind: String(context.widgetKind || '').trim(),
     source: String(context.widgetSource || '').trim() || 'android-widget',
     launchId: String(context.widgetLaunchId || '').trim(),
+    targetId: String(context.widgetTargetId || '').trim(),
+    createdAt: Math.max(0, Number(context.widgetCreatedAt) || 0),
     payload: {},
   })
     .replace(/\u2028/g, '\\u2028')
@@ -647,6 +715,8 @@ function App(): JSX.Element {
     widgetAction: '',
     widgetSource: '',
     widgetLaunchId: '',
+    widgetTargetId: '',
+    widgetCreatedAt: 0,
   });
   const pendingWidgetLaunchDispatchRef =
     useRef<PendingWidgetLaunchDispatch | null>(null);
@@ -1326,7 +1396,12 @@ function App(): JSX.Element {
       pageKey: AppPageKey,
       launchContext: Pick<
         LaunchContext,
-        'widgetAction' | 'widgetKind' | 'widgetSource' | 'widgetLaunchId'
+        | 'widgetAction'
+        | 'widgetKind'
+        | 'widgetSource'
+        | 'widgetLaunchId'
+        | 'widgetTargetId'
+        | 'widgetCreatedAt'
       >,
     ) => {
       const script = buildWidgetLaunchDispatchScript(pageKey, launchContext);
@@ -1887,6 +1962,8 @@ function App(): JSX.Element {
           widgetKind: '',
           widgetAction: '',
           widgetLaunchId: '',
+          widgetTargetId: '',
+          widgetCreatedAt: 0,
           pageKey: activeState.pageKey || normalizedLaunchContext.pageKey,
         };
         showNativeToast(launchPolicy.rejectToast);
@@ -2467,6 +2544,22 @@ function App(): JSX.Element {
           );
         }
         return parseBridgeJson(await nativeBridge.getStorageCoreState());
+      case 'storage.getBootstrapState':
+        if (typeof nativeBridge.getStorageBootstrapState !== 'function') {
+          throw createUnsupportedBridgeError(
+            '读取页面引导数据',
+            'reading page bootstrap data',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.getStorageBootstrapState(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
+          ),
+        );
       case 'storage.getPlanBootstrapState':
         if (typeof nativeBridge.getStoragePlanBootstrapState !== 'function') {
           throw createUnsupportedBridgeError(
@@ -2573,6 +2666,30 @@ function App(): JSX.Element {
             ),
           ),
         );
+      case 'storage.appendJournal':
+        if (typeof nativeBridge.appendStorageJournal !== 'function') {
+          throw createUnsupportedBridgeError(
+            '追加存储日志',
+            'appending a storage journal',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.appendStorageJournal(
+            JSON.stringify(
+              payload.payload && typeof payload.payload === 'object'
+                ? payload.payload
+                : {},
+            ),
+          ),
+        );
+      case 'storage.flushJournal':
+        if (typeof nativeBridge.flushStorageJournal !== 'function') {
+          throw createUnsupportedBridgeError(
+            '刷新存储日志',
+            'flushing a storage journal',
+          );
+        }
+        return parseBridgeJson(await nativeBridge.flushStorageJournal());
       case 'storage.replaceRecurringPlans':
         if (typeof nativeBridge.replaceStorageRecurringPlans !== 'function') {
           throw createUnsupportedBridgeError(
@@ -2971,18 +3088,27 @@ function App(): JSX.Element {
         return;
       }
       if (eventName === 'ui.navigate') {
-        const navigationResult = requestPageNavigation(
-          message.payload || {},
-          'bridge',
-        );
+        const activeSlot = activeSlotRef.current;
+        const shellBusy =
+          !!transitionStateRef.current || busyLockBySlotRef.current[activeSlot];
+        const navigationResult = shellBusy
+          ? 'noop'
+          : requestPageNavigation(message.payload || {}, 'bridge');
         const requestId =
           typeof message.payload?.requestId === 'string'
             ? message.payload.requestId
             : '';
         if (requestId) {
+          const retryAfterMs = shellBusy
+            ? transitionStateRef.current
+              ? 220
+              : 140
+            : 0;
           postBridgeEvent(slot, 'ui.navigate-ack', {
             requestId,
-            accepted: navigationResult === 'intercept',
+            accepted: !shellBusy && navigationResult === 'intercept',
+            busy: shellBusy,
+            retryAfterMs,
           });
         }
       }

@@ -499,6 +499,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         String requestedPage = normalizeLaunchPage(launchAction.optString("page", ""));
         String action = String.valueOf(launchAction.optString("action", "")).trim();
         String widgetKind = String.valueOf(launchAction.optString("widgetKind", "")).trim();
+        String targetId = String.valueOf(launchAction.optString("targetId", "")).trim();
+        String launchId = String.valueOf(launchAction.optString("launchId", "")).trim();
+        long createdAt = launchAction.optLong("createdAt", 0L);
         String source = String.valueOf(launchAction.optString("source", "android-widget")).trim();
         String page = normalizeLaunchTargetPage(requestedPage, action);
 
@@ -511,6 +514,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (!TextUtils.isEmpty(widgetKind)) {
             builder.appendQueryParameter("widgetKind", widgetKind);
         }
+        if (!TextUtils.isEmpty(launchId)) {
+            builder.appendQueryParameter("widgetLaunchId", launchId);
+        }
+        if (!TextUtils.isEmpty(targetId)) {
+            builder.appendQueryParameter("widgetTargetId", targetId);
+        }
+        if (createdAt > 0L) {
+            builder.appendQueryParameter("widgetCreatedAt", String.valueOf(createdAt));
+        }
         if (!TextUtils.isEmpty(source) && !TextUtils.isEmpty(action)) {
             builder.appendQueryParameter("widgetSource", source);
         }
@@ -520,6 +532,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             "page=" + page
                 + " action=" + (TextUtils.isEmpty(action) ? "-" : action)
                 + " widgetKind=" + (TextUtils.isEmpty(widgetKind) ? "-" : widgetKind)
+                + " targetId=" + (TextUtils.isEmpty(targetId) ? "-" : targetId)
         );
         return launchUrl;
     }
@@ -698,6 +711,51 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         } catch (Exception error) {
             promise.reject("storage_plan_bootstrap_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void getStorageBootstrapState(String optionsJson, Promise promise) {
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            promise.resolve(
+                ControlerWidgetDataStore
+                    .getStorageBootstrapState(getReactApplicationContext(), options)
+                    .toString()
+            );
+        } catch (Exception error) {
+            promise.reject("storage_bootstrap_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void appendStorageJournal(String payloadJson, Promise promise) {
+        try {
+            JSONObject payload =
+                TextUtils.isEmpty(payloadJson) ? new JSONObject() : new JSONObject(payloadJson);
+            JSONObject result =
+                ControlerWidgetDataStore.appendStorageJournal(
+                    getReactApplicationContext(),
+                    payload
+                );
+            ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
+            scheduleWidgetRefresh(result);
+            maybeRunAutoBackup(getReactApplicationContext());
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            promise.reject("storage_journal_append_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void flushStorageJournal(Promise promise) {
+        try {
+            JSONObject result =
+                ControlerWidgetDataStore.flushStorageJournal(getReactApplicationContext());
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            promise.reject("storage_journal_flush_failed", error);
         }
     }
 

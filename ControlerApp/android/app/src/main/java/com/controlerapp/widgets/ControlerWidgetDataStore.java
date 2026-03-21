@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -385,6 +386,7 @@ public final class ControlerWidgetDataStore {
             core.put("projects", cloneJsonArray(root.optJSONArray("projects")));
             core.put("todos", cloneJsonArray(root.optJSONArray("todos")));
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
+            core.put("timerSessionState", cloneJsonObject(root.optJSONObject("timerSessionState")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
             core.put("guideState", cloneJsonObject(root.optJSONObject("guideState")));
@@ -412,6 +414,117 @@ public final class ControlerWidgetDataStore {
             error.printStackTrace();
         }
         return core;
+    }
+
+    public static JSONObject getStorageBootstrapState(Context context, JSONObject options) {
+        JSONObject source = options == null ? new JSONObject() : options;
+        String page = normalizeBootstrapPage(source.optString("page", ""));
+        JSONObject payload = new JSONObject();
+        JSONObject pageData = new JSONObject();
+        try {
+            StorageVersion version = probeStorageVersion(context, false);
+            JSONObject core = getStorageCoreState(context);
+            payload.put("page", page);
+            payload.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
+            payload.put("generatedAt", isoNow());
+            payload.put("changedSections", new JSONArray());
+            payload.put("changedPeriods", new JSONObject());
+            payload.put("pendingCompaction", false);
+
+            if ("index".equals(page)) {
+                JSONObject recordScope = resolveBootstrapSectionScope(
+                    source,
+                    "records",
+                    buildDefaultRecordBootstrapScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "records", recordScope);
+                pageData.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+                pageData.put(
+                    "timerSessionState",
+                    cloneJsonObject(core.optJSONObject("timerSessionState"))
+                );
+                pageData.put("records", cloneJsonArray(range.optJSONArray("items")));
+                pageData.put("recordPeriodIds", cloneJsonArray(range.optJSONArray("periodIds")));
+                pageData.put("recordScope", cloneJsonObject(recordScope));
+            } else if ("todo".equals(page)) {
+                JSONObject dailyCheckinScope = resolveBootstrapSectionScope(
+                    source,
+                    "dailyCheckins",
+                    buildCurrentMonthScope()
+                );
+                JSONObject checkinScope = resolveBootstrapSectionScope(
+                    source,
+                    "checkins",
+                    buildCurrentMonthScope()
+                );
+                JSONObject dailyCheckinRange =
+                    loadStorageSectionRange(context, "dailyCheckins", dailyCheckinScope);
+                JSONObject checkinRange =
+                    loadStorageSectionRange(context, "checkins", checkinScope);
+                pageData.put("todos", cloneJsonArray(core.optJSONArray("todos")));
+                pageData.put("checkinItems", cloneJsonArray(core.optJSONArray("checkinItems")));
+                pageData.put(
+                    "dailyCheckins",
+                    cloneJsonArray(dailyCheckinRange.optJSONArray("items"))
+                );
+                pageData.put("checkins", cloneJsonArray(checkinRange.optJSONArray("items")));
+                pageData.put(
+                    "dailyCheckinPeriodIds",
+                    cloneJsonArray(dailyCheckinRange.optJSONArray("periodIds"))
+                );
+                pageData.put(
+                    "checkinPeriodIds",
+                    cloneJsonArray(checkinRange.optJSONArray("periodIds"))
+                );
+            } else if ("stats".equals(page)) {
+                JSONObject recordScope = resolveBootstrapSectionScope(
+                    source,
+                    "records",
+                    buildCurrentMonthScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "records", recordScope);
+                pageData.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+                pageData.put("records", cloneJsonArray(range.optJSONArray("items")));
+                pageData.put("recordPeriodIds", cloneJsonArray(range.optJSONArray("periodIds")));
+                pageData.put("recordScope", cloneJsonObject(recordScope));
+            } else if ("plan".equals(page)) {
+                JSONObject planScope = resolveBootstrapSectionScope(
+                    source,
+                    "plans",
+                    buildCurrentMonthScope()
+                );
+                JSONObject range = loadStorageSectionRange(context, "plans", planScope);
+                JSONObject planBootstrap = getStoragePlanBootstrapState(context, source);
+                pageData.put("plans", cloneJsonArray(range.optJSONArray("items")));
+                pageData.put("planPeriodIds", cloneJsonArray(range.optJSONArray("periodIds")));
+                pageData.put(
+                    "recurringPlans",
+                    cloneJsonArray(planBootstrap.optJSONArray("recurringPlans"))
+                );
+                pageData.put(
+                    "yearlyGoals",
+                    cloneJsonObject(planBootstrap.optJSONObject("yearlyGoals"))
+                );
+            } else {
+                pageData.put("core", cloneJsonObject(core));
+            }
+
+            payload.put("pageData", pageData);
+        } catch (Exception error) {
+            error.printStackTrace();
+            try {
+                payload.put("page", page);
+                payload.put("snapshotVersion", "");
+                payload.put("generatedAt", isoNow());
+                payload.put("changedSections", new JSONArray());
+                payload.put("changedPeriods", new JSONObject());
+                payload.put("pendingCompaction", false);
+                payload.put("pageData", pageData);
+            } catch (Exception ignored) {
+                // Ignore bootstrap fallback serialization errors.
+            }
+        }
+        return payload;
     }
 
     public static JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
@@ -626,6 +739,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "timerSessionState",
             "yearlyGoals",
             "diaryCategories",
             "guideState",
@@ -1273,6 +1387,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "timerSessionState",
             "yearlyGoals",
             "diaryCategories",
             "guideState",
@@ -1390,6 +1505,7 @@ public final class ControlerWidgetDataStore {
             core.put("projects", cloneJsonArray(root.optJSONArray("projects")));
             core.put("todos", cloneJsonArray(root.optJSONArray("todos")));
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
+            core.put("timerSessionState", cloneJsonObject(root.optJSONObject("timerSessionState")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
             core.put("guideState", cloneJsonObject(root.optJSONObject("guideState")));
@@ -1416,6 +1532,72 @@ public final class ControlerWidgetDataStore {
             error.printStackTrace();
         }
         return core;
+    }
+
+    public static JSONObject appendStorageJournal(Context context, JSONObject payload) throws Exception {
+        JSONObject source = payload == null ? new JSONObject() : payload;
+        JSONArray operations = source.optJSONArray("ops");
+        JSONArray results = new JSONArray();
+        LinkedHashSet<String> changedSections = new LinkedHashSet<>();
+        JSONObject changedPeriods = new JSONObject();
+        if (operations != null) {
+            for (int index = 0; index < operations.length(); index += 1) {
+                JSONObject operation = operations.optJSONObject(index);
+                if (operation == null) {
+                    continue;
+                }
+                String kind = safeText(operation.optString("kind", ""));
+                if ("replaceCoreState".equals(kind)) {
+                    JSONObject partialCore = operation.optJSONObject("partialCore");
+                    results.put(replaceStorageCoreState(context, partialCore));
+                    for (String section : inferBootstrapChangedSectionsFromCorePatch(partialCore)) {
+                        changedSections.add(section);
+                    }
+                    continue;
+                }
+                if ("saveSectionRange".equals(kind)) {
+                    String section = safeText(operation.optString("section", ""));
+                    JSONObject sectionPayload = operation.optJSONObject("payload");
+                    if (TextUtils.isEmpty(section)) {
+                        continue;
+                    }
+                    JSONObject result = saveStorageSectionRange(context, section, sectionPayload);
+                    results.put(result);
+                    changedSections.add(section);
+                    String periodId =
+                        sectionPayload == null
+                            ? ""
+                            : normalizePeriodId(sectionPayload.optString("periodId", ""));
+                    if (!TextUtils.isEmpty(periodId)) {
+                        JSONArray sectionPeriods = changedPeriods.optJSONArray(section);
+                        if (sectionPeriods == null) {
+                            sectionPeriods = new JSONArray();
+                            changedPeriods.put(section, sectionPeriods);
+                        }
+                        sectionPeriods.put(periodId);
+                    }
+                }
+            }
+        }
+
+        JSONObject result = new JSONObject();
+        StorageVersion version = probeStorageVersion(context, false);
+        result.put("ok", true);
+        result.put("results", results);
+        result.put("changedSections", buildJsonArrayFromStrings(new ArrayList<>(changedSections)));
+        result.put("changedPeriods", changedPeriods);
+        result.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
+        result.put("generatedAt", isoNow());
+        return result;
+    }
+
+    public static JSONObject flushStorageJournal(Context context) throws Exception {
+        JSONObject result = new JSONObject();
+        StorageVersion version = probeStorageVersion(context, false);
+        result.put("ok", true);
+        result.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
+        result.put("generatedAt", isoNow());
+        return result;
     }
 
     private static void rebuildProjectDurationCachesInRoot(JSONObject root) throws Exception {
@@ -3522,6 +3704,140 @@ public final class ControlerWidgetDataStore {
         return !TextUtils.isEmpty(repeat) && !"none".equals(repeat);
     }
 
+    private static String normalizeBootstrapPage(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.US);
+        if (
+            "index".equals(normalized)
+                || "todo".equals(normalized)
+                || "stats".equals(normalized)
+                || "plan".equals(normalized)
+        ) {
+            return normalized;
+        }
+        return "index";
+    }
+
+    private static JSONObject resolveBootstrapSectionScope(
+        JSONObject options,
+        String section,
+        JSONObject fallbackScope
+    ) {
+        JSONObject scope = null;
+        if (options != null) {
+            scope = options.optJSONObject(section + "Scope");
+            if (scope == null) {
+                JSONObject scopes = options.optJSONObject("scopes");
+                if (scopes != null) {
+                    scope = scopes.optJSONObject(section);
+                }
+            }
+            if (scope == null) {
+                JSONObject pageData = options.optJSONObject("pageData");
+                if (pageData != null) {
+                    scope = pageData.optJSONObject(section + "Scope");
+                }
+            }
+        }
+
+        JSONObject resolved = cloneJsonObject(scope);
+        if (resolved.length() == 0 && fallbackScope != null) {
+            resolved = cloneJsonObject(fallbackScope);
+        }
+        return resolved;
+    }
+
+    private static JSONObject buildDefaultRecordBootstrapScope() {
+        Calendar end = Calendar.getInstance();
+        end.set(Calendar.HOUR_OF_DAY, 0);
+        end.set(Calendar.MINUTE, 0);
+        end.set(Calendar.SECOND, 0);
+        end.set(Calendar.MILLISECOND, 0);
+        Calendar start = (Calendar) end.clone();
+        start.add(Calendar.DAY_OF_MONTH, -1);
+        JSONObject scope = new JSONObject();
+        try {
+            scope.put("startDate", formatDateText(start));
+            scope.put("endDate", formatDateText(end));
+        } catch (Exception ignored) {
+        }
+        return scope;
+    }
+
+    private static JSONObject buildCurrentMonthScope() {
+        Calendar start = Calendar.getInstance();
+        start.set(Calendar.DAY_OF_MONTH, 1);
+        start.set(Calendar.HOUR_OF_DAY, 0);
+        start.set(Calendar.MINUTE, 0);
+        start.set(Calendar.SECOND, 0);
+        start.set(Calendar.MILLISECOND, 0);
+        Calendar end = (Calendar) start.clone();
+        end.set(Calendar.DAY_OF_MONTH, end.getActualMaximum(Calendar.DAY_OF_MONTH));
+        JSONObject scope = new JSONObject();
+        try {
+            scope.put("startDate", formatDateText(start));
+            scope.put("endDate", formatDateText(end));
+        } catch (Exception ignored) {
+        }
+        return scope;
+    }
+
+    private static ArrayList<String> inferBootstrapChangedSectionsFromCorePatch(
+        JSONObject partialCore
+    ) {
+        LinkedHashSet<String> sections = new LinkedHashSet<>();
+        if (partialCore == null) {
+            sections.add("core");
+            return new ArrayList<>(sections);
+        }
+
+        if (partialCore.has("projects")) {
+            sections.add("projects");
+        }
+        if (partialCore.has("todos")) {
+            sections.add("todos");
+        }
+        if (partialCore.has("checkinItems")) {
+            sections.add("checkinItems");
+        }
+        if (partialCore.has("timerSessionState")) {
+            sections.add("timerSessionState");
+        }
+        if (partialCore.has("yearlyGoals")) {
+            sections.add("yearlyGoals");
+        }
+        if (partialCore.has("diaryCategories")) {
+            sections.add("diaryCategories");
+        }
+        if (partialCore.has("guideState")) {
+            sections.add("guideState");
+        }
+        if (partialCore.has("customThemes")) {
+            sections.add("customThemes");
+        }
+        if (partialCore.has("builtInThemeOverrides")) {
+            sections.add("builtInThemeOverrides");
+        }
+        if (partialCore.has("selectedTheme")) {
+            sections.add("selectedTheme");
+        }
+        if (
+            partialCore.has("createdAt")
+                || partialCore.has("lastModified")
+                || partialCore.has("storagePath")
+                || partialCore.has("storageDirectory")
+                || partialCore.has("userDataPath")
+                || partialCore.has("documentsPath")
+                || partialCore.has("syncMeta")
+        ) {
+            sections.add("core");
+        }
+
+        if (sections.isEmpty()) {
+            sections.add("core");
+        }
+        return new ArrayList<>(sections);
+    }
+
     private static Set<String> resolveRequestedPeriodIds(JSONObject scope) {
         Set<String> periodIds = new HashSet<>();
         if (scope == null) {
@@ -4014,6 +4330,10 @@ public final class ControlerWidgetDataStore {
         return TextUtils.isEmpty(value) ? "" : value;
     }
 
+    private static String safeText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private static String buildStorageFingerprint(long size, long modifiedAt, String locationKey) {
         return Math.max(0L, size)
             + ":"
@@ -4044,6 +4364,19 @@ public final class ControlerWidgetDataStore {
             }
         }
         return "";
+    }
+
+    private static String formatDateText(Calendar calendar) {
+        if (calendar == null) {
+            return "";
+        }
+        return String.format(
+            Locale.US,
+            "%04d-%02d-%02d",
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.DAY_OF_MONTH)
+        );
     }
 
     private static File getLegacyStorageFile() {

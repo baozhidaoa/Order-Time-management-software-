@@ -963,6 +963,12 @@ public final class ControlerWidgetRenderer {
                         pendingUpdate.metrics
                     );
                 appWidgetManager.updateAppWidget(pendingUpdate.appWidgetId, remoteViews);
+                if (isListFirstKind(normalizedKind)) {
+                    appWidgetManager.notifyAppWidgetViewDataChanged(
+                        pendingUpdate.appWidgetId,
+                        R.id.widget_collection_list
+                    );
+                }
                 rememberRenderKey(
                     pendingUpdate.appWidgetId,
                     buildRenderKey(normalizedKind, pendingUpdate.metrics, fallbackPalette, fallbackContent)
@@ -970,6 +976,12 @@ public final class ControlerWidgetRenderer {
                 continue;
             }
             appWidgetManager.updateAppWidget(pendingUpdate.appWidgetId, remoteViews);
+            if (isListFirstKind(normalizedKind)) {
+                appWidgetManager.notifyAppWidgetViewDataChanged(
+                    pendingUpdate.appWidgetId,
+                    R.id.widget_collection_list
+                );
+            }
             rememberRenderKey(
                 pendingUpdate.appWidgetId,
                 pendingUpdate.deferPreview
@@ -1105,7 +1117,47 @@ public final class ControlerWidgetRenderer {
         );
 
         PendingIntent openIntent = buildOpenMainPendingIntent(context, appWidgetId, kind, content);
-        int visibleCardCount = resolveVisibleCardCount(kind, content, metrics);
+        boolean useCollectionList = isListFirstKind(kind);
+        if (useCollectionList) {
+            ControlerWidgetCollectionStore.saveRows(
+                context,
+                appWidgetId,
+                kind,
+                buildCollectionRowsPayload(content, palette)
+            );
+            views.setRemoteAdapter(
+                R.id.widget_collection_list,
+                buildCollectionServiceIntent(context, appWidgetId, kind)
+            );
+            views.setPendingIntentTemplate(
+                R.id.widget_collection_list,
+                buildCollectionItemTemplatePendingIntent(context, appWidgetId, kind, content)
+            );
+            views.setEmptyView(R.id.widget_collection_list, R.id.widget_collection_empty);
+            views.setTextViewText(
+                R.id.widget_collection_empty,
+                safeText(
+                    content.itemCards.isEmpty()
+                        ? pickLine(content.lines, 0)
+                        : "点击条目进入应用继续处理"
+                )
+            );
+            views.setTextColor(
+                R.id.widget_collection_empty,
+                resolveReadableTextColor(
+                    palette.subtitleColor,
+                    resolveCollectionRowSurfaceColor(palette),
+                    3.0d
+                )
+            );
+        }
+        int visibleCardCount = useCollectionList
+            ? 0
+            : resolveVisibleCardCount(kind, content, metrics);
+        views.setViewVisibility(
+            R.id.widget_collection_shell,
+            useCollectionList ? View.VISIBLE : View.GONE
+        );
         views.setViewVisibility(
             R.id.widget_item_list,
             visibleCardCount > 0 ? View.VISIBLE : View.GONE
@@ -2403,9 +2455,9 @@ public final class ControlerWidgetRenderer {
     ) {
         Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(OPEN_WIDGET_ACTION_PREFIX + "." + kind + "." + appWidgetId);
-        intent.putExtra("widgetPage", content.page);
-        intent.putExtra("widgetAction", content.action);
-        intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, content.page);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, content.action);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
         intent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -2424,6 +2476,106 @@ public final class ControlerWidgetRenderer {
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        return PendingIntent.getActivity(context, requestCode, intent, flags);
+    }
+
+    private static JSONArray buildCollectionRowsPayload(
+        WidgetContent content,
+        ThemePalette palette
+    ) {
+        JSONArray rows = new JSONArray();
+        if (content == null || content.itemCards.isEmpty()) {
+            return rows;
+        }
+
+        int rowSurfaceColor = resolveCollectionRowSurfaceColor(palette);
+        int rowTitleColor = resolveReadableTextColor(
+            palette == null ? Color.parseColor("#EAF6ED") : palette.bodyColor,
+            rowSurfaceColor,
+            4.2d
+        );
+        int rowMetaColor = resolveReadableTextColor(
+            palette == null ? Color.parseColor("#D2E4D7") : palette.subtitleColor,
+            rowSurfaceColor,
+            3.0d
+        );
+
+        for (WidgetItemCard item : content.itemCards) {
+            if (item == null) {
+                continue;
+            }
+            JSONObject row = new JSONObject();
+            try {
+                row.put("title", safeText(item.title));
+                row.put("meta", safeText(item.meta));
+                row.put("targetId", safeText(item.targetId));
+                row.put("accentColor", item.accentColor);
+                row.put("backgroundColor", rowSurfaceColor);
+                row.put("titleColor", rowTitleColor);
+                row.put("metaColor", rowMetaColor);
+                rows.put(row);
+            } catch (Exception ignored) {
+                // Skip malformed row payloads so the rest of the collection can render.
+            }
+        }
+        return rows;
+    }
+
+    private static int resolveCollectionRowSurfaceColor(ThemePalette palette) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        return blendColors(
+            safePalette.cardFillColor,
+            safePalette.contrastReferenceColor,
+            safePalette.surfaceIsLight ? 0.08f : 0.10f
+        );
+    }
+
+    private static Intent buildCollectionServiceIntent(
+        Context context,
+        int appWidgetId,
+        String kind
+    ) {
+        Intent intent = new Intent(context, ControlerWidgetCollectionService.class);
+        intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
+        intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
+        intent.setData(
+            buildWidgetPendingIntentData("collection", appWidgetId, kind, "rows", "")
+        );
+        return intent;
+    }
+
+    private static PendingIntent buildCollectionItemTemplatePendingIntent(
+        Context context,
+        int appWidgetId,
+        String kind,
+        WidgetContent content
+    ) {
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.setAction(
+            OPEN_WIDGET_ACTION_PREFIX + ".collection." + kind + "." + appWidgetId
+        );
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, content.page);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, content.action);
+        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
+        intent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+        Uri identityUri = buildWidgetPendingIntentData(
+            "collection-open",
+            appWidgetId,
+            kind,
+            content == null ? "" : content.action,
+            content == null ? "" : content.page
+        );
+        intent.setData(identityUri);
+
+        int requestCode = buildStablePendingIntentRequestCode(identityUri);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            flags |= PendingIntent.FLAG_MUTABLE;
         }
         return PendingIntent.getActivity(context, requestCode, intent, flags);
     }
@@ -2695,7 +2847,7 @@ public final class ControlerWidgetRenderer {
             signature.addString(pickLine(content.lines, index));
         }
 
-        int itemLimit = content == null ? 0 : Math.min(content.itemCards.size(), 5);
+        int itemLimit = content == null ? 0 : content.itemCards.size();
         signature.addInt(itemLimit);
         for (int index = 0; index < itemLimit; index++) {
             WidgetItemCard item = content.itemCards.get(index);
@@ -2715,7 +2867,7 @@ public final class ControlerWidgetRenderer {
         signature.addString(content == null ? "" : content.directCommand);
         signature.addString(content == null ? "" : content.directTargetId);
 
-        int itemLimit = content == null ? 0 : Math.min(content.itemCards.size(), 5);
+        int itemLimit = content == null ? 0 : content.itemCards.size();
         signature.addInt(itemLimit);
         for (int index = 0; index < itemLimit; index++) {
             WidgetItemCard item = content.itemCards.get(index);
@@ -3085,17 +3237,13 @@ public final class ControlerWidgetRenderer {
         String today = todayText();
         List<ControlerWidgetDataStore.TodoInfo> visibleTodos = new ArrayList<>();
         int todayCount = 0;
-        int doneCount = 0;
         int pendingCount = 0;
         for (ControlerWidgetDataStore.TodoInfo todo : state.todos) {
             boolean scheduledToday = todoScheduledOn(todo, calendarFromDateText(today), today);
-            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
+            boolean completed = todo != null && todo.completed;
             if (scheduledToday) {
                 todayCount++;
                 visibleTodos.add(todo);
-                if (completed) {
-                    doneCount++;
-                }
             }
             if (!completed) {
                 pendingCount++;
@@ -3114,8 +3262,8 @@ public final class ControlerWidgetRenderer {
                 ) {
                     boolean leftToday = todoScheduledOn(left, calendarFromDateText(today), today);
                     boolean rightToday = todoScheduledOn(right, calendarFromDateText(today), today);
-                    boolean leftCompleted = resolveTodoCompletedForWidget(left, appWidgetId);
-                    boolean rightCompleted = resolveTodoCompletedForWidget(right, appWidgetId);
+                    boolean leftCompleted = left != null && left.completed;
+                    boolean rightCompleted = right != null && right.completed;
                     if (leftToday != rightToday) {
                         return leftToday ? -1 : 1;
                     }
@@ -3147,28 +3295,17 @@ public final class ControlerWidgetRenderer {
             content.lines.add("打开应用创建新的待办事项");
             return;
         }
-        content.lines.add(
-            visibleTodos.size() > todayCount
-                ? "优先展示今日待办，不足时补充最近待处理项"
-                : "下方卡片可直接完成或撤回"
-        );
         for (ControlerWidgetDataStore.TodoInfo todo : visibleTodos) {
-            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
-            boolean pending = isTodoPendingForWidget(todo, appWidgetId);
+            boolean completed = todo != null && todo.completed;
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(todo.title);
             card.meta = describeTodoCardMeta(todo, today, completed);
-            if (pending) {
-                card.meta = appendPendingMeta(card.meta);
-            }
-            card.actionLabel = pending
-                ? (completed ? "已完成" : "待办中")
-                : completed ? "撤回" : "完成";
-            card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
+            card.actionLabel = "";
+            card.command = "";
             card.targetId = safeText(todo.id);
             card.accentColor = parseColor(todo.color, Color.parseColor("#ED8936"));
-            card.pending = pending;
-            card.actionDisabled = pending;
+            card.pending = false;
+            card.actionDisabled = false;
             content.itemCards.add(card);
         }
     }
@@ -3189,12 +3326,7 @@ public final class ControlerWidgetRenderer {
             }
             scheduled.add(item);
             total++;
-            boolean checked = resolveCheckinDoneForWidget(
-                state,
-                item.id,
-                today,
-                appWidgetId
-            );
+            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
             if (checked) {
                 done++;
             }
@@ -3207,18 +3339,10 @@ public final class ControlerWidgetRenderer {
                     ControlerWidgetDataStore.CheckinItemInfo left,
                     ControlerWidgetDataStore.CheckinItemInfo right
                 ) {
-                    boolean leftDone = resolveCheckinDoneForWidget(
-                        state,
-                        left.id,
-                        today,
-                        appWidgetId
-                    );
-                    boolean rightDone = resolveCheckinDoneForWidget(
-                        state,
-                        right.id,
-                        today,
-                        appWidgetId
-                    );
+                    boolean leftDone =
+                        isCheckinDoneForDate(state.dailyCheckins, left.id, today);
+                    boolean rightDone =
+                        isCheckinDoneForDate(state.dailyCheckins, right.id, today);
                     if (leftDone != rightDone) {
                         return leftDone ? 1 : -1;
                     }
@@ -3235,20 +3359,8 @@ public final class ControlerWidgetRenderer {
             content.lines.add("打开应用创建新的打卡项目");
             return;
         }
-        content.lines.add("下方卡片可逐项打卡或撤回");
         for (ControlerWidgetDataStore.CheckinItemInfo item : scheduled) {
-            ControlerWidgetPendingActionStore.PendingAction pendingAction =
-                ControlerWidgetPendingActionStore.get(
-                    ControlerWidgetKinds.CHECKINS,
-                    item.id,
-                    appWidgetId
-                );
-            boolean checked = resolveCheckinDoneForWidget(
-                state,
-                item.id,
-                today,
-                appWidgetId
-            );
+            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(item.title);
             card.meta = describeCheckinCardMeta(
@@ -3256,18 +3368,12 @@ public final class ControlerWidgetRenderer {
                 checked,
                 countCheckinStreak(state, item, today)
             );
-            if (pendingAction != null) {
-                card.meta = appendPendingMeta(card.meta);
-            }
-            card.actionLabel =
-                pendingAction != null
-                    ? (checked ? "已打卡" : "待打卡")
-                    : checked ? "撤回" : "打卡";
-            card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
+            card.actionLabel = "";
+            card.command = "";
             card.targetId = safeText(item.id);
             card.accentColor = parseColor(item.color, Color.parseColor("#4299E1"));
-            card.pending = pendingAction != null;
-            card.actionDisabled = pendingAction != null;
+            card.pending = false;
+            card.actionDisabled = false;
             content.itemCards.add(card);
         }
     }

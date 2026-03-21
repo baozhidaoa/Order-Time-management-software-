@@ -186,6 +186,57 @@ function readTodoWorkspaceSnapshot() {
   return managedSnapshot || localSnapshot;
 }
 
+function buildTodoCurrentMonthScope(dateText = getLocalDateText()) {
+  const normalizedDateText =
+    typeof dateText === "string" && /^\d{4}-\d{2}/.test(dateText)
+      ? dateText
+      : getLocalDateText();
+  const periodId = normalizedDateText.slice(0, 7);
+  return {
+    periodIds: periodId ? [periodId] : [],
+  };
+}
+
+async function hydrateTodoWorkspaceFromBootstrap(options = {}) {
+  if (typeof window.ControlerStorage?.getBootstrapState !== "function") {
+    return false;
+  }
+
+  const bootstrap = await window.ControlerStorage.getBootstrapState({
+    page: "todo",
+    dailyCheckinsScope:
+      options?.dailyCheckinsScope || buildTodoCurrentMonthScope(getLocalDateText()),
+    checkinsScope:
+      options?.checkinsScope || buildTodoCurrentMonthScope(getLocalDateText()),
+  });
+  const pageData =
+    bootstrap?.pageData && typeof bootstrap.pageData === "object"
+      ? bootstrap.pageData
+      : null;
+  if (!pageData) {
+    return false;
+  }
+
+  applyTodoWorkspaceSnapshot({
+    todos: pageData.todos || [],
+    checkinItems: pageData.checkinItems || [],
+    dailyCheckins: pageData.dailyCheckins || [],
+    checkins: pageData.checkins || [],
+  });
+  todoLoadedSectionPeriods.dailyCheckins = new Set(
+    Array.isArray(pageData.dailyCheckinPeriodIds)
+      ? pageData.dailyCheckinPeriodIds
+      : getTodoSectionPeriodIds("dailyCheckins", dailyCheckins),
+  );
+  todoLoadedSectionPeriods.checkins = new Set(
+    Array.isArray(pageData.checkinPeriodIds)
+      ? pageData.checkinPeriodIds
+      : getTodoSectionPeriodIds("checkins", checkins),
+  );
+  invalidateTodoDerivedCaches();
+  return true;
+}
+
 function clearTodoWidgetLaunchQuery() {
   const params = new URLSearchParams(window.location.search || "");
   if (!params.get("widgetAction")) {
@@ -195,6 +246,8 @@ function clearTodoWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -444,6 +497,17 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
   return queueTodoPersistenceTask(
     async () => {
       const bundleStorage = window.ControlerStorage;
+      if (typeof bundleStorage?.appendJournal === "function") {
+        await bundleStorage.appendJournal({
+          ops: [
+            {
+              kind: "replaceCoreState",
+              partialCore: cloneTodoValue(source),
+            },
+          ],
+        });
+        return true;
+      }
       if (typeof bundleStorage?.replaceCoreState === "function") {
         await bundleStorage.replaceCoreState(cloneTodoValue(source), {
           reason:
@@ -503,7 +567,22 @@ function queueTodoSectionSave(section, options = {}) {
   return queueTodoPersistenceTask(
     async () => {
       const bundleStorage = window.ControlerStorage;
-      if (typeof bundleStorage?.saveSectionRange === "function") {
+      if (typeof bundleStorage?.appendJournal === "function") {
+        await bundleStorage.appendJournal({
+          ops: periodIds.map((periodId) => ({
+            kind: "saveSectionRange",
+            section: normalizedSection,
+            payload: {
+              periodId,
+              items: currentItems.filter(
+                (item) =>
+                  getTodoSectionPeriodId(normalizedSection, item) === periodId,
+              ),
+              mode: "replace",
+            },
+          })),
+        });
+      } else if (typeof bundleStorage?.saveSectionRange === "function") {
         await Promise.all(
           periodIds.map((periodId) =>
             bundleStorage.saveSectionRange(normalizedSection, {
@@ -544,6 +623,62 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
           checkins,
         };
   const bundleStorage = window.ControlerStorage;
+  if (typeof bundleStorage?.appendJournal === "function") {
+    const nextDailyCheckins = nextSnapshot.dailyCheckins || [];
+    const nextCheckins = nextSnapshot.checkins || [];
+    const dailyCheckinPeriodIds = Array.from(
+      new Set([
+        ...getTodoSectionPeriodIds("dailyCheckins", nextDailyCheckins),
+        ...Array.from(todoLoadedSectionPeriods.dailyCheckins || []),
+      ]),
+    );
+    const checkinPeriodIds = Array.from(
+      new Set([
+        ...getTodoSectionPeriodIds("checkins", nextCheckins),
+        ...Array.from(todoLoadedSectionPeriods.checkins || []),
+      ]),
+    );
+    await bundleStorage.appendJournal({
+      ops: [
+        {
+          kind: "replaceCoreState",
+          partialCore: {
+            todos: cloneTodoValue(nextSnapshot.todos || []),
+            checkinItems: cloneTodoValue(nextSnapshot.checkinItems || []),
+          },
+        },
+        ...dailyCheckinPeriodIds.map((periodId) => ({
+          kind: "saveSectionRange",
+          section: "dailyCheckins",
+          payload: {
+            periodId,
+            items: nextDailyCheckins.filter(
+              (item) => getTodoSectionPeriodId("dailyCheckins", item) === periodId,
+            ),
+            mode: "replace",
+          },
+        })),
+        ...checkinPeriodIds.map((periodId) => ({
+          kind: "saveSectionRange",
+          section: "checkins",
+          payload: {
+            periodId,
+            items: nextCheckins.filter(
+              (item) => getTodoSectionPeriodId("checkins", item) === periodId,
+            ),
+            mode: "replace",
+          },
+        })),
+      ],
+    });
+    todoLoadedSectionPeriods.dailyCheckins = new Set(
+      getTodoSectionPeriodIds("dailyCheckins", nextDailyCheckins),
+    );
+    todoLoadedSectionPeriods.checkins = new Set(
+      getTodoSectionPeriodIds("checkins", nextCheckins),
+    );
+    return true;
+  }
   if (
     typeof bundleStorage?.replaceCoreState === "function" &&
     typeof bundleStorage?.saveSectionRange === "function"
@@ -1194,7 +1329,9 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     typeof bundleStorage?.loadSectionRange === "function";
 
   if (!canUsePreciseRefresh) {
-    loadData();
+    if (!(await hydrateTodoWorkspaceFromBootstrap())) {
+      loadData();
+    }
     refreshTodoInterface();
     return;
   }
@@ -1312,11 +1449,18 @@ function appendTodoManagedModal(modal, role = "") {
     return;
   }
   closeTodoManagedModals();
+  uiTools?.prepareModalOverlay?.(modal, {
+    append: false,
+    visible: true,
+  });
+  uiTools?.stopModalContentPropagation?.(modal);
   modal.dataset.todoManagedModal = "true";
   if (typeof role === "string" && role.trim()) {
     modal.dataset.todoModalRole = role.trim();
   }
-  document.body.appendChild(modal);
+  if (!modal.isConnected) {
+    document.body.appendChild(modal);
+  }
 }
 
 async function requestTodoConfirmation(message, options = {}) {
@@ -1877,22 +2021,21 @@ class CheckinItem {
 
   // 获取连续打卡天数
   getStreakDays() {
-    if (dailyCheckins.length === 0) return 0;
-
     const checkedSet = new Set(
       dailyCheckins
         .filter((c) => c.itemId === this.id && c.checked)
         .map((c) => c.date),
     );
 
-    const startCursor = new Date();
+    const todayText = getLocalDateText();
+    const startCursor = new Date(todayText);
     startCursor.setHours(0, 0, 0, 0);
     const maxLoop = 400;
     let loops = 0;
     let streak = 0;
 
-    if (!this.isScheduledOn(getLocalDateText(startCursor))) {
-      return 0;
+    if (this.isScheduledOn(todayText) && !checkedSet.has(todayText)) {
+      startCursor.setDate(startCursor.getDate() - 1);
     }
 
     while (loops < maxLoop) {
@@ -4688,6 +4831,68 @@ function scheduleTodoWidgetLaunchHandled(
   return true;
 }
 
+function escapeTodoWidgetSelectorValue(value = "") {
+  const normalizedValue = String(value || "");
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(normalizedValue);
+  }
+  return normalizedValue.replace(/["\\]/g, "\\$&");
+}
+
+function highlightTodoWidgetTarget(element) {
+  if (!(element instanceof HTMLElement)) {
+    return;
+  }
+  const previousOutline = element.style.outline;
+  const previousOutlineOffset = element.style.outlineOffset;
+  const previousBoxShadow = element.style.boxShadow;
+  element.style.outline = "2px solid var(--accent-color)";
+  element.style.outlineOffset = "2px";
+  element.style.boxShadow = "0 0 0 4px rgba(47, 111, 84, 0.18)";
+  window.setTimeout(() => {
+    element.style.outline = previousOutline;
+    element.style.outlineOffset = previousOutlineOffset;
+    element.style.boxShadow = previousBoxShadow;
+  }, 1600);
+}
+
+function focusTodoWidgetTarget(targetId = "", targetView = "todos") {
+  const normalizedTargetId = String(targetId || "").trim();
+  if (!normalizedTargetId) {
+    return true;
+  }
+
+  const selector =
+    targetView === "checkins"
+      ? `.checkin-item[data-item-id="${escapeTodoWidgetSelectorValue(normalizedTargetId)}"]`
+      : `.todo-item[data-todo-id="${escapeTodoWidgetSelectorValue(normalizedTargetId)}"]`;
+  const targetElement = document.querySelector(selector);
+  if (targetElement instanceof HTMLElement) {
+    targetElement.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+    highlightTodoWidgetTarget(targetElement);
+    return true;
+  }
+
+  if (targetView === "checkins") {
+    const matchedItem = checkinItems.find((item) => matchesId(item.id, normalizedTargetId));
+    if (matchedItem) {
+      showCheckinItemModal(matchedItem);
+      return true;
+    }
+    return false;
+  }
+
+  const matchedTodo = todos.find((item) => matchesId(item.id, normalizedTargetId));
+  if (matchedTodo) {
+    showTodoEditModal(matchedTodo);
+    return true;
+  }
+  return false;
+}
+
 function handleTodoWidgetLaunchAction(payload = {}, options = {}) {
   const action =
     typeof payload?.action === "string" && payload.action.trim()
@@ -4696,14 +4901,32 @@ function handleTodoWidgetLaunchAction(payload = {}, options = {}) {
   if (action !== "show-todos" && action !== "show-checkins") {
     return false;
   }
-  setTodoView(action === "show-checkins" ? "checkins" : "todos", {
+  const targetView = action === "show-checkins" ? "checkins" : "todos";
+  const targetId =
+    typeof payload?.targetId === "string" && payload.targetId.trim()
+      ? payload.targetId.trim()
+      : "";
+  let targetHandled = !targetId;
+  const ensureTargetHandled = () => {
+    if (targetHandled) {
+      return true;
+    }
+    if (!isTodoWidgetTargetVisible(action)) {
+      return false;
+    }
+    targetHandled = focusTodoWidgetTarget(targetId, targetView);
+    return targetHandled;
+  };
+
+  setTodoView(targetView, {
     persistWidgetView: true,
   });
   applyTodoWidgetMode();
   renderTodoWorkspace();
+  ensureTargetHandled();
   scheduleTodoWidgetLaunchHandled(
     payload,
-    () => isTodoWidgetTargetVisible(action),
+    () => isTodoWidgetTargetVisible(action) && ensureTargetHandled(),
     options,
   );
   return true;
@@ -4733,6 +4956,7 @@ function initTodoWidgetLaunchAction() {
       action,
       source: params.get("widgetSource") || "query",
       launchId: params.get("widgetLaunchId") || "",
+      targetId: params.get("widgetTargetId") || "",
     }, {
       clearQuery: true,
     });
@@ -4822,6 +5046,9 @@ async function init() {
   initTodoWidgetLaunchAction();
   await waitForTodoStorageReady();
   ensureTodoBaseBindings();
+  await hydrateTodoWorkspaceFromBootstrap().catch((error) => {
+    console.error("读取待办页 bootstrap 数据失败，回退本地快照:", error);
+  });
   applyTodoWidgetMode();
   renderTodoWorkspace();
   todoPlanSidebarInitialized = true;

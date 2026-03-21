@@ -50,6 +50,7 @@ public final class ControlerWidgetProviders {
         public void onDeleted(Context context, int[] appWidgetIds) {
             super.onDeleted(context, appWidgetIds);
             ControlerWidgetRenderer.clearRenderState(appWidgetIds);
+            ControlerWidgetCollectionStore.clearRows(context, appWidgetIds);
         }
     }
 

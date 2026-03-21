@@ -12,6 +12,7 @@ import android.text.TextUtils;
 import android.widget.Toast;
 
 import com.controlerapp.MainApplication;
+import com.controlerapp.MainActivity;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableArray;
@@ -390,20 +391,84 @@ public final class ControlerWidgetActionHandler {
             AppWidgetManager.INVALID_APPWIDGET_ID
         );
 
-        if (COMMAND_TOGGLE_TIMER.equals(command)) {
-            return toggleTimer(context);
-        }
-        if (COMMAND_TOGGLE_TODO.equals(command)) {
-            return toggleTodo(context, targetId, appWidgetId);
-        }
-        if (COMMAND_TOGGLE_CHECKIN.equals(command)) {
-            return toggleCheckin(context, targetId, appWidgetId);
+        if (
+            COMMAND_TOGGLE_TIMER.equals(command)
+                || COMMAND_TOGGLE_TODO.equals(command)
+                || COMMAND_TOGGLE_CHECKIN.equals(command)
+        ) {
+            return routeWidgetCommandToApp(
+                context,
+                command,
+                targetId,
+                widgetKind,
+                appWidgetId
+            );
         }
         if (COMMAND_REFRESH_WIDGET.equals(command)) {
             return refreshWidget(widgetKind, appWidgetId);
         }
 
         return ActionResult.fullRefresh(false, false, "未知的小组件动作。");
+    }
+
+    private static ActionResult routeWidgetCommandToApp(
+        Context context,
+        String command,
+        String targetId,
+        String widgetKind,
+        int appWidgetId
+    ) {
+        if (context == null) {
+            return ActionResult.fullRefresh(false, false, "");
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
+        String page = "index";
+        String action = "";
+        if (COMMAND_TOGGLE_TODO.equals(command)) {
+            normalizedKind = ControlerWidgetKinds.TODOS;
+            page = "todo";
+            action = "show-todos";
+        } else if (COMMAND_TOGGLE_CHECKIN.equals(command)) {
+            normalizedKind = ControlerWidgetKinds.CHECKINS;
+            page = "todo";
+            action = "show-checkins";
+        } else if (COMMAND_TOGGLE_TIMER.equals(command)) {
+            normalizedKind = ControlerWidgetKinds.START_TIMER;
+            page = "index";
+            action = "start-timer";
+        }
+
+        Intent launchIntent = new Intent(context, MainActivity.class);
+        launchIntent.setAction(
+            "com.controler.timetracker.action.OPEN_WIDGET_COMMAND."
+                + (TextUtils.isEmpty(action) ? "open" : action)
+                + "."
+                + System.currentTimeMillis()
+        );
+        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, page);
+        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, action);
+        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, normalizedKind);
+        if (!TextUtils.isEmpty(targetId)) {
+            launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_TARGET_ID, targetId);
+        }
+        launchIntent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+        context.startActivity(launchIntent);
+
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return ActionResult.refreshSingleWidget(
+                true,
+                false,
+                "",
+                normalizedKind,
+                appWidgetId
+            );
+        }
+        return ActionResult.refreshKind(true, false, "", normalizedKind);
     }
 
     private static ActionResult refreshWidget(String widgetKind, int appWidgetId) {

@@ -71,9 +71,22 @@ public class MainActivity extends ReactActivity {
     }
 
     WritableNativeMap payload = new WritableNativeMap();
-    payload.putString("page", trimLaunchValue(intent.getStringExtra("widgetPage")));
-    payload.putString("action", trimLaunchValue(intent.getStringExtra("widgetAction")));
-    payload.putString("widgetKind", trimLaunchValue(intent.getStringExtra("widgetKind")));
+    payload.putString(
+        "page",
+        trimLaunchValue(intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_PAGE)));
+    payload.putString(
+        "action",
+        trimLaunchValue(intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_ACTION)));
+    payload.putString(
+        "widgetKind",
+        trimLaunchValue(intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_KIND)));
+    payload.putString(
+        "targetId",
+        trimLaunchValue(intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_TARGET_ID)));
+    payload.putString(
+        "launchId",
+        trimLaunchValue(intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_LAUNCH_ID)));
+    payload.putDouble("createdAt", (double) readLaunchCreatedAt(intent));
     payload.putString("source", "android-widget");
     reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
@@ -82,6 +95,25 @@ public class MainActivity extends ReactActivity {
 
   private String trimLaunchValue(String value) {
     return value == null ? "" : value.trim();
+  }
+
+  private long readLaunchCreatedAt(Intent intent) {
+    if (intent == null) {
+      return 0L;
+    }
+    try {
+      long createdAt = intent.getLongExtra(ControlerWidgetLaunchStore.EXTRA_CREATED_AT, 0L);
+      if (createdAt > 0L) {
+        return createdAt;
+      }
+      String rawValue = intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_CREATED_AT);
+      if (rawValue != null && rawValue.trim().length() > 0) {
+        return Long.parseLong(rawValue.trim());
+      }
+    } catch (Exception ignored) {
+      return 0L;
+    }
+    return 0L;
   }
 
   /**

@@ -1541,7 +1541,6 @@ function fillTodosContent(content, state) {
     content.lines.push(translateWidgetUiText("打开应用创建新的待办事项。"));
     return;
   }
-  content.lines.push(translateWidgetUiText("下方卡片可直接完成或撤回。"));
   content.itemCards = items;
 }
 
@@ -1564,7 +1563,6 @@ function fillCheckinsContent(content, state) {
     content.lines.push(translateWidgetUiText("打开应用创建新的打卡项目。"));
     return;
   }
-  content.lines.push(translateWidgetUiText("下方卡片可逐项打卡或撤回。"));
   content.itemCards = items;
 }
 

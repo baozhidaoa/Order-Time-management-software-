@@ -2271,7 +2271,6 @@ function fillTodosContent(content, state) {
     command: TODO_TOGGLE_COMMAND,
     targetId: item.id,
   }));
-  const hasSupplementalItems = items.some((item) => !item.isToday);
   content.subtitle = translateWidgetUiText(stats.total > 0 ? "今日待办" : "待处理待办");
   content.actionLabel = translateWidgetUiText("打开待办");
   content.statPrimary = `${translateWidgetUiText("今日")} ${stats.total} ${translateWidgetUiText("项")}`;
@@ -2281,13 +2280,6 @@ function fillTodosContent(content, state) {
     content.lines.push(translateWidgetUiText("打开应用创建新的待办事项。"));
     return;
   }
-  content.lines.push(
-    translateWidgetUiText(
-      hasSupplementalItems
-        ? "优先展示今日待办，不足时补充最近待处理项。"
-        : "下方卡片可直接完成或撤回。",
-    ),
-  );
   content.itemCards = items;
 }
 
@@ -2310,7 +2302,6 @@ function fillCheckinsContent(content, state) {
     content.lines.push(translateWidgetUiText("打开应用创建新的打卡项目。"));
     return;
   }
-  content.lines.push(translateWidgetUiText("下方卡片可逐项打卡或撤回。"));
   content.itemCards = items;
 }
 
