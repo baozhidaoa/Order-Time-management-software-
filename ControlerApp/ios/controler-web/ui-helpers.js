@@ -611,6 +611,15 @@
       return;
     }
 
+    if (
+      isReactNativeNavigationRuntime() &&
+      shellVisibilityState.active !== nextState.active
+    ) {
+      resetAppPageTransitionRuntimeState({
+        clearStoredState: false,
+      });
+    }
+
     lastShellVisibilityStateSignature = nextSignature;
     Object.assign(shellVisibilityState, nextState);
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();

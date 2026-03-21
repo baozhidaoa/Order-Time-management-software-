@@ -1,11 +1,15 @@
 package com.controlerapp;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 
+import androidx.annotation.Nullable;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
+import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.ReactActivity;
@@ -15,8 +19,14 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import androidx.core.view.WindowCompat;
+import java.util.Locale;
+import org.json.JSONObject;
 
 public class MainActivity extends ReactActivity {
+  private static final String UI_LANGUAGE_PREFS = "controler_ui_preferences";
+  private static final String KEY_UI_LANGUAGE = "language";
+  private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -132,10 +142,47 @@ public class MainActivity extends ReactActivity {
    */
   @Override
   protected ReactActivityDelegate createReactActivityDelegate() {
+    final Bundle initialProps = buildInitialProps();
     return new DefaultReactActivityDelegate(
         this,
         getMainComponentName(),
         // If you opted-in for the New Architecture, we enable the Fabric Renderer.
-        DefaultNewArchitectureEntryPoint.getFabricEnabled());
+        DefaultNewArchitectureEntryPoint.getFabricEnabled()) {
+      @Override
+      protected @Nullable Bundle getLaunchOptions() {
+        return initialProps;
+      }
+    };
+  }
+
+  private Bundle buildInitialProps() {
+    Bundle initialProps = new Bundle();
+    initialProps.putString("initialUiLanguage", readStoredUiLanguage());
+    String initialCoreStateJson = readStorageCoreStateJson();
+    if (initialCoreStateJson != null && !initialCoreStateJson.isEmpty()) {
+      initialProps.putString("initialCoreStateJson", initialCoreStateJson);
+    }
+    return initialProps;
+  }
+
+  private String readStoredUiLanguage() {
+    SharedPreferences preferences =
+        getApplicationContext().getSharedPreferences(UI_LANGUAGE_PREFS, Context.MODE_PRIVATE);
+    String rawLanguage = preferences.getString(KEY_UI_LANGUAGE, DEFAULT_UI_LANGUAGE);
+    String normalized =
+        String.valueOf(rawLanguage == null ? "" : rawLanguage).trim().toLowerCase(Locale.US);
+    if ("en".equals(normalized) || "en-us".equals(normalized)) {
+      return "en-US";
+    }
+    return DEFAULT_UI_LANGUAGE;
+  }
+
+  private String readStorageCoreStateJson() {
+    try {
+      JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(getApplicationContext());
+      return coreState == null ? "" : coreState.toString();
+    } catch (Exception ignored) {
+      return "";
+    }
   }
 }

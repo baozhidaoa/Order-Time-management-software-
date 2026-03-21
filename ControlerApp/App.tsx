@@ -178,6 +178,11 @@ type ShellBootTheme = {
   transitionOverlay: string;
 };
 
+type AppProps = {
+  initialCoreStateJson?: string;
+  initialUiLanguage?: string;
+};
+
 function updateWebViewSlotsRef(
   ref: React.MutableRefObject<Record<WebViewSlot, WebViewSlotState>>,
   slot: WebViewSlot,
@@ -321,6 +326,11 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
 };
 const DEFAULT_UI_LANGUAGE: UiLanguage = 'zh-CN';
 const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
+const SHELL_THEME_SECTION_KEYS = new Set([
+  'customThemes',
+  'builtInThemeOverrides',
+  'selectedTheme',
+]);
 const IS_ANDROID = Platform.OS === 'android';
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
@@ -613,6 +623,15 @@ function normalizeNavigationDirection(value: unknown): NavigationDirection | '' 
     return value;
   }
   return '';
+}
+
+function shouldRefreshShellThemeForSections(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+  return value.some(section =>
+    SHELL_THEME_SECTION_KEYS.has(String(section || '').trim()),
+  );
 }
 
 function getNavigationDirection(
@@ -981,7 +1000,13 @@ const closeTopModalScript = `
   true;
 `;
 
-function App(): JSX.Element {
+function App({
+  initialCoreStateJson = '',
+  initialUiLanguage = DEFAULT_UI_LANGUAGE,
+}: AppProps): JSX.Element {
+  const initialCoreStateRef = useRef<Record<string, unknown> | null>(
+    parseBridgeJson(initialCoreStateJson),
+  );
   const primaryWebViewRef = useRef<WebView>(null);
   const secondaryWebViewRef = useRef<WebView>(null);
   const tertiaryWebViewRef = useRef<WebView>(null);
@@ -1077,13 +1102,17 @@ function App(): JSX.Element {
       _source: NavigationRequestSource = 'bridge',
     ): NavigationRequestResult => 'noop',
   );
-  const shellLanguageRef = useRef<UiLanguage>(DEFAULT_UI_LANGUAGE);
+  const shellLanguageRef = useRef<UiLanguage>(
+    normalizeUiLanguage(initialUiLanguage),
+  );
 
   const [bootError, setBootError] = useState<string | null>(null);
   const [shellLanguage, setShellLanguage] =
-    useState<UiLanguage>(DEFAULT_UI_LANGUAGE);
+    useState<UiLanguage>(() => normalizeUiLanguage(initialUiLanguage));
   const [shellBootTheme, setShellBootTheme] =
-    useState<ShellBootTheme>(DEFAULT_SHELL_BOOT_THEME);
+    useState<ShellBootTheme>(() =>
+      resolveShellBootTheme(initialCoreStateRef.current),
+    );
   const [isPageReady, setIsPageReady] = useState(false);
   const [busyStateVersion, setBusyStateVersion] = useState(0);
   const [activeSlot, setActiveSlot] = useState<WebViewSlot>('primary');
@@ -1200,6 +1229,28 @@ function App(): JSX.Element {
     nativeBridge.showToast(normalizedMessage).catch(() => undefined);
   }, []);
 
+  const applyShellBootThemeFromCoreState = useCallback(
+    (coreState: Record<string, unknown> | null) => {
+      const resolvedBootTheme = resolveShellBootTheme(coreState);
+      setShellBootTheme(currentTheme =>
+        areShellBootThemesEqual(currentTheme, resolvedBootTheme)
+          ? currentTheme
+          : resolvedBootTheme,
+      );
+      return resolvedBootTheme;
+    },
+    [],
+  );
+
+  const refreshShellBootThemeFromNative = useCallback(async () => {
+    if (typeof nativeBridge?.getStorageCoreState !== 'function') {
+      return null;
+    }
+    const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
+    applyShellBootThemeFromCoreState(coreState);
+    return coreState;
+  }, [applyShellBootThemeFromCoreState]);
+
   const persistLastVisiblePage = useCallback((pageKey: AppPageKey | '') => {
     if (
       !IS_ANDROID ||
@@ -1248,20 +1299,12 @@ function App(): JSX.Element {
     let mounted = true;
 
     async function loadShellBootTheme() {
-      if (typeof nativeBridge?.getStorageCoreState !== 'function') {
-        return;
-      }
       try {
-        const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
+        const coreState = await refreshShellBootThemeFromNative();
         if (!mounted) {
           return;
         }
-        const resolvedBootTheme = resolveShellBootTheme(coreState);
-        setShellBootTheme(currentTheme =>
-          areShellBootThemesEqual(currentTheme, resolvedBootTheme)
-            ? currentTheme
-            : resolvedBootTheme,
-        );
+        initialCoreStateRef.current = coreState;
       } catch {
         // The shell keeps the default palette if the saved theme is unavailable.
       }
@@ -1271,7 +1314,7 @@ function App(): JSX.Element {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshShellBootThemeFromNative]);
 
   useEffect(() => {
     activeSlotRef.current = activeSlot;
@@ -3610,6 +3653,9 @@ function App(): JSX.Element {
         return;
       }
       if (eventName === 'storage.changed') {
+        if (shouldRefreshShellThemeForSections(message.payload?.changedSections)) {
+          refreshShellBootThemeFromNative().catch(() => undefined);
+        }
         broadcastStorageChangeBridgeEvent(slot, message.payload);
         return;
       }
@@ -4301,20 +4347,42 @@ function App(): JSX.Element {
                   style={[
                     styles.bootIndicator,
                     {
+                      backgroundColor: shellBootTheme.indicatorBg,
+                    },
+                    {
                       opacity: bootPulseOpacity,
                       transform: [{scale: bootPulseScale}],
                     },
                   ]}>
-                  <View style={styles.bootIndicatorDot} />
+                  <View
+                    style={[
+                      styles.bootIndicatorDot,
+                      {
+                        backgroundColor: shellBootTheme.accent,
+                      },
+                    ]}
+                  />
                 </Animated.View>
-                <Text style={styles.loadingText}>
+                <Text
+                  style={[
+                    styles.loadingText,
+                    {
+                      color: shellBootTheme.text,
+                    },
+                  ]}>
                   {selectShellText(
                     shellLanguage,
                     '正在打开页面',
                     'Opening page',
                   )}
                 </Text>
-                <Text style={styles.loadingSubText}>
+                <Text
+                  style={[
+                    styles.loadingSubText,
+                    {
+                      color: shellBootTheme.mutedText,
+                    },
+                  ]}>
                   {loadingTargetPageKey
                     ? shellLanguage === 'en-US'
                       ? `Preparing the ${loadingTargetPageLabel} page.`

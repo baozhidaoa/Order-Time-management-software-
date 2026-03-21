@@ -5451,6 +5451,86 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? reactNativeBridge.platform
         : "native";
     const useAndroidProbeLoop = platform === "android";
+    const buildLegacyBrowserMetadata = (extra = {}) => ({
+      storagePath: "browser://localStorage/bundle-manifest.json",
+      storageDirectory: "browser://localStorage",
+      userDataPath: "Browser LocalStorage",
+      documentsPath: "Browser LocalStorage",
+      platform,
+      fileName: MOBILE_FILE_NAME,
+      uri: BROWSER_STATE_KEY,
+      ...extra,
+    });
+
+    function readLegacyBrowserBootstrapState() {
+      const rawRoot =
+        nativeMethods.getItem?.call(window.localStorage, BROWSER_STATE_KEY) || "";
+      const migratedState = normalizeState({}, buildLegacyBrowserMetadata());
+      const migratedKeys = [];
+      let shouldRewriteRoot = false;
+
+      if (typeof rawRoot === "string" && rawRoot.trim()) {
+        const parsedRootState = parseJsonSafely(rawRoot, {});
+        adoptLegacyLocalOnlyValues(parsedRootState);
+        const normalizedRootState = normalizeState(
+          parsedRootState,
+          buildLegacyBrowserMetadata(),
+        );
+        Object.assign(migratedState, normalizedRootState);
+        shouldRewriteRoot =
+          JSON.stringify(normalizedRootState) !== JSON.stringify(parsedRootState);
+      }
+
+      const rawLength =
+        nativeLengthDescriptor?.get?.call(window.localStorage) ??
+        window.localStorage.length;
+
+      for (let index = 0; index < rawLength; index += 1) {
+        const key = nativeMethods.key?.call(window.localStorage, index);
+        if (
+          !key ||
+          key === BROWSER_STATE_KEY ||
+          key === MOBILE_MIRROR_STATE_KEY ||
+          key === MOBILE_MIRROR_STATUS_KEY ||
+          key === MOBILE_MIRROR_PENDING_WRITE_KEY ||
+          key.startsWith(LOCAL_ONLY_STORAGE_PREFIX)
+        ) {
+          continue;
+        }
+
+        migratedKeys.push(key);
+        const rawValue = safeDeserialize(
+          nativeMethods.getItem?.call(window.localStorage, key),
+        );
+        if (isSharedStateKey(key)) {
+          migratedState[key] = rawValue;
+        } else {
+          writeRawLocalOnlyValue(key, rawValue);
+        }
+        shouldRewriteRoot = true;
+      }
+
+      if (shouldRewriteRoot || typeof rawRoot !== "string" || !rawRoot.trim()) {
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          BROWSER_STATE_KEY,
+          JSON.stringify(migratedState),
+        );
+      }
+      migratedKeys.forEach((key) => {
+        nativeMethods.removeItem?.call(window.localStorage, key);
+      });
+
+      return {
+        state: normalizeState(migratedState, buildLegacyBrowserMetadata()),
+        didMigrate: shouldRewriteRoot || migratedKeys.length > 0,
+      };
+    }
+
+    const legacyBrowserBootstrap = readLegacyBrowserBootstrapState();
+    const emptyComparableSnapshot = createComparableSnapshot(
+      normalizeState({}, buildLegacyBrowserMetadata()),
+    );
     const initialMirrorStateRaw =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     const initialMirrorPendingWriteRaw =
@@ -5466,7 +5546,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       {},
     );
     adoptLegacyLocalOnlyValues(initialMirrorState);
-    let cachedState = normalizeState(initialMirrorState, {
+    const initialMirrorComparableSnapshot = createComparableSnapshot(
+      normalizeState(initialMirrorState, {
+        platform,
+      }),
+    );
+    const legacyBrowserComparableSnapshot = createComparableSnapshot(
+      legacyBrowserBootstrap.state,
+    );
+    const shouldAdoptLegacyBrowserBootstrap =
+      legacyBrowserComparableSnapshot !== emptyComparableSnapshot &&
+      (
+        !initialMirrorStateRaw.trim() ||
+        initialMirrorPendingWrite ||
+        initialMirrorComparableSnapshot === emptyComparableSnapshot
+      );
+    const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
+      ? legacyBrowserBootstrap.state
+      : initialMirrorState;
+    const initialPendingWrite =
+      initialMirrorPendingWrite || shouldAdoptLegacyBrowserBootstrap;
+    let cachedState = normalizeState(initialBootstrapState, {
       platform,
     });
     let cachedStatus =
@@ -5484,16 +5584,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let nativeFastProbeUntil = 0;
     let recentNativeLocalWriteAt = 0;
     let lastFallbackHashProbeAt = 0;
-    let lastWrittenComparableSnapshot = initialMirrorPendingWrite
+    let lastWrittenComparableSnapshot = initialPendingWrite
       ? ""
       : createComparableSnapshot(cachedState);
     let lastMirroredStateJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
-    let lastMirroredPendingWriteValue = initialMirrorPendingWrite ? "1" : "0";
-    let hasPendingStateChanges = initialMirrorPendingWrite;
-    let managedStateRevision = initialMirrorPendingWrite ? 1 : 0;
+    let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+    let hasPendingStateChanges = initialPendingWrite;
+    let managedStateRevision = initialPendingWrite ? 1 : 0;
     let lastKnownVersionProbe = normalizeVersionProbe(cachedStatus, cachedStatus);
     let nativeBaselineFingerprint = lastKnownVersionProbe?.fingerprint || "";
     const nativeSyncBootstrapStartedAt = Date.now();
@@ -5508,7 +5608,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "plans",
       "diaryEntries",
     ];
-    let hasManagedCoreSnapshot = !!initialMirrorStateRaw.trim();
+    let hasManagedCoreSnapshot =
+      !!initialMirrorStateRaw.trim() || shouldAdoptLegacyBrowserBootstrap;
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
     let pendingNativeSharedKeyWrites = new Set();
@@ -11895,6 +11996,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     if (nextSignature === lastShellVisibilityStateSignature) {
       return;
+    }
+
+    if (
+      isReactNativeNavigationRuntime() &&
+      shellVisibilityState.active !== nextState.active
+    ) {
+      resetAppPageTransitionRuntimeState({
+        clearStoredState: false,
+      });
     }
 
     lastShellVisibilityStateSignature = nextSignature;
