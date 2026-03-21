@@ -390,6 +390,38 @@ function readTodoWorkspaceSnapshot() {
   return managedSnapshot || localSnapshot;
 }
 
+async function readFreshTodoWorkspaceSnapshot() {
+  if (typeof window.ControlerStorage?.getPageBootstrapState !== "function") {
+    return readTodoWorkspaceSnapshot();
+  }
+  try {
+    const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
+      "todo",
+      {
+        fresh: true,
+      },
+    );
+    const data =
+      pageBootstrap?.data && typeof pageBootstrap.data === "object"
+        ? pageBootstrap.data
+        : null;
+    if (!data) {
+      throw new Error("missing todo bootstrap data");
+    }
+    return {
+      todos: Array.isArray(data.todos) ? data.todos : [],
+      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+      dailyCheckins: Array.isArray(data.todayDailyCheckins)
+        ? data.todayDailyCheckins
+        : [],
+      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+    };
+  } catch (error) {
+    console.error("读取待办页最新引导数据失败，回退当前快照:", error);
+    return readTodoWorkspaceSnapshot();
+  }
+}
+
 function clearTodoWidgetLaunchQuery() {
   const params = new URLSearchParams(window.location.search || "");
   if (!params.get("widgetAction")) {
@@ -5082,11 +5114,13 @@ function renderTodoWorkspace() {
   updateStatsPanel();
 }
 
-function ensureTodoBaseBindings() {
+function ensureTodoBaseBindings(options = {}) {
   loadThemeSettings();
   applyTodoDesktopWidgetMode();
   if (!todoUiBindingsInitialized) {
-    loadData();
+    if (options?.skipInitialDataLoad !== true) {
+      loadData();
+    }
     initFilters();
     initSearch();
     initSort();
@@ -5307,12 +5341,20 @@ window.ControlerTodoRuntime = {
 // 初始化
 async function init() {
   initTodoWidgetLaunchAction();
-  await waitForTodoStorageReady();
   registerTodoBeforePageLeaveGuard();
-  ensureTodoBaseBindings();
+  applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());
+  ensureTodoBaseBindings({
+    skipInitialDataLoad: true,
+  });
   applyTodoWidgetMode();
   renderTodoWorkspace();
   todoPlanSidebarInitialized = true;
+  uiTools?.markPerfStage?.("first-data-ready", {
+    todoCount: todos.length,
+    checkinItemCount: checkinItems.length,
+    dailyCheckinCount: dailyCheckins.length,
+    recentCheckinCount: checkins.length,
+  });
   queueTodoInitialReveal();
 }
 

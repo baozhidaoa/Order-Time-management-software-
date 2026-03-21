@@ -225,11 +225,13 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private final ExecutorService storageSideEffectExecutor =
         Executors.newSingleThreadExecutor();
     private final Object storageSideEffectLock = new Object();
+    private final Object storageStatusRefreshLock = new Object();
     private final LinkedHashSet<String> pendingStorageSideEffectSections =
         new LinkedHashSet<>();
     private boolean pendingStorageNotificationReschedule = false;
     private boolean pendingStorageWidgetRefresh = false;
     private boolean pendingStorageAutoBackupCheck = false;
+    private boolean pendingPreciseStorageStatusRefresh = false;
     private long lastDeferredAutoBackupQueuedAt = 0L;
     private final Runnable storageSideEffectDrainRunnable = new Runnable() {
         @Override
@@ -711,7 +713,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             JSONObject root = ControlerWidgetDataStore.loadRootStrict(getReactApplicationContext());
             JSONObject payload = new JSONObject();
             payload.put("state", root);
-            payload.put("status", buildStorageStatus(root));
+            payload.put("status", buildResponsiveStorageStatus(root));
             promise.resolve(payload.toString());
         } catch (Exception error) {
             promise.reject("storage_read_failed", error);
@@ -741,7 +743,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 "state",
                 ControlerWidgetDataStore.loadRoot(getReactApplicationContext())
             );
-            payload.put("status", buildStorageStatus(payload.getJSONObject("state")));
+            payload.put("status", buildResponsiveStorageStatus(payload.getJSONObject("state")));
             promise.resolve(payload.toString());
         } catch (Exception error) {
             promise.reject("storage_write_failed", error);
@@ -751,8 +753,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void getStorageStatus(Promise promise) {
         try {
-            JSONObject root = ControlerWidgetDataStore.loadRoot(getReactApplicationContext());
-            promise.resolve(buildStorageStatus(root).toString());
+            promise.resolve(buildResponsiveStorageStatus(null).toString());
         } catch (Exception error) {
             promise.reject("storage_status_failed", error);
         }
@@ -1177,7 +1178,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 ControlerNotificationScheduler.rescheduleAll(context, refreshedRoot);
                 ControlerWidgetRenderer.scheduleRefreshAll(context);
                 maybeRunAutoBackup(context);
-                result.put("status", buildStorageStatus(refreshedRoot));
+                result.put("status", buildResponsiveStorageStatus(refreshedRoot));
                 promise.resolve(result.toString());
                 return;
             }
@@ -1357,7 +1358,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             JSONObject root = ControlerWidgetDataStore.loadRoot(getReactApplicationContext());
             ControlerWidgetRenderer.scheduleRefreshAll(getReactApplicationContext());
             maybeRunAutoBackup(getReactApplicationContext());
-            promise.resolve(buildStorageStatus(root).toString());
+            promise.resolve(buildResponsiveStorageStatus(root).toString());
         } catch (Exception error) {
             promise.reject("storage_reset_failed", error);
         }
@@ -1745,7 +1746,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             ControlerNotificationScheduler.rescheduleAll(context, refreshedRoot);
             ControlerWidgetRenderer.scheduleRefreshAll(context);
             maybeRunAutoBackup(context);
-            result.put("status", buildStorageStatus(refreshedRoot));
+            result.put("status", buildResponsiveStorageStatus(refreshedRoot));
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_import_failed", error);
@@ -1833,7 +1834,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             ControlerWidgetRenderer.scheduleRefreshAll(context);
             maybeRunAutoBackup(context);
             promise.resolve(
-                buildStorageStatus(refreshedRoot, switchPlan.switchAction).toString()
+                buildResponsiveStorageStatus(refreshedRoot, switchPlan.switchAction).toString()
             );
         } catch (Exception error) {
             promise.reject("storage_select_failed", error);
@@ -1897,7 +1898,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             ControlerWidgetRenderer.scheduleRefreshAll(context);
             maybeRunAutoBackup(context);
             promise.resolve(
-                buildStorageStatus(
+                buildResponsiveStorageStatus(
                     refreshedRoot,
                     hadExistingData
                         ? SWITCH_ACTION_ADOPTED_EXISTING
@@ -4075,10 +4076,61 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         return null;
     }
 
-    private JSONObject buildStorageStatus(JSONObject root, String switchAction) throws Exception {
-        JSONObject status = buildStorageStatus(root);
+    private void schedulePreciseStorageStatusRefresh() {
+        synchronized (storageStatusRefreshLock) {
+            if (pendingPreciseStorageStatusRefresh) {
+                return;
+            }
+            pendingPreciseStorageStatusRefresh = true;
+        }
+
+        storageSideEffectExecutor.execute(() -> {
+            try {
+                ControlerWidgetDataStore.refreshPreciseStorageLocation(
+                    getReactApplicationContext()
+                );
+            } catch (Exception error) {
+                error.printStackTrace();
+            } finally {
+                synchronized (storageStatusRefreshLock) {
+                    pendingPreciseStorageStatusRefresh = false;
+                }
+            }
+        });
+    }
+
+    private int countManifestSectionItems(JSONObject manifest, String sectionKey) {
+        JSONObject section =
+            manifest == null || manifest.optJSONObject("sections") == null
+                ? null
+                : manifest.optJSONObject("sections").optJSONObject(sectionKey);
+        JSONArray partitions = section == null ? null : section.optJSONArray("partitions");
+        int total = 0;
+        if (partitions == null) {
+            return total;
+        }
+        for (int index = 0; index < partitions.length(); index += 1) {
+            JSONObject partition = partitions.optJSONObject(index);
+            if (partition != null) {
+                total += Math.max(0, partition.optInt("count", 0));
+            }
+        }
+        return total;
+    }
+
+    private JSONObject buildResponsiveStorageStatus(JSONObject root, String switchAction)
+        throws Exception {
+        JSONObject status = buildResponsiveStorageStatus(root);
         if (!TextUtils.isEmpty(switchAction)) {
             status.put("switchAction", switchAction);
+        }
+        return status;
+    }
+
+    private JSONObject buildResponsiveStorageStatus(JSONObject root) throws Exception {
+        JSONObject status = buildStorageStatus(root);
+        if (status.optBoolean("sizePending", false)) {
+            schedulePreciseStorageStatusRefresh();
         }
         return status;
     }
@@ -4091,6 +4143,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 getReactApplicationContext(),
                 storageLocation.modifiedAt <= 0L
             );
+        JSONObject manifest =
+            ControlerWidgetDataStore.getStorageManifest(getReactApplicationContext());
+        JSONObject core =
+            root != null
+                ? root
+                : ControlerWidgetDataStore.getStorageCoreState(getReactApplicationContext());
         File defaultStorageFile =
             ControlerWidgetDataStore.getDefaultStorageFile(getReactApplicationContext());
         File defaultStorageDirectory = defaultStorageFile.getParentFile();
@@ -4101,21 +4159,31 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     defaultStorageDirectory,
                     ControlerWidgetDataStore.BUNDLE_MANIFEST_FILE_NAME
                 );
-        String serialized = root.toString();
-        long size = storageLocation.size > 0L
-            ? storageLocation.size
-            : serialized.getBytes(StandardCharsets.UTF_8).length;
+        long serializedSize =
+            root == null
+                ? 0L
+                : root.toString().getBytes(StandardCharsets.UTF_8).length;
+        long size = storageLocation.size > 0L ? storageLocation.size : serializedSize;
         String exposedStorageMode =
             ControlerWidgetDataStore.BUNDLE_MANIFEST_FILE_NAME.equals(storageLocation.syncFileName)
                 ? ControlerWidgetDataStore.BUNDLE_MODE
                 : storageLocation.storageMode;
 
         JSONObject status = new JSONObject();
-        JSONArray projects = root.optJSONArray("projects");
-        JSONArray records = root.optJSONArray("records");
+        JSONArray projects =
+            root != null
+                ? root.optJSONArray("projects")
+                : core == null
+                    ? null
+                    : core.optJSONArray("projects");
+        JSONArray records = root == null ? null : root.optJSONArray("records");
         status.put("projects", projects == null ? 0 : projects.length());
-        status.put("records", records == null ? 0 : records.length());
+        status.put(
+            "records",
+            records == null ? countManifestSectionItems(manifest, "records") : records.length()
+        );
         status.put("size", size);
+        status.put("sizePending", storageLocation.sizePending);
         status.put("storagePath", storageLocation.storagePath);
         status.put(
             "storageDirectory",
@@ -4143,9 +4211,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         status.put("bundleMode", ControlerWidgetDataStore.BUNDLE_MODE);
         status.put(
             "syncMeta",
-            root.optJSONObject("syncMeta") == null
+            core == null || core.optJSONObject("syncMeta") == null
                 ? JSONObject.NULL
-                : root.optJSONObject("syncMeta")
+                : core.optJSONObject("syncMeta")
         );
         status.put("isNativeApp", true);
         status.put("platform", "android");

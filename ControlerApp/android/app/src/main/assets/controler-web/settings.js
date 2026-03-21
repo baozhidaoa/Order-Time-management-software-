@@ -34,6 +34,7 @@ const AUTO_BACKUP_STATUS_CACHE_KEY = "controler.settings.autoBackupStatus";
 let settingsBusyOverlayTimer = 0;
 let settingsInitialLoadOverlayTimer = 0;
 let settingsInitialLoadOverlayVisible = false;
+let settingsStorageStatusRetryTimer = 0;
 let autoBackupCachedStatus = null;
 let autoBackupSaveTimer = 0;
 let autoBackupSaveVersion = 0;
@@ -2313,6 +2314,8 @@ function showThemeEditorModal(theme = null) {
 function updateStorageStatus() {
   const statusElement = document.getElementById("storage-status");
   if (!statusElement) return;
+  window.clearTimeout(settingsStorageStatusRetryTimer);
+  settingsStorageStatusRetryTimer = 0;
 
   const controlerStorage = window.ControlerStorage;
   if (typeof controlerStorage?.getStorageStatus === "function") {
@@ -2324,15 +2327,24 @@ function updateStorageStatus() {
         }
 
         const sizeKb = Number(status.size || 0) / 1024;
+        const sizeLabel =
+          status?.sizePending === true
+            ? `${sizeKb.toFixed(2)} KB（正在刷新精确体积）`
+            : `${sizeKb.toFixed(2)} KB`;
         statusElement.innerHTML = `
           <p>存储模式: ${status.storageMode || status.bundleMode || "directory-bundle"}</p>
-          <p>存储使用: ${sizeKb.toFixed(2)} KB</p>
+          <p>存储使用: ${sizeLabel}</p>
           <p>记录数量: ${status.records || 0} 条</p>
           <p>项目数量: ${status.projects || 0} 个</p>
         `;
         void updateBundleStoragePanels(status);
         void refreshAutoBackupPanel();
         updateDataManagementGuideHint();
+        if (status?.sizePending === true) {
+          settingsStorageStatusRetryTimer = window.setTimeout(() => {
+            updateStorageStatus();
+          }, 1200);
+        }
       })
       .catch(() => {
         renderLocalStorageStatusFallback(statusElement);

@@ -189,6 +189,199 @@
     return Math.max(0, Math.round(Number(value) || 0));
   }
 
+  function collectProjectCycleIds(parentById = new Map()) {
+    const cycleIds = new Set();
+    const resolvedIds = new Set();
+
+    parentById.forEach((_parentId, projectId) => {
+      const normalizedProjectId = String(projectId || "").trim();
+      if (!normalizedProjectId || resolvedIds.has(normalizedProjectId)) {
+        return;
+      }
+
+      const trail = [];
+      const visitedAt = new Map();
+      let currentId = normalizedProjectId;
+
+      while (
+        currentId &&
+        parentById.has(currentId) &&
+        !resolvedIds.has(currentId)
+      ) {
+        if (visitedAt.has(currentId)) {
+          const cycleStartIndex = visitedAt.get(currentId);
+          trail.slice(cycleStartIndex).forEach((cycleProjectId) => {
+            cycleIds.add(cycleProjectId);
+          });
+          break;
+        }
+
+        visitedAt.set(currentId, trail.length);
+        trail.push(currentId);
+        currentId = String(parentById.get(currentId) || "").trim();
+      }
+
+      trail.forEach((trailProjectId) => {
+        resolvedIds.add(trailProjectId);
+      });
+    });
+
+    return cycleIds;
+  }
+
+  function repairProjectHierarchy(projects = []) {
+    const nextProjects = ensureArray(projects).map((project) =>
+      cloneValue(project && typeof project === "object" ? project : {}),
+    );
+    const byId = new Map();
+    const requestedParentById = new Map();
+    let repaired = false;
+
+    nextProjects.forEach((project, index) => {
+      const projectId = String(project?.id || "").trim();
+      if (!projectId || byId.has(projectId)) {
+        return;
+      }
+      byId.set(projectId, {
+        index,
+        project,
+      });
+    });
+
+    nextProjects.forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      if (!projectId || !byId.has(projectId)) {
+        return;
+      }
+
+      const rawParentId = String(project?.parentId || "").trim();
+      if (
+        !rawParentId ||
+        rawParentId === projectId ||
+        !byId.has(rawParentId)
+      ) {
+        requestedParentById.set(projectId, null);
+        if (rawParentId) {
+          repaired = true;
+        }
+        return;
+      }
+
+      requestedParentById.set(projectId, rawParentId);
+    });
+
+    const cycleIds = collectProjectCycleIds(requestedParentById);
+    const resolvedStateById = new Map();
+    const resolvingIds = new Set();
+
+    const resolveProjectState = (projectId) => {
+      const normalizedProjectId = String(projectId || "").trim();
+      if (!normalizedProjectId || !byId.has(normalizedProjectId)) {
+        return {
+          parentId: null,
+          level: 1,
+          level2AncestorId: null,
+        };
+      }
+
+      if (resolvedStateById.has(normalizedProjectId)) {
+        return resolvedStateById.get(normalizedProjectId);
+      }
+
+      if (resolvingIds.has(normalizedProjectId)) {
+        repaired = true;
+        const fallbackState = {
+          parentId: null,
+          level: 1,
+          level2AncestorId: null,
+        };
+        resolvedStateById.set(normalizedProjectId, fallbackState);
+        return fallbackState;
+      }
+
+      resolvingIds.add(normalizedProjectId);
+      let parentId = requestedParentById.get(normalizedProjectId) || null;
+      if (cycleIds.has(normalizedProjectId)) {
+        parentId = null;
+        repaired = true;
+      }
+
+      let resolvedState = {
+        parentId: null,
+        level: 1,
+        level2AncestorId: null,
+      };
+
+      if (parentId) {
+        const parentState = resolveProjectState(parentId);
+        if (parentState.level === 1) {
+          resolvedState = {
+            parentId,
+            level: 2,
+            level2AncestorId: normalizedProjectId,
+          };
+        } else if (parentState.level === 2) {
+          resolvedState = {
+            parentId,
+            level: 3,
+            level2AncestorId: parentState.level2AncestorId || parentId,
+          };
+        } else if (parentState.level >= 3) {
+          const flattenedParentId = String(
+            parentState.level2AncestorId || "",
+          ).trim();
+          if (flattenedParentId && flattenedParentId !== normalizedProjectId) {
+            resolvedState = {
+              parentId: flattenedParentId,
+              level: 3,
+              level2AncestorId: flattenedParentId,
+            };
+            repaired = true;
+          } else {
+            resolvedState = {
+              parentId: null,
+              level: 1,
+              level2AncestorId: null,
+            };
+            repaired = true;
+          }
+        }
+      }
+
+      resolvingIds.delete(normalizedProjectId);
+      resolvedStateById.set(normalizedProjectId, resolvedState);
+      return resolvedState;
+    };
+
+    nextProjects.forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      if (!projectId || !byId.has(projectId)) {
+        return;
+      }
+
+      const resolvedState = resolveProjectState(projectId);
+      const previousParentId = String(project?.parentId || "").trim() || null;
+      const nextParentId = resolvedState.parentId || null;
+      const previousLevel = Number.parseInt(project?.level, 10);
+      const nextLevel = resolvedState.level;
+
+      if (previousParentId !== nextParentId) {
+        repaired = true;
+      }
+      if (previousLevel !== nextLevel) {
+        repaired = true;
+      }
+
+      project.parentId = nextParentId;
+      project.level = nextLevel;
+    });
+
+    return {
+      projects: nextProjects,
+      repaired,
+    };
+  }
+
   function parseSpendTimeToMs(spendtime) {
     if (typeof spendtime !== "string") {
       return 0;
@@ -288,8 +481,9 @@
   }
 
   function buildProjectDurationContext(projects = []) {
-    const normalizedProjects = ensureArray(projects).map((project) =>
-      normalizeProjectDurationCache(project),
+    const hierarchyRepairResult = repairProjectHierarchy(projects);
+    const normalizedProjects = ensureArray(hierarchyRepairResult.projects).map(
+      (project) => normalizeProjectDurationCache(project),
     );
     const byId = new Map();
     const byName = new Map();
@@ -1161,6 +1355,7 @@
     normalizeProjectDurationCache,
     hasValidProjectDurationCache,
     projectsHaveValidDurationCache,
+    repairProjectHierarchy,
     attachProjectIdsToRecords,
     recalculateProjectDurationTotals,
     rebuildProjectDurationCaches,

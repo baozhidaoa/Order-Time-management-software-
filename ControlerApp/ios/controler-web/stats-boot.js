@@ -3295,7 +3295,7 @@ function applyStatsWorkspaceState(snapshot = {}) {
   syncStatsDataIndex(["records", "projects"]);
 }
 
-async function readStatsWorkspace(scope = getStatsLoadScope()) {
+async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
   const preferences = readStatsPreferencesFromStorage();
   try {
     if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
@@ -3303,6 +3303,7 @@ async function readStatsWorkspace(scope = getStatsLoadScope()) {
       const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
         "stats",
         {
+          fresh: options?.fresh === true,
           recordScope,
         },
       );
@@ -3371,8 +3372,8 @@ async function readStatsWorkspace(scope = getStatsLoadScope()) {
   }
 }
 
-async function loadData(scope = getStatsLoadScope()) {
-  const snapshot = await readStatsWorkspace(scope);
+async function loadData(scope = getStatsLoadScope(), options = {}) {
+  const snapshot = await readStatsWorkspace(scope, options);
   applyStatsWorkspaceState(snapshot);
   return snapshot;
 }
@@ -8374,12 +8375,13 @@ async function init() {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
     initStatsWidgetLaunchAction();
-    await waitForStatsStorageReady();
     registerStatsBeforePageLeaveGuard();
     if (useWidgetLaunchFastPath) {
       queueStatsToolbarReveal();
     }
-    await loadData(getStatsLoadScope());
+    await loadData(getStatsLoadScope(), {
+      fresh: true,
+    });
     uiTools?.markPerfStage?.("first-data-ready", {
       rangeUnit: statsRangeState.unit,
       recordCount: records.length,

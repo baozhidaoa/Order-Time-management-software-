@@ -289,7 +289,7 @@
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
-  const APP_PAGE_LEAVE_GUARD_TIMEOUT_MS = 2500;
+  const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -332,6 +332,7 @@
   let appPageTransitionInitialized = false;
   let appPageTransitionLocked = false;
   let appPageLeavePreflightLocked = false;
+  let deferredAppNavigationRequest = null;
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let pendingNativeNavigationRequest = null;
@@ -635,6 +636,51 @@
     if (pendingRequest.timeoutId) {
       window.clearTimeout(pendingRequest.timeoutId);
     }
+    return pendingRequest;
+  }
+
+  function createDeferredAppNavigationRequest(targetItem, options = {}) {
+    if (!targetItem || typeof targetItem !== "object") {
+      return null;
+    }
+    const targetHref = normalizeAppNavigationHref(
+      options.targetHref || targetItem.href,
+    );
+    if (!targetHref) {
+      return null;
+    }
+    return {
+      targetItem,
+      targetHref,
+      options: {
+        ...options,
+        targetHref,
+        replaceHistory: options.replaceHistory === true,
+      },
+    };
+  }
+
+  function stashDeferredAppNavigationRequest(targetItem, options = {}) {
+    const request = createDeferredAppNavigationRequest(targetItem, options);
+    if (!request) {
+      return null;
+    }
+    deferredAppNavigationRequest = request;
+    return request;
+  }
+
+  function takeDeferredAppNavigationRequest(fallbackRequest = null) {
+    if (deferredAppNavigationRequest) {
+      const request = deferredAppNavigationRequest;
+      deferredAppNavigationRequest = null;
+      return request;
+    }
+    return fallbackRequest;
+  }
+
+  function clearDeferredAppNavigationRequest() {
+    const pendingRequest = deferredAppNavigationRequest;
+    deferredAppNavigationRequest = null;
     return pendingRequest;
   }
 
@@ -1173,6 +1219,7 @@
     const clearStoredState = options.clearStoredState !== false;
     appPageTransitionLocked = false;
     appPageLeavePreflightLocked = false;
+    clearDeferredAppNavigationRequest();
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
     if (clearStoredState) {
@@ -1270,7 +1317,7 @@
     overlay.innerHTML = `
       <div class="page-loading-card" role="status" aria-live="polite">
         <div class="page-loading-title" data-loading-title>正在保存最新数据</div>
-        <div class="page-loading-message" data-loading-message>请稍候，正在完成当前页面的数据写入</div>
+        <div class="page-loading-message" data-loading-message>请稍候，保存完成后会自动切换页面</div>
       </div>
     `;
     if (document.body instanceof HTMLElement) {
@@ -1313,41 +1360,39 @@
       active: true,
       mode: "fullscreen",
       title: "正在保存最新数据",
-      message: "请稍候，正在完成当前页面的数据写入",
+      message: "请稍候，保存完成后会自动切换页面",
       delayMs: APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
     });
 
     let failure = null;
-    let timeoutId = 0;
+    let slowMessageTimerId = 0;
     try {
-      const guardSequence = (async () => {
-        const guards = Array.from(beforePageLeaveGuards.values());
-        for (const guard of guards) {
-          const guardResult = await guard(context);
-          if (guardResult === false) {
-            throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
-          }
+      slowMessageTimerId = window.setTimeout(() => {
+        overlayController?.setState({
+          active: true,
+          mode: "fullscreen",
+          title: "仍在保存最新数据",
+          message: "保存时间比平时稍长，完成后会自动切换页面",
+          delayMs: 0,
+        });
+      }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
+
+      const guards = Array.from(beforePageLeaveGuards.values());
+      for (const guard of guards) {
+        const guardResult = await guard(context);
+        if (guardResult === false) {
+          throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
         }
-      })();
-      await Promise.race([
-        guardSequence,
-        new Promise((_, reject) => {
-          timeoutId = window.setTimeout(() => {
-            reject(
-              new Error("当前页面仍在保存数据，请稍后再试。"),
-            );
-          }, APP_PAGE_LEAVE_GUARD_TIMEOUT_MS);
-        }),
-      ]);
+      }
     } catch (error) {
       failure =
         error instanceof Error
           ? error
-          : new Error("当前页面的数据保存失败，已阻止切换页面。");
+          : new Error("当前页面的数据保存失败，未切换页面。");
       console.error("页面切换前执行保存守卫失败:", failure);
     } finally {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
+      if (slowMessageTimerId) {
+        window.clearTimeout(slowMessageTimerId);
       }
       overlayController?.setState({
         active: false,
@@ -1360,11 +1405,11 @@
     }
 
     await alertDialog({
-      title: "暂时无法切换页面",
+      title: "保存失败，未切换页面",
       message:
         typeof failure.message === "string" && failure.message.trim()
           ? failure.message.trim()
-          : "当前页面的数据保存失败，已阻止切换页面。",
+          : "当前页面的数据保存失败，未切换页面。",
       confirmText: "知道了",
       danger: true,
     }).catch(() => {});
@@ -1394,20 +1439,27 @@
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
+    const navigationRequest = createDeferredAppNavigationRequest(
+      targetItem,
+      options,
+    );
     if (!targetItem) {
       return false;
     }
+    if (!navigationRequest) {
+      return false;
+    }
     if (appPageLeavePreflightLocked) {
+      stashDeferredAppNavigationRequest(targetItem, options);
       return true;
     }
     if (androidWebTransitionRuntime && appPageTransitionLocked) {
+      stashDeferredAppNavigationRequest(targetItem, options);
       return true;
     }
 
     const currentItem = getCurrentAppNavigationItem();
-    const targetHref = normalizeAppNavigationHref(
-      options.targetHref || targetItem.href,
-    );
+    const targetHref = navigationRequest.targetHref;
     if (!targetHref) {
       return false;
     }
@@ -1436,6 +1488,20 @@
           return;
         }
 
+        const resolvedNavigationRequest =
+          takeDeferredAppNavigationRequest(navigationRequest) ||
+          navigationRequest;
+        const finalTargetItem = resolvedNavigationRequest.targetItem;
+        const finalTargetHref = resolvedNavigationRequest.targetHref;
+        const finalNavigationOptions = resolvedNavigationRequest.options || {};
+        if (
+          currentItem?.key === finalTargetItem.key &&
+          currentHref === finalTargetHref
+        ) {
+          resetAppPageTransitionRuntimeState();
+          return;
+        }
+
         if (nativeNavigationRuntime) {
           resetAppPageTransitionRuntimeState();
           appPageTransitionLocked = true;
@@ -1443,27 +1509,27 @@
           initNativeNavigationBridge();
           const direction = getNavigationDirection(
             currentItem?.key || "",
-            targetItem.key,
+            finalTargetItem.key,
           );
           const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
           const requested = window.ControlerNativeBridge?.emitEvent?.(
             "ui.navigate",
             {
-              page: targetItem.key,
-              href: targetHref,
+              page: finalTargetItem.key,
+              href: finalTargetHref,
               direction,
               requestId,
             },
           );
           if (!requested) {
             shouldUnlock = false;
-            performAppNavigation(targetHref, options);
+            performAppNavigation(finalTargetHref, finalNavigationOptions);
             return;
           }
           pendingNativeNavigationRequest = {
             requestId,
-            targetHref,
-            replaceHistory: options.replaceHistory === true,
+            targetHref: finalTargetHref,
+            replaceHistory: finalNavigationOptions.replaceHistory === true,
             timeoutId: window.setTimeout(() => {
               if (
                 !pendingNativeNavigationRequest ||
@@ -1472,7 +1538,7 @@
                 return;
               }
               clearPendingNativeNavigationRequest();
-              performAppNavigation(targetHref, options);
+              performAppNavigation(finalTargetHref, finalNavigationOptions);
             }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS),
           };
           shouldUnlock = false;
@@ -1483,7 +1549,7 @@
         appPageTransitionLocked = true;
         appPageLeavePreflightLocked = true;
         shouldUnlock = false;
-        performAppNavigation(targetHref, options);
+        performAppNavigation(finalTargetHref, finalNavigationOptions);
       } catch (error) {
         console.error("执行页面切换失败:", error);
         resetAppPageTransitionRuntimeState();

@@ -1633,6 +1633,57 @@ class StorageManager {
     return bundleHelper.ensureObject(this.readJsonFileSync(this.getCorePath(root), {}), {});
   }
 
+  normalizeCoreProjectsSnapshot(core = {}) {
+    const nextCore = bundleHelper.ensureObject(
+      bundleHelper.cloneValue(core),
+      {},
+    );
+    const rawProjects = bundleHelper.ensureArray(nextCore.projects);
+    const repairResult =
+      typeof bundleHelper.repairProjectHierarchy === "function"
+        ? bundleHelper.repairProjectHierarchy(rawProjects)
+        : {
+            projects: rawProjects,
+            repaired: false,
+          };
+    const needsDurationRepair =
+      typeof bundleHelper.projectsHaveValidDurationCache === "function"
+        ? !bundleHelper.projectsHaveValidDurationCache(repairResult.projects)
+        : false;
+
+    nextCore.projects =
+      repairResult.repaired || needsDurationRepair
+        ? bundleHelper.recalculateProjectDurationTotals(repairResult.projects)
+        : repairResult.projects;
+
+    return {
+      core: nextCore,
+      repaired: repairResult.repaired || needsDurationRepair,
+    };
+  }
+
+  repairStoredCoreProjectsIfNeeded(root = this.getBundleRoot()) {
+    const currentCore = this.readCoreSync(root);
+    const normalized = this.normalizeCoreProjectsSnapshot(currentCore);
+    if (!normalized.repaired) {
+      return normalized.core;
+    }
+
+    const repairedAt = new Date().toISOString();
+    normalized.core.lastModified = repairedAt;
+    this.writeJsonFileSync(this.getCorePath(root), normalized.core);
+
+    const manifest = this.readManifestSync(root);
+    if (manifest) {
+      manifest.lastModified = repairedAt;
+      this.writeJsonFileSync(this.getManifestPath(root), manifest);
+    }
+
+    this.cachedStorageSnapshot = null;
+    this.markKnownFileVersion({ includeHash: true });
+    return normalized.core;
+  }
+
   readRecurringPlansSync(root = this.getBundleRoot()) {
     return bundleHelper.ensureArray(this.readJsonFileSync(this.getRecurringPlansPath(root), []));
   }
@@ -2901,8 +2952,8 @@ class StorageManager {
   buildPageBootstrapPayload(pageKey, options = {}) {
     const normalizedPage = this.normalizePageBootstrapKey(pageKey);
     const root = this.getBundleRoot(this.storagePath);
+    const core = this.repairStoredCoreProjectsIfNeeded(root);
     const manifest = this.readManifestSync(root);
-    const core = this.readCoreSync(root);
     const recurringPlans = this.readRecurringPlansSync(root);
     const sourceFingerprint = this.buildBundleSourceFingerprint(root, manifest);
     const builtAt = new Date().toISOString();
@@ -3146,7 +3197,7 @@ class StorageManager {
     });
     return this.normalizeStorageData(bundleHelper.buildLegacyStateFromBundle({
       manifest,
-      core: this.readCoreSync(root),
+      core: this.repairStoredCoreProjectsIfNeeded(root),
       recurringPlans: this.readRecurringPlansSync(root),
       partitionMap,
     }), {
@@ -4105,7 +4156,7 @@ class StorageManager {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
     return {
-      ...bundleHelper.cloneValue(this.readCoreSync(root)),
+      ...bundleHelper.cloneValue(this.repairStoredCoreProjectsIfNeeded(root)),
       recurringPlans: bundleHelper.cloneValue(this.readRecurringPlansSync(root)),
       storagePath: this.getBundleDisplayPath(root),
       storageDirectory: root,

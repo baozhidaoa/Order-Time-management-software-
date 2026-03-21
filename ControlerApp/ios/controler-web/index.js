@@ -3292,26 +3292,157 @@ function normalizeStoredProjects(rawProjects = []) {
   });
 
   normalizedProjects.forEach((project) => {
-    if (
-      project.parentId === null ||
-      project.parentId === undefined ||
-      project.parentId === ""
-    ) {
+    const normalizedParentId = String(project.parentId ?? "").trim();
+    if (!normalizedParentId) {
       project.parentId = null;
       return;
     }
 
-    const remappedParentId =
-      idMap.get(String(project.parentId)) ||
-      (usedIds.has(String(project.parentId)) ? String(project.parentId) : null);
-
-    project.parentId =
-      remappedParentId && remappedParentId !== project.id
-        ? remappedParentId
-        : null;
+    project.parentId = idMap.get(normalizedParentId) || normalizedParentId;
   });
 
-  return normalizedProjects;
+  const hierarchyRepairResult =
+    typeof storageBundleApi?.repairProjectHierarchy === "function"
+      ? storageBundleApi.repairProjectHierarchy(normalizedProjects)
+      : {
+          projects: normalizedProjects,
+          repaired: false,
+        };
+  const repairedProjects = Array.isArray(hierarchyRepairResult?.projects)
+    ? hierarchyRepairResult.projects
+    : normalizedProjects;
+  const needsDurationRepair =
+    typeof storageBundleApi?.projectsHaveValidDurationCache === "function"
+      ? !storageBundleApi.projectsHaveValidDurationCache(repairedProjects)
+      : false;
+
+  if (
+    (hierarchyRepairResult.repaired || needsDurationRepair) &&
+    typeof storageBundleApi?.recalculateProjectDurationTotals === "function"
+  ) {
+    return storageBundleApi.recalculateProjectDurationTotals(repairedProjects);
+  }
+
+  return repairedProjects;
+}
+
+function serializeIndexProjectsForComparison(projectList = []) {
+  try {
+    return JSON.stringify(Array.isArray(projectList) ? projectList : []);
+  } catch (error) {
+    console.error("序列化项目快照失败:", error);
+    return "";
+  }
+}
+
+function persistNormalizedProjectsRepairIfNeeded(
+  sourceProjects = [],
+  normalizedProjects = projects,
+  options = {},
+) {
+  const sourceSnapshot = serializeIndexProjectsForComparison(sourceProjects);
+  const normalizedSnapshot =
+    serializeIndexProjectsForComparison(normalizedProjects);
+  if (!normalizedSnapshot || sourceSnapshot === normalizedSnapshot) {
+    return;
+  }
+
+  try {
+    localStorage.setItem("projects", normalizedSnapshot);
+  } catch (error) {
+    console.error("写入修复后的项目镜像失败:", error);
+  }
+
+  if (typeof window.ControlerStorage?.replaceCoreState === "function") {
+    Promise.resolve(
+      window.ControlerStorage.replaceCoreState(
+        {
+          projects: normalizedProjects,
+        },
+        {
+          emitChange: false,
+          reason:
+            typeof options.reason === "string" && options.reason.trim()
+              ? options.reason.trim()
+              : "project-hierarchy-repair",
+        },
+      ),
+    ).catch((error) => {
+      console.error("持久化修复后的项目层级失败:", error);
+    });
+  }
+}
+
+function getIndexProjectHierarchyIndex(projectList = projects) {
+  const safeProjects = Array.isArray(projectList) ? projectList : [];
+  const statsApi = window.ControlerProjectStats;
+  if (typeof statsApi?.buildProjectHierarchyIndex === "function") {
+    const hierarchyIndex = statsApi.buildProjectHierarchyIndex(safeProjects);
+    const orderById = new Map(
+      safeProjects.map((project, index) => [String(project?.id || "").trim(), index]),
+    );
+    const sortNodesByProjectOrder = (nodes = []) =>
+      nodes.slice().sort((left, right) => {
+        const leftId = String(left?.raw?.id || left?.id || "").trim();
+        const rightId = String(right?.raw?.id || right?.id || "").trim();
+        return (orderById.get(leftId) ?? Number.MAX_SAFE_INTEGER) -
+          (orderById.get(rightId) ?? Number.MAX_SAFE_INTEGER);
+      });
+    const childrenByParent = new Map();
+    hierarchyIndex?.childrenByParent?.forEach((nodes, parentId) => {
+      childrenByParent.set(parentId, sortNodesByProjectOrder(nodes));
+    });
+    return {
+      ...hierarchyIndex,
+      roots: sortNodesByProjectOrder(hierarchyIndex?.roots || []),
+      childrenByParent,
+    };
+  }
+
+  const byId = new Map();
+  const childrenByParent = new Map();
+  const roots = [];
+
+  safeProjects.forEach((project) => {
+    if (!project || typeof project !== "object") {
+      return;
+    }
+    const projectId = String(project.id || "").trim();
+    if (!projectId || byId.has(projectId)) {
+      return;
+    }
+    byId.set(projectId, {
+      id: projectId,
+      parentId: String(project.parentId || "").trim(),
+      raw: project,
+    });
+  });
+
+  byId.forEach((node) => {
+    if (
+      node.parentId &&
+      node.parentId !== node.id &&
+      byId.has(node.parentId)
+    ) {
+      if (!childrenByParent.has(node.parentId)) {
+        childrenByParent.set(node.parentId, []);
+      }
+      childrenByParent.get(node.parentId).push(node);
+      return;
+    }
+    roots.push(node);
+  });
+
+  return {
+    roots,
+    childrenByParent,
+  };
+}
+
+function getIndexHierarchyChildren(hierarchyIndex, projectId) {
+  return (hierarchyIndex?.childrenByParent?.get(projectId) || [])
+    .map((node) => node?.raw || node)
+    .filter(Boolean);
 }
 
 function cloneProjectDurationSnapshot(projectList = projects) {
@@ -4762,12 +4893,14 @@ function updateExistingProjectsList() {
 
   container.innerHTML = "";
 
-  const level1Projects = projects.filter(
-    (project) => normalizeProjectLevel(project.level) === 1,
-  );
-  const level1Sorted = level1Projects.sort((a, b) =>
-    a.name.localeCompare(b.name, "zh-CN"),
-  );
+  const hierarchyIndex = getIndexProjectHierarchyIndex(projects);
+  const level1Sorted = (Array.isArray(hierarchyIndex?.roots)
+    ? hierarchyIndex.roots
+    : []
+  )
+    .map((node) => node?.raw || node)
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 
   level1Sorted.forEach((project) => {
     const option = document.createElement("div");
@@ -8114,23 +8247,26 @@ async function loadProjectsFromStorage(options = {}) {
     const localProjectMirror = readIndexProjectMirrorState();
     if (localProjectMirror.hasMirror) {
       projects = normalizeStoredProjects(localProjectMirror.items);
+      persistNormalizedProjectsRepairIfNeeded(localProjectMirror.items, projects, {
+        reason: "project-hierarchy-repair:local-mirror",
+      });
     } else if (typeof window.ControlerStorage?.getCoreState === "function") {
       const coreState = await window.ControlerStorage.getCoreState();
-      projects = normalizeStoredProjects(coreState?.projects || []);
+      const sourceProjects = Array.isArray(coreState?.projects)
+        ? coreState.projects
+        : [];
+      projects = normalizeStoredProjects(sourceProjects);
+      persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
+        reason: "project-hierarchy-repair:core-state",
+      });
     } else {
       const saved = localStorage.getItem("projects");
       if (saved) {
-        projects = normalizeStoredProjects(JSON.parse(saved));
-        const normalizedSerialized = JSON.stringify(projects);
-        if (normalizedSerialized !== saved) {
-          if (typeof window.ControlerStorage?.replaceCoreState === "function") {
-            void window.ControlerStorage.replaceCoreState({
-              projects,
-            });
-          } else {
-            localStorage.setItem("projects", normalizedSerialized);
-          }
-        }
+        const parsedProjects = JSON.parse(saved);
+        projects = normalizeStoredProjects(parsedProjects);
+        persistNormalizedProjectsRepairIfNeeded(parsedProjects, projects, {
+          reason: "project-hierarchy-repair:local-storage",
+        });
       }
     }
     loadProjectHierarchyExpansionStateFromStorage();
@@ -9141,17 +9277,13 @@ function renderProjectsTable() {
   const desktopLevel3MinHeight = isMobileLayout
     ? 0
     : Math.max(96, Math.round(36 * tableScale) * 3);
-
-  // 获取按层级分组的项目
-  const level1Projects = projects.filter(
-    (p) => normalizeProjectLevel(p.level) === 1,
-  );
-  const level2Projects = projects.filter(
-    (p) => normalizeProjectLevel(p.level) === 2,
-  );
-  const level3Projects = projects.filter(
-    (p) => normalizeProjectLevel(p.level) === 3,
-  );
+  const hierarchyIndex = getIndexProjectHierarchyIndex(projects);
+  const level1Projects = (Array.isArray(hierarchyIndex?.roots)
+    ? hierarchyIndex.roots
+    : []
+  )
+    .map((node) => node?.raw || node)
+    .filter(Boolean);
 
   // 创建表格结构
   const table = document.createElement("div");
@@ -9164,26 +9296,6 @@ function renderProjectsTable() {
   table.style.marginBottom = "15px";
   table.style.width = "fit-content";
   table.style.maxWidth = "100%";
-
-  // 按父级分组二级和三级项目
-  const level2ByParent = {};
-  const level3ByParent = {};
-
-  level2Projects.forEach((project) => {
-    const parentId = project.parentId || "none";
-    if (!level2ByParent[parentId]) {
-      level2ByParent[parentId] = [];
-    }
-    level2ByParent[parentId].push(project);
-  });
-
-  level3Projects.forEach((project) => {
-    const parentId = project.parentId || "none";
-    if (!level3ByParent[parentId]) {
-      level3ByParent[parentId] = [];
-    }
-    level3ByParent[parentId].push(project);
-  });
 
   // 渲染一级项目（作为列）
   level1Projects.forEach((level1Project) => {
@@ -9240,7 +9352,10 @@ function renderProjectsTable() {
     columnBody.style.gap = `${Math.max(4, Math.round(8 * tableScale))}px`;
 
     // 获取属于此一级项目的二级项目
-    const level2Children = level2ByParent[level1Project.id] || [];
+    const level2Children = getIndexHierarchyChildren(
+      hierarchyIndex,
+      level1Project.id,
+    );
 
     if (level1Expanded) {
       // 将二级项目分组，每组最多两个并排放置
@@ -9312,7 +9427,10 @@ function renderProjectsTable() {
           }
 
           if (level2Expanded) {
-            const level3Children = level3ByParent[level2Project.id] || [];
+            const level3Children = getIndexHierarchyChildren(
+              hierarchyIndex,
+              level2Project.id,
+            );
 
             level3Children.forEach((level3Project) => {
               const level3Item = document.createElement("div");

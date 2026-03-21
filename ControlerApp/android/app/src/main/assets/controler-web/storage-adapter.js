@@ -594,6 +594,142 @@
     return nextState;
   }
 
+  function normalizeProjectCollection(projects = [], options = {}) {
+    const sourceProjects = Array.isArray(projects) ? projects : [];
+    const clonedProjects = cloneValue(sourceProjects) || [];
+    const repairResult =
+      typeof storageBundle?.repairProjectHierarchy === "function"
+        ? storageBundle.repairProjectHierarchy(clonedProjects)
+        : {
+            projects: clonedProjects,
+            repaired: false,
+          };
+    const repairedProjects = Array.isArray(repairResult?.projects)
+      ? repairResult.projects
+      : [];
+    const needsDurationRepair =
+      typeof storageBundle?.projectsHaveValidDurationCache === "function"
+        ? !storageBundle.projectsHaveValidDurationCache(repairedProjects)
+        : false;
+    let normalizedProjects = repairedProjects;
+
+    if (
+      Array.isArray(options.records) &&
+      typeof storageBundle?.rebuildProjectDurationCaches === "function"
+    ) {
+      normalizedProjects = storageBundle.rebuildProjectDurationCaches(
+        repairedProjects,
+        options.records,
+      );
+    } else if (
+      (repairResult.repaired || needsDurationRepair) &&
+      typeof storageBundle?.recalculateProjectDurationTotals === "function"
+    ) {
+      normalizedProjects = storageBundle.recalculateProjectDurationTotals(
+        repairedProjects,
+      );
+    } else {
+      normalizedProjects = cloneValue(repairedProjects) || [];
+    }
+
+    return {
+      projects: Array.isArray(normalizedProjects) ? normalizedProjects : [],
+      repaired:
+        repairResult.repaired ||
+        needsDurationRepair ||
+        safeSerialize(sourceProjects) !== safeSerialize(normalizedProjects),
+    };
+  }
+
+  function normalizeCorePayloadProjects(corePayload = {}, options = {}) {
+    const source =
+      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
+        ? corePayload
+        : {};
+    if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
+      return {
+        payload: source,
+        projects: [],
+        repaired: false,
+      };
+    }
+    const projectResult = normalizeProjectCollection(source.projects, options);
+    return {
+      payload: {
+        ...source,
+        projects: cloneValue(projectResult.projects),
+      },
+      projects: projectResult.projects,
+      repaired: projectResult.repaired,
+    };
+  }
+
+  function extractBootstrapProjectsFromPayload(pageKey, payload = null) {
+    const normalizedPage = normalizePageBootstrapKey(payload?.page || pageKey);
+    if (normalizedPage !== "index" && normalizedPage !== "stats") {
+      return [];
+    }
+    const source =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload
+        : {};
+    if (
+      source.data &&
+      typeof source.data === "object" &&
+      !Array.isArray(source.data)
+    ) {
+      return Array.isArray(source.data.projects) ? source.data.projects : [];
+    }
+    if (
+      source.pageData &&
+      typeof source.pageData === "object" &&
+      !Array.isArray(source.pageData)
+    ) {
+      return Array.isArray(source.pageData.projects)
+        ? source.pageData.projects
+        : [];
+    }
+    return [];
+  }
+
+  function finalizeBootstrapEnvelopeWithProjectRepair(envelope = {}) {
+    const source =
+      envelope && typeof envelope === "object" && !Array.isArray(envelope)
+        ? envelope
+        : {};
+    const normalizedPage = normalizePageBootstrapKey(source.page);
+    const data =
+      source.data && typeof source.data === "object" && !Array.isArray(source.data)
+        ? source.data
+        : {};
+    if (normalizedPage !== "index" && normalizedPage !== "stats") {
+      return {
+        envelope: source,
+        repaired: false,
+        projects: [],
+      };
+    }
+    const projectResult = normalizeProjectCollection(data.projects);
+    return {
+      envelope: {
+        ...source,
+        data: {
+          ...data,
+          projects: cloneValue(projectResult.projects),
+          ...(normalizedPage === "index"
+            ? {
+                projectTotalsSummary: buildProjectTotalsSummary(
+                  projectResult.projects,
+                ),
+              }
+            : {}),
+        },
+      },
+      repaired: projectResult.repaired,
+      projects: projectResult.projects,
+    };
+  }
+
   function normalizeState(rawState, metadata = {}) {
     const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -662,12 +798,9 @@
         normalizedGuideState,
       );
     }
-    if (typeof storageBundle?.rebuildProjectDurationCaches === "function") {
-      base.projects = storageBundle.rebuildProjectDurationCaches(
-        base.projects,
-        base.records,
-      );
-    }
+    base.projects = normalizeProjectCollection(base.projects, {
+      records: base.records,
+    }).projects;
 
     const now = new Date().toISOString();
     const nextStoragePath =
@@ -971,7 +1104,7 @@
   }
 
   function buildProjectTotalsSummary(projectItems = []) {
-    const projects = Array.isArray(projectItems) ? projectItems : [];
+    const projects = normalizeProjectCollection(projectItems).projects;
     const totals = projects.reduce(
       (summary, project) => {
         const cachedTotalDurationMs = Number.isFinite(project?.cachedTotalDurationMs)
@@ -1028,6 +1161,9 @@
       typeof extra?.builtAt === "string" && extra.builtAt
         ? extra.builtAt
         : new Date().toISOString();
+    const normalizedProjects = normalizeProjectCollection(
+      Array.isArray(state?.projects) ? state.projects : [],
+    ).projects;
     let loadedPeriodIds = [];
     let data = {};
 
@@ -1039,10 +1175,10 @@
       const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
       loadedPeriodIds = range.periodIds.slice();
       data = {
-        projects: cloneValue(Array.isArray(state?.projects) ? state.projects : []),
+        projects: cloneValue(normalizedProjects),
         recentRecords: cloneValue(range.items),
         timerSessionState: cloneValue(state?.timerSessionState || null),
-        projectTotalsSummary: buildProjectTotalsSummary(state?.projects),
+        projectTotalsSummary: buildProjectTotalsSummary(normalizedProjects),
       };
     } else if (normalizedPage === "plan") {
       const planScope =
@@ -1117,7 +1253,7 @@
       const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
       loadedPeriodIds = range.periodIds.slice();
       data = {
-        projects: cloneValue(Array.isArray(state?.projects) ? state.projects : []),
+        projects: cloneValue(normalizedProjects),
         defaultRangeRecordsOrAggregate: cloneValue(range.items),
         statsPreferences: cloneValue(
           normalizeStatsPreferences(state?.statsPreferences || {}),
@@ -1144,13 +1280,13 @@
       };
     }
 
-    return {
+    return finalizeBootstrapEnvelopeWithProjectRepair({
       page: normalizedPage,
       sourceFingerprint,
       builtAt,
       loadedPeriodIds: normalizeBootstrapPeriodIds(loadedPeriodIds),
       data,
-    };
+    }).envelope;
   }
 
   function normalizePageBootstrapEnvelope(
@@ -1179,7 +1315,7 @@
       typeof source.data === "object" &&
       !Array.isArray(source.data)
     ) {
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         page: normalizedPage,
         sourceFingerprint:
@@ -1203,7 +1339,7 @@
           ...fallback.data,
           ...cloneValue(source.data),
         },
-      };
+      }).envelope;
     }
 
     if (
@@ -1315,7 +1451,7 @@
         };
       }
 
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         page: normalizedPage,
         sourceFingerprint:
@@ -1328,10 +1464,10 @@
             : fallback.builtAt,
         loadedPeriodIds: nextLoadedPeriodIds,
         data: nextData,
-      };
+      }).envelope;
     }
 
-    return fallback;
+    return finalizeBootstrapEnvelopeWithProjectRepair(fallback).envelope;
   }
 
   async function buildPageBootstrapStateFromAsyncLoaders(
@@ -1346,10 +1482,11 @@
       !Array.isArray(loaders.fallbackState)
         ? loaders.fallbackState
         : {};
-    const coreState =
+    const rawCoreState =
       typeof loaders?.getCoreState === "function"
         ? (await loaders.getCoreState()) || {}
         : {};
+    const coreState = normalizeCorePayloadProjects(rawCoreState).payload;
     const mergedBaseState = {
       ...fallbackState,
       ...(coreState && typeof coreState === "object" && !Array.isArray(coreState)
@@ -1380,7 +1517,7 @@
     );
 
     if (typeof loaders?.loadSectionRange !== "function") {
-      return fallback;
+      return finalizeBootstrapEnvelopeWithProjectRepair(fallback).envelope;
     }
 
     if (normalizedPage === "index") {
@@ -1392,7 +1529,7 @@
       const projects = Array.isArray(coreState?.projects)
         ? coreState.projects
         : fallback.data.projects;
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
         data: {
@@ -1401,7 +1538,7 @@
           recentRecords: cloneValue(range?.items || []),
           projectTotalsSummary: buildProjectTotalsSummary(projects),
         },
-      };
+      }).envelope;
     }
 
     if (normalizedPage === "plan") {
@@ -1412,7 +1549,7 @@
             ? { periodIds: options.periodIds }
             : buildCurrentMonthBootstrapScope();
       const range = await loaders.loadSectionRange("plans", planScope);
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
         data: {
@@ -1425,7 +1562,7 @@
           ),
           yearlyGoals: cloneValue(coreState?.yearlyGoals || fallback.data.yearlyGoals || {}),
         },
-      };
+      }).envelope;
     }
 
     if (normalizedPage === "todo") {
@@ -1441,7 +1578,7 @@
         loaders.loadSectionRange("dailyCheckins", dailyCheckinScope),
         loaders.loadSectionRange("checkins", checkinScope),
       ]);
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds([
           ...(dailyRange?.periodIds || []),
@@ -1456,7 +1593,7 @@
           todayDailyCheckins: cloneValue(dailyRange?.items || []),
           recentCheckins: cloneValue(checkinRange?.items || []),
         },
-      };
+      }).envelope;
     }
 
     if (normalizedPage === "diary") {
@@ -1467,7 +1604,7 @@
             ? { periodIds: options.periodIds }
             : buildCurrentMonthBootstrapScope();
       const range = await loaders.loadSectionRange("diaryEntries", diaryScope);
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
         data: {
@@ -1478,7 +1615,7 @@
           ),
           guideState: cloneValue(coreState?.guideState || fallback.data.guideState || {}),
         },
-      };
+      }).envelope;
     }
 
     if (normalizedPage === "stats") {
@@ -1487,7 +1624,7 @@
           ? options.recordScope
           : buildCurrentMonthBootstrapScope();
       const range = await loaders.loadSectionRange("records", recordScope);
-      return {
+      return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
         data: {
@@ -1495,10 +1632,10 @@
           projects: cloneValue(coreState?.projects || fallback.data.projects || []),
           defaultRangeRecordsOrAggregate: cloneValue(range?.items || []),
         },
-      };
+      }).envelope;
     }
 
-    return fallback;
+    return finalizeBootstrapEnvelopeWithProjectRepair(fallback).envelope;
   }
 
   function normalizeStorageJournalOperations(operations = []) {
@@ -3039,7 +3176,8 @@
           if (typeof electronAPI.storageGetCoreState !== "function") {
             return null;
           }
-          return electronAPI.storageGetCoreState();
+          const payload = await electronAPI.storageGetCoreState();
+          return normalizeCorePayloadProjects(payload).payload;
         },
         async getPlanBootstrapState(options = {}) {
           const pageBootstrap = await this.getPageBootstrapState("plan", options);
@@ -3108,15 +3246,22 @@
           }
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const changedSections = inferChangedSectionsFromCorePatch(partialCore);
+          const normalizedCorePatch = normalizeCorePayloadProjects(partialCore).payload;
+          const changedSections = inferChangedSectionsFromCorePatch(
+            normalizedCorePatch,
+          );
           const result = await electronAPI.storageReplaceCoreState(
-            partialCore,
+            normalizedCorePatch,
             normalizedOptions,
           );
           if (normalizedOptions.emitChange === false) {
             assignState({
               ...readState(),
-              ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
+              ...(normalizedCorePatch &&
+              typeof normalizedCorePatch === "object" &&
+              !Array.isArray(normalizedCorePatch)
+                ? normalizedCorePatch
+                : {}),
             });
             return result;
           }
@@ -3260,6 +3405,7 @@
     let mirrorFlushTimer = null;
     let nativeForegroundSyncTimer = null;
     let nativeProbeLoopTimer = null;
+    let nativeStatusRefreshPromise = null;
     let nativeProbeInFlight = false;
     let nativeFastProbeUntil = 0;
     let recentNativeLocalWriteAt = 0;
@@ -3483,6 +3629,37 @@
               : null,
         ...extra,
       };
+    }
+
+    async function persistNativeProjectHierarchyRepair(
+      projectItems = [],
+      options = {},
+    ) {
+      if (
+        hasPendingStateChanges ||
+        !Array.isArray(projectItems) ||
+        typeof reactNativeBridge?.call !== "function"
+      ) {
+        return false;
+      }
+      try {
+        await reactNativeBridge.call("storage.replaceCoreState", {
+          partialCore: {
+            projects: projectItems,
+          },
+          options: {
+            emitChange: false,
+            reason:
+              typeof options.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "project-hierarchy-repair",
+          },
+        });
+        return true;
+      } catch (error) {
+        console.error("持久化 React Native 项目层级修复失败:", error);
+        return false;
+      }
     }
 
     function buildNativeWriteStateFromLatestSnapshot(
@@ -3895,6 +4072,38 @@
       }
     }
 
+    async function refreshNativeStatusCache(options = {}) {
+      const { suppressError = true, force = false } = options;
+      if (nativeStatusRefreshPromise && !force) {
+        return nativeStatusRefreshPromise;
+      }
+      const refreshTask = getNativeStatusSnapshot({
+        suppressError,
+      })
+        .then((nextStatus) => {
+          if (nextStatus && typeof nextStatus === "object") {
+            cachedStatus = nextStatus;
+            persistMirrorSnapshot(true);
+            updateVersionBaseline(cachedStatus);
+            clearStorageSyncError();
+          }
+          return cachedStatus;
+        })
+        .finally(() => {
+          if (nativeStatusRefreshPromise === refreshTask) {
+            nativeStatusRefreshPromise = null;
+          }
+        });
+      nativeStatusRefreshPromise = refreshTask;
+      return refreshTask;
+    }
+
+    function scheduleNativeStatusRefresh(options = {}) {
+      void refreshNativeStatusCache(options).catch((error) => {
+        console.error("后台刷新 React Native 存储状态失败:", error);
+      });
+    }
+
     async function getNativeCoreStateSnapshot(options = {}) {
       const { suppressError = false } = options;
       try {
@@ -4264,9 +4473,6 @@
       const nextCore = await getNativeCoreStateSnapshot({
         suppressError: true,
       });
-      cachedStatus = await getNativeStatusSnapshot({
-        suppressError: true,
-      });
       if (nextCore) {
         const currentSnapshot = createComparableSnapshot(readState());
         const nextState = normalizeState(
@@ -4292,6 +4498,9 @@
             cachedStatus,
           );
         }
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+        });
         return;
       }
 
@@ -4321,11 +4530,19 @@
             cachedStatus,
           );
         }
+        if (cachedStatus?.sizePending === true) {
+          scheduleNativeStatusRefresh({
+            suppressError: true,
+          });
+        }
         return;
       }
 
       updateVersionBaseline(cachedStatus);
       persistMirrorSnapshot(true);
+      scheduleNativeStatusRefresh({
+        suppressError: true,
+      });
     }
 
     function getManagedSectionPeriodId(section, item) {
@@ -4398,48 +4615,55 @@
       corePayload = {},
       baseState = readState(),
     ) {
+      const normalizedCorePayload =
+        normalizeCorePayloadProjects(corePayload).payload;
       const currentState = normalizeState(
         isPlainObject(baseState) ? baseState : readState(),
         buildMobileMetadata(),
       );
       const currentCoreSnapshot = buildManagedCoreStateSnapshot(currentState);
-      const nextRecurringPlans = Array.isArray(corePayload?.recurringPlans)
-        ? corePayload.recurringPlans
+      const nextRecurringPlans = Array.isArray(normalizedCorePayload?.recurringPlans)
+        ? normalizedCorePayload.recurringPlans
         : currentCoreSnapshot.recurringPlans;
       return {
         ...currentState,
-        projects: Array.isArray(corePayload?.projects)
-          ? corePayload.projects
+        projects: Array.isArray(normalizedCorePayload?.projects)
+          ? normalizedCorePayload.projects
           : currentCoreSnapshot.projects,
-        todos: Array.isArray(corePayload?.todos)
-          ? corePayload.todos
+        todos: Array.isArray(normalizedCorePayload?.todos)
+          ? normalizedCorePayload.todos
           : currentCoreSnapshot.todos,
-        checkinItems: Array.isArray(corePayload?.checkinItems)
-          ? corePayload.checkinItems
+        checkinItems: Array.isArray(normalizedCorePayload?.checkinItems)
+          ? normalizedCorePayload.checkinItems
           : currentCoreSnapshot.checkinItems,
-        yearlyGoals: isPlainObject(corePayload?.yearlyGoals)
-          ? corePayload.yearlyGoals
+        yearlyGoals: isPlainObject(normalizedCorePayload?.yearlyGoals)
+          ? normalizedCorePayload.yearlyGoals
           : currentCoreSnapshot.yearlyGoals,
-        diaryCategories: Array.isArray(corePayload?.diaryCategories)
-          ? corePayload.diaryCategories
+        diaryCategories: Array.isArray(normalizedCorePayload?.diaryCategories)
+          ? normalizedCorePayload.diaryCategories
           : currentCoreSnapshot.diaryCategories,
         guideState:
           guideBundle?.normalizeGuideState?.(
-            isPlainObject(corePayload) &&
-              Object.prototype.hasOwnProperty.call(corePayload, "guideState")
-              ? corePayload.guideState
+            isPlainObject(normalizedCorePayload) &&
+              Object.prototype.hasOwnProperty.call(
+                normalizedCorePayload,
+                "guideState",
+              )
+              ? normalizedCorePayload.guideState
               : currentCoreSnapshot.guideState,
           ) || currentCoreSnapshot.guideState,
-        customThemes: Array.isArray(corePayload?.customThemes)
-          ? corePayload.customThemes
+        customThemes: Array.isArray(normalizedCorePayload?.customThemes)
+          ? normalizedCorePayload.customThemes
           : currentCoreSnapshot.customThemes,
-        builtInThemeOverrides: isPlainObject(corePayload?.builtInThemeOverrides)
-          ? corePayload.builtInThemeOverrides
+        builtInThemeOverrides: isPlainObject(
+          normalizedCorePayload?.builtInThemeOverrides,
+        )
+          ? normalizedCorePayload.builtInThemeOverrides
           : currentCoreSnapshot.builtInThemeOverrides,
         selectedTheme:
-          typeof corePayload?.selectedTheme === "string" &&
-          corePayload.selectedTheme.trim()
-            ? corePayload.selectedTheme.trim()
+          typeof normalizedCorePayload?.selectedTheme === "string" &&
+          normalizedCorePayload.selectedTheme.trim()
+            ? normalizedCorePayload.selectedTheme.trim()
             : currentCoreSnapshot.selectedTheme,
         plans: [
           ...(
@@ -4455,21 +4679,30 @@
           ),
           ...nextRecurringPlans,
         ],
-        createdAt: corePayload?.createdAt || currentCoreSnapshot.createdAt || null,
+        createdAt:
+          normalizedCorePayload?.createdAt || currentCoreSnapshot.createdAt || null,
         lastModified:
-          corePayload?.lastModified || currentCoreSnapshot.lastModified || null,
+          normalizedCorePayload?.lastModified ||
+          currentCoreSnapshot.lastModified ||
+          null,
         storagePath:
-          corePayload?.storagePath || currentCoreSnapshot.storagePath || null,
+          normalizedCorePayload?.storagePath ||
+          currentCoreSnapshot.storagePath ||
+          null,
         storageDirectory:
-          corePayload?.storageDirectory ||
+          normalizedCorePayload?.storageDirectory ||
           currentCoreSnapshot.storageDirectory ||
           null,
         userDataPath:
-          corePayload?.userDataPath || currentCoreSnapshot.userDataPath || null,
+          normalizedCorePayload?.userDataPath ||
+          currentCoreSnapshot.userDataPath ||
+          null,
         documentsPath:
-          corePayload?.documentsPath || currentCoreSnapshot.documentsPath || null,
-        syncMeta: isPlainObject(corePayload?.syncMeta)
-          ? corePayload.syncMeta
+          normalizedCorePayload?.documentsPath ||
+          currentCoreSnapshot.documentsPath ||
+          null,
+        syncMeta: isPlainObject(normalizedCorePayload?.syncMeta)
+          ? normalizedCorePayload.syncMeta
           : currentCoreSnapshot.syncMeta,
       };
     }
@@ -4540,6 +4773,189 @@
       return buildManagedCoreStateSnapshot(readState());
     }
 
+    function applyManagedCorePayload(corePayload = {}, metadata = {}) {
+      const currentState = readState();
+      cachedState = normalizeState(
+        mergeManagedStateWithNativeCorePayload(corePayload, currentState),
+        buildMobileMetadata(metadata),
+      );
+      hasManagedCoreSnapshot = true;
+      rebuildManagedSectionCoverage(cachedState, {
+        markFull:
+          managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
+      });
+      lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+      hasPendingStateChanges = false;
+      persistMirrorSnapshot(true);
+      clearStorageSyncError();
+      touchNativeFastProbeWindow();
+      scheduleNativeProbeLoop();
+      return getManagedCoreStateSnapshot();
+    }
+
+    function applyBootstrapVersionToCachedStatus(pageBootstrap = {}) {
+      const sourceFingerprint =
+        typeof pageBootstrap?.sourceFingerprint === "string" &&
+        pageBootstrap.sourceFingerprint.trim()
+          ? pageBootstrap.sourceFingerprint.trim()
+          : typeof pageBootstrap?.snapshotVersion === "string" &&
+              pageBootstrap.snapshotVersion.trim()
+            ? pageBootstrap.snapshotVersion.trim()
+            : "";
+      if (!sourceFingerprint) {
+        return;
+      }
+      const versionProbe =
+        cachedStatus && typeof cachedStatus === "object"
+          ? {
+              ...cachedStatus,
+              fingerprint: sourceFingerprint,
+            }
+          : {
+              fingerprint: sourceFingerprint,
+            };
+      if (cachedStatus && typeof cachedStatus === "object") {
+        cachedStatus = versionProbe;
+        persistMirrorSnapshot(true);
+      }
+      updateVersionBaseline(versionProbe);
+    }
+
+    function applyNativePageBootstrapToManagedMirror(
+      pageKey,
+      pageBootstrap = {},
+      options = {},
+    ) {
+      const normalizedPage = normalizePageBootstrapKey(pageKey);
+      const data =
+        pageBootstrap?.data && typeof pageBootstrap.data === "object"
+          ? pageBootstrap.data
+          : {};
+      applyBootstrapVersionToCachedStatus(pageBootstrap);
+
+      if (normalizedPage === "index") {
+        applyManagedCorePayload(
+          {
+            projects: Array.isArray(data.projects) ? data.projects : [],
+            timerSessionState:
+              data.timerSessionState &&
+              typeof data.timerSessionState === "object"
+                ? data.timerSessionState
+                : {},
+          },
+          pageBootstrap,
+        );
+        mergeManagedSectionRange(
+          "records",
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildRecentHoursBootstrapScope(48),
+          Array.isArray(data.recentRecords) ? data.recentRecords : [],
+        );
+        return pageBootstrap;
+      }
+
+      if (normalizedPage === "plan") {
+        applyManagedPlanBootstrapSnapshot(
+          {
+            recurringPlans: Array.isArray(data.recurringPlans)
+              ? data.recurringPlans
+              : [],
+            yearlyGoals:
+              data.yearlyGoals && typeof data.yearlyGoals === "object"
+                ? data.yearlyGoals
+                : {},
+          },
+          options,
+        );
+        mergeManagedSectionRange(
+          "plans",
+          options?.planScope && typeof options.planScope === "object"
+            ? options.planScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+          Array.isArray(data.visiblePlans) ? data.visiblePlans : [],
+        );
+        return pageBootstrap;
+      }
+
+      if (normalizedPage === "todo") {
+        applyManagedCorePayload(
+          {
+            todos: Array.isArray(data.todos) ? data.todos : [],
+            checkinItems: Array.isArray(data.checkinItems)
+              ? data.checkinItems
+              : [],
+          },
+          pageBootstrap,
+        );
+        mergeManagedSectionRange(
+          "dailyCheckins",
+          options?.dailyCheckinScope &&
+            typeof options.dailyCheckinScope === "object"
+            ? options.dailyCheckinScope
+            : buildCurrentDayBootstrapScope(),
+          Array.isArray(data.todayDailyCheckins) ? data.todayDailyCheckins : [],
+        );
+        mergeManagedSectionRange(
+          "checkins",
+          options?.checkinScope && typeof options.checkinScope === "object"
+            ? options.checkinScope
+            : buildCurrentMonthBootstrapScope(),
+          Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+        );
+        return pageBootstrap;
+      }
+
+      if (normalizedPage === "diary") {
+        applyManagedCorePayload(
+          {
+            diaryCategories: Array.isArray(data.diaryCategories)
+              ? data.diaryCategories
+              : [],
+            guideState:
+              data.guideState && typeof data.guideState === "object"
+                ? data.guideState
+                : {},
+          },
+          pageBootstrap,
+        );
+        mergeManagedSectionRange(
+          "diaryEntries",
+          options?.diaryScope && typeof options.diaryScope === "object"
+            ? options.diaryScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+          Array.isArray(data.currentMonthEntries)
+            ? data.currentMonthEntries
+            : [],
+        );
+        return pageBootstrap;
+      }
+
+      if (normalizedPage === "stats") {
+        applyManagedCorePayload(
+          {
+            projects: Array.isArray(data.projects) ? data.projects : [],
+          },
+          pageBootstrap,
+        );
+        mergeManagedSectionRange(
+          "records",
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildCurrentMonthBootstrapScope(),
+          Array.isArray(data.defaultRangeRecordsOrAggregate)
+            ? data.defaultRangeRecordsOrAggregate
+            : [],
+        );
+      }
+
+      return pageBootstrap;
+    }
+
     function loadManagedSectionRange(section, scope = {}) {
       const normalizedRange =
         storageBundle?.normalizeRangeInput?.(scope) || {
@@ -4592,6 +5008,11 @@
         return readState();
       },
       async getStorageStatus() {
+        if (!cachedStatus || cachedStatus?.sizePending === true) {
+          await refreshNativeStatusCache({
+            suppressError: true,
+          });
+        }
         return cachedStatus || (await getNativeStatusSnapshot());
       },
       async syncFromSource(options = {}) {
@@ -4752,7 +5173,8 @@
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          if (hasManagedCoreSnapshot) {
+          const useFreshBootstrap = normalizedOptions.fresh === true;
+          if (hasManagedCoreSnapshot && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -4775,7 +5197,11 @@
                 : null;
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
-              return normalizePageBootstrapEnvelope(
+              const rawBootstrapProjects = extractBootstrapProjectsFromPayload(
+                normalizedPage,
+                parsed,
+              );
+              const normalizedBootstrap = normalizePageBootstrapEnvelope(
                 normalizedPage,
                 parsed,
                 normalizedOptions,
@@ -4784,6 +5210,29 @@
                   storageStatus: cachedStatus,
                 },
               );
+              const normalizedBootstrapProjects = extractBootstrapProjectsFromPayload(
+                normalizedPage,
+                normalizedBootstrap,
+              );
+              if (
+                safeSerialize(rawBootstrapProjects) !==
+                safeSerialize(normalizedBootstrapProjects)
+              ) {
+                void persistNativeProjectHierarchyRepair(
+                  normalizedBootstrapProjects,
+                  {
+                    reason: `page-bootstrap-repair:${normalizedPage}`,
+                  },
+                );
+              }
+              if (useFreshBootstrap) {
+                applyNativePageBootstrapToManagedMirror(
+                  normalizedPage,
+                  normalizedBootstrap,
+                  normalizedOptions,
+                );
+              }
+              return normalizedBootstrap;
             }
           } catch (error) {
             console.error(
@@ -4792,17 +5241,12 @@
             );
           }
           try {
-            return await buildPageBootstrapStateFromAsyncLoaders(
+            const fallbackBootstrap = await buildPageBootstrapStateFromAsyncLoaders(
               normalizedPage,
               normalizedOptions,
               {
                 fallbackState: buildCurrentMergedState(),
-                getCoreState: async () => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.getCoreState",
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
+                getCoreState: async () => this.getCoreState(),
                 loadSectionRange: async (section, scope = {}) => {
                   const rawPayload = await reactNativeBridge.call(
                     "storage.loadSectionRange",
@@ -4827,6 +5271,14 @@
                 },
               },
             );
+            if (useFreshBootstrap) {
+              applyNativePageBootstrapToManagedMirror(
+                normalizedPage,
+                fallbackBootstrap,
+                normalizedOptions,
+              );
+            }
+            return fallbackBootstrap;
           } catch (loaderError) {
             console.error(
               "拼装 React Native 页面引导状态失败，回退内存快照:",
@@ -4932,10 +5384,12 @@
             const rawPayload = await reactNativeBridge.call("storage.getCoreState");
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
+              const normalizedCorePayload =
+                normalizeCorePayloadProjects(parsed).payload;
               const currentState = readState();
               cachedState = normalizeState(
                 mergeManagedStateWithNativeCorePayload(parsed, currentState),
-                buildMobileMetadata(parsed),
+                buildMobileMetadata(normalizedCorePayload),
               );
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
@@ -4948,6 +5402,17 @@
               clearStorageSyncError();
               touchNativeFastProbeWindow();
               scheduleNativeProbeLoop();
+              if (
+                safeSerialize(parsed?.projects || []) !==
+                safeSerialize(normalizedCorePayload?.projects || [])
+              ) {
+                void persistNativeProjectHierarchyRepair(
+                  normalizedCorePayload.projects || [],
+                  {
+                    reason: "core-read-repair",
+                  },
+                );
+              }
               return getManagedCoreStateSnapshot();
             }
           } catch (error) {
@@ -5197,10 +5662,17 @@
         async replaceCoreState(partialCore = {}, options = {}) {
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const changedSections = inferChangedSectionsFromCorePatch(partialCore);
+          const normalizedCorePatch = normalizeCorePayloadProjects(partialCore).payload;
+          const changedSections = inferChangedSectionsFromCorePatch(
+            normalizedCorePatch,
+          );
           assignState({
             ...readState(),
-            ...(partialCore && typeof partialCore === "object" ? partialCore : {}),
+            ...(normalizedCorePatch &&
+            typeof normalizedCorePatch === "object" &&
+            !Array.isArray(normalizedCorePatch)
+              ? normalizedCorePatch
+              : {}),
           });
           hasManagedCoreSnapshot = true;
           persistMirrorSnapshot(true);
@@ -5212,7 +5684,7 @@
                 const rawPayload = await reactNativeBridge.call(
                   "storage.replaceCoreState",
                   {
-                    partialCore,
+                    partialCore: normalizedCorePatch,
                     options: normalizedOptions,
                   },
                 );

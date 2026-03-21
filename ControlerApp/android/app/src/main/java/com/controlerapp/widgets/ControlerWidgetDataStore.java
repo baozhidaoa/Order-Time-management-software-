@@ -68,6 +68,9 @@ public final class ControlerWidgetDataStore {
     public static final String BUNDLE_MANIFEST_FILE_NAME = "bundle-manifest.json";
     public static final String BUNDLE_CORE_FILE_NAME = "core.json";
     public static final String BUNDLE_RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+    private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
+        "directory-document-uri-cache.json";
+    private static final String BUNDLE_SIZE_CACHE_FILE_NAME = "bundle-size-cache.json";
     private static final int PROJECT_DURATION_CACHE_VERSION = 1;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -189,6 +192,7 @@ public final class ControlerWidgetDataStore {
         public String storageMode = MODE_DEFAULT;
         public long size = 0L;
         public long modifiedAt = 0L;
+        public boolean sizePending = false;
     }
 
     public static final class StorageVersion {
@@ -423,7 +427,7 @@ public final class ControlerWidgetDataStore {
         JSONObject payload = new JSONObject();
         JSONObject pageData = new JSONObject();
         try {
-            StorageVersion version = probeStorageVersion(context, false);
+            StorageVersion version = probeBootstrapStorageVersion(context);
             JSONObject core = getStorageCoreState(context);
             payload.put("page", page);
             payload.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
@@ -539,7 +543,7 @@ public final class ControlerWidgetDataStore {
         JSONObject data = new JSONObject();
         JSONArray loadedPeriodIds = new JSONArray();
         try {
-            StorageVersion version = probeStorageVersion(context, false);
+            StorageVersion version = probeBootstrapStorageVersion(context);
             JSONObject core = getStorageCoreState(context);
             payload.put("page", page);
             payload.put("sourceFingerprint", version == null ? "" : safeText(version.fingerprint));
@@ -1367,6 +1371,9 @@ public final class ControlerWidgetDataStore {
 
     private static boolean writeBundleRoot(Context context, JSONObject normalizedRoot) {
         try {
+            if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+                clearDirectoryDocumentUriCache(context, getCustomStorageDirectoryUri(context));
+            }
             JSONObject previousManifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
             JSONObject manifest = buildStorageManifest(normalizedRoot);
             if (previousManifest != null && previousManifest.optJSONArray("legacyBackups") != null) {
@@ -2887,6 +2894,7 @@ public final class ControlerWidgetDataStore {
                 if (documentUri != null) {
                     DocumentsContract.deleteDocument(context.getContentResolver(), documentUri);
                 }
+                removeDirectoryDocumentUriCacheEntry(context, treeUri, relativePath);
                 return;
             }
 
@@ -3171,6 +3179,426 @@ public final class ControlerWidgetDataStore {
         } catch (Exception error) {
             return 0L;
         }
+    }
+
+    private static String normalizeBundleRelativePath(String relativePath) {
+        return String.valueOf(relativePath == null ? "" : relativePath)
+            .replace('\\', '/')
+            .replaceAll("/+", "/")
+            .replaceAll("^/+|/+$", "");
+    }
+
+    private static File getRuntimeSidecarCacheFile(Context context, String fileName) {
+        return new File(
+            getRuntimeSidecarBaseDirectory(context),
+            TextUtils.isEmpty(fileName) ? "cache.json" : fileName
+        );
+    }
+
+    private static JSONObject readRuntimeCacheJson(File file) {
+        if (file == null || !file.exists()) {
+            return new JSONObject();
+        }
+        try {
+            String raw = readTextFromFile(file).trim();
+            if (TextUtils.isEmpty(raw)) {
+                return new JSONObject();
+            }
+            return new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private static void writeRuntimeCacheJson(File file, JSONObject value) {
+        if (file == null) {
+            return;
+        }
+        try {
+            writeTextToFile(file, value == null ? "{}" : value.toString());
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static File getDirectoryDocumentUriCacheFile(Context context) {
+        return getRuntimeSidecarCacheFile(context, DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME);
+    }
+
+    private static File getBundleSizeCacheFile(Context context) {
+        return getRuntimeSidecarCacheFile(context, BUNDLE_SIZE_CACHE_FILE_NAME);
+    }
+
+    private static String buildDirectoryDocumentUriCacheKey(Uri treeUri, String relativePath) {
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        if (treeUri == null || TextUtils.isEmpty(normalizedRelativePath)) {
+            return "";
+        }
+        return treeUri.toString() + "|" + normalizedRelativePath;
+    }
+
+    private static Uri getCachedDirectoryDocumentUri(
+        Context context,
+        Uri treeUri,
+        String relativePath
+    ) {
+        String cacheKey = buildDirectoryDocumentUriCacheKey(treeUri, relativePath);
+        if (TextUtils.isEmpty(cacheKey)) {
+            return null;
+        }
+        String rawUri =
+            safeText(readRuntimeCacheJson(getDirectoryDocumentUriCacheFile(context)).optString(cacheKey, ""));
+        if (TextUtils.isEmpty(rawUri)) {
+            return null;
+        }
+        try {
+            return Uri.parse(rawUri);
+        } catch (Exception error) {
+            removeDirectoryDocumentUriCacheEntry(context, treeUri, relativePath);
+            return null;
+        }
+    }
+
+    private static void putDirectoryDocumentUriCacheEntry(
+        Context context,
+        Uri treeUri,
+        String relativePath,
+        Uri documentUri
+    ) {
+        String cacheKey = buildDirectoryDocumentUriCacheKey(treeUri, relativePath);
+        if (TextUtils.isEmpty(cacheKey) || documentUri == null) {
+            return;
+        }
+        File cacheFile = getDirectoryDocumentUriCacheFile(context);
+        JSONObject cache = readRuntimeCacheJson(cacheFile);
+        try {
+            cache.put(cacheKey, documentUri.toString());
+            writeRuntimeCacheJson(cacheFile, cache);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void removeDirectoryDocumentUriCacheEntry(
+        Context context,
+        Uri treeUri,
+        String relativePath
+    ) {
+        String cacheKey = buildDirectoryDocumentUriCacheKey(treeUri, relativePath);
+        if (TextUtils.isEmpty(cacheKey)) {
+            return;
+        }
+        File cacheFile = getDirectoryDocumentUriCacheFile(context);
+        JSONObject cache = readRuntimeCacheJson(cacheFile);
+        if (!cache.has(cacheKey)) {
+            return;
+        }
+        cache.remove(cacheKey);
+        if (cache.length() == 0) {
+            cacheFile.delete();
+            return;
+        }
+        writeRuntimeCacheJson(cacheFile, cache);
+    }
+
+    private static void clearDirectoryDocumentUriCache(Context context, Uri treeUri) {
+        File cacheFile = getDirectoryDocumentUriCacheFile(context);
+        if (!cacheFile.exists()) {
+            return;
+        }
+        if (treeUri == null) {
+            cacheFile.delete();
+            return;
+        }
+
+        JSONObject cache = readRuntimeCacheJson(cacheFile);
+        String prefix = treeUri.toString() + "|";
+        ArrayList<String> keysToRemove = new ArrayList<>();
+        java.util.Iterator<String> iterator = cache.keys();
+        while (iterator.hasNext()) {
+            String key = iterator.next();
+            if (key != null && key.startsWith(prefix)) {
+                keysToRemove.add(key);
+            }
+        }
+        if (keysToRemove.isEmpty()) {
+            return;
+        }
+        for (String key : keysToRemove) {
+            cache.remove(key);
+        }
+        if (cache.length() == 0) {
+            cacheFile.delete();
+            return;
+        }
+        writeRuntimeCacheJson(cacheFile, cache);
+    }
+
+    private static String buildBundleSizeCacheKey(Uri treeUri, File localRoot) {
+        if (treeUri != null) {
+            return "tree:" + treeUri.toString();
+        }
+        if (localRoot != null) {
+            return "local:" + localRoot.getAbsolutePath();
+        }
+        return "";
+    }
+
+    private static JSONObject getBundleSizeCacheEntry(
+        Context context,
+        Uri treeUri,
+        File localRoot
+    ) {
+        String cacheKey = buildBundleSizeCacheKey(treeUri, localRoot);
+        if (TextUtils.isEmpty(cacheKey)) {
+            return null;
+        }
+        return readRuntimeCacheJson(getBundleSizeCacheFile(context)).optJSONObject(cacheKey);
+    }
+
+    private static long getCachedBundleSize(Context context, Uri treeUri, File localRoot) {
+        JSONObject entry = getBundleSizeCacheEntry(context, treeUri, localRoot);
+        if (entry == null || !entry.has("size")) {
+            return 0L;
+        }
+        return Math.max(0L, entry.optLong("size", 0L));
+    }
+
+    private static String getCachedBundleSizeFingerprint(
+        Context context,
+        Uri treeUri,
+        File localRoot
+    ) {
+        JSONObject entry = getBundleSizeCacheEntry(context, treeUri, localRoot);
+        return safeText(entry == null ? "" : entry.optString("manifestFingerprint", ""));
+    }
+
+    private static void putBundleSizeCacheEntry(
+        Context context,
+        Uri treeUri,
+        File localRoot,
+        String manifestFingerprint,
+        long size
+    ) {
+        String cacheKey = buildBundleSizeCacheKey(treeUri, localRoot);
+        if (TextUtils.isEmpty(cacheKey)) {
+            return;
+        }
+        File cacheFile = getBundleSizeCacheFile(context);
+        JSONObject cache = readRuntimeCacheJson(cacheFile);
+        try {
+            JSONObject entry = new JSONObject();
+            entry.put("size", Math.max(0L, size));
+            entry.put("manifestFingerprint", safeText(manifestFingerprint));
+            entry.put("updatedAt", System.currentTimeMillis());
+            cache.put(cacheKey, entry);
+            writeRuntimeCacheJson(cacheFile, cache);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void clearBundleSizeCacheEntry(Context context, Uri treeUri, File localRoot) {
+        String cacheKey = buildBundleSizeCacheKey(treeUri, localRoot);
+        if (TextUtils.isEmpty(cacheKey)) {
+            return;
+        }
+        File cacheFile = getBundleSizeCacheFile(context);
+        JSONObject cache = readRuntimeCacheJson(cacheFile);
+        if (!cache.has(cacheKey)) {
+            return;
+        }
+        cache.remove(cacheKey);
+        if (cache.length() == 0) {
+            cacheFile.delete();
+            return;
+        }
+        writeRuntimeCacheJson(cacheFile, cache);
+    }
+
+    public static void clearStorageRuntimeCaches(Context context) {
+        clearDirectoryDocumentUriCache(context, null);
+        File sizeCacheFile = getBundleSizeCacheFile(context);
+        if (sizeCacheFile.exists()) {
+            sizeCacheFile.delete();
+        }
+    }
+
+    private static boolean queryDocumentExists(Context context, Uri uri) {
+        if (context == null || uri == null) {
+            return false;
+        }
+        Cursor cursor = null;
+        try {
+            cursor = context.getContentResolver().query(
+                uri,
+                new String[] { Document.COLUMN_DOCUMENT_ID },
+                null,
+                null,
+                null
+            );
+            return cursor != null && cursor.moveToFirst();
+        } catch (Exception ignored) {
+            return false;
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    private static StorageVersion buildBundleManifestStorageVersion(
+        Context context,
+        Uri treeUri,
+        File localRoot,
+        String storagePath,
+        String fallbackActualUri
+    ) {
+        StorageVersion version = new StorageVersion();
+        version.storageMode = BUNDLE_MODE;
+        version.storagePath = safeText(storagePath);
+
+        Uri manifestUri =
+            treeUri == null
+                ? null
+                : resolveDirectoryRelativeDocumentUri(
+                    context,
+                    treeUri,
+                    BUNDLE_MANIFEST_FILE_NAME,
+                    false,
+                    false
+                );
+        File manifestFile =
+            treeUri == null && localRoot != null
+                ? new File(localRoot, BUNDLE_MANIFEST_FILE_NAME)
+                : null;
+
+        long manifestSize = 0L;
+        long modifiedAt = 0L;
+        String actualUri = safeText(fallbackActualUri);
+
+        if (manifestUri != null) {
+            actualUri = manifestUri.toString();
+            manifestSize = queryDocumentSize(context, manifestUri);
+            modifiedAt = queryDocumentModifiedAt(context, manifestUri);
+        } else if (manifestFile != null && manifestFile.exists()) {
+            actualUri = manifestFile.getAbsolutePath();
+            manifestSize = Math.max(0L, manifestFile.length());
+            modifiedAt = Math.max(0L, manifestFile.lastModified());
+        }
+
+        version.actualUri = firstNonEmpty(actualUri, version.storagePath);
+        version.size = Math.max(0L, manifestSize);
+        version.modifiedAt = Math.max(0L, modifiedAt);
+        version.supportsModifiedAt = version.modifiedAt > 0L;
+        version.fingerprint = buildStorageFingerprint(
+            version.size,
+            version.modifiedAt,
+            version.actualUri
+        );
+        return version;
+    }
+
+    private static StorageLocation buildBundleStorageLocation(
+        Context context,
+        Uri treeUri,
+        File localRoot,
+        String storageDirectory,
+        String storagePath,
+        String fallbackActualUri,
+        boolean isCustomPath
+    ) {
+        StorageLocation location = new StorageLocation();
+        location.syncFileName = BUNDLE_MANIFEST_FILE_NAME;
+        location.storageMode = BUNDLE_MODE;
+        location.isCustomPath = isCustomPath;
+        location.storageDirectory = safeText(storageDirectory);
+        location.storagePath = safeText(storagePath);
+
+        StorageVersion manifestVersion = buildBundleManifestStorageVersion(
+            context,
+            treeUri,
+            localRoot,
+            storagePath,
+            fallbackActualUri
+        );
+        JSONObject cachedSizeEntry = getBundleSizeCacheEntry(context, treeUri, localRoot);
+        boolean hasCachedSize = cachedSizeEntry != null && cachedSizeEntry.has("size");
+        String cachedFingerprint = getCachedBundleSizeFingerprint(context, treeUri, localRoot);
+
+        location.actualUri = firstNonEmpty(
+            manifestVersion.actualUri,
+            safeText(fallbackActualUri),
+            location.storagePath
+        );
+        location.modifiedAt = Math.max(0L, manifestVersion.modifiedAt);
+        location.size = hasCachedSize
+            ? Math.max(0L, getCachedBundleSize(context, treeUri, localRoot))
+            : Math.max(0L, manifestVersion.size);
+        boolean hasManifestMetadata =
+            manifestVersion.supportsModifiedAt || manifestVersion.size > 0L;
+        location.sizePending =
+            hasManifestMetadata
+                && !safeText(manifestVersion.fingerprint).equals(cachedFingerprint);
+        return location;
+    }
+
+    private static StorageVersion probeBootstrapStorageVersion(Context context) {
+        String actualMode = getStorageMode(context);
+        if (MODE_FILE.equals(actualMode)) {
+            return probeStorageVersion(context, false);
+        }
+        if (MODE_DIRECTORY.equals(actualMode)) {
+            Uri directoryUri = getCustomStorageDirectoryUri(context);
+            String directoryName = firstNonEmpty(
+                getStoredCustomStorageDirectoryName(context),
+                queryDisplayName(context, directoryUri),
+                "已选择目录"
+            );
+            return buildBundleManifestStorageVersion(
+                context,
+                directoryUri,
+                null,
+                directoryName + "/" + BUNDLE_MANIFEST_FILE_NAME,
+                directoryUri == null ? "" : directoryUri.toString()
+            );
+        }
+
+        File bundleRoot = getDefaultBundleRootDirectory(context);
+        File manifestFile = new File(bundleRoot, BUNDLE_MANIFEST_FILE_NAME);
+        return buildBundleManifestStorageVersion(
+            context,
+            null,
+            bundleRoot,
+            manifestFile.getAbsolutePath(),
+            manifestFile.getAbsolutePath()
+        );
+    }
+
+    public static StorageLocation refreshPreciseStorageLocation(Context context) {
+        String actualMode = getStorageMode(context);
+        if (MODE_FILE.equals(actualMode)) {
+            return getStorageLocation(context);
+        }
+
+        Uri treeUri = MODE_DIRECTORY.equals(actualMode)
+            ? getCustomStorageDirectoryUri(context)
+            : null;
+        File localRoot = MODE_DIRECTORY.equals(actualMode)
+            ? null
+            : getDefaultBundleRootDirectory(context);
+        StorageVersion manifestVersion = probeBootstrapStorageVersion(context);
+        if (TextUtils.isEmpty(manifestVersion.actualUri)) {
+            clearBundleSizeCacheEntry(context, treeUri, localRoot);
+            return getStorageLocation(context);
+        }
+
+        long preciseSize = queryBundleSize(context, treeUri, localRoot);
+        putBundleSizeCacheEntry(
+            context,
+            treeUri,
+            localRoot,
+            manifestVersion.fingerprint,
+            preciseSize
+        );
+        return getStorageLocation(context);
     }
 
     private static File getRuntimeSidecarBaseDirectory(Context context) {
@@ -3543,11 +3971,24 @@ public final class ControlerWidgetDataStore {
         boolean createIfMissing,
         boolean directory
     ) {
-        if (context == null || treeUri == null || TextUtils.isEmpty(relativePath)) {
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        if (context == null || treeUri == null || TextUtils.isEmpty(normalizedRelativePath)) {
             return null;
         }
         try {
-            String[] segments = relativePath.split("/");
+            Uri cachedDocumentUri = getCachedDirectoryDocumentUri(
+                context,
+                treeUri,
+                normalizedRelativePath
+            );
+            if (cachedDocumentUri != null) {
+                if (queryDocumentExists(context, cachedDocumentUri)) {
+                    return cachedDocumentUri;
+                }
+                removeDirectoryDocumentUriCacheEntry(context, treeUri, normalizedRelativePath);
+            }
+
+            String[] segments = normalizedRelativePath.split("/");
             String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
             Uri currentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId);
             for (int index = 0; index < segments.length; index += 1) {
@@ -3571,6 +4012,12 @@ public final class ControlerWidgetDataStore {
                 }
                 currentUri = childUri;
             }
+            putDirectoryDocumentUriCacheEntry(
+                context,
+                treeUri,
+                normalizedRelativePath,
+                currentUri
+            );
             return currentUri;
         } catch (Exception error) {
             return null;
@@ -3673,44 +4120,43 @@ public final class ControlerWidgetDataStore {
         if (MODE_DIRECTORY.equals(actualMode)) {
             Uri directoryUri = getCustomStorageDirectoryUri(context);
             if (directoryUri != null && context != null) {
-                Uri documentUri = resolveDirectoryRelativeDocumentUri(
-                    context,
-                    directoryUri,
-                    BUNDLE_MANIFEST_FILE_NAME,
-                    false,
-                    false
-                );
                 location.isCustomPath = true;
-                location.actualUri = documentUri == null ? directoryUri.toString() : documentUri.toString();
                 String directoryName = firstNonEmpty(
                     getStoredCustomStorageDirectoryName(context),
                     queryDisplayName(context, directoryUri),
                     "已选择目录"
                 );
-                location.syncFileName = BUNDLE_MANIFEST_FILE_NAME;
-                location.storageDirectory = directoryName;
-                location.storagePath = directoryName + "/" + location.syncFileName;
-                location.size = queryBundleSize(context, directoryUri, null);
-                location.modifiedAt =
-                    documentUri == null ? 0L : queryDocumentModifiedAt(context, documentUri);
-                return location;
+                return buildBundleStorageLocation(
+                    context,
+                    directoryUri,
+                    null,
+                    directoryName,
+                    directoryName + "/" + BUNDLE_MANIFEST_FILE_NAME,
+                    directoryUri.toString(),
+                    true
+                );
             }
         }
 
         File bundleRoot = getDefaultBundleRootDirectory(context);
         File manifestFile = new File(bundleRoot, BUNDLE_MANIFEST_FILE_NAME);
-        location.storagePath = manifestFile.getAbsolutePath();
-        location.storageDirectory = bundleRoot == null ? "" : bundleRoot.getAbsolutePath();
-        location.actualUri = manifestFile.getAbsolutePath();
-        location.size = queryBundleSize(context, null, bundleRoot);
-        location.modifiedAt = manifestFile.exists() ? manifestFile.lastModified() : 0L;
-        return location;
+        return buildBundleStorageLocation(
+            context,
+            null,
+            bundleRoot,
+            bundleRoot == null ? "" : bundleRoot.getAbsolutePath(),
+            manifestFile.getAbsolutePath(),
+            manifestFile.getAbsolutePath(),
+            false
+        );
     }
 
     public static void setCustomStorageUri(Context context, Uri uri, String displayName) {
         if (context == null || uri == null) {
             return;
         }
+
+        clearStorageRuntimeCaches(context);
 
         SharedPreferences preferences = getStoragePreferences(context);
         preferences
@@ -3728,6 +4174,8 @@ public final class ControlerWidgetDataStore {
             return;
         }
 
+        clearStorageRuntimeCaches(context);
+
         SharedPreferences preferences = getStoragePreferences(context);
         preferences
             .edit()
@@ -3743,6 +4191,8 @@ public final class ControlerWidgetDataStore {
         if (context == null) {
             return;
         }
+
+        clearStorageRuntimeCaches(context);
 
         SharedPreferences preferences = getStoragePreferences(context);
         preferences
