@@ -1450,6 +1450,9 @@ let pendingRecordRollbackState = null;
 let pendingDurationCarryoverState = null;
 let indexLoadedRecordPeriodIds = [];
 let indexDirtyRecordPeriodIds = new Set();
+const indexPendingPersistenceTasks = new Set();
+let indexLastPersistenceError = null;
+let indexBeforePageLeaveGuardBound = false;
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
 const TIMER_STATE_STORAGE_VERSION = 2;
 const SPEND_BUTTON_MULTI_CLICK_GUARD_MS = 1200;
@@ -8939,9 +8942,55 @@ function updateProjectTotals() {
   container.appendChild(fragment);
 }
 
+function trackIndexPersistenceTask(task, errorLabel = "保存记录页数据失败:") {
+  indexLastPersistenceError = null;
+  const trackedTask = Promise.resolve()
+    .then(() => (typeof task === "function" ? task() : true))
+    .catch((error) => {
+      indexLastPersistenceError =
+        error instanceof Error ? error : new Error(String(error || "保存失败"));
+      console.error(errorLabel, indexLastPersistenceError);
+      return false;
+    });
+  indexPendingPersistenceTasks.add(trackedTask);
+  return trackedTask.finally(() => {
+    indexPendingPersistenceTasks.delete(trackedTask);
+  });
+}
+
+async function flushIndexPendingPersistence() {
+  const pendingTasks = Array.from(indexPendingPersistenceTasks);
+  if (!pendingTasks.length && !indexLastPersistenceError) {
+    return true;
+  }
+  if (pendingTasks.length) {
+    await Promise.all(pendingTasks);
+  }
+  if (indexLastPersistenceError) {
+    throw indexLastPersistenceError;
+  }
+  if (typeof window.ControlerStorage?.flush === "function") {
+    await window.ControlerStorage.flush();
+  }
+  if (indexLastPersistenceError) {
+    throw indexLastPersistenceError;
+  }
+  return true;
+}
+
+function registerIndexBeforePageLeaveGuard() {
+  if (indexBeforePageLeaveGuardBound) {
+    return;
+  }
+  indexBeforePageLeaveGuardBound = true;
+  uiTools?.registerBeforePageLeave?.(async () => {
+    return flushIndexPendingPersistence();
+  });
+}
+
 // 存储功能
 function saveProjectsToStorage() {
-  try {
+  return trackIndexPersistenceTask(() => {
     projects = normalizeStoredProjects(projects);
     projectHierarchyExpansionState = normalizeProjectHierarchyExpansionState(
       projectHierarchyExpansionState,
@@ -8952,21 +9001,14 @@ function saveProjectsToStorage() {
       projects,
     );
     localStorage.setItem("projects", JSON.stringify(projects));
+    saveProjectHierarchyExpansionState();
     if (typeof window.ControlerStorage?.replaceCoreState === "function") {
-      saveProjectHierarchyExpansionState();
       return window.ControlerStorage.replaceCoreState({
         projects,
-      }).catch((error) => {
-        console.error("保存项目到存储失败:", error);
       });
     }
-    localStorage.setItem("projects", JSON.stringify(projects));
-    saveProjectHierarchyExpansionState();
-    return Promise.resolve();
-  } catch (e) {
-    console.error("保存项目到localStorage失败:", e);
-    return Promise.resolve();
-  }
+    return true;
+  }, "保存项目到存储失败:");
 }
 
 function getIndexRecordPeriodId(record) {
@@ -9133,7 +9175,7 @@ async function loadProjectsFromStorage(options = {}) {
 
 // 存储记录到localStorage
 function saveRecordsToStorage() {
-  try {
+  return trackIndexPersistenceTask(() => {
     persistTimerSessionState();
     indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
     localStorage.setItem("records", JSON.stringify(records));
@@ -9154,21 +9196,15 @@ function saveRecordsToStorage() {
             mode: "replace",
           }),
         ),
-      )
-        .then(() => {
-          periodIds.forEach((periodId) => {
-            indexDirtyRecordPeriodIds.delete(periodId);
-          });
-        })
-        .catch((error) => {
-          console.error("保存分片记录失败:", error);
+      ).then(() => {
+        periodIds.forEach((periodId) => {
+          indexDirtyRecordPeriodIds.delete(periodId);
         });
+        return true;
+      });
     }
-    return Promise.resolve();
-  } catch (e) {
-    console.error("保存记录到localStorage失败:", e);
-    return Promise.resolve();
-  }
+    return true;
+  }, "保存记录到存储失败:");
 }
 
 // 删除记录
@@ -9730,6 +9766,7 @@ async function init() {
   try {
     applyIndexDesktopWidgetMode();
     bindIndexShellVisibilityGate();
+    registerIndexBeforePageLeaveGuard();
     initIndexPrimaryBindings();
     initIndexModalBindings();
     initIndexWidgetLaunchAction();

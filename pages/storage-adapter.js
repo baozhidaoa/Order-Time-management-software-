@@ -2061,11 +2061,55 @@
         return syncFromElectronSource(options);
       },
       appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
-        markPendingElectronStorageChangeMetadata(metadata);
-        pendingElectronWriteReason =
+        const reason =
           typeof options?.reason === "string" && options.reason.trim()
             ? options.reason.trim()
             : "journal-append";
+        if (typeof electronAPI.storageAppendJournal === "function") {
+          const rawResult = await electronAPI.storageAppendJournal(
+            operations,
+            options,
+          );
+          const parsedResult =
+            rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
+              ? rawResult
+              : {};
+          const changedSections = normalizeChangedSectionsList(
+            parsedResult.changedSections || metadata.changedSections,
+          );
+          const changedPeriods = normalizeChangedPeriodsMap(
+            parsedResult.changedPeriods || metadata.changedPeriods,
+          );
+          const syncResult = await syncFromElectronSource({
+            reason,
+            changedSections,
+            changedPeriods,
+            source: "renderer",
+            status:
+              parsedResult.status &&
+              typeof parsedResult.status === "object" &&
+              !Array.isArray(parsedResult.status)
+                ? parsedResult.status
+                : null,
+            snapshotFingerprint:
+              typeof parsedResult.snapshotVersion === "string"
+                ? parsedResult.snapshotVersion
+                : "",
+          });
+          const nextStatus = syncResult?.status || cachedStatus || null;
+          return buildStorageJournalResult(operations, metadata, {
+            status: nextStatus,
+            snapshotVersion:
+              typeof parsedResult.snapshotVersion === "string" &&
+              parsedResult.snapshotVersion
+                ? parsedResult.snapshotVersion
+                : typeof nextStatus?.fingerprint === "string"
+                  ? nextStatus.fingerprint
+                  : "",
+          });
+        }
+        markPendingElectronStorageChangeMetadata(metadata);
+        pendingElectronWriteReason = reason;
         hasPendingStateChanges = true;
         const nextStatus = await flushElectronState();
         return buildStorageJournalResult(operations, metadata, {

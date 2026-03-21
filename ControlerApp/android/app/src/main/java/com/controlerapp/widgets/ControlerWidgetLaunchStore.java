@@ -172,6 +172,72 @@ public final class ControlerWidgetLaunchStore {
         return result;
     }
 
+    public static void clearMatchingLaunchAction(
+        Context context,
+        String action,
+        String kind
+    ) {
+        if (context == null) {
+            return;
+        }
+
+        String normalizedAction = action == null ? "" : action.trim();
+        String normalizedKind = kind == null ? "" : kind.trim();
+        LaunchSnapshot snapshot;
+        synchronized (MEMORY_LOCK) {
+            snapshot = pendingLaunchSnapshot;
+        }
+
+        SharedPreferences preferences =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (snapshot == null || !snapshot.hasAction()) {
+            snapshot = new LaunchSnapshot(
+                preferences.getString(KEY_PAGE, ""),
+                preferences.getString(KEY_ACTION, ""),
+                preferences.getString(KEY_KIND, ""),
+                preferences.getString(KEY_TARGET_ID, ""),
+                preferences.getString(KEY_LAUNCH_ID, ""),
+                preferences.getLong(KEY_CREATED_AT, 0L)
+            );
+        }
+
+        if (!snapshot.hasAction()) {
+            return;
+        }
+        if (
+            !TextUtils.isEmpty(normalizedAction)
+                && !normalizedAction.equals(snapshot.action)
+        ) {
+            return;
+        }
+        if (
+            !TextUtils.isEmpty(normalizedKind)
+                && !normalizedKind.equals(snapshot.kind)
+        ) {
+            return;
+        }
+
+        clearLaunchAction(preferences);
+    }
+
+    private static void clearLaunchAction(SharedPreferences preferences) {
+        synchronized (MEMORY_LOCK) {
+            pendingLaunchSnapshot = null;
+        }
+        if (preferences == null) {
+            return;
+        }
+        preferences
+            .edit()
+            .remove(KEY_PAGE)
+            .remove(KEY_ACTION)
+            .remove(KEY_KIND)
+            .remove(KEY_TARGET_ID)
+            .remove(KEY_LAUNCH_ID)
+            .remove(KEY_CREATED_AT)
+            .apply();
+    }
+
     private static long readCreatedAt(Intent intent) {
         if (intent == null) {
             return 0L;

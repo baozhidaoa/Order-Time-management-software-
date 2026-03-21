@@ -34,6 +34,9 @@ let todoWidgetLaunchActionInitialized = false;
 let todoPendingExternalStorageRefresh =
   window.__controlerTodoRuntimePendingExternalRefresh === true;
 let todoPersistChain = Promise.resolve();
+let todoPendingPersistenceCount = 0;
+let todoLastPersistenceError = null;
+let todoBeforePageLeaveGuardBound = false;
 let todoInitialRevealQueued = false;
 let todoInitialReadyReported = false;
 const todoPendingTodoIds = new Set();
@@ -421,14 +424,50 @@ function queueTodoPersistenceTask(task, options = {}) {
       resetWindow: true,
     });
   }
+  todoLastPersistenceError = null;
+  todoPendingPersistenceCount += 1;
   todoPersistChain = todoPersistChain
     .catch(() => undefined)
     .then(() => task())
     .catch((error) => {
-      console.error(errorLabel, error);
+      todoLastPersistenceError =
+        error instanceof Error ? error : new Error(String(error || "保存失败"));
+      console.error(errorLabel, todoLastPersistenceError);
       return false;
+    })
+    .finally(() => {
+      todoPendingPersistenceCount = Math.max(0, todoPendingPersistenceCount - 1);
     });
   return todoPersistChain;
+}
+
+async function flushTodoPendingPersistence() {
+  if (todoPendingPersistenceCount > 0) {
+    await todoPersistChain.catch(() => false);
+  }
+  if (todoLastPersistenceError) {
+    throw todoLastPersistenceError;
+  }
+  if (typeof window.ControlerStorage?.flush === "function") {
+    await window.ControlerStorage.flush();
+  }
+  if (todoLastPersistenceError) {
+    throw todoLastPersistenceError;
+  }
+  return true;
+}
+
+function registerTodoBeforePageLeaveGuard() {
+  if (todoBeforePageLeaveGuardBound) {
+    return;
+  }
+  todoBeforePageLeaveGuardBound = true;
+  uiTools?.registerBeforePageLeave?.(async () => {
+    if (todoPendingPersistenceCount <= 0 && !todoLastPersistenceError) {
+      return true;
+    }
+    return flushTodoPendingPersistence();
+  });
 }
 
 function queueTodoCoreSave(partialCore = {}, options = {}) {
@@ -713,14 +752,12 @@ function queueTodoPersist() {
     checkins: cloneTodoValue(checkins),
   };
   persistTodoLocalMirrorCore(snapshot);
-  todoPersistChain = todoPersistChain
-    .catch(() => undefined)
-    .then(() => persistTodoWorkspaceSnapshot(snapshot))
-    .catch((error) => {
-      console.error("保存待办数据失败:", error);
-      return false;
-    });
-  return todoPersistChain;
+  return queueTodoPersistenceTask(
+    () => persistTodoWorkspaceSnapshot(snapshot),
+    {
+      errorLabel: "保存待办数据失败:",
+    },
+  );
 }
 const TODO_WIDGET_CONTEXT = (() => {
   let params = null;
@@ -1934,6 +1971,10 @@ class CheckinItem {
     if (!this.isScheduledOn(today)) {
       return false;
     }
+    if (isTodoActionPending("checkin", this.id)) {
+      return false;
+    }
+    setTodoActionPending("checkin", this.id, true);
     const index = dailyCheckins.findIndex(
       (c) => c.itemId === this.id && c.date === today,
     );
@@ -1979,6 +2020,9 @@ class CheckinItem {
       handleTodoNonBlockingSaveFailure("保存今日打卡状态失败。", {
         message: "今日打卡同步失败，已尝试恢复当前数据。",
       });
+    }).finally(() => {
+      setTodoActionPending("checkin", this.id, false);
+      scheduleTodoInterfaceRefresh();
     });
     return true;
   }
@@ -4469,6 +4513,7 @@ function createCheckinItemElement(item, listScale = 1) {
   itemElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
 
   const checked = item.getTodayCheckinStatus();
+  const pending = isTodoActionPending("checkin", item.id);
   const checkedDays = item.getCheckedDaysCount();
   const today = getLocalDateText();
   const isScheduledToday =
@@ -4495,13 +4540,13 @@ function createCheckinItemElement(item, listScale = 1) {
           border: none;
           background-color: ${checked ? item.color : "var(--bg-quaternary)"};
           color: white;
-          cursor: ${isScheduledToday ? "pointer" : "not-allowed"};
+          cursor: ${!isScheduledToday ? "not-allowed" : pending ? "wait" : "pointer"};
           font-size: ${Math.max(13, Math.round(20 * cardScale))}px;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.2s;
-          opacity: ${isScheduledToday ? "1" : "0.55"};
+          opacity: ${!isScheduledToday ? "0.55" : pending ? "0.72" : "1"};
         ">
           ${checked ? "✓" : "○"}
         </button>
@@ -4548,7 +4593,10 @@ function createCheckinItemElement(item, listScale = 1) {
     descriptionElement.style.webkitLineClamp = "1";
   }
 
+  toggleBtn.disabled = !isScheduledToday || pending;
+  toggleBtn.setAttribute("aria-busy", pending ? "true" : "false");
   toggleBtn.addEventListener("click", (event) => {
+    event.preventDefault();
     event.stopPropagation();
     if (!isScheduledToday || pending) return;
     item.toggleTodayCheckin();
@@ -4935,6 +4983,7 @@ window.ControlerTodoRuntime = {
 async function init() {
   initTodoWidgetLaunchAction();
   await waitForTodoStorageReady();
+  registerTodoBeforePageLeaveGuard();
   ensureTodoBaseBindings();
   applyTodoWidgetMode();
   renderTodoWorkspace();

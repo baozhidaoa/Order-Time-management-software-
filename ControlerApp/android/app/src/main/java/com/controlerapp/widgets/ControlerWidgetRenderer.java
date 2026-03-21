@@ -1196,6 +1196,8 @@ public final class ControlerWidgetRenderer {
         PendingIntent primaryActionIntent = hasDirectAction
             ? buildDirectActionPendingIntent(context, appWidgetId, kind, content)
             : openIntent;
+        PendingIntent rootClickIntent =
+            showActionOnlyShell && hasDirectAction ? primaryActionIntent : openIntent;
         views.setViewVisibility(
             R.id.widget_subtitle,
             !showActionOnlyShell && shouldShowSubtitle(kind, content, metrics)
@@ -1217,9 +1219,10 @@ public final class ControlerWidgetRenderer {
             !showActionOnlyShell && showPrimaryAction ? View.VISIBLE : View.GONE
         );
 
-        views.setOnClickPendingIntent(R.id.widget_root, openIntent);
+        views.setOnClickPendingIntent(R.id.widget_root, rootClickIntent);
         views.setOnClickPendingIntent(R.id.widget_preview, openIntent);
         views.setOnClickPendingIntent(R.id.widget_action, primaryActionIntent);
+        views.setOnClickPendingIntent(R.id.widget_action_only_shell, primaryActionIntent);
         views.setOnClickPendingIntent(R.id.widget_action_only_button, primaryActionIntent);
 
         return views;
@@ -2269,6 +2272,9 @@ public final class ControlerWidgetRenderer {
         int visibleCardCount
     ) {
         if (metrics == null) {
+            return 0;
+        }
+        if (isListFirstKind(kind)) {
             return 0;
         }
         if (visibleCardCount > 0) {

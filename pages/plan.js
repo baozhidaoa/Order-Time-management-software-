@@ -44,6 +44,10 @@ let planCoverageLoadKey = "";
 let planCalendarMountDeferred = false;
 let planShellRefs = null;
 let planShellVisibilityBound = false;
+let planPersistChain = Promise.resolve(true);
+let planPendingPersistenceCount = 0;
+let planLastPersistenceError = null;
+let planBeforePageLeaveGuardBound = false;
 
 function waitForPlanStorageReady() {
   if (typeof window.ControlerStorage?.whenReady !== "function") {
@@ -52,6 +56,57 @@ function waitForPlanStorageReady() {
   return window.ControlerStorage.whenReady().catch((error) => {
     console.error("等待计划页原生存储就绪失败，继续使用当前快照:", error);
     return false;
+  });
+}
+
+function queuePlanPersistenceTask(
+  task,
+  errorLabel = "保存计划页数据失败:",
+) {
+  planLastPersistenceError = null;
+  planPendingPersistenceCount += 1;
+  const queuedTask = planPersistChain
+    .catch(() => true)
+    .then(() => (typeof task === "function" ? task() : true))
+    .catch((error) => {
+      planLastPersistenceError =
+        error instanceof Error ? error : new Error(String(error || "保存失败"));
+      console.error(errorLabel, planLastPersistenceError);
+      return false;
+    })
+    .finally(() => {
+      planPendingPersistenceCount = Math.max(0, planPendingPersistenceCount - 1);
+    });
+  planPersistChain = queuedTask.then(() => true);
+  return queuedTask;
+}
+
+async function flushPlanPendingPersistence() {
+  if (planPendingPersistenceCount > 0) {
+    await planPersistChain.catch(() => false);
+  }
+  if (planLastPersistenceError) {
+    throw planLastPersistenceError;
+  }
+  if (typeof window.ControlerStorage?.flush === "function") {
+    await window.ControlerStorage.flush();
+  }
+  if (planLastPersistenceError) {
+    throw planLastPersistenceError;
+  }
+  return true;
+}
+
+function registerPlanBeforePageLeaveGuard() {
+  if (planBeforePageLeaveGuardBound) {
+    return;
+  }
+  planBeforePageLeaveGuardBound = true;
+  uiTools?.registerBeforePageLeave?.(async () => {
+    if (planPendingPersistenceCount <= 0 && !planLastPersistenceError) {
+      return true;
+    }
+    return flushPlanPendingPersistence();
   });
 }
 
@@ -1459,7 +1514,7 @@ function loadYearlyGoals() {
 }
 
 function saveYearlyGoals() {
-  try {
+  return queuePlanPersistenceTask(() => {
     yearlyGoals = normalizeYearlyGoalsState(yearlyGoals);
     if (typeof window.ControlerStorage?.appendJournal === "function") {
       return window.ControlerStorage.appendJournal(
@@ -1482,9 +1537,8 @@ function saveYearlyGoals() {
       });
     }
     localStorage.setItem("yearlyGoals", JSON.stringify(yearlyGoals));
-  } catch (error) {
-    console.error("保存年度目标失败:", error);
-  }
+    return true;
+  }, "保存年度目标失败:");
 }
 
 async function requestPlanConfirmation(message, options = {}) {
@@ -1666,8 +1720,8 @@ async function loadPlans(options = {}) {
 }
 
 // 保存数据
-async function savePlans() {
-  try {
+function savePlans() {
+  return queuePlanPersistenceTask(async () => {
     const oneTimePlans = plans.filter(
       (plan) => String(plan?.repeat || "").trim() === "none",
     );
@@ -1715,7 +1769,7 @@ async function savePlans() {
         oneTimeCount: oneTimePlans.length,
         recurringCount: recurringPlans.length,
       });
-      return;
+      return true;
     }
     if (
       typeof window.ControlerStorage?.saveSectionRange === "function" &&
@@ -1737,7 +1791,7 @@ async function savePlans() {
       getReminderTools()?.refresh?.({
         resetWindow: true,
       });
-      return;
+      return true;
     }
 
     localStorage.setItem("plans", JSON.stringify(plans));
@@ -1745,13 +1799,17 @@ async function savePlans() {
     getReminderTools()?.refresh?.({
       resetWindow: true,
     });
-  } catch (e) {
-    console.error("保存计划数据失败:", e);
+    return true;
+  }, "保存计划数据失败:").then((result) => {
+    if (result !== false) {
+      return result;
+    }
     handlePlanNonBlockingSaveFailure("保存计划数据失败:", {
-      error: e,
+      error: planLastPersistenceError,
       message: "计划数据同步失败，已尝试恢复当前页面内容。",
     });
-  }
+    return result;
+  });
 }
 
 // 保存视图状态
@@ -5427,6 +5485,13 @@ function redirectLegacyTodoWidgetLaunch(payload = {}) {
   }
   const queryText = params.toString();
   const nextUrl = `todo.html${queryText ? `?${queryText}` : ""}`;
+  if (
+    window.ControlerUI?.navigateAppHref?.(nextUrl, {
+      replaceHistory: true,
+    })
+  ) {
+    return true;
+  }
   window.location.replace(nextUrl);
   return true;
 }
@@ -5700,6 +5765,7 @@ async function init() {
     loadViewState();
     applyPlanDesktopWidgetMode();
     await waitForPlanStorageReady();
+    registerPlanBeforePageLeaveGuard();
 
     // 尺寸设置实时联动
     bindTableScaleLiveRefresh();

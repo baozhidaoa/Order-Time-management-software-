@@ -541,6 +541,10 @@ function saveStorageSectionRange(section, payload) {
   return storageManager.saveSectionRange(section, payload);
 }
 
+function appendStorageJournal(operations, options = {}) {
+  return storageManager.appendJournal(operations, options);
+}
+
 function replaceStorageCoreState(partialCore, options = {}) {
   return storageManager.replaceCoreState(partialCore, options);
 }
@@ -1377,6 +1381,10 @@ function setupIpcHandlers() {
 
   ipcMain.handle("storage:saveSectionRange", async (event, section, payload) => {
     return saveStorageSectionRange(section, payload);
+  });
+
+  ipcMain.handle("storage:appendJournal", async (event, operations, options = {}) => {
+    return appendStorageJournal(operations, options);
   });
 
   ipcMain.handle("storage:replaceCoreState", async (event, partialCore, options = {}) => {

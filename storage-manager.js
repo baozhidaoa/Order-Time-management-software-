@@ -163,6 +163,153 @@ function inferChangedSectionsFromCorePatch(partialCore = {}) {
   return sections.size ? Array.from(sections) : ["core"];
 }
 
+function normalizeJournalOperations(operations = []) {
+  return (Array.isArray(operations) ? operations : [])
+    .map((operation) => {
+      const kind = String(operation?.kind || "").trim();
+      if (kind === "replaceCoreState") {
+        return {
+          kind,
+          partialCore:
+            operation?.partialCore &&
+            typeof operation.partialCore === "object" &&
+            !Array.isArray(operation.partialCore)
+              ? bundleHelper.cloneValue(operation.partialCore)
+              : {},
+        };
+      }
+      if (kind === "saveSectionRange") {
+        const section = String(operation?.section || "").trim();
+        if (!section) {
+          return null;
+        }
+        return {
+          kind,
+          section,
+          payload:
+            operation?.payload &&
+            typeof operation.payload === "object" &&
+            !Array.isArray(operation.payload)
+              ? bundleHelper.cloneValue(operation.payload)
+              : {},
+        };
+      }
+      if (kind === "replaceRecurringPlans") {
+        return {
+          kind,
+          items: bundleHelper.cloneValue(
+            Array.isArray(operation?.items) ? operation.items : [],
+          ),
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function coalesceJournalOperations(operations = []) {
+  const orderedKeys = [];
+  const operationsByKey = new Map();
+  normalizeJournalOperations(operations).forEach((operation) => {
+    let key = "";
+    let nextOperation = operation;
+    if (operation.kind === "replaceCoreState") {
+      key = "replaceCoreState";
+      const existing = operationsByKey.get(key);
+      nextOperation = {
+        kind: "replaceCoreState",
+        partialCore: {
+          ...(existing?.partialCore &&
+          typeof existing.partialCore === "object" &&
+          !Array.isArray(existing.partialCore)
+            ? existing.partialCore
+            : {}),
+          ...(operation?.partialCore &&
+          typeof operation.partialCore === "object" &&
+          !Array.isArray(operation.partialCore)
+            ? operation.partialCore
+            : {}),
+        },
+      };
+    } else if (operation.kind === "saveSectionRange") {
+      const periodId = String(operation?.payload?.periodId || "").trim();
+      key = `saveSectionRange:${operation.section}:${periodId}`;
+      nextOperation = {
+        kind: "saveSectionRange",
+        section: operation.section,
+        payload: bundleHelper.cloneValue(operation.payload || {}),
+      };
+    } else if (operation.kind === "replaceRecurringPlans") {
+      key = "replaceRecurringPlans";
+      nextOperation = {
+        kind: "replaceRecurringPlans",
+        items: bundleHelper.cloneValue(operation.items || []),
+      };
+    }
+    if (!key) {
+      return;
+    }
+    if (!operationsByKey.has(key)) {
+      orderedKeys.push(key);
+    }
+    operationsByKey.set(key, nextOperation);
+  });
+  return orderedKeys
+    .map((key) => operationsByKey.get(key))
+    .filter(Boolean);
+}
+
+function collectJournalMetadata(operations = []) {
+  const changedSections = [];
+  let changedPeriods = {};
+  coalesceJournalOperations(operations).forEach((operation) => {
+    if (operation.kind === "replaceCoreState") {
+      changedSections.push(
+        ...inferChangedSectionsFromCorePatch(operation.partialCore),
+      );
+      return;
+    }
+    if (operation.kind === "saveSectionRange") {
+      changedSections.push(operation.section);
+      const periodId = String(operation?.payload?.periodId || "").trim();
+      if (periodId) {
+        changedPeriods = mergeChangedPeriods(changedPeriods, {
+          [operation.section]: [periodId],
+        });
+      }
+      return;
+    }
+    if (operation.kind === "replaceRecurringPlans") {
+      changedSections.push("plansRecurring");
+    }
+  });
+  return {
+    changedSections: normalizeChangedSections(changedSections),
+    changedPeriods: normalizeChangedPeriods(changedPeriods),
+  };
+}
+
+function buildJournalResult(operations = [], metadata = {}, extra = {}) {
+  const normalizedOperations = coalesceJournalOperations(operations);
+  const normalizedMetadata = collectJournalMetadata(normalizedOperations);
+  const changedSections =
+    normalizedMetadata.changedSections.length ||
+    Object.keys(normalizedMetadata.changedPeriods).length
+      ? normalizedMetadata.changedSections
+      : normalizeChangedSections(metadata.changedSections);
+  const changedPeriods =
+    Object.keys(normalizedMetadata.changedPeriods).length
+      ? normalizedMetadata.changedPeriods
+      : normalizeChangedPeriods(metadata.changedPeriods);
+  return {
+    ok: true,
+    operationCount: normalizedOperations.length,
+    changedSections,
+    changedPeriods,
+    ...extra,
+  };
+}
+
 function addMonthOffsetToPeriodId(periodId, monthOffset = 0) {
   const normalized = String(periodId || "").trim();
   if (!/^\d{4}-\d{2}$/.test(normalized)) {
@@ -1162,6 +1309,8 @@ class StorageManager {
       manifest.lastModified = nextCore.lastModified;
       this.writeJsonFileSync(this.getManifestPath(root), manifest);
     }
+    this.cachedStorageSnapshot = null;
+    this.markKnownFileVersion({ includeHash: true });
     const changeReason =
       typeof options.reason === "string" && options.reason.trim()
         ? options.reason.trim()
@@ -1888,7 +2037,7 @@ class StorageManager {
     });
   }
 
-  replaceRecurringPlans(items = []) {
+  replaceRecurringPlansInternal(items = [], options = {}) {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
     const recurringPlans = bundleHelper.ensureArray(items).filter((item) => bundleHelper.isRecurringPlan(item));
@@ -1899,9 +2048,81 @@ class StorageManager {
       manifest.sections.plansRecurring = { file: bundleHelper.RECURRING_PLANS_FILE_NAME, count: recurringPlans.length };
       this.writeJsonFileSync(this.getManifestPath(root), manifest);
     }
-    this.emitChange("plans-recurring-replace", { changedSections: ["plansRecurring"] });
-    this.maybeRunAutoBackup({ reason: "plans-recurring-replace" });
+    this.cachedStorageSnapshot = null;
+    this.markKnownFileVersion({ includeHash: true });
+    const changeReason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "plans-recurring-replace";
+    if (options.emitChange !== false) {
+      this.emitChange(changeReason, { changedSections: ["plansRecurring"] });
+      this.maybeRunAutoBackup({ reason: changeReason });
+    }
     return recurringPlans;
+  }
+
+  appendJournal(operations = [], options = {}) {
+    this.ensureStorageReady();
+    const normalizedOperations = coalesceJournalOperations(operations);
+    const metadata = collectJournalMetadata(normalizedOperations);
+    const reason =
+      typeof options?.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "journal-append";
+    if (!normalizedOperations.length) {
+      const status = this.getStorageStatus();
+      return buildJournalResult([], metadata, {
+        status,
+        snapshotVersion:
+          typeof status?.fingerprint === "string" ? status.fingerprint : "",
+      });
+    }
+
+    normalizedOperations.forEach((operation) => {
+      if (operation.kind === "replaceCoreState") {
+        this.replaceCoreStateInternal(operation.partialCore, {
+          emitChange: false,
+          reason,
+        });
+        return;
+      }
+      if (operation.kind === "saveSectionRange") {
+        this.saveSectionRangeInternal(operation.section, operation.payload, {
+          emitChange: false,
+          reason,
+        });
+        return;
+      }
+      if (operation.kind === "replaceRecurringPlans") {
+        this.replaceRecurringPlansInternal(operation.items, {
+          emitChange: false,
+          reason,
+        });
+      }
+    });
+
+    this.cachedStorageSnapshot = null;
+    this.markKnownFileVersion({ includeHash: true });
+    this.emitChange(reason, {
+      changedSections: metadata.changedSections,
+      changedPeriods: metadata.changedPeriods,
+      source: options?.source || "storage-journal",
+    });
+    this.maybeRunAutoBackup({
+      reason,
+      changedSections: metadata.changedSections,
+      changedPeriods: metadata.changedPeriods,
+    });
+    const status = this.getStorageStatus();
+    return buildJournalResult(normalizedOperations, metadata, {
+      status,
+      snapshotVersion:
+        typeof status?.fingerprint === "string" ? status.fingerprint : "",
+    });
+  }
+
+  replaceRecurringPlans(items = []) {
+    return this.replaceRecurringPlansInternal(items, { emitChange: true });
   }
 
   async exportBundle(options = {}) {

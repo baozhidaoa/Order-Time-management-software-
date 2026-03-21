@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("storage:loadSectionRange", section, scope),
   storageSaveSectionRange: (section, payload) =>
     ipcRenderer.invoke("storage:saveSectionRange", section, payload),
+  storageAppendJournal: (operations, options = {}) =>
+    ipcRenderer.invoke("storage:appendJournal", operations, options),
   storageReplaceCoreState: (partialCore, options = {}) =>
     ipcRenderer.invoke("storage:replaceCoreState", partialCore, options),
   storageReplaceRecurringPlans: (items) =>

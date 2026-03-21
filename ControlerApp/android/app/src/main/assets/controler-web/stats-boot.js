@@ -1367,6 +1367,10 @@ let records = [];
 let projects = [];
 let statsPreferencesState = createDefaultStatsPreferences();
 let statsLoadedRecordPeriodIds = [];
+let statsPersistChain = Promise.resolve(true);
+let statsPendingPersistenceCount = 0;
+let statsLastPersistenceError = null;
+let statsBeforePageLeaveGuardBound = false;
 const uiTools = window.ControlerUI || null;
 const projectStatsApi = window.ControlerProjectStats || null;
 const statsDataIndex = window.ControlerDataIndex?.createStore?.() || null;
@@ -1493,6 +1497,61 @@ function waitForStatsStorageReady() {
     return false;
   });
 }
+
+function queueStatsPersistenceTask(
+  task,
+  errorLabel = "保存统计记录失败:",
+) {
+  statsLastPersistenceError = null;
+  statsPendingPersistenceCount += 1;
+  const queuedTask = statsPersistChain
+    .catch(() => true)
+    .then(() => (typeof task === "function" ? task() : true))
+    .catch((error) => {
+      statsLastPersistenceError =
+        error instanceof Error ? error : new Error(String(error || "保存失败"));
+      console.error(errorLabel, statsLastPersistenceError);
+      return false;
+    })
+    .finally(() => {
+      statsPendingPersistenceCount = Math.max(
+        0,
+        statsPendingPersistenceCount - 1,
+      );
+    });
+  statsPersistChain = queuedTask.then(() => true);
+  return queuedTask;
+}
+
+async function flushStatsPendingPersistence() {
+  if (statsPendingPersistenceCount > 0) {
+    await statsPersistChain.catch(() => false);
+  }
+  if (statsLastPersistenceError) {
+    throw statsLastPersistenceError;
+  }
+  if (typeof window.ControlerStorage?.flush === "function") {
+    await window.ControlerStorage.flush();
+  }
+  if (statsLastPersistenceError) {
+    throw statsLastPersistenceError;
+  }
+  return true;
+}
+
+function registerStatsBeforePageLeaveGuard() {
+  if (statsBeforePageLeaveGuardBound) {
+    return;
+  }
+  statsBeforePageLeaveGuardBound = true;
+  uiTools?.registerBeforePageLeave?.(async () => {
+    if (statsPendingPersistenceCount <= 0 && !statsLastPersistenceError) {
+      return true;
+    }
+    return flushStatsPendingPersistence();
+  });
+}
+
 const DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX = 24;
 const IS_ELECTRON_DESKTOP = !!window.electronAPI?.isElectron;
 const HAS_COARSE_POINTER =
@@ -3576,18 +3635,16 @@ function getNormalizedStatsFilterRange(startDate, endDate) {
   };
 }
 
-function getExpandedStatsRecordLoadScope(scope = {}) {
+function getStatsRecordLoadScope(scope = {}) {
   const startValue = scope?.startDate || scope?.start || null;
   const endValue = scope?.endDate || scope?.end || null;
   const range = getNormalizedStatsFilterRange(startValue, endValue);
   const periodCursor = new Date(range.start);
   periodCursor.setDate(1);
-  periodCursor.setMonth(periodCursor.getMonth() - 1);
   periodCursor.setHours(0, 0, 0, 0);
 
   const periodTarget = new Date(range.end);
   periodTarget.setDate(1);
-  periodTarget.setMonth(periodTarget.getMonth() + 1);
   periodTarget.setHours(0, 0, 0, 0);
 
   const periodIds = [];
@@ -3603,6 +3660,10 @@ function getExpandedStatsRecordLoadScope(scope = {}) {
     endDate: formatDateInputValue(range.end),
     periodIds,
   };
+}
+
+function getExpandedStatsRecordLoadScope(scope = {}) {
+  return getStatsRecordLoadScope(scope);
 }
 
 function getFilteredStatsTimeRecords(startDate, endDate) {
@@ -5491,12 +5552,12 @@ function findStatsSourceRecordIndex(locator) {
 }
 
 function saveStatsRecordsToStorage() {
-  try {
+  return queueStatsPersistenceTask(async () => {
     if (typeof window.ControlerStorage?.saveSectionRange === "function") {
       const periodIds = statsLoadedRecordPeriodIds.length
         ? statsLoadedRecordPeriodIds.slice()
         : [...new Set(records.map((record) => getStatsRecordPeriodId(record)))];
-      void Promise.all(
+      await Promise.all(
         periodIds.map((periodId) =>
           window.ControlerStorage.saveSectionRange("records", {
             periodId,
@@ -5506,18 +5567,13 @@ function saveStatsRecordsToStorage() {
             mode: "replace",
           }),
         ),
-      ).catch((error) => {
-        console.error("保存统计记录分片失败:", error);
-      });
+      );
     } else {
       localStorage.setItem("records", JSON.stringify(records));
     }
     syncStatsDataIndex(["records"]);
     return true;
-  } catch (error) {
-    console.error("保存统计记录失败:", error);
-    return false;
-  }
+  }, "保存统计记录失败:");
 }
 
 function getStatsRecordPeriodId(record) {
@@ -5691,9 +5747,9 @@ async function openStatsRecordEditModal(locator) {
       name: nextName,
       projectId: nextProject?.id || null,
     };
-    if (saveStatsRecordsToStorage()) {
-      refreshAfterMutation();
-    }
+    const persistPromise = saveStatsRecordsToStorage();
+    refreshAfterMutation();
+    await persistPromise;
   });
 
   deleteBtn?.addEventListener("click", async () => {
@@ -5717,9 +5773,9 @@ async function openStatsRecordEditModal(locator) {
     }
 
     records.splice(liveRecordIndex, 1);
-    if (saveStatsRecordsToStorage()) {
-      refreshAfterMutation();
-    }
+    const persistPromise = saveStatsRecordsToStorage();
+    refreshAfterMutation();
+    await persistPromise;
   });
 
   modal.addEventListener("click", (event) => {
@@ -7208,7 +7264,7 @@ function createTestData() {
 
   // 保存到localStorage
   try {
-    saveStatsRecordsToStorage();
+    void saveStatsRecordsToStorage();
     console.log("测试记录数据创建成功，共", records.length, "条记录");
   } catch (e) {
     console.error("保存测试数据失败:", e);
@@ -8288,6 +8344,7 @@ async function init() {
     applyStatsUiStateFromPreferences(statsPreferencesState);
     initStatsWidgetLaunchAction();
     await waitForStatsStorageReady();
+    registerStatsBeforePageLeaveGuard();
     if (useWidgetLaunchFastPath) {
       queueStatsToolbarReveal();
     }

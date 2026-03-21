@@ -486,6 +486,11 @@ public final class ControlerWidgetActionHandler {
 
     private static ActionResult toggleTimer(Context context) {
         try {
+            ControlerWidgetLaunchStore.clearMatchingLaunchAction(
+                context,
+                "start-timer",
+                ControlerWidgetKinds.START_TIMER
+            );
             JSONObject root = ControlerWidgetDataStore.loadRootForWidgets(context);
             JSONArray projects = ensureArray(root, "projects");
             JSONArray records = ensureArray(root, "records");
@@ -960,6 +965,9 @@ public final class ControlerWidgetActionHandler {
 
     private static String chooseProjectName(JSONObject timerSession, JSONArray projects) {
         String candidate = timerSession == null ? "" : timerSession.optString("selectedProject", "");
+        if (TextUtils.isEmpty(candidate) && timerSession != null) {
+            candidate = timerSession.optString("nextProject", "");
+        }
         if (TextUtils.isEmpty(candidate) && timerSession != null) {
             candidate = timerSession.optString("lastEnteredProjectName", "");
         }

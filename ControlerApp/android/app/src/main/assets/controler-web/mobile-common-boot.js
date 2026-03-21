@@ -3936,11 +3936,55 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return syncFromElectronSource(options);
       },
       appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
-        markPendingElectronStorageChangeMetadata(metadata);
-        pendingElectronWriteReason =
+        const reason =
           typeof options?.reason === "string" && options.reason.trim()
             ? options.reason.trim()
             : "journal-append";
+        if (typeof electronAPI.storageAppendJournal === "function") {
+          const rawResult = await electronAPI.storageAppendJournal(
+            operations,
+            options,
+          );
+          const parsedResult =
+            rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
+              ? rawResult
+              : {};
+          const changedSections = normalizeChangedSectionsList(
+            parsedResult.changedSections || metadata.changedSections,
+          );
+          const changedPeriods = normalizeChangedPeriodsMap(
+            parsedResult.changedPeriods || metadata.changedPeriods,
+          );
+          const syncResult = await syncFromElectronSource({
+            reason,
+            changedSections,
+            changedPeriods,
+            source: "renderer",
+            status:
+              parsedResult.status &&
+              typeof parsedResult.status === "object" &&
+              !Array.isArray(parsedResult.status)
+                ? parsedResult.status
+                : null,
+            snapshotFingerprint:
+              typeof parsedResult.snapshotVersion === "string"
+                ? parsedResult.snapshotVersion
+                : "",
+          });
+          const nextStatus = syncResult?.status || cachedStatus || null;
+          return buildStorageJournalResult(operations, metadata, {
+            status: nextStatus,
+            snapshotVersion:
+              typeof parsedResult.snapshotVersion === "string" &&
+              parsedResult.snapshotVersion
+                ? parsedResult.snapshotVersion
+                : typeof nextStatus?.fingerprint === "string"
+                  ? nextStatus.fingerprint
+                  : "",
+          });
+        }
+        markPendingElectronStorageChangeMetadata(metadata);
+        pendingElectronWriteReason = reason;
         hasPendingStateChanges = true;
         const nextStatus = await flushElectronState();
         return buildStorageJournalResult(operations, metadata, {
@@ -9463,9 +9507,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const EXPAND_SURFACE_WIDTH_FACTOR_MIN = 0.4;
   const EXPAND_SURFACE_WIDTH_FACTOR_MAX = 1.5;
   const MODAL_GESTURE_MAX_WIDTH = 690;
-  const MODAL_EDGE_SWIPE_TRIGGER = 56;
-  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 44;
-  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 84;
+  const MODAL_EDGE_SWIPE_TRIGGER = 72;
+  const MODAL_EDGE_SWIPE_CLOSE_DISTANCE = 36;
+  const MODAL_EDGE_SWIPE_FLING_CLOSE_DISTANCE = 18;
+  const MODAL_EDGE_SWIPE_CLOSE_VELOCITY = 0.32;
+  const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 96;
+  const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -9745,6 +9792,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
+  const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
+  const APP_PAGE_LEAVE_GUARD_TIMEOUT_MS = 2500;
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -9786,6 +9835,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let appNavigationInitialized = false;
   let appPageTransitionInitialized = false;
   let appPageTransitionLocked = false;
+  let appPageLeavePreflightLocked = false;
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let pendingNativeNavigationRequest = null;
@@ -9794,10 +9844,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let nativePageReadyScheduled = false;
   let lastReportedAppNavigationStateSignature = "";
   let lastShellVisibilityStateSignature = "";
+  let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
   const activeAndroidPressTargets = new Map();
+  const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
+  let appPageLeaveOverlayElement = null;
+  let appPageLeaveOverlayController = null;
   const pagePerfStartTime =
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
@@ -10121,7 +10175,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       if (detail.accepted === false) {
-        window.location.href = pendingRequest.targetHref;
+        performAppNavigation(pendingRequest.targetHref, {
+          replaceHistory: pendingRequest.replaceHistory === true,
+        });
       }
     });
   }
@@ -10620,6 +10676,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function resetAppPageTransitionRuntimeState(options = {}) {
     const clearStoredState = options.clearStoredState !== false;
     appPageTransitionLocked = false;
+    appPageLeavePreflightLocked = false;
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
     if (clearStoredState) {
@@ -10674,60 +10731,272 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } catch {}
   }
 
+  function normalizeAppNavigationHref(targetHref) {
+    const rawHref = String(targetHref || "").trim();
+    if (!rawHref) {
+      return "";
+    }
+    try {
+      const parsed = new URL(rawHref, window.location.href);
+      const pageName = parsed.pathname.split("/").pop() || "";
+      if (!pageName) {
+        return rawHref;
+      }
+      return `${pageName}${parsed.search}${parsed.hash}`;
+    } catch (error) {
+      return rawHref;
+    }
+  }
+
+  function resolveAppNavigationItemByHref(targetHref) {
+    const normalizedHref = normalizeAppNavigationHref(targetHref);
+    if (!normalizedHref) {
+      return null;
+    }
+    const hrefWithoutHash = normalizedHref.split("#")[0] || normalizedHref;
+    const pageName = hrefWithoutHash.split("?")[0] || hrefWithoutHash;
+    return (
+      APP_NAV_ITEMS.find((item) => item.href === pageName) ||
+      null
+    );
+  }
+
+  function createAppPageLeaveOverlayElement() {
+    if (appPageLeaveOverlayElement instanceof HTMLElement) {
+      return appPageLeaveOverlayElement;
+    }
+    const overlay = document.createElement("div");
+    overlay.id = "controler-page-leave-overlay";
+    overlay.className = "page-loading-overlay";
+    overlay.dataset.mode = "fullscreen";
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.innerHTML = `
+      <div class="page-loading-card" role="status" aria-live="polite">
+        <div class="page-loading-title" data-loading-title>正在保存最新数据</div>
+        <div class="page-loading-message" data-loading-message>请稍候，正在完成当前页面的数据写入</div>
+      </div>
+    `;
+    if (document.body instanceof HTMLElement) {
+      document.body.appendChild(overlay);
+    }
+    appPageLeaveOverlayElement = overlay;
+    return overlay;
+  }
+
+  function getAppPageLeaveOverlayController() {
+    if (appPageLeaveOverlayController) {
+      return appPageLeaveOverlayController;
+    }
+    const overlay = createAppPageLeaveOverlayElement();
+    appPageLeaveOverlayController = createPageLoadingOverlayController({
+      overlay,
+      inlineHost: document.body,
+    });
+    return appPageLeaveOverlayController;
+  }
+
+  function registerBeforePageLeave(handler) {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    const guardId = `guard_${Date.now()}_${(beforePageLeaveGuardCounter += 1)}`;
+    beforePageLeaveGuards.set(guardId, handler);
+    return () => {
+      beforePageLeaveGuards.delete(guardId);
+    };
+  }
+
+  async function runBeforePageLeaveGuards(context = {}) {
+    if (!beforePageLeaveGuards.size) {
+      return true;
+    }
+
+    const overlayController = getAppPageLeaveOverlayController();
+    overlayController?.setState({
+      active: true,
+      mode: "fullscreen",
+      title: "正在保存最新数据",
+      message: "请稍候，正在完成当前页面的数据写入",
+      delayMs: APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+    });
+
+    let failure = null;
+    let timeoutId = 0;
+    try {
+      const guardSequence = (async () => {
+        const guards = Array.from(beforePageLeaveGuards.values());
+        for (const guard of guards) {
+          const guardResult = await guard(context);
+          if (guardResult === false) {
+            throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
+          }
+        }
+      })();
+      await Promise.race([
+        guardSequence,
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(
+              new Error("当前页面仍在保存数据，请稍后再试。"),
+            );
+          }, APP_PAGE_LEAVE_GUARD_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (error) {
+      failure =
+        error instanceof Error
+          ? error
+          : new Error("当前页面的数据保存失败，已阻止切换页面。");
+      console.error("页面切换前执行保存守卫失败:", failure);
+    } finally {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      overlayController?.setState({
+        active: false,
+        mode: "fullscreen",
+      });
+    }
+
+    if (!failure) {
+      return true;
+    }
+
+    await alertDialog({
+      title: "暂时无法切换页面",
+      message:
+        typeof failure.message === "string" && failure.message.trim()
+          ? failure.message.trim()
+          : "当前页面的数据保存失败，已阻止切换页面。",
+      confirmText: "知道了",
+      danger: true,
+    }).catch(() => {});
+    return false;
+  }
+
+  function performAppNavigation(targetHref, options = {}) {
+    const normalizedHref = normalizeAppNavigationHref(targetHref);
+    if (!normalizedHref) {
+      return false;
+    }
+    if (options.replaceHistory === true) {
+      window.location.replace(normalizedHref);
+      return true;
+    }
+    window.location.href = normalizedHref;
+    return true;
+  }
+
   function applyAppPageEnterTransition() {
     resetAppPageTransitionRuntimeState({ clearStoredState: false });
     clearAppPageTransitionState();
   }
 
-  function startAppPageTransition(targetItem) {
+  function startAppPageTransition(targetItem, options = {}) {
     clearAndroidNavButtonFocus(document.activeElement, true);
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
-    if (!targetItem || (androidWebTransitionRuntime && appPageTransitionLocked)) {
+    if (!targetItem) {
       return false;
+    }
+    if (appPageLeavePreflightLocked) {
+      return true;
+    }
+    if (androidWebTransitionRuntime && appPageTransitionLocked) {
+      return true;
     }
 
     const currentItem = getCurrentAppNavigationItem();
-    if (currentItem?.key === targetItem.key) {
+    const targetHref = normalizeAppNavigationHref(
+      options.targetHref || targetItem.href,
+    );
+    if (!targetHref) {
+      return false;
+    }
+
+    const currentHref = normalizeAppNavigationHref(window.location.href);
+    if (
+      currentItem?.key === targetItem.key &&
+      currentHref === targetHref
+    ) {
       resetAppPageTransitionRuntimeState();
       return true;
     }
 
-    if (nativeNavigationRuntime) {
-      resetAppPageTransitionRuntimeState();
-      initNativeNavigationBridge();
-      const direction = getNavigationDirection(currentItem?.key || "", targetItem.key);
-      const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
-      const requested = window.ControlerNativeBridge?.emitEvent?.("ui.navigate", {
-        page: targetItem.key,
-        href: targetItem.href,
-        direction,
-        requestId,
-      });
-      if (!requested) {
-        window.location.href = targetItem.href;
-        return true;
-      }
-      pendingNativeNavigationRequest = {
-        requestId,
-        targetHref: targetItem.href,
-        timeoutId: window.setTimeout(() => {
-          if (
-            !pendingNativeNavigationRequest ||
-            pendingNativeNavigationRequest.requestId !== requestId
-          ) {
+    appPageTransitionLocked = true;
+    appPageLeavePreflightLocked = true;
+    void (async () => {
+      let shouldUnlock = true;
+      try {
+        const canLeave = await runBeforePageLeaveGuards({
+          fromPage: currentItem?.key || "",
+          toPage: targetItem.key,
+          targetHref,
+        });
+        if (!canLeave) {
+          resetAppPageTransitionRuntimeState();
+          return;
+        }
+
+        if (nativeNavigationRuntime) {
+          resetAppPageTransitionRuntimeState();
+          appPageTransitionLocked = true;
+          appPageLeavePreflightLocked = true;
+          initNativeNavigationBridge();
+          const direction = getNavigationDirection(
+            currentItem?.key || "",
+            targetItem.key,
+          );
+          const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
+          const requested = window.ControlerNativeBridge?.emitEvent?.(
+            "ui.navigate",
+            {
+              page: targetItem.key,
+              href: targetHref,
+              direction,
+              requestId,
+            },
+          );
+          if (!requested) {
+            shouldUnlock = false;
+            performAppNavigation(targetHref, options);
             return;
           }
-          clearPendingNativeNavigationRequest();
-          window.location.href = targetItem.href;
-        }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS),
-      };
-      return true;
-    }
+          pendingNativeNavigationRequest = {
+            requestId,
+            targetHref,
+            replaceHistory: options.replaceHistory === true,
+            timeoutId: window.setTimeout(() => {
+              if (
+                !pendingNativeNavigationRequest ||
+                pendingNativeNavigationRequest.requestId !== requestId
+              ) {
+                return;
+              }
+              clearPendingNativeNavigationRequest();
+              performAppNavigation(targetHref, options);
+            }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS),
+          };
+          shouldUnlock = false;
+          return;
+        }
 
-    resetAppPageTransitionRuntimeState();
-    window.location.href = targetItem.href;
+        resetAppPageTransitionRuntimeState();
+        appPageTransitionLocked = true;
+        appPageLeavePreflightLocked = true;
+        shouldUnlock = false;
+        performAppNavigation(targetHref, options);
+      } catch (error) {
+        console.error("执行页面切换失败:", error);
+        resetAppPageTransitionRuntimeState();
+      } finally {
+        if (shouldUnlock) {
+          resetAppPageTransitionRuntimeState();
+        }
+      }
+    })();
     return true;
   }
 
@@ -10739,6 +11008,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     clearAndroidNavButtonFocus(document.activeElement, true);
     return startAppPageTransition(targetItem);
+  }
+
+  function navigateAppHref(targetHref, options = {}) {
+    const targetItem = resolveAppNavigationItemByHref(targetHref);
+    if (!targetItem) {
+      return false;
+    }
+    clearAndroidNavButtonFocus(document.activeElement, true);
+    return startAppPageTransition(targetItem, {
+      ...options,
+      targetHref,
+    });
   }
 
   function initAppPageTransitions() {
@@ -11296,6 +11577,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         startY: 0,
         lastX: 0,
         lastY: 0,
+        startTime: 0,
+        lastTime: 0,
         modal: null,
       };
 
@@ -11333,8 +11616,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             startY: touch.clientY,
             lastX: touch.clientX,
             lastY: touch.clientY,
+            startTime: event.timeStamp || Date.now(),
+            lastTime: event.timeStamp || Date.now(),
             modal: topModal,
           };
+          updateModalEdgeSwipePresentation(topModal, 0);
         },
         { passive: true },
       );
@@ -11349,11 +11635,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const touch = event.touches[0];
           edgeSwipeState.lastX = touch.clientX;
           edgeSwipeState.lastY = touch.clientY;
+          edgeSwipeState.lastTime = event.timeStamp || Date.now();
 
           const deltaX = touch.clientX - edgeSwipeState.startX;
           const deltaY = touch.clientY - edgeSwipeState.startY;
           if (
-            deltaX > 10 &&
+            Math.abs(deltaY) > MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE &&
+            Math.abs(deltaY) > Math.abs(deltaX)
+          ) {
+            const targetModal = edgeSwipeState.modal;
+            edgeSwipeState.tracking = false;
+            edgeSwipeState.modal = null;
+            if (targetModal) {
+              resetModalEdgeSwipePresentation(targetModal);
+            }
+            return;
+          }
+
+          if (
+            deltaX > 0 &&
+            Math.abs(deltaY) <= MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE
+          ) {
+            updateModalEdgeSwipePresentation(edgeSwipeState.modal, deltaX);
+          }
+
+          if (
+            deltaX > 6 &&
             Math.abs(deltaY) <= MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE &&
             event.cancelable
           ) {
@@ -11363,23 +11670,48 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         { passive: false },
       );
 
-      const finalizeEdgeSwipe = () => {
+      const finalizeEdgeSwipe = (event = null) => {
         if (!edgeSwipeState.tracking) {
           return;
         }
 
+        if (event?.changedTouches?.length) {
+          const touch = event.changedTouches[0];
+          edgeSwipeState.lastX = touch.clientX;
+          edgeSwipeState.lastY = touch.clientY;
+        }
+        edgeSwipeState.lastTime =
+          event?.timeStamp || edgeSwipeState.lastTime || Date.now();
+
         const deltaX = edgeSwipeState.lastX - edgeSwipeState.startX;
         const deltaY = edgeSwipeState.lastY - edgeSwipeState.startY;
+        const elapsedMs = Math.max(
+          edgeSwipeState.lastTime - edgeSwipeState.startTime,
+          1,
+        );
+        const velocityX = deltaX / elapsedMs;
         const targetModal = edgeSwipeState.modal;
+        const closeDistance = getModalEdgeSwipeCloseDistance(targetModal);
         edgeSwipeState.tracking = false;
         edgeSwipeState.modal = null;
 
         if (
-          deltaX >= MODAL_EDGE_SWIPE_CLOSE_DISTANCE &&
+          (
+            deltaX >= closeDistance ||
+            (deltaX >= MODAL_EDGE_SWIPE_FLING_CLOSE_DISTANCE &&
+              velocityX >= MODAL_EDGE_SWIPE_CLOSE_VELOCITY)
+          ) &&
           Math.abs(deltaY) <= MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE &&
           targetModal
         ) {
           closeModal(targetModal);
+          return;
+        }
+
+        if (targetModal) {
+          resetModalEdgeSwipePresentation(targetModal, {
+            animate: deltaX > 0,
+          });
         }
       };
 
@@ -11387,8 +11719,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         passive: true,
       });
       document.addEventListener("touchcancel", () => {
+        const targetModal = edgeSwipeState.modal;
+        const shouldAnimate = edgeSwipeState.lastX > edgeSwipeState.startX;
         edgeSwipeState.tracking = false;
         edgeSwipeState.modal = null;
+        if (targetModal) {
+          resetModalEdgeSwipePresentation(targetModal, {
+            animate: shouldAnimate,
+          });
+        }
       });
 
       scheduleModalHistorySync();
@@ -12132,10 +12471,116 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return Math.max(0, Math.round(numericValue * safeFactor));
   }
 
+  function getModalSwipeSurface(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return null;
+    }
+    const content = modal.querySelector(".modal-content");
+    return content instanceof HTMLElement ? content : modal;
+  }
+
+  function clearModalEdgeSwipeCleanupTimer(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    if (modal.__controlerEdgeSwipeCleanupTimer) {
+      window.clearTimeout(modal.__controlerEdgeSwipeCleanupTimer);
+      modal.__controlerEdgeSwipeCleanupTimer = 0;
+    }
+  }
+
+  function resetModalEdgeSwipePresentation(modal, options = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+
+    const surface = getModalSwipeSurface(modal);
+    if (!(surface instanceof HTMLElement)) {
+      return;
+    }
+
+    const { animate = false } = options;
+    clearModalEdgeSwipeCleanupTimer(modal);
+
+    if (animate) {
+      surface.style.transition =
+        `transform ${MODAL_EDGE_SWIPE_RESET_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+      modal.style.transition =
+        `opacity ${Math.min(MODAL_EDGE_SWIPE_RESET_DURATION_MS, 140)}ms ease`;
+    } else {
+      surface.style.transition = "";
+      modal.style.transition = "";
+    }
+
+    surface.style.transform = "";
+    surface.style.willChange = "";
+    modal.style.opacity = "";
+
+    if (!animate) {
+      return;
+    }
+
+    modal.__controlerEdgeSwipeCleanupTimer = window.setTimeout(() => {
+      surface.style.transition = "";
+      modal.style.transition = "";
+      modal.__controlerEdgeSwipeCleanupTimer = 0;
+    }, MODAL_EDGE_SWIPE_RESET_DURATION_MS + 24);
+  }
+
+  function updateModalEdgeSwipePresentation(modal, deltaX = 0) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+
+    const surface = getModalSwipeSurface(modal);
+    if (!(surface instanceof HTMLElement)) {
+      return;
+    }
+
+    clearModalEdgeSwipeCleanupTimer(modal);
+    surface.style.transition = "none";
+    modal.style.transition = "none";
+
+    const translateX = Math.max(0, deltaX);
+    if (translateX <= 0) {
+      surface.style.transform = "";
+      surface.style.willChange = "";
+      modal.style.opacity = "";
+      return;
+    }
+
+    const surfaceWidth =
+      surface.getBoundingClientRect().width ||
+      modal.getBoundingClientRect().width ||
+      window.innerWidth ||
+      1;
+    const progress = Math.min(translateX / Math.max(surfaceWidth, 1), 1);
+    surface.style.transform = `translate3d(${Math.round(translateX)}px, 0, 0)`;
+    surface.style.willChange = "transform";
+    modal.style.opacity = String(Math.max(0.58, 1 - progress * 0.42));
+  }
+
+  function getModalEdgeSwipeCloseDistance(modal) {
+    const surface = getModalSwipeSurface(modal);
+    const surfaceWidth =
+      surface?.getBoundingClientRect?.().width ||
+      modal?.getBoundingClientRect?.().width ||
+      window.innerWidth ||
+      0;
+    return Math.min(
+      MODAL_EDGE_SWIPE_CLOSE_DISTANCE,
+      Math.max(28, Math.round(surfaceWidth * 0.1)),
+    );
+  }
+
   function closeModal(modal) {
     if (!modal) {
       scheduleModalHistorySync();
       return;
+    }
+
+    if (modal instanceof HTMLElement) {
+      resetModalEdgeSwipePresentation(modal);
     }
 
     const customCloseHandler = modal.__controlerCloseModal;
@@ -14292,6 +14737,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   window.ControlerUI = {
     appNavigationItems: APP_NAV_ITEMS.map((item) => ({ ...item })),
     navigateAppPage,
+    navigateAppHref,
+    registerBeforePageLeave,
     appNavigationVisibilityEventName: APP_NAV_VISIBILITY_EVENT_NAME,
     getAppNavigationState,
     setAppNavigationState,

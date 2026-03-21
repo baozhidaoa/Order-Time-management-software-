@@ -187,15 +187,18 @@ const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
 const IS_ANDROID = Platform.OS === 'android';
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
+const NAVIGATION_PREWARM_DELAY_MS = 260;
 const WIDGET_PREWARM_AFTER_READY_MS = 220;
 const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 2400;
 const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
 const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 720 : 520;
 const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 260 : 180;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
-const EDGE_BACK_SWIPE_REGION_WIDTH = 48;
-const EDGE_BACK_SWIPE_MIN_DISTANCE = 56;
-const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 72;
+const EDGE_BACK_SWIPE_REGION_WIDTH = 56;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = 44;
+const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = 20;
+const EDGE_BACK_SWIPE_MIN_VELOCITY = 0.32;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 84;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
@@ -205,6 +208,14 @@ const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'diary', href: 'diary.html'},
   {key: 'settings', href: 'settings.html'},
 ];
+const APP_PAGE_LABELS: Record<AppPageKey, {zh: string; en: string}> = {
+  index: {zh: '记录', en: 'Record'},
+  stats: {zh: '统计', en: 'Stats'},
+  plan: {zh: '计划', en: 'Plan'},
+  todo: {zh: '待办', en: 'To-Do'},
+  diary: {zh: '日记', en: 'Diary'},
+  settings: {zh: '设置', en: 'Settings'},
+};
 
 function parseBridgeJson(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'string' || !value.trim()) {
@@ -290,6 +301,22 @@ function getPathTail(value: string): string {
 function getPageByHref(value: unknown): {key: AppPageKey; href: string} | null {
   const pathTail = getPathTail(String(value || '').trim());
   return APP_PAGES.find(page => page.href === pathTail) || null;
+}
+
+function getPageDisplayLabel(
+  pageKey: AppPageKey | '',
+  language: UiLanguage,
+): string {
+  if (!pageKey) {
+    return selectShellText(language, '目标页面', 'destination page');
+  }
+
+  const labels = APP_PAGE_LABELS[pageKey];
+  if (!labels) {
+    return pageKey;
+  }
+
+  return language === 'en-US' ? labels.en : labels.zh;
 }
 
 function normalizeUiLanguage(value: unknown): UiLanguage {
@@ -749,6 +776,9 @@ function App(): JSX.Element {
   const widgetPrewarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const navigationPrewarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const shellVisibilitySignatureRef = useRef<Record<WebViewSlot, string>>({
     primary: '',
     secondary: '',
@@ -1008,8 +1038,18 @@ function App(): JSX.Element {
     dy: number;
   }) =>
     canStartEdgeBackSwipe() &&
-    gestureState.dx >= 4 &&
-    Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1;
+    gestureState.dx >= 3 &&
+    Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+
+  const shouldFinishEdgeBackSwipe = (gestureState: {
+    dx: number;
+    dy: number;
+    vx: number;
+  }) =>
+    Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT &&
+    (gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE ||
+      (gestureState.dx >= EDGE_BACK_SWIPE_MIN_FLING_DISTANCE &&
+        gestureState.vx >= EDGE_BACK_SWIPE_MIN_VELOCITY));
 
   const edgeBackPanResponder = useRef(
     PanResponder.create({
@@ -1022,18 +1062,12 @@ function App(): JSX.Element {
       onPanResponderTerminationRequest: () => true,
       onShouldBlockNativeResponder: () => true,
       onPanResponderRelease: (_event, gestureState) => {
-        if (
-          gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE &&
-          Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT
-        ) {
+        if (shouldFinishEdgeBackSwipe(gestureState)) {
           handleShellBackNavigation(true);
         }
       },
       onPanResponderTerminate: (_event, gestureState) => {
-        if (
-          gestureState.dx >= EDGE_BACK_SWIPE_MIN_DISTANCE &&
-          Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT
-        ) {
+        if (shouldFinishEdgeBackSwipe(gestureState)) {
           handleShellBackNavigation(true);
         }
       },
@@ -1354,6 +1388,74 @@ function App(): JSX.Element {
     [isPageKeyHidden, settleWidgetLaunchWindowIfExpired],
   );
 
+  const prewarmNavigationPage = useCallback(
+    (pageKey: AppPageKey) => {
+      if (
+        transitionStateRef.current ||
+        !isPageReadyRef.current ||
+        isPageKeyHidden(pageKey)
+      ) {
+        return false;
+      }
+
+      const activeSlot = activeSlotRef.current;
+      const activeState = webViewSlotsRef.current[activeSlot];
+      if (!activeState.uri || activeState.pageKey === pageKey) {
+        return false;
+      }
+
+      const target = resolvePageTarget(activeState.uri, {
+        page: pageKey,
+        href: `${pageKey}.html`,
+      });
+      if (!target) {
+        return false;
+      }
+
+      const comparableTargetUri = getComparableUrl(target.uri);
+      const cachedSlot = WEBVIEW_SLOTS.find(
+        slot =>
+          getComparableUrl(webViewSlotsRef.current[slot].uri) ===
+          comparableTargetUri,
+      );
+      if (cachedSlot) {
+        if (cachedSlot !== activeSlot) {
+          markSlotUsed(cachedSlot);
+        }
+        return true;
+      }
+
+      const nextSlotState = findReusableSlot(activeSlot, target.uri);
+      const targetSlot = nextSlotState.slot;
+      if (!targetSlot || targetSlot === activeSlot || !nextSlotState.needsLoad) {
+        return false;
+      }
+
+      updateWebViewSlotsRef(webViewSlotsRef, targetSlot, {
+        uri: target.uri,
+        pageKey: target.pageKey,
+        revision: webViewSlotsRef.current[targetSlot].revision + 1,
+      });
+      setWebViewSlots(current => ({
+        ...current,
+        [targetSlot]: {
+          uri: target.uri,
+          pageKey: target.pageKey,
+          revision: current[targetSlot].revision + 1,
+        },
+      }));
+      markSlotUsed(targetSlot);
+      logPerfMetric('navigation-prewarm', {
+        slot: targetSlot,
+        page: target.pageKey,
+        activePage: activeState.pageKey,
+        targetUri: target.uri,
+      });
+      return true;
+    },
+    [findReusableSlot, isPageKeyHidden, logPerfMetric, markSlotUsed],
+  );
+
   const clearTransitionWatchdog = useCallback(() => {
     if (transitionWatchdogTimerRef.current !== null) {
       clearTimeout(transitionWatchdogTimerRef.current);
@@ -1366,6 +1468,13 @@ function App(): JSX.Element {
     if (widgetPrewarmTimerRef.current !== null) {
       clearTimeout(widgetPrewarmTimerRef.current);
       widgetPrewarmTimerRef.current = null;
+    }
+  }, []);
+
+  const clearNavigationPrewarmTimer = useCallback(() => {
+    if (navigationPrewarmTimerRef.current !== null) {
+      clearTimeout(navigationPrewarmTimerRef.current);
+      navigationPrewarmTimerRef.current = null;
     }
   }, []);
 
@@ -2314,6 +2423,9 @@ function App(): JSX.Element {
           return;
         }
         handleWidgetLaunchContext(launchContext, 'device-event');
+        if (typeof nativeBridge?.consumeLaunchAction === 'function') {
+          nativeBridge.consumeLaunchAction().catch(() => undefined);
+        }
       },
     );
 
@@ -2431,12 +2543,14 @@ function App(): JSX.Element {
     return () => {
       transitionTokenRef.current += 1;
       clearPendingWidgetLaunchAck();
+      clearNavigationPrewarmTimer();
       clearTransitionWatchdog();
       clearWidgetPrewarmTimer();
       transitionProgress.stopAnimation();
     };
   }, [
     clearPendingWidgetLaunchAck,
+    clearNavigationPrewarmTimer,
     clearTransitionWatchdog,
     clearWidgetPrewarmTimer,
     transitionProgress,
@@ -2513,6 +2627,47 @@ function App(): JSX.Element {
     isPageReady,
     prewarmWidgetLandingPages,
     settleWidgetLaunchWindowIfExpired,
+    transitionState,
+    webViewSlots,
+  ]);
+
+  useEffect(() => {
+    clearNavigationPrewarmTimer();
+    if (bootError || !isPageReady || transitionState) {
+      return;
+    }
+
+    const activePageKey = webViewSlotsRef.current[activeSlotRef.current].pageKey;
+    if (
+      !activePageKey ||
+      activePageKey === 'index' ||
+      widgetPrewarmPendingRef.current ||
+      busyLockBySlotRef.current[activeSlotRef.current]
+    ) {
+      return;
+    }
+
+    navigationPrewarmTimerRef.current = setTimeout(() => {
+      navigationPrewarmTimerRef.current = null;
+      if (
+        transitionStateRef.current ||
+        busyLockBySlotRef.current[activeSlotRef.current]
+      ) {
+        return;
+      }
+      prewarmNavigationPage('index');
+    }, NAVIGATION_PREWARM_DELAY_MS);
+
+    return () => {
+      clearNavigationPrewarmTimer();
+    };
+  }, [
+    activeSlot,
+    busyStateVersion,
+    bootError,
+    clearNavigationPrewarmTimer,
+    isPageReady,
+    prewarmNavigationPage,
     transitionState,
     webViewSlots,
   ]);
@@ -3664,6 +3819,14 @@ function App(): JSX.Element {
   }
 
   const activeUri = webViewSlots[activeSlot].uri;
+  const loadingTargetPageKey =
+    transitionState?.status === 'loading'
+      ? webViewSlots[transitionState.toSlot].pageKey
+      : '';
+  const loadingTargetPageLabel = getPageDisplayLabel(
+    loadingTargetPageKey,
+    shellLanguage,
+  );
   if (!activeUri) {
     return (
       <ScreenContainer style={styles.screen}>
@@ -3700,6 +3863,42 @@ function App(): JSX.Element {
         {renderWebView('primary')}
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
+        {transitionState?.status === 'loading' ? (
+          <View style={styles.transitionLoadingOverlay}>
+            <View style={styles.center}>
+              <View style={[styles.bootCard, styles.transitionLoadingCard]}>
+                <Animated.View
+                  style={[
+                    styles.bootIndicator,
+                    {
+                      opacity: bootPulseOpacity,
+                      transform: [{scale: bootPulseScale}],
+                    },
+                  ]}>
+                  <View style={styles.bootIndicatorDot} />
+                </Animated.View>
+                <Text style={styles.loadingText}>
+                  {selectShellText(
+                    shellLanguage,
+                    '正在打开页面',
+                    'Opening page',
+                  )}
+                </Text>
+                <Text style={styles.loadingSubText}>
+                  {loadingTargetPageKey
+                    ? shellLanguage === 'en-US'
+                      ? `Preparing the ${loadingTargetPageLabel} page.`
+                      : `正在准备${loadingTargetPageLabel}页面，请稍候`
+                    : selectShellText(
+                        shellLanguage,
+                        '正在准备目标页面，请稍候',
+                        'Preparing the destination page.',
+                      )}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
         {isPageReady ? (
           <View
             {...edgeBackPanResponder.panHandlers}
@@ -3760,6 +3959,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: SCREEN_BG,
   },
+  transitionLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 21, 18, 0.26)',
+    zIndex: 4,
+  },
   center: {
     flex: 1,
     alignItems: 'center',
@@ -3777,6 +3981,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(142, 214, 164, 0.14)',
     backgroundColor: 'rgba(22, 31, 27, 0.88)',
+  },
+  transitionLoadingCard: {
+    backgroundColor: 'rgba(18, 26, 23, 0.94)',
   },
   bootIndicator: {
     width: 52,
