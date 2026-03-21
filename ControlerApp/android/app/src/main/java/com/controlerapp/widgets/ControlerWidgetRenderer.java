@@ -2199,6 +2199,17 @@ public final class ControlerWidgetRenderer {
             || ControlerWidgetKinds.CHECKINS.equals(normalizedKind);
     }
 
+    private static String resolveListItemDirectCommand(String kind) {
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (ControlerWidgetKinds.TODOS.equals(normalizedKind)) {
+            return ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
+        }
+        if (ControlerWidgetKinds.CHECKINS.equals(normalizedKind)) {
+            return ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
+        }
+        return "";
+    }
+
     private static boolean shouldUseCompactListCards(String kind, WidgetMetrics metrics) {
         return isListFirstKind(kind)
             && metrics != null
@@ -2551,6 +2562,33 @@ public final class ControlerWidgetRenderer {
         String kind,
         WidgetContent content
     ) {
+        String directCommand = resolveListItemDirectCommand(kind);
+        if (!TextUtils.isEmpty(directCommand)) {
+            Intent intent = new Intent(
+                context,
+                ControlerWidgetKinds.providerClassForKind(kind)
+            );
+            intent.setAction(ControlerWidgetActionHandler.ACTION_EXECUTE);
+            intent.putExtra(ControlerWidgetActionHandler.EXTRA_COMMAND, directCommand);
+            intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
+            intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
+            Uri identityUri = buildWidgetPendingIntentData(
+                "collection-direct",
+                appWidgetId,
+                kind,
+                directCommand,
+                ""
+            );
+            intent.setData(identityUri);
+
+            int requestCode = buildStablePendingIntentRequestCode(identityUri);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flags |= PendingIntent.FLAG_MUTABLE;
+            }
+            return PendingIntent.getBroadcast(context, requestCode, intent, flags);
+        }
+
         Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(
             OPEN_WIDGET_ACTION_PREFIX + ".collection." + kind + "." + appWidgetId
@@ -2958,10 +2996,11 @@ public final class ControlerWidgetRenderer {
         WidgetContent content,
         ControlerWidgetDataStore.State state
     ) {
+        boolean timerActive = isTimerSessionActive(state);
         content.actionOnly = true;
         content.subtitle = "";
-        content.actionLabel = "开始计时";
-        content.directCommand = "";
+        content.actionLabel = timerActive ? "停止计时" : "开始计时";
+        content.directCommand = ControlerWidgetActionHandler.COMMAND_TOGGLE_TIMER;
         content.directTargetId = "";
         content.statPrimary = "";
         content.statSecondary = "";
@@ -3224,6 +3263,17 @@ public final class ControlerWidgetRenderer {
             : isCheckinDoneForDate(state.dailyCheckins, itemId, today);
     }
 
+    private static boolean isCheckinPendingForWidget(
+        String itemId,
+        int appWidgetId
+    ) {
+        return ControlerWidgetPendingActionStore.get(
+            ControlerWidgetKinds.CHECKINS,
+            itemId,
+            appWidgetId
+        ) != null;
+    }
+
     private static String appendPendingMeta(String meta) {
         String normalized = safeText(meta);
         return TextUtils.isEmpty(normalized) ? "同步中" : normalized + " · 同步中";
@@ -3240,7 +3290,7 @@ public final class ControlerWidgetRenderer {
         int pendingCount = 0;
         for (ControlerWidgetDataStore.TodoInfo todo : state.todos) {
             boolean scheduledToday = todoScheduledOn(todo, calendarFromDateText(today), today);
-            boolean completed = todo != null && todo.completed;
+            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
             if (scheduledToday) {
                 todayCount++;
                 visibleTodos.add(todo);
@@ -3262,8 +3312,8 @@ public final class ControlerWidgetRenderer {
                 ) {
                     boolean leftToday = todoScheduledOn(left, calendarFromDateText(today), today);
                     boolean rightToday = todoScheduledOn(right, calendarFromDateText(today), today);
-                    boolean leftCompleted = left != null && left.completed;
-                    boolean rightCompleted = right != null && right.completed;
+                    boolean leftCompleted = resolveTodoCompletedForWidget(left, appWidgetId);
+                    boolean rightCompleted = resolveTodoCompletedForWidget(right, appWidgetId);
                     if (leftToday != rightToday) {
                         return leftToday ? -1 : 1;
                     }
@@ -3296,16 +3346,19 @@ public final class ControlerWidgetRenderer {
             return;
         }
         for (ControlerWidgetDataStore.TodoInfo todo : visibleTodos) {
-            boolean completed = todo != null && todo.completed;
+            boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
+            boolean pending = isTodoPendingForWidget(todo, appWidgetId);
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(todo.title);
-            card.meta = describeTodoCardMeta(todo, today, completed);
-            card.actionLabel = "";
-            card.command = "";
+            card.meta = pending
+                ? appendPendingMeta(describeTodoCardMeta(todo, today, completed))
+                : describeTodoCardMeta(todo, today, completed);
+            card.actionLabel = completed ? "恢复" : "完成";
+            card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
             card.targetId = safeText(todo.id);
             card.accentColor = parseColor(todo.color, Color.parseColor("#ED8936"));
-            card.pending = false;
-            card.actionDisabled = false;
+            card.pending = pending;
+            card.actionDisabled = pending;
             content.itemCards.add(card);
         }
     }
@@ -3326,7 +3379,12 @@ public final class ControlerWidgetRenderer {
             }
             scheduled.add(item);
             total++;
-            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
+            boolean checked = resolveCheckinDoneForWidget(
+                state,
+                item.id,
+                today,
+                appWidgetId
+            );
             if (checked) {
                 done++;
             }
@@ -3340,9 +3398,9 @@ public final class ControlerWidgetRenderer {
                     ControlerWidgetDataStore.CheckinItemInfo right
                 ) {
                     boolean leftDone =
-                        isCheckinDoneForDate(state.dailyCheckins, left.id, today);
+                        resolveCheckinDoneForWidget(state, left.id, today, appWidgetId);
                     boolean rightDone =
-                        isCheckinDoneForDate(state.dailyCheckins, right.id, today);
+                        resolveCheckinDoneForWidget(state, right.id, today, appWidgetId);
                     if (leftDone != rightDone) {
                         return leftDone ? 1 : -1;
                     }
@@ -3360,20 +3418,34 @@ public final class ControlerWidgetRenderer {
             return;
         }
         for (ControlerWidgetDataStore.CheckinItemInfo item : scheduled) {
-            boolean checked = isCheckinDoneForDate(state.dailyCheckins, item.id, today);
+            boolean checked = resolveCheckinDoneForWidget(
+                state,
+                item.id,
+                today,
+                appWidgetId
+            );
+            boolean pending = isCheckinPendingForWidget(item.id, appWidgetId);
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(item.title);
-            card.meta = describeCheckinCardMeta(
-                item,
-                checked,
-                countCheckinStreak(state, item, today)
-            );
-            card.actionLabel = "";
-            card.command = "";
+            card.meta = pending
+                ? appendPendingMeta(
+                    describeCheckinCardMeta(
+                        item,
+                        checked,
+                        countCheckinStreak(state, item, today)
+                    )
+                )
+                : describeCheckinCardMeta(
+                    item,
+                    checked,
+                    countCheckinStreak(state, item, today)
+                );
+            card.actionLabel = checked ? "取消" : "打卡";
+            card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
             card.targetId = safeText(item.id);
             card.accentColor = parseColor(item.color, Color.parseColor("#4299E1"));
-            card.pending = false;
-            card.actionDisabled = false;
+            card.pending = pending;
+            card.actionDisabled = pending;
             content.itemCards.add(card);
         }
     }

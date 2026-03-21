@@ -391,18 +391,14 @@ public final class ControlerWidgetActionHandler {
             AppWidgetManager.INVALID_APPWIDGET_ID
         );
 
-        if (
-            COMMAND_TOGGLE_TIMER.equals(command)
-                || COMMAND_TOGGLE_TODO.equals(command)
-                || COMMAND_TOGGLE_CHECKIN.equals(command)
-        ) {
-            return routeWidgetCommandToApp(
-                context,
-                command,
-                targetId,
-                widgetKind,
-                appWidgetId
-            );
+        if (COMMAND_TOGGLE_TIMER.equals(command)) {
+            return toggleTimer(context);
+        }
+        if (COMMAND_TOGGLE_TODO.equals(command)) {
+            return toggleTodo(context, targetId, appWidgetId);
+        }
+        if (COMMAND_TOGGLE_CHECKIN.equals(command)) {
+            return toggleCheckin(context, targetId, appWidgetId);
         }
         if (COMMAND_REFRESH_WIDGET.equals(command)) {
             return refreshWidget(widgetKind, appWidgetId);
