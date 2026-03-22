@@ -2970,10 +2970,10 @@
             rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
               ? rawResult
               : {};
-          const changedSections = normalizeChangedSectionsList(
+          const changedSections = normalizeChangedSectionEntries(
             parsedResult.changedSections || metadata.changedSections,
           );
-          const changedPeriods = normalizeChangedPeriodsMap(
+          const changedPeriods = normalizeChangedPeriodEntries(
             parsedResult.changedPeriods || metadata.changedPeriods,
           );
           const syncResult = await syncFromElectronSource({

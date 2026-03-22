@@ -884,6 +884,51 @@ function normalizeNavigationDirection(value: unknown): NavigationDirection | '' 
   return '';
 }
 
+type BridgeNavigationDispatchPolicyOptions = {
+  isAndroid: boolean;
+  sourceSlot: WebViewSlot;
+  activeSlot: WebViewSlot;
+  transitionBusy: boolean;
+};
+
+export function resolveBridgeNavigationDispatchPolicy({
+  isAndroid,
+  sourceSlot,
+  activeSlot,
+  transitionBusy,
+}: BridgeNavigationDispatchPolicyOptions): {
+  ignore: boolean;
+  queue: boolean;
+} {
+  const ignore = isAndroid && sourceSlot !== activeSlot;
+  return {
+    ignore,
+    queue: transitionBusy && !isAndroid && !ignore,
+  };
+}
+
+type WebViewInteractivityOptions = {
+  isAndroid: boolean;
+  slot: WebViewSlot;
+  activeSlot: WebViewSlot;
+  transitionState: Pick<TransitionState, 'status' | 'fromSlot'> | null;
+};
+
+export function isWebViewLayerInteractive({
+  isAndroid,
+  slot,
+  activeSlot,
+  transitionState,
+}: WebViewInteractivityOptions): boolean {
+  if (!transitionState) {
+    return slot === activeSlot;
+  }
+  if (isAndroid) {
+    return false;
+  }
+  return transitionState.status === 'loading' && slot === transitionState.fromSlot;
+}
+
 function shouldRefreshShellThemeForSections(value: unknown): boolean {
   if (!Array.isArray(value) || value.length === 0) {
     return false;
@@ -4281,13 +4326,23 @@ function App({
         const activeSlot = activeSlotRef.current;
         const transitionBusy = !!transitionStateRef.current;
         const navigationLocked = busyLockBySlotRef.current[activeSlot];
+        const dispatchPolicy = resolveBridgeNavigationDispatchPolicy({
+          isAndroid: IS_ANDROID,
+          sourceSlot: slot,
+          activeSlot,
+          transitionBusy,
+        });
         let navigationResult: NavigationRequestResult = 'noop';
         let accepted = false;
         let queued = false;
-        if (transitionBusy) {
-          queueNavigationRequest(message.payload || {}, 'bridge');
+        if (dispatchPolicy.ignore) {
           accepted = true;
-          queued = true;
+        } else if (transitionBusy) {
+          if (dispatchPolicy.queue) {
+            queueNavigationRequest(message.payload || {}, 'bridge');
+            queued = true;
+          }
+          accepted = true;
         } else if (!navigationLocked) {
           navigationResult = requestPageNavigation(message.payload || {}, 'bridge');
           accepted = navigationResult === 'intercept';
@@ -4297,7 +4352,8 @@ function App({
             ? message.payload.requestId
             : '';
         if (requestId) {
-          const retryAfterMs = transitionBusy || navigationLocked
+          const busy = dispatchPolicy.ignore || transitionBusy || navigationLocked;
+          const retryAfterMs = busy
             ? transitionStateRef.current
               ? 220
               : 140
@@ -4305,7 +4361,7 @@ function App({
           postBridgeEvent(slot, 'ui.navigate-ack', {
             requestId,
             accepted,
-            busy: transitionBusy || navigationLocked,
+            busy,
             queued,
             retryAfterMs,
           });
@@ -4614,19 +4670,25 @@ function App({
       styles.webviewLayer,
       {backgroundColor: shellBootTheme.screenBg},
     ];
-    const interactiveLayer =
-      !currentTransition
-        ? slot === activeSlot
-        : currentTransition.status === 'loading' &&
-          slot === currentTransition.fromSlot;
+    const interactiveLayer = isWebViewLayerInteractive({
+      isAndroid: IS_ANDROID,
+      slot,
+      activeSlot,
+      transitionState: currentTransition
+        ? {
+            status: currentTransition.status,
+            fromSlot: currentTransition.fromSlot,
+          }
+        : null,
+    });
 
     if (!currentTransition) {
-        wrapperStyle = [
-          styles.webviewLayer,
-          {backgroundColor: shellBootTheme.screenBg},
-          slot === activeSlot
-            ? styles.webviewLayerVisible
-            : styles.webviewLayerHidden,
+      wrapperStyle = [
+        styles.webviewLayer,
+        {backgroundColor: shellBootTheme.screenBg},
+        slot === activeSlot
+          ? styles.webviewLayerVisible
+          : styles.webviewLayerHidden,
       ];
     } else if (currentTransition.status === 'loading') {
       if (slot === currentTransition.fromSlot) {
@@ -4877,6 +4939,8 @@ function App({
         {renderWebView('tertiary')}
         {transitionState?.status === 'loading' ? (
           <View
+            accessible={false}
+            pointerEvents="auto"
             renderToHardwareTextureAndroid={Platform.OS === 'android'}
             style={[
               styles.transitionLoadingOverlay,

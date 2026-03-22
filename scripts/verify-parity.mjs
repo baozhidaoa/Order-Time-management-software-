@@ -32,11 +32,61 @@ const mobileBootstrapHtmlPages = new Set([
 ]);
 const unreadableOfflineAssetFallbacks = new Map([
   [
+    "pages/embedded-assets/chart.runtime.js",
+    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
+  ],
+  [
+    "pages/embedded-assets/d3.min.js",
+    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+  ],
+  [
+    "pages/embedded-assets/d3.runtime.js",
+    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+  ],
+  [
+    "pages/embedded-assets/cal-heatmap.min.js",
+    path.join(
+      repoRoot,
+      "node_modules",
+      "cal-heatmap",
+      "dist",
+      "cal-heatmap.min.js",
+    ),
+  ],
+  [
+    "pages/embedded-assets/cal-heatmap.runtime.js",
+    path.join(
+      repoRoot,
+      "node_modules",
+      "cal-heatmap",
+      "dist",
+      "cal-heatmap.min.js",
+    ),
+  ],
+  [
+    "pages/offline-assets/chart.runtime.js",
+    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
+  ],
+  [
     "pages/offline-assets/d3.min.js",
     path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
   ],
   [
+    "pages/offline-assets/d3.runtime.js",
+    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+  ],
+  [
     "pages/offline-assets/cal-heatmap.min.js",
+    path.join(
+      repoRoot,
+      "node_modules",
+      "cal-heatmap",
+      "dist",
+      "cal-heatmap.min.js",
+    ),
+  ],
+  [
+    "pages/offline-assets/cal-heatmap.runtime.js",
     path.join(
       repoRoot,
       "node_modules",

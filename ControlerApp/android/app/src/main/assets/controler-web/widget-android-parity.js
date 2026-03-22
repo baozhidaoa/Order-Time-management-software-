@@ -69,6 +69,29 @@ function createElement(tagName, className = "", text = null) {
   return node;
 }
 
+function readWidgetThemeCssVar(propertyName, fallback = "") {
+  return (
+    window.getComputedStyle(document.documentElement).getPropertyValue(propertyName)?.trim() ||
+    fallback
+  );
+}
+
+function resolveWidgetReadableTextColor(backgroundColor, preferredTextColor = "") {
+  if (typeof window.ControlerTheme?.getReadableTextColorForBackground === "function") {
+    return window.ControlerTheme.getReadableTextColorForBackground(
+      backgroundColor,
+      preferredTextColor,
+      4.1,
+    );
+  }
+  return firstNonEmpty(
+    preferredTextColor,
+    readWidgetThemeCssVar("--widget-control-text"),
+    readWidgetThemeCssVar("--text-color"),
+    "#f5fff8",
+  );
+}
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
@@ -99,6 +122,7 @@ function createEmptyAppState() {
     customThemes: [],
     tableScaleSettings: {},
     selectedTheme: "default",
+    todoSortPreference: "dueDate",
   };
 }
 
@@ -283,6 +307,8 @@ function readAppState() {
     customThemes: readArray("customThemes"),
     tableScaleSettings: readObject("tableScaleSettings"),
     selectedTheme: window.localStorage.getItem("selectedTheme") || "default",
+    todoSortPreference:
+      window.localStorage.getItem("todoSortPreference") || "dueDate",
   };
 }
 
@@ -326,6 +352,10 @@ function persistAppState(nextState) {
     window.localStorage.setItem(
       "selectedTheme",
       String(safeState.selectedTheme || "default"),
+    );
+    window.localStorage.setItem(
+      "todoSortPreference",
+      String(safeState.todoSortPreference || "dueDate"),
     );
   }
 
@@ -740,38 +770,77 @@ function getTodoCardDescription(todo = {}, progressRecords = []) {
   return "保留核心信息与完成操作，点击按钮即可直接同步状态。";
 }
 
+function normalizeTodoWidgetSortPreference(value = "dueDate") {
+  switch (String(value || "").trim()) {
+    case "priority":
+    case "createdAt":
+    case "title":
+      return String(value || "").trim();
+    default:
+      return "dueDate";
+  }
+}
+
+function compareTodoItemsByWidgetSort(left, right, sortPreference = "dueDate") {
+  const normalizedSort = normalizeTodoWidgetSortPreference(sortPreference);
+  if (normalizedSort === "priority") {
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    return (
+      (priorityOrder[String(left?.priority || "medium")] ?? priorityOrder.medium) -
+      (priorityOrder[String(right?.priority || "medium")] ?? priorityOrder.medium)
+    );
+  }
+  if (normalizedSort === "createdAt") {
+    return (
+      new Date(right?.createdAt || 0).getTime() -
+      new Date(left?.createdAt || 0).getTime()
+    );
+  }
+  if (normalizedSort === "title") {
+    return String(left?.title || "").localeCompare(String(right?.title || ""), "zh-CN");
+  }
+
+  const leftDueDate = typeof left?.dueDate === "string" ? left.dueDate : "";
+  const rightDueDate = typeof right?.dueDate === "string" ? right.dueDate : "";
+  if (!leftDueDate && !rightDueDate) {
+    return 0;
+  }
+  if (!leftDueDate) {
+    return 1;
+  }
+  if (!rightDueDate) {
+    return -1;
+  }
+  return compareDateText(leftDueDate, rightDueDate);
+}
+
 function getTodayTodoStats(state) {
   const today = getDateText(new Date());
-  const scheduled = (Array.isArray(state?.todos) ? state.todos : []).filter((todo) =>
-    todoScheduledOn(todo, today),
-  );
+  const todos = Array.isArray(state?.todos) ? state.todos : [];
+  const scheduled = todos.filter((todo) => todoScheduledOn(todo, today));
   const doneCount = scheduled.filter((todo) => !!todo?.completed).length;
+  const dueTodayCount = todos.filter((todo) => {
+    const schedule = normalizeTodoSchedule(todo);
+    return schedule.repeatType === "none" && !!schedule.dueDate && schedule.dueDate === today;
+  }).length;
   return {
     total: scheduled.length,
     doneCount,
     pendingCount: Math.max(0, scheduled.length - doneCount),
+    incompleteCount: todos.filter((todo) => !todo?.completed).length,
+    dueTodayCount,
   };
 }
 
 function getTodayTodoItems(state, limit = 6) {
   const today = getDateText(new Date());
+  const sortPreference = normalizeTodoWidgetSortPreference(
+    state?.todoSortPreference,
+  );
   return (Array.isArray(state?.todos) ? state.todos : [])
-    .filter((todo) => todoScheduledOn(todo, today))
+    .filter((todo) => todoScheduledOn(todo, today) || !todo?.completed)
     .slice()
-    .sort((left, right) => {
-      const completedCompare = Number(!!left?.completed) - Number(!!right?.completed);
-      if (completedCompare !== 0) {
-        return completedCompare;
-      }
-      const dateCompare = compareDateText(
-        left?.dueDate || left?.startDate || "",
-        right?.dueDate || right?.startDate || "",
-      );
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-      return new Date(left?.createdAt || 0).getTime() - new Date(right?.createdAt || 0).getTime();
-    })
+    .sort((left, right) => compareTodoItemsByWidgetSort(left, right, sortPreference))
     .slice(0, limit)
     .map((todo) => {
       const progressRecords = getTodoProgressRecords(state, todo?.id || "");
@@ -1543,8 +1612,8 @@ function fillTodosContent(content, state) {
   }));
   content.subtitle = translateWidgetUiText("今日待办");
   content.actionLabel = translateWidgetUiText("打开待办");
-  content.statPrimary = `${translateWidgetUiText("共")} ${stats.total} ${translateWidgetUiText("项")}`;
-  content.statSecondary = `${translateWidgetUiText("已完成")} ${stats.doneCount} ${translateWidgetUiText("项")}`;
+  content.statPrimary = `${translateWidgetUiText("待办")} ${stats.total} ${translateWidgetUiText("项")}`;
+  content.statSecondary = `${translateWidgetUiText("未完")} ${stats.incompleteCount} · ${translateWidgetUiText("今到期")} ${stats.dueTodayCount}`;
   if (items.length === 0) {
     content.lines.push(translateWidgetUiText("今天没有待办任务。"));
     content.lines.push(translateWidgetUiText("打开应用创建新的待办事项。"));
@@ -1562,11 +1631,8 @@ function fillCheckinsContent(content, state) {
   }));
   content.subtitle = translateWidgetUiText("今日打卡");
   content.actionLabel = translateWidgetUiText("打开打卡");
-  content.statPrimary = `${translateWidgetUiText("完成")} ${stats.doneCount}/${stats.total}`;
-  content.statSecondary =
-    stats.total > 0 && stats.doneCount >= stats.total
-      ? translateWidgetUiText("今日已清空")
-      : translateWidgetUiText("仍有待打卡");
+  content.statPrimary = `${translateWidgetUiText("今日")} ${stats.total} ${translateWidgetUiText("项")}`;
+  content.statSecondary = `${translateWidgetUiText("未打卡")} ${stats.pendingCount} ${translateWidgetUiText("项")}`;
   if (items.length === 0) {
     content.lines.push(translateWidgetUiText("今天暂无打卡任务。"));
     content.lines.push(translateWidgetUiText("打开应用创建新的打卡项目。"));
@@ -1608,7 +1674,6 @@ function fillWeekViewContent(content, state) {
 
 function fillYearViewContent(content, state) {
   const monthItems = buildYearSummary(state);
-  const yearMinutes = monthItems.reduce((sum, item) => sum + item.minutes, 0);
   const annualGoals = getWidgetYearGoalList(state, "annual");
   const currentMonthGoals = getWidgetYearGoalList(
     state,
@@ -1619,13 +1684,11 @@ function fillYearViewContent(content, state) {
     { label: "", minutes: 0 },
   );
   content.subtitle = translateWidgetUiText("年度视图");
-  content.statPrimary = formatMinutes(yearMinutes);
   content.statSecondary = `${translateWidgetUiText("年度目标")} ${annualGoals.length} ${translateWidgetUiText("个")}`;
   content.preview = {
     kind: "goals",
     ...buildYearPreviewData(state),
   };
-  content.lines.push(translateWidgetUiText(`全年投入 ${formatMinutes(yearMinutes)}`));
   content.lines.push(
     translateWidgetUiText(`本月目标 ${currentMonthGoals.length} 个`),
   );
@@ -1744,11 +1807,24 @@ function buildWidgetErrorState(widgetType, error) {
 
 function buildStatsRow(content) {
   const row = createElement("div", "widget-stats");
+  const statSurfaceColor = readWidgetThemeCssVar(
+    "--widget-subtle-surface-strong",
+    "rgba(255, 255, 255, 0.12)",
+  );
+  const statTextColor = resolveWidgetReadableTextColor(
+    statSurfaceColor,
+    readWidgetThemeCssVar("--text-color", "#f5fff8"),
+  );
+  const appendPill = (text) => {
+    const pill = createElement("div", "widget-stat-pill", text);
+    pill.style.color = statTextColor;
+    row.appendChild(pill);
+  };
   if (content.statPrimary) {
-    row.appendChild(createElement("div", "widget-stat-pill", content.statPrimary));
+    appendPill(content.statPrimary);
   }
   if (content.statSecondary) {
-    row.appendChild(createElement("div", "widget-stat-pill", content.statSecondary));
+    appendPill(content.statSecondary);
   }
   return row;
 }
@@ -1924,29 +2000,46 @@ function buildPiePreviewNode(preview, metrics) {
 
 function buildGoalPreviewNode(preview, metrics) {
   const wrapper = createElement("div", "widget-preview widget-preview--goals");
-  if (metrics.width < 220) {
+  if (metrics.width < 280 || metrics.isTall) {
     wrapper.classList.add("is-stacked");
+  }
+  if (metrics.sizeClass === "xlarge" || metrics.height >= 280) {
+    wrapper.classList.add("is-spacious");
   }
 
   const buildGoalCard = (title, goals, toneClass) => {
-    const card = createElement("div", `widget-goal-card ${toneClass}`);
-    const head = createElement("div", "widget-goal-card-head");
-    head.appendChild(createElement("div", "widget-goal-card-title", title));
-    head.appendChild(createElement("div", "widget-goal-card-count", `${goals.length}项`));
-    card.appendChild(head);
+    const card = createElement("article", `widget-goal-card widget-item-card ${toneClass}`);
+    card.appendChild(createElement("div", "widget-goal-accent"));
+
+    const main = createElement("div", "widget-goal-main");
+    const head = createElement("div", "widget-item-top");
+    head.appendChild(createElement("div", "widget-item-title", title));
+    head.appendChild(createElement("div", "widget-item-badge", `${goals.length}项`));
+    main.appendChild(head);
 
     const list = createElement("div", "widget-goal-card-list");
-    const itemLimit = metrics.height < 140 ? 1 : 2;
     if (goals.length === 0) {
-      list.appendChild(createElement("div", "widget-goal-card-item", translateWidgetUiText("暂无目标")));
+      list.appendChild(
+        createElement("div", "widget-goal-card-item", translateWidgetUiText("暂无目标")),
+      );
     } else {
-      goals.slice(0, itemLimit).forEach((goal) => {
-        list.appendChild(
-          createElement("div", "widget-goal-card-item", `• ${truncateText(goal.title, 16)}`),
+      goals.forEach((goal) => {
+        const item = createElement("div", "widget-goal-card-item");
+        const textBlock = createElement("div", "widget-goal-card-item-text");
+        textBlock.appendChild(
+          createElement("strong", "widget-goal-card-item-title", goal.title || ""),
         );
+        if (goal.description) {
+          textBlock.appendChild(
+            createElement("div", "widget-goal-card-item-description", goal.description),
+          );
+        }
+        item.appendChild(textBlock);
+        list.appendChild(item);
       });
     }
-    card.appendChild(list);
+    main.appendChild(list);
+    card.appendChild(main);
     return card;
   };
 

@@ -5044,10 +5044,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
               ? rawResult
               : {};
-          const changedSections = normalizeChangedSectionsList(
+          const changedSections = normalizeChangedSectionEntries(
             parsedResult.changedSections || metadata.changedSections,
           );
-          const changedPeriods = normalizeChangedPeriodsMap(
+          const changedPeriods = normalizeChangedPeriodEntries(
             parsedResult.changedPeriods || metadata.changedPeriods,
           );
           const syncResult = await syncFromElectronSource({
@@ -11983,6 +11983,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
+  let androidReactNativeAppNavLocked = false;
   const activeAndroidPressTargets = new Map();
   const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
@@ -12258,6 +12259,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     lastShellVisibilityStateSignature = nextSignature;
     Object.assign(shellVisibilityState, nextState);
+    if (
+      isAndroidReactNativeNavigationRuntime() &&
+      (!nextState.active || !pendingNativeNavigationRequest)
+    ) {
+      setAndroidReactNativeAppNavLocked(false);
+    }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
     markPagePerfStage(
       nextState.active ? "hidden-page-resumed" : "hidden-page-paused",
@@ -12372,6 +12379,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       resetAppPageTransitionRuntimeState({ clearStoredState: false });
+      if (detail.accepted === false) {
+        setAndroidReactNativeAppNavLocked(false);
+      }
 
       if (detail.accepted === false && detail.busy === true) {
         const retryTargetItem =
@@ -12765,6 +12775,59 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
     window.setTimeout(run, 0);
+  }
+
+  function isAndroidReactNativeNavigationRuntime() {
+    return getNativeHostPlatform() === "android";
+  }
+
+  function clearAndroidAppNavigationTransientState(root = document) {
+    if (!root?.querySelectorAll) {
+      return;
+    }
+
+    activeAndroidPressTargets.forEach((target, pointerId) => {
+      if (target instanceof HTMLElement && target.closest(".app-nav")) {
+        activeAndroidPressTargets.delete(pointerId);
+      }
+    });
+
+    root.querySelectorAll(".app-nav [data-nav-page]").forEach((button) => {
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      clearAndroidPressAnimation(button);
+      clearAndroidPressReleaseTimer(button);
+      button.classList.remove(
+        ANDROID_PRESS_ACTIVE_CLASS,
+        ANDROID_PRESS_ANIMATE_CLASS,
+      );
+      clearAndroidNavButtonFocus(button, true);
+    });
+  }
+
+  function setAndroidReactNativeAppNavLocked(locked) {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      return;
+    }
+
+    androidReactNativeAppNavLocked = locked === true;
+    document.documentElement?.classList.toggle(
+      "controler-android-nav-locked",
+      androidReactNativeAppNavLocked,
+    );
+    document.body?.classList.toggle(
+      "controler-android-nav-locked",
+      androidReactNativeAppNavLocked,
+    );
+    clearAndroidAppNavigationTransientState(document);
+  }
+
+  function isAndroidReactNativeAppNavLocked() {
+    return (
+      isAndroidReactNativeNavigationRuntime() &&
+      androidReactNativeAppNavLocked
+    );
   }
 
   function initAndroidAppNavFocusSuppression() {
@@ -13275,6 +13338,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     clearAndroidNavButtonFocus(document.activeElement, true);
     clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
+    const androidReactNativeNavigationRuntime =
+      nativeNavigationRuntime && isAndroidReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
     const navigationRequest = createDeferredAppNavigationRequest(
@@ -13286,6 +13351,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     if (!navigationRequest) {
       return false;
+    }
+    if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
+      return true;
     }
     if (appPageLeavePreflightLocked) {
       stashDeferredAppNavigationRequest(targetItem, options);
@@ -13322,6 +13390,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           targetHref,
         });
         if (!canLeave) {
+          setAndroidReactNativeAppNavLocked(false);
           resetAppPageTransitionRuntimeState();
           return;
         }
@@ -13344,6 +13413,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           resetAppPageTransitionRuntimeState();
           appPageTransitionLocked = true;
           appPageLeavePreflightLocked = true;
+          if (androidReactNativeNavigationRuntime) {
+            setAndroidReactNativeAppNavLocked(true);
+          }
           initNativeNavigationBridge();
           const direction = getNavigationDirection(
             currentItem?.key || "",
@@ -13360,6 +13432,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             },
           );
           if (!requested) {
+            setAndroidReactNativeAppNavLocked(false);
             shouldUnlock = false;
             performAppNavigation(finalTargetHref, finalNavigationOptions);
             return;
@@ -13392,9 +13465,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         performAppNavigation(finalTargetHref, finalNavigationOptions);
       } catch (error) {
         console.error("执行页面切换失败:", error);
+        setAndroidReactNativeAppNavLocked(false);
         resetAppPageTransitionRuntimeState();
       } finally {
         if (shouldUnlock) {
+          setAndroidReactNativeAppNavLocked(false);
           resetAppPageTransitionRuntimeState();
         }
       }

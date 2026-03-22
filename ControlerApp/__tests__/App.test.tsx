@@ -20,6 +20,8 @@ jest.mock('react-native-webview', () => {
 import App, {
   buildWidgetLaunchHref,
   getComparableUrl,
+  isWebViewLayerInteractive,
+  resolveBridgeNavigationDispatchPolicy,
   resolveAppPageUri,
 } from '../App';
 
@@ -109,5 +111,109 @@ describe('resolveAppPageUri', () => {
     expect(resolveAppPageUri(null, 'index.html')).toBe(
       'file:///android_asset/controler-web/index.html',
     );
+  });
+});
+
+describe('resolveBridgeNavigationDispatchPolicy', () => {
+  it('drops stale android bridge navigation from inactive slots', () => {
+    expect(
+      resolveBridgeNavigationDispatchPolicy({
+        isAndroid: true,
+        sourceSlot: 'secondary',
+        activeSlot: 'primary',
+        transitionBusy: false,
+      }),
+    ).toEqual({
+      ignore: true,
+      queue: false,
+    });
+  });
+
+  it('does not queue android bridge navigation while a transition is busy', () => {
+    expect(
+      resolveBridgeNavigationDispatchPolicy({
+        isAndroid: true,
+        sourceSlot: 'primary',
+        activeSlot: 'primary',
+        transitionBusy: true,
+      }),
+    ).toEqual({
+      ignore: false,
+      queue: false,
+    });
+  });
+
+  it('keeps non-android transition queueing behavior', () => {
+    expect(
+      resolveBridgeNavigationDispatchPolicy({
+        isAndroid: false,
+        sourceSlot: 'primary',
+        activeSlot: 'primary',
+        transitionBusy: true,
+      }),
+    ).toEqual({
+      ignore: false,
+      queue: true,
+    });
+  });
+});
+
+describe('isWebViewLayerInteractive', () => {
+  it('keeps only the active slot interactive when there is no transition', () => {
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'primary',
+        activeSlot: 'primary',
+        transitionState: null,
+      }),
+    ).toBe(true);
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'secondary',
+        activeSlot: 'primary',
+        transitionState: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('locks all android webview layers during transitions', () => {
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'primary',
+        activeSlot: 'primary',
+        transitionState: {
+          status: 'loading',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('preserves non-android loading interactivity on the source slot', () => {
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: false,
+        slot: 'primary',
+        activeSlot: 'primary',
+        transitionState: {
+          status: 'loading',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: false,
+        slot: 'secondary',
+        activeSlot: 'primary',
+        transitionState: {
+          status: 'loading',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(false);
   });
 });

@@ -427,6 +427,7 @@ const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
 const APP_NAV_REORDER_DESKTOP_HOLD_MS = 280;
 const APP_NAV_REORDER_TOUCH_HOLD_MS = 420;
 const APP_NAV_REORDER_CANCEL_DISTANCE_PX = 10;
+const APP_NAV_REORDER_ANDROID_TOUCH_CANCEL_DISTANCE_PX = 18;
 const SETTINGS_COLLAPSIBLE_CARD_SELECTORS = [
   ".settings-card--themes",
   ".settings-card--table-scale",
@@ -673,8 +674,17 @@ function refreshNavigationToggleCardStates(grid) {
   });
 }
 
+function isAndroidNativeSettingsRuntime() {
+  return (
+    document.documentElement.classList.contains("controler-android-native") ||
+    document.body?.classList.contains("controler-android-native")
+  );
+}
+
 function bindNavigationReorderInteractions(grid) {
   const itemSelector = ".settings-nav-toggle[data-navigation-item]";
+  const androidTouchRuntime = isAndroidNativeSettingsRuntime();
+  grid.classList.toggle("settings-nav-grid--android-touch", androidTouchRuntime);
 
   const swapNavigationOrder = (sourceKey, targetKey) => {
     const nextOrder = getOrderedNavigationPages();
@@ -692,6 +702,15 @@ function bindNavigationReorderInteractions(grid) {
     renderNavigationVisibilitySettings();
   };
 
+  const resolveTargetItemFromPoint = (sourceItem, clientX, clientY) => {
+    const element = document.elementFromPoint(clientX, clientY);
+    const nextTarget =
+      element instanceof Element ? element.closest(itemSelector) : null;
+    return nextTarget instanceof HTMLElement && nextTarget !== sourceItem
+      ? nextTarget
+      : null;
+  };
+
   grid.querySelectorAll(itemSelector).forEach((item) => {
     item.addEventListener("dragstart", (event) => {
       event.preventDefault();
@@ -699,6 +718,192 @@ function bindNavigationReorderInteractions(grid) {
     item.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
+    if (androidTouchRuntime) {
+      item.addEventListener(
+        "touchstart",
+        (event) => {
+          if (!(event.currentTarget instanceof HTMLElement)) {
+            return;
+          }
+          if (event.touches.length !== 1) {
+            return;
+          }
+          if (
+            event.target instanceof Element &&
+            event.target.closest(".settings-nav-toggle-check")
+          ) {
+            return;
+          }
+
+          const sourceItem = event.currentTarget;
+          const sourceKey = String(sourceItem.dataset.navigationItem || "").trim();
+          if (!sourceKey) {
+            return;
+          }
+
+          const initialTouch = event.touches[0];
+          const touchId = initialTouch.identifier;
+          const startX = initialTouch.clientX;
+          const startY = initialTouch.clientY;
+          let active = false;
+          let targetItem = null;
+          let suppressNextClick = false;
+          let holdTimer = window.setTimeout(() => {
+            active = true;
+            suppressNextClick = true;
+            sourceItem.classList.add("is-reorder-source");
+            grid.classList.add("is-touch-reordering");
+            document.documentElement.classList.add(
+              "controler-android-touch-reordering",
+            );
+            document.body?.classList.add("controler-android-touch-reordering");
+            window.navigator?.vibrate?.(12);
+            updateTarget(startX, startY);
+          }, APP_NAV_REORDER_TOUCH_HOLD_MS);
+
+          const clearHoldTimer = () => {
+            if (holdTimer) {
+              window.clearTimeout(holdTimer);
+              holdTimer = null;
+            }
+          };
+
+          const resolveTouchByIdentifier = (touchList) => {
+            if (!touchList) {
+              return null;
+            }
+            for (let index = 0; index < touchList.length; index += 1) {
+              const touch = touchList[index];
+              if (touch.identifier === touchId) {
+                return touch;
+              }
+            }
+            return null;
+          };
+
+          const updateTarget = (clientX, clientY) => {
+            const resolvedTarget = resolveTargetItemFromPoint(
+              sourceItem,
+              clientX,
+              clientY,
+            );
+            if (targetItem === resolvedTarget) {
+              return;
+            }
+            targetItem?.classList.remove("is-reorder-target");
+            targetItem = resolvedTarget;
+            targetItem?.classList.add("is-reorder-target");
+          };
+
+          const handleClickCapture = (clickEvent) => {
+            if (!suppressNextClick) {
+              return;
+            }
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            suppressNextClick = false;
+          };
+
+          sourceItem.addEventListener("click", handleClickCapture, true);
+
+          const cleanup = () => {
+            clearHoldTimer();
+            targetItem?.classList.remove("is-reorder-target");
+            sourceItem.classList.remove("is-reorder-source");
+            grid.classList.remove("is-touch-reordering");
+            document.documentElement.classList.remove(
+              "controler-android-touch-reordering",
+            );
+            document.body?.classList.remove("controler-android-touch-reordering");
+            window.removeEventListener("touchmove", handleTouchMove, {
+              capture: true,
+            });
+            window.removeEventListener("touchend", handleTouchEnd, {
+              capture: true,
+            });
+            window.removeEventListener("touchcancel", handleTouchCancel, {
+              capture: true,
+            });
+            const releaseClickCapture = () => {
+              sourceItem.removeEventListener("click", handleClickCapture, true);
+            };
+            if (suppressNextClick) {
+              window.setTimeout(releaseClickCapture, 0);
+              return;
+            }
+            releaseClickCapture();
+          };
+
+          const handleTouchMove = (moveEvent) => {
+            const activeTouch = resolveTouchByIdentifier(moveEvent.touches);
+            if (!activeTouch) {
+              return;
+            }
+
+            if (!active) {
+              if (
+                Math.abs(activeTouch.clientX - startX) >
+                  APP_NAV_REORDER_ANDROID_TOUCH_CANCEL_DISTANCE_PX ||
+                Math.abs(activeTouch.clientY - startY) >
+                  APP_NAV_REORDER_ANDROID_TOUCH_CANCEL_DISTANCE_PX
+              ) {
+                cleanup();
+              }
+              return;
+            }
+
+            updateTarget(activeTouch.clientX, activeTouch.clientY);
+            if (moveEvent.cancelable) {
+              moveEvent.preventDefault();
+            }
+          };
+
+          const handleTouchEnd = (endEvent) => {
+            const endedTouch = resolveTouchByIdentifier(endEvent.changedTouches);
+            if (!endedTouch) {
+              return;
+            }
+            if (active) {
+              updateTarget(endedTouch.clientX, endedTouch.clientY);
+              if (endEvent.cancelable) {
+                endEvent.preventDefault();
+              }
+            }
+            const resolvedTargetItem = targetItem;
+            const nextTargetKey = String(
+              resolvedTargetItem?.dataset.navigationItem || "",
+            );
+            cleanup();
+            if (active && nextTargetKey && nextTargetKey !== sourceKey) {
+              swapNavigationOrder(sourceKey, nextTargetKey);
+            }
+          };
+
+          const handleTouchCancel = (cancelEvent) => {
+            if (!resolveTouchByIdentifier(cancelEvent.changedTouches)) {
+              return;
+            }
+            cleanup();
+          };
+
+          window.addEventListener("touchmove", handleTouchMove, {
+            capture: true,
+            passive: false,
+          });
+          window.addEventListener("touchend", handleTouchEnd, {
+            capture: true,
+            passive: false,
+          });
+          window.addEventListener("touchcancel", handleTouchCancel, {
+            capture: true,
+          });
+        },
+        {
+          passive: true,
+        },
+      );
+      return;
+    }
     item.addEventListener("pointerdown", (event) => {
       if (!(event.currentTarget instanceof HTMLElement)) {
         return;
@@ -755,16 +960,11 @@ function bindNavigationReorderInteractions(grid) {
       };
 
       const updateTarget = (clientX, clientY) => {
-        const element = document.elementFromPoint(clientX, clientY);
-        const nextTarget =
-          element instanceof Element
-            ? element.closest(itemSelector)
-            : null;
-        const resolvedTarget =
-          nextTarget instanceof HTMLElement && nextTarget !== sourceItem
-            ? nextTarget
-            : null;
-
+        const resolvedTarget = resolveTargetItemFromPoint(
+          sourceItem,
+          clientX,
+          clientY,
+        );
         if (targetItem === resolvedTarget) {
           return;
         }

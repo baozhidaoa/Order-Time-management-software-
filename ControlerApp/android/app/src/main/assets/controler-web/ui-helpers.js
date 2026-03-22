@@ -353,6 +353,7 @@
   let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
+  let androidReactNativeAppNavLocked = false;
   const activeAndroidPressTargets = new Map();
   const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
@@ -628,6 +629,12 @@
 
     lastShellVisibilityStateSignature = nextSignature;
     Object.assign(shellVisibilityState, nextState);
+    if (
+      isAndroidReactNativeNavigationRuntime() &&
+      (!nextState.active || !pendingNativeNavigationRequest)
+    ) {
+      setAndroidReactNativeAppNavLocked(false);
+    }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
     markPagePerfStage(
       nextState.active ? "hidden-page-resumed" : "hidden-page-paused",
@@ -742,6 +749,9 @@
       }
 
       resetAppPageTransitionRuntimeState({ clearStoredState: false });
+      if (detail.accepted === false) {
+        setAndroidReactNativeAppNavLocked(false);
+      }
 
       if (detail.accepted === false && detail.busy === true) {
         const retryTargetItem =
@@ -1135,6 +1145,59 @@
       return;
     }
     window.setTimeout(run, 0);
+  }
+
+  function isAndroidReactNativeNavigationRuntime() {
+    return getNativeHostPlatform() === "android";
+  }
+
+  function clearAndroidAppNavigationTransientState(root = document) {
+    if (!root?.querySelectorAll) {
+      return;
+    }
+
+    activeAndroidPressTargets.forEach((target, pointerId) => {
+      if (target instanceof HTMLElement && target.closest(".app-nav")) {
+        activeAndroidPressTargets.delete(pointerId);
+      }
+    });
+
+    root.querySelectorAll(".app-nav [data-nav-page]").forEach((button) => {
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      clearAndroidPressAnimation(button);
+      clearAndroidPressReleaseTimer(button);
+      button.classList.remove(
+        ANDROID_PRESS_ACTIVE_CLASS,
+        ANDROID_PRESS_ANIMATE_CLASS,
+      );
+      clearAndroidNavButtonFocus(button, true);
+    });
+  }
+
+  function setAndroidReactNativeAppNavLocked(locked) {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      return;
+    }
+
+    androidReactNativeAppNavLocked = locked === true;
+    document.documentElement?.classList.toggle(
+      "controler-android-nav-locked",
+      androidReactNativeAppNavLocked,
+    );
+    document.body?.classList.toggle(
+      "controler-android-nav-locked",
+      androidReactNativeAppNavLocked,
+    );
+    clearAndroidAppNavigationTransientState(document);
+  }
+
+  function isAndroidReactNativeAppNavLocked() {
+    return (
+      isAndroidReactNativeNavigationRuntime() &&
+      androidReactNativeAppNavLocked
+    );
   }
 
   function initAndroidAppNavFocusSuppression() {
@@ -1645,6 +1708,8 @@
     clearAndroidNavButtonFocus(document.activeElement, true);
     clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
+    const androidReactNativeNavigationRuntime =
+      nativeNavigationRuntime && isAndroidReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
     const navigationRequest = createDeferredAppNavigationRequest(
@@ -1656,6 +1721,9 @@
     }
     if (!navigationRequest) {
       return false;
+    }
+    if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
+      return true;
     }
     if (appPageLeavePreflightLocked) {
       stashDeferredAppNavigationRequest(targetItem, options);
@@ -1692,6 +1760,7 @@
           targetHref,
         });
         if (!canLeave) {
+          setAndroidReactNativeAppNavLocked(false);
           resetAppPageTransitionRuntimeState();
           return;
         }
@@ -1714,6 +1783,9 @@
           resetAppPageTransitionRuntimeState();
           appPageTransitionLocked = true;
           appPageLeavePreflightLocked = true;
+          if (androidReactNativeNavigationRuntime) {
+            setAndroidReactNativeAppNavLocked(true);
+          }
           initNativeNavigationBridge();
           const direction = getNavigationDirection(
             currentItem?.key || "",
@@ -1730,6 +1802,7 @@
             },
           );
           if (!requested) {
+            setAndroidReactNativeAppNavLocked(false);
             shouldUnlock = false;
             performAppNavigation(finalTargetHref, finalNavigationOptions);
             return;
@@ -1762,9 +1835,11 @@
         performAppNavigation(finalTargetHref, finalNavigationOptions);
       } catch (error) {
         console.error("执行页面切换失败:", error);
+        setAndroidReactNativeAppNavLocked(false);
         resetAppPageTransitionRuntimeState();
       } finally {
         if (shouldUnlock) {
+          setAndroidReactNativeAppNavLocked(false);
           resetAppPageTransitionRuntimeState();
         }
       }

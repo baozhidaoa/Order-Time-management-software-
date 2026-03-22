@@ -541,6 +541,10 @@ public final class ControlerWidgetRenderer {
                 affectedKinds.add(ControlerWidgetKinds.TODOS);
                 continue;
             }
+            if ("todoSortPreference".equals(normalized)) {
+                affectedKinds.add(ControlerWidgetKinds.TODOS);
+                continue;
+            }
             if (
                 "checkinItems".equals(normalized)
                     || "dailyCheckins".equals(normalized)
@@ -1079,8 +1083,9 @@ public final class ControlerWidgetRenderer {
         views.setTextColor(R.id.widget_line1, palette.bodyColor);
         views.setTextColor(R.id.widget_line2, palette.bodyColor);
         views.setTextColor(R.id.widget_line3, palette.bodyColor);
-        views.setTextColor(R.id.widget_stat_primary, palette.bodyColor);
-        views.setTextColor(R.id.widget_stat_secondary, palette.bodyColor);
+        int statTextColor = resolveStatTextColor(palette);
+        views.setTextColor(R.id.widget_stat_primary, statTextColor);
+        views.setTextColor(R.id.widget_stat_secondary, statTextColor);
         views.setTextColor(R.id.widget_action, palette.actionTextColor);
         views.setTextColor(R.id.widget_action_only_button, palette.actionTextColor);
         for (int index = 0; index < itemTitleIds.length; index++) {
@@ -1535,6 +1540,28 @@ public final class ControlerWidgetRenderer {
         return relativeLuminance(backgroundColor) >= 0.42d
             ? Color.parseColor("#17212B")
             : Color.parseColor("#F7FAFF");
+    }
+
+    private static int resolveStatSurfaceColor(ThemePalette palette) {
+        if (palette == null) {
+            return Color.parseColor("#2AFFFFFF");
+        }
+        return blendColors(
+            palette.surfaceColor,
+            palette.contrastReferenceColor,
+            palette.surfaceIsLight ? 0.08f : 0.12f
+        );
+    }
+
+    private static int resolveStatTextColor(ThemePalette palette) {
+        if (palette == null) {
+            return Color.parseColor("#F7FAFF");
+        }
+        return resolveReadableTextColor(
+            palette.bodyColor,
+            resolveStatSurfaceColor(palette),
+            4.1d
+        );
     }
 
     private static boolean isLightColor(int color) {
@@ -2982,7 +3009,7 @@ public final class ControlerWidgetRenderer {
                 appendRecordSignature(signature, state.records);
                 break;
             case ControlerWidgetKinds.TODOS:
-                appendTodoSignature(signature, state.todos);
+                appendTodoSignature(signature, state.todos, state.todoSortPreference);
                 break;
             case ControlerWidgetKinds.CHECKINS:
                 appendCheckinItemSignature(signature, state.checkinItems);
@@ -3294,12 +3321,27 @@ public final class ControlerWidgetRenderer {
         int appWidgetId
     ) {
         String today = todayText();
+        Calendar todayCalendar = calendarFromDateText(today);
+        final String todoSortPreference = normalizeTodoSortPreference(
+            state == null ? "" : state.todoSortPreference
+        );
         List<ControlerWidgetDataStore.TodoInfo> visibleTodos = new ArrayList<>();
         int todayCount = 0;
         int pendingCount = 0;
+        int dueTodayCount = 0;
         for (ControlerWidgetDataStore.TodoInfo todo : state.todos) {
-            boolean scheduledToday = todoScheduledOn(todo, calendarFromDateText(today), today);
+            boolean scheduledToday = todoScheduledOn(todo, todayCalendar, today);
             boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
+            if (
+                todo != null
+                    && TextUtils.equals(
+                        TextUtils.isEmpty(todo.repeatType) ? "none" : todo.repeatType,
+                        "none"
+                    )
+                    && TextUtils.equals(today, safeText(todo.dueDate))
+            ) {
+                dueTodayCount++;
+            }
             if (scheduledToday) {
                 todayCount++;
                 visibleTodos.add(todo);
@@ -3319,36 +3361,14 @@ public final class ControlerWidgetRenderer {
                     ControlerWidgetDataStore.TodoInfo left,
                     ControlerWidgetDataStore.TodoInfo right
                 ) {
-                    boolean leftToday = todoScheduledOn(left, calendarFromDateText(today), today);
-                    boolean rightToday = todoScheduledOn(right, calendarFromDateText(today), today);
-                    boolean leftCompleted = resolveTodoCompletedForWidget(left, appWidgetId);
-                    boolean rightCompleted = resolveTodoCompletedForWidget(right, appWidgetId);
-                    if (leftToday != rightToday) {
-                        return leftToday ? -1 : 1;
-                    }
-                    if (leftCompleted != rightCompleted) {
-                        return leftCompleted ? 1 : -1;
-                    }
-                    boolean leftOverdue = isWidgetTodoOverdue(left, today, leftCompleted);
-                    boolean rightOverdue = isWidgetTodoOverdue(right, today, rightCompleted);
-                    if (leftOverdue != rightOverdue) {
-                        return leftOverdue ? -1 : 1;
-                    }
-                    int dateCompare = compareWidgetDateText(
-                        resolveWidgetTodoSortDate(left, today),
-                        resolveWidgetTodoSortDate(right, today)
-                    );
-                    if (dateCompare != 0) {
-                        return dateCompare;
-                    }
-                    return safeText(left.title).compareTo(safeText(right.title));
+                    return compareWidgetTodosByPreference(left, right, todoSortPreference);
                 }
             }
         );
         content.subtitle = todayCount > 0 ? "今日待办" : "待处理待办";
         content.actionLabel = "打开待办";
-        content.statPrimary = "今日 " + todayCount + " 项";
-        content.statSecondary = "待处理 " + pendingCount + " 项";
+        content.statPrimary = "待办 " + todayCount + " 项";
+        content.statSecondary = "未完 " + pendingCount + " · 今到期 " + dueTodayCount;
         if (visibleTodos.isEmpty()) {
             content.lines.add("当前没有待处理的待办");
             content.lines.add("打开应用创建新的待办事项");
@@ -3418,8 +3438,8 @@ public final class ControlerWidgetRenderer {
             }
         );
         content.subtitle = "今日打卡";
-        content.statPrimary = "完成 " + done + "/" + total;
-        content.statSecondary = done >= total && total > 0 ? "今日已清空" : "仍有待打卡";
+        content.statPrimary = "今日 " + total + " 项";
+        content.statSecondary = "未打卡 " + Math.max(0, total - done) + " 项";
         content.actionLabel = "打开打卡";
         if (scheduled.isEmpty()) {
             content.lines.add("今天暂无打卡任务");
@@ -3729,8 +3749,6 @@ public final class ControlerWidgetRenderer {
     ) {
         Calendar now = Calendar.getInstance();
         int currentYear = now.get(Calendar.YEAR);
-        int yearMinutes = 0;
-        int activeMonths = 0;
         int maxMonthMinutes = 0;
         int maxMonth = -1;
         int[] monthBuckets = new int[12];
@@ -3743,12 +3761,8 @@ public final class ControlerWidgetRenderer {
             int month = calendar.get(Calendar.MONTH);
             int minutes = Math.max(0, record.minutes);
             monthBuckets[month] += minutes;
-            yearMinutes += minutes;
         }
         for (int month = 0; month < monthBuckets.length; month++) {
-            if (monthBuckets[month] > 0) {
-                activeMonths++;
-            }
             if (monthBuckets[month] > maxMonthMinutes) {
                 maxMonthMinutes = monthBuckets[month];
                 maxMonth = month;
@@ -3768,9 +3782,8 @@ public final class ControlerWidgetRenderer {
         int annualGoalCount = state.annualGoals == null ? 0 : state.annualGoals.size();
 
         content.subtitle = "年度视图";
-        content.statPrimary = formatMinutes(yearMinutes);
+        content.statPrimary = "";
         content.statSecondary = "年度目标 " + annualGoalCount + " 个";
-        content.lines.add("全年投入 " + formatMinutes(yearMinutes));
         content.lines.add("本月目标 " + currentMonthGoalCount + " 个");
         content.lines.add(
             maxMonth >= 0
@@ -4284,14 +4297,31 @@ public final class ControlerWidgetRenderer {
                 : currentMonthGoals;
 
         float widthDp = resolvePreviewWidthDp(metrics, 156f, 164f);
-        Bitmap bitmap = createPreviewBitmap(context, widthDp, 90f);
+        boolean stacked = metrics != null && metrics.minWidthDp < 220;
+        int annualGoalCount = Math.max(1, annualGoals.size());
+        int monthGoalCount = Math.max(1, monthGoals.size());
+        float cardLineHeightDp = 13.5f;
+        float baseHeightDp =
+            stacked
+                ? 42f + (annualGoalCount + monthGoalCount) * cardLineHeightDp
+                : 34f + Math.max(annualGoalCount, monthGoalCount) * cardLineHeightDp;
+        float minPreviewHeightDp = stacked ? 102f : 96f;
+        float maxPreviewHeightDp =
+            metrics != null && metrics.minHeightDp > 0
+                ? Math.max(minPreviewHeightDp, metrics.minHeightDp * 0.64f)
+                : 156f;
+        float previewHeightDp = clampFloat(
+            baseHeightDp,
+            minPreviewHeightDp,
+            maxPreviewHeightDp
+        );
+        Bitmap bitmap = createPreviewBitmap(context, widthDp, previewHeightDp);
         Canvas canvas = new Canvas(bitmap);
         float width = bitmap.getWidth();
         float height = bitmap.getHeight();
         float padding = dp(context, 6);
         float gap = dp(context, 6);
-        boolean stacked = metrics != null && metrics.minWidthDp < 220;
-        boolean showGoalList = metrics == null || metrics.minWidthDp >= 210;
+        boolean showGoalList = true;
 
         RectF annualRect;
         RectF monthRect;
@@ -4836,28 +4866,28 @@ public final class ControlerWidgetRenderer {
             borderWidth
         );
         Paint titlePaint = createPaint(palette.titleColor, Paint.Style.FILL, 0f);
-        titlePaint.setTextSize(sp(context, rect.height() < dp(context, 36f) ? 6.8f : 7.2f));
+        titlePaint.setTextSize(sp(context, rect.height() < dp(context, 48f) ? 7.4f : 8.1f));
         Paint bodyPaint = createPaint(palette.bodyColor, Paint.Style.FILL, 0f);
-        bodyPaint.setTextSize(sp(context, rect.height() < dp(context, 36f) ? 6.3f : 6.7f));
+        bodyPaint.setTextSize(sp(context, rect.height() < dp(context, 48f) ? 7.0f : 7.6f));
         Paint chipPaint = createPaint(accentColor, Paint.Style.FILL, 0f);
         Paint chipTextPaint = createPaint(
             resolveReadableTextColor(palette.accentTextColor, accentColor, 4.1d),
             Paint.Style.FILL,
             0f
         );
-        chipTextPaint.setTextSize(sp(context, 6.1f));
+        chipTextPaint.setTextSize(sp(context, 6.6f));
 
         canvas.drawRoundRect(rect, radius, radius, fillPaint);
         canvas.drawRoundRect(rect, radius, radius, borderPaint);
 
-        float padding = dp(context, 6f);
+        float padding = dp(context, 8f);
         String countText = Math.max(0, goals == null ? 0 : goals.size()) + "项";
-        float chipWidth = Math.max(dp(context, 20f), chipTextPaint.measureText(countText) + dp(context, 10f));
+        float chipWidth = Math.max(dp(context, 26f), chipTextPaint.measureText(countText) + dp(context, 12f));
         RectF chipRect = new RectF(
             rect.right - padding - chipWidth,
             rect.top + padding,
             rect.right - padding,
-            rect.top + padding + dp(context, 12f)
+            rect.top + padding + dp(context, 14f)
         );
         canvas.drawRoundRect(chipRect, dp(context, 6f), dp(context, 6f), chipPaint);
         drawTextInRect(canvas, chipRect, countText, chipTextPaint, dp(context, 3f));
@@ -4866,7 +4896,7 @@ public final class ControlerWidgetRenderer {
             rect.left + padding,
             rect.top + padding,
             chipRect.left - dp(context, 4f),
-            rect.top + padding + dp(context, 12f)
+            rect.top + padding + dp(context, 15f)
         );
         drawTextInRect(canvas, titleRect, title, titlePaint, 0f);
 
@@ -4876,8 +4906,7 @@ public final class ControlerWidgetRenderer {
 
         List<ControlerWidgetDataStore.GoalInfo> safeGoals =
             goals == null ? Collections.<ControlerWidgetDataStore.GoalInfo>emptyList() : goals;
-        float lineTop = titleRect.bottom + dp(context, 4f);
-        int maxLines = rect.height() < dp(context, 42f) ? 1 : 2;
+        float lineTop = titleRect.bottom + dp(context, 5f);
         if (safeGoals.isEmpty()) {
             RectF lineRect = new RectF(
                 rect.left + padding,
@@ -4889,7 +4918,11 @@ public final class ControlerWidgetRenderer {
             return;
         }
 
-        float lineHeight = Math.max(dp(context, 10f), sp(context, 6.7f) + dp(context, 2f));
+        float lineHeight = Math.max(dp(context, 12f), bodyPaint.getTextSize() + dp(context, 3f));
+        int maxLines = Math.max(
+            1,
+            (int) Math.floor(Math.max(0f, (rect.bottom - padding) - lineTop) / lineHeight)
+        );
         for (int index = 0; index < Math.min(maxLines, safeGoals.size()); index++) {
             ControlerWidgetDataStore.GoalInfo goal = safeGoals.get(index);
             String lineText = "• " + firstNonEmpty(goal == null ? "" : goal.title, "未命名目标");
@@ -5126,11 +5159,13 @@ public final class ControlerWidgetRenderer {
 
     private static void appendTodoSignature(
         SignatureAccumulator signature,
-        List<ControlerWidgetDataStore.TodoInfo> todos
+        List<ControlerWidgetDataStore.TodoInfo> todos,
+        String todoSortPreference
     ) {
         if (signature == null) {
             return;
         }
+        signature.addString(normalizeTodoSortPreference(todoSortPreference));
         if (todos == null) {
             signature.addInt(-1);
             return;
@@ -5145,6 +5180,8 @@ public final class ControlerWidgetRenderer {
             signature.addString(todo == null ? "" : todo.repeatType);
             signature.addBoolean(todo != null && todo.completed);
             signature.addString(todo == null ? "" : todo.color);
+            signature.addString(todo == null ? "medium" : safeText(todo.priority));
+            signature.addString(todo == null ? "" : safeText(todo.createdAt));
             appendIntegerListSignature(signature, todo == null ? null : todo.repeatWeekdays);
         }
     }
@@ -5399,6 +5436,9 @@ public final class ControlerWidgetRenderer {
             return false;
         }
         String repeatType = TextUtils.isEmpty(todo.repeatType) ? "none" : todo.repeatType;
+        if ("none".equals(repeatType)) {
+            return !TextUtils.isEmpty(todo.dueDate) && dayText.equals(todo.dueDate);
+        }
         if (!inDateRange(dayText, todo.startDate, todo.endDate)) {
             return false;
         }
@@ -5410,11 +5450,7 @@ public final class ControlerWidgetRenderer {
         if ("daily".equals(repeatType)) {
             return true;
         }
-
-        if (!TextUtils.isEmpty(todo.dueDate)) {
-            return dayText.compareTo(todo.dueDate) <= 0;
-        }
-        return true;
+        return false;
     }
 
     private static boolean checkinScheduledOn(
@@ -5783,6 +5819,66 @@ public final class ControlerWidgetRenderer {
             return todo.startDate;
         }
         return "";
+    }
+
+    private static String normalizeTodoSortPreference(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (
+            "priority".equals(normalized)
+                || "createdAt".equals(normalized)
+                || "title".equals(normalized)
+        ) {
+            return normalized;
+        }
+        return "dueDate";
+    }
+
+    private static int getTodoPriorityOrder(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if ("high".equals(normalized)) {
+            return 0;
+        }
+        if ("low".equals(normalized)) {
+            return 2;
+        }
+        return 1;
+    }
+
+    private static int compareWidgetTodosByPreference(
+        ControlerWidgetDataStore.TodoInfo left,
+        ControlerWidgetDataStore.TodoInfo right,
+        String sortPreference
+    ) {
+        String normalizedSort = normalizeTodoSortPreference(sortPreference);
+        if ("priority".equals(normalizedSort)) {
+            return Integer.compare(
+                getTodoPriorityOrder(left == null ? "" : left.priority),
+                getTodoPriorityOrder(right == null ? "" : right.priority)
+            );
+        }
+        if ("createdAt".equals(normalizedSort)) {
+            return Long.compare(
+                parseTimestampMillis(right == null ? "" : right.createdAt),
+                parseTimestampMillis(left == null ? "" : left.createdAt)
+            );
+        }
+        if ("title".equals(normalizedSort)) {
+            return safeText(left == null ? "" : left.title)
+                .compareTo(safeText(right == null ? "" : right.title));
+        }
+
+        String leftDueDate = left == null ? "" : safeText(left.dueDate);
+        String rightDueDate = right == null ? "" : safeText(right.dueDate);
+        if (TextUtils.isEmpty(leftDueDate) && TextUtils.isEmpty(rightDueDate)) {
+            return 0;
+        }
+        if (TextUtils.isEmpty(leftDueDate)) {
+            return 1;
+        }
+        if (TextUtils.isEmpty(rightDueDate)) {
+            return -1;
+        }
+        return leftDueDate.compareTo(rightDueDate);
     }
 
     private static int compareWidgetDateText(String left, String right) {

@@ -178,9 +178,11 @@ function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
 }
 
-function getOfflineAssetFallbackSource(sourcePath) {
+function getRuntimeAssetFallbackSource(sourcePath) {
+  const normalizedSourceDir = path.normalize(path.dirname(sourcePath));
   if (
-    path.normalize(path.dirname(sourcePath)) !== path.normalize(offlineAssetsDir)
+    normalizedSourceDir !== path.normalize(offlineAssetsDir) &&
+    normalizedSourceDir !== path.normalize(embeddedAssetsDir)
   ) {
     return null;
   }
@@ -267,7 +269,7 @@ async function copyDirectoryTree(sourceDir, targetDir) {
         throw error;
       }
       if (error?.code === "EPERM") {
-        const fallbackSourcePath = getOfflineAssetFallbackSource(sourcePath);
+        const fallbackSourcePath = getRuntimeAssetFallbackSource(sourcePath);
         if (fallbackSourcePath) {
           sourcePathForCopy = fallbackSourcePath;
           sourceStats = await fs.stat(sourcePathForCopy);
@@ -293,7 +295,7 @@ async function copyDirectoryTree(sourceDir, targetDir) {
       await fs.copy(sourcePathForCopy, targetPath, { overwrite: true });
     } catch (error) {
       if (error?.code === "EPERM") {
-        const fallbackSourcePath = getOfflineAssetFallbackSource(sourcePath);
+        const fallbackSourcePath = getRuntimeAssetFallbackSource(sourcePath);
         if (fallbackSourcePath) {
           await fs.copy(fallbackSourcePath, targetPath, { overwrite: true });
           continue;

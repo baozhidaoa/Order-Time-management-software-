@@ -106,6 +106,8 @@ public final class ControlerWidgetDataStore {
         public List<Integer> repeatWeekdays = new ArrayList<>();
         public boolean completed = false;
         public String color = "#ed8936";
+        public String priority = "medium";
+        public String createdAt = "";
     }
 
     public static final class CheckinItemInfo {
@@ -173,6 +175,7 @@ public final class ControlerWidgetDataStore {
         public final Map<Integer, List<GoalInfo>> goalsByMonth = new HashMap<>();
         public final List<GoalInfo> annualGoals = new ArrayList<>();
         public final TimerSessionInfo timerSession = new TimerSessionInfo();
+        public String todoSortPreference = "dueDate";
 
         public Map<String, ProjectInfo> projectMap() {
             Map<String, ProjectInfo> map = new HashMap<>();
@@ -250,6 +253,8 @@ public final class ControlerWidgetDataStore {
             parseDiaryEntries(root.optJSONArray("diaryEntries"), state);
             parseYearGoals(root.optJSONObject("yearlyGoals"), state);
             parseTimerSession(root.optJSONObject("timerSessionState"), state);
+            state.todoSortPreference =
+                normalizeTodoSortPreference(root.optString("todoSortPreference", "dueDate"));
         } catch (Exception error) {
             error.printStackTrace();
         }
@@ -5574,9 +5579,23 @@ public final class ControlerWidgetDataStore {
             todo.repeatType = item.optString("repeatType", "none");
             todo.completed = item.optBoolean("completed", false);
             todo.color = item.optString("color", "#ed8936");
+            todo.priority = item.optString("priority", "medium");
+            todo.createdAt = item.optString("createdAt", "");
             todo.repeatWeekdays = parseIntArray(item.optJSONArray("repeatWeekdays"));
             state.todos.add(todo);
         }
+    }
+
+    private static String normalizeTodoSortPreference(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (
+            "priority".equals(normalized)
+                || "createdAt".equals(normalized)
+                || "title".equals(normalized)
+        ) {
+            return normalized;
+        }
+        return "dueDate";
     }
 
     private static void parseCheckinItems(JSONArray array, State state) {

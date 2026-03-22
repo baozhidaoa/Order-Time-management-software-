@@ -318,6 +318,7 @@
         border-radius: 10px;
         background: var(--widget-subtle-surface-strong, rgba(255, 255, 255, 0.1));
         border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.14));
+        color: var(--widget-control-text, var(--text-color, #f5fff8));
         font-size: 11px;
         font-weight: 700;
         line-height: 1.2;
@@ -532,23 +533,46 @@
       .widget-preview--goals {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: 12px;
+        flex: 1 1 auto;
+        min-height: 0;
+        align-items: stretch;
       }
 
       .widget-preview--goals.is-stacked {
         grid-template-columns: 1fr;
       }
 
+      .widget-preview--goals.is-spacious {
+        gap: 16px;
+      }
+
+      .widget-card[data-widget-kind="year-view"] {
+        gap: 12px;
+      }
+
+      .widget-card[data-widget-kind="year-view"] .widget-preview--goals {
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
       .widget-goal-card {
-        gap: 10px;
-        padding: 10px 12px;
-        border-radius: 12px;
+        display: flex;
+        align-items: stretch;
+        gap: 14px;
+        height: 100%;
+        padding: 14px 16px;
+        border-radius: 16px;
         background: var(
           --widget-goal-month-bg,
           color-mix(in srgb, rgba(255, 255, 255, 0.1) 78%, transparent)
         );
         border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.16));
         min-height: 0;
+      }
+
+      .widget-preview--goals.is-spacious .widget-goal-card {
+        padding: 16px 18px;
       }
 
       .widget-goal-card.is-annual {
@@ -571,7 +595,7 @@
       }
 
       .widget-goal-accent {
-        width: 4px;
+        width: 6px;
         border-radius: 999px;
         flex: 0 0 auto;
         box-shadow: 0 0 0 1px var(--widget-color-chip-outline, rgba(255, 255, 255, 0.18));
@@ -582,27 +606,49 @@
         flex: 1;
         display: flex;
         flex-direction: column;
+        gap: 10px;
+        min-height: 0;
       }
 
       .widget-goal-card-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 10px;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 4px;
+        scrollbar-gutter: stable;
       }
 
       .widget-goal-card-item {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
-        gap: 8px;
-        padding: 6px 10px;
-        border-radius: 999px;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 14px;
         background: var(
           --widget-subtle-surface,
           color-mix(in srgb, var(--bg-secondary, rgba(255, 255, 255, 0.1)) 88%, transparent)
         );
         border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.1));
         color: var(--text-color, #f5fff8);
+      }
+
+      .widget-goal-card .widget-item-top {
+        align-items: center;
+        gap: 10px;
+      }
+
+      .widget-goal-card .widget-item-title {
+        font-size: 13px;
+        line-height: 1.2;
+      }
+
+      .widget-goal-card .widget-item-badge {
+        padding: 4px 8px;
+        font-size: 10px;
       }
 
       .widget-goal-card-item-text {
@@ -613,29 +659,33 @@
       .widget-goal-card-item-title {
         display: block;
         min-width: 0;
-        font-size: 10px;
-        line-height: 1.25;
+        font-size: 13px;
+        line-height: 1.35;
         color: var(--text-color, #f5fff8);
-        white-space: nowrap;
+        white-space: normal;
         overflow: hidden;
-        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
       }
 
       .widget-goal-card-item-description {
-        margin-top: 2px;
-        font-size: 9px;
-        line-height: 1.25;
+        margin-top: 4px;
+        font-size: 11px;
+        line-height: 1.35;
         color: var(--muted-text-color, rgba(245, 255, 248, 0.72));
-        white-space: nowrap;
+        white-space: normal;
         overflow: hidden;
-        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
       }
 
       .widget-goal-card-item-priority {
         flex: 0 0 auto;
-        padding: 3px 7px;
+        padding: 4px 8px;
         border-radius: 999px;
-        font-size: 9px;
+        font-size: 10px;
         line-height: 1.2;
         color: var(--widget-accent-action-text, #fff);
       }

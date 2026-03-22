@@ -5,7 +5,8 @@ let checkinItems = []; // 存储打卡项目对象
 let dailyCheckins = []; // 存储每日打卡记录
 let checkins = []; // 待办事项打卡记录
 let currentFilter = "all"; // 当前筛选器
-let currentSort = "dueDate"; // 当前排序方式
+const TODO_SORT_PREFERENCE_KEY = "todoSortPreference";
+let currentSort = readPersistedTodoSortPreference(); // 当前排序方式
 let currentView = "todos"; // 当前视图: "todos" 或 "checkins"
 let todoLayoutMode = "list"; // "list" | "quadrant"
 const uiTools = window.ControlerUI || null;
@@ -79,6 +80,67 @@ function getTodoNormalizedChangedSections(changedSections = []) {
         .filter(Boolean),
     ),
   );
+}
+
+function normalizeTodoSortPreference(value) {
+  switch (String(value || "").trim()) {
+    case "priority":
+    case "createdAt":
+    case "title":
+      return String(value || "").trim();
+    default:
+      return "dueDate";
+  }
+}
+
+function readPersistedTodoSortPreference() {
+  try {
+    const managedSnapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    const managedValue =
+      managedSnapshot && typeof managedSnapshot === "object"
+        ? managedSnapshot.todoSortPreference
+        : "";
+    if (typeof managedValue === "string" && managedValue.trim()) {
+      return normalizeTodoSortPreference(managedValue);
+    }
+  } catch (error) {
+    console.error("读取待办排序设置失败，回退本地设置:", error);
+  }
+
+  try {
+    const localValue = localStorage.getItem(TODO_SORT_PREFERENCE_KEY) || "";
+    if (localValue.trim()) {
+      return normalizeTodoSortPreference(localValue);
+    }
+  } catch (error) {
+    console.error("读取待办本地排序设置失败:", error);
+  }
+
+  return "dueDate";
+}
+
+function persistTodoSortPreference(nextSort, options = {}) {
+  const normalizedSort = normalizeTodoSortPreference(nextSort);
+  currentSort = normalizedSort;
+  try {
+    localStorage.setItem(TODO_SORT_PREFERENCE_KEY, normalizedSort);
+  } catch (error) {
+    console.error("保存待办本地排序设置失败:", error);
+  }
+  if (options.persistCore === true) {
+    void queueTodoCoreSave(
+      {
+        todoSortPreference: normalizedSort,
+      },
+      {
+        reason: "todo-sort-preference-save",
+      },
+    );
+  }
+  return normalizedSort;
 }
 
 function shouldRefreshTodoForExternalChange(detail = {}) {
@@ -733,6 +795,17 @@ function persistTodoLocalMirrorCore(source = {}) {
       section === "checkins"
     ) {
       persistTodoLocalSection(section, cloneTodoValue(source[section] || []));
+      return;
+    }
+    if (section === TODO_SORT_PREFERENCE_KEY) {
+      try {
+        localStorage.setItem(
+          TODO_SORT_PREFERENCE_KEY,
+          normalizeTodoSortPreference(source[section]),
+        );
+      } catch (error) {
+        console.error("同步待办排序本地镜像失败:", error);
+      }
     }
   });
 }
@@ -2744,13 +2817,78 @@ function getTodoListCardMaxWidth(listScale, baseWidth = 560) {
   return getCompactTodoCardWidth(listScale, baseWidth);
 }
 
-function applyCenteredEmptyStateLayout(emptyCard, contentWidth) {
+function shouldUseTodoDesktopGridLayout(container) {
+  if (isCompactMobileLayout() || !(container instanceof HTMLElement)) {
+    return false;
+  }
+  const measuredWidth = Math.max(
+    container.clientWidth || 0,
+    Math.round(container.getBoundingClientRect?.().width || 0),
+  );
+  return measuredWidth > 0;
+}
+
+function applyTodoCollectionContainerLayout(container, densityScale) {
+  if (!(container instanceof HTMLElement)) {
+    return { useTwoColumnGrid: false };
+  }
+
+  const useTwoColumnGrid = shouldUseTodoDesktopGridLayout(container);
+  const gap = `${Math.max(6, Math.round(10 * densityScale))}px`;
+  container.style.width = "100%";
+  container.style.maxWidth = "100%";
+  container.style.boxSizing = "border-box";
+  container.style.gap = gap;
+  container.style.overflow = "visible";
+
+  if (useTwoColumnGrid) {
+    container.style.display = "grid";
+    container.style.gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
+    // Keep visual order aligned with the sorted array: left-to-right, then next row.
+    container.style.gridAutoFlow = "row";
+    container.style.gridAutoRows = "minmax(0, auto)";
+    container.style.alignItems = "start";
+    container.style.alignContent = "start";
+    container.style.justifyItems = "stretch";
+    container.style.flexDirection = "";
+  } else {
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.alignItems = isCompactMobileLayout() ? "stretch" : "center";
+    container.style.alignContent = "";
+    container.style.justifyItems = "";
+    container.style.gridTemplateColumns = "";
+    container.style.gridAutoFlow = "";
+    container.style.gridAutoRows = "";
+  }
+
+  return { useTwoColumnGrid };
+}
+
+function applyTodoCollectionItemLayout(itemElement, options = {}) {
+  if (!(itemElement instanceof HTMLElement)) {
+    return;
+  }
+  itemElement.style.minWidth = "0";
+  if (options.useTwoColumnGrid === true) {
+    itemElement.style.width = "100%";
+    itemElement.style.maxWidth = "100%";
+    itemElement.style.alignSelf = "stretch";
+    itemElement.style.justifySelf = "stretch";
+    return;
+  }
+  itemElement.style.justifySelf = "";
+}
+
+function applyCenteredEmptyStateLayout(emptyCard, contentWidth, options = {}) {
   if (!(emptyCard instanceof HTMLElement)) {
     return;
   }
   emptyCard.style.width = "100%";
   emptyCard.style.maxWidth =
-    Number.isFinite(contentWidth) && contentWidth > 0
+    options.useTwoColumnGrid === true
+      ? "100%"
+      : Number.isFinite(contentWidth) && contentWidth > 0
       ? `${contentWidth}px`
       : "100%";
   emptyCard.style.boxSizing = "border-box";
@@ -2760,6 +2898,8 @@ function applyCenteredEmptyStateLayout(emptyCard, contentWidth) {
   emptyCard.style.flexDirection = "column";
   emptyCard.style.justifyContent = "center";
   emptyCard.style.minHeight = "220px";
+  emptyCard.style.gridColumn = options.useTwoColumnGrid === true ? "1 / -1" : "";
+  emptyCard.style.justifySelf = options.useTwoColumnGrid === true ? "stretch" : "";
 }
 
 // 普通待办事项数据结构
@@ -3343,6 +3483,7 @@ function initSearch() {
 function initSort() {
   const sortSelect = document.getElementById("todo-sort");
   if (sortSelect) {
+    currentSort = readPersistedTodoSortPreference();
     sortSelect.value = currentSort;
     uiTools?.enhanceNativeSelect?.(sortSelect, {
       fullWidth: true,
@@ -3353,7 +3494,10 @@ function initSort() {
       menuWidthFactor: getExpandWidthFactor(MOBILE_TODO_DROPDOWN_WIDTH_FACTOR),
     });
     sortSelect.addEventListener("change", function () {
-      currentSort = this.value;
+      persistTodoSortPreference(this.value, {
+        persistCore: true,
+      });
+      sortSelect.value = currentSort;
       invalidateTodoDerivedCaches();
       renderTodoArea();
     });
@@ -3467,11 +3611,10 @@ function renderTodoList() {
   const contentWidth = getTodoListCardMaxWidth(listScale);
   container.style.fontSize = `${Math.max(10, Math.round(14 * densityScale))}px`;
   container.style.padding = `${Math.max(8, Math.round(15 * densityScale))}px`;
-  container.style.display = "flex";
-  container.style.flexDirection = "column";
-  container.style.alignItems = isCompactMobileLayout() ? "stretch" : "center";
-  container.style.gap = `${Math.max(6, Math.round(10 * densityScale))}px`;
-  container.style.overflow = "visible";
+  const { useTwoColumnGrid } = applyTodoCollectionContainerLayout(
+    container,
+    densityScale,
+  );
   const filteredTodos = getFilteredSortedTodos();
 
   // 清除容器内容
@@ -3483,7 +3626,9 @@ function renderTodoList() {
       const fragment = emptyStateTemplate.content.cloneNode(true);
       container.appendChild(fragment);
       const emptyCard = container.querySelector(".empty-state");
-      applyCenteredEmptyStateLayout(emptyCard, contentWidth);
+      applyCenteredEmptyStateLayout(emptyCard, contentWidth, {
+        useTwoColumnGrid,
+      });
       const createBtn = container.querySelector("#add-first-todo-btn");
       if (createBtn) {
         createBtn.addEventListener("click", openTodoCreateFlow);
@@ -3506,6 +3651,9 @@ function renderTodoList() {
       applyCenteredEmptyStateLayout(
         container.querySelector(".empty-state"),
         contentWidth,
+        {
+          useTwoColumnGrid,
+        },
       );
       container
         .querySelector("#add-first-todo-btn")
@@ -3517,6 +3665,9 @@ function renderTodoList() {
   // 渲染待办事项列表
   filteredTodos.forEach((todo) => {
     const todoElement = createTodoElement(todo, listScale);
+    applyTodoCollectionItemLayout(todoElement, {
+      useTwoColumnGrid,
+    });
     container.appendChild(todoElement);
   });
 }
@@ -3679,14 +3830,16 @@ function createTodoElement(todo, listScale = 1) {
   const metaFontSize = Math.max(9, Math.round(12 * cardScale));
   const actionFontSize = Math.max(10, Math.round(13 * cardScale));
   const cardMaxWidth = getTodoListCardMaxWidth(listScale);
-  const progressCardWidth = Math.max(116, Math.round(192 * cardScale));
+  const cardPadding = Math.max(8, Math.round(14 * cardScale));
+  const cardGap = Math.max(4, Math.round(8 * cardScale));
+  const progressCardWidth = Math.max(104, Math.round(176 * cardScale));
   todoElement.className = `todo-item ${todo.completed ? "completed" : ""}`;
   todoElement.dataset.todoId = todo.id;
   todoElement.style.setProperty(
     "--todo-item-accent",
     todo.color || "var(--accent-color)",
   );
-  todoElement.style.padding = `${Math.max(8, Math.round(16 * cardScale))}px`;
+  todoElement.style.padding = `${cardPadding}px`;
   todoElement.style.marginBottom = "0";
   todoElement.style.borderLeftWidth = `${Math.max(2, Math.round(4 * cardScale))}px`;
   todoElement.style.borderRadius = `${Math.max(18, Math.round(26 * cardScale))}px`;
@@ -3695,11 +3848,12 @@ function createTodoElement(todo, listScale = 1) {
   todoElement.style.alignSelf = isCompactMobileLayout() ? "stretch" : "center";
   todoElement.style.display = "flex";
   todoElement.style.flexDirection = "column";
-  todoElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
+  todoElement.style.gap = `${cardGap}px`;
 
   // 获取相关打卡记录
   const todoCheckins = getTodoCheckins(todo.id);
   todoCheckins.sort((left, right) => new Date(right.time) - new Date(left.time));
+  const hasProgressRecords = todoCheckins.length > 0;
   const reminderSummary =
     reminderTools?.describeTodoReminder?.(todo) || "不通知";
 
@@ -3744,13 +3898,13 @@ function createTodoElement(todo, listScale = 1) {
         : ""
     }
     
-    <div class="todo-footer">
-      <div class="todo-progress-lane">
+    <div class="todo-footer ${hasProgressRecords ? "has-progress-records" : "is-progress-empty"}">
+      ${
+        hasProgressRecords
+          ? `
         <div class="todo-progress-caption">进度记录</div>
-        ${
-          todoCheckins.length > 0
-            ? `
-          <div class="checkin-records checkin-records-inline">
+        <div class="todo-progress-bottom-row">
+          <div class="checkin-records checkin-records-inline todo-progress-records-row">
             ${todoCheckins
               .map(
                 (checkin) => `
@@ -3768,23 +3922,43 @@ function createTodoElement(todo, listScale = 1) {
               )
               .join("")}
           </div>
-        `
-            : '<div class="todo-progress-empty">暂无进度，点右侧“＋”补一条</div>'
-        }
-      </div>
-      <div class="todo-action-stack">
-        <button
-          type="button"
-          class="todo-action-btn todo-progress-btn"
-          data-action="add-progress"
-          title="添加进度记录"
-        >
-          +
-        </button>
-        <button type="button" class="todo-action-btn complete-btn" data-action="complete">
-          ${todo.completed ? "取消完成" : "完成"}
-        </button>
-      </div>
+          <div class="todo-action-stack">
+            <button
+              type="button"
+              class="todo-action-btn todo-progress-btn"
+              data-action="add-progress"
+              title="添加进度记录"
+            >
+              +
+            </button>
+            <button type="button" class="todo-action-btn complete-btn" data-action="complete">
+              ${todo.completed ? "取消完成" : "完成"}
+            </button>
+          </div>
+        </div>
+      `
+          : `
+        <div class="todo-progress-bottom-row">
+          <div class="todo-progress-lane">
+            <div class="todo-progress-caption">进度记录</div>
+            <div class="todo-progress-empty">暂无进度，点右侧“＋”补一条</div>
+          </div>
+          <div class="todo-action-stack">
+            <button
+              type="button"
+              class="todo-action-btn todo-progress-btn"
+              data-action="add-progress"
+              title="添加进度记录"
+            >
+              +
+            </button>
+            <button type="button" class="todo-action-btn complete-btn" data-action="complete">
+              ${todo.completed ? "取消完成" : "完成"}
+            </button>
+          </div>
+        </div>
+      `
+      }
     </div>
   `;
 
@@ -3798,11 +3972,13 @@ function createTodoElement(todo, listScale = 1) {
   const tagsContainerElement = todoElement.querySelector(".todo-tags");
   const tagElements = todoElement.querySelectorAll(".todo-tag");
   const footerElement = todoElement.querySelector(".todo-footer");
+  const progressBottomRowElement = todoElement.querySelector(".todo-progress-bottom-row");
   const actionStackElement = todoElement.querySelector(".todo-action-stack");
+  const progressLaneElement = todoElement.querySelector(".todo-progress-lane");
   const repeatSummaryElement = todoElement.querySelector(".todo-repeat-summary");
   const progressCaptionElement = todoElement.querySelector(".todo-progress-caption");
   const progressEmptyElement = todoElement.querySelector(".todo-progress-empty");
-  const progressRecordsContainer = todoElement.querySelector(".checkin-records-inline");
+  const progressRecordsContainer = todoElement.querySelector(".todo-progress-records-row");
   const progressRecords = todoElement.querySelectorAll(".todo-progress-record");
   const progressDateElements = todoElement.querySelectorAll(".checkin-date");
   const progressMessageElements = todoElement.querySelectorAll(".checkin-message");
@@ -3836,18 +4012,48 @@ function createTodoElement(todo, listScale = 1) {
   }
   if (progressCaptionElement) {
     progressCaptionElement.style.fontSize = `${Math.max(9, Math.round(11 * cardScale))}px`;
+    progressCaptionElement.style.lineHeight = "1.15";
   }
   if (progressEmptyElement) {
     progressEmptyElement.style.fontSize = `${metaFontSize}px`;
+    progressEmptyElement.style.lineHeight = "1.25";
   }
   if (footerElement) {
-    footerElement.style.gap = `${Math.max(8, Math.round(12 * cardScale))}px`;
+    footerElement.style.display = "flex";
+    footerElement.style.flexDirection = "column";
+    footerElement.style.alignItems = "stretch";
+    footerElement.style.gap = `${Math.max(3, Math.round(5 * cardScale))}px`;
+    footerElement.style.minWidth = "0";
+  }
+  if (progressBottomRowElement) {
+    progressBottomRowElement.style.display = "flex";
+    progressBottomRowElement.style.alignItems = hasProgressRecords ? "flex-end" : "center";
+    progressBottomRowElement.style.justifyContent = "space-between";
+    progressBottomRowElement.style.gap = `${Math.max(8, Math.round(10 * cardScale))}px`;
+    progressBottomRowElement.style.minWidth = "0";
+  }
+  if (progressLaneElement) {
+    progressLaneElement.style.display = "flex";
+    progressLaneElement.style.flexDirection = "column";
+    progressLaneElement.style.gap = `${Math.max(1, Math.round(2 * cardScale))}px`;
+    progressLaneElement.style.flex = "1 1 auto";
+    progressLaneElement.style.minWidth = "0";
   }
   if (actionStackElement) {
     actionStackElement.style.gap = `${Math.max(6, Math.round(8 * cardScale))}px`;
+    actionStackElement.style.marginLeft = "auto";
+    actionStackElement.style.flex = "0 0 auto";
+    actionStackElement.style.flexWrap = "nowrap";
+    actionStackElement.style.alignItems = "center";
+    actionStackElement.style.justifyContent = "flex-end";
+    actionStackElement.style.alignSelf = hasProgressRecords ? "flex-end" : "center";
   }
   if (progressRecordsContainer) {
     progressRecordsContainer.style.gap = `${Math.max(4, Math.round(6 * cardScale))}px`;
+    progressRecordsContainer.style.flex = "1 1 auto";
+    progressRecordsContainer.style.minWidth = "0";
+    progressRecordsContainer.style.paddingBottom = "0";
+    progressRecordsContainer.style.alignItems = "stretch";
   }
   tagElements.forEach((tagElement) => {
     tagElement.style.fontSize = `${metaFontSize}px`;
@@ -3856,7 +4062,9 @@ function createTodoElement(todo, listScale = 1) {
   });
   if (completeButton) {
     completeButton.style.fontSize = `${actionFontSize}px`;
-    completeButton.style.padding = `${Math.max(5, Math.round(7 * cardScale))}px ${Math.max(10, Math.round(14 * cardScale))}px`;
+    completeButton.style.padding = `${Math.max(4, Math.round(6 * cardScale))}px ${Math.max(10, Math.round(13 * cardScale))}px`;
+    completeButton.style.whiteSpace = "nowrap";
+    completeButton.style.flexShrink = "0";
     completeButton.disabled = false;
     completeButton.textContent = todo.completed ? "取消完成" : "完成";
     completeButton.addEventListener("click", (event) => {
@@ -3867,14 +4075,15 @@ function createTodoElement(todo, listScale = 1) {
   }
   if (progressButton) {
     progressButton.style.fontSize = `${Math.max(actionFontSize + 2, Math.round(16 * cardScale))}px`;
-    progressButton.style.width = `${Math.max(28, Math.round(38 * cardScale))}px`;
-    progressButton.style.height = `${Math.max(28, Math.round(38 * cardScale))}px`;
+    progressButton.style.width = `${Math.max(28, Math.round(34 * cardScale))}px`;
+    progressButton.style.height = `${Math.max(28, Math.round(34 * cardScale))}px`;
     progressButton.style.padding = "0";
     progressButton.style.display = "inline-flex";
     progressButton.style.alignItems = "center";
     progressButton.style.justifyContent = "center";
     progressButton.style.lineHeight = "1";
     progressButton.style.textAlign = "center";
+    progressButton.style.flexShrink = "0";
     progressButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -3885,7 +4094,7 @@ function createTodoElement(todo, listScale = 1) {
     recordElement.style.padding = `${Math.max(4, Math.round(6 * cardScale))}px ${Math.max(8, Math.round(10 * cardScale))}px`;
     recordElement.style.marginTop = "0";
     recordElement.style.minWidth = `${progressCardWidth}px`;
-    recordElement.style.maxWidth = `${Math.max(progressCardWidth, Math.round(230 * cardScale))}px`;
+    recordElement.style.maxWidth = `${Math.max(progressCardWidth, Math.round(214 * cardScale))}px`;
     recordElement.style.borderRadius = `${Math.max(12, Math.round(18 * cardScale))}px`;
     const openProgressEditor = (event) => {
       event.preventDefault();
@@ -5529,11 +5738,10 @@ function renderCheckinList() {
   const contentWidth = getTodoListCardMaxWidth(listScale, 540);
   container.style.fontSize = `${Math.max(10, Math.round(14 * densityScale))}px`;
   container.style.padding = `${Math.max(8, Math.round(15 * densityScale))}px`;
-  container.style.display = "flex";
-  container.style.flexDirection = "column";
-  container.style.alignItems = isCompactMobileLayout() ? "stretch" : "center";
-  container.style.gap = `${Math.max(6, Math.round(10 * densityScale))}px`;
-  container.style.overflow = "visible";
+  const { useTwoColumnGrid } = applyTodoCollectionContainerLayout(
+    container,
+    densityScale,
+  );
 
   // 清除容器内容
   container.innerHTML = "";
@@ -5556,6 +5764,9 @@ function renderCheckinList() {
     applyCenteredEmptyStateLayout(
       container.querySelector(".empty-state"),
       contentWidth,
+      {
+        useTwoColumnGrid,
+      },
     );
     updateCheckinStats();
     updateStatsPanel();
@@ -5565,6 +5776,9 @@ function renderCheckinList() {
   // 渲染打卡项目列表
   checkinItems.forEach((item) => {
     const itemElement = createCheckinItemElement(item, listScale);
+    applyTodoCollectionItemLayout(itemElement, {
+      useTwoColumnGrid,
+    });
     container.appendChild(itemElement);
   });
 
