@@ -2168,6 +2168,7 @@ function createBaseContent(widgetType) {
     kind: widgetType?.id || "",
     title: getWidgetDisplayName(widgetType),
     subtitle: getWidgetDisplaySubtitle(widgetType),
+    headerSummary: "",
     page: widgetType?.page || "index",
     action: widgetType?.action || "",
     actionLabel: translateWidgetUiText("打开应用"),
@@ -2276,6 +2277,7 @@ function fillTodosContent(content, state) {
     targetId: item.id,
   }));
   content.subtitle = translateWidgetUiText(stats.total > 0 ? "今日待办" : "待处理待办");
+  content.headerSummary = `${translateWidgetUiText("待办")} ${stats.total} ${translateWidgetUiText("项")} · ${translateWidgetUiText("未完")} ${stats.incompleteCount} · ${translateWidgetUiText("今到期")} ${stats.dueTodayCount}`;
   content.actionLabel = translateWidgetUiText("打开待办");
   content.statPrimary = `${translateWidgetUiText("待办")} ${stats.total} ${translateWidgetUiText("项")}`;
   content.statSecondary = `${translateWidgetUiText("未完")} ${stats.incompleteCount} · ${translateWidgetUiText("今到期")} ${stats.dueTodayCount}`;
@@ -2295,6 +2297,7 @@ function fillCheckinsContent(content, state) {
     targetId: item.id,
   }));
   content.subtitle = translateWidgetUiText("今日打卡");
+  content.headerSummary = `${translateWidgetUiText("今日")} ${stats.total} ${translateWidgetUiText("项")} · ${translateWidgetUiText("未打卡")} ${stats.pendingCount} ${translateWidgetUiText("项")}`;
   content.actionLabel = translateWidgetUiText("打开打卡");
   content.statPrimary = `${translateWidgetUiText("今日")} ${stats.total} ${translateWidgetUiText("项")}`;
   content.statSecondary = `${translateWidgetUiText("未打卡")} ${stats.pendingCount} ${translateWidgetUiText("项")}`;
@@ -2503,6 +2506,15 @@ function buildHeaderNode(content, metrics) {
   }
   if (shouldShowSubtitle(content, metrics)) {
     header.appendChild(createElement("div", "widget-card-subtitle", content.subtitle));
+  }
+  const shouldShowHeaderSummary =
+    !!content?.headerSummary &&
+    !shouldShowStats(content, metrics) &&
+    !(isListFirstKind(content.kind) && shouldUseMinimalListCards(content.kind, metrics));
+  if (shouldShowHeaderSummary) {
+    header.appendChild(
+      createElement("div", "widget-card-summary", content.headerSummary),
+    );
   }
   return header;
 }
