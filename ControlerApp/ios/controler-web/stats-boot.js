@@ -1482,6 +1482,8 @@ let statsRememberedHeatmapRangeUnit = "month";
 let statsRangeState = {
   unit: "day",
   anchorDate: getDateOnly(new Date()),
+  customStartDate: null,
+  customEndDate: null,
 };
 let statsAvailableRecordDateBounds = {
   min: null,
@@ -1494,6 +1496,8 @@ let statsLoadingOverlayTimer = 0;
 let statsLoadingOverlayController = null;
 let statsChartRuntimeLoader = null;
 let statsHeatmapRuntimeLoader = null;
+let statsNativeBusyLockActive = false;
+let statsRangeControlsBusy = false;
 const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
 const STATS_D3_RUNTIME_URL = "offline-assets/d3.min.js";
 const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
@@ -2355,6 +2359,15 @@ function getStatsLoadingOverlayElement() {
   return document.getElementById("stats-loading-overlay");
 }
 
+function resolveStatsLoadingOverlayMode(mode = "inline") {
+  const requestedMode =
+    String(mode || "").trim() === "fullscreen" ? "fullscreen" : "inline";
+  if (isStatsDesktopWidgetMode()) {
+    return requestedMode;
+  }
+  return "fullscreen";
+}
+
 function getStatsLoadingOverlayController() {
   if (statsLoadingOverlayController) {
     return statsLoadingOverlayController;
@@ -2366,6 +2379,7 @@ function getStatsLoadingOverlayController() {
   statsLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
     overlay,
     inlineHost: ".stats-main",
+    scopeFullscreenToInlineHost: false,
   }) || null;
   return statsLoadingOverlayController;
 }
@@ -2373,21 +2387,30 @@ function getStatsLoadingOverlayController() {
 function setStatsLoadingState(options = {}) {
   const overlay = getStatsLoadingOverlayElement();
   if (!(overlay instanceof HTMLElement)) {
+    syncStatsNativeBusyLock(false);
     return;
   }
 
-  const {
-    active = false,
-    mode = "inline",
-    title = "正在加载数据中",
-    delayMs = 0,
-    message =
-      mode === "fullscreen"
+  const active = options.active === true;
+  const mode = resolveStatsLoadingOverlayMode(options.mode || "inline");
+  const title =
+    typeof options.title === "string" && options.title.trim()
+      ? options.title
+      : "正在加载数据中";
+  const delayMs = Number.isFinite(options.delayMs)
+    ? Math.max(0, Math.round(Number(options.delayMs)))
+    : 0;
+  const lockNativeExit = options.lockNativeExit === true;
+  const message =
+    typeof options.message === "string" && options.message.trim()
+      ? options.message
+      : mode === "fullscreen"
         ? "正在整理统计索引与范围数据，请稍候"
-        : "正在更新统计结果，请稍候",
-  } = options;
+        : "正在更新统计结果，请稍候";
   const loadingController = getStatsLoadingOverlayController();
+  syncStatsNativeBusyLock(active, active && lockNativeExit);
   if (!loadingController) {
+    syncStatsNativeBusyLock(false);
     return;
   }
 
@@ -2397,6 +2420,24 @@ function setStatsLoadingState(options = {}) {
     title,
     message,
     delayMs,
+  });
+}
+
+function syncStatsNativeBusyLock(active, lockNavigation = false) {
+  const nextActive = !!active;
+  const nextLockNavigation = !!lockNavigation;
+  if (
+    statsNativeBusyLockActive === nextActive &&
+    window.__controlerStatsNativeLockNavigation === nextLockNavigation
+  ) {
+    return;
+  }
+  statsNativeBusyLockActive = nextActive;
+  window.__controlerStatsNativeLockNavigation = nextLockNavigation;
+  window.ControlerNativeBridge?.emitEvent?.("ui.busy-state", {
+    href: window.location.href,
+    isBusy: nextActive,
+    lockNavigation: nextLockNavigation,
   });
 }
 
@@ -3172,6 +3213,21 @@ function reconcileStatsRangeStateWithAvailableData(viewMode = statsViewMode) {
   const safeUnit = isHeatmapToolbarViewMode(viewMode)
     ? normalizeHeatmapRangeUnit(statsRangeState.unit || statsRememberedHeatmapRangeUnit)
     : normalizeStatsRangeUnit(statsRangeState.unit || statsRememberedGeneralRangeUnit, "day");
+  if (hasCustomStatsDateRange(viewMode)) {
+    const { start, end } = setStatsCustomDateRange(
+      statsRangeState.customStartDate,
+      statsRangeState.customEndDate,
+    );
+    const nextAnchor = resolveStatsCustomRangeAnchor(
+      safeUnit,
+      start,
+      end,
+      "end",
+    );
+    statsRangeState.unit = safeUnit;
+    statsRangeState.anchorDate = nextAnchor;
+    return nextAnchor;
+  }
   const nextAnchor = normalizeStatsAnchorForView(
     safeUnit,
     statsRangeState.anchorDate || getInitialStatsAnchorForView(viewMode),
@@ -3293,6 +3349,136 @@ function getStatsRangeForUnit(unit, anchorDateValue) {
   }
 }
 
+function clearStatsCustomDateRange() {
+  statsRangeState.customStartDate = null;
+  statsRangeState.customEndDate = null;
+}
+
+function hasCustomStatsDateRange(viewMode = statsViewMode) {
+  if (isHeatmapToolbarViewMode(viewMode)) {
+    return false;
+  }
+  return Boolean(
+    getDateOnly(statsRangeState.customStartDate) &&
+      getDateOnly(statsRangeState.customEndDate),
+  );
+}
+
+function setStatsCustomDateRange(startDateValue, endDateValue) {
+  const { start, end } = getNormalizedStatsInputRange(
+    startDateValue,
+    endDateValue,
+    statsRangeState.anchorDate,
+  );
+  statsRangeState.customStartDate = new Date(start);
+  statsRangeState.customEndDate = new Date(end);
+  return {
+    start,
+    end,
+  };
+}
+
+function resolveStatsCustomRangeAnchor(
+  unit,
+  startDateValue,
+  endDateValue,
+  changeSource = "end",
+) {
+  const safeUnit = normalizeStatsRangeUnit(unit, "day");
+  const referenceDate =
+    changeSource === "start"
+      ? getDateOnly(startDateValue) || getDateOnly(endDateValue)
+      : getDateOnly(endDateValue) || getDateOnly(startDateValue);
+  const safeReferenceDate =
+    referenceDate || getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView();
+
+  switch (safeUnit) {
+    case "week":
+      return getWeekStartDate(safeReferenceDate);
+    case "month":
+      return getMonthStartDate(safeReferenceDate);
+    case "year":
+      return getYearStartDate(safeReferenceDate);
+    case "day":
+    default:
+      return new Date(safeReferenceDate);
+  }
+}
+
+function getShiftedStatsDateByUnit(dateValue, unit, amount) {
+  const safeDate = getDateOnly(dateValue) || getDateOnly(new Date());
+  const safeUnit = normalizeStatsRangeUnit(unit, "day");
+  const nextDate = new Date(safeDate);
+
+  switch (safeUnit) {
+    case "week":
+      nextDate.setDate(nextDate.getDate() + amount * 7);
+      return nextDate;
+    case "month": {
+      const targetYear = nextDate.getFullYear();
+      const targetMonth = nextDate.getMonth() + amount;
+      const targetDay = nextDate.getDate();
+      const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+      return new Date(targetYear, targetMonth, Math.min(targetDay, lastDayOfTargetMonth));
+    }
+    case "year": {
+      const targetYear = nextDate.getFullYear() + amount;
+      const targetMonth = nextDate.getMonth();
+      const targetDay = nextDate.getDate();
+      const lastDayOfTargetMonth = new Date(
+        targetYear,
+        targetMonth + 1,
+        0,
+      ).getDate();
+      return new Date(targetYear, targetMonth, Math.min(targetDay, lastDayOfTargetMonth));
+    }
+    case "day":
+    default:
+      nextDate.setDate(nextDate.getDate() + amount);
+      return nextDate;
+  }
+}
+
+function shiftCustomStatsDateRange(unit, amount) {
+  if (isHeatmapToolbarViewMode() || !hasCustomStatsDateRange()) {
+    return null;
+  }
+
+  const safeUnit = normalizeStatsRangeUnit(unit, "day");
+  const startValue =
+    statsRangeState.customStartDate ||
+    document.getElementById("start-date-select")?.value ||
+    statsRangeState.anchorDate;
+  const endValue =
+    statsRangeState.customEndDate ||
+    document.getElementById("end-date-select")?.value ||
+    statsRangeState.anchorDate;
+  const { start, end } = getNormalizedStatsInputRange(
+    startValue,
+    endValue,
+    statsRangeState.anchorDate,
+  );
+  const nextStart = getShiftedStatsDateByUnit(start, safeUnit, amount);
+  const nextEnd = getShiftedStatsDateByUnit(end, safeUnit, amount);
+  const normalizedRange = getNormalizedStatsInputRange(
+    nextStart,
+    nextEnd,
+    amount < 0 ? start : end,
+  );
+
+  return {
+    start: normalizedRange.start,
+    end: normalizedRange.end,
+    unit: safeUnit,
+    anchorDate: resolveStatsCustomRangeAnchor(
+      safeUnit,
+      normalizedRange.start,
+      normalizedRange.end,
+      amount < 0 ? "start" : "end",
+    ),
+  };
+}
+
 function shiftStatsAnchorDate(anchorDateValue, unit, amount) {
   const safeUnit = isHeatmapToolbarViewMode()
     ? normalizeHeatmapRangeUnit(unit)
@@ -3388,7 +3574,79 @@ function resolveStatsAnchorFromInputs(unit, changeSource = "end") {
   return new Date(referenceDate);
 }
 
-function applyStatsRange(unit, anchorDateValue, shouldRender = true) {
+function applyStatsCustomRange(
+  startDateValue,
+  endDateValue,
+  options = {},
+) {
+  if (isHeatmapToolbarViewMode()) {
+    const nextAnchor =
+      options.anchorDate ||
+      resolveStatsAnchorFromInputs(options.unit || statsRangeState.unit, options.changeSource) ||
+      getInitialStatsAnchorForView();
+    return applyStatsRange(
+      options.unit || statsRangeState.unit,
+      nextAnchor,
+      {
+        shouldRender: options.shouldRender !== false,
+        refreshOptions:
+          options.refreshOptions && typeof options.refreshOptions === "object"
+            ? options.refreshOptions
+            : {},
+      },
+    );
+  }
+
+  const {
+    unit = statsRangeState.unit,
+    anchorDate = null,
+    changeSource = "end",
+    shouldRender = true,
+    refreshOptions = {},
+  } = options;
+  const startDateInput = document.getElementById("start-date-select");
+  const endDateInput = document.getElementById("end-date-select");
+  const unitSelect = document.getElementById("stats-range-unit-select");
+  const safeUnit = normalizeStatsRangeUnit(unit, "day");
+  const { start, end } = setStatsCustomDateRange(startDateValue, endDateValue);
+  const nextAnchor =
+    getDateOnly(anchorDate) ||
+    resolveStatsCustomRangeAnchor(safeUnit, start, end, changeSource);
+
+  statsRangeState.unit = safeUnit;
+  statsRangeState.anchorDate = nextAnchor;
+  rememberStatsRangeUnit(safeUnit);
+
+  if (unitSelect) {
+    unitSelect.value = safeUnit;
+  }
+  if (startDateInput) {
+    startDateInput.value = formatDateInputValue(start);
+  }
+  if (endDateInput) {
+    endDateInput.value = formatDateInputValue(end);
+  }
+
+  updateCurrentTimeRangeDisplay();
+  syncStatsTimeUnitOptions(unitSelect);
+  saveStatsUiStateToPreferences();
+
+  if (shouldRender) {
+    return refreshStatsRangeData(true, refreshOptions);
+  }
+  return Promise.resolve(null);
+}
+
+function applyStatsRange(unit, anchorDateValue, shouldRenderOrOptions = true) {
+  const applyOptions =
+    shouldRenderOrOptions && typeof shouldRenderOrOptions === "object"
+      ? shouldRenderOrOptions
+      : { shouldRender: shouldRenderOrOptions !== false };
+  const shouldRender = applyOptions.shouldRender !== false;
+  const refreshOptions =
+    applyOptions.refreshOptions && typeof applyOptions.refreshOptions === "object"
+      ? applyOptions.refreshOptions
+      : {};
   const safeUnit = isHeatmapToolbarViewMode()
     ? normalizeHeatmapRangeUnit(unit)
     : normalizeStatsRangeUnit(unit, "day");
@@ -3400,6 +3658,7 @@ function applyStatsRange(unit, anchorDateValue, shouldRender = true) {
 
   statsRangeState.unit = safeUnit;
   statsRangeState.anchorDate = anchorDate;
+  clearStatsCustomDateRange();
   rememberStatsRangeUnit(safeUnit);
   if (isHeatmapToolbarViewMode()) {
     heatmapState.currentMonthKey = formatMonthKey(range.end);
@@ -3420,8 +3679,9 @@ function applyStatsRange(unit, anchorDateValue, shouldRender = true) {
   saveStatsUiStateToPreferences();
 
   if (shouldRender) {
-    void refreshStatsRangeData(true);
+    return refreshStatsRangeData(true, refreshOptions);
   }
+  return Promise.resolve(null);
 }
 
 function applyStatsUiStateFromPreferences(
@@ -3451,6 +3711,7 @@ function applyStatsUiStateFromPreferences(
       ? statsRememberedHeatmapRangeUnit
       : statsRememberedGeneralRangeUnit;
   statsRangeState.anchorDate = getInitialStatsAnchorForView(statsViewMode);
+  clearStatsCustomDateRange();
 }
 
 function saveStatsUiStateToPreferences() {
@@ -3759,11 +4020,32 @@ async function loadData(scope = getStatsLoadScope(), options = {}) {
   return snapshot;
 }
 
-async function refreshStatsRangeData(shouldRender = true) {
+async function refreshStatsRangeData(shouldRender = true, options = {}) {
   const requestId = ++statsRangeDataRequestId;
   const scope = getStatsLoadScope();
-  const mode = statsInitialDataLoaded ? "inline" : "fullscreen";
-  const delayMs = statsInitialDataLoaded ? STATS_LOADING_OVERLAY_DELAY_MS : 0;
+  const preferredMode =
+    String(options.mode || "").trim() === "fullscreen"
+      ? "fullscreen"
+      : statsInitialDataLoaded
+        ? "inline"
+        : "fullscreen";
+  const mode = resolveStatsLoadingOverlayMode(preferredMode);
+  const delayMs = Number.isFinite(options.delayMs)
+    ? Math.max(0, Math.round(Number(options.delayMs)))
+    : statsInitialDataLoaded
+      ? STATS_LOADING_OVERLAY_DELAY_MS
+      : 0;
+  const title =
+    typeof options.title === "string" && options.title.trim()
+      ? options.title
+      : "正在加载数据中";
+  const message =
+    typeof options.message === "string" && options.message.trim()
+      ? options.message
+      : mode === "fullscreen"
+        ? "正在整理统计索引与范围数据，请稍候"
+        : "正在更新统计范围与图表数据，请稍候";
+  const lockNativeExit = options.lockNativeExit === true;
   const commitLoadedState = (snapshot) => {
     if (requestId !== statsRangeDataRequestId) {
       return;
@@ -3781,7 +4063,9 @@ async function refreshStatsRangeData(shouldRender = true) {
         active: true,
         mode,
         delayMs,
-        message: "正在更新统计范围与图表数据，请稍候",
+        title,
+        message,
+        lockNativeExit,
       });
       const snapshot = await readStatsWorkspace(scope);
       commitLoadedState(snapshot);
@@ -3794,7 +4078,9 @@ async function refreshStatsRangeData(shouldRender = true) {
         delayMs,
         loadingOptions: {
           mode,
-          message: "正在更新统计范围与图表数据，请稍候",
+          title,
+          message,
+          lockNativeExit,
         },
         commit: async (snapshot) => {
           commitLoadedState(snapshot);
@@ -3813,6 +4099,45 @@ async function refreshStatsRangeData(shouldRender = true) {
   }
 }
 
+function setStatsRangeControlsBusy(active) {
+  const nextActive = !!active;
+  if (statsRangeControlsBusy === nextActive) {
+    return;
+  }
+  statsRangeControlsBusy = nextActive;
+
+  const prevBtn = document.getElementById("stats-range-prev");
+  const nextBtn = document.getElementById("stats-range-next");
+  const unitSelect = document.getElementById("stats-range-unit-select");
+
+  if (prevBtn instanceof HTMLButtonElement) {
+    prevBtn.dataset.statsBusy = nextActive ? "true" : "false";
+    prevBtn.setAttribute("aria-busy", nextActive ? "true" : "false");
+    prevBtn.setAttribute("aria-disabled", nextActive ? "true" : "false");
+  }
+  if (nextBtn instanceof HTMLButtonElement) {
+    nextBtn.dataset.statsBusy = nextActive ? "true" : "false";
+    nextBtn.setAttribute("aria-busy", nextActive ? "true" : "false");
+    nextBtn.setAttribute("aria-disabled", nextActive ? "true" : "false");
+  }
+  if (unitSelect instanceof HTMLSelectElement) {
+    unitSelect.disabled = nextActive;
+    uiTools?.refreshEnhancedSelect?.(unitSelect);
+  }
+}
+
+function getStatsRangeNavigationRefreshOptions(
+  message = "正在切换统计范围，请稍候",
+) {
+  return {
+    mode: "fullscreen",
+    delayMs: 0,
+    title: "正在加载数据中",
+    message,
+    lockNativeExit: true,
+  };
+}
+
 
 function initTimeSelector() {
   const startDate = document.getElementById("start-date-select");
@@ -3826,56 +4151,155 @@ function initTimeSelector() {
   }
 
   uiTools?.enhanceNativeSelect?.(unitSelect, {
-    minWidth: 54,
-    preferredMenuWidth: 140,
-    maxMenuWidth: 180,
+    minWidth: 0,
+    preferredMenuWidth: 88,
+    maxMenuWidth: 110,
   });
   syncStatsTimeUnitOptions(unitSelect);
 
-  unitSelect.addEventListener("change", () => {
-    const nextUnit = isHeatmapToolbarViewMode()
-      ? normalizeHeatmapRangeUnit(unitSelect.value)
-      : normalizeStatsRangeUnit(unitSelect.value, "day");
-    const nextAnchor =
-      resolveStatsAnchorFromInputs(nextUnit, "end") ||
-      getDateOnly(statsRangeState.anchorDate) ||
-      getInitialStatsAnchorForView();
-    applyStatsRange(nextUnit, nextAnchor);
-  });
-
-  prevBtn.addEventListener("click", () => {
+  const shiftCurrentStatsRange = (amount, refreshOptions = {}) =>
     applyStatsRange(
       statsRangeState.unit,
       shiftStatsAnchorDate(
         statsRangeState.anchorDate ||
           resolveStatsAnchorFromInputs(statsRangeState.unit),
         statsRangeState.unit,
-        -1,
+        amount,
       ),
+      {
+        refreshOptions,
+      },
     );
-  });
 
-  nextBtn.addEventListener("click", () => {
-    applyStatsRange(
-      statsRangeState.unit,
-      shiftStatsAnchorDate(
-        statsRangeState.anchorDate ||
-          resolveStatsAnchorFromInputs(statsRangeState.unit),
-        statsRangeState.unit,
-        1,
-      ),
-    );
-  });
+  const runStatsRangeNavigationAction = async (action) => {
+    if (statsRangeControlsBusy) {
+      return;
+    }
+    setStatsRangeControlsBusy(true);
+    try {
+      await action();
+    } finally {
+      setStatsRangeControlsBusy(false);
+    }
+  };
+
+  if (unitSelect.dataset.statsRangeBound !== "true") {
+    unitSelect.dataset.statsRangeBound = "true";
+    unitSelect.addEventListener("change", () => {
+      const nextUnit = isHeatmapToolbarViewMode()
+        ? normalizeHeatmapRangeUnit(unitSelect.value)
+        : normalizeStatsRangeUnit(unitSelect.value, "day");
+      const nextAnchor = getInitialStatsAnchorForView();
+      void runStatsRangeNavigationAction(() =>
+        applyStatsRange(nextUnit, nextAnchor, {
+          refreshOptions: getStatsRangeNavigationRefreshOptions(),
+        }),
+      );
+    });
+  }
+
+  const bindStatsRangeStepButton = (button, amount) => {
+    if (!(button instanceof HTMLButtonElement) || !Number.isFinite(amount)) {
+      return;
+    }
+    const bindingKey = `statsRangeStepBound${amount > 0 ? "Next" : "Prev"}`;
+    if (button.dataset[bindingKey] === "true") {
+      return;
+    }
+    button.dataset[bindingKey] = "true";
+    let lastTouchTriggerAt = 0;
+    const triggerShift = () => {
+      lastTouchTriggerAt = Date.now();
+      void runStatsRangeNavigationAction(() =>
+        shiftCurrentStatsRange(
+          amount,
+          getStatsRangeNavigationRefreshOptions(),
+        ),
+      );
+    };
+
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+
+    button.addEventListener("pointerup", () => {
+      button.blur?.();
+    });
+
+    button.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (statsRangeControlsBusy) {
+        return;
+      }
+      button.blur?.();
+      triggerShift();
+    });
+
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (Date.now() - lastTouchTriggerAt < 900) {
+        return;
+      }
+      if (statsRangeControlsBusy) {
+        return;
+      }
+      button.blur?.();
+      triggerShift();
+    });
+  };
+
+  bindStatsRangeStepButton(prevBtn, -1);
+  bindStatsRangeStepButton(nextBtn, 1);
 
   const handleDateChange = (changeSource) => {
+    if (isHeatmapToolbarViewMode()) {
+      const nextAnchor =
+        resolveStatsAnchorFromInputs(statsRangeState.unit, changeSource) ||
+        getInitialStatsAnchorForView();
+      void runStatsRangeNavigationAction(() =>
+        applyStatsRange(statsRangeState.unit, nextAnchor, {
+          refreshOptions: getStatsRangeNavigationRefreshOptions(
+            "正在切换统计日期范围，请稍候",
+          ),
+        }),
+      );
+      return;
+    }
+
     const nextAnchor =
       resolveStatsAnchorFromInputs(statsRangeState.unit, changeSource) ||
       getInitialStatsAnchorForView();
-    applyStatsRange(statsRangeState.unit, nextAnchor);
+    void runStatsRangeNavigationAction(() =>
+      applyStatsCustomRange(startDate.value, endDate.value, {
+        unit: statsRangeState.unit,
+        anchorDate: nextAnchor,
+        changeSource,
+        refreshOptions: getStatsRangeNavigationRefreshOptions(
+          "正在切换统计日期范围，请稍候",
+        ),
+      }),
+    );
   };
 
-  startDate.addEventListener("change", () => handleDateChange("start"));
-  endDate.addEventListener("change", () => handleDateChange("end"));
+  if (startDate.dataset.statsRangeBound !== "true") {
+    startDate.dataset.statsRangeBound = "true";
+    startDate.addEventListener("change", () => handleDateChange("start"));
+  }
+  if (endDate.dataset.statsRangeBound !== "true") {
+    endDate.dataset.statsRangeBound = "true";
+    endDate.addEventListener("change", () => handleDateChange("end"));
+  }
 
   applyStatsRange(statsRangeState.unit, statsRangeState.anchorDate, false);
   updateCurrentTimeRangeDisplay();

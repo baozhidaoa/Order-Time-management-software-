@@ -30,6 +30,7 @@ const MOBILE_SWIPE_DELETE_DIRECTION_LOCK_THRESHOLD = 10;
 const MOBILE_SWIPE_DELETE_OPEN_THRESHOLD = 0.45;
 const MOBILE_SWIPE_DELETE_OPEN_VELOCITY = -0.32;
 const MOBILE_SWIPE_DELETE_CLOSE_VELOCITY = 0.32;
+const TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS = 420;
 let todoSearchTimer = 0;
 let cachedTodoFilterKey = "";
 let cachedFilteredTodos = [];
@@ -2651,12 +2652,28 @@ function bindTodoModalActions(modal, handlers = {}) {
     return () => {};
   }
 
+  const handledTouchActions = new WeakMap();
   const listener = (event) => {
     const actionButton =
       event.target instanceof Element
         ? event.target.closest("[data-todo-modal-action]")
         : null;
     if (!actionButton || !modalContent.contains(actionButton)) {
+      return;
+    }
+    if (event.type === "pointerup" && event.pointerType === "mouse") {
+      return;
+    }
+    const lastHandledAt = handledTouchActions.get(actionButton) || 0;
+    if (
+      event.type === "click" &&
+      Date.now() - lastHandledAt < TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
       return;
     }
 
@@ -2671,13 +2688,19 @@ function bindTodoModalActions(modal, handlers = {}) {
     if (typeof event.stopImmediatePropagation === "function") {
       event.stopImmediatePropagation();
     }
+    if (event.type === "pointerup") {
+      handledTouchActions.set(actionButton, Date.now());
+    }
+    actionButton.blur?.();
     Promise.resolve(handler(actionButton, event)).catch((error) => {
       console.error("待办模态框按钮处理失败:", error);
     });
   };
 
+  modalContent.addEventListener("pointerup", listener);
   modalContent.addEventListener("click", listener);
   return () => {
+    modalContent.removeEventListener("pointerup", listener);
     modalContent.removeEventListener("click", listener);
   };
 }

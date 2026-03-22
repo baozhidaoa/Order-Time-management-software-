@@ -227,6 +227,7 @@ const desktopWidgetManager = new DesktopWidgetManager({
   preloadPath: path.join(__dirname, "preload.js"),
   bridgeHealthLogger: scheduleBridgeHealthLog,
   getLanguage: () => currentUiLanguage,
+  getWindowAppearance: () => ({ ...windowAppearance }),
 });
 const desktopNotificationScheduler = new DesktopNotificationScheduler({
   app,
@@ -240,11 +241,69 @@ const DEFAULT_WINDOW_APPEARANCE = {
   symbolColor: "#f5fff8",
   overlayHeight: 38,
 };
+const BUILT_IN_WINDOW_THEME_COLORS = Object.freeze({
+  default: Object.freeze({
+    primary: "#1f2f28",
+    panelStrong: "rgba(31, 53, 42, 0.74)",
+    text: "#f5fff8",
+  }),
+  "blue-ocean": Object.freeze({
+    primary: "#12263f",
+    panelStrong: "rgba(22, 45, 73, 0.76)",
+    text: "#eef6ff",
+  }),
+  "sunset-orange": Object.freeze({
+    primary: "#4b261b",
+    panelStrong: "rgba(88, 46, 31, 0.76)",
+    text: "#fff5ea",
+  }),
+  "minimal-gray": Object.freeze({
+    primary: "#1f252e",
+    panelStrong: "rgba(40, 47, 58, 0.78)",
+    text: "#f6f8fb",
+  }),
+  "obsidian-mono": Object.freeze({
+    primary: "#0d0f12",
+    panelStrong: "rgba(20, 23, 28, 0.82)",
+    text: "#f4f6fb",
+  }),
+  "ivory-light": Object.freeze({
+    primary: "#eceff3",
+    panelStrong: "rgba(249, 252, 255, 0.86)",
+    text: "#202633",
+  }),
+  "graphite-mist": Object.freeze({
+    primary: "#2a2d32",
+    panelStrong: "rgba(53, 57, 64, 0.78)",
+    text: "#f8f9fc",
+  }),
+  "aurora-mist": Object.freeze({
+    primary: "#162a2d",
+    panelStrong: "rgba(26, 49, 52, 0.78)",
+    text: "#effcfb",
+  }),
+  "velvet-bordeaux": Object.freeze({
+    primary: "#2f141d",
+    panelStrong: "rgba(57, 26, 37, 0.8)",
+    text: "#fff3f6",
+  }),
+  "champagne-sandstone": Object.freeze({
+    primary: "#f1ebe2",
+    panelStrong: "rgba(250, 245, 239, 0.9)",
+    text: "#2f261f",
+  }),
+  "midnight-indigo": Object.freeze({
+    primary: "#111a35",
+    panelStrong: "rgba(21, 33, 64, 0.8)",
+    text: "#eef3ff",
+  }),
+});
 const USE_NATIVE_TITLEBAR_OVERLAY = false;
 const PAGE_READY_REVEAL_TIMEOUT_MS = 2600;
 const WINDOW_MOVE_EDGE_INSET_PX = 12;
 const WINDOW_MOVE_GUARD_RELEASE_DELAY_MS = 120;
 let windowAppearance = { ...DEFAULT_WINDOW_APPEARANCE };
+refreshWindowAppearanceFromStoredTheme();
 const windowMoveGuardState = new WeakMap();
 
 function disableWindowsAccentBorder(targetWindow) {
@@ -262,6 +321,105 @@ function disableWindowsAccentBorder(targetWindow) {
   } catch (error) {
     console.warn("关闭窗口活动边框高亮失败:", error);
   }
+}
+
+function getThemeColorValue(value, fallback = "") {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function resolveWindowAppearanceFromThemeColors(
+  themeColors = {},
+  fallbackAppearance = DEFAULT_WINDOW_APPEARANCE,
+) {
+  const source =
+    themeColors && typeof themeColors === "object" ? themeColors : {};
+  return {
+    backgroundColor: getThemeColorValue(
+      source.primary,
+      fallbackAppearance.backgroundColor,
+    ),
+    overlayColor: getThemeColorValue(
+      source.panelStrong,
+      getThemeColorValue(
+        source.tertiary,
+        getThemeColorValue(
+          source.secondary,
+          fallbackAppearance.overlayColor,
+        ),
+      ),
+    ),
+    symbolColor: getThemeColorValue(source.text, fallbackAppearance.symbolColor),
+  };
+}
+
+function resolveStoredThemeWindowAppearance() {
+  try {
+    if (typeof storageManager?.getCoreState !== "function") {
+      return { ...DEFAULT_WINDOW_APPEARANCE };
+    }
+
+    const coreState = storageManager.getCoreState() || {};
+    const selectedThemeId =
+      typeof coreState?.selectedTheme === "string" && coreState.selectedTheme.trim()
+        ? coreState.selectedTheme.trim()
+        : "default";
+    const defaultThemeColors = BUILT_IN_WINDOW_THEME_COLORS.default;
+    const builtInThemeColors =
+      BUILT_IN_WINDOW_THEME_COLORS[selectedThemeId] || defaultThemeColors;
+    const builtInOverrides =
+      coreState?.builtInThemeOverrides &&
+      typeof coreState.builtInThemeOverrides === "object" &&
+      !Array.isArray(coreState.builtInThemeOverrides)
+        ? coreState.builtInThemeOverrides
+        : {};
+    const customThemes = Array.isArray(coreState?.customThemes)
+      ? coreState.customThemes
+      : [];
+    const matchedCustomTheme = customThemes.find((theme) => {
+      return (
+        theme &&
+        typeof theme === "object" &&
+        typeof theme.id === "string" &&
+        theme.id.trim() === selectedThemeId
+      );
+    });
+
+    const resolvedThemeColors = matchedCustomTheme
+      ? {
+          ...defaultThemeColors,
+          ...(matchedCustomTheme.colors &&
+          typeof matchedCustomTheme.colors === "object"
+            ? matchedCustomTheme.colors
+            : {}),
+        }
+      : {
+          ...defaultThemeColors,
+          ...builtInThemeColors,
+          ...(builtInOverrides?.[selectedThemeId]?.colors &&
+          typeof builtInOverrides[selectedThemeId].colors === "object"
+            ? builtInOverrides[selectedThemeId].colors
+            : {}),
+        };
+
+    return {
+      ...DEFAULT_WINDOW_APPEARANCE,
+      ...resolveWindowAppearanceFromThemeColors(
+        resolvedThemeColors,
+        DEFAULT_WINDOW_APPEARANCE,
+      ),
+    };
+  } catch (error) {
+    console.error("读取启动主题窗口配色失败，回退默认窗口主题:", error);
+    return { ...DEFAULT_WINDOW_APPEARANCE };
+  }
+}
+
+function refreshWindowAppearanceFromStoredTheme() {
+  windowAppearance = {
+    ...windowAppearance,
+    ...resolveStoredThemeWindowAppearance(),
+  };
+  return { ...windowAppearance };
 }
 
 async function logRendererBridgeHealth(targetWindow, context = {}) {
@@ -901,6 +1059,7 @@ function applyWindowAppearance(options = {}, targetWindow = mainWindow) {
 
 // 创建主窗口
 function createWindow(startPage = "index.html", onReadyAction = null) {
+  refreshWindowAppearanceFromStoredTheme();
   const targetPageFile = resolveTargetPageFile(startPage);
   appendStartupDebugLog(`createWindow invoked: ${targetPageFile}`);
   const windowOptions = {

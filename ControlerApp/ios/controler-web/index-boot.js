@@ -3755,6 +3755,34 @@ function resetShortenTimeInputs(shouldRefreshDisplay = false) {
   }
 }
 
+function normalizeShortenDurationInputValue(value, options = {}) {
+  const digitsOnly = String(value ?? "").replace(/[^\d]/g, "");
+  if (!digitsOnly) {
+    return "";
+  }
+  const parsedValue = parseInt(digitsOnly, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    return "";
+  }
+  const maxValue = Number.isFinite(options.max)
+    ? Math.max(0, Math.floor(Number(options.max)))
+    : null;
+  const safeValue =
+    maxValue === null ? parsedValue : Math.min(parsedValue, maxValue);
+  return String(safeValue);
+}
+
+function sanitizeShortenDurationInput(input, options = {}) {
+  if (!(input instanceof HTMLInputElement)) {
+    return "";
+  }
+  const nextValue = normalizeShortenDurationInputValue(input.value, options);
+  if (input.value !== nextValue) {
+    input.value = nextValue;
+  }
+  return nextValue;
+}
+
 function buildTimerSessionSnapshotForPersistence() {
   const modalProjectInput = document.getElementById("project-name-input");
   const modalNextProjectInput = document.getElementById("next-project-input");
@@ -6671,9 +6699,11 @@ function openModal() {
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput && typeof modalDraft?.shortenHours === "string") {
     shortenHoursInput.value = modalDraft.shortenHours;
+    sanitizeShortenDurationInput(shortenHoursInput);
   }
   if (shortenMinutesInput && typeof modalDraft?.shortenMinutes === "string") {
     shortenMinutesInput.value = modalDraft.shortenMinutes;
+    sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
   }
   updateRemainingTimeDisplay();
 
@@ -7190,13 +7220,23 @@ function initIndexPrimaryBindings() {
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput) {
     shortenHoursInput.addEventListener("input", () => {
+      sanitizeShortenDurationInput(shortenHoursInput);
       updateRemainingTimeDisplay();
+      persistTimerSessionState();
+    });
+    shortenHoursInput.addEventListener("blur", () => {
+      sanitizeShortenDurationInput(shortenHoursInput);
       persistTimerSessionState();
     });
   }
   if (shortenMinutesInput) {
     shortenMinutesInput.addEventListener("input", () => {
+      sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
       updateRemainingTimeDisplay();
+      persistTimerSessionState();
+    });
+    shortenMinutesInput.addEventListener("blur", () => {
+      sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
       persistTimerSessionState();
     });
   }

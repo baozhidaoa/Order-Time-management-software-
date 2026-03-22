@@ -70,6 +70,7 @@ class DesktopWidgetManager {
     preloadPath,
     bridgeHealthLogger,
     getLanguage,
+    getWindowAppearance,
   }) {
     this.app = app;
     this.BrowserWindow = BrowserWindow;
@@ -81,6 +82,8 @@ class DesktopWidgetManager {
       typeof getLanguage === "function"
         ? getLanguage
         : () => uiLanguage.DEFAULT_LANGUAGE;
+    this.getWindowAppearance =
+      typeof getWindowAppearance === "function" ? getWindowAppearance : null;
     this.configPath = path.join(
       this.app.getPath("userData"),
       "desktop-widget-config.json",
@@ -446,6 +449,10 @@ class DesktopWidgetManager {
 
     const meta = WIDGET_META[widget.kind];
     const bounds = this.sanitizeWidgetBounds(widget.bounds || {}, meta);
+    const appearance =
+      this.getWindowAppearance && typeof this.getWindowAppearance === "function"
+        ? this.getWindowAppearance()
+        : null;
     const windowOptions = {
       width: Math.max(1, Math.round(bounds.width || meta.width)),
       height: Math.max(1, Math.round(bounds.height || meta.height)),
@@ -460,7 +467,11 @@ class DesktopWidgetManager {
         Number.isFinite(meta.minHeight) ? Math.round(meta.minHeight) : 0,
       ),
       autoHideMenuBar: true,
-      backgroundColor: DEFAULT_WIDGET_WINDOW_APPEARANCE.backgroundColor,
+      backgroundColor:
+        typeof appearance?.backgroundColor === "string" &&
+        appearance.backgroundColor.trim()
+          ? appearance.backgroundColor.trim()
+          : DEFAULT_WIDGET_WINDOW_APPEARANCE.backgroundColor,
       icon: this.getIconPath(),
       show: false,
       resizable: true,

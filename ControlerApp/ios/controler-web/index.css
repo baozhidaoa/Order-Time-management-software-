@@ -557,6 +557,12 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   pointer-events: auto;
 }
 
+body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 .controler-form-modal-overlay {
   overflow: hidden;
 }
@@ -1875,8 +1881,7 @@ select optgroup {
 
 .settings-nav-toggle-check:focus-visible {
   outline: none;
-  border-color: rgba(var(--accent-color-rgb), 0.5);
-  box-shadow: 0 0 0 2px rgba(var(--accent-color-rgb), 0.16);
+  box-shadow: none;
 }
 
 .settings-nav-toggle.is-visible .settings-nav-toggle-check {
@@ -2034,14 +2039,31 @@ select optgroup {
 }
 
 .stats-toolbar-group--range {
-  flex: 0 1 auto;
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   z-index: 16;
   position: relative;
   isolation: isolate;
 }
 
+.stats-range-control-strip {
+  display: grid;
+  grid-template-columns: 44px auto 44px;
+  align-items: center;
+  justify-content: flex-start;
+  column-gap: 8px;
+  row-gap: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+
 .stats-toolbar-group--dates {
-  flex: 1 1 360px;
+  flex: 1 1 100%;
+  width: 100%;
   z-index: 4;
 }
 
@@ -2110,12 +2132,123 @@ select optgroup {
 .stats-toolbar-group--range #stats-range-prev,
 .stats-toolbar-group--range #stats-range-next {
   position: relative;
-  z-index: 28;
+  z-index: 48;
+  flex: 0 0 44px;
+  min-width: 44px;
+  width: 44px;
+  min-height: 44px;
+  height: 44px;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--bottom-nav-button-active-bg) 58%,
+      var(--panel-border-color)
+    );
+  color: var(--bottom-nav-active-text);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.01)
+    ),
+    color-mix(in srgb, var(--bottom-nav-button-active-bg) 90%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 3px 10px rgba(0, 0, 0, 0.08);
+  opacity: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.stats-toolbar-group--range .native-select-enhancer {
+.stats-toolbar-group--range #stats-range-prev:hover,
+.stats-toolbar-group--range #stats-range-next:hover {
+  transform: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.02)
+    ),
+    color-mix(in srgb, var(--bottom-nav-button-active-bg) 92%, transparent);
+  border-color: color-mix(
+    in srgb,
+    var(--bottom-nav-button-active-bg) 64%,
+    var(--panel-border-color)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stats-toolbar-group--range #stats-range-prev:active,
+.stats-toolbar-group--range #stats-range-next:active {
+  transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.stats-toolbar-group--range #stats-range-prev:focus,
+.stats-toolbar-group--range #stats-range-prev:focus-visible,
+.stats-toolbar-group--range #stats-range-prev:focus-within,
+.stats-toolbar-group--range #stats-range-next:focus,
+.stats-toolbar-group--range #stats-range-next:focus-visible,
+.stats-toolbar-group--range #stats-range-next:focus-within {
+  outline: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 3px 10px rgba(0, 0, 0, 0.08) !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+.stats-toolbar-group--range .stats-range-control-strip > .native-select-enhancer {
   position: relative;
+  grid-column: 2;
   z-index: 18;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.stats-toolbar-group--range .stats-range-control-strip > .native-select-source {
+  display: none !important;
+}
+
+.stats-toolbar-group--range .stats-range-control-strip > #stats-range-prev {
+  grid-column: 1;
+}
+
+.stats-toolbar-group--range .stats-range-control-strip > #stats-range-next {
+  grid-column: 3;
+}
+
+.stats-toolbar-group--range .stats-range-control-strip > .tree-select-button,
+.stats-toolbar-group--range
+  .stats-range-control-strip
+  > .native-select-enhancer
+  .tree-select-button {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 44px;
+  padding: 6px 12px !important;
+  border-radius: 12px;
+  gap: 6px;
+}
+
+.stats-toolbar-group--range .native-select-enhancer .tree-select-menu {
+  min-width: max-content !important;
+  max-width: min(120px, calc(100vw - 32px)) !important;
 }
 
 body.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-active
@@ -2129,6 +2262,16 @@ body.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-activ
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+body.page-stats.stats-toolbar-bootstrap-pending .stats-main > :not(#stats-loading-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.page-stats.stats-toolbar-bootstrap-pending #stats-loading-overlay[hidden] {
+  display: flex !important;
 }
 
 body.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
@@ -2364,8 +2507,8 @@ body.page-stats .weekly-glass-scroller {
 }
 
 .stats-hierarchy-legend-row:focus-visible {
-  outline: 2px solid rgba(var(--accent-color-rgb), 0.34);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: none;
 }
 
 .stats-hierarchy-legend-left {
@@ -2672,6 +2815,10 @@ body.page-stats .weekly-glass-scroller {
   cursor: pointer;
   transition: all 0.2s;
   opacity: 0.8;
+}
+
+.stats-toolbar-group--range .time-quick-btn {
+  opacity: 1;
 }
 
 .time-quick-btn:hover {
@@ -4503,9 +4650,22 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.page-stats .stats-toolbar-group--sections,
-  body.page-stats .stats-toolbar-group--range,
   body.page-stats .stats-toolbar-group--dates {
     flex: 1 1 100%;
+  }
+
+  body.page-stats .stats-toolbar-group--range {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    align-self: stretch;
+    justify-content: flex-start;
+  }
+
+  body.page-stats .stats-range-control-strip {
+    grid-template-columns: 44px max-content 44px;
+    max-width: 100%;
   }
 
   body.page-stats .stats-date-field {
@@ -5842,6 +6002,16 @@ body.page-plan.plan-bootstrap-pending.controler-blocking-overlay-active .planner
   animation: none !important;
 }
 
+body.page-plan.plan-bootstrap-pending .plan-main > :not(#plan-loading-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.page-plan.plan-bootstrap-pending #plan-loading-overlay[hidden] {
+  display: flex !important;
+}
+
 body.page-plan.plan-bootstrap-ready .planner-dashboard {
   opacity: 1;
   visibility: visible;
@@ -5851,6 +6021,16 @@ body.page-record.record-bootstrap-pending.controler-blocking-overlay-active .rec
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+body.page-record.record-bootstrap-pending .record-main > :not(#record-loading-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.page-record.record-bootstrap-pending #record-loading-overlay[hidden] {
+  display: flex !important;
 }
 
 body.page-record.record-bootstrap-ready .record-main > :not(#record-loading-overlay) {
@@ -5864,6 +6044,16 @@ body.page-diary.diary-bootstrap-pending.controler-blocking-overlay-active .diary
   pointer-events: none;
 }
 
+body.page-diary.diary-bootstrap-pending .diary-main > :not(#diary-loading-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.page-diary.diary-bootstrap-pending #diary-loading-overlay[hidden] {
+  display: flex !important;
+}
+
 body.page-diary.diary-bootstrap-ready .diary-main > :not(#diary-loading-overlay) {
   opacity: 1;
   visibility: visible;
@@ -5875,9 +6065,24 @@ body.page-settings.settings-bootstrap-pending.controler-blocking-overlay-active 
   pointer-events: none;
 }
 
+body.page-settings.settings-bootstrap-pending .settings-main > :not(#settings-backup-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.page-settings.settings-bootstrap-pending #settings-backup-overlay[hidden] {
+  display: flex !important;
+}
+
 body.page-settings.settings-bootstrap-ready .settings-main > :not(#settings-backup-overlay) {
   opacity: 1;
   visibility: visible;
+}
+
+body.controler-blocking-overlay-active > div:first-of-type > .app-nav,
+body.controler-blocking-overlay-active > div:first-of-type > .app-sidebar {
+  pointer-events: none !important;
 }
 
 body.controler-android-native.app-page-transition-enabled > div:nth-of-type(2),
@@ -6181,11 +6386,38 @@ body :is(
     .weekly-glass-time-block,
     .controler-pressable
   ):focus-visible {
-  outline: 2px solid var(--controler-perf-focus-ring) !important;
-  outline-offset: 2px !important;
-  box-shadow:
-    0 0 0 1px var(--controler-perf-focus-outline),
-    0 0 0 4px rgba(var(--accent-color-rgb), 0.12) !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+body :is(
+    button,
+    input[type="button"],
+    input[type="submit"],
+    input[type="reset"],
+    [role="button"],
+    [tabindex],
+    .bts,
+    .app-nav-button,
+    .tree-select-button,
+    .tree-select-option,
+    .widget-action-card-button,
+    .settings-collapse-toggle,
+    .record-action-btn,
+    .record-item,
+    .project-item,
+    .todo-item,
+    .calendar-day,
+    .plan-timeline-block,
+    .weekly-glass-time-block,
+    .widget-action-card,
+    .stats-hierarchy-legend-row,
+    .stats-line-legend-item,
+    .controler-pressable
+  ) {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none;
 }
 
 body :is(

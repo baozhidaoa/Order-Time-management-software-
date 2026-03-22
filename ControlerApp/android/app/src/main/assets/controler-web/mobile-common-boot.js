@@ -13480,6 +13480,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
+  function shouldIgnoreModalEdgeSwipeStart(target) {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    return !!target.closest(
+      [
+        "input",
+        "textarea",
+        "select",
+        "button",
+        "label",
+        "a[href]",
+        "[contenteditable]:not([contenteditable='false'])",
+        "[data-controler-disable-edge-swipe='true']",
+      ].join(", "),
+    );
+  }
+
   function isVisibleOverlayElement(element, className) {
     if (!(element instanceof HTMLElement)) {
       return false;
@@ -13719,6 +13737,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function syncVisibleModalBackdropState(visibleModals = []) {
+    visibleModals.forEach((modal, index) => {
+      if (!(modal instanceof HTMLElement)) {
+        return;
+      }
+      modal.dataset.controlerBackdropVisible = index === 0 ? "true" : "false";
+    });
+  }
+
   function syncModalHistoryState() {
     modalHistorySyncQueued = false;
     if (
@@ -13731,6 +13758,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const visibleModals = getVisibleModalOverlays();
+    syncVisibleModalBackdropState(visibleModals);
     reportNativeModalState(visibleModals.length);
 
     visibleModals.forEach((modal) => {
@@ -13877,7 +13905,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
           if (
             !(event.target instanceof Element) ||
-            !topModal.contains(event.target)
+            !topModal.contains(event.target) ||
+            shouldIgnoreModalEdgeSwipeStart(event.target)
           ) {
             edgeSwipeState.tracking = false;
             return;
@@ -14471,6 +14500,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const overlay = resolveLoadingOverlayElement(options.overlay);
     const inlineHost =
       resolveLoadingOverlayElement(options.inlineHost) || overlay?.parentElement || null;
+    const scopeFullscreenToInlineHost =
+      options.scopeFullscreenToInlineHost !== false;
 
     if (!(overlay instanceof HTMLElement)) {
       return {
@@ -14509,6 +14540,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const shouldScopeFullscreenToInlineHost = () => {
+      if (!scopeFullscreenToInlineHost) {
+        return false;
+      }
       if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }

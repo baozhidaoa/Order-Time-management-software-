@@ -106,26 +106,32 @@
           </div>
 
           <div class="stats-toolbar-group stats-toolbar-group--range">
-            <button
-              class="bts time-quick-btn"
-              id="stats-range-prev"
-              style="margin: 0"
-            >
-              &lt;
-            </button>
-            <select id="stats-range-unit-select" style="min-width: 96px">
-              <option value="day">天</option>
-              <option value="week">周</option>
-              <option value="month">月</option>
-              <option value="year">年</option>
-            </select>
-            <button
-              class="bts time-quick-btn"
-              id="stats-range-next"
-              style="margin: 0"
-            >
-              &gt;
-            </button>
+            <div class="stats-range-control-strip">
+              <button
+                class="bts time-quick-btn"
+                id="stats-range-prev"
+                type="button"
+                aria-label="上一时间范围"
+                style="margin: 0"
+              >
+                &lt;
+              </button>
+              <select id="stats-range-unit-select" style="min-width: 0">
+                <option value="day">天</option>
+                <option value="week">周</option>
+                <option value="month">月</option>
+                <option value="year">年</option>
+              </select>
+              <button
+                class="bts time-quick-btn"
+                id="stats-range-next"
+                type="button"
+                aria-label="下一时间范围"
+                style="margin: 0"
+              >
+                &gt;
+              </button>
+            </div>
           </div>
 
           <div class="stats-toolbar-group stats-toolbar-group--dates">
