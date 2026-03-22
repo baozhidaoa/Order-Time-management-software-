@@ -2512,14 +2512,15 @@ public final class ControlerWidgetRenderer {
             return rows;
         }
 
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
         int rowSurfaceColor = resolveCollectionRowSurfaceColor(palette);
         int rowTitleColor = resolveReadableTextColor(
-            palette == null ? Color.parseColor("#EAF6ED") : palette.bodyColor,
+            safePalette.bodyColor,
             rowSurfaceColor,
             4.2d
         );
         int rowMetaColor = resolveReadableTextColor(
-            palette == null ? Color.parseColor("#D2E4D7") : palette.subtitleColor,
+            safePalette.subtitleColor,
             rowSurfaceColor,
             3.0d
         );
@@ -2532,11 +2533,21 @@ public final class ControlerWidgetRenderer {
             try {
                 row.put("title", safeText(item.title));
                 row.put("meta", safeText(item.meta));
+                row.put(
+                    "actionLabel",
+                    safeText(
+                        item.pending && item.actionDisabled
+                            ? "处理中"
+                            : item.actionLabel
+                    )
+                );
                 row.put("targetId", safeText(item.targetId));
                 row.put("accentColor", item.accentColor);
                 row.put("backgroundColor", rowSurfaceColor);
                 row.put("titleColor", rowTitleColor);
                 row.put("metaColor", rowMetaColor);
+                row.put("actionTextColor", safePalette.actionTextColor);
+                row.put("actionEnabled", !item.actionDisabled);
                 rows.put(row);
             } catch (Exception ignored) {
                 // Skip malformed row payloads so the rest of the collection can render.

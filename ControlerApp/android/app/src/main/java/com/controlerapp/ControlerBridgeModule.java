@@ -85,8 +85,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final String EXTERNAL_IMPORT_SOURCE_KIND = "external-json";
     private static final String AUTO_BACKUP_PREFS = "controler_auto_backup_prefs";
     private static final String UI_LANGUAGE_PREFS = "controler_ui_preferences";
+    private static final String LAUNCH_THEME_PREFS = "controler_launch_theme_preferences";
     private static final String KEY_AUTO_BACKUP_ENABLED = "enabled";
     private static final String KEY_UI_LANGUAGE = "language";
+    private static final String KEY_LAUNCH_THEME_STATE = "theme_state";
     private static final String KEY_AUTO_BACKUP_INTERVAL_VALUE = "interval_value";
     private static final String KEY_AUTO_BACKUP_INTERVAL_UNIT = "interval_unit";
     private static final String KEY_AUTO_BACKUP_MAX_BACKUPS = "max_backups";
@@ -384,11 +386,49 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         );
     }
 
+    private SharedPreferences getLaunchThemePreferences() {
+        return getReactApplicationContext().getSharedPreferences(
+            LAUNCH_THEME_PREFS,
+            Context.MODE_PRIVATE
+        );
+    }
+
     private String readStoredUiLanguage() {
         SharedPreferences preferences = getUiLanguagePreferences();
         return normalizeUiLanguage(
             preferences.getString(KEY_UI_LANGUAGE, DEFAULT_UI_LANGUAGE)
         );
+    }
+
+    private String normalizeLaunchThemeState(String themeStateJson) {
+        try {
+            JSONObject parsed =
+                TextUtils.isEmpty(themeStateJson)
+                    ? new JSONObject()
+                    : new JSONObject(themeStateJson);
+            JSONObject normalized = new JSONObject();
+            String selectedTheme =
+                String.valueOf(parsed.optString("selectedTheme", "default")).trim();
+            normalized.put(
+                "selectedTheme",
+                TextUtils.isEmpty(selectedTheme) ? "default" : selectedTheme
+            );
+            normalized.put(
+                "customThemes",
+                parsed.optJSONArray("customThemes") == null
+                    ? new JSONArray()
+                    : new JSONArray(parsed.optJSONArray("customThemes").toString())
+            );
+            normalized.put(
+                "builtInThemeOverrides",
+                parsed.optJSONObject("builtInThemeOverrides") == null
+                    ? new JSONObject()
+                    : new JSONObject(parsed.optJSONObject("builtInThemeOverrides").toString())
+            );
+            return normalized.toString();
+        } catch (Exception error) {
+            return "";
+        }
     }
 
     private void scheduleWidgetRefresh(JSONObject payload) {
@@ -607,6 +647,33 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(normalizedLanguage);
         } catch (Exception error) {
             promise.resolve(DEFAULT_UI_LANGUAGE);
+        }
+    }
+
+    @ReactMethod
+    public void getLaunchThemeState(Promise promise) {
+        try {
+            promise.resolve(
+                String.valueOf(
+                    getLaunchThemePreferences().getString(KEY_LAUNCH_THEME_STATE, "")
+                )
+            );
+        } catch (Exception error) {
+            promise.resolve("");
+        }
+    }
+
+    @ReactMethod
+    public void setLaunchThemeState(String themeStateJson, Promise promise) {
+        try {
+            String normalizedThemeState = normalizeLaunchThemeState(themeStateJson);
+            getLaunchThemePreferences()
+                .edit()
+                .putString(KEY_LAUNCH_THEME_STATE, normalizedThemeState)
+                .apply();
+            promise.resolve(normalizedThemeState);
+        } catch (Exception error) {
+            promise.resolve("");
         }
     }
 
@@ -3378,11 +3445,31 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         target.delete();
     }
 
+    private Uri resolveMetadataQueryUri(Uri uri) {
+        if (uri == null) {
+            return null;
+        }
+        try {
+            if (DocumentsContract.isTreeUri(uri)) {
+                String treeDocumentId = DocumentsContract.getTreeDocumentId(uri);
+                if (!TextUtils.isEmpty(treeDocumentId)) {
+                    return DocumentsContract.buildDocumentUriUsingTree(uri, treeDocumentId);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return uri;
+    }
+
     private String resolveDocumentName(Uri uri) {
+        Uri targetUri = resolveMetadataQueryUri(uri);
+        if (targetUri == null) {
+            return "controler-data.json";
+        }
         Cursor cursor = null;
         try {
             cursor = getReactApplicationContext().getContentResolver().query(
-                uri,
+                targetUri,
                 new String[] { OpenableColumns.DISPLAY_NAME },
                 null,
                 null,

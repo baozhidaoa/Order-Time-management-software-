@@ -421,17 +421,6 @@ public final class ControlerWidgetDataStore {
         return core;
     }
 
-    public static JSONObject getStorageLaunchThemeState(Context context) {
-        JSONObject source = null;
-        if (usesDirectoryBundleStorage(context)) {
-            source = readBundleCoreState(context);
-        }
-        if (source == null) {
-            source = loadRoot(context);
-        }
-        return extractLaunchThemeState(source);
-    }
-
     public static JSONObject getStorageBootstrapState(Context context, JSONObject options) {
         JSONObject source = options == null ? new JSONObject() : options;
         String page = normalizeBootstrapPage(source.optString("page", ""));
@@ -4335,15 +4324,32 @@ public final class ControlerWidgetDataStore {
         return new FileOutputStream(file, false);
     }
 
+    private static Uri resolveMetadataQueryUri(Uri uri) {
+        if (uri == null) {
+            return null;
+        }
+        try {
+            if (DocumentsContract.isTreeUri(uri)) {
+                String treeDocumentId = DocumentsContract.getTreeDocumentId(uri);
+                if (!TextUtils.isEmpty(treeDocumentId)) {
+                    return DocumentsContract.buildDocumentUriUsingTree(uri, treeDocumentId);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return uri;
+    }
+
     private static long queryDocumentSize(Context context, Uri uri) {
-        if (context == null || uri == null) {
+        Uri targetUri = resolveMetadataQueryUri(uri);
+        if (context == null || targetUri == null) {
             return 0L;
         }
 
         Cursor cursor = null;
         try {
             cursor = context.getContentResolver().query(
-                uri,
+                targetUri,
                 new String[] { OpenableColumns.SIZE },
                 null,
                 null,
@@ -4365,14 +4371,15 @@ public final class ControlerWidgetDataStore {
     }
 
     private static long queryDocumentModifiedAt(Context context, Uri uri) {
-        if (context == null || uri == null) {
+        Uri targetUri = resolveMetadataQueryUri(uri);
+        if (context == null || targetUri == null) {
             return 0L;
         }
 
         Cursor cursor = null;
         try {
             cursor = context.getContentResolver().query(
-                uri,
+                targetUri,
                 new String[] { Document.COLUMN_LAST_MODIFIED },
                 null,
                 null,
@@ -4448,14 +4455,15 @@ public final class ControlerWidgetDataStore {
     }
 
     private static String queryDisplayName(Context context, Uri uri) {
-        if (context == null || uri == null) {
+        Uri targetUri = resolveMetadataQueryUri(uri);
+        if (context == null || targetUri == null) {
             return "";
         }
 
         Cursor cursor = null;
         try {
             cursor = context.getContentResolver().query(
-                uri,
+                targetUri,
                 new String[] { OpenableColumns.DISPLAY_NAME },
                 null,
                 null,
@@ -4592,24 +4600,30 @@ public final class ControlerWidgetDataStore {
         JSONObject fallbackScope
     ) {
         JSONObject scope = null;
+        boolean explicitScopeProvided = false;
         if (options != null) {
-            scope = options.optJSONObject(section + "Scope");
-            if (scope == null) {
+            if (options.has(section + "Scope")) {
+                scope = options.optJSONObject(section + "Scope");
+                explicitScopeProvided = true;
+            }
+            if (!explicitScopeProvided) {
                 JSONObject scopes = options.optJSONObject("scopes");
-                if (scopes != null) {
+                if (scopes != null && scopes.has(section)) {
                     scope = scopes.optJSONObject(section);
+                    explicitScopeProvided = true;
                 }
             }
-            if (scope == null) {
+            if (!explicitScopeProvided) {
                 JSONObject pageData = options.optJSONObject("pageData");
-                if (pageData != null) {
+                if (pageData != null && pageData.has(section + "Scope")) {
                     scope = pageData.optJSONObject(section + "Scope");
+                    explicitScopeProvided = true;
                 }
             }
         }
 
         JSONObject resolved = cloneJsonObject(scope);
-        if (resolved.length() == 0 && fallbackScope != null) {
+        if (!explicitScopeProvided && fallbackScope != null) {
             resolved = cloneJsonObject(fallbackScope);
         }
         return resolved;
@@ -5281,28 +5295,6 @@ public final class ControlerWidgetDataStore {
             // Ignore theme summary serialization failures.
         }
         return summary;
-    }
-
-    private static JSONObject extractLaunchThemeState(JSONObject source) {
-        JSONObject themeState = new JSONObject();
-        JSONObject safeSource = source == null ? new JSONObject() : source;
-        try {
-            themeState.put(
-                "customThemes",
-                cloneJsonArray(safeSource.optJSONArray("customThemes"))
-            );
-            themeState.put(
-                "builtInThemeOverrides",
-                cloneJsonObject(safeSource.optJSONObject("builtInThemeOverrides"))
-            );
-            themeState.put(
-                "selectedTheme",
-                sanitizeJsonString(safeSource.optString("selectedTheme", "default"))
-            );
-        } catch (Exception error) {
-            error.printStackTrace();
-        }
-        return themeState;
     }
 
     private static JSONObject cloneJsonObject(JSONObject object) {

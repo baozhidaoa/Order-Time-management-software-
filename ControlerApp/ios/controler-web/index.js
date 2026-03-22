@@ -95,6 +95,9 @@ let indexRecordMutationRevision = 0;
 let indexRecordPersistenceChain = Promise.resolve();
 let indexProjectPersistenceChain = Promise.resolve();
 let indexRecordLoadRequestId = 0;
+let indexHistoricalRecordHydrationPromise = null;
+let indexHistoricalRecordHydrationRequestId = 0;
+let indexAllHistoricalRecordsLoaded = false;
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
 const TIMER_STATE_STORAGE_VERSION = 2;
 const INDEX_TIMER_DRAFT_KEY = "draft:index:timer-session";
@@ -110,9 +113,24 @@ const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
 const PROJECT_HIERARCHY_EXPANSION_STORAGE_KEY =
   "projectHierarchyExpansionState";
 const PROJECT_HIERARCHY_EXPANSION_STATE_VERSION = 1;
+const RECORD_SECTION_COLLAPSE_STORAGE_KEY = "recordSectionCollapseState";
+const RECORD_SECTION_COLLAPSE_STATE_VERSION = 1;
 const PROJECT_TABLE_HEADER_DOUBLE_CLICK_DELAY_MS = 240;
+const RECORD_SECTION_COLLAPSE_DEFINITIONS = [
+  {
+    key: "hierarchy",
+    sectionId: "record-hierarchy-section",
+    label: "三级分类系统",
+  },
+  {
+    key: "totals",
+    sectionId: "project-totals-section",
+    label: "项目名称：总时长",
+  },
+];
 let projectHierarchyExpansionState = createEmptyProjectHierarchyExpansionState();
 let projectTotalsExpansionState = createEmptyProjectHierarchyExpansionState();
+let recordSectionCollapseState = createDefaultRecordSectionCollapseState();
 let timerSessionDraftSnapshot = null;
 let timerSessionDraftTimer = 0;
 const indexWorkspaceRefreshScheduler = uiTools?.createFrameScheduler?.(() => {
@@ -616,6 +634,7 @@ async function hydrateIndexWorkspace(options = {}) {
   ) {
     const bootstrap = await window.ControlerStorage.getPageBootstrapState("index", {
       recordScope: getIndexDefaultRecordScope(),
+      fresh: options.freshBootstrap === true,
     });
     const data =
       bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
@@ -626,7 +645,10 @@ async function hydrateIndexWorkspace(options = {}) {
       persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
         reason: "project-hierarchy-repair:index-bootstrap",
       });
-      records = Array.isArray(data.recentRecords) ? data.recentRecords.slice() : [];
+      records = normalizeIndexLoadedRecords(
+        Array.isArray(data.recentRecords) ? data.recentRecords : [],
+      );
+      indexAllHistoricalRecordsLoaded = false;
       indexLoadedRecordPeriodIds =
         Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
           ? bootstrap.loadedPeriodIds.slice()
@@ -684,6 +706,7 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
       });
       indexInitialDataLoaded = true;
       queueRecordInitialReveal();
+      void scheduleIndexHistoricalRecordHydration();
       if (markFirstCommit) {
         uiTools?.markPerfStage?.("first-data-commit", {
           projectCount: projects.length,
@@ -962,6 +985,151 @@ function createDefaultProjectHierarchyExpansionState(
   });
 
   return expandedState;
+}
+
+function createDefaultRecordSectionCollapseState() {
+  return {
+    hierarchy: true,
+    totals: true,
+  };
+}
+
+function normalizeRecordSectionCollapseState(rawState = null) {
+  const defaults = createDefaultRecordSectionCollapseState();
+  const source =
+    rawState && typeof rawState === "object" && !Array.isArray(rawState)
+      ? rawState
+      : {};
+  Object.keys(defaults).forEach((key) => {
+    if (typeof source[key] === "boolean") {
+      defaults[key] = source[key];
+    }
+  });
+  return defaults;
+}
+
+function saveRecordSectionCollapseState() {
+  const normalized = normalizeRecordSectionCollapseState(recordSectionCollapseState);
+  recordSectionCollapseState = normalized;
+  try {
+    localStorage.setItem(
+      RECORD_SECTION_COLLAPSE_STORAGE_KEY,
+      JSON.stringify({
+        version: RECORD_SECTION_COLLAPSE_STATE_VERSION,
+        state: normalized,
+      }),
+    );
+  } catch (error) {
+    console.error("保存记录页分区折叠状态失败:", error);
+  }
+}
+
+function loadRecordSectionCollapseStateFromStorage() {
+  let rawSerialized = "";
+  let parsedState = null;
+  try {
+    rawSerialized = localStorage.getItem(RECORD_SECTION_COLLAPSE_STORAGE_KEY) || "";
+    const parsed = rawSerialized ? JSON.parse(rawSerialized) : null;
+    parsedState =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed.version === RECORD_SECTION_COLLAPSE_STATE_VERSION &&
+          parsed.state &&
+          typeof parsed.state === "object"
+          ? parsed.state
+          : parsed
+        : null;
+  } catch (error) {
+    console.error("读取记录页分区折叠状态失败:", error);
+  }
+
+  recordSectionCollapseState = normalizeRecordSectionCollapseState(parsedState);
+  if (
+    rawSerialized !==
+    JSON.stringify({
+      version: RECORD_SECTION_COLLAPSE_STATE_VERSION,
+      state: recordSectionCollapseState,
+    })
+  ) {
+    saveRecordSectionCollapseState();
+  }
+  return recordSectionCollapseState;
+}
+
+function applyRecordSectionCollapseState() {
+  const projectContainer = document.getElementById("project-container");
+  let collapsedCount = 0;
+
+  RECORD_SECTION_COLLAPSE_DEFINITIONS.forEach((definition) => {
+    const section = document.getElementById(definition.sectionId);
+    if (!(section instanceof HTMLElement)) {
+      return;
+    }
+    const collapsed = recordSectionCollapseState[definition.key] !== false;
+    const toggle = section.querySelector(".record-section-toggle");
+    section.classList.toggle("is-collapsed", collapsed);
+    section.dataset.sectionKey = definition.key;
+    if (toggle instanceof HTMLElement) {
+      toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      toggle.setAttribute("title", definition.label);
+      toggle.setAttribute("aria-label", definition.label);
+    }
+    if (collapsed) {
+      collapsedCount += 1;
+    }
+  });
+
+  if (projectContainer instanceof HTMLElement) {
+    projectContainer.classList.toggle(
+      "record-sections-all-collapsed",
+      collapsedCount === RECORD_SECTION_COLLAPSE_DEFINITIONS.length,
+    );
+  }
+}
+
+function setRecordSectionCollapsed(sectionKey, collapsed) {
+  const normalizedKey = String(sectionKey || "").trim();
+  if (!normalizedKey || !(normalizedKey in recordSectionCollapseState)) {
+    return false;
+  }
+  const nextCollapsed = !!collapsed;
+  if (recordSectionCollapseState[normalizedKey] === nextCollapsed) {
+    return false;
+  }
+  recordSectionCollapseState = {
+    ...recordSectionCollapseState,
+    [normalizedKey]: nextCollapsed,
+  };
+  saveRecordSectionCollapseState();
+  applyRecordSectionCollapseState();
+  return true;
+}
+
+function ensureRecordSectionCollapseUi() {
+  RECORD_SECTION_COLLAPSE_DEFINITIONS.forEach((definition) => {
+    const section = document.getElementById(definition.sectionId);
+    if (!(section instanceof HTMLElement)) {
+      return;
+    }
+    if (!section.querySelector(".record-section-toggle")) {
+      const body = section.querySelector(".record-section-body");
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "record-section-toggle";
+      toggle.dataset.sectionKey = definition.key;
+      toggle.innerHTML = `
+        <span class="record-section-toggle-copy">
+          <span class="record-section-toggle-title">${definition.label}</span>
+        </span>
+        <span class="record-section-toggle-icon" aria-hidden="true"></span>
+      `;
+      toggle.addEventListener("click", () => {
+        const collapsed = recordSectionCollapseState[definition.key] !== false;
+        setRecordSectionCollapsed(definition.key, !collapsed);
+      });
+      section.insertBefore(toggle, body || section.firstChild);
+    }
+  });
+  applyRecordSectionCollapseState();
 }
 
 function hasExpandedProjectHierarchyState(rawState = null) {
@@ -3574,6 +3742,141 @@ async function loadAllIndexRecordsFromStorage() {
   return cloneIndexValue(records);
 }
 
+function normalizeIndexLoadedRecords(recordList = []) {
+  const sourceRecords = Array.isArray(recordList) ? recordList : [];
+  if (sourceRecords.length === 0) {
+    return [];
+  }
+  return sourceRecords.map((record) => {
+    const canonicalEndDate =
+      deserializeTimerDate(record?.endTime) ||
+      deserializeTimerDate(record?.sptTime) ||
+      deserializeTimerDate(record?.timestamp) ||
+      new Date();
+    const canonicalEndText = canonicalEndDate.toISOString();
+    const normalizedDurationMeta = normalizeRecordDurationMeta(
+      record.durationMeta,
+    );
+    const explicitStartDate = deserializeTimerDate(record?.startTime);
+    const boundedDurationMs =
+      explicitStartDate instanceof Date &&
+      !Number.isNaN(explicitStartDate.getTime())
+        ? Math.max(canonicalEndDate.getTime() - explicitStartDate.getTime(), 0)
+        : null;
+    const normalizedDurationMs =
+      Number.isFinite(boundedDurationMs)
+        ? Math.round(boundedDurationMs)
+        : Number.isFinite(record?.durationMs) && record.durationMs >= 0
+          ? Math.round(record.durationMs)
+          : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+              normalizedDurationMeta.recordedMs >= 0
+            ? Math.round(normalizedDurationMeta.recordedMs)
+            : parseSpendtimeToMs(record?.spendtime);
+    const startDate =
+      explicitStartDate ||
+      (normalizedDurationMs > 0
+        ? new Date(canonicalEndDate.getTime() - normalizedDurationMs)
+        : null);
+    const rawEndDate =
+      deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
+    const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
+    const normalizedNextProjectName = resolveRecordNextProjectName(
+      record,
+      projects,
+    );
+    return {
+      ...record,
+      timestamp: canonicalEndText,
+      sptTime: canonicalEndText,
+      endTime: canonicalEndText,
+      rawEndTime: rawEndDate.toISOString(),
+      startTime: serializeTimerDate(startDate),
+      durationMs: Number.isFinite(normalizedDurationMs)
+        ? normalizedDurationMs
+        : null,
+      spendtime: normalizedSpendtime,
+      name: record.name || "未命名项目",
+      nextProjectName: normalizedNextProjectName,
+      nextProjectId: String(record?.nextProjectId || "").trim() || null,
+      clickCount:
+        Number.isFinite(record.clickCount) && record.clickCount > 0
+          ? Math.max(1, Math.floor(record.clickCount))
+          : null,
+      timerRollbackState: normalizeTimerRollbackState(
+        record.timerRollbackState,
+      ),
+      durationMeta: normalizedDurationMeta,
+    };
+  });
+}
+
+function scheduleIndexHistoricalRecordHydration(options = {}) {
+  if (!hasManagedIndexRecordStorage()) {
+    return Promise.resolve(records);
+  }
+  if (indexHistoricalRecordHydrationPromise) {
+    return indexHistoricalRecordHydrationPromise;
+  }
+  if (indexAllHistoricalRecordsLoaded && options.force !== true) {
+    return Promise.resolve(records);
+  }
+
+  const hydrationRequestId = ++indexHistoricalRecordHydrationRequestId;
+  const hydrationRevision = indexRecordMutationRevision;
+  const schedule =
+    typeof window.requestIdleCallback === "function"
+      ? (callback) =>
+          window.requestIdleCallback(callback, {
+            timeout: 360,
+          })
+      : (callback) => window.setTimeout(callback, 80);
+
+  const hydrationPromise = new Promise((resolve) => {
+    schedule(async () => {
+      try {
+        const allRecords = await loadAllIndexRecordsFromStorage();
+        if (
+          hydrationRequestId !== indexHistoricalRecordHydrationRequestId ||
+          hydrationRevision !== indexRecordMutationRevision
+        ) {
+          resolve(records);
+          return;
+        }
+
+        const normalizedRecords = normalizeIndexLoadedRecords(allRecords);
+        const nextPeriodIds = getIndexRecordPeriodIds(normalizedRecords);
+        const shouldRefreshUi =
+          normalizedRecords.length !== records.length ||
+          nextPeriodIds.length !== indexLoadedRecordPeriodIds.length ||
+          nextPeriodIds.some(
+            (periodId, index) => periodId !== indexLoadedRecordPeriodIds[index],
+          );
+
+        records = normalizedRecords;
+        indexLoadedRecordPeriodIds = nextPeriodIds;
+        indexAllHistoricalRecordsLoaded = true;
+
+        if (shouldRefreshUi) {
+          refreshIndexWorkspace({
+            immediate: true,
+          });
+        }
+        resolve(records);
+      } catch (error) {
+        console.error("补载历史记录失败，保留当前记录快照:", error);
+        resolve(records);
+      } finally {
+        if (indexHistoricalRecordHydrationPromise === hydrationPromise) {
+          indexHistoricalRecordHydrationPromise = null;
+        }
+      }
+    });
+  });
+
+  indexHistoricalRecordHydrationPromise = hydrationPromise;
+  return hydrationPromise;
+}
+
 async function ensureIndexProjectDurationCaches(options = {}) {
   const { persist = false } = options;
   if (typeof storageBundleApi?.rebuildProjectDurationCaches !== "function") {
@@ -4571,13 +4874,12 @@ function updateDisplay() {
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  const recentRecords = records
+  const visibleRecords = records
     .filter((record) => {
       const recordDate = resolveRecordTime(record);
-      if (!recordDate) {
+      if (!(recordDate instanceof Date) || Number.isNaN(recordDate.getTime())) {
         return false;
       }
-
       return (
         isSameCalendarDay(recordDate, today) ||
         isSameCalendarDay(recordDate, yesterday)
@@ -4589,24 +4891,26 @@ function updateDisplay() {
       return rightTime - leftTime;
     });
 
-  const recordGroups = [
-    {
-      key: "today",
-      label: "今天",
-      records: recentRecords.filter((record) =>
-        isSameCalendarDay(resolveRecordTime(record) || new Date(0), today),
-      ),
-    },
-    {
-      key: "yesterday",
-      label: "昨天",
-      records: recentRecords.filter((record) =>
-        isSameCalendarDay(resolveRecordTime(record) || new Date(0), yesterday),
-      ),
-    },
-  ].filter((group) => group.records.length > 0);
+  const recordGroups = [];
+  visibleRecords.forEach((record) => {
+    const recordDate = resolveRecordTime(record);
+    if (!(recordDate instanceof Date) || Number.isNaN(recordDate.getTime())) {
+      return;
+    }
+    const groupKey = `${recordDate.getFullYear()}-${String(recordDate.getMonth() + 1).padStart(2, "0")}-${String(recordDate.getDate()).padStart(2, "0")}`;
+    const existingGroup = recordGroups[recordGroups.length - 1];
+    if (existingGroup?.key === groupKey) {
+      existingGroup.records.push(record);
+      return;
+    }
+    recordGroups.push({
+      key: groupKey,
+      label: isSameCalendarDay(recordDate, today) ? "今天" : "昨天",
+      records: [record],
+    });
+  });
 
-  if (recentRecords.length === 0) {
+  if (visibleRecords.length === 0) {
     const emptyState = document.createElement("div");
     emptyState.className = "record-item";
     emptyState.style.display = "flex";
@@ -4615,7 +4919,7 @@ function updateDisplay() {
     emptyState.style.minHeight = `${Math.max(72, Math.round(96 * recordScale))}px`;
     emptyState.style.color = "var(--muted-text-color)";
     emptyState.style.fontSize = `${bodyFontSize}px`;
-    emptyState.textContent = "今天和昨天还没有时间记录";
+    emptyState.textContent = "还没有时间记录";
     output.appendChild(emptyState);
     return;
   }
@@ -8006,6 +8310,7 @@ async function recoverIndexWorkspaceAfterPersistenceFailure() {
     await hydrateIndexWorkspace({
       includeProjects: true,
       includeRecords: true,
+      freshBootstrap: true,
     });
     await commitIndexWorkspaceSnapshot({
       forceTimerSessionSync: true,
@@ -8721,73 +9026,8 @@ async function loadRecordsFromStorage() {
     ) {
       return records;
     }
-    records = Array.isArray(nextRecords) ? nextRecords.slice() : [];
-    if (Array.isArray(records) && records.length > 0) {
-      // 确保每条记录都有必要的字段
-      records = records.map((record) => {
-        const canonicalEndDate =
-          deserializeTimerDate(record?.endTime) ||
-          deserializeTimerDate(record?.sptTime) ||
-          deserializeTimerDate(record?.timestamp) ||
-          new Date();
-        const canonicalEndText = canonicalEndDate.toISOString();
-        const normalizedDurationMeta = normalizeRecordDurationMeta(
-          record.durationMeta,
-        );
-        const explicitStartDate = deserializeTimerDate(record?.startTime);
-        const boundedDurationMs =
-          explicitStartDate instanceof Date &&
-          !Number.isNaN(explicitStartDate.getTime())
-            ? Math.max(canonicalEndDate.getTime() - explicitStartDate.getTime(), 0)
-            : null;
-        const normalizedDurationMs =
-          Number.isFinite(boundedDurationMs)
-            ? Math.round(boundedDurationMs)
-            : Number.isFinite(record?.durationMs) && record.durationMs >= 0
-              ? Math.round(record.durationMs)
-              : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
-                  normalizedDurationMeta.recordedMs >= 0
-                ? Math.round(normalizedDurationMeta.recordedMs)
-                : parseSpendtimeToMs(record?.spendtime);
-        const startDate =
-          explicitStartDate ||
-          (normalizedDurationMs > 0
-            ? new Date(canonicalEndDate.getTime() - normalizedDurationMs)
-            : null);
-        const rawEndDate =
-          deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
-        const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
-        const normalizedNextProjectName = resolveRecordNextProjectName(
-          record,
-          projects,
-        );
-        return {
-          ...record,
-          timestamp: canonicalEndText,
-          sptTime: canonicalEndText,
-          endTime: canonicalEndText,
-          rawEndTime: rawEndDate.toISOString(),
-          startTime: serializeTimerDate(startDate),
-          durationMs: Number.isFinite(normalizedDurationMs)
-            ? normalizedDurationMs
-            : null,
-          spendtime: normalizedSpendtime,
-          name: record.name || "未命名项目",
-          nextProjectName: normalizedNextProjectName,
-          nextProjectId: String(record?.nextProjectId || "").trim() || null,
-          clickCount:
-            Number.isFinite(record.clickCount) && record.clickCount > 0
-              ? Math.max(1, Math.floor(record.clickCount))
-              : null,
-          timerRollbackState: normalizeTimerRollbackState(
-            record.timerRollbackState,
-          ),
-          durationMeta: normalizedDurationMeta,
-        };
-      });
-    } else {
-      records = [];
-    }
+    records = normalizeIndexLoadedRecords(nextRecords);
+    indexAllHistoricalRecordsLoaded = false;
     indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(records);
     if (loadRevision === indexRecordMutationRevision) {
       indexDirtyRecordPeriodIds = new Set();
@@ -9005,6 +9245,7 @@ async function hydrateIndexInitialForegroundWorkspace() {
     await hydrateIndexWorkspace({
       includeProjects: true,
       includeRecords: true,
+      freshBootstrap: true,
     });
     uiTools?.markPerfStage?.("first-data-ready", {
       projectCount: projects.length,
@@ -9077,6 +9318,40 @@ function scheduleIndexDeferredWorkspaceHydration() {
   return indexDeferredWorkspaceHydrationPromise;
 }
 
+function renderIndexBootstrapError(error, stage = "init") {
+  const message =
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error || "未知错误");
+  const normalizedMessage = message.trim() || "未知错误";
+  console.error(`记录页加载失败[${stage}]:`, error);
+
+  setIndexLoadingState({
+    active: false,
+  });
+
+  const tableContainer = document.getElementById("projects-table");
+  if (tableContainer) {
+    tableContainer.innerHTML = `
+      <div style="padding: 24px; text-align: center; color: var(--text-color);">
+        <div style="font-weight: 700; margin-bottom: 10px;">记录页加载失败</div>
+        <div style="font-size: 12px; color: var(--muted-text-color); word-break: break-word;">
+          ${normalizedMessage}
+        </div>
+      </div>
+    `;
+  }
+
+  const output = document.getElementById("output");
+  if (output) {
+    output.innerHTML = `
+      <div style="padding: 20px; color: var(--muted-text-color); text-align: center;">
+        记录数据未能成功渲染，请稍后重试。
+      </div>
+    `;
+  }
+}
+
 // 初始化
 async function init() {
   setIndexLoadingState({
@@ -9085,6 +9360,8 @@ async function init() {
   });
   try {
     applyIndexDesktopWidgetMode();
+    loadRecordSectionCollapseStateFromStorage();
+    ensureRecordSectionCollapseUi();
     bindIndexShellVisibilityGate();
     registerIndexBeforePageLeaveGuard();
     initIndexPrimaryBindings();
@@ -10176,7 +10453,13 @@ function initIndexWidgetLaunchAction() {
   consumeQueryAction();
 }
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => {
+    void init().catch((error) => {
+      renderIndexBootstrapError(error, "dom-ready");
+    });
+  });
 } else {
-  init();
+  void init().catch((error) => {
+    renderIndexBootstrapError(error, "ready");
+  });
 }

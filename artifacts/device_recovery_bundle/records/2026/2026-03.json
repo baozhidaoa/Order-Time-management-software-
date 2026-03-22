@@ -1,0 +1,684 @@
+{
+  "formatVersion": 1,
+  "section": "records",
+  "periodUnit": "month",
+  "periodId": "2026-03",
+  "count": 16,
+  "minDate": "2026-03-21",
+  "maxDate": "2026-03-22",
+  "fingerprint": "records:2026-03:16:2026-03-21:2026-03-22:15773",
+  "items": [
+    {
+      "id": "1774160806808zz28qcnma",
+      "timestamp": "2026-03-21T08:26:27.312Z",
+      "sptTime": "2026-03-21T08:26:27.312Z",
+      "name": "时间管理软件",
+      "spendtime": "57分钟",
+      "projectId": "project-0171",
+      "nextProjectName": "日常",
+      "nextProjectId": "project-0113",
+      "startTime": "2026-03-21T07:28:33.048Z",
+      "endTime": "2026-03-21T08:26:27.312Z",
+      "rawEndTime": "2026-03-22T06:26:27.312Z",
+      "durationMs": 3474264,
+      "clickCount": 61,
+      "timerRollbackState": {
+        "ptn": 60,
+        "fpt": "2026-03-21T07:28:33.048Z",
+        "spt": "2026-03-21T07:28:33.048Z",
+        "lastspt": "2026-03-21T07:28:33.048Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 1800000,
+          "sourceRecordId": "177407992424811prkmxyd",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-21T07:58:44.427Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 82674264,
+        "recordedMs": 3474264,
+        "returnedMs": 79200000,
+        "returnTargetProject": "日常",
+        "appliedCarryover": {
+          "carryoverMs": 1800000,
+          "sourceRecordId": "177407992424811prkmxyd",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-21T07:58:44.427Z"
+        }
+      }
+    },
+    {
+      "id": "17741608252690uknqgxfi",
+      "timestamp": "2026-03-21T08:56:48.337Z",
+      "sptTime": "2026-03-21T08:56:48.337Z",
+      "name": "日常",
+      "spendtime": "30分钟",
+      "projectId": "project-0113",
+      "nextProjectName": "作业",
+      "nextProjectId": "project-0120",
+      "startTime": "2026-03-21T08:26:27.312Z",
+      "endTime": "2026-03-21T08:56:48.337Z",
+      "rawEndTime": "2026-03-22T06:26:48.337Z",
+      "durationMs": 1821025,
+      "clickCount": 62,
+      "timerRollbackState": {
+        "ptn": 61,
+        "fpt": "2026-03-21T08:26:27.312Z",
+        "spt": "2026-03-21T08:26:27.312Z",
+        "lastspt": "2026-03-21T08:26:27.312Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 79200000,
+          "sourceRecordId": "1774160806808zz28qcnma",
+          "sourceProject": "时间管理软件",
+          "targetProject": "日常",
+          "createdAt": "2026-03-22T06:26:46.828Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 79221025,
+        "recordedMs": 1821025,
+        "returnedMs": 77400000,
+        "returnTargetProject": "作业",
+        "appliedCarryover": {
+          "carryoverMs": 79200000,
+          "sourceRecordId": "1774160806808zz28qcnma",
+          "sourceProject": "时间管理软件",
+          "targetProject": "日常",
+          "createdAt": "2026-03-22T06:26:46.828Z"
+        }
+      }
+    },
+    {
+      "id": "1774160851072zhpbd4ra7",
+      "timestamp": "2026-03-21T09:57:12.463Z",
+      "sptTime": "2026-03-21T09:57:12.463Z",
+      "name": "作业",
+      "spendtime": "1小时0分钟",
+      "projectId": "project-0120",
+      "nextProjectName": "时间管理软件",
+      "nextProjectId": "project-0171",
+      "startTime": "2026-03-21T08:56:48.337Z",
+      "endTime": "2026-03-21T09:57:12.463Z",
+      "rawEndTime": "2026-03-22T06:27:12.463Z",
+      "durationMs": 3624126,
+      "clickCount": 63,
+      "timerRollbackState": {
+        "ptn": 62,
+        "fpt": "2026-03-21T08:56:48.337Z",
+        "spt": "2026-03-21T08:56:48.337Z",
+        "lastspt": "2026-03-21T08:56:48.337Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 77400000,
+          "sourceRecordId": "17741608252690uknqgxfi",
+          "sourceProject": "日常",
+          "targetProject": "作业",
+          "createdAt": "2026-03-22T06:27:05.298Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 77424126,
+        "recordedMs": 3624126,
+        "returnedMs": 73800000,
+        "returnTargetProject": "时间管理软件",
+        "appliedCarryover": {
+          "carryoverMs": 77400000,
+          "sourceRecordId": "17741608252690uknqgxfi",
+          "sourceProject": "日常",
+          "targetProject": "作业",
+          "createdAt": "2026-03-22T06:27:05.298Z"
+        }
+      }
+    },
+    {
+      "id": "177416086458737k44axjo",
+      "timestamp": "2026-03-21T10:27:33.655Z",
+      "sptTime": "2026-03-21T10:27:33.655Z",
+      "name": "时间管理软件",
+      "spendtime": "30分钟",
+      "projectId": "project-0171",
+      "nextProjectName": "直播",
+      "nextProjectId": "project-0004",
+      "startTime": "2026-03-21T09:57:12.463Z",
+      "endTime": "2026-03-21T10:27:33.655Z",
+      "rawEndTime": "2026-03-22T06:27:33.655Z",
+      "durationMs": 1821192,
+      "clickCount": 64,
+      "timerRollbackState": {
+        "ptn": 63,
+        "fpt": "2026-03-21T09:57:12.463Z",
+        "spt": "2026-03-21T09:57:12.463Z",
+        "lastspt": "2026-03-21T09:57:12.463Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 73800000,
+          "sourceRecordId": "1774160851072zhpbd4ra7",
+          "sourceProject": "作业",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:27:31.088Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 73821192,
+        "recordedMs": 1821192,
+        "returnedMs": 72000000,
+        "returnTargetProject": "直播",
+        "appliedCarryover": {
+          "carryoverMs": 73800000,
+          "sourceRecordId": "1774160851072zhpbd4ra7",
+          "sourceProject": "作业",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:27:31.088Z"
+        }
+      }
+    },
+    {
+      "id": "1774160927014flm6vyk00",
+      "timestamp": "2026-03-21T13:28:08.071Z",
+      "sptTime": "2026-03-21T13:28:08.071Z",
+      "name": "直播",
+      "spendtime": "3小时0分钟",
+      "projectId": "project-0004",
+      "nextProjectName": "洗澡",
+      "nextProjectId": "project-0109",
+      "startTime": "2026-03-21T10:27:33.655Z",
+      "endTime": "2026-03-21T13:28:08.071Z",
+      "rawEndTime": "2026-03-22T06:28:08.071Z",
+      "durationMs": 10834416,
+      "clickCount": 65,
+      "timerRollbackState": {
+        "ptn": 64,
+        "fpt": "2026-03-21T10:27:33.655Z",
+        "spt": "2026-03-21T10:27:33.655Z",
+        "lastspt": "2026-03-21T10:27:33.655Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 72000000,
+          "sourceRecordId": "177416086458737k44axjo",
+          "sourceProject": "时间管理软件",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:27:44.612Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 72034416,
+        "recordedMs": 10834416,
+        "returnedMs": 61200000,
+        "returnTargetProject": "洗澡",
+        "appliedCarryover": {
+          "carryoverMs": 72000000,
+          "sourceRecordId": "177416086458737k44axjo",
+          "sourceProject": "时间管理软件",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:27:44.612Z"
+        }
+      }
+    },
+    {
+      "id": "17741609805778e3b1mktt",
+      "timestamp": "2026-03-21T14:09:27.150Z",
+      "sptTime": "2026-03-21T14:09:27.150Z",
+      "name": "洗澡",
+      "spendtime": "41分钟",
+      "projectId": "project-0109",
+      "nextProjectName": "直播",
+      "nextProjectId": "project-0004",
+      "startTime": "2026-03-21T13:28:08.071Z",
+      "endTime": "2026-03-21T14:09:27.150Z",
+      "rawEndTime": "2026-03-22T06:29:27.150Z",
+      "durationMs": 2479079,
+      "clickCount": 66,
+      "timerRollbackState": {
+        "ptn": 65,
+        "fpt": "2026-03-21T13:28:08.071Z",
+        "spt": "2026-03-21T13:28:08.071Z",
+        "lastspt": "2026-03-21T13:28:08.071Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 61200000,
+          "sourceRecordId": "1774160927014flm6vyk00",
+          "sourceProject": "直播",
+          "targetProject": "洗澡",
+          "createdAt": "2026-03-22T06:28:47.034Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 61279079,
+        "recordedMs": 2479079,
+        "returnedMs": 58800000,
+        "returnTargetProject": "直播",
+        "appliedCarryover": {
+          "carryoverMs": 61200000,
+          "sourceRecordId": "1774160927014flm6vyk00",
+          "sourceProject": "直播",
+          "targetProject": "洗澡",
+          "createdAt": "2026-03-22T06:28:47.034Z"
+        }
+      }
+    },
+    {
+      "id": "1774161027692us31bps6p",
+      "timestamp": "2026-03-21T15:39:44.070Z",
+      "sptTime": "2026-03-21T15:39:44.070Z",
+      "name": "直播",
+      "spendtime": "1小时30分钟",
+      "projectId": "project-0004",
+      "nextProjectName": "直播",
+      "nextProjectId": "project-0004",
+      "startTime": "2026-03-21T14:09:27.150Z",
+      "endTime": "2026-03-21T15:39:44.070Z",
+      "rawEndTime": "2026-03-22T06:29:44.070Z",
+      "durationMs": 5416920,
+      "clickCount": 67,
+      "timerRollbackState": {
+        "ptn": 66,
+        "fpt": "2026-03-21T14:09:27.150Z",
+        "spt": "2026-03-21T14:09:27.150Z",
+        "lastspt": "2026-03-21T14:09:27.150Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 58800000,
+          "sourceRecordId": "17741609805778e3b1mktt",
+          "sourceProject": "洗澡",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:29:40.595Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 58816920,
+        "recordedMs": 5416920,
+        "returnedMs": 53400000,
+        "returnTargetProject": "直播",
+        "appliedCarryover": {
+          "carryoverMs": 58800000,
+          "sourceRecordId": "17741609805778e3b1mktt",
+          "sourceProject": "洗澡",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:29:40.595Z"
+        }
+      }
+    },
+    {
+      "id": "1774161060534b13p1p9rd",
+      "timestamp": "2026-03-21T16:30:29.928Z",
+      "sptTime": "2026-03-21T16:30:29.928Z",
+      "name": "直播",
+      "spendtime": "50分钟",
+      "projectId": "project-0004",
+      "nextProjectName": "时间管理软件",
+      "nextProjectId": "project-0171",
+      "startTime": "2026-03-21T15:39:44.070Z",
+      "endTime": "2026-03-21T16:30:29.928Z",
+      "rawEndTime": "2026-03-22T06:30:29.928Z",
+      "durationMs": 3045858,
+      "clickCount": 68,
+      "timerRollbackState": {
+        "ptn": 67,
+        "fpt": "2026-03-21T15:39:44.070Z",
+        "spt": "2026-03-21T15:39:44.070Z",
+        "lastspt": "2026-03-21T15:39:44.070Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 53400000,
+          "sourceRecordId": "1774161027692us31bps6p",
+          "sourceProject": "直播",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:30:27.706Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 53445858,
+        "recordedMs": 3045858,
+        "returnedMs": 50400000,
+        "returnTargetProject": "时间管理软件",
+        "appliedCarryover": {
+          "carryoverMs": 53400000,
+          "sourceRecordId": "1774161027692us31bps6p",
+          "sourceProject": "直播",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:30:27.706Z"
+        }
+      }
+    },
+    {
+      "id": "1774161077830lt9dho3dr",
+      "timestamp": "2026-03-21T17:01:03.563Z",
+      "sptTime": "2026-03-21T17:01:03.563Z",
+      "name": "时间管理软件",
+      "spendtime": "30分钟",
+      "projectId": "project-0171",
+      "nextProjectName": "小黑盒",
+      "nextProjectId": "project-0020",
+      "startTime": "2026-03-21T16:30:29.928Z",
+      "endTime": "2026-03-21T17:01:03.563Z",
+      "rawEndTime": "2026-03-22T06:31:03.563Z",
+      "durationMs": 1833635,
+      "clickCount": 69,
+      "timerRollbackState": {
+        "ptn": 68,
+        "fpt": "2026-03-21T16:30:29.928Z",
+        "spt": "2026-03-21T16:30:29.928Z",
+        "lastspt": "2026-03-21T16:30:29.928Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 50400000,
+          "sourceRecordId": "1774161060534b13p1p9rd",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:31:00.551Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 50433635,
+        "recordedMs": 1833635,
+        "returnedMs": 48600000,
+        "returnTargetProject": "小黑盒",
+        "appliedCarryover": {
+          "carryoverMs": 50400000,
+          "sourceRecordId": "1774161060534b13p1p9rd",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:31:00.551Z"
+        }
+      }
+    },
+    {
+      "id": "1774161092739y6jj10qel",
+      "timestamp": "2026-03-21T17:16:19.891Z",
+      "sptTime": "2026-03-21T17:16:19.891Z",
+      "name": "小黑盒",
+      "spendtime": "15分钟",
+      "projectId": "project-0020",
+      "nextProjectName": "睡觉",
+      "nextProjectId": "project-0001",
+      "startTime": "2026-03-21T17:01:03.563Z",
+      "endTime": "2026-03-21T17:16:19.891Z",
+      "rawEndTime": "2026-03-22T06:31:19.891Z",
+      "durationMs": 916328,
+      "clickCount": 70,
+      "timerRollbackState": {
+        "ptn": 69,
+        "fpt": "2026-03-21T17:01:03.563Z",
+        "spt": "2026-03-21T17:01:03.563Z",
+        "lastspt": "2026-03-21T17:01:03.563Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 48600000,
+          "sourceRecordId": "1774161077830lt9dho3dr",
+          "sourceProject": "时间管理软件",
+          "targetProject": "小黑盒",
+          "createdAt": "2026-03-22T06:31:17.846Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 48616328,
+        "recordedMs": 916328,
+        "returnedMs": 47700000,
+        "returnTargetProject": "睡觉",
+        "appliedCarryover": {
+          "carryoverMs": 48600000,
+          "sourceRecordId": "1774161077830lt9dho3dr",
+          "sourceProject": "时间管理软件",
+          "targetProject": "小黑盒",
+          "createdAt": "2026-03-22T06:31:17.846Z"
+        }
+      }
+    },
+    {
+      "id": "17741611251146izzptb1y",
+      "timestamp": "2026-03-22T03:31:44.878Z",
+      "sptTime": "2026-03-22T03:31:44.878Z",
+      "name": "睡觉",
+      "spendtime": "10小时15分钟",
+      "projectId": "project-0001",
+      "nextProjectName": "聊天",
+      "nextProjectId": "project-0014",
+      "startTime": "2026-03-21T17:16:19.891Z",
+      "endTime": "2026-03-22T03:31:44.878Z",
+      "rawEndTime": "2026-03-22T06:31:44.878Z",
+      "durationMs": 36924987,
+      "clickCount": 71,
+      "timerRollbackState": {
+        "ptn": 70,
+        "fpt": "2026-03-21T17:16:19.891Z",
+        "spt": "2026-03-21T17:16:19.891Z",
+        "lastspt": "2026-03-21T17:16:19.891Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 47700000,
+          "sourceRecordId": "1774161092739y6jj10qel",
+          "sourceProject": "小黑盒",
+          "targetProject": "睡觉",
+          "createdAt": "2026-03-22T06:31:32.753Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 47724987,
+        "recordedMs": 36924987,
+        "returnedMs": 10800000,
+        "returnTargetProject": "聊天",
+        "appliedCarryover": {
+          "carryoverMs": 47700000,
+          "sourceRecordId": "1774161092739y6jj10qel",
+          "sourceProject": "小黑盒",
+          "targetProject": "睡觉",
+          "createdAt": "2026-03-22T06:31:32.753Z"
+        }
+      }
+    },
+    {
+      "id": "1774161137281tol0ulhch",
+      "timestamp": "2026-03-22T04:17:07.406Z",
+      "sptTime": "2026-03-22T04:17:07.406Z",
+      "name": "聊天",
+      "spendtime": "45分钟",
+      "projectId": "project-0014",
+      "nextProjectName": "时间管理软件",
+      "nextProjectId": "project-0171",
+      "startTime": "2026-03-22T03:31:44.878Z",
+      "endTime": "2026-03-22T04:17:07.406Z",
+      "rawEndTime": "2026-03-22T06:32:07.406Z",
+      "durationMs": 2722528,
+      "clickCount": 72,
+      "timerRollbackState": {
+        "ptn": 71,
+        "fpt": "2026-03-22T03:31:44.878Z",
+        "spt": "2026-03-22T03:31:44.878Z",
+        "lastspt": "2026-03-22T03:31:44.878Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 10800000,
+          "sourceRecordId": "17741611251146izzptb1y",
+          "sourceProject": "睡觉",
+          "targetProject": "聊天",
+          "createdAt": "2026-03-22T06:32:05.126Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 10822528,
+        "recordedMs": 2722528,
+        "returnedMs": 8100000,
+        "returnTargetProject": "时间管理软件",
+        "appliedCarryover": {
+          "carryoverMs": 10800000,
+          "sourceRecordId": "17741611251146izzptb1y",
+          "sourceProject": "睡觉",
+          "targetProject": "聊天",
+          "createdAt": "2026-03-22T06:32:05.126Z"
+        }
+      }
+    },
+    {
+      "id": "1774161158850x54sh6ojz",
+      "timestamp": "2026-03-22T04:47:20.951Z",
+      "sptTime": "2026-03-22T04:47:20.951Z",
+      "name": "时间管理软件",
+      "spendtime": "30分钟",
+      "projectId": "project-0171",
+      "nextProjectName": "洗漱",
+      "nextProjectId": "project-0028",
+      "startTime": "2026-03-22T04:17:07.406Z",
+      "endTime": "2026-03-22T04:47:20.951Z",
+      "rawEndTime": "2026-03-22T06:32:20.951Z",
+      "durationMs": 1813545,
+      "clickCount": 73,
+      "timerRollbackState": {
+        "ptn": 72,
+        "fpt": "2026-03-22T04:17:07.406Z",
+        "spt": "2026-03-22T04:17:07.406Z",
+        "lastspt": "2026-03-22T04:17:07.406Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 8100000,
+          "sourceRecordId": "1774161137281tol0ulhch",
+          "sourceProject": "聊天",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:32:17.295Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 8113545,
+        "recordedMs": 1813545,
+        "returnedMs": 6300000,
+        "returnTargetProject": "洗漱",
+        "appliedCarryover": {
+          "carryoverMs": 8100000,
+          "sourceRecordId": "1774161137281tol0ulhch",
+          "sourceProject": "聊天",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:32:17.295Z"
+        }
+      }
+    },
+    {
+      "id": "1774161173120l1sag8tqf",
+      "timestamp": "2026-03-22T05:32:43.263Z",
+      "sptTime": "2026-03-22T05:32:43.263Z",
+      "name": "洗漱",
+      "spendtime": "45分钟",
+      "projectId": "project-0028",
+      "nextProjectName": "直播",
+      "nextProjectId": "project-0004",
+      "startTime": "2026-03-22T04:47:20.951Z",
+      "endTime": "2026-03-22T05:32:43.263Z",
+      "rawEndTime": "2026-03-22T06:32:43.263Z",
+      "durationMs": 2722312,
+      "clickCount": 74,
+      "timerRollbackState": {
+        "ptn": 73,
+        "fpt": "2026-03-22T04:47:20.951Z",
+        "spt": "2026-03-22T04:47:20.951Z",
+        "lastspt": "2026-03-22T04:47:20.951Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 6300000,
+          "sourceRecordId": "1774161158850x54sh6ojz",
+          "sourceProject": "时间管理软件",
+          "targetProject": "洗漱",
+          "createdAt": "2026-03-22T06:32:38.864Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 6322312,
+        "recordedMs": 2722312,
+        "returnedMs": 3600000,
+        "returnTargetProject": "直播",
+        "appliedCarryover": {
+          "carryoverMs": 6300000,
+          "sourceRecordId": "1774161158850x54sh6ojz",
+          "sourceProject": "时间管理软件",
+          "targetProject": "洗漱",
+          "createdAt": "2026-03-22T06:32:38.864Z"
+        }
+      }
+    },
+    {
+      "id": "177416169073874fkjhud1",
+      "timestamp": "2026-03-22T06:11:13.688Z",
+      "sptTime": "2026-03-22T06:11:13.688Z",
+      "name": "直播",
+      "spendtime": "38分钟",
+      "projectId": "project-0004",
+      "nextProjectName": "时间管理软件",
+      "nextProjectId": "project-0171",
+      "startTime": "2026-03-22T05:32:43.263Z",
+      "endTime": "2026-03-22T06:11:13.688Z",
+      "rawEndTime": "2026-03-22T06:41:13.688Z",
+      "durationMs": 2310425,
+      "clickCount": 75,
+      "timerRollbackState": {
+        "ptn": 74,
+        "fpt": "2026-03-22T05:32:43.263Z",
+        "spt": "2026-03-22T05:32:43.263Z",
+        "lastspt": "2026-03-22T05:32:43.263Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 3600000,
+          "sourceRecordId": "1774161173120l1sag8tqf",
+          "sourceProject": "洗漱",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:32:53.131Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 4110425,
+        "recordedMs": 2310425,
+        "returnedMs": 1800000,
+        "returnTargetProject": "时间管理软件",
+        "appliedCarryover": {
+          "carryoverMs": 3600000,
+          "sourceRecordId": "1774161173120l1sag8tqf",
+          "sourceProject": "洗漱",
+          "targetProject": "直播",
+          "createdAt": "2026-03-22T06:32:53.131Z"
+        }
+      }
+    },
+    {
+      "id": "1774161705196s9ld0jtli",
+      "timestamp": "2026-03-22T06:31:33.399Z",
+      "sptTime": "2026-03-22T06:31:33.399Z",
+      "name": "时间管理软件",
+      "spendtime": "20分钟",
+      "projectId": "project-0171",
+      "nextProjectName": "聊天",
+      "nextProjectId": "project-0014",
+      "startTime": "2026-03-22T06:11:13.688Z",
+      "endTime": "2026-03-22T06:31:33.399Z",
+      "rawEndTime": "2026-03-22T06:41:33.399Z",
+      "durationMs": 1219711,
+      "clickCount": 76,
+      "timerRollbackState": {
+        "ptn": 75,
+        "fpt": "2026-03-22T06:11:13.688Z",
+        "spt": "2026-03-22T06:11:13.688Z",
+        "lastspt": "2026-03-22T06:11:13.688Z",
+        "diffMs": null,
+        "pendingDurationCarryoverState": {
+          "carryoverMs": 1800000,
+          "sourceRecordId": "177416169073874fkjhud1",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:41:30.752Z"
+        }
+      },
+      "durationMeta": {
+        "originalMs": 1819711,
+        "recordedMs": 1219711,
+        "returnedMs": 600000,
+        "returnTargetProject": "聊天",
+        "appliedCarryover": {
+          "carryoverMs": 1800000,
+          "sourceRecordId": "177416169073874fkjhud1",
+          "sourceProject": "直播",
+          "targetProject": "时间管理软件",
+          "createdAt": "2026-03-22T06:41:30.752Z"
+        }
+      }
+    }
+  ]
+}

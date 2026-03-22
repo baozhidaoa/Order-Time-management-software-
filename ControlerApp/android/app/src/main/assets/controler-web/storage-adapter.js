@@ -3794,6 +3794,61 @@
       return normalizeState(rebasedSharedState, buildMobileMetadata());
     }
 
+    function getManagedStateFootprint(state = {}) {
+      const safeState =
+        state && typeof state === "object" && !Array.isArray(state) ? state : {};
+      const countArrayItems = (key) =>
+        Array.isArray(safeState[key]) ? safeState[key].length : 0;
+      const rangeItemCount = MANAGED_RANGE_SECTIONS.reduce(
+        (total, section) => total + countArrayItems(section),
+        0,
+      );
+      const projectCount = countArrayItems("projects");
+      const directRecordCount = countArrayItems("records");
+      const coreItemCount =
+        projectCount +
+        countArrayItems("todos") +
+        countArrayItems("checkinItems") +
+        countArrayItems("plans") +
+        countArrayItems("diaryCategories") +
+        countArrayItems("customThemes");
+
+      return {
+        projectCount,
+        directRecordCount,
+        rangeItemCount,
+        coreItemCount,
+        totalItemCount: coreItemCount + rangeItemCount + directRecordCount,
+      };
+    }
+
+    function shouldPreferNativeInitializationSnapshot(
+      localState,
+      nativeState,
+    ) {
+      const localFootprint = getManagedStateFootprint(localState);
+      const nativeFootprint = getManagedStateFootprint(nativeState);
+
+      if (nativeFootprint.rangeItemCount > localFootprint.rangeItemCount) {
+        return true;
+      }
+      if (nativeFootprint.directRecordCount > localFootprint.directRecordCount) {
+        return true;
+      }
+      if (nativeFootprint.projectCount > localFootprint.projectCount + 1) {
+        return true;
+      }
+      if (nativeFootprint.totalItemCount > localFootprint.totalItemCount + 8) {
+        return true;
+      }
+
+      return (
+        localFootprint.rangeItemCount + localFootprint.directRecordCount === 0 &&
+        localFootprint.projectCount <= 1 &&
+        nativeFootprint.totalItemCount > localFootprint.totalItemCount
+      );
+    }
+
     function rebuildManagedSectionCoverage(state, options = {}) {
       const markFull = options?.markFull === true;
       const nextCoverage = createManagedSectionCoverage();
@@ -3828,13 +3883,39 @@
       });
     }
 
-    function canServeManagedSectionRange(section, scope = {}) {
-      const normalizedRange =
+    function normalizeManagedSectionRangeScope(scope = {}) {
+      return (
         storageBundle?.normalizeRangeInput?.(scope) || {
           periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
           startDate: scope?.startDate || scope?.start || null,
           endDate: scope?.endDate || scope?.end || null,
-        };
+        }
+      );
+    }
+
+    function isFullManagedSectionRange(normalizedRange = {}) {
+      const normalizedPeriodIds = Array.isArray(normalizedRange?.periodIds)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+      const normalizedStartDate =
+        typeof normalizedRange?.startDate === "string"
+          ? normalizedRange.startDate.trim()
+          : normalizedRange?.startDate || "";
+      const normalizedEndDate =
+        typeof normalizedRange?.endDate === "string"
+          ? normalizedRange.endDate.trim()
+          : normalizedRange?.endDate || "";
+      return (
+        normalizedPeriodIds.length === 0 &&
+        !normalizedStartDate &&
+        !normalizedEndDate
+      );
+    }
+
+    function canServeManagedSectionRange(section, scope = {}) {
+      const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
         return normalizedRange;
       }
@@ -3849,17 +3930,88 @@
         : null;
     }
 
+    function canServeManagedPageBootstrap(pageKey, options = {}) {
+      const normalizedPage = normalizePageBootstrapKey(pageKey);
+      const normalizedOptions =
+        options && typeof options === "object" ? options : {};
+      if (!hasManagedCoreSnapshot) {
+        return false;
+      }
+
+      if (normalizedPage === "index") {
+        return !!canServeManagedSectionRange(
+          "records",
+          normalizedOptions?.recordScope &&
+            typeof normalizedOptions.recordScope === "object"
+            ? normalizedOptions.recordScope
+            : buildRecentHoursBootstrapScope(48),
+        );
+      }
+
+      if (normalizedPage === "plan") {
+        return !!canServeManagedSectionRange(
+          "plans",
+          normalizedOptions?.planScope &&
+            typeof normalizedOptions.planScope === "object"
+            ? normalizedOptions.planScope
+            : Array.isArray(normalizedOptions?.periodIds) &&
+                normalizedOptions.periodIds.length
+              ? { periodIds: normalizedOptions.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      if (normalizedPage === "todo") {
+        const dailyCheckinsCovered = canServeManagedSectionRange(
+          "dailyCheckins",
+          normalizedOptions?.dailyCheckinScope &&
+            typeof normalizedOptions.dailyCheckinScope === "object"
+            ? normalizedOptions.dailyCheckinScope
+            : buildCurrentDayBootstrapScope(),
+        );
+        const checkinsCovered = canServeManagedSectionRange(
+          "checkins",
+          normalizedOptions?.checkinScope &&
+            typeof normalizedOptions.checkinScope === "object"
+            ? normalizedOptions.checkinScope
+            : buildCurrentMonthBootstrapScope(),
+        );
+        return !!dailyCheckinsCovered && !!checkinsCovered;
+      }
+
+      if (normalizedPage === "diary") {
+        return !!canServeManagedSectionRange(
+          "diaryEntries",
+          normalizedOptions?.diaryScope &&
+            typeof normalizedOptions.diaryScope === "object"
+            ? normalizedOptions.diaryScope
+            : Array.isArray(normalizedOptions?.periodIds) &&
+                normalizedOptions.periodIds.length
+              ? { periodIds: normalizedOptions.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      if (normalizedPage === "stats") {
+        return !!canServeManagedSectionRange(
+          "records",
+          normalizedOptions?.recordScope &&
+            typeof normalizedOptions.recordScope === "object"
+            ? normalizedOptions.recordScope
+            : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      return true;
+    }
+
     function mergeManagedSectionRange(section, scope = {}, items = []) {
-      const normalizedRange =
-        storageBundle?.normalizeRangeInput?.(scope) || {
-          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-          startDate: scope?.startDate || scope?.start || null,
-          endDate: scope?.endDate || scope?.end || null,
-        };
+      const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
+      const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
       const state = readState();
       const nextState = {
         ...state,
@@ -3872,15 +4024,17 @@
             ? storageBundle.isRecurringPlan(item)
             : String(item?.repeat || "").trim().toLowerCase() !== "none",
         );
-        const oneTimePlans = (state?.plans || []).filter(
-          (item) =>
-            !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
-            !(
-              typeof storageBundle?.isRecurringPlan === "function"
-                ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none"
-            ),
-        );
+        const oneTimePlans = shouldReplaceWholeSection
+          ? []
+          : (state?.plans || []).filter(
+              (item) =>
+                !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
+                !(
+                  typeof storageBundle?.isRecurringPlan === "function"
+                    ? storageBundle.isRecurringPlan(item)
+                    : String(item?.repeat || "").trim().toLowerCase() !== "none"
+                ),
+            );
         nextState.plans = [
           ...(
             storageBundle?.sortPartitionItems?.(section, [
@@ -3891,9 +4045,11 @@
           ...cloneValue(recurringPlans),
         ];
       } else {
-        const retainedItems = (state?.[section] || []).filter(
-          (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
-        );
+        const retainedItems = shouldReplaceWholeSection
+          ? []
+          : (state?.[section] || []).filter(
+              (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
+            );
         nextState[section] =
           storageBundle?.sortPartitionItems?.(section, [
             ...retainedItems,
@@ -3905,12 +4061,19 @@
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasManagedCoreSnapshot = true;
       hasPendingStateChanges = false;
-      const coveredPeriodIds = requestedPeriodIds.length
-        ? requestedPeriodIds
-        : Array.from(
-            new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
-          );
-      markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+      if (shouldReplaceWholeSection) {
+        rebuildManagedSectionCoverage(cachedState, {
+          markFull: false,
+        });
+        managedFullyHydratedSections.add(section);
+      } else {
+        const coveredPeriodIds = requestedPeriodIds.length
+          ? requestedPeriodIds
+          : Array.from(
+              new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
+            );
+        markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+      }
       persistMirrorSnapshot(true);
     }
 
@@ -3927,6 +4090,12 @@
 
     function readState() {
       return cachedState;
+    }
+
+    function buildCurrentMergedState() {
+      return buildMergedState(readState(), {
+        includeAliases: true,
+      });
     }
 
     function assignState(nextState) {
@@ -4561,6 +4730,47 @@
     async function initializeReactNativeStorage() {
       if (hasPendingStateChanges) {
         persistMirrorSnapshot(true);
+        const protectedNativeSnapshot = await readNativeSnapshot({
+          suppressError: true,
+        });
+        if (
+          protectedNativeSnapshot?.state &&
+          shouldPreferNativeInitializationSnapshot(
+            readState(),
+            protectedNativeSnapshot.state,
+          )
+        ) {
+          const currentSnapshot = createComparableSnapshot(readState());
+          const nextSnapshot = createComparableSnapshot(
+            protectedNativeSnapshot.state,
+          );
+
+          cachedState = protectedNativeSnapshot.state;
+          hasManagedCoreSnapshot = true;
+          rebuildManagedSectionCoverage(cachedState, {
+            markFull: true,
+          });
+          cachedStatus = protectedNativeSnapshot.status || cachedStatus;
+          lastWrittenComparableSnapshot = nextSnapshot;
+          hasPendingStateChanges = false;
+          persistMirrorSnapshot(true);
+          updateVersionBaseline(cachedStatus);
+          clearStorageSyncError();
+
+          if (nextSnapshot !== currentSnapshot) {
+            dispatchStorageChangedEvent(
+              "initial-sync",
+              buildMergedState(cachedState),
+              cachedStatus,
+            );
+          }
+          if (cachedStatus?.sizePending === true) {
+            scheduleNativeStatusRefresh({
+              suppressError: true,
+            });
+          }
+          return;
+        }
         try {
           await writeNativeState();
         } catch (error) {
@@ -5275,7 +5485,13 @@
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
-          if (hasManagedCoreSnapshot && !useFreshBootstrap) {
+          const canUseManagedBootstrap = canServeManagedPageBootstrap(
+            normalizedPage,
+            normalizedOptions,
+          );
+          const shouldHydrateManagedMirror =
+            useFreshBootstrap || !canUseManagedBootstrap;
+          if (canUseManagedBootstrap && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -5326,7 +5542,7 @@
                   },
                 );
               }
-              if (useFreshBootstrap) {
+              if (shouldHydrateManagedMirror) {
                 applyNativePageBootstrapToManagedMirror(
                   normalizedPage,
                   normalizedBootstrap,
@@ -5372,7 +5588,7 @@
                 },
               },
             );
-            if (useFreshBootstrap) {
+            if (shouldHydrateManagedMirror) {
               applyNativePageBootstrapToManagedMirror(
                 normalizedPage,
                 fallbackBootstrap,

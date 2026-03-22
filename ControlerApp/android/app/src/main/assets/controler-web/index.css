@@ -750,6 +750,70 @@ body.controler-mobile-runtime.controler-keyboard-open .modal-content {
   min-width: 0;
 }
 
+.record-section-toggle {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.record-section-toggle-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.record-section-toggle-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.record-section-toggle-hint {
+  color: var(--muted-text-color);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.record-section-toggle-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-text-color);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.record-section-toggle-icon::before {
+  content: "";
+  position: absolute;
+  inset: 2px 3px 3px 2px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.record-section-block.is-collapsed {
+  gap: 0;
+}
+
+.record-section-block.is-collapsed .record-section-body {
+  display: none;
+}
+
+.record-section-block.is-collapsed .record-section-toggle-icon {
+  transform: rotate(-90deg);
+}
+
 body.controler-android-native.page-record
   :is(
     #record-hierarchy-title,
@@ -1972,6 +2036,8 @@ select optgroup {
 .stats-toolbar-group--range {
   flex: 0 1 auto;
   z-index: 16;
+  position: relative;
+  isolation: isolate;
 }
 
 .stats-toolbar-group--dates {
@@ -2039,6 +2105,17 @@ select optgroup {
 .stats-toolbar .tree-select,
 .stats-toolbar .native-select-enhancer {
   min-width: 0;
+}
+
+.stats-toolbar-group--range #stats-range-prev,
+.stats-toolbar-group--range #stats-range-next {
+  position: relative;
+  z-index: 28;
+}
+
+.stats-toolbar-group--range .native-select-enhancer {
+  position: relative;
+  z-index: 18;
 }
 
 body.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-active
@@ -2757,6 +2834,7 @@ body.page-stats .weekly-glass-scroller {
 }
 
 .native-select-source {
+  display: none !important;
   position: absolute !important;
   width: 0 !important;
   height: 0 !important;
@@ -4247,17 +4325,33 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     padding: 10px 12px;
   }
 
+  body.page-record .record-main {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
   body.page-settings .settings-topbar {
     margin-bottom: 10px !important;
   }
 
   body.page-record #project-container {
     height: auto !important;
-    min-height: 190px !important;
+    min-height: 112px !important;
+    max-height: min(28dvh, 252px) !important;
+    flex: 0 1 auto !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
     padding: 10px !important;
+    overflow-y: auto !important;
+  }
+
+  body.page-record #project-container.record-sections-all-collapsed {
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
   }
 
   body.page-record .record-section-block {
@@ -4268,6 +4362,14 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
 
   body.page-record .record-section-heading {
     font-size: 13px !important;
+  }
+
+  body.page-record .record-section-toggle-title {
+    font-size: 12px !important;
+  }
+
+  body.page-record .record-section-toggle-hint {
+    font-size: 10px !important;
   }
 
   body.page-record .record-section-note {
@@ -4281,7 +4383,7 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   body.page-record #projects-table {
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
     gap: 6px !important;
-    min-height: 180px !important;
+    min-height: 132px !important;
   }
 
   body.page-record .projects-table-grid {
@@ -4312,8 +4414,8 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)) !important;
     gap: 8px !important;
-    min-height: 126px !important;
-    max-height: min(34dvh, 220px) !important;
+    min-height: 92px !important;
+    max-height: min(22dvh, 148px) !important;
     margin-top: 8px !important;
     padding-right: 2px !important;
     font-size: 15px !important;
@@ -4328,7 +4430,8 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
 
   body.page-record #output {
     height: auto !important;
-    min-height: 128px !important;
+    min-height: 0 !important;
+    flex: 1 1 auto !important;
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
     gap: 8px !important;
@@ -4338,6 +4441,9 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.page-record .record-output-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    flex: 1 1 0 !important;
     padding: 10px !important;
   }
 
@@ -5420,6 +5526,46 @@ body.controler-android-native
 
 body.controler-android-native
   :is(
+    .tree-select-button,
+    .tree-select-option,
+    .stats-hierarchy-legend-row,
+    .stats-line-legend-item
+  ) {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-focus-ring-color: transparent !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none;
+}
+
+body.controler-android-native
+  :is(
+    .tree-select-button,
+    .tree-select-option,
+    .stats-hierarchy-legend-row,
+    .stats-line-legend-item
+  ):focus,
+body.controler-android-native
+  :is(
+    .tree-select-button,
+    .tree-select-option,
+    .stats-hierarchy-legend-row,
+    .stats-line-legend-item
+  ):focus-visible,
+body.controler-android-native
+  :is(
+    .tree-select-button,
+    .tree-select-option,
+    .stats-hierarchy-legend-row,
+    .stats-line-legend-item
+  ):focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+body.controler-android-native
+  :is(
     .record-item,
     .settings-card,
     .stats-section-panel,
@@ -6087,6 +6233,10 @@ body :is(
     var(--controler-perf-overlay-bg);
   backdrop-filter: var(--controler-perf-surface-blur);
   -webkit-backdrop-filter: var(--controler-perf-surface-blur);
+}
+
+.page-loading-overlay[data-mode="inline"] {
+  pointer-events: none;
 }
 
 .page-loading-overlay[data-mode="fullscreen"] {

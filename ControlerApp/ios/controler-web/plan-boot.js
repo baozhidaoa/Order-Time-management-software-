@@ -66,6 +66,35 @@
     return hours;
   }
 
+  function resolveRecordDurationMs(record) {
+    if (!record || typeof record !== "object") {
+      return 0;
+    }
+    if (Number.isFinite(record.durationMs) && record.durationMs >= 0) {
+      return Math.round(record.durationMs);
+    }
+    if (
+      Number.isFinite(record?.durationMeta?.recordedMs) &&
+      record.durationMeta.recordedMs >= 0
+    ) {
+      return Math.round(record.durationMeta.recordedMs);
+    }
+    return Math.max(
+      0,
+      Math.round(parseSpendTimeToHours(record.spendtime) * 60 * 60 * 1000),
+    );
+  }
+
+  function resolveRecordAnchorTime(record) {
+    return parseFlexibleDate(
+      record?.endTime ||
+        record?.sptTime ||
+        record?.timestamp ||
+        record?.rawEndTime ||
+        record?.startTime,
+    );
+  }
+
   function buildFallbackProjectHierarchyIndex(projects = []) {
     const allNodes = (Array.isArray(projects) ? projects : [])
       .filter((project) => project && typeof project === "object")
@@ -186,32 +215,39 @@
   }
 
   function buildTimeRecord(record, sourceIndex) {
-    if (!record?.name || !record?.spendtime) {
+    if (!record?.name) {
       return null;
     }
 
-    const explicitStartTime = record.startTime ? new Date(record.startTime) : null;
-    const explicitEndTime = record.endTime ? new Date(record.endTime) : null;
-    const fallbackAnchor = record.timestamp ? new Date(record.timestamp) : null;
-    const durationMs = Math.max(
-      0,
-      Math.round(parseSpendTimeToHours(record.spendtime) * 60 * 60 * 1000),
-    );
+    const explicitStartTime = parseFlexibleDate(record.startTime);
+    const explicitEndTime = parseFlexibleDate(record.endTime || record.sptTime);
+    const fallbackAnchor = resolveRecordAnchorTime(record);
+    const durationMs = resolveRecordDurationMs(record);
 
     let startTime = explicitStartTime;
     let endTime = explicitEndTime;
 
+    if (
+      (!(endTime instanceof Date) || Number.isNaN(endTime.getTime())) &&
+      fallbackAnchor instanceof Date &&
+      !Number.isNaN(fallbackAnchor.getTime())
+    ) {
+      endTime = new Date(fallbackAnchor);
+    }
+
     if (!(startTime instanceof Date) || Number.isNaN(startTime.getTime())) {
       if (
+        endTime instanceof Date &&
+        !Number.isNaN(endTime.getTime()) &&
+        durationMs > 0
+      ) {
+        startTime = new Date(endTime.getTime() - durationMs);
+      } else if (
         fallbackAnchor instanceof Date &&
         !Number.isNaN(fallbackAnchor.getTime())
       ) {
-        if (
-          endTime instanceof Date &&
-          !Number.isNaN(endTime.getTime()) &&
-          durationMs > 0
-        ) {
-          startTime = new Date(endTime.getTime() - durationMs);
+        if (durationMs > 0) {
+          startTime = new Date(fallbackAnchor.getTime() - durationMs);
         } else {
           startTime = new Date(fallbackAnchor);
         }
@@ -229,7 +265,29 @@
         fallbackAnchor instanceof Date &&
         !Number.isNaN(fallbackAnchor.getTime())
       ) {
-        endTime = new Date(fallbackAnchor.getTime() + durationMs);
+        endTime = new Date(fallbackAnchor.getTime() + Math.max(durationMs, 0));
+      }
+    }
+
+    if (
+      startTime instanceof Date &&
+      !Number.isNaN(startTime.getTime()) &&
+      endTime instanceof Date &&
+      !Number.isNaN(endTime.getTime()) &&
+      endTime.getTime() <= startTime.getTime() &&
+      durationMs > 0
+    ) {
+      if (
+        fallbackAnchor instanceof Date &&
+        !Number.isNaN(fallbackAnchor.getTime()) &&
+        fallbackAnchor.getTime() > startTime.getTime()
+      ) {
+        endTime = new Date(fallbackAnchor);
+        if (endTime.getTime() <= startTime.getTime()) {
+          startTime = new Date(endTime.getTime() - durationMs);
+        }
+      } else {
+        endTime = new Date(startTime.getTime() + durationMs);
       }
     }
 
@@ -254,7 +312,7 @@
       startTime,
       endTime,
       dateText,
-      durationHours: clampNumber(parseSpendTimeToHours(record.spendtime), 0),
+      durationHours: clampNumber(durationMs / (1000 * 60 * 60), 0),
     };
   }
 
@@ -5465,7 +5523,8 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   }
 
   // 保存并更新UI
-  savePlans();
+  syncPlanDataIndex(["plans"]);
+  const saveResult = await savePlans();
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理周视图计划草稿失败:", error);
@@ -5474,7 +5533,13 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });
-  renderCalendarContent();
+  renderPlanGuideCard();
+  renderCalendarView({
+    skipCoverageCheck: true,
+  });
+  if (saveResult === false) {
+    return;
+  }
   document.body.removeChild(modal);
 }
 
@@ -5865,7 +5930,8 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   }
 
   // 保存并更新UI
-  savePlans();
+  syncPlanDataIndex(["plans"]);
+  const saveResult = await savePlans();
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理计划草稿失败:", error);
@@ -5874,7 +5940,13 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });
-  renderCalendarContent();
+  renderPlanGuideCard();
+  renderCalendarView({
+    skipCoverageCheck: true,
+  });
+  if (saveResult === false) {
+    return;
+  }
   if (modal.parentNode) {
     document.body.removeChild(modal);
   }

@@ -24,6 +24,12 @@ const TODO_WIDGET_VIEW_EVENT = "controler:todo-widget-view";
 const TODO_SEARCH_DEBOUNCE_MS = 160;
 const TODO_DRAFT_SAVE_DELAY_MS = 300;
 const TODO_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
+const MOBILE_SWIPE_DELETE_ACTION_WIDTH = 92;
+const MOBILE_SWIPE_DELETE_START_THRESHOLD = 8;
+const MOBILE_SWIPE_DELETE_DIRECTION_LOCK_THRESHOLD = 10;
+const MOBILE_SWIPE_DELETE_OPEN_THRESHOLD = 0.45;
+const MOBILE_SWIPE_DELETE_OPEN_VELOCITY = -0.32;
+const MOBILE_SWIPE_DELETE_CLOSE_VELOCITY = 0.32;
 let todoSearchTimer = 0;
 let cachedTodoFilterKey = "";
 let cachedFilteredTodos = [];
@@ -37,6 +43,9 @@ let todoPendingExternalStorageRefresh =
 let todoPersistChain = Promise.resolve();
 let todoPendingPersistenceCount = 0;
 let todoLastPersistenceError = null;
+let todoActiveSwipeDeleteShell = null;
+let todoSwipeDeleteDismissBound = false;
+let todoSwipeDeleteConfirmationShell = null;
 let todoBeforePageLeaveGuardBound = false;
 let todoInitialRevealQueued = false;
 let todoInitialReadyReported = false;
@@ -853,6 +862,8 @@ function registerTodoBeforePageLeaveGuard() {
       return true;
     }
     return flushTodoPendingPersistence();
+  }, {
+    showLoadingOverlay: false,
   });
 }
 
@@ -1672,6 +1683,471 @@ function escapeHtml(value) {
 
 function isCompactMobileLayout() {
   return window.innerWidth <= MOBILE_LAYOUT_MAX_WIDTH;
+}
+
+function isTodoSwipeDeleteEnabled() {
+  return (
+    isCompactMobileLayout() ||
+    document.body?.classList.contains("controler-mobile-runtime") ||
+    window.ControlerStorage?.isNativeApp === true
+  );
+}
+
+function getTodoSwipeDeleteActionWidth() {
+  return MOBILE_SWIPE_DELETE_ACTION_WIDTH;
+}
+
+function setTodoSwipeDeleteOffset(shell, nextOffset, options = {}) {
+  if (!(shell instanceof HTMLElement)) {
+    return 0;
+  }
+  const surface = shell.querySelector(".todo-swipe-card");
+  if (!(surface instanceof HTMLElement)) {
+    return 0;
+  }
+  const actionWidth = getTodoSwipeDeleteActionWidth();
+  const enabled = isTodoSwipeDeleteEnabled();
+  const clampedOffset = enabled
+    ? Math.max(-actionWidth, Math.min(0, Number(nextOffset) || 0))
+    : 0;
+  const progress = actionWidth > 0 ? Math.min(1, Math.abs(clampedOffset) / actionWidth) : 0;
+  const isOpen = progress >= 0.98 && enabled;
+
+  shell.dataset.swipeEnabled = enabled ? "true" : "false";
+  shell.dataset.swipeOpen = isOpen ? "true" : "false";
+  shell.dataset.swipeOffset = String(clampedOffset);
+  shell.style.setProperty("--todo-swipe-action-width", `${actionWidth}px`);
+  shell.style.setProperty("--todo-swipe-progress", progress.toFixed(3));
+  shell.classList.toggle("is-open", isOpen);
+  shell.classList.toggle("is-swiping", options.animate === false);
+  surface.style.transform = `translate3d(${clampedOffset}px, 0, 0)`;
+
+  if (!isOpen && todoActiveSwipeDeleteShell === shell) {
+    todoActiveSwipeDeleteShell = null;
+  }
+  return clampedOffset;
+}
+
+function closeTodoSwipeDeleteShell(shell, options = {}) {
+  if (!(shell instanceof HTMLElement)) {
+    if (!options?.except) {
+      todoActiveSwipeDeleteShell = null;
+    }
+    return;
+  }
+  setTodoSwipeDeleteOffset(shell, 0, {
+    animate: options.animate !== false,
+  });
+}
+
+function openTodoSwipeDeleteShell(shell, options = {}) {
+  if (!(shell instanceof HTMLElement) || !isTodoSwipeDeleteEnabled()) {
+    return;
+  }
+  closeTodoSwipeDeleteShells({
+    except: shell,
+    animate: options.animate !== false,
+  });
+  setTodoSwipeDeleteOffset(shell, -getTodoSwipeDeleteActionWidth(), {
+    animate: options.animate !== false,
+  });
+  todoActiveSwipeDeleteShell = shell;
+}
+
+function closeTodoSwipeDeleteShells(options = {}) {
+  const exceptShell = options?.except instanceof HTMLElement ? options.except : null;
+  document.querySelectorAll(".todo-swipe-shell.is-open").forEach((shell) => {
+    if (shell instanceof HTMLElement && shell !== exceptShell) {
+      closeTodoSwipeDeleteShell(shell, {
+        animate: options.animate !== false,
+      });
+    }
+  });
+  if (!exceptShell) {
+    todoActiveSwipeDeleteShell = null;
+  }
+}
+
+function ensureTodoSwipeDeleteDismissBinding() {
+  if (todoSwipeDeleteDismissBound || typeof document === "undefined") {
+    return;
+  }
+  todoSwipeDeleteDismissBound = true;
+
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (
+        !(todoActiveSwipeDeleteShell instanceof HTMLElement) ||
+        !todoActiveSwipeDeleteShell.isConnected
+      ) {
+        todoActiveSwipeDeleteShell = null;
+        todoSwipeDeleteConfirmationShell = null;
+        return;
+      }
+      if (todoSwipeDeleteConfirmationShell === todoActiveSwipeDeleteShell) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && todoActiveSwipeDeleteShell.contains(target)) {
+        return;
+      }
+      closeTodoSwipeDeleteShell(todoActiveSwipeDeleteShell);
+    },
+    true,
+  );
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (!(todoActiveSwipeDeleteShell instanceof HTMLElement)) {
+      return;
+    }
+    if (todoSwipeDeleteConfirmationShell === todoActiveSwipeDeleteShell) {
+      return;
+    }
+    closeTodoSwipeDeleteShell(todoActiveSwipeDeleteShell);
+  });
+}
+
+async function confirmTodoSwipeDelete(kind, itemId) {
+  if (kind === "checkin") {
+    const confirmed = await requestTodoConfirmation(
+      "确定要删除这个打卡项目吗？此操作不可撤销！",
+      {
+        title: "删除打卡项目",
+        confirmText: "删除",
+        cancelText: "取消",
+        danger: true,
+      },
+    );
+    if (!confirmed) {
+      return false;
+    }
+    return deleteCheckinItem(itemId, {
+      confirmDelete: false,
+      refreshView: true,
+    });
+  }
+
+  const confirmed = await requestTodoConfirmation(
+    "确定要删除这个待办事项吗？此操作不可撤销！",
+    {
+      title: "删除待办事项",
+      confirmText: "删除",
+      cancelText: "取消",
+      danger: true,
+    },
+  );
+  if (!confirmed) {
+    return false;
+  }
+  return deleteTodo(itemId, {
+    confirmDelete: false,
+    refreshView: true,
+  });
+}
+
+function bindTodoSwipeDeleteShell(shell, options = {}) {
+  if (!(shell instanceof HTMLElement)) {
+    return null;
+  }
+  if (shell.__todoSwipeDeleteApi) {
+    return shell.__todoSwipeDeleteApi;
+  }
+
+  ensureTodoSwipeDeleteDismissBinding();
+
+  const surface = shell.querySelector(".todo-swipe-card");
+  const deleteButton = shell.querySelector(".todo-swipe-delete-btn");
+  if (!(surface instanceof HTMLElement) || !(deleteButton instanceof HTMLButtonElement)) {
+    return null;
+  }
+
+  surface.style.touchAction = "pan-y";
+  let pointerId = null;
+  let startX = 0;
+  let startY = 0;
+  let startOffset = 0;
+  let lastMoveX = 0;
+  let lastMoveTime = 0;
+  let velocityX = 0;
+  let isPointerDown = false;
+  let isDragging = false;
+  let suppressNextClick = false;
+  let deletePending = false;
+  let previousBodyUserSelect = "";
+
+  const getOffset = () => Number.parseFloat(shell.dataset.swipeOffset || "0") || 0;
+  const releasePointerCapture = () => {
+    if (
+      pointerId !== null &&
+      typeof surface.hasPointerCapture === "function" &&
+      surface.hasPointerCapture(pointerId)
+    ) {
+      try {
+        surface.releasePointerCapture(pointerId);
+      } catch {}
+    }
+  };
+  const resetDragState = (didDrag = false) => {
+    releasePointerCapture();
+    pointerId = null;
+    isPointerDown = false;
+    if (isDragging || didDrag) {
+      document.body.style.userSelect = previousBodyUserSelect;
+    }
+    shell.classList.remove("is-swiping");
+    if (didDrag) {
+      suppressNextClick = true;
+      window.setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
+    }
+    isDragging = false;
+    velocityX = 0;
+  };
+
+  const handlePointerDown = (event) => {
+    if (!isTodoSwipeDeleteEnabled() || deletePending) {
+      return;
+    }
+    if (event.isPrimary === false) {
+      return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        "button, input, select, textarea, a, label, [role='button'], [data-checkin-id]",
+      )
+    ) {
+      return;
+    }
+
+    pointerId = event.pointerId;
+    startX = event.clientX;
+    startY = event.clientY;
+    startOffset = getOffset();
+    lastMoveX = event.clientX;
+    lastMoveTime = event.timeStamp || Date.now();
+    previousBodyUserSelect = document.body.style.userSelect || "";
+    isPointerDown = true;
+    isDragging = false;
+    velocityX = 0;
+
+    if (typeof surface.setPointerCapture === "function") {
+      try {
+        surface.setPointerCapture(pointerId);
+      } catch {}
+    }
+  };
+
+  const handlePointerMove = (event) => {
+    if (!isPointerDown || pointerId !== event.pointerId || !isTodoSwipeDeleteEnabled()) {
+      return;
+    }
+
+    const deltaX = event.clientX - startX;
+    const deltaY = event.clientY - startY;
+
+    if (!isDragging) {
+      if (Math.abs(deltaX) < MOBILE_SWIPE_DELETE_START_THRESHOLD) {
+        return;
+      }
+      if (
+        Math.abs(deltaX) <=
+        Math.abs(deltaY) + MOBILE_SWIPE_DELETE_DIRECTION_LOCK_THRESHOLD
+      ) {
+        return;
+      }
+      isDragging = true;
+      document.body.style.userSelect = "none";
+      shell.classList.add("is-swiping");
+      closeTodoSwipeDeleteShells({
+        except: shell,
+        animate: true,
+      });
+    }
+
+    const currentTime = event.timeStamp || Date.now();
+    const deltaTime = Math.max(currentTime - lastMoveTime, 1);
+    velocityX = (event.clientX - lastMoveX) / deltaTime;
+    lastMoveX = event.clientX;
+    lastMoveTime = currentTime;
+
+    event.preventDefault();
+    setTodoSwipeDeleteOffset(shell, startOffset + deltaX, {
+      animate: false,
+    });
+  };
+
+  const handlePointerEnd = (event) => {
+    if (
+      pointerId !== null &&
+      event?.pointerId !== undefined &&
+      event.pointerId !== pointerId
+    ) {
+      return;
+    }
+
+    const didDrag = isDragging;
+    const finalOffset = getOffset();
+    if (didDrag) {
+      const actionWidth = getTodoSwipeDeleteActionWidth();
+      let shouldOpen =
+        Math.abs(finalOffset) >= actionWidth * MOBILE_SWIPE_DELETE_OPEN_THRESHOLD;
+      if (velocityX <= MOBILE_SWIPE_DELETE_OPEN_VELOCITY) {
+        shouldOpen = true;
+      }
+      if (velocityX >= MOBILE_SWIPE_DELETE_CLOSE_VELOCITY) {
+        shouldOpen = false;
+      }
+      if (shouldOpen) {
+        openTodoSwipeDeleteShell(shell, {
+          animate: true,
+        });
+      } else {
+        closeTodoSwipeDeleteShell(shell, {
+          animate: true,
+        });
+      }
+    }
+    resetDragState(didDrag);
+  };
+
+  const handleClickCapture = (event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!shell.classList.contains("is-open")) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    closeTodoSwipeDeleteShell(shell);
+  };
+
+  const handleDeleteClick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (deletePending) {
+      return;
+    }
+    deletePending = true;
+    todoSwipeDeleteConfirmationShell = shell;
+    deleteButton.disabled = true;
+    shell.dataset.deletePending = "true";
+    try {
+      const deleteResult =
+        (typeof options.onDelete === "function" ? await options.onDelete() : false) === true;
+      if (shell.isConnected) {
+        closeTodoSwipeDeleteShell(shell, {
+          animate: true,
+        });
+      }
+      return deleteResult;
+    } finally {
+      if (todoSwipeDeleteConfirmationShell === shell) {
+        todoSwipeDeleteConfirmationShell = null;
+      }
+      deletePending = false;
+      if (shell.isConnected) {
+        deleteButton.disabled = false;
+        shell.dataset.deletePending = "false";
+      }
+    }
+  };
+
+  surface.addEventListener("pointerdown", handlePointerDown);
+  surface.addEventListener("pointermove", handlePointerMove);
+  surface.addEventListener("pointerup", handlePointerEnd);
+  surface.addEventListener("pointercancel", handlePointerEnd);
+  surface.addEventListener("lostpointercapture", handlePointerEnd);
+  surface.addEventListener("click", handleClickCapture, true);
+  deleteButton.addEventListener("click", handleDeleteClick);
+
+  const api = {
+    open() {
+      openTodoSwipeDeleteShell(shell);
+    },
+    close(options = {}) {
+      closeTodoSwipeDeleteShell(shell, options);
+    },
+    destroy() {
+      resetDragState(false);
+      surface.removeEventListener("pointerdown", handlePointerDown);
+      surface.removeEventListener("pointermove", handlePointerMove);
+      surface.removeEventListener("pointerup", handlePointerEnd);
+      surface.removeEventListener("pointercancel", handlePointerEnd);
+      surface.removeEventListener("lostpointercapture", handlePointerEnd);
+      surface.removeEventListener("click", handleClickCapture, true);
+      deleteButton.removeEventListener("click", handleDeleteClick);
+      delete shell.__todoSwipeDeleteApi;
+    },
+  };
+
+  shell.__todoSwipeDeleteApi = api;
+  setTodoSwipeDeleteOffset(shell, 0, {
+    animate: true,
+  });
+  return api;
+}
+
+function wrapTodoSwipeDeleteCard(cardElement, options = {}) {
+  if (!(cardElement instanceof HTMLElement) || !isTodoSwipeDeleteEnabled()) {
+    return cardElement;
+  }
+
+  const shell = document.createElement("div");
+  shell.className = `todo-swipe-shell todo-swipe-shell--${options.kind === "checkin" ? "checkin" : "todo"}`;
+  shell.dataset.swipeKind = options.kind === "checkin" ? "checkin" : "todo";
+  shell.dataset.swipeItemId = String(options.itemId || "");
+  shell.dataset.swipeEnabled = "true";
+  shell.style.width = cardElement.style.width || "100%";
+  shell.style.maxWidth = cardElement.style.maxWidth || "100%";
+  shell.style.alignSelf = cardElement.style.alignSelf || "stretch";
+  shell.style.borderRadius = cardElement.style.borderRadius || "22px";
+  shell.style.marginBottom = cardElement.style.marginBottom || "0";
+  shell.style.setProperty(
+    "--todo-swipe-action-width",
+    `${getTodoSwipeDeleteActionWidth()}px`,
+  );
+
+  cardElement.style.width = "100%";
+  cardElement.style.maxWidth = "100%";
+  cardElement.style.alignSelf = "stretch";
+  cardElement.style.marginBottom = "0";
+
+  const actions = document.createElement("div");
+  actions.className = "todo-swipe-actions";
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "todo-swipe-delete-btn";
+  deleteButton.textContent = "删除";
+  deleteButton.setAttribute(
+    "aria-label",
+    options.kind === "checkin" ? "删除打卡项目" : "删除待办事项",
+  );
+  deleteButton.title = options.kind === "checkin" ? "删除打卡项目" : "删除待办事项";
+  actions.appendChild(deleteButton);
+
+  const surface = document.createElement("div");
+  surface.className = "todo-swipe-card";
+  surface.appendChild(cardElement);
+
+  shell.append(actions, surface);
+  bindTodoSwipeDeleteShell(shell, {
+    onDelete: options.onDelete,
+  });
+  return shell;
 }
 
 function getExpandWidthFactor(mobileFactor = null) {
@@ -3432,7 +3908,11 @@ function createTodoElement(todo, listScale = 1) {
     showTodoEditModal(todo);
   });
 
-  return todoElement;
+  return wrapTodoSwipeDeleteCard(todoElement, {
+    kind: "todo",
+    itemId: todo.id,
+    onDelete: () => confirmTodoSwipeDelete("todo", todo.id),
+  });
 }
 
 // 切换待办事项完成状态
@@ -5197,7 +5677,11 @@ function createCheckinItemElement(item, listScale = 1) {
     itemElement.style.boxShadow = "none";
   });
 
-  return itemElement;
+  return wrapTodoSwipeDeleteCard(itemElement, {
+    kind: "checkin",
+    itemId: item.id,
+    onDelete: () => confirmTodoSwipeDelete("checkin", item.id),
+  });
 }
 
 // 初始化视图切换
@@ -5284,6 +5768,9 @@ function initTodoLayoutToggle() {
 
 // 渲染当前视图
 function renderCurrentView() {
+  closeTodoSwipeDeleteShells({
+    animate: false,
+  });
   const todoContainer = document.getElementById("todo-list-container");
   const todoQuadrantContainer = document.getElementById("todo-quadrant-container");
   const checkinContainer = document.getElementById("checkin-list-container");

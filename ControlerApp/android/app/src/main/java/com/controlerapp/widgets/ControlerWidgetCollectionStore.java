@@ -19,11 +19,14 @@ public final class ControlerWidgetCollectionStore {
     public static final class RowData {
         public String title = "";
         public String meta = "";
+        public String actionLabel = "";
         public String targetId = "";
         public int accentColor = Color.parseColor("#8ED6A4");
         public int backgroundColor = Color.parseColor("#20362B");
         public int titleColor = Color.parseColor("#EAF6ED");
         public int metaColor = Color.parseColor("#D2E4D7");
+        public int actionTextColor = Color.parseColor("#FFFFFF");
+        public boolean actionEnabled = true;
     }
 
     private ControlerWidgetCollectionStore() {}
@@ -63,6 +66,7 @@ public final class ControlerWidgetCollectionStore {
                 RowData row = new RowData();
                 row.title = item.optString("title", "").trim();
                 row.meta = item.optString("meta", "").trim();
+                row.actionLabel = item.optString("actionLabel", "").trim();
                 row.targetId = item.optString("targetId", "").trim();
                 row.accentColor = item.optInt(
                     "accentColor",
@@ -80,6 +84,11 @@ public final class ControlerWidgetCollectionStore {
                     "metaColor",
                     Color.parseColor("#D2E4D7")
                 );
+                row.actionTextColor = item.optInt(
+                    "actionTextColor",
+                    Color.parseColor("#FFFFFF")
+                );
+                row.actionEnabled = item.optBoolean("actionEnabled", true);
                 rows.add(row);
             }
         } catch (Exception ignored) {

@@ -250,6 +250,150 @@
         flex: 0 0 auto;
       }
 
+      .todo-swipe-shell {
+        position: relative;
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+        isolation: isolate;
+        --todo-swipe-action-width: 92px;
+        --todo-swipe-progress: 0;
+      }
+
+      .todo-swipe-card {
+        position: relative;
+        z-index: 1;
+        min-width: 0;
+        transition:
+          transform 220ms cubic-bezier(0.22, 0.78, 0.2, 1),
+          box-shadow 220ms ease;
+        will-change: transform;
+      }
+
+      .todo-swipe-shell.is-swiping .todo-swipe-card {
+        transition: none;
+      }
+
+      .todo-swipe-shell.is-open .todo-swipe-card {
+        box-shadow: -14px 0 26px rgba(0, 0, 0, 0.18);
+      }
+
+      .todo-swipe-actions {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: var(--todo-swipe-action-width);
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+        pointer-events: none;
+        border-radius: inherit;
+        opacity: var(--todo-swipe-progress);
+        transform: translate3d(
+          calc((1 - var(--todo-swipe-progress)) * 14px),
+          0,
+          0
+        );
+        transition:
+          opacity 180ms ease,
+          transform 180ms ease;
+      }
+
+      .todo-swipe-shell.is-swiping .todo-swipe-actions {
+        transition: none;
+      }
+
+      .todo-swipe-delete-btn {
+        width: 100%;
+        min-height: 100%;
+        border: none;
+        border-radius: inherit;
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        pointer-events: auto;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        -webkit-appearance: none;
+        appearance: none;
+        -webkit-tap-highlight-color: transparent !important;
+        -webkit-touch-callout: none;
+        -webkit-focus-ring-color: transparent;
+        outline: none !important;
+        color: #fff;
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--delete-btn) 82%, white 10%),
+            color-mix(in srgb, var(--delete-btn) 88%, black 12%)
+          );
+        box-shadow:
+          inset 1px 0 0 rgba(255, 255, 255, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        opacity: calc(var(--todo-swipe-progress) * 0.98);
+        transform: scale(calc(0.94 + var(--todo-swipe-progress) * 0.06))
+          translateZ(0);
+        transition:
+          opacity 180ms ease,
+          transform 180ms ease,
+          filter 180ms ease,
+          box-shadow 180ms ease;
+      }
+
+      .todo-swipe-delete-btn::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 5px;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.22);
+        opacity: 0;
+        border-radius: 999px;
+        transform: scale(1, 1) translate(-50%);
+        transform-origin: 50% 50%;
+        pointer-events: none;
+      }
+
+      .todo-swipe-delete-btn:active {
+        transform: scale(calc(0.92 + var(--todo-swipe-progress) * 0.06))
+          translateY(1px);
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+          0 12px 26px rgba(0, 0, 0, 0.18);
+        filter: brightness(1.05);
+      }
+
+      .todo-swipe-delete-btn:active::after {
+        animation: ripple 0.6s ease-out;
+      }
+
+      .todo-swipe-delete-btn:focus,
+      .todo-swipe-delete-btn:focus-visible {
+        outline: none !important;
+        box-shadow:
+          inset 1px 0 0 rgba(255, 255, 255, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+      }
+
+      .todo-swipe-shell:not(.is-open):not(.is-swiping) .todo-swipe-delete-btn {
+        pointer-events: none;
+      }
+
+      .todo-swipe-delete-btn:hover,
+      .todo-swipe-delete-btn:focus-visible {
+        filter: brightness(1.04);
+      }
+
+      .todo-swipe-delete-btn:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
       .checkin-item {
         width: 100%;
         box-sizing: border-box;
@@ -422,6 +566,14 @@
 
         .todo-item {
           position: relative;
+        }
+
+        .todo-swipe-shell {
+          --todo-swipe-action-width: 92px;
+        }
+
+        .todo-swipe-delete-btn {
+          font-size: 12px;
         }
 
         .todo-footer {

@@ -75,11 +75,19 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
             );
             views.setTextViewText(R.id.widget_collection_item_title, row.title);
             views.setTextViewText(R.id.widget_collection_item_meta, row.meta);
+            views.setTextViewText(R.id.widget_collection_item_action, row.actionLabel);
             views.setTextColor(R.id.widget_collection_item_title, row.titleColor);
             views.setTextColor(R.id.widget_collection_item_meta, row.metaColor);
+            views.setTextColor(R.id.widget_collection_item_action, row.actionTextColor);
             views.setViewVisibility(
                 R.id.widget_collection_item_meta,
                 row.meta == null || row.meta.trim().isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE
+            );
+            views.setViewVisibility(
+                R.id.widget_collection_item_action,
+                row.actionLabel == null || row.actionLabel.trim().isEmpty()
+                    ? android.view.View.GONE
+                    : android.view.View.VISIBLE
             );
             views.setInt(
                 R.id.widget_collection_item_accent,
@@ -87,21 +95,24 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                 row.accentColor
             );
 
-            Intent fillInIntent = new Intent();
-            fillInIntent.putExtra(
-                ControlerWidgetLaunchStore.EXTRA_PAGE,
-                ControlerWidgetKinds.defaultPage(kind)
-            );
-            fillInIntent.putExtra(
-                ControlerWidgetLaunchStore.EXTRA_ACTION,
-                ControlerWidgetKinds.defaultAction(kind)
-            );
-            fillInIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
-            fillInIntent.putExtra(
-                ControlerWidgetLaunchStore.EXTRA_TARGET_ID,
-                row.targetId == null ? "" : row.targetId
-            );
-            views.setOnClickFillInIntent(R.id.widget_collection_item_root, fillInIntent);
+            if (row.actionEnabled) {
+                Intent fillInIntent = new Intent();
+                fillInIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_PAGE,
+                    ControlerWidgetKinds.defaultPage(kind)
+                );
+                fillInIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_ACTION,
+                    ControlerWidgetKinds.defaultAction(kind)
+                );
+                fillInIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
+                fillInIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_TARGET_ID,
+                    row.targetId == null ? "" : row.targetId
+                );
+                views.setOnClickFillInIntent(R.id.widget_collection_item_root, fillInIntent);
+                views.setOnClickFillInIntent(R.id.widget_collection_item_action, fillInIntent);
+            }
             return views;
         }
 

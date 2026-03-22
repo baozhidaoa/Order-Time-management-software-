@@ -339,6 +339,7 @@
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let pendingNativeNavigationRequest = null;
+  let nativeNavigationRetryTimerId = 0;
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
@@ -651,6 +652,13 @@
     return pendingRequest;
   }
 
+  function clearNativeNavigationRetryTimer() {
+    if (nativeNavigationRetryTimerId) {
+      window.clearTimeout(nativeNavigationRetryTimerId);
+      nativeNavigationRetryTimerId = 0;
+    }
+  }
+
   function createDeferredAppNavigationRequest(targetItem, options = {}) {
     if (!targetItem || typeof targetItem !== "object") {
       return null;
@@ -726,6 +734,34 @@
       const pendingRequest = clearPendingNativeNavigationRequest();
       if (!pendingRequest) {
         return;
+      }
+
+      resetAppPageTransitionRuntimeState({ clearStoredState: false });
+
+      if (detail.accepted === false && detail.busy === true) {
+        const retryTargetItem =
+          pendingRequest.targetItem ||
+          resolveAppNavigationItemByHref(pendingRequest.targetHref);
+        if (retryTargetItem) {
+          const retryDelayMs = Math.max(
+            80,
+            Number.isFinite(Number(detail.retryAfterMs))
+              ? Number(detail.retryAfterMs)
+              : 160,
+          );
+          clearNativeNavigationRetryTimer();
+          nativeNavigationRetryTimerId = window.setTimeout(() => {
+            nativeNavigationRetryTimerId = 0;
+            startAppPageTransition(
+              retryTargetItem,
+              pendingRequest.options || {
+                targetHref: pendingRequest.targetHref,
+                replaceHistory: pendingRequest.replaceHistory === true,
+              },
+            );
+          }, retryDelayMs);
+          return;
+        }
       }
 
       if (detail.accepted === false) {
@@ -1234,6 +1270,7 @@
     clearDeferredAppNavigationRequest();
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
+    clearNativeNavigationRetryTimer();
     if (clearStoredState) {
       clearAppPageTransitionState();
     }
@@ -1351,12 +1388,18 @@
     return appPageLeaveOverlayController;
   }
 
-  function registerBeforePageLeave(handler) {
+  function registerBeforePageLeave(handler, options = {}) {
     if (typeof handler !== "function") {
       return () => {};
     }
     const guardId = `guard_${Date.now()}_${(beforePageLeaveGuardCounter += 1)}`;
-    beforePageLeaveGuards.set(guardId, handler);
+    beforePageLeaveGuards.set(guardId, {
+      handler,
+      options:
+        options && typeof options === "object" && !Array.isArray(options)
+          ? { ...options }
+          : {},
+    });
     return () => {
       beforePageLeaveGuards.delete(guardId);
     };
@@ -1367,7 +1410,26 @@
       return true;
     }
 
-    const overlayController = getAppPageLeaveOverlayController();
+    const guardEntries = Array.from(beforePageLeaveGuards.values()).map((entry) =>
+      typeof entry === "function"
+        ? {
+            handler: entry,
+            options: {},
+          }
+        : {
+            handler: entry?.handler,
+            options:
+              entry?.options && typeof entry.options === "object"
+                ? entry.options
+                : {},
+          },
+    );
+    const shouldShowOverlay = guardEntries.some(
+      (entry) => entry?.options?.showLoadingOverlay !== false,
+    );
+    const overlayController = shouldShowOverlay
+      ? getAppPageLeaveOverlayController()
+      : null;
     overlayController?.setState({
       active: true,
       mode: "fullscreen",
@@ -1379,19 +1441,23 @@
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      slowMessageTimerId = window.setTimeout(() => {
-        overlayController?.setState({
-          active: true,
-          mode: "fullscreen",
-          title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-          message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-          delayMs: 0,
-        });
-      }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
+      if (shouldShowOverlay) {
+        slowMessageTimerId = window.setTimeout(() => {
+          overlayController?.setState({
+            active: true,
+            mode: "fullscreen",
+            title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+            message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+            delayMs: 0,
+          });
+        }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
+      }
 
-      const guards = Array.from(beforePageLeaveGuards.values());
-      for (const guard of guards) {
-        const guardResult = await guard(context);
+      for (const entry of guardEntries) {
+        if (typeof entry?.handler !== "function") {
+          continue;
+        }
+        const guardResult = await entry.handler(context);
         if (guardResult === false) {
           throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
         }
@@ -1448,6 +1514,7 @@
 
   function startAppPageTransition(targetItem, options = {}) {
     clearAndroidNavButtonFocus(document.activeElement, true);
+    clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
@@ -1540,8 +1607,10 @@
           }
           pendingNativeNavigationRequest = {
             requestId,
+            targetItem: finalTargetItem,
             targetHref: finalTargetHref,
             replaceHistory: finalNavigationOptions.replaceHistory === true,
+            options: finalNavigationOptions,
             timeoutId: window.setTimeout(() => {
               if (
                 !pendingNativeNavigationRequest ||
@@ -2788,6 +2857,13 @@
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
+    let requestedOverlayState = {
+      visible: currentVisibility,
+      mode: currentMode,
+      title:
+        titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
+      message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+    };
 
     const clearFullscreenGeometry = () => {
       overlay.style.top = "";
@@ -2826,6 +2902,16 @@
         return false;
       }
       return body.classList.contains("row");
+    };
+
+    const shouldSuppressFullscreenOverlay = (visible, mode) => {
+      if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (!isReactNativeNavigationRuntime()) {
+        return false;
+      }
+      return !isShellPageActive();
     };
 
     const syncFullscreenGeometry = () => {
@@ -2896,16 +2982,28 @@
       }
 
       const resolvedMode = normalizeMode(mode);
-      if (visible && resolvedMode === "fullscreen") {
+      requestedOverlayState = {
+        visible,
+        mode: resolvedMode,
+        title,
+        message,
+      };
+      const suppressedByShell = shouldSuppressFullscreenOverlay(
+        visible,
+        resolvedMode,
+      );
+      const actualVisible = visible && !suppressedByShell;
+      if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
         moveOverlayToInlineHost();
       }
 
       overlay.dataset.mode = resolvedMode;
-      overlay.hidden = !visible;
-      overlay.setAttribute("aria-hidden", visible ? "false" : "true");
-      currentVisibility = visible;
+      overlay.hidden = !actualVisible;
+      overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
+      overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
+      currentVisibility = actualVisible;
       currentMode = resolvedMode;
 
       if (titleNode instanceof HTMLElement && typeof title === "string") {
@@ -2942,10 +3040,15 @@
       syncFullscreenGeometry();
     };
 
+    const handleShellVisibilityChange = () => {
+      applyOverlayState(requestedOverlayState);
+    };
+
     window.addEventListener("pagehide", handlePageDispose);
     window.addEventListener("beforeunload", handlePageDispose);
     window.addEventListener("resize", handleViewportChange);
     window.visualViewport?.addEventListener("resize", handleViewportChange);
+    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleShellVisibilityChange);
 
     return {
       setState(nextState = {}) {
@@ -3020,6 +3123,10 @@
         window.removeEventListener("beforeunload", handlePageDispose);
         window.removeEventListener("resize", handleViewportChange);
         window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        window.removeEventListener(
+          SHELL_VISIBILITY_EVENT_NAME,
+          handleShellVisibilityChange,
+        );
         clearFullscreenGeometry();
       },
     };

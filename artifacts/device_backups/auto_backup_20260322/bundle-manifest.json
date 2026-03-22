@@ -1,0 +1,214 @@
+{
+  "formatVersion": 1,
+  "bundleMode": "directory-bundle",
+  "createdAt": "2026-03-16T16:08:26.622Z",
+  "lastModified": "2026-03-22T06:25:09.322Z",
+  "sections": {
+    "core": {
+      "file": "core.json"
+    },
+    "plansRecurring": {
+      "file": "plans-recurring.json",
+      "count": 0
+    },
+    "records": {
+      "periodUnit": "month",
+      "partitions": [
+        {
+          "periodId": "2024-07",
+          "file": "records\/2024\/2024-07.json",
+          "count": 243,
+          "minDate": "2024-07-04",
+          "maxDate": "2024-07-31",
+          "fingerprint": "records:2024-07:243:2024-07-04:2024-07-31:121388"
+        },
+        {
+          "periodId": "2024-08",
+          "file": "records\/2024\/2024-08.json",
+          "count": 318,
+          "minDate": "2024-08-01",
+          "maxDate": "2024-08-31",
+          "fingerprint": "records:2024-08:318:2024-08-01:2024-08-31:157242"
+        },
+        {
+          "periodId": "2024-09",
+          "file": "records\/2024\/2024-09.json",
+          "count": 443,
+          "minDate": "2024-09-01",
+          "maxDate": "2024-09-30",
+          "fingerprint": "records:2024-09:443:2024-09-01:2024-09-30:219058"
+        },
+        {
+          "periodId": "2024-10",
+          "file": "records\/2024\/2024-10.json",
+          "count": 489,
+          "minDate": "2024-10-01",
+          "maxDate": "2024-10-31",
+          "fingerprint": "records:2024-10:489:2024-10-01:2024-10-31:243034"
+        },
+        {
+          "periodId": "2024-11",
+          "file": "records\/2024\/2024-11.json",
+          "count": 514,
+          "minDate": "2024-11-01",
+          "maxDate": "2024-11-30",
+          "fingerprint": "records:2024-11:514:2024-11-01:2024-11-30:256018"
+        },
+        {
+          "periodId": "2024-12",
+          "file": "records\/2024\/2024-12.json",
+          "count": 544,
+          "minDate": "2024-12-01",
+          "maxDate": "2024-12-31",
+          "fingerprint": "records:2024-12:544:2024-12-01:2024-12-31:276539"
+        },
+        {
+          "periodId": "2025-01",
+          "file": "records\/2025\/2025-01.json",
+          "count": 485,
+          "minDate": "2025-01-01",
+          "maxDate": "2025-01-31",
+          "fingerprint": "records:2025-01:485:2025-01-01:2025-01-31:247170"
+        },
+        {
+          "periodId": "2025-02",
+          "file": "records\/2025\/2025-02.json",
+          "count": 488,
+          "minDate": "2025-02-01",
+          "maxDate": "2025-02-28",
+          "fingerprint": "records:2025-02:488:2025-02-01:2025-02-28:248366"
+        },
+        {
+          "periodId": "2025-03",
+          "file": "records\/2025\/2025-03.json",
+          "count": 593,
+          "minDate": "2025-03-01",
+          "maxDate": "2025-03-31",
+          "fingerprint": "records:2025-03:593:2025-03-01:2025-03-31:301721"
+        },
+        {
+          "periodId": "2025-04",
+          "file": "records\/2025\/2025-04.json",
+          "count": 604,
+          "minDate": "2025-04-01",
+          "maxDate": "2025-04-30",
+          "fingerprint": "records:2025-04:604:2025-04-01:2025-04-30:308196"
+        },
+        {
+          "periodId": "2025-05",
+          "file": "records\/2025\/2025-05.json",
+          "count": 566,
+          "minDate": "2025-05-01",
+          "maxDate": "2025-05-31",
+          "fingerprint": "records:2025-05:566:2025-05-01:2025-05-31:288805"
+        },
+        {
+          "periodId": "2025-06",
+          "file": "records\/2025\/2025-06.json",
+          "count": 532,
+          "minDate": "2025-06-01",
+          "maxDate": "2025-06-30",
+          "fingerprint": "records:2025-06:532:2025-06-01:2025-06-30:271619"
+        },
+        {
+          "periodId": "2025-07",
+          "file": "records\/2025\/2025-07.json",
+          "count": 513,
+          "minDate": "2025-07-01",
+          "maxDate": "2025-07-31",
+          "fingerprint": "records:2025-07:513:2025-07-01:2025-07-31:262453"
+        },
+        {
+          "periodId": "2025-08",
+          "file": "records\/2025\/2025-08.json",
+          "count": 475,
+          "minDate": "2025-08-01",
+          "maxDate": "2025-08-31",
+          "fingerprint": "records:2025-08:475:2025-08-01:2025-08-31:243194"
+        },
+        {
+          "periodId": "2025-09",
+          "file": "records\/2025\/2025-09.json",
+          "count": 396,
+          "minDate": "2025-09-01",
+          "maxDate": "2025-09-30",
+          "fingerprint": "records:2025-09:396:2025-09-01:2025-09-30:202996"
+        },
+        {
+          "periodId": "2025-10",
+          "file": "records\/2025\/2025-10.json",
+          "count": 433,
+          "minDate": "2025-10-01",
+          "maxDate": "2025-10-31",
+          "fingerprint": "records:2025-10:433:2025-10-01:2025-10-31:221747"
+        },
+        {
+          "periodId": "2025-11",
+          "file": "records\/2025\/2025-11.json",
+          "count": 489,
+          "minDate": "2025-11-01",
+          "maxDate": "2025-11-30",
+          "fingerprint": "records:2025-11:489:2025-11-01:2025-11-30:250182"
+        },
+        {
+          "periodId": "2025-12",
+          "file": "records\/2025\/2025-12.json",
+          "count": 477,
+          "minDate": "2025-12-01",
+          "maxDate": "2025-12-31",
+          "fingerprint": "records:2025-12:477:2025-12-01:2025-12-31:243787"
+        },
+        {
+          "periodId": "2026-01",
+          "file": "records\/2026\/2026-01.json",
+          "count": 411,
+          "minDate": "2026-01-01",
+          "maxDate": "2026-01-31",
+          "fingerprint": "records:2026-01:411:2026-01-01:2026-01-31:210110"
+        },
+        {
+          "periodId": "2026-02",
+          "file": "records\/2026\/2026-02.json",
+          "count": 445,
+          "minDate": "2026-02-01",
+          "maxDate": "2026-02-28",
+          "fingerprint": "records:2026-02:445:2026-02-01:2026-02-28:248023"
+        },
+        {
+          "periodId": "2026-03",
+          "file": "records\/2026\/2026-03.json",
+          "count": 287,
+          "minDate": "2026-03-01",
+          "maxDate": "2026-03-21",
+          "fingerprint": "records:2026-03:287:2026-03-01:2026-03-21:174424"
+        }
+      ]
+    },
+    "diaryEntries": {
+      "periodUnit": "month",
+      "partitions": []
+    },
+    "dailyCheckins": {
+      "periodUnit": "month",
+      "partitions": [
+        {
+          "periodId": "2026-03",
+          "file": "dailyCheckins\/2026\/2026-03.json",
+          "count": 6,
+          "minDate": "2026-03-19",
+          "maxDate": "2026-03-22",
+          "fingerprint": "dailyCheckins:2026-03:6:2026-03-19:2026-03-22:816"
+        }
+      ]
+    },
+    "checkins": {
+      "periodUnit": "month",
+      "partitions": []
+    },
+    "plans": {
+      "periodUnit": "month",
+      "partitions": []
+    }
+  },
+  "legacyBackups": []
+}

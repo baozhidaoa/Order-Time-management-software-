@@ -44,6 +44,10 @@ let statsRangeState = {
   unit: "day",
   anchorDate: getDateOnly(new Date()),
 };
+let statsAvailableRecordDateBounds = {
+  min: null,
+  max: null,
+};
 let statsToolbarRevealQueued = false;
 let statsInitialReadyReported = false;
 let statsInitialDataLoaded = false;
@@ -131,6 +135,166 @@ function waitForStatsStorageReady() {
   return window.ControlerStorage.whenReady().catch((error) => {
     console.error("等待统计页原生存储就绪失败，继续使用当前快照:", error);
     return false;
+  });
+}
+
+function parseStatsFlexibleDate(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const parsed = new Date(value.trim());
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeStatsRecordDurationMeta(rawMeta) {
+  if (!rawMeta || typeof rawMeta !== "object") {
+    return null;
+  }
+
+  const toSafeMs = (value) =>
+    Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+  const originalMs = toSafeMs(rawMeta.originalMs);
+  const recordedMs = toSafeMs(rawMeta.recordedMs);
+  const returnedMs = toSafeMs(rawMeta.returnedMs);
+  const returnTargetProject =
+    typeof rawMeta.returnTargetProject === "string"
+      ? rawMeta.returnTargetProject.trim()
+      : "";
+  const appliedCarryover =
+    rawMeta.appliedCarryover && typeof rawMeta.appliedCarryover === "object"
+      ? {
+          carryoverMs:
+            Number.isFinite(rawMeta.appliedCarryover.carryoverMs) &&
+            rawMeta.appliedCarryover.carryoverMs > 0
+              ? Math.round(rawMeta.appliedCarryover.carryoverMs)
+              : null,
+          sourceRecordId:
+            typeof rawMeta.appliedCarryover.sourceRecordId === "string"
+              ? rawMeta.appliedCarryover.sourceRecordId
+              : "",
+          sourceProject:
+            typeof rawMeta.appliedCarryover.sourceProject === "string"
+              ? rawMeta.appliedCarryover.sourceProject.trim()
+              : "",
+          targetProject:
+            typeof rawMeta.appliedCarryover.targetProject === "string"
+              ? rawMeta.appliedCarryover.targetProject.trim()
+              : "",
+          createdAt:
+            typeof rawMeta.appliedCarryover.createdAt === "string"
+              ? rawMeta.appliedCarryover.createdAt
+              : "",
+        }
+      : null;
+
+  if (
+    !Number.isFinite(originalMs) &&
+    !Number.isFinite(recordedMs) &&
+    !Number.isFinite(returnedMs) &&
+    !returnTargetProject &&
+    !appliedCarryover
+  ) {
+    return null;
+  }
+
+  return {
+    originalMs,
+    recordedMs,
+    returnedMs,
+    returnTargetProject,
+    appliedCarryover,
+  };
+}
+
+function resolveStatsRecordDurationMs(record, durationMeta = null) {
+  const normalizedDurationMeta =
+    durationMeta || normalizeStatsRecordDurationMeta(record?.durationMeta);
+  if (typeof projectStatsApi?.resolveRecordDurationMs === "function") {
+    return projectStatsApi.resolveRecordDurationMs({
+      ...record,
+      durationMeta: normalizedDurationMeta,
+    });
+  }
+  if (Number.isFinite(record?.durationMs) && record.durationMs >= 0) {
+    return Math.round(record.durationMs);
+  }
+  if (
+    Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+    normalizedDurationMeta.recordedMs >= 0
+  ) {
+    return Math.round(normalizedDurationMeta.recordedMs);
+  }
+  return Math.max(
+    0,
+    Math.round(parseSpendTimeToHours(record?.spendtime) * 60 * 60 * 1000),
+  );
+}
+
+function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
+  const safeProjects = Array.isArray(projectList) ? projectList : [];
+  const sourceRecords = Array.isArray(recordList) ? recordList : [];
+  return sourceRecords.map((record) => {
+    const normalizedDurationMeta = normalizeStatsRecordDurationMeta(
+      record?.durationMeta,
+    );
+    const canonicalEndDate =
+      parseStatsFlexibleDate(record?.endTime) ||
+      parseStatsFlexibleDate(record?.sptTime) ||
+      parseStatsFlexibleDate(record?.timestamp) ||
+      parseStatsFlexibleDate(record?.rawEndTime) ||
+      parseStatsFlexibleDate(record?.startTime) ||
+      new Date();
+    const durationMs = resolveStatsRecordDurationMs(record, normalizedDurationMeta);
+    const explicitStartDate = parseStatsFlexibleDate(record?.startTime);
+    const startDate =
+      explicitStartDate ||
+      (durationMs > 0
+        ? new Date(canonicalEndDate.getTime() - Math.max(durationMs, 0))
+        : null);
+    const rawEndDate =
+      parseStatsFlexibleDate(record?.rawEndTime) || canonicalEndDate;
+    const normalizedName =
+      typeof record?.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : "未命名项目";
+    const matchedProject = safeProjects.find((project) => {
+      const projectName = String(project?.name || "").trim();
+      if (!projectName) {
+        return false;
+      }
+      if (projectName === normalizedName) {
+        return true;
+      }
+      const leafName = normalizedName
+        .split("/")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .pop();
+      return !!leafName && projectName === leafName;
+    });
+
+    return {
+      ...record,
+      name: normalizedName,
+      projectId:
+        String(record?.projectId || matchedProject?.id || "").trim() || null,
+      timestamp: canonicalEndDate.toISOString(),
+      sptTime: canonicalEndDate.toISOString(),
+      endTime: canonicalEndDate.toISOString(),
+      rawEndTime: rawEndDate.toISOString(),
+      startTime: startDate ? startDate.toISOString() : null,
+      durationMs: Number.isFinite(durationMs) ? durationMs : null,
+      spendtime:
+        typeof record?.spendtime === "string" && record.spendtime.trim()
+          ? record.spendtime.trim()
+          : durationMs > 0
+            ? formatMergedSpendtime(durationMs)
+            : "",
+      durationMeta: normalizedDurationMeta,
+    };
   });
 }
 
@@ -1396,8 +1560,73 @@ function getHeatmapYearAnchor(
   return new Date(safeYear, Math.max(0, monthCount - 1), 1);
 }
 
+function getStatsAvailableRecordDateBounds(recordList = records) {
+  let minDate = null;
+  let maxDate = null;
+
+  (Array.isArray(recordList) ? recordList : []).forEach((record) => {
+    const anchorDate = getDateOnly(
+      record?.endTime ||
+        record?.timestamp ||
+        record?.startTime ||
+        record?.rawEndTime ||
+        record?.sptTime,
+    );
+    if (!(anchorDate instanceof Date) || Number.isNaN(anchorDate.getTime())) {
+      return;
+    }
+    if (!(minDate instanceof Date) || anchorDate < minDate) {
+      minDate = new Date(anchorDate);
+    }
+    if (!(maxDate instanceof Date) || anchorDate > maxDate) {
+      maxDate = new Date(anchorDate);
+    }
+  });
+
+  return {
+    min: minDate,
+    max: maxDate,
+  };
+}
+
+function syncStatsDateInputBounds() {
+  const startDateInput = document.getElementById("start-date-select");
+  const endDateInput = document.getElementById("end-date-select");
+  const minDate =
+    statsAvailableRecordDateBounds?.min instanceof Date
+      ? formatDateInputValue(statsAvailableRecordDateBounds.min)
+      : "";
+  const maxDate =
+    statsAvailableRecordDateBounds?.max instanceof Date
+      ? formatDateInputValue(statsAvailableRecordDateBounds.max)
+      : "";
+
+  [startDateInput, endDateInput].forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+    if (minDate) {
+      input.min = minDate;
+    } else {
+      input.removeAttribute("min");
+    }
+    if (maxDate) {
+      input.max = maxDate;
+    } else {
+      input.removeAttribute("max");
+    }
+  });
+}
+
+function refreshStatsAvailableRecordDateBounds(recordList = records) {
+  statsAvailableRecordDateBounds = getStatsAvailableRecordDateBounds(recordList);
+  syncStatsDateInputBounds();
+  return statsAvailableRecordDateBounds;
+}
+
 function getInitialStatsAnchorForView(viewMode = statsViewMode) {
-  const today = getDateOnly(new Date());
+  const today =
+    getDateOnly(statsAvailableRecordDateBounds?.max) || getDateOnly(new Date());
   if (!isHeatmapToolbarViewMode(viewMode)) {
     return today;
   }
@@ -1405,6 +1634,59 @@ function getInitialStatsAnchorForView(viewMode = statsViewMode) {
   return statsRememberedHeatmapRangeUnit === "year"
     ? getHeatmapYearAnchor(today.getFullYear())
     : new Date(today.getFullYear(), today.getMonth(), 1);
+}
+
+function getStatsFallbackAnchorDate(preferredDateValue = null) {
+  return (
+    getDateOnly(preferredDateValue) ||
+    getDateOnly(statsAvailableRecordDateBounds?.max) ||
+    getDateOnly(new Date())
+  );
+}
+
+function clampStatsDateToAvailableBounds(dateValue, preferredDateValue = null) {
+  const minDate = getDateOnly(statsAvailableRecordDateBounds?.min);
+  const maxDate = getDateOnly(statsAvailableRecordDateBounds?.max);
+  const safeDate =
+    getDateOnly(dateValue) || getStatsFallbackAnchorDate(preferredDateValue);
+
+  if (minDate && safeDate < minDate) {
+    return new Date(minDate);
+  }
+  if (maxDate && safeDate > maxDate) {
+    return new Date(maxDate);
+  }
+  return new Date(safeDate);
+}
+
+function getNormalizedStatsInputRange(
+  startDateValue,
+  endDateValue,
+  fallbackDateValue = null,
+) {
+  const fallbackDate = getStatsFallbackAnchorDate(fallbackDateValue);
+  let startDate = getDateOnly(startDateValue);
+  let endDate = getDateOnly(endDateValue);
+
+  if (!startDate && !endDate) {
+    startDate = new Date(fallbackDate);
+    endDate = new Date(fallbackDate);
+  } else if (!startDate && endDate) {
+    startDate = new Date(endDate);
+  } else if (!endDate && startDate) {
+    endDate = new Date(startDate);
+  }
+
+  startDate = clampStatsDateToAvailableBounds(startDate, fallbackDate);
+  endDate = clampStatsDateToAvailableBounds(endDate, fallbackDate);
+  if (startDate > endDate) {
+    [startDate, endDate] = [endDate, startDate];
+  }
+
+  return {
+    start: startDate,
+    end: endDate,
+  };
 }
 
 function getWidgetLaunchAnchorDate(payload = {}, fallbackDate = getDateOnly(new Date())) {
@@ -1422,12 +1704,44 @@ function normalizeStatsAnchorForView(
   anchorDateValue,
   viewMode = statsViewMode,
 ) {
-  const baseAnchor = getDateOnly(anchorDateValue) || getDateOnly(new Date());
+  const safeUnit = isHeatmapToolbarViewMode(viewMode)
+    ? normalizeHeatmapRangeUnit(unit)
+    : normalizeStatsRangeUnit(unit, "day");
+  const baseAnchor = clampStatsDateToAvailableBounds(anchorDateValue);
   if (!isHeatmapToolbarViewMode(viewMode)) {
-    return baseAnchor;
+    switch (safeUnit) {
+      case "week":
+        return getWeekStartDate(baseAnchor);
+      case "month":
+        return getMonthStartDate(baseAnchor);
+      case "year":
+        return getYearStartDate(baseAnchor);
+      case "day":
+      default:
+        return new Date(baseAnchor);
+    }
+  }
+
+  if (safeUnit === "year") {
+    return getHeatmapYearAnchor(baseAnchor.getFullYear(), getSafeHeatmapMonthCount());
   }
 
   return new Date(baseAnchor.getFullYear(), baseAnchor.getMonth(), 1);
+}
+
+function reconcileStatsRangeStateWithAvailableData(viewMode = statsViewMode) {
+  const safeUnit = isHeatmapToolbarViewMode(viewMode)
+    ? normalizeHeatmapRangeUnit(statsRangeState.unit || statsRememberedHeatmapRangeUnit)
+    : normalizeStatsRangeUnit(statsRangeState.unit || statsRememberedGeneralRangeUnit, "day");
+  const nextAnchor = normalizeStatsAnchorForView(
+    safeUnit,
+    statsRangeState.anchorDate || getInitialStatsAnchorForView(viewMode),
+    viewMode,
+  );
+
+  statsRangeState.unit = safeUnit;
+  statsRangeState.anchorDate = nextAnchor;
+  return nextAnchor;
 }
 
 function getHeatmapRangeForAnchor(anchorDateValue) {
@@ -1492,10 +1806,6 @@ function syncStatsTimeUnitOptions(select = null) {
   uiTools?.refreshEnhancedSelect?.(unitSelect);
 }
 
-function shouldUseWeeklyWindowForDayUnit() {
-  return statsViewMode === "table";
-}
-
 function isSameDate(left, right) {
   const leftDate = getDateOnly(left);
   const rightDate = getDateOnly(right);
@@ -1507,7 +1817,7 @@ function isSameDate(left, right) {
 
 function getStatsRangeForUnit(unit, anchorDateValue) {
   const safeUnit = normalizeStatsRangeUnit(unit, "day");
-  const anchorDate = getDateOnly(anchorDateValue) || getDateOnly(new Date());
+  const anchorDate = normalizeStatsAnchorForView(safeUnit, anchorDateValue);
   if (
     isHeatmapToolbarViewMode() &&
     STATS_HEATMAP_RANGE_UNITS.has(normalizeHeatmapRangeUnit(safeUnit))
@@ -1532,12 +1842,6 @@ function getStatsRangeForUnit(unit, anchorDateValue) {
         end: getYearEndDate(anchorDate),
       };
     case "day":
-      if (shouldUseWeeklyWindowForDayUnit()) {
-        return {
-          start: getWeekStartDate(anchorDate),
-          end: getWeekEndDate(anchorDate),
-        };
-      }
       return {
         start: anchorDate,
         end: anchorDate,
@@ -1554,11 +1858,16 @@ function shiftStatsAnchorDate(anchorDateValue, unit, amount) {
   const safeUnit = isHeatmapToolbarViewMode()
     ? normalizeHeatmapRangeUnit(unit)
     : normalizeStatsRangeUnit(unit, "day");
-  const anchorDate =
-    getDateOnly(anchorDateValue) || getInitialStatsAnchorForView();
+  const anchorDate = normalizeStatsAnchorForView(safeUnit, anchorDateValue);
   const nextAnchor = new Date(anchorDate);
 
   if (isHeatmapToolbarViewMode() && STATS_HEATMAP_RANGE_UNITS.has(safeUnit)) {
+    if (safeUnit === "year") {
+      return getHeatmapYearAnchor(
+        nextAnchor.getFullYear() + amount,
+        getSafeHeatmapMonthCount(),
+      );
+    }
     nextAnchor.setMonth(
       nextAnchor.getMonth() + amount * getSafeHeatmapMonthCount(),
     );
@@ -1568,46 +1877,55 @@ function shiftStatsAnchorDate(anchorDateValue, unit, amount) {
   switch (safeUnit) {
     case "week":
       nextAnchor.setDate(nextAnchor.getDate() + amount * 7);
-      break;
+      return getWeekStartDate(nextAnchor);
     case "month":
-      nextAnchor.setMonth(nextAnchor.getMonth() + amount);
-      break;
-    case "year":
-      nextAnchor.setFullYear(nextAnchor.getFullYear() + amount);
-      break;
-    case "day":
-      nextAnchor.setDate(
-        nextAnchor.getDate() +
-          amount * (shouldUseWeeklyWindowForDayUnit() ? 7 : 1),
+      return new Date(
+        nextAnchor.getFullYear(),
+        nextAnchor.getMonth() + amount,
+        1,
       );
-      break;
+    case "year":
+      return new Date(nextAnchor.getFullYear() + amount, 0, 1);
+    case "day":
+      nextAnchor.setDate(nextAnchor.getDate() + amount);
+      return nextAnchor;
     default:
       nextAnchor.setDate(nextAnchor.getDate() + amount);
-      break;
+      return nextAnchor;
   }
-
-  return nextAnchor;
 }
 
 function resolveStatsAnchorFromInputs(unit, changeSource = "end") {
   const startValue = document.getElementById("start-date-select")?.value;
   const endValue = document.getElementById("end-date-select")?.value;
-  const startDate = getDateOnly(startValue);
-  const endDate = getDateOnly(endValue);
+  const rawStartDate = getDateOnly(startValue);
+  const rawEndDate = getDateOnly(endValue);
+  const { start: startDate, end: endDate } = getNormalizedStatsInputRange(
+    startValue,
+    endValue,
+    statsRangeState.anchorDate,
+  );
+  const changedDate = clampStatsDateToAvailableBounds(
+    changeSource === "start"
+      ? rawStartDate || rawEndDate
+      : rawEndDate || rawStartDate,
+    statsRangeState.anchorDate,
+  );
+  const referenceDate =
+    changedDate || (changeSource === "start" ? startDate : endDate);
   const safeUnit = isHeatmapToolbarViewMode()
     ? normalizeHeatmapRangeUnit(unit)
     : normalizeStatsRangeUnit(unit, "day");
 
   if (isHeatmapToolbarViewMode() && STATS_HEATMAP_RANGE_UNITS.has(safeUnit)) {
     if (safeUnit === "year") {
-      const referenceDate =
-        changeSource === "start" ? startDate || endDate : endDate || startDate;
       return getHeatmapYearAnchor(
-        (referenceDate || getDateOnly(new Date())).getFullYear(),
+        referenceDate.getFullYear(),
+        getSafeHeatmapMonthCount(),
       );
     }
 
-    if (changeSource === "start" && startDate) {
+    if (changeSource === "start") {
       return new Date(
         startDate.getFullYear(),
         startDate.getMonth() + getSafeHeatmapMonthCount() - 1,
@@ -1615,33 +1933,20 @@ function resolveStatsAnchorFromInputs(unit, changeSource = "end") {
       );
     }
 
-    if (endDate) {
-      return new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-    }
-    if (startDate) {
-      return new Date(
-        startDate.getFullYear(),
-        startDate.getMonth() + getSafeHeatmapMonthCount() - 1,
-        1,
-      );
-    }
-    return getInitialStatsAnchorForView();
+    return new Date(endDate.getFullYear(), endDate.getMonth(), 1);
   }
 
-  if (safeUnit === "year" && startDate) {
-    return getYearStartDate(startDate);
+  if (safeUnit === "year") {
+    return getYearStartDate(referenceDate);
   }
-  if (safeUnit === "month" && startDate) {
-    return getMonthStartDate(startDate);
+  if (safeUnit === "month") {
+    return getMonthStartDate(referenceDate);
   }
-  if (safeUnit === "week" && startDate) {
-    return getWeekStartDate(startDate);
-  }
-  if (safeUnit === "day" && shouldUseWeeklyWindowForDayUnit() && startDate) {
-    return startDate;
+  if (safeUnit === "week") {
+    return getWeekStartDate(referenceDate);
   }
 
-  return startDate || endDate || getDateOnly(new Date());
+  return new Date(referenceDate);
 }
 
 function applyStatsRange(unit, anchorDateValue, shouldRender = true) {
@@ -1922,8 +2227,9 @@ function getStatsLoadScope() {
 let statsRangeDataRequestId = 0;
 
 function applyStatsWorkspaceState(snapshot = {}) {
-  records = Array.isArray(snapshot.records) ? snapshot.records : [];
   projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  records = normalizeStatsLoadedRecords(snapshot.records, projects);
+  refreshStatsAvailableRecordDateBounds(records);
   statsPreferencesState = normalizeStatsPreferences(snapshot.preferences || {});
   statsLoadedRecordPeriodIds = Array.isArray(snapshot.loadedRecordPeriodIds)
     ? snapshot.loadedRecordPeriodIds.slice()
@@ -2091,9 +2397,10 @@ function initTimeSelector() {
     const nextUnit = isHeatmapToolbarViewMode()
       ? normalizeHeatmapRangeUnit(unitSelect.value)
       : normalizeStatsRangeUnit(unitSelect.value, "day");
-    const nextAnchor = isHeatmapToolbarViewMode()
-      ? resolveStatsAnchorFromInputs(nextUnit, "end")
-      : getInitialStatsAnchorForView();
+    const nextAnchor =
+      resolveStatsAnchorFromInputs(nextUnit, "end") ||
+      getDateOnly(statsRangeState.anchorDate) ||
+      getInitialStatsAnchorForView();
     applyStatsRange(nextUnit, nextAnchor);
   });
 
@@ -2125,20 +2432,7 @@ function initTimeSelector() {
     const nextAnchor =
       resolveStatsAnchorFromInputs(statsRangeState.unit, changeSource) ||
       getInitialStatsAnchorForView();
-    statsRangeState.anchorDate = nextAnchor;
-
-    if (isHeatmapToolbarViewMode()) {
-      applyStatsRange(statsRangeState.unit, nextAnchor);
-      return;
-    }
-
-    if (statsRangeState.unit === "day" && shouldUseWeeklyWindowForDayUnit()) {
-      applyStatsRange(statsRangeState.unit, nextAnchor);
-      return;
-    }
-
-    updateCurrentTimeRangeDisplay();
-    void refreshStatsRangeData(true);
+    applyStatsRange(statsRangeState.unit, nextAnchor);
   };
 
   startDate.addEventListener("change", () => handleDateChange("start"));
@@ -2172,6 +2466,12 @@ function updateCurrentTimeRangeDisplay() {
     displayText += ` 至 ${end}`;
   }
   displayText += ` · ${unitLabels[statsRangeState.unit] || "天"}范围`;
+  if (
+    statsAvailableRecordDateBounds?.min instanceof Date &&
+    statsAvailableRecordDateBounds?.max instanceof Date
+  ) {
+    displayText += ` · 数据范围 ${formatDateInputValue(statsAvailableRecordDateBounds.min)} 至 ${formatDateInputValue(statsAvailableRecordDateBounds.max)}`;
+  }
   rangeElement.textContent = displayText;
 }
 
@@ -2290,10 +2590,10 @@ function renderWidgetRecordList(container) {
 }
 
 function getNormalizedStatsFilterRange(startDate, endDate) {
-  const start = getDateOnly(startDate) || getDateOnly(new Date(0));
-  const end = getDateOnly(endDate) || getDateOnly(new Date());
-  const normalizedStart = start <= end ? new Date(start) : new Date(end);
-  const normalizedEnd = start <= end ? new Date(end) : new Date(start);
+  const { start: normalizedStartDate, end: normalizedEndDate } =
+    getNormalizedStatsInputRange(startDate, endDate, statsRangeState.anchorDate);
+  const normalizedStart = new Date(normalizedStartDate);
+  const normalizedEnd = new Date(normalizedEndDate);
   normalizedStart.setHours(0, 0, 0, 0);
   normalizedEnd.setHours(23, 59, 59, 999);
   return {
@@ -2331,6 +2631,11 @@ function getStatsRecordLoadScope(scope = {}) {
 }
 
 function getExpandedStatsRecordLoadScope(scope = {}) {
+  if (typeof window.ControlerStorage?.loadSectionRange === "function") {
+    return {
+      all: true,
+    };
+  }
   return getStatsRecordLoadScope(scope);
 }
 
@@ -2404,12 +2709,11 @@ function formatMsToHoursText(totalMs) {
 
 function getNormalizedStatsPeriodRange() {
   const { startDate, endDate } = getSelectedStatsDateRange();
-  let start = getDateOnly(startDate) || getDateOnly(new Date());
-  let end = getDateOnly(endDate) || getDateOnly(new Date());
-
-  if (start > end) {
-    [start, end] = [end, start];
-  }
+  const { start, end } = getNormalizedStatsInputRange(
+    startDate,
+    endDate,
+    statsRangeState.anchorDate,
+  );
 
   const normalizedStart = new Date(start);
   normalizedStart.setHours(0, 0, 0, 0);
@@ -6687,7 +6991,7 @@ function initViewSelector(options = {}) {
     applyStatsRange(
       statsRangeState.unit,
       shouldRestoreMainViewRange
-        ? getInitialStatsAnchorForView()
+        ? getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView()
         : statsRangeState.anchorDate,
       shouldRender,
     );
@@ -6708,7 +7012,11 @@ function initViewSelector(options = {}) {
       ? statsRememberedHeatmapRangeUnit
       : statsRememberedGeneralRangeUnit;
     syncStatsTimeUnitOptions();
-    applyStatsRange(statsRangeState.unit, getInitialStatsAnchorForView(nextViewMode));
+    const nextAnchor =
+      resolveStatsAnchorFromInputs(statsRangeState.unit, "end") ||
+      getDateOnly(statsRangeState.anchorDate) ||
+      getInitialStatsAnchorForView(nextViewMode);
+    applyStatsRange(statsRangeState.unit, nextAnchor);
   });
 
   const shouldRestoreMainViewRange = STATS_MAIN_VIEW_MODES.has(statsViewMode);
@@ -6721,7 +7029,7 @@ function initViewSelector(options = {}) {
   applyStatsRange(
     statsRangeState.unit,
     shouldRestoreMainViewRange
-      ? getInitialStatsAnchorForView()
+      ? getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView()
       : statsRangeState.anchorDate,
     shouldRender,
   );
@@ -7018,6 +7326,7 @@ async function init() {
     await loadData(getStatsLoadScope(), {
       fresh: true,
     });
+    reconcileStatsRangeStateWithAvailableData();
     uiTools?.markPerfStage?.("first-data-ready", {
       rangeUnit: statsRangeState.unit,
       recordCount: records.length,
@@ -8126,7 +8435,8 @@ function parseSpendTimeToHours(spendtime) {
   const dayMatch = spendtime.match(/(\d+)天/);
   const hourMatch = spendtime.match(/(\d+)小时/);
   const minuteMatch = spendtime.match(/(\d+)分钟/);
-  const lessThanMinute = spendtime.includes("小于1分钟");
+  const lessThanMinute =
+    spendtime.includes("小于1分钟") || spendtime.includes("小于1min");
 
   if (dayMatch) hours += parseInt(dayMatch[1], 10) * 24;
   if (hourMatch) hours += parseInt(hourMatch[1], 10);

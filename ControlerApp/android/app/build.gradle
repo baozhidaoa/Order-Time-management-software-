@@ -74,6 +74,10 @@ def jscFlavor = 'org.webkit:android-jsc:+'
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 def hasReleaseSigning = false
+def repoRootDir = projectDir.parentFile.parentFile.parentFile
+def syncWebAssetsScript = new File(repoRootDir, "scripts/sync-web-assets.mjs")
+def controlerWebAssetsDir = file("$projectDir/src/main/assets/controler-web")
+def nodeExecutable = System.getenv("NODE_BINARY") ?: "node"
 
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
@@ -93,8 +97,8 @@ android {
         applicationId "com.controler.timetracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 261
-        versionName "1.261"
+        versionCode 262
+        versionName "1.262"
     }
     signingConfigs {
         debug {
@@ -148,3 +152,19 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+tasks.register("verifyControlerWebAssets", Exec) {
+    workingDir repoRootDir
+    commandLine nodeExecutable, syncWebAssetsScript.absolutePath
+    inputs.dir new File(repoRootDir, "pages")
+    inputs.file new File(repoRootDir, "shared/platform-contract.js")
+    inputs.file new File(repoRootDir, "package.json")
+    outputs.dir controlerWebAssetsDir
+    doFirst {
+        if (!syncWebAssetsScript.exists()) {
+            throw new GradleException("缺少 Web 资源同步脚本: ${syncWebAssetsScript.absolutePath}")
+        }
+    }
+}
+
+preBuild.dependsOn(tasks.named("verifyControlerWebAssets"))

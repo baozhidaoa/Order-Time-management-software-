@@ -4893,7 +4893,8 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   }
 
   // 保存并更新UI
-  savePlans();
+  syncPlanDataIndex(["plans"]);
+  const saveResult = await savePlans();
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理周视图计划草稿失败:", error);
@@ -4902,7 +4903,13 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });
-  renderCalendarContent();
+  renderPlanGuideCard();
+  renderCalendarView({
+    skipCoverageCheck: true,
+  });
+  if (saveResult === false) {
+    return;
+  }
   document.body.removeChild(modal);
 }
 
@@ -5293,7 +5300,8 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   }
 
   // 保存并更新UI
-  savePlans();
+  syncPlanDataIndex(["plans"]);
+  const saveResult = await savePlans();
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理计划草稿失败:", error);
@@ -5302,7 +5310,13 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
     silentWhenDisabled: false,
   });
-  renderCalendarContent();
+  renderPlanGuideCard();
+  renderCalendarView({
+    skipCoverageCheck: true,
+  });
+  if (saveResult === false) {
+    return;
+  }
   if (modal.parentNode) {
     document.body.removeChild(modal);
   }

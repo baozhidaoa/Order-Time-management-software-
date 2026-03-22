@@ -65,16 +65,19 @@ export function getWidgetLaunchRejectToast(
       return '请先回到日记页后再使用写日记小组件';
     case 'show-week-grid':
       return '请先回到统计页后再使用周表小组件';
+    case 'show-day-line':
     case 'show-day-pie':
+    case 'show-heatmap':
+    case 'show-record-list':
       return '请先回到统计页后再使用饼图小组件';
     case 'show-week-view':
       return '请先回到计划页后再使用周视图小组件';
     case 'show-year-view':
       return '请先回到计划页后再使用年视图小组件';
     case 'show-todos':
-      return '请先回到计划页后再使用待办小组件';
+      return '请先回到待办页后再使用待办小组件';
     case 'show-checkins':
-      return '请先回到计划页后再使用打卡小组件';
+      return '请先回到待办页后再使用打卡小组件';
     default:
       return targetPageKey === 'todo'
         ? '请先回到待办页后再使用该小组件'
@@ -88,11 +91,37 @@ export function getWidgetLaunchRejectToast(
   }
 }
 
+function inferTargetPageFromWidgetAction(action: string): WidgetPolicyPageKey | '' {
+  switch (action) {
+    case 'start-timer':
+      return 'index';
+    case 'new-diary':
+      return 'diary';
+    case 'show-week-grid':
+    case 'show-day-pie':
+    case 'show-day-line':
+    case 'show-heatmap':
+    case 'show-record-list':
+      return 'stats';
+    case 'show-week-view':
+    case 'show-year-view':
+      return 'plan';
+    case 'show-todos':
+    case 'show-checkins':
+      return 'todo';
+    case 'open-import-wizard':
+      return 'settings';
+    default:
+      return '';
+  }
+}
+
 export function resolveWidgetLaunchPolicy(
   input: WidgetLaunchPolicyInput,
 ): WidgetLaunchPolicyResult {
   const targetPageKey =
     input.launchContext.pageKey ||
+    inferTargetPageFromWidgetAction(input.launchContext.widgetAction) ||
     input.activePageKey ||
     input.fallbackPageKey ||
     'index';

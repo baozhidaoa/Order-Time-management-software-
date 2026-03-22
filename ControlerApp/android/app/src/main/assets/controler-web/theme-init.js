@@ -944,6 +944,33 @@
         },
       }),
     );
+    try {
+      const builtInThemeOverrides = loadBuiltInThemeOverrides();
+      const rawCustomThemes = JSON.parse(
+        localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
+      );
+      const matchedCustomTheme = Array.isArray(rawCustomThemes)
+        ? normalizeCustomTheme(
+            rawCustomThemes.find((theme) => theme?.id === themeId) || null,
+          )
+        : null;
+      const selectedOverride = builtInThemeOverrides[themeId];
+      window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
+        href: window.location.href,
+        themeId,
+        selectedTheme: themeId || "default",
+        customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+        builtInThemeOverrides: selectedOverride
+          ? {
+              [themeId]: {
+                name: selectedOverride.name,
+                colors: selectedOverride.colors,
+              },
+            }
+          : {},
+        colors: { ...colors },
+      });
+    } catch (_error) {}
   }
 
   function resolveActiveThemeState() {

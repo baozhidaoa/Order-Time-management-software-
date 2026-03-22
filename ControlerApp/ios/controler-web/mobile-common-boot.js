@@ -5868,6 +5868,61 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return normalizeState(rebasedSharedState, buildMobileMetadata());
     }
 
+    function getManagedStateFootprint(state = {}) {
+      const safeState =
+        state && typeof state === "object" && !Array.isArray(state) ? state : {};
+      const countArrayItems = (key) =>
+        Array.isArray(safeState[key]) ? safeState[key].length : 0;
+      const rangeItemCount = MANAGED_RANGE_SECTIONS.reduce(
+        (total, section) => total + countArrayItems(section),
+        0,
+      );
+      const projectCount = countArrayItems("projects");
+      const directRecordCount = countArrayItems("records");
+      const coreItemCount =
+        projectCount +
+        countArrayItems("todos") +
+        countArrayItems("checkinItems") +
+        countArrayItems("plans") +
+        countArrayItems("diaryCategories") +
+        countArrayItems("customThemes");
+
+      return {
+        projectCount,
+        directRecordCount,
+        rangeItemCount,
+        coreItemCount,
+        totalItemCount: coreItemCount + rangeItemCount + directRecordCount,
+      };
+    }
+
+    function shouldPreferNativeInitializationSnapshot(
+      localState,
+      nativeState,
+    ) {
+      const localFootprint = getManagedStateFootprint(localState);
+      const nativeFootprint = getManagedStateFootprint(nativeState);
+
+      if (nativeFootprint.rangeItemCount > localFootprint.rangeItemCount) {
+        return true;
+      }
+      if (nativeFootprint.directRecordCount > localFootprint.directRecordCount) {
+        return true;
+      }
+      if (nativeFootprint.projectCount > localFootprint.projectCount + 1) {
+        return true;
+      }
+      if (nativeFootprint.totalItemCount > localFootprint.totalItemCount + 8) {
+        return true;
+      }
+
+      return (
+        localFootprint.rangeItemCount + localFootprint.directRecordCount === 0 &&
+        localFootprint.projectCount <= 1 &&
+        nativeFootprint.totalItemCount > localFootprint.totalItemCount
+      );
+    }
+
     function rebuildManagedSectionCoverage(state, options = {}) {
       const markFull = options?.markFull === true;
       const nextCoverage = createManagedSectionCoverage();
@@ -5902,13 +5957,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     }
 
-    function canServeManagedSectionRange(section, scope = {}) {
-      const normalizedRange =
+    function normalizeManagedSectionRangeScope(scope = {}) {
+      return (
         storageBundle?.normalizeRangeInput?.(scope) || {
           periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
           startDate: scope?.startDate || scope?.start || null,
           endDate: scope?.endDate || scope?.end || null,
-        };
+        }
+      );
+    }
+
+    function isFullManagedSectionRange(normalizedRange = {}) {
+      const normalizedPeriodIds = Array.isArray(normalizedRange?.periodIds)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+      const normalizedStartDate =
+        typeof normalizedRange?.startDate === "string"
+          ? normalizedRange.startDate.trim()
+          : normalizedRange?.startDate || "";
+      const normalizedEndDate =
+        typeof normalizedRange?.endDate === "string"
+          ? normalizedRange.endDate.trim()
+          : normalizedRange?.endDate || "";
+      return (
+        normalizedPeriodIds.length === 0 &&
+        !normalizedStartDate &&
+        !normalizedEndDate
+      );
+    }
+
+    function canServeManagedSectionRange(section, scope = {}) {
+      const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
         return normalizedRange;
       }
@@ -5923,17 +6004,88 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : null;
     }
 
+    function canServeManagedPageBootstrap(pageKey, options = {}) {
+      const normalizedPage = normalizePageBootstrapKey(pageKey);
+      const normalizedOptions =
+        options && typeof options === "object" ? options : {};
+      if (!hasManagedCoreSnapshot) {
+        return false;
+      }
+
+      if (normalizedPage === "index") {
+        return !!canServeManagedSectionRange(
+          "records",
+          normalizedOptions?.recordScope &&
+            typeof normalizedOptions.recordScope === "object"
+            ? normalizedOptions.recordScope
+            : buildRecentHoursBootstrapScope(48),
+        );
+      }
+
+      if (normalizedPage === "plan") {
+        return !!canServeManagedSectionRange(
+          "plans",
+          normalizedOptions?.planScope &&
+            typeof normalizedOptions.planScope === "object"
+            ? normalizedOptions.planScope
+            : Array.isArray(normalizedOptions?.periodIds) &&
+                normalizedOptions.periodIds.length
+              ? { periodIds: normalizedOptions.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      if (normalizedPage === "todo") {
+        const dailyCheckinsCovered = canServeManagedSectionRange(
+          "dailyCheckins",
+          normalizedOptions?.dailyCheckinScope &&
+            typeof normalizedOptions.dailyCheckinScope === "object"
+            ? normalizedOptions.dailyCheckinScope
+            : buildCurrentDayBootstrapScope(),
+        );
+        const checkinsCovered = canServeManagedSectionRange(
+          "checkins",
+          normalizedOptions?.checkinScope &&
+            typeof normalizedOptions.checkinScope === "object"
+            ? normalizedOptions.checkinScope
+            : buildCurrentMonthBootstrapScope(),
+        );
+        return !!dailyCheckinsCovered && !!checkinsCovered;
+      }
+
+      if (normalizedPage === "diary") {
+        return !!canServeManagedSectionRange(
+          "diaryEntries",
+          normalizedOptions?.diaryScope &&
+            typeof normalizedOptions.diaryScope === "object"
+            ? normalizedOptions.diaryScope
+            : Array.isArray(normalizedOptions?.periodIds) &&
+                normalizedOptions.periodIds.length
+              ? { periodIds: normalizedOptions.periodIds }
+              : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      if (normalizedPage === "stats") {
+        return !!canServeManagedSectionRange(
+          "records",
+          normalizedOptions?.recordScope &&
+            typeof normalizedOptions.recordScope === "object"
+            ? normalizedOptions.recordScope
+            : buildCurrentMonthBootstrapScope(),
+        );
+      }
+
+      return true;
+    }
+
     function mergeManagedSectionRange(section, scope = {}, items = []) {
-      const normalizedRange =
-        storageBundle?.normalizeRangeInput?.(scope) || {
-          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-          startDate: scope?.startDate || scope?.start || null,
-          endDate: scope?.endDate || scope?.end || null,
-        };
+      const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
+      const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
       const state = readState();
       const nextState = {
         ...state,
@@ -5946,15 +6098,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? storageBundle.isRecurringPlan(item)
             : String(item?.repeat || "").trim().toLowerCase() !== "none",
         );
-        const oneTimePlans = (state?.plans || []).filter(
-          (item) =>
-            !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
-            !(
-              typeof storageBundle?.isRecurringPlan === "function"
-                ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none"
-            ),
-        );
+        const oneTimePlans = shouldReplaceWholeSection
+          ? []
+          : (state?.plans || []).filter(
+              (item) =>
+                !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
+                !(
+                  typeof storageBundle?.isRecurringPlan === "function"
+                    ? storageBundle.isRecurringPlan(item)
+                    : String(item?.repeat || "").trim().toLowerCase() !== "none"
+                ),
+            );
         nextState.plans = [
           ...(
             storageBundle?.sortPartitionItems?.(section, [
@@ -5965,9 +6119,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ...cloneValue(recurringPlans),
         ];
       } else {
-        const retainedItems = (state?.[section] || []).filter(
-          (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
-        );
+        const retainedItems = shouldReplaceWholeSection
+          ? []
+          : (state?.[section] || []).filter(
+              (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
+            );
         nextState[section] =
           storageBundle?.sortPartitionItems?.(section, [
             ...retainedItems,
@@ -5979,12 +6135,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasManagedCoreSnapshot = true;
       hasPendingStateChanges = false;
-      const coveredPeriodIds = requestedPeriodIds.length
-        ? requestedPeriodIds
-        : Array.from(
-            new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
-          );
-      markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+      if (shouldReplaceWholeSection) {
+        rebuildManagedSectionCoverage(cachedState, {
+          markFull: false,
+        });
+        managedFullyHydratedSections.add(section);
+      } else {
+        const coveredPeriodIds = requestedPeriodIds.length
+          ? requestedPeriodIds
+          : Array.from(
+              new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
+            );
+        markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+      }
       persistMirrorSnapshot(true);
     }
 
@@ -6001,6 +6164,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function readState() {
       return cachedState;
+    }
+
+    function buildCurrentMergedState() {
+      return buildMergedState(readState(), {
+        includeAliases: true,
+      });
     }
 
     function assignState(nextState) {
@@ -6635,6 +6804,47 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     async function initializeReactNativeStorage() {
       if (hasPendingStateChanges) {
         persistMirrorSnapshot(true);
+        const protectedNativeSnapshot = await readNativeSnapshot({
+          suppressError: true,
+        });
+        if (
+          protectedNativeSnapshot?.state &&
+          shouldPreferNativeInitializationSnapshot(
+            readState(),
+            protectedNativeSnapshot.state,
+          )
+        ) {
+          const currentSnapshot = createComparableSnapshot(readState());
+          const nextSnapshot = createComparableSnapshot(
+            protectedNativeSnapshot.state,
+          );
+
+          cachedState = protectedNativeSnapshot.state;
+          hasManagedCoreSnapshot = true;
+          rebuildManagedSectionCoverage(cachedState, {
+            markFull: true,
+          });
+          cachedStatus = protectedNativeSnapshot.status || cachedStatus;
+          lastWrittenComparableSnapshot = nextSnapshot;
+          hasPendingStateChanges = false;
+          persistMirrorSnapshot(true);
+          updateVersionBaseline(cachedStatus);
+          clearStorageSyncError();
+
+          if (nextSnapshot !== currentSnapshot) {
+            dispatchStorageChangedEvent(
+              "initial-sync",
+              buildMergedState(cachedState),
+              cachedStatus,
+            );
+          }
+          if (cachedStatus?.sizePending === true) {
+            scheduleNativeStatusRefresh({
+              suppressError: true,
+            });
+          }
+          return;
+        }
         try {
           await writeNativeState();
         } catch (error) {
@@ -7349,7 +7559,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
-          if (hasManagedCoreSnapshot && !useFreshBootstrap) {
+          const canUseManagedBootstrap = canServeManagedPageBootstrap(
+            normalizedPage,
+            normalizedOptions,
+          );
+          const shouldHydrateManagedMirror =
+            useFreshBootstrap || !canUseManagedBootstrap;
+          if (canUseManagedBootstrap && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -7400,7 +7616,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                   },
                 );
               }
-              if (useFreshBootstrap) {
+              if (shouldHydrateManagedMirror) {
                 applyNativePageBootstrapToManagedMirror(
                   normalizedPage,
                   normalizedBootstrap,
@@ -7446,7 +7662,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 },
               },
             );
-            if (useFreshBootstrap) {
+            if (shouldHydrateManagedMirror) {
               applyNativePageBootstrapToManagedMirror(
                 normalizedPage,
                 fallbackBootstrap,
@@ -11241,6 +11457,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
       }),
     );
+    try {
+      const builtInThemeOverrides = loadBuiltInThemeOverrides();
+      const rawCustomThemes = JSON.parse(
+        localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
+      );
+      const matchedCustomTheme = Array.isArray(rawCustomThemes)
+        ? normalizeCustomTheme(
+            rawCustomThemes.find((theme) => theme?.id === themeId) || null,
+          )
+        : null;
+      const selectedOverride = builtInThemeOverrides[themeId];
+      window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
+        href: window.location.href,
+        themeId,
+        selectedTheme: themeId || "default",
+        customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+        builtInThemeOverrides: selectedOverride
+          ? {
+              [themeId]: {
+                name: selectedOverride.name,
+                colors: selectedOverride.colors,
+              },
+            }
+          : {},
+        colors: { ...colors },
+      });
+    } catch (_error) {}
   }
 
   function resolveActiveThemeState() {
@@ -11726,6 +11969,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let pendingNativeNavigationRequest = null;
+  let nativeNavigationRetryTimerId = 0;
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
@@ -12038,6 +12282,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return pendingRequest;
   }
 
+  function clearNativeNavigationRetryTimer() {
+    if (nativeNavigationRetryTimerId) {
+      window.clearTimeout(nativeNavigationRetryTimerId);
+      nativeNavigationRetryTimerId = 0;
+    }
+  }
+
   function createDeferredAppNavigationRequest(targetItem, options = {}) {
     if (!targetItem || typeof targetItem !== "object") {
       return null;
@@ -12113,6 +12364,34 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const pendingRequest = clearPendingNativeNavigationRequest();
       if (!pendingRequest) {
         return;
+      }
+
+      resetAppPageTransitionRuntimeState({ clearStoredState: false });
+
+      if (detail.accepted === false && detail.busy === true) {
+        const retryTargetItem =
+          pendingRequest.targetItem ||
+          resolveAppNavigationItemByHref(pendingRequest.targetHref);
+        if (retryTargetItem) {
+          const retryDelayMs = Math.max(
+            80,
+            Number.isFinite(Number(detail.retryAfterMs))
+              ? Number(detail.retryAfterMs)
+              : 160,
+          );
+          clearNativeNavigationRetryTimer();
+          nativeNavigationRetryTimerId = window.setTimeout(() => {
+            nativeNavigationRetryTimerId = 0;
+            startAppPageTransition(
+              retryTargetItem,
+              pendingRequest.options || {
+                targetHref: pendingRequest.targetHref,
+                replaceHistory: pendingRequest.replaceHistory === true,
+              },
+            );
+          }, retryDelayMs);
+          return;
+        }
       }
 
       if (detail.accepted === false) {
@@ -12621,6 +12900,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     clearDeferredAppNavigationRequest();
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
+    clearNativeNavigationRetryTimer();
     if (clearStoredState) {
       clearAppPageTransitionState();
     }
@@ -12738,12 +13018,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return appPageLeaveOverlayController;
   }
 
-  function registerBeforePageLeave(handler) {
+  function registerBeforePageLeave(handler, options = {}) {
     if (typeof handler !== "function") {
       return () => {};
     }
     const guardId = `guard_${Date.now()}_${(beforePageLeaveGuardCounter += 1)}`;
-    beforePageLeaveGuards.set(guardId, handler);
+    beforePageLeaveGuards.set(guardId, {
+      handler,
+      options:
+        options && typeof options === "object" && !Array.isArray(options)
+          ? { ...options }
+          : {},
+    });
     return () => {
       beforePageLeaveGuards.delete(guardId);
     };
@@ -12754,7 +13040,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
-    const overlayController = getAppPageLeaveOverlayController();
+    const guardEntries = Array.from(beforePageLeaveGuards.values()).map((entry) =>
+      typeof entry === "function"
+        ? {
+            handler: entry,
+            options: {},
+          }
+        : {
+            handler: entry?.handler,
+            options:
+              entry?.options && typeof entry.options === "object"
+                ? entry.options
+                : {},
+          },
+    );
+    const shouldShowOverlay = guardEntries.some(
+      (entry) => entry?.options?.showLoadingOverlay !== false,
+    );
+    const overlayController = shouldShowOverlay
+      ? getAppPageLeaveOverlayController()
+      : null;
     overlayController?.setState({
       active: true,
       mode: "fullscreen",
@@ -12766,19 +13071,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      slowMessageTimerId = window.setTimeout(() => {
-        overlayController?.setState({
-          active: true,
-          mode: "fullscreen",
-          title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-          message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-          delayMs: 0,
-        });
-      }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
+      if (shouldShowOverlay) {
+        slowMessageTimerId = window.setTimeout(() => {
+          overlayController?.setState({
+            active: true,
+            mode: "fullscreen",
+            title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+            message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+            delayMs: 0,
+          });
+        }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
+      }
 
-      const guards = Array.from(beforePageLeaveGuards.values());
-      for (const guard of guards) {
-        const guardResult = await guard(context);
+      for (const entry of guardEntries) {
+        if (typeof entry?.handler !== "function") {
+          continue;
+        }
+        const guardResult = await entry.handler(context);
         if (guardResult === false) {
           throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
         }
@@ -12835,6 +13144,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function startAppPageTransition(targetItem, options = {}) {
     clearAndroidNavButtonFocus(document.activeElement, true);
+    clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidWebTransitionRuntime =
       !nativeNavigationRuntime && isAndroidNativeRuntime();
@@ -12927,8 +13237,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           }
           pendingNativeNavigationRequest = {
             requestId,
+            targetItem: finalTargetItem,
             targetHref: finalTargetHref,
             replaceHistory: finalNavigationOptions.replaceHistory === true,
+            options: finalNavigationOptions,
             timeoutId: window.setTimeout(() => {
               if (
                 !pendingNativeNavigationRequest ||
@@ -14175,6 +14487,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
+    let requestedOverlayState = {
+      visible: currentVisibility,
+      mode: currentMode,
+      title:
+        titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
+      message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+    };
 
     const clearFullscreenGeometry = () => {
       overlay.style.top = "";
@@ -14213,6 +14532,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return false;
       }
       return body.classList.contains("row");
+    };
+
+    const shouldSuppressFullscreenOverlay = (visible, mode) => {
+      if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (!isReactNativeNavigationRuntime()) {
+        return false;
+      }
+      return !isShellPageActive();
     };
 
     const syncFullscreenGeometry = () => {
@@ -14283,16 +14612,28 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const resolvedMode = normalizeMode(mode);
-      if (visible && resolvedMode === "fullscreen") {
+      requestedOverlayState = {
+        visible,
+        mode: resolvedMode,
+        title,
+        message,
+      };
+      const suppressedByShell = shouldSuppressFullscreenOverlay(
+        visible,
+        resolvedMode,
+      );
+      const actualVisible = visible && !suppressedByShell;
+      if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
         moveOverlayToInlineHost();
       }
 
       overlay.dataset.mode = resolvedMode;
-      overlay.hidden = !visible;
-      overlay.setAttribute("aria-hidden", visible ? "false" : "true");
-      currentVisibility = visible;
+      overlay.hidden = !actualVisible;
+      overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
+      overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
+      currentVisibility = actualVisible;
       currentMode = resolvedMode;
 
       if (titleNode instanceof HTMLElement && typeof title === "string") {
@@ -14329,10 +14670,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       syncFullscreenGeometry();
     };
 
+    const handleShellVisibilityChange = () => {
+      applyOverlayState(requestedOverlayState);
+    };
+
     window.addEventListener("pagehide", handlePageDispose);
     window.addEventListener("beforeunload", handlePageDispose);
     window.addEventListener("resize", handleViewportChange);
     window.visualViewport?.addEventListener("resize", handleViewportChange);
+    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleShellVisibilityChange);
 
     return {
       setState(nextState = {}) {
@@ -14407,6 +14753,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.removeEventListener("beforeunload", handlePageDispose);
         window.removeEventListener("resize", handleViewportChange);
         window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        window.removeEventListener(
+          SHELL_VISIBILITY_EVENT_NAME,
+          handleShellVisibilityChange,
+        );
         clearFullscreenGeometry();
       },
     };

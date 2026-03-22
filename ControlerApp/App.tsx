@@ -26,6 +26,8 @@ type NativeBridgeModule = {
   getStartUrl: () => Promise<string>;
   getUiLanguage?: () => Promise<string>;
   setUiLanguage?: (language: string) => Promise<string>;
+  getLaunchThemeState?: () => Promise<string>;
+  setLaunchThemeState?: (themeStateJson: string) => Promise<string>;
   readStorageState: () => Promise<string>;
   writeStorageState: (stateJson: string) => Promise<string>;
   getStorageStatus: () => Promise<string>;
@@ -341,11 +343,12 @@ const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
 const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 720 : 520;
 const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 260 : 180;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
-const EDGE_BACK_SWIPE_REGION_WIDTH = 56;
-const EDGE_BACK_SWIPE_MIN_DISTANCE = 44;
-const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = 20;
-const EDGE_BACK_SWIPE_MIN_VELOCITY = 0.32;
-const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 84;
+const EDGE_BACK_SWIPE_REGION_WIDTH = IS_ANDROID ? 72 : 56;
+const EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT = IS_ANDROID ? 92 : 0;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = IS_ANDROID ? 32 : 44;
+const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = IS_ANDROID ? 14 : 20;
+const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.22 : 0.32;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 110 : 84;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
@@ -365,6 +368,36 @@ const APP_PAGE_LABELS: Record<AppPageKey, {zh: string; en: string}> = {
   diary: {zh: '日记', en: 'Diary'},
   settings: {zh: '设置', en: 'Settings'},
 };
+const widgetKindMetadata = Array.isArray(platformContract?.getWidgetKinds?.())
+  ? platformContract.getWidgetKinds()
+  : [];
+const WIDGET_KIND_PAGE_MAP = new Map<string, AppPageKey>();
+const WIDGET_KIND_ACTION_MAP = new Map<string, string>();
+(Array.isArray(widgetKindMetadata) ? widgetKindMetadata : []).forEach(item => {
+  const widgetKind = String(item?.id || '').trim();
+  const widgetAction = String(item?.action || '').trim();
+  const widgetPage = normalizePageKey(item?.page);
+  if (!widgetKind) {
+    return;
+  }
+  if (widgetAction) {
+    WIDGET_KIND_ACTION_MAP.set(widgetKind, widgetAction);
+  }
+  if (widgetPage) {
+    WIDGET_KIND_PAGE_MAP.set(widgetKind, widgetPage);
+  }
+});
+const launchActionMetadata = Array.isArray(platformContract?.getLaunchActions?.())
+  ? platformContract.getLaunchActions()
+  : [];
+const LAUNCH_ACTION_PAGE_MAP = new Map<string, AppPageKey>();
+(Array.isArray(launchActionMetadata) ? launchActionMetadata : []).forEach(item => {
+  const launchAction = String(item?.id || '').trim();
+  const pageKey = normalizePageKey(item?.page);
+  if (launchAction && pageKey) {
+    LAUNCH_ACTION_PAGE_MAP.set(launchAction, pageKey);
+  }
+});
 
 function parseBridgeJson(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'string' || !value.trim()) {
@@ -387,6 +420,56 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function normalizeBootThemeColor(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function parseBootThemeRgb(
+  value: string,
+): {r: number; g: number; b: number} | null {
+  const normalizedValue = String(value || '').trim();
+  const hexMatch = normalizedValue.match(/^#([0-9a-fA-F]{6})$/);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    return {
+      r: Number.parseInt(hex.slice(0, 2), 16),
+      g: Number.parseInt(hex.slice(2, 4), 16),
+      b: Number.parseInt(hex.slice(4, 6), 16),
+    };
+  }
+  const rgbMatch = normalizedValue.match(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i,
+  );
+  if (!rgbMatch) {
+    return null;
+  }
+  const [r, g, b] = rgbMatch.slice(1, 4).map(channel => {
+    return Math.max(0, Math.min(255, Number.parseInt(channel, 10) || 0));
+  });
+  return {r, g, b};
+}
+
+function toBootThemeRgbChannels(value: string, fallback = '142, 214, 164'): string {
+  const rgb = parseBootThemeRgb(value);
+  return rgb ? `${rgb.r}, ${rgb.g}, ${rgb.b}` : fallback;
+}
+
+function isLightBootTheme(theme: ShellBootTheme): boolean {
+  const rgb = parseBootThemeRgb(theme.screenBg);
+  if (!rgb) {
+    return false;
+  }
+  const luminance =
+    (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  return luminance >= 0.72;
+}
+
+function getBootThemeContrastText(value: string): string {
+  const rgb = parseBootThemeRgb(value);
+  if (!rgb) {
+    return '#173326';
+  }
+  const luminance =
+    (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  return luminance >= 0.62 ? '#173326' : '#f8fafc';
 }
 
 function buildShellBootTheme(
@@ -414,6 +497,55 @@ function buildShellBootTheme(
       colors?.overlay,
       fallback.transitionOverlay,
     ),
+  };
+}
+
+function buildLaunchThemeBootstrapState(
+  themeState: Record<string, unknown> | null = null,
+): Record<string, unknown> {
+  const normalizedThemeState = buildLaunchThemeStatePayload(themeState);
+  const selectedTheme =
+    typeof normalizedThemeState.selectedTheme === 'string' &&
+    normalizedThemeState.selectedTheme.trim()
+      ? normalizedThemeState.selectedTheme.trim()
+      : 'default';
+  const resolvedTheme = resolveShellBootTheme(themeState);
+  const accentText = getBootThemeContrastText(resolvedTheme.accent);
+
+  return {
+    themeId: selectedTheme,
+    colorScheme: isLightBootTheme(resolvedTheme) ? 'light' : 'dark',
+    backgroundColor: resolvedTheme.screenBg,
+    textColor: resolvedTheme.text,
+    variables: {
+      '--bg-primary': resolvedTheme.screenBg,
+      '--bg-secondary': resolvedTheme.cardBg,
+      '--bg-tertiary': resolvedTheme.indicatorBg,
+      '--bg-quaternary': resolvedTheme.indicatorBg,
+      '--accent-color': resolvedTheme.accent,
+      '--accent-color-rgb': toBootThemeRgbChannels(resolvedTheme.accent),
+      '--text-color': resolvedTheme.text,
+      '--muted-text-color': resolvedTheme.mutedText,
+      '--border-color': resolvedTheme.cardBorder,
+      '--delete-btn': '#ff7e7e',
+      '--delete-hover': '#ff6464',
+      '--project-level-1': resolvedTheme.accent,
+      '--project-level-2': resolvedTheme.accent,
+      '--project-level-3': resolvedTheme.accent,
+      '--panel-bg': resolvedTheme.cardBg,
+      '--panel-strong-bg': resolvedTheme.cardBg,
+      '--panel-border-color': resolvedTheme.cardBorder,
+      '--button-bg': resolvedTheme.accent,
+      '--button-bg-hover': resolvedTheme.accent,
+      '--button-text': accentText,
+      '--button-border': resolvedTheme.cardBorder,
+      '--on-accent-text': accentText,
+      '--bottom-nav-bg': resolvedTheme.cardBg,
+      '--bottom-nav-button-bg': resolvedTheme.indicatorBg,
+      '--bottom-nav-button-active-bg': resolvedTheme.accent,
+      '--bottom-nav-active-text': accentText,
+      '--overlay-bg': resolvedTheme.transitionOverlay,
+    },
   };
 }
 
@@ -473,6 +605,46 @@ function resolveShellBootTheme(coreState: Record<string, unknown> | null): Shell
     );
   }
   return builtInBase;
+}
+
+function buildLaunchThemeStatePayload(
+  coreState: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!coreState) {
+    return {
+      selectedTheme: 'default',
+      customThemes: [],
+      builtInThemeOverrides: {},
+    };
+  }
+  const selectedTheme =
+    typeof coreState.selectedTheme === 'string' && coreState.selectedTheme.trim()
+      ? coreState.selectedTheme.trim()
+      : 'default';
+  const customThemes = Array.isArray(coreState.customThemes)
+    ? coreState.customThemes
+    : [];
+  const matchedCustomTheme = customThemes.find(theme => {
+    return (
+      isPlainObject(theme) &&
+      typeof theme.id === 'string' &&
+      theme.id.trim() === selectedTheme
+    );
+  });
+  const builtInOverrides = isPlainObject(coreState.builtInThemeOverrides)
+    ? coreState.builtInThemeOverrides
+    : {};
+  return {
+    selectedTheme,
+    customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+    builtInThemeOverrides:
+      builtInOverrides &&
+      Object.prototype.hasOwnProperty.call(builtInOverrides, selectedTheme)
+        ? {
+            [selectedTheme]: builtInOverrides[selectedTheme],
+          }
+        : {},
+  };
 }
 
 function buildInjectionScript(message: Record<string, unknown>): string {
@@ -690,9 +862,82 @@ export function getComparableUrl(value: string | null): string {
   }
 }
 
+function resolveLaunchContextPageKey(
+  pageKey: unknown,
+  widgetAction: unknown,
+  widgetKind: unknown,
+): AppPageKey | '' {
+  const explicitPageKey = normalizePageKey(pageKey);
+  if (explicitPageKey) {
+    return explicitPageKey;
+  }
+
+  const normalizedAction = String(widgetAction || '').trim();
+  if (normalizedAction && LAUNCH_ACTION_PAGE_MAP.has(normalizedAction)) {
+    return LAUNCH_ACTION_PAGE_MAP.get(normalizedAction) || '';
+  }
+
+  const normalizedWidgetKind = String(widgetKind || '').trim();
+  if (normalizedWidgetKind && WIDGET_KIND_PAGE_MAP.has(normalizedWidgetKind)) {
+    return WIDGET_KIND_PAGE_MAP.get(normalizedWidgetKind) || '';
+  }
+
+  return '';
+}
+
+function normalizeLaunchContext(
+  context: Partial<LaunchContext> | null | undefined,
+): LaunchContext {
+  const widgetKind =
+    typeof context?.widgetKind === 'string' ? context.widgetKind.trim() : '';
+  const inferredAction =
+    widgetKind && WIDGET_KIND_ACTION_MAP.has(widgetKind)
+      ? WIDGET_KIND_ACTION_MAP.get(widgetKind) || ''
+      : '';
+  const widgetAction =
+    typeof context?.widgetAction === 'string' && context.widgetAction.trim()
+      ? context.widgetAction.trim()
+      : inferredAction;
+  const widgetSource =
+    typeof context?.widgetSource === 'string' ? context.widgetSource.trim() : '';
+  const pageKey = resolveLaunchContextPageKey(
+    context?.pageKey,
+    widgetAction,
+    widgetKind,
+  );
+  const widgetLaunchId =
+    typeof context?.widgetLaunchId === 'string'
+      ? context.widgetLaunchId.trim()
+      : '';
+  const widgetTargetId =
+    typeof context?.widgetTargetId === 'string'
+      ? context.widgetTargetId.trim()
+      : '';
+  const widgetCreatedAt = Math.max(
+    0,
+    Number(context?.widgetCreatedAt) || 0,
+  );
+
+  return {
+    active:
+      !!context?.active ||
+      !!widgetKind ||
+      !!widgetAction ||
+      widgetSource === 'android-widget' ||
+      widgetSource === 'launcher',
+    pageKey,
+    widgetKind,
+    widgetAction,
+    widgetSource,
+    widgetLaunchId,
+    widgetTargetId,
+    widgetCreatedAt,
+  };
+}
+
 function parseLaunchContextFromUrl(value: string | null): LaunchContext {
   const fallbackPage = getPageByHref(value)?.key || '';
-  const emptyContext: LaunchContext = {
+  const emptyContext = normalizeLaunchContext({
     active: false,
     pageKey: fallbackPage,
     widgetKind: '',
@@ -701,7 +946,7 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
     widgetLaunchId: '',
     widgetTargetId: '',
     widgetCreatedAt: 0,
-  };
+  });
 
   try {
     const parsed = new URL(
@@ -724,7 +969,7 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
     const widgetCreatedAt = Number(
       parsed.searchParams.get('widgetCreatedAt') || 0,
     );
-    return {
+    return normalizeLaunchContext({
       active:
         !!widgetAction ||
         !!widgetKind ||
@@ -740,7 +985,7 @@ function parseLaunchContextFromUrl(value: string | null): LaunchContext {
         Number.isFinite(widgetCreatedAt) && widgetCreatedAt > 0
           ? Math.round(widgetCreatedAt)
           : 0,
-    };
+    });
   } catch {
     return emptyContext;
   }
@@ -776,7 +1021,7 @@ function parseLaunchContextFromPayload(
         ? Number(payload.widgetCreatedAt)
         : 0;
 
-  return {
+  return normalizeLaunchContext({
     active:
       !!widgetAction ||
       !!widgetKind ||
@@ -792,7 +1037,7 @@ function parseLaunchContextFromPayload(
       Number.isFinite(createdAtCandidate) && createdAtCandidate > 0
         ? Math.round(createdAtCandidate)
         : 0,
-  };
+  });
 }
 
 function createWidgetLaunchId(): string {
@@ -800,21 +1045,28 @@ function createWidgetLaunchId(): string {
 }
 
 function ensureWidgetLaunchId(context: LaunchContext): LaunchContext {
-  if (!context.widgetAction) {
+  const normalizedContext = normalizeLaunchContext(context);
+  if (!normalizedContext.widgetAction) {
     return {
-      ...context,
+      ...normalizedContext,
       widgetLaunchId: '',
       widgetCreatedAt: 0,
     };
   }
-  if (context.widgetLaunchId && context.widgetCreatedAt > 0) {
-    return context;
+  if (
+    normalizedContext.widgetLaunchId &&
+    normalizedContext.widgetCreatedAt > 0
+  ) {
+    return normalizedContext;
   }
   return {
-    ...context,
-    widgetLaunchId: context.widgetLaunchId || createWidgetLaunchId(),
+    ...normalizedContext,
+    widgetLaunchId:
+      normalizedContext.widgetLaunchId || createWidgetLaunchId(),
     widgetCreatedAt:
-      context.widgetCreatedAt > 0 ? context.widgetCreatedAt : Date.now(),
+      normalizedContext.widgetCreatedAt > 0
+        ? normalizedContext.widgetCreatedAt
+        : Date.now(),
   };
 }
 
@@ -926,44 +1178,136 @@ function buildWidgetLaunchDispatchScript(
   `;
 }
 
-const bridgeBootstrapScript = `
-  (function () {
-    window.__CONTROLER_RN_META__ = ${JSON.stringify(
-      platformContract.getReactNativeRuntimeProfile(Platform.OS),
-    )};
-    try {
-      const storedLanguage =
-        window.localStorage &&
-        typeof window.localStorage.getItem === 'function'
-          ? window.localStorage.getItem('${UI_LANGUAGE_STORAGE_KEY}')
-          : '';
-      const normalizedLanguage =
-        storedLanguage === 'en' || storedLanguage === 'en-US'
-          ? 'en-US'
-          : 'zh-CN';
-      if (
-        window.ReactNativeWebView &&
-        typeof window.ReactNativeWebView.postMessage === 'function'
-      ) {
-        window.ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: 'shell-language',
-            payload: {
-              language: normalizedLanguage,
-            },
-          }),
-        );
-      }
-    } catch (_error) {}
-    true;
-  })();
-`;
-
-function buildBridgeBootstrapScript(payload: Record<string, unknown>): string {
+function buildBridgeBootstrapScript(
+  payload: Record<string, unknown>,
+  themeState: Record<string, unknown> | null = null,
+): string {
   const serialized = JSON.stringify(payload)
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
-  return `${bridgeBootstrapScript}
+  const serializedThemeState = JSON.stringify(
+    buildLaunchThemeStatePayload(themeState),
+  )
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  const serializedThemeBootstrapState = JSON.stringify(
+    buildLaunchThemeBootstrapState(themeState),
+  )
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `
+    (function () {
+      window.__CONTROLER_RN_META__ = ${JSON.stringify(
+        platformContract.getReactNativeRuntimeProfile(Platform.OS),
+      )};
+      try {
+        const themeState = ${serializedThemeState};
+        const themeBootstrapState = ${serializedThemeBootstrapState};
+        const root = document.documentElement;
+        if (window.localStorage && typeof window.localStorage.setItem === 'function') {
+          window.localStorage.setItem(
+            'selectedTheme',
+            typeof themeState?.selectedTheme === 'string' &&
+              themeState.selectedTheme.trim()
+              ? themeState.selectedTheme.trim()
+              : 'default',
+          );
+          window.localStorage.setItem(
+            'customThemes',
+            JSON.stringify(
+              Array.isArray(themeState?.customThemes)
+                ? themeState.customThemes
+                : [],
+            ),
+          );
+          window.localStorage.setItem(
+            'builtInThemeOverrides',
+            JSON.stringify(
+              themeState?.builtInThemeOverrides &&
+                typeof themeState.builtInThemeOverrides === 'object' &&
+                !Array.isArray(themeState.builtInThemeOverrides)
+                ? themeState.builtInThemeOverrides
+                : {},
+            ),
+          );
+        }
+        if (root && themeBootstrapState && typeof themeBootstrapState === 'object') {
+          if (
+            typeof themeBootstrapState.themeId === 'string' &&
+            themeBootstrapState.themeId.trim()
+          ) {
+            root.setAttribute('data-theme', themeBootstrapState.themeId.trim());
+          }
+          if (
+            typeof themeBootstrapState.colorScheme === 'string' &&
+            themeBootstrapState.colorScheme.trim()
+          ) {
+            root.style.colorScheme = themeBootstrapState.colorScheme.trim();
+          }
+          if (
+            typeof themeBootstrapState.backgroundColor === 'string' &&
+            themeBootstrapState.backgroundColor.trim()
+          ) {
+            root.style.backgroundColor = themeBootstrapState.backgroundColor.trim();
+          }
+          if (
+            document.body &&
+            typeof themeBootstrapState.backgroundColor === 'string' &&
+            themeBootstrapState.backgroundColor.trim()
+          ) {
+            document.body.style.backgroundColor =
+              themeBootstrapState.backgroundColor.trim();
+          }
+          if (
+            typeof themeBootstrapState.textColor === 'string' &&
+            themeBootstrapState.textColor.trim()
+          ) {
+            root.style.color = themeBootstrapState.textColor.trim();
+          }
+          const themeVariables =
+            themeBootstrapState.variables &&
+            typeof themeBootstrapState.variables === 'object' &&
+            !Array.isArray(themeBootstrapState.variables)
+              ? themeBootstrapState.variables
+              : {};
+          Object.keys(themeVariables).forEach((key) => {
+            const value =
+              typeof themeVariables[key] === 'string'
+                ? themeVariables[key].trim()
+                : '';
+            if (!value) {
+              return;
+            }
+            root.style.setProperty(key, value);
+          });
+        }
+      } catch (_error) {}
+      try {
+        const storedLanguage =
+          window.localStorage &&
+          typeof window.localStorage.getItem === 'function'
+            ? window.localStorage.getItem('${UI_LANGUAGE_STORAGE_KEY}')
+            : '';
+        const normalizedLanguage =
+          storedLanguage === 'en' || storedLanguage === 'en-US'
+            ? 'en-US'
+            : 'zh-CN';
+        if (
+          window.ReactNativeWebView &&
+          typeof window.ReactNativeWebView.postMessage === 'function'
+        ) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: 'shell-language',
+              payload: {
+                language: normalizedLanguage,
+              },
+            }),
+          );
+        }
+      } catch (_error) {}
+      return true;
+    })();
     (function () {
       window.__CONTROLER_SHELL_VISIBILITY__ = ${serialized};
       return true;
@@ -1006,6 +1350,9 @@ function App({
 }: AppProps): JSX.Element {
   const initialCoreStateRef = useRef<Record<string, unknown> | null>(
     parseBridgeJson(initialCoreStateJson),
+  );
+  const launchThemeStateRef = useRef<Record<string, unknown>>(
+    buildLaunchThemeStatePayload(initialCoreStateRef.current),
   );
   const primaryWebViewRef = useRef<WebView>(null);
   const secondaryWebViewRef = useRef<WebView>(null);
@@ -1242,14 +1589,30 @@ function App({
     [],
   );
 
+  const persistLaunchThemeState = useCallback(
+    async (coreState: Record<string, unknown> | null) => {
+      const normalizedThemeState = buildLaunchThemeStatePayload(coreState);
+      launchThemeStateRef.current = normalizedThemeState;
+      if (typeof nativeBridge?.setLaunchThemeState !== 'function') {
+        return '';
+      }
+      return nativeBridge.setLaunchThemeState(
+        JSON.stringify(normalizedThemeState),
+      );
+    },
+    [],
+  );
+
   const refreshShellBootThemeFromNative = useCallback(async () => {
     if (typeof nativeBridge?.getStorageCoreState !== 'function') {
       return null;
     }
     const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
+    launchThemeStateRef.current = buildLaunchThemeStatePayload(coreState);
     applyShellBootThemeFromCoreState(coreState);
+    persistLaunchThemeState(coreState).catch(() => undefined);
     return coreState;
-  }, [applyShellBootThemeFromCoreState]);
+  }, [applyShellBootThemeFromCoreState, persistLaunchThemeState]);
 
   const persistLastVisiblePage = useCallback((pageKey: AppPageKey | '') => {
     if (
@@ -1300,6 +1663,20 @@ function App({
 
     async function loadShellBootTheme() {
       try {
+        if (typeof nativeBridge?.getLaunchThemeState === 'function') {
+          const storedThemeState = parseBridgeJson(
+            await nativeBridge.getLaunchThemeState(),
+          );
+          if (storedThemeState) {
+            launchThemeStateRef.current =
+              buildLaunchThemeStatePayload(storedThemeState);
+            applyShellBootThemeFromCoreState(storedThemeState);
+            initialCoreStateRef.current = {
+              ...(initialCoreStateRef.current || {}),
+              ...launchThemeStateRef.current,
+            };
+          }
+        }
         const coreState = await refreshShellBootThemeFromNative();
         if (!mounted) {
           return;
@@ -1390,8 +1767,9 @@ function App({
     dy: number;
   }) =>
     canStartEdgeBackSwipe() &&
-    gestureState.dx >= 3 &&
-    Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+    gestureState.dx >= 2 &&
+    Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT &&
+    Math.abs(gestureState.dx) >= Math.abs(gestureState.dy) * 0.75;
 
   const shouldFinishEdgeBackSwipe = (gestureState: {
     dx: number;
@@ -3645,6 +4023,22 @@ function App({
         }
         return;
       }
+      if (eventName === 'ui.theme-applied') {
+        const nextThemeState =
+          message.payload && typeof message.payload === 'object'
+            ? message.payload
+            : {};
+        launchThemeStateRef.current = buildLaunchThemeStatePayload(
+          nextThemeState,
+        );
+        initialCoreStateRef.current = {
+          ...(initialCoreStateRef.current || {}),
+          ...launchThemeStateRef.current,
+        };
+        applyShellBootThemeFromCoreState(nextThemeState);
+        persistLaunchThemeState(nextThemeState).catch(() => undefined);
+        return;
+      }
       if (eventName === 'perf.metric') {
         logPerfMetric('page-stage', {
           slot,
@@ -4207,7 +4601,7 @@ function App({
             reason: 'bootstrap',
             page: slotState.pageKey,
             href: slotState.uri,
-          })}
+          }, launchThemeStateRef.current)}
           onMessage={event => {
             handleWebViewMessage(slot, event).catch(() => undefined);
           }}
@@ -4402,7 +4796,12 @@ function App({
             {...edgeBackPanResponder.panHandlers}
             accessible={false}
             pointerEvents="box-only"
-            style={styles.edgeBackSwipeHotzone}
+            style={[
+              styles.edgeBackSwipeHotzone,
+              {
+                bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
+              },
+            ]}
           />
         ) : null}
 

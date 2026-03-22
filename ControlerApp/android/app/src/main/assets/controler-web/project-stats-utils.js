@@ -117,6 +117,22 @@
     return parseSpendTimeToMs(spendtime) / (1000 * 60 * 60);
   }
 
+  function resolveRecordDurationMs(record) {
+    if (!record || typeof record !== "object") {
+      return 0;
+    }
+    if (Number.isFinite(record.durationMs) && record.durationMs >= 0) {
+      return Math.round(record.durationMs);
+    }
+    if (
+      Number.isFinite(record?.durationMeta?.recordedMs) &&
+      record.durationMeta.recordedMs >= 0
+    ) {
+      return Math.round(record.durationMeta.recordedMs);
+    }
+    return parseSpendTimeToMs(record.spendtime);
+  }
+
   function buildProjectHierarchyIndex(projects = []) {
     const allNodes = (Array.isArray(projects) ? projects : [])
       .filter((project) => project && typeof project === "object")
@@ -285,7 +301,7 @@
         if (!project) return;
         const stat = statsById.get(project.id);
         if (!stat) return;
-        stat.directMs += parseSpendTimeToMs(record.spendtime);
+        stat.directMs += resolveRecordDurationMs(record);
       });
     }
 
@@ -778,6 +794,7 @@
     parseCssColor,
     parseSpendTimeToMs,
     parseSpendTimeToHours,
+    resolveRecordDurationMs,
     mixColor,
     defaultColorForName,
     buildProjectHierarchyIndex,

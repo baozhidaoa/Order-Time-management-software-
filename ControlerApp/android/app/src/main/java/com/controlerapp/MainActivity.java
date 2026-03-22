@@ -9,7 +9,6 @@ import android.os.Bundle;
 
 import androidx.annotation.Nullable;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
-import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.ReactActivity;
@@ -20,11 +19,12 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import androidx.core.view.WindowCompat;
 import java.util.Locale;
-import org.json.JSONObject;
 
 public class MainActivity extends ReactActivity {
   private static final String UI_LANGUAGE_PREFS = "controler_ui_preferences";
+  private static final String LAUNCH_THEME_PREFS = "controler_launch_theme_preferences";
   private static final String KEY_UI_LANGUAGE = "language";
+  private static final String KEY_LAUNCH_THEME_STATE = "theme_state";
   private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
 
   @Override
@@ -142,7 +142,6 @@ public class MainActivity extends ReactActivity {
    */
   @Override
   protected ReactActivityDelegate createReactActivityDelegate() {
-    final Bundle initialProps = buildInitialProps();
     return new DefaultReactActivityDelegate(
         this,
         getMainComponentName(),
@@ -150,7 +149,7 @@ public class MainActivity extends ReactActivity {
         DefaultNewArchitectureEntryPoint.getFabricEnabled()) {
       @Override
       protected @Nullable Bundle getLaunchOptions() {
-        return initialProps;
+        return buildInitialProps();
       }
     };
   }
@@ -158,7 +157,7 @@ public class MainActivity extends ReactActivity {
   private Bundle buildInitialProps() {
     Bundle initialProps = new Bundle();
     initialProps.putString("initialUiLanguage", readStoredUiLanguage());
-    String initialThemeStateJson = readLaunchThemeStateJson();
+    String initialThemeStateJson = readStoredLaunchThemeState();
     if (initialThemeStateJson != null && !initialThemeStateJson.isEmpty()) {
       initialProps.putString("initialCoreStateJson", initialThemeStateJson);
     }
@@ -177,13 +176,10 @@ public class MainActivity extends ReactActivity {
     return DEFAULT_UI_LANGUAGE;
   }
 
-  private String readLaunchThemeStateJson() {
-    try {
-      JSONObject themeState =
-          ControlerWidgetDataStore.getStorageLaunchThemeState(getApplicationContext());
-      return themeState == null ? "" : themeState.toString();
-    } catch (Exception ignored) {
-      return "";
-    }
+  private String readStoredLaunchThemeState() {
+    SharedPreferences preferences =
+        getApplicationContext().getSharedPreferences(LAUNCH_THEME_PREFS, Context.MODE_PRIVATE);
+    String rawThemeState = preferences.getString(KEY_LAUNCH_THEME_STATE, "");
+    return rawThemeState == null ? "" : rawThemeState.trim();
   }
 }

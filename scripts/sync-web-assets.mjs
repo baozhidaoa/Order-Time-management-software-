@@ -320,6 +320,43 @@ async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
   await fs.writeFile(htmlPath, rewrittenHtml, "utf8");
 }
 
+async function validateMobileBootBundles(targetDir, bundles) {
+  for (const [bundleName, bundleContent] of bundles.entries()) {
+    const bundlePath = path.join(targetDir, bundleName);
+    const actualContent = await fs.readFile(bundlePath, "utf8");
+    const expectedContent = `${bundleContent}\n`;
+    if (actualContent !== expectedContent) {
+      throw new Error(
+        `移动端启动 bundle 校验失败: ${formatRelativeRepoPath(bundlePath)}`,
+      );
+    }
+  }
+}
+
+async function validateMobileBootstrapHtml(targetDir, pageKey) {
+  const htmlPath = path.join(targetDir, `${pageKey}.html`);
+  if (!(await fs.pathExists(htmlPath))) {
+    return;
+  }
+  const html = await fs.readFile(htmlPath, "utf8");
+  const commonBootScript = `<script defer src="mobile-common-boot.js"></script>`;
+  const pageBootScript = `<script defer src="${pageKey}-boot.js"></script>`;
+  const legacyPageScriptPattern = new RegExp(
+    `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
+    "i",
+  );
+  if (!html.includes(commonBootScript) || !html.includes(pageBootScript)) {
+    throw new Error(
+      `移动端 HTML 启动脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
+    );
+  }
+  if (legacyPageScriptPattern.test(html)) {
+    throw new Error(
+      `移动端 HTML 仍引用旧页面脚本: ${formatRelativeRepoPath(htmlPath)}`,
+    );
+  }
+}
+
 await fs.ensureDir(offlineAssetsDir);
 if (!(await fs.pathExists(sharedContractSourcePath))) {
   throw new Error(`缺少共享平台契约文件: ${sharedContractSourcePath}`);
@@ -387,7 +424,9 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
     await writeMobileBootBundles(mobileWebDir, mobileBootBundles);
     for (const pageKey of mobileBootstrapPages) {
       await rewriteMobileBootstrapHtml(mobileWebDir, pageKey);
+      await validateMobileBootstrapHtml(mobileWebDir, pageKey);
     }
+    await validateMobileBootBundles(mobileWebDir, mobileBootBundles);
   }
 }
 

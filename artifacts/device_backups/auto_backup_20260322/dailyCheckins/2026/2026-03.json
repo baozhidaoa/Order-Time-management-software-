@@ -1,0 +1,54 @@
+{
+  "formatVersion": 1,
+  "section": "dailyCheckins",
+  "periodUnit": "month",
+  "periodId": "2026-03",
+  "count": 6,
+  "minDate": "2026-03-19",
+  "maxDate": "2026-03-22",
+  "fingerprint": "dailyCheckins:2026-03:6:2026-03-19:2026-03-22:816",
+  "items": [
+    {
+      "id": "1773933277660i27z8u4kr",
+      "itemId": "1773933228767oi9jp2xu6",
+      "date": "2026-03-19",
+      "checked": false,
+      "time": "2026-03-19T15:24:13.452Z"
+    },
+    {
+      "id": "daily_checkin_mmyxu238f3abd4",
+      "itemId": "1774007403788spj3ophgn",
+      "date": "2026-03-20",
+      "checked": false,
+      "time": "2026-03-20T13:31:48.382Z"
+    },
+    {
+      "id": "1774072497003fvv2oniib",
+      "itemId": "1774007403788spj3ophgn",
+      "date": "2026-03-21",
+      "checked": false,
+      "time": "2026-03-21T14:05:07.160Z"
+    },
+    {
+      "id": "1774105826877aom31hacn",
+      "itemId": "177400741898455soa75u3",
+      "date": "2026-03-21",
+      "checked": false,
+      "time": "2026-03-21T15:34:31.442Z"
+    },
+    {
+      "id": "1774110217653zxat69bqk",
+      "itemId": "1774007403788spj3ophgn",
+      "date": "2026-03-22",
+      "checked": false,
+      "time": "2026-03-22T04:27:45.456Z"
+    },
+    {
+      "id": "1774153666230whvyxcwh3",
+      "itemId": "177400741898455soa75u3",
+      "date": "2026-03-22",
+      "checked": false,
+      "time": "2026-03-22T04:27:47.273Z"
+    }
+  ]
+}
