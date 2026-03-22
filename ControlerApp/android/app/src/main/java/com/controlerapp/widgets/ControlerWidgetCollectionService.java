@@ -2,6 +2,7 @@ package com.controlerapp.widgets;
 
 import android.content.Context;
 import android.content.Intent;
+import android.text.TextUtils;
 import android.widget.RemoteViews;
 import android.widget.RemoteViewsService;
 
@@ -95,23 +96,68 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                 row.accentColor
             );
 
-            if (row.actionEnabled) {
-                Intent fillInIntent = new Intent();
-                fillInIntent.putExtra(
+            Intent rowIntent = new Intent();
+            rowIntent.putExtra(
+                ControlerWidgetActionHandler.EXTRA_WIDGET_KIND,
+                kind
+            );
+            rowIntent.putExtra(
+                ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID,
+                appWidgetId
+            );
+            if (row.openEnabled) {
+                rowIntent.putExtra(
                     ControlerWidgetLaunchStore.EXTRA_PAGE,
-                    ControlerWidgetKinds.defaultPage(kind)
+                    TextUtils.isEmpty(row.page) ? ControlerWidgetKinds.defaultPage(kind) : row.page
                 );
-                fillInIntent.putExtra(
+                rowIntent.putExtra(
                     ControlerWidgetLaunchStore.EXTRA_ACTION,
-                    ControlerWidgetKinds.defaultAction(kind)
+                    TextUtils.isEmpty(row.action) ? ControlerWidgetKinds.defaultAction(kind) : row.action
                 );
-                fillInIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
-                fillInIntent.putExtra(
+                rowIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
+                rowIntent.putExtra(
                     ControlerWidgetLaunchStore.EXTRA_TARGET_ID,
                     row.targetId == null ? "" : row.targetId
                 );
-                views.setOnClickFillInIntent(R.id.widget_collection_item_root, fillInIntent);
-                views.setOnClickFillInIntent(R.id.widget_collection_item_action, fillInIntent);
+            } else {
+                rowIntent.putExtra(
+                    ControlerWidgetActionHandler.EXTRA_COMMAND,
+                    ControlerWidgetActionHandler.COMMAND_NO_OP
+                );
+            }
+            views.setOnClickFillInIntent(R.id.widget_collection_item_root, rowIntent);
+
+            if (row.actionEnabled) {
+                Intent actionIntent = new Intent();
+                actionIntent.putExtra(
+                    ControlerWidgetActionHandler.EXTRA_WIDGET_KIND,
+                    kind
+                );
+                actionIntent.putExtra(
+                    ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID,
+                    appWidgetId
+                );
+                actionIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_PAGE,
+                    TextUtils.isEmpty(row.page) ? ControlerWidgetKinds.defaultPage(kind) : row.page
+                );
+                actionIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_ACTION,
+                    TextUtils.isEmpty(row.action) ? ControlerWidgetKinds.defaultAction(kind) : row.action
+                );
+                actionIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
+                actionIntent.putExtra(
+                    ControlerWidgetLaunchStore.EXTRA_TARGET_ID,
+                    row.targetId == null ? "" : row.targetId
+                );
+                if (!TextUtils.isEmpty(row.command)) {
+                    actionIntent.putExtra(ControlerWidgetActionHandler.EXTRA_COMMAND, row.command);
+                    actionIntent.putExtra(
+                        ControlerWidgetActionHandler.EXTRA_TARGET_ID,
+                        row.targetId == null ? "" : row.targetId
+                    );
+                }
+                views.setOnClickFillInIntent(R.id.widget_collection_item_action, actionIntent);
             }
             return views;
         }

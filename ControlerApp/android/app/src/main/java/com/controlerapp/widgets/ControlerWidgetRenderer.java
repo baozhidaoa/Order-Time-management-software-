@@ -963,7 +963,7 @@ public final class ControlerWidgetRenderer {
                         pendingUpdate.metrics
                     );
                 appWidgetManager.updateAppWidget(pendingUpdate.appWidgetId, remoteViews);
-                if (isListFirstKind(normalizedKind)) {
+                if (usesCollectionList(normalizedKind)) {
                     appWidgetManager.notifyAppWidgetViewDataChanged(
                         pendingUpdate.appWidgetId,
                         R.id.widget_collection_list
@@ -976,7 +976,7 @@ public final class ControlerWidgetRenderer {
                 continue;
             }
             appWidgetManager.updateAppWidget(pendingUpdate.appWidgetId, remoteViews);
-            if (isListFirstKind(normalizedKind)) {
+            if (usesCollectionList(normalizedKind)) {
                 appWidgetManager.notifyAppWidgetViewDataChanged(
                     pendingUpdate.appWidgetId,
                     R.id.widget_collection_list
@@ -1117,13 +1117,13 @@ public final class ControlerWidgetRenderer {
         );
 
         PendingIntent openIntent = buildOpenMainPendingIntent(context, appWidgetId, kind, content);
-        boolean useCollectionList = isListFirstKind(kind);
+        boolean useCollectionList = usesCollectionList(kind);
         if (useCollectionList) {
             ControlerWidgetCollectionStore.saveRows(
                 context,
                 appWidgetId,
                 kind,
-                buildCollectionRowsPayload(content, palette)
+                buildCollectionRowsPayload(kind, content, palette)
             );
             views.setRemoteAdapter(
                 R.id.widget_collection_list,
@@ -1224,6 +1224,7 @@ public final class ControlerWidgetRenderer {
         views.setOnClickPendingIntent(R.id.widget_action, primaryActionIntent);
         views.setOnClickPendingIntent(R.id.widget_action_only_shell, primaryActionIntent);
         views.setOnClickPendingIntent(R.id.widget_action_only_button, primaryActionIntent);
+        views.setOnClickPendingIntent(R.id.widget_collection_empty, openIntent);
 
         return views;
     }
@@ -2014,6 +2015,9 @@ public final class ControlerWidgetRenderer {
         boolean showStats = shouldShowStats(kind, content, metrics);
         int visibleCardCount = resolveVisibleCardCount(kind, content, metrics);
         int lineCapacity = resolveLineCapacity(kind, metrics, showPreview, visibleCardCount);
+        int signatureCardCount = usesCollectionList(kind)
+            ? (content == null ? 0 : content.itemCards.size())
+            : visibleCardCount;
 
         signature.addString(
             shouldShowTitle(kind, content, metrics) && content != null ? content.title : ""
@@ -2033,8 +2037,8 @@ public final class ControlerWidgetRenderer {
             signature.addString(pickLine(content == null ? null : content.lines, index));
         }
 
-        signature.addInt(visibleCardCount);
-        for (int index = 0; index < visibleCardCount; index++) {
+        signature.addInt(signatureCardCount);
+        for (int index = 0; index < signatureCardCount; index++) {
             WidgetItemCard item = content.itemCards.get(index);
             signature.addString(item == null ? "" : item.title);
             signature.addString(item == null ? "" : item.meta);
@@ -2061,8 +2065,11 @@ public final class ControlerWidgetRenderer {
         );
 
         int visibleCardCount = resolveVisibleCardCount(kind, content, metrics);
-        signature.addInt(visibleCardCount);
-        for (int index = 0; index < visibleCardCount; index++) {
+        int signatureCardCount = usesCollectionList(kind)
+            ? (content == null ? 0 : content.itemCards.size())
+            : visibleCardCount;
+        signature.addInt(signatureCardCount);
+        for (int index = 0; index < signatureCardCount; index++) {
             WidgetItemCard item = content.itemCards.get(index);
             signature.addString(item == null ? "" : item.command);
             signature.addString(item == null ? "" : item.targetId);
@@ -2202,6 +2209,12 @@ public final class ControlerWidgetRenderer {
             || ControlerWidgetKinds.CHECKINS.equals(normalizedKind);
     }
 
+    private static boolean usesCollectionList(String kind) {
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        return isListFirstKind(normalizedKind)
+            || ControlerWidgetKinds.WEEK_GRID.equals(normalizedKind);
+    }
+
     private static String resolveListItemDirectCommand(String kind) {
         String normalizedKind = ControlerWidgetKinds.normalize(kind);
         if (ControlerWidgetKinds.TODOS.equals(normalizedKind)) {
@@ -2274,7 +2287,7 @@ public final class ControlerWidgetRenderer {
         if (metrics == null) {
             return 0;
         }
-        if (isListFirstKind(kind)) {
+        if (usesCollectionList(kind)) {
             return 0;
         }
         if (visibleCardCount > 0) {
@@ -2504,6 +2517,7 @@ public final class ControlerWidgetRenderer {
     }
 
     private static JSONArray buildCollectionRowsPayload(
+        String kind,
         WidgetContent content,
         ThemePalette palette
     ) {
@@ -2529,6 +2543,7 @@ public final class ControlerWidgetRenderer {
             if (item == null) {
                 continue;
             }
+            boolean openEnabled = !isListFirstKind(kind);
             JSONObject row = new JSONObject();
             try {
                 row.put("title", safeText(item.title));
@@ -2541,12 +2556,16 @@ public final class ControlerWidgetRenderer {
                             : item.actionLabel
                     )
                 );
+                row.put("page", safeText(content.page));
+                row.put("action", safeText(content.action));
+                row.put("command", safeText(item.command));
                 row.put("targetId", safeText(item.targetId));
                 row.put("accentColor", item.accentColor);
                 row.put("backgroundColor", rowSurfaceColor);
                 row.put("titleColor", rowTitleColor);
                 row.put("metaColor", rowMetaColor);
                 row.put("actionTextColor", safePalette.actionTextColor);
+                row.put("openEnabled", openEnabled);
                 row.put("actionEnabled", !item.actionDisabled);
                 rows.put(row);
             } catch (Exception ignored) {
@@ -2585,47 +2604,15 @@ public final class ControlerWidgetRenderer {
         String kind,
         WidgetContent content
     ) {
-        String directCommand = resolveListItemDirectCommand(kind);
-        if (!TextUtils.isEmpty(directCommand)) {
-            Intent intent = new Intent(
-                context,
-                ControlerWidgetKinds.providerClassForKind(kind)
-            );
-            intent.setAction(ControlerWidgetActionHandler.ACTION_EXECUTE);
-            intent.putExtra(ControlerWidgetActionHandler.EXTRA_COMMAND, directCommand);
-            intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
-            intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
-            Uri identityUri = buildWidgetPendingIntentData(
-                "collection-direct",
-                appWidgetId,
-                kind,
-                directCommand,
-                ""
-            );
-            intent.setData(identityUri);
-
-            int requestCode = buildStablePendingIntentRequestCode(identityUri);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                flags |= PendingIntent.FLAG_MUTABLE;
-            }
-            return PendingIntent.getBroadcast(context, requestCode, intent, flags);
-        }
-
-        Intent intent = new Intent(context, MainActivity.class);
-        intent.setAction(
-            OPEN_WIDGET_ACTION_PREFIX + ".collection." + kind + "." + appWidgetId
+        Intent intent = new Intent(
+            context,
+            ControlerWidgetKinds.providerClassForKind(kind)
         );
-        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, content.page);
-        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, content.action);
-        intent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, kind);
-        intent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                | Intent.FLAG_ACTIVITY_CLEAR_TOP
-        );
+        intent.setAction(ControlerWidgetActionHandler.ACTION_EXECUTE);
+        intent.putExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND, kind);
+        intent.putExtra(ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID, appWidgetId);
         Uri identityUri = buildWidgetPendingIntentData(
-            "collection-open",
+            "collection-template",
             appWidgetId,
             kind,
             content == null ? "" : content.action,
@@ -2638,7 +2625,7 @@ public final class ControlerWidgetRenderer {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
         }
-        return PendingIntent.getActivity(context, requestCode, intent, flags);
+        return PendingIntent.getBroadcast(context, requestCode, intent, flags);
     }
 
     private static PendingIntent buildDirectActionPendingIntent(

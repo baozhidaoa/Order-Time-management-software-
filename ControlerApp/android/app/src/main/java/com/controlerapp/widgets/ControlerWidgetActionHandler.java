@@ -40,6 +40,7 @@ public final class ControlerWidgetActionHandler {
     public static final String COMMAND_TOGGLE_TIMER = "toggle-timer";
     public static final String COMMAND_TOGGLE_TODO = "toggle-todo";
     public static final String COMMAND_TOGGLE_CHECKIN = "toggle-checkin";
+    public static final String COMMAND_NO_OP = "noop";
     public static final String COMMAND_REFRESH_WIDGET = "refresh-widget";
     private static final long WIDGET_ACTION_DEDUP_WINDOW_MS = 1200L;
     private static final HandlerThread ACTION_THREAD = createActionThread();
@@ -386,11 +387,26 @@ public final class ControlerWidgetActionHandler {
         String command = intent.getStringExtra(EXTRA_COMMAND);
         String targetId = intent.getStringExtra(EXTRA_TARGET_ID);
         String widgetKind = intent.getStringExtra(EXTRA_WIDGET_KIND);
+        String page = intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_PAGE);
+        String action = intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_ACTION);
+        String launchKind = intent.getStringExtra(ControlerWidgetLaunchStore.EXTRA_KIND);
         int appWidgetId = intent.getIntExtra(
             EXTRA_APP_WIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
         );
 
+        if (COMMAND_NO_OP.equals(command)) {
+            String normalizedKind = ControlerWidgetKinds.normalize(
+                TextUtils.isEmpty(widgetKind) ? launchKind : widgetKind
+            );
+            if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID && !TextUtils.isEmpty(normalizedKind)) {
+                return ActionResult.refreshSingleWidget(true, false, "", normalizedKind, appWidgetId);
+            }
+            if (!TextUtils.isEmpty(normalizedKind)) {
+                return ActionResult.refreshKind(true, false, "", normalizedKind);
+            }
+            return ActionResult.fullRefresh(true, false, "");
+        }
         if (COMMAND_TOGGLE_TIMER.equals(command)) {
             return routeWidgetCommandToApp(context, command, targetId, widgetKind, appWidgetId);
         }
@@ -402,6 +418,20 @@ public final class ControlerWidgetActionHandler {
         }
         if (COMMAND_REFRESH_WIDGET.equals(command)) {
             return refreshWidget(widgetKind, appWidgetId);
+        }
+        if (
+            !TextUtils.isEmpty(page)
+                || !TextUtils.isEmpty(action)
+                || !TextUtils.isEmpty(ControlerWidgetKinds.normalize(launchKind))
+        ) {
+            return launchWidgetDestination(
+                context,
+                page,
+                action,
+                TextUtils.isEmpty(widgetKind) ? launchKind : widgetKind,
+                targetId,
+                appWidgetId
+            );
         }
 
         return ActionResult.fullRefresh(false, false, "未知的小组件动作。");
@@ -435,16 +465,47 @@ public final class ControlerWidgetActionHandler {
             action = "start-timer";
         }
 
+        return launchWidgetDestination(
+            context,
+            page,
+            action,
+            normalizedKind,
+            targetId,
+            appWidgetId
+        );
+    }
+
+    private static ActionResult launchWidgetDestination(
+        Context context,
+        String page,
+        String action,
+        String widgetKind,
+        String targetId,
+        int appWidgetId
+    ) {
+        if (context == null) {
+            return ActionResult.fullRefresh(false, false, "");
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
+        String resolvedPage = TextUtils.isEmpty(page)
+            ? (TextUtils.isEmpty(normalizedKind) ? "index" : ControlerWidgetKinds.defaultPage(normalizedKind))
+            : page;
+        String resolvedAction = TextUtils.isEmpty(action)
+            ? (TextUtils.isEmpty(normalizedKind) ? "" : ControlerWidgetKinds.defaultAction(normalizedKind))
+            : action;
         Intent launchIntent = new Intent(context, MainActivity.class);
         launchIntent.setAction(
             "com.controler.timetracker.action.OPEN_WIDGET_COMMAND."
-                + (TextUtils.isEmpty(action) ? "open" : action)
+                + (TextUtils.isEmpty(resolvedAction) ? "open" : resolvedAction)
                 + "."
                 + System.currentTimeMillis()
         );
-        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, page);
-        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, action);
-        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, normalizedKind);
+        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_PAGE, resolvedPage);
+        launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_ACTION, resolvedAction);
+        if (!TextUtils.isEmpty(normalizedKind)) {
+            launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_KIND, normalizedKind);
+        }
         if (!TextUtils.isEmpty(targetId)) {
             launchIntent.putExtra(ControlerWidgetLaunchStore.EXTRA_TARGET_ID, targetId);
         }
@@ -455,7 +516,7 @@ public final class ControlerWidgetActionHandler {
         );
         context.startActivity(launchIntent);
 
-        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID && !TextUtils.isEmpty(normalizedKind)) {
             return ActionResult.refreshSingleWidget(
                 true,
                 false,
@@ -464,7 +525,10 @@ public final class ControlerWidgetActionHandler {
                 appWidgetId
             );
         }
-        return ActionResult.refreshKind(true, false, "", normalizedKind);
+        if (!TextUtils.isEmpty(normalizedKind)) {
+            return ActionResult.refreshKind(true, false, "", normalizedKind);
+        }
+        return ActionResult.fullRefresh(true, false, "");
     }
 
     private static ActionResult refreshWidget(String widgetKind, int appWidgetId) {
