@@ -4192,7 +4192,7 @@ function showTodoEditModal(todo = null) {
         <!-- 起止日期 -->
         <div
           id="todo-repeat-date-range"
-          class="modal-date-range"
+          class="modal-date-range controler-form-modal-date-range"
           style="opacity: ${todo?.repeatType && todo.repeatType !== "none" ? "1" : "0.6"};"
         >
           <div class="modal-date-field">
@@ -5178,7 +5178,7 @@ function showCheckinItemModal(item = null) {
         </div>
 
         <!-- 起止日期 -->
-        <div class="modal-date-range">
+        <div class="modal-date-range controler-form-modal-date-range">
           <div class="modal-date-field">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期

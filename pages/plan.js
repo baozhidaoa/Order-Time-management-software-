@@ -4073,7 +4073,15 @@ function createDayElement(date, scale = 1) {
   dayElement.appendChild(dateNumber);
 
   // 添加点击事件（切换到周视图）
-  dayElement.addEventListener("click", function () {
+  dayElement.addEventListener("click", function (event) {
+    if (
+      event?.target instanceof Element &&
+      event.target.closest(
+        "[data-plan-detail-trigger='true'], [data-plan-more-trigger='true']",
+      )
+    ) {
+      return;
+    }
     setCalendarView("weekly-grid", { nextDate: date });
   });
 
@@ -4092,6 +4100,9 @@ function createDayElement(date, scale = 1) {
       const planCompleted = getPlanCompletionState(plan, occurrenceDate);
       const planIndicator = document.createElement("div");
       planIndicator.className = "controler-pressable";
+      planIndicator.dataset.planDetailTrigger = "true";
+      planIndicator.setAttribute("role", "button");
+      planIndicator.tabIndex = 0;
       planIndicator.textContent =
         plan.name.length > 8 ? plan.name.substring(0, 8) + "..." : plan.name;
       planIndicator.style.backgroundColor = planCompleted
@@ -4111,9 +4122,30 @@ function createDayElement(date, scale = 1) {
         : "1px solid transparent";
       planIndicator.style.opacity = planCompleted ? "0.84" : "1";
       planIndicator.style.textDecoration = planCompleted ? "line-through" : "none";
+      planIndicator.title = `${plan.name} ${plan.startTime}-${plan.endTime}`;
 
       planIndicator.addEventListener("click", function (e) {
+        e.preventDefault();
         e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") {
+          e.stopImmediatePropagation();
+        }
+        showPlanDetailModal(plan, occurrenceDate);
+      });
+      const stopMonthPlanEvent = (event) => {
+        event.stopPropagation();
+      };
+      planIndicator.addEventListener("pointerdown", stopMonthPlanEvent);
+      planIndicator.addEventListener("mousedown", stopMonthPlanEvent);
+      planIndicator.addEventListener("touchstart", stopMonthPlanEvent, {
+        passive: true,
+      });
+      planIndicator.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
         showPlanDetailModal(plan, occurrenceDate);
       });
 
@@ -4123,6 +4155,7 @@ function createDayElement(date, scale = 1) {
     // 如果还有更多计划，显示计数
     if (dayPlans.length > 3) {
       const moreIndicator = document.createElement("div");
+      moreIndicator.dataset.planMoreTrigger = "true";
       moreIndicator.textContent = `+${dayPlans.length - 3} 更多`;
       moreIndicator.style.color = "var(--accent-color)";
       moreIndicator.style.fontSize = `${planFontSize}px`;

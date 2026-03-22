@@ -2795,6 +2795,11 @@ body.page-stats .weekly-glass-scroller {
   min-width: 0;
 }
 
+.controler-form-modal-date-range > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .controler-form-modal .bts {
   margin: 0 !important;
 }
@@ -5080,15 +5085,30 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.flex.row .controler-form-modal .controler-form-modal-time-range,
+  body.flex.row .controler-form-modal .controler-form-modal-date-range,
   body.controler-mobile-runtime .controler-form-modal .controler-form-modal-time-range {
     flex-direction: row !important;
     align-items: flex-start;
   }
 
+  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-date-range {
+    flex-direction: row !important;
+    align-items: flex-start;
+  }
+
   body.flex.row .controler-form-modal .controler-form-modal-time-range > div,
+  body.flex.row .controler-form-modal .controler-form-modal-date-range > div,
   body.controler-mobile-runtime
     .controler-form-modal
     .controler-form-modal-time-range
+    > div {
+    flex: 1 1 0;
+    min-width: 0 !important;
+  }
+
+  body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-date-range
     > div {
     flex: 1 1 0;
     min-width: 0 !important;
