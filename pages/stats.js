@@ -921,12 +921,7 @@ function getStatsLoadingOverlayElement() {
 }
 
 function resolveStatsLoadingOverlayMode(mode = "inline") {
-  const requestedMode =
-    String(mode || "").trim() === "fullscreen" ? "fullscreen" : "inline";
-  if (isStatsDesktopWidgetMode()) {
-    return requestedMode;
-  }
-  return "fullscreen";
+  return String(mode || "").trim() === "fullscreen" ? "fullscreen" : "inline";
 }
 
 function getStatsLoadingOverlayController() {
@@ -1534,8 +1529,16 @@ function bindStatsHoverPreview(element, tooltipText, options = {}) {
 }
 
 function getDateOnly(dateValue) {
+  if (dateValue === null || dateValue === undefined) {
+    return null;
+  }
+  if (typeof dateValue === "string" && !dateValue.trim()) {
+    return null;
+  }
   const date =
-    dateValue instanceof Date ? new Date(dateValue) : new Date(dateValue);
+    dateValue instanceof Date
+      ? new Date(dateValue.getTime())
+      : new Date(dateValue);
   if (Number.isNaN(date.getTime())) return null;
   date.setHours(0, 0, 0, 0);
   return date;
@@ -2037,6 +2040,48 @@ function shiftCustomStatsDateRange(unit, amount) {
       normalizedRange.end,
       amount < 0 ? "start" : "end",
     ),
+  };
+}
+
+function resolveStatsRangeStepTarget(unit, amount) {
+  const safeUnit = isHeatmapToolbarViewMode()
+    ? normalizeHeatmapRangeUnit(unit)
+    : normalizeStatsRangeUnit(unit, "day");
+  const changeSource = amount < 0 ? "start" : "end";
+
+  if (!isHeatmapToolbarViewMode() && hasCustomStatsDateRange()) {
+    if (safeUnit === "day") {
+      const shiftedCustomRange = shiftCustomStatsDateRange(safeUnit, amount);
+      if (shiftedCustomRange) {
+        return {
+          mode: "custom",
+          changeSource,
+          ...shiftedCustomRange,
+        };
+      }
+    }
+
+    const referenceAnchor =
+      resolveStatsAnchorFromInputs(safeUnit, changeSource) ||
+      getDateOnly(statsRangeState.anchorDate) ||
+      getInitialStatsAnchorForView();
+    return {
+      mode: "preset",
+      unit: safeUnit,
+      changeSource,
+      anchorDate: shiftStatsAnchorDate(referenceAnchor, safeUnit, amount),
+    };
+  }
+
+  const referenceAnchor =
+    getDateOnly(statsRangeState.anchorDate) ||
+    resolveStatsAnchorFromInputs(safeUnit, changeSource) ||
+    getInitialStatsAnchorForView();
+  return {
+    mode: "preset",
+    unit: safeUnit,
+    changeSource,
+    anchorDate: shiftStatsAnchorDate(referenceAnchor, safeUnit, amount),
   };
 }
 
@@ -2718,19 +2763,33 @@ function initTimeSelector() {
   });
   syncStatsTimeUnitOptions(unitSelect);
 
-  const shiftCurrentStatsRange = (amount, refreshOptions = {}) =>
-    applyStatsRange(
+  const shiftCurrentStatsRange = (amount, refreshOptions = {}) => {
+    const nextTarget = resolveStatsRangeStepTarget(
       statsRangeState.unit,
-      shiftStatsAnchorDate(
-        statsRangeState.anchorDate ||
-          resolveStatsAnchorFromInputs(statsRangeState.unit),
-        statsRangeState.unit,
-        amount,
-      ),
+      amount,
+    );
+    if (nextTarget?.mode === "custom") {
+      return applyStatsCustomRange(nextTarget.start, nextTarget.end, {
+        unit: nextTarget.unit,
+        anchorDate: nextTarget.anchorDate,
+        changeSource: nextTarget.changeSource,
+        refreshOptions,
+      });
+    }
+    return applyStatsRange(
+      nextTarget?.unit || statsRangeState.unit,
+      nextTarget?.anchorDate ||
+        shiftStatsAnchorDate(
+          statsRangeState.anchorDate ||
+            resolveStatsAnchorFromInputs(statsRangeState.unit),
+          statsRangeState.unit,
+          amount,
+        ),
       {
         refreshOptions,
       },
     );
+  };
 
   const runStatsRangeNavigationAction = async (action) => {
     if (statsRangeControlsBusy) {
@@ -2750,7 +2809,10 @@ function initTimeSelector() {
       const nextUnit = isHeatmapToolbarViewMode()
         ? normalizeHeatmapRangeUnit(unitSelect.value)
         : normalizeStatsRangeUnit(unitSelect.value, "day");
-      const nextAnchor = getInitialStatsAnchorForView();
+      const nextAnchor =
+        getDateOnly(statsRangeState.anchorDate) ||
+        resolveStatsAnchorFromInputs(nextUnit, "end") ||
+        getInitialStatsAnchorForView();
       void runStatsRangeNavigationAction(() =>
         applyStatsRange(nextUnit, nextAnchor, {
           refreshOptions: getStatsRangeNavigationRefreshOptions(),
@@ -2768,9 +2830,15 @@ function initTimeSelector() {
       return;
     }
     button.dataset[bindingKey] = "true";
-    let lastTouchTriggerAt = 0;
-    const triggerShift = () => {
-      lastTouchTriggerAt = Date.now();
+    const triggerShift = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (statsRangeControlsBusy) {
+        return;
+      }
       void runStatsRangeNavigationAction(() =>
         shiftCurrentStatsRange(
           amount,
@@ -2787,36 +2855,9 @@ function initTimeSelector() {
       button.blur?.();
     });
 
-    button.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse") {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
-      }
-      if (statsRangeControlsBusy) {
-        return;
-      }
-      button.blur?.();
-      triggerShift();
-    });
-
     button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
-      }
-      if (Date.now() - lastTouchTriggerAt < 900) {
-        return;
-      }
-      if (statsRangeControlsBusy) {
-        return;
-      }
       button.blur?.();
-      triggerShift();
+      triggerShift(event);
     });
   };
 
@@ -7424,6 +7465,7 @@ function initViewSelector(options = {}) {
 
   viewSelect.value = getStatsToolbarViewValue(statsViewMode);
   uiTools?.enhanceNativeSelect?.(viewSelect, {
+    fullWidth: true,
     minWidth: 132,
     preferredMenuWidth: 220,
     maxMenuWidth: 260,

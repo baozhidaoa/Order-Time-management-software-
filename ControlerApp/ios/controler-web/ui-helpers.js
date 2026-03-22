@@ -2884,6 +2884,21 @@
     const messageNode = overlay.querySelector("[data-loading-message]");
     const normalizeMode = (value) =>
       String(value || "").trim() === "fullscreen" ? "fullscreen" : "inline";
+    const shouldForceFullscreenMode = (mode, visible) => {
+      if (!visible || mode !== "inline") {
+        return false;
+      }
+      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      if (platform === "android") {
+        return true;
+      }
+      const root = document.documentElement;
+      const body = document.body;
+      return Boolean(
+        root?.classList.contains("controler-android-native") ||
+          body?.classList.contains("controler-android-native"),
+      );
+    };
     let overlayTimerId = 0;
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
@@ -3015,10 +3030,13 @@
         return;
       }
 
-      const resolvedMode = normalizeMode(mode);
+      const requestedMode = normalizeMode(mode);
+      const resolvedMode = shouldForceFullscreenMode(requestedMode, visible)
+        ? "fullscreen"
+        : requestedMode;
       requestedOverlayState = {
         visible,
-        mode: resolvedMode,
+        mode: requestedMode,
         title,
         message,
       };
