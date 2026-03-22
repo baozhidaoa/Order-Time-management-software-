@@ -795,6 +795,35 @@ function preparePlanModalOverlay(modal, options = {}) {
   return modal;
 }
 
+function removePlanModalElement(modal) {
+  if (modal?.parentNode) {
+    modal.parentNode.removeChild(modal);
+  }
+}
+
+function bindPlanFormModalEventShield(modal) {
+  if (!(modal instanceof HTMLElement) || modal.dataset.planFormShieldBound === "true") {
+    return modal;
+  }
+  modal.dataset.planFormShieldBound = "true";
+  const stopOverlayEvent = (event) => {
+    if (event?.target === modal) {
+      event.preventDefault();
+    }
+    event?.stopPropagation?.();
+  };
+  modal.addEventListener("pointerdown", stopOverlayEvent);
+  modal.addEventListener("mousedown", stopOverlayEvent);
+  modal.addEventListener("click", stopOverlayEvent);
+  modal.addEventListener("touchstart", stopOverlayEvent, {
+    passive: false,
+  });
+  modal.addEventListener("touchend", stopOverlayEvent, {
+    passive: false,
+  });
+  return modal;
+}
+
 const PLAN_WIDGET_CONTEXT = (() => {
   let params = null;
   try {
@@ -1539,6 +1568,16 @@ function normalizePlanDateKey(value) {
   );
 }
 
+function normalizePlanDateList(values = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((item) => normalizePlanDateKey(item))
+        .filter(Boolean),
+    ),
+  ).sort();
+}
+
 function parsePlanDateFromKey(dateKey) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || "").trim())) {
     return null;
@@ -1567,11 +1606,83 @@ function applyPlanDerivedFields(plan) {
         .map((day) => parseInt(day, 10))
         .filter((day) => day >= 0 && day <= 6)
     : [];
-  plan.excludedDates = Array.isArray(plan.excludedDates)
-    ? plan.excludedDates.map((item) => normalizePlanDateKey(item)).filter(Boolean)
-    : [];
+  plan.excludedDates = normalizePlanDateList(plan.excludedDates);
   plan.excludedDateSet = new Set(plan.excludedDates);
+  plan.completedDates = normalizePlanDateList(plan.completedDates);
+  plan.completedDateSet = new Set(plan.completedDates);
+  plan.uncompletedDates = normalizePlanDateList(plan.uncompletedDates);
+  plan.uncompletedDateSet = new Set(plan.uncompletedDates);
   return plan;
+}
+
+function isRecurringPlan(planLike = null) {
+  return String(planLike?.repeat || "none").trim().toLowerCase() !== "none";
+}
+
+function getPlanOccurrenceDateKey(planLike = null, occurrenceDate = null) {
+  return normalizePlanDateKey(
+    occurrenceDate || planLike?._occurrenceDate || planLike?.date,
+  );
+}
+
+function getPlanCompletionState(planLike = null, occurrenceDate = null) {
+  if (!planLike || typeof planLike !== "object") {
+    return false;
+  }
+  const plan = applyPlanDerivedFields(planLike);
+  const dateKey = getPlanOccurrenceDateKey(plan, occurrenceDate);
+  if (isRecurringPlan(plan) && dateKey) {
+    if (plan.uncompletedDateSet instanceof Set && plan.uncompletedDateSet.has(dateKey)) {
+      return false;
+    }
+    if (plan.completedDateSet instanceof Set && plan.completedDateSet.has(dateKey)) {
+      return true;
+    }
+  }
+  return !!plan.isCompleted;
+}
+
+function setStoredPlanCompletionState(planLike = null, nextCompleted = false, occurrenceDate = null) {
+  if (!planLike || typeof planLike !== "object") {
+    return planLike;
+  }
+  const plan = applyPlanDerivedFields(planLike);
+  if (!isRecurringPlan(plan)) {
+    plan.isCompleted = !!nextCompleted;
+    plan.completedDates = [];
+    plan.uncompletedDates = [];
+    return applyPlanDerivedFields(plan);
+  }
+
+  const dateKey = getPlanOccurrenceDateKey(plan, occurrenceDate);
+  if (!dateKey) {
+    plan.isCompleted = !!nextCompleted;
+    return applyPlanDerivedFields(plan);
+  }
+
+  const fallbackCompleted = !!plan.isCompleted;
+  const completedDates = normalizePlanDateList(
+    (Array.isArray(plan.completedDates) ? plan.completedDates : []).filter(
+      (item) => item !== dateKey,
+    ),
+  );
+  const uncompletedDates = normalizePlanDateList(
+    (Array.isArray(plan.uncompletedDates) ? plan.uncompletedDates : []).filter(
+      (item) => item !== dateKey,
+    ),
+  );
+
+  if (!!nextCompleted !== fallbackCompleted) {
+    if (nextCompleted) {
+      completedDates.push(dateKey);
+    } else {
+      uncompletedDates.push(dateKey);
+    }
+  }
+
+  plan.completedDates = normalizePlanDateList(completedDates);
+  plan.uncompletedDates = normalizePlanDateList(uncompletedDates);
+  return applyPlanDerivedFields(plan);
 }
 
 // 计划数据结构
@@ -1597,6 +1708,8 @@ class Plan {
     this.projectId = projectId; // 关联的项目ID
     this.repeatDays = Array.isArray(repeatDays) ? repeatDays : []; // 每周重复对应的周几数组（0-6）
     this.excludedDates = []; // 针对重复计划，排除某一次出现
+    this.completedDates = [];
+    this.uncompletedDates = [];
     this.createdAt = new Date().toISOString();
     this.isCompleted = false;
     this.notification = normalizePlanNotificationConfig(notification, {
@@ -1699,6 +1812,12 @@ function hydratePlan(rawPlan) {
   plan.isCompleted = !!rawPlan.isCompleted;
   plan.excludedDates = Array.isArray(rawPlan.excludedDates)
     ? rawPlan.excludedDates
+    : [];
+  plan.completedDates = Array.isArray(rawPlan.completedDates)
+    ? rawPlan.completedDates
+    : [];
+  plan.uncompletedDates = Array.isArray(rawPlan.uncompletedDates)
+    ? rawPlan.uncompletedDates
     : [];
   plan.notification = normalizePlanNotificationConfig(rawPlan.notification, {
     ...rawPlan,
@@ -3132,6 +3251,7 @@ function normalizeYearGoal(goal) {
       title: "未命名目标",
       description: "",
       priority: "medium",
+      isCompleted: false,
       createdAt: new Date().toISOString(),
     };
   }
@@ -3149,25 +3269,25 @@ function normalizeYearGoal(goal) {
     title: rawTitle || "未命名目标",
     description: rawDescription || "",
     priority,
+    isCompleted: !!goal.isCompleted,
     createdAt: goal.createdAt || new Date().toISOString(),
   };
 }
 
 function saveYearGoalEntry(year, scope, goalData, goalId = null) {
   const goals = ensureYearGoalBucket(year, scope);
-  const normalizedGoal = normalizeYearGoal({
-    ...goalData,
-    id: goalId || goalData.id,
-  });
   const targetIndex = goalId
     ? goals.findIndex((item) => matchesId(item.id, goalId))
     : -1;
+  const existingGoal = targetIndex !== -1 ? normalizeYearGoal(goals[targetIndex]) : null;
+  const normalizedGoal = normalizeYearGoal({
+    ...existingGoal,
+    ...goalData,
+    id: goalId || goalData.id || existingGoal?.id,
+  });
 
   if (targetIndex !== -1) {
-    goals[targetIndex] = {
-      ...goals[targetIndex],
-      ...normalizedGoal,
-    };
+    goals[targetIndex] = normalizedGoal;
   } else {
     goals.push(normalizedGoal);
   }
@@ -3191,12 +3311,26 @@ function deleteYearGoalEntry(year, scope, goalId) {
 function getGoalPriorityLabel(priority) {
   switch (priority) {
     case "high":
-      return { text: "高优先级", color: "#f56565" };
+      return { text: "高优先级", shortText: "高", color: "#f56565" };
     case "low":
-      return { text: "低优先级", color: "#48bb78" };
+      return { text: "低优先级", shortText: "低", color: "#48bb78" };
     default:
-      return { text: "中优先级", color: "#ed8936" };
+      return { text: "中优先级", shortText: "中", color: "#ed8936" };
   }
+}
+
+function setYearGoalEntryCompletion(year, scope, goalId, nextCompleted = false) {
+  const goals = ensureYearGoalBucket(year, scope);
+  const targetIndex = goals.findIndex((item) => matchesId(item.id, goalId));
+  if (targetIndex === -1) {
+    return false;
+  }
+  goals[targetIndex] = normalizeYearGoal({
+    ...goals[targetIndex],
+    isCompleted: !!nextCompleted,
+  });
+  saveYearlyGoals();
+  return true;
 }
 
 function runWithYearGoalModalSuppressed(callback) {
@@ -3298,8 +3432,12 @@ function createYearGoalCard({
     goals.forEach((goal) => {
       const normalizedGoal = normalizeYearGoal(goal);
       const priorityMeta = getGoalPriorityLabel(normalizedGoal.priority);
+      const goalCompleted = !!normalizedGoal.isCompleted;
       const goalItem = document.createElement("div");
-      goalItem.className = "controler-pressable";
+      goalItem.className = "controler-pressable plan-year-goal-item";
+      if (goalCompleted) {
+        goalItem.classList.add("plan-year-goal-item-completed");
+      }
       goalItem.style.display = "flex";
       goalItem.style.alignItems = "center";
       goalItem.style.justifyContent = "space-between";
@@ -3308,15 +3446,24 @@ function createYearGoalCard({
         10,
         Math.round(12 * monthCardScale),
       )}px`;
-      goalItem.style.borderRadius = "999px";
-      goalItem.style.backgroundColor =
-        "color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-quaternary) 12%)";
+      goalItem.style.borderRadius = `${Math.max(14, Math.round(18 * monthCardScale))}px`;
+      goalItem.style.backgroundColor = goalCompleted
+        ? "color-mix(in srgb, var(--bg-secondary) 90%, rgba(var(--accent-color-rgb), 0.12) 10%)"
+        : "color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-quaternary) 12%)";
       goalItem.style.border =
-        "1px solid color-mix(in srgb, var(--panel-border-color) 75%, transparent)";
+        goalCompleted
+          ? "1px solid color-mix(in srgb, rgba(var(--accent-color-rgb), 0.38) 72%, var(--panel-border-color) 28%)"
+          : "1px solid color-mix(in srgb, var(--panel-border-color) 75%, transparent)";
       goalItem.style.color = "var(--text-color)";
       goalItem.style.fontSize = `${Math.max(10, Math.round(12 * monthCardScale))}px`;
       goalItem.style.cursor = "pointer";
       goalItem.title = normalizedGoal.description || normalizedGoal.title;
+
+      const goalTextWrap = document.createElement("div");
+      goalTextWrap.style.display = "flex";
+      goalTextWrap.style.alignItems = "center";
+      goalTextWrap.style.flex = "1 1 auto";
+      goalTextWrap.style.minWidth = "0";
 
       const goalTitle = document.createElement("strong");
       goalTitle.textContent = normalizedGoal.title;
@@ -3327,21 +3474,78 @@ function createYearGoalCard({
       goalTitle.style.overflow = "hidden";
       goalTitle.style.textOverflow = "ellipsis";
       goalTitle.style.whiteSpace = "nowrap";
+      goalTitle.style.opacity = goalCompleted ? "0.74" : "1";
+      goalTitle.style.textDecoration = goalCompleted ? "line-through" : "none";
+      goalTextWrap.appendChild(goalTitle);
+
+      const goalMeta = document.createElement("div");
+      goalMeta.style.display = "flex";
+      goalMeta.style.alignItems = "center";
+      goalMeta.style.justifyContent = "flex-end";
+      goalMeta.style.gap = `${Math.max(4, Math.round(6 * monthCardScale))}px`;
+      goalMeta.style.flex = "0 0 auto";
+      goalMeta.style.minWidth = "0";
 
       const priorityBadge = document.createElement("span");
-      priorityBadge.textContent = priorityMeta.text;
-      priorityBadge.style.fontSize = `${badgeFontSize}px`;
+      priorityBadge.textContent =
+        isMobileYearView ? priorityMeta.shortText : priorityMeta.text;
+      priorityBadge.style.fontSize = `${Math.max(
+        8,
+        badgeFontSize - (isMobileYearView ? 1 : 0),
+      )}px`;
       priorityBadge.style.padding = `${Math.max(2, Math.round(3 * monthCardScale))}px ${Math.max(
-        6,
-        Math.round(8 * monthCardScale),
+        5,
+        Math.round((isMobileYearView ? 6.5 : 8) * monthCardScale),
       )}px`;
       priorityBadge.style.borderRadius = "999px";
       priorityBadge.style.backgroundColor = priorityMeta.color;
       priorityBadge.style.color = "white";
       priorityBadge.style.flexShrink = "0";
+      priorityBadge.style.maxWidth = isMobileYearView ? "32px" : "none";
+      priorityBadge.style.lineHeight = "1.15";
+      priorityBadge.style.textAlign = "center";
 
-      goalItem.appendChild(goalTitle);
-      goalItem.appendChild(priorityBadge);
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.className = "plan-complete-toggle";
+      if (goalCompleted) {
+        toggleButton.classList.add("is-completed");
+      }
+      const toggleSize = Math.max(22, Math.round((isMobileYearView ? 26 : 28) * monthCardScale));
+      toggleButton.style.width = `${toggleSize}px`;
+      toggleButton.style.height = `${toggleSize}px`;
+      toggleButton.style.minWidth = `${toggleSize}px`;
+      toggleButton.style.minHeight = `${toggleSize}px`;
+      toggleButton.style.backgroundColor = goalCompleted
+        ? "color-mix(in srgb, var(--accent-color) 82%, white 18%)"
+        : "color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-quaternary) 30%)";
+      toggleButton.style.color = goalCompleted ? "var(--on-accent-text)" : "transparent";
+      toggleButton.style.fontSize = `${Math.max(11, Math.round(14 * monthCardScale))}px`;
+      toggleButton.style.fontWeight = "700";
+      toggleButton.setAttribute(
+        "aria-label",
+        goalCompleted ? "标记目标为未完成" : "标记目标为已完成",
+      );
+      toggleButton.title = goalCompleted ? "标记为未完成" : "标记为已完成";
+      toggleButton.textContent = goalCompleted ? "✓" : "";
+      toggleButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const changed = setYearGoalEntryCompletion(
+          year,
+          scope,
+          normalizedGoal.id,
+          !goalCompleted,
+        );
+        if (changed) {
+          renderCalendarContent();
+        }
+      });
+
+      goalMeta.appendChild(priorityBadge);
+      goalMeta.appendChild(toggleButton);
+      goalItem.appendChild(goalTextWrap);
+      goalItem.appendChild(goalMeta);
       goalItem.addEventListener("click", (event) => {
         event.stopPropagation();
         if (suppressYearGoalModalOpen) return;
@@ -3819,7 +4023,9 @@ function renderDayView(container) {
 function createDayElement(date, scale = 1) {
   const dayElement = document.createElement("div");
   dayElement.className = "calendar-day";
-  dayElement.dataset.date = date.toISOString().split("T")[0];
+  const occurrenceDate =
+    normalizePlanDateKey(date) || date.toISOString().split("T")[0];
+  dayElement.dataset.date = occurrenceDate;
   const safeScale = Math.min(Math.max(scale, 0.1), 2.2);
   const dayPadding = Math.max(6, Math.round(8 * safeScale));
   const dayMinHeight = Math.max(82, Math.round(100 * safeScale));
@@ -3883,11 +4089,14 @@ function createDayElement(date, scale = 1) {
 
     // 只显示前3个计划
     dayPlans.slice(0, 3).forEach((plan) => {
+      const planCompleted = getPlanCompletionState(plan, occurrenceDate);
       const planIndicator = document.createElement("div");
       planIndicator.className = "controler-pressable";
       planIndicator.textContent =
         plan.name.length > 8 ? plan.name.substring(0, 8) + "..." : plan.name;
-      planIndicator.style.backgroundColor = plan.color;
+      planIndicator.style.backgroundColor = planCompleted
+        ? `color-mix(in srgb, ${plan.color} 36%, var(--bg-secondary) 64%)`
+        : plan.color;
       planIndicator.style.color = "white";
       planIndicator.style.padding = `${planPaddingY}px ${planPaddingX}px`;
       planIndicator.style.borderRadius = "3px";
@@ -3897,10 +4106,15 @@ function createDayElement(date, scale = 1) {
       planIndicator.style.whiteSpace = "nowrap";
       planIndicator.style.textOverflow = "ellipsis";
       planIndicator.style.cursor = "pointer";
+      planIndicator.style.border = planCompleted
+        ? "1px dashed rgba(255,255,255,0.45)"
+        : "1px solid transparent";
+      planIndicator.style.opacity = planCompleted ? "0.84" : "1";
+      planIndicator.style.textDecoration = planCompleted ? "line-through" : "none";
 
       planIndicator.addEventListener("click", function (e) {
         e.stopPropagation();
-        showPlanDetailModal(plan, date.toISOString().split("T")[0]);
+        showPlanDetailModal(plan, occurrenceDate);
       });
 
       plansContainer.appendChild(planIndicator);
@@ -4032,6 +4246,8 @@ function createPlanTimelineBlock(
   const block = document.createElement("div");
   block.className = "plan-timeline-block";
   block.dataset.planId = plan.id;
+  const blockOccurrenceDate = getPlanOccurrenceDateKey(plan, occurrenceDate);
+  const planCompleted = getPlanCompletionState(plan, blockOccurrenceDate);
   const safeScale = Math.min(
     Math.max(visualScale || slotHeight / 50, 0.3),
     2.2,
@@ -4054,24 +4270,31 @@ function createPlanTimelineBlock(
   block.style.height = `${Math.max((durationMinutes / 60) * slotHeight, Math.max(14, Math.round(18 * safeScale)))}px`;
   block.style.left = "5px";
   block.style.right = "5px";
-  block.style.background = `linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0.02)), ${plan.color}`;
-  block.style.border = "1px solid rgba(255,255,255,0.2)";
+  block.style.background = planCompleted
+    ? `linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02)), color-mix(in srgb, ${plan.color} 34%, rgba(20, 24, 32, 0.92) 66%)`
+    : `linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0.02)), ${plan.color}`;
+  block.style.border = planCompleted
+    ? "1px dashed rgba(255,255,255,0.34)"
+    : "1px solid rgba(255,255,255,0.2)";
   block.style.borderRadius = `${Math.max(8, Math.round(12 * safeScale))}px`;
   block.style.padding = `${Math.max(3, Math.round(5 * safeScale))}px`;
   block.style.overflow = "hidden";
   block.style.cursor = "pointer";
   block.style.backdropFilter = "blur(10px) saturate(120%)";
   block.style.webkitBackdropFilter = "blur(10px) saturate(120%)";
-  block.style.boxShadow = "0 12px 24px rgba(0,0,0,0.22)";
+  block.style.boxShadow = planCompleted
+    ? "0 8px 18px rgba(0,0,0,0.16)"
+    : "0 12px 24px rgba(0,0,0,0.22)";
   block.style.zIndex = "10";
+  block.style.opacity = planCompleted ? "0.92" : "1";
 
   // 计划内容
   block.innerHTML = `
-    <div style="font-size: ${titleFontSize}px; font-weight: bold; color: white; margin-bottom: 2px;">
-      ${plan.name}
+    <div style="font-size: ${titleFontSize}px; font-weight: bold; color: white; margin-bottom: 2px; ${planCompleted ? "text-decoration: line-through; opacity: 0.88;" : ""}">
+      ${planCompleted ? "✓ " : ""}${plan.name}
     </div>
     <div style="font-size: ${timeFontSize}px; color: rgba(255,255,255,0.9)">
-      ${plan.startTime} - ${plan.endTime}
+      ${plan.startTime} - ${plan.endTime}${planCompleted ? " · 已完成" : ""}
     </div>
   `;
 
@@ -4079,7 +4302,7 @@ function createPlanTimelineBlock(
   block.addEventListener("click", function () {
     showPlanDetailModal(
       plan,
-      occurrenceDate || plan.date || new Date().toISOString().split("T")[0],
+      blockOccurrenceDate || plan.date || new Date().toISOString().split("T")[0],
     );
   });
 
@@ -4292,9 +4515,10 @@ function renderWeeklyGridView(container) {
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + i);
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = normalizePlanDateKey(date) || date.toISOString().split("T")[0];
 
     const dayColumn = document.createElement("div");
+    dayColumn.className = "weekly-glass-day-column";
     dayColumn.style.display = "flex";
     dayColumn.style.flexDirection = "column";
     dayColumn.style.width = `${dateColumnWidth}px`;
@@ -4421,16 +4645,20 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
 
   const plan = plans[index];
   const isRepeatPlan = plan.repeat && plan.repeat !== "none";
+  const normalizedOccurrenceDate = getPlanOccurrenceDateKey(plan, occurrenceDate);
 
   if (!isRepeatPlan) {
     plans.splice(index, 1);
-    savePlans();
+    const saveResult = await savePlans();
+    if (saveResult === false) {
+      return false;
+    }
     renderCalendarContent();
     updateCurrentDateDisplay();
     return true;
   }
 
-  if (occurrenceDate) {
+  if (normalizedOccurrenceDate) {
     const deleteAll = await requestPlanConfirmation(
       "该计划是重复计划。\n点击“确定”删除所有重复计划；点击“取消”仅删除当前这一天。",
       {
@@ -4447,8 +4675,8 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
       if (!Array.isArray(plans[index].excludedDates)) {
         plans[index].excludedDates = [];
       }
-      if (!plans[index].excludedDates.includes(occurrenceDate)) {
-        plans[index].excludedDates.push(occurrenceDate);
+      if (!plans[index].excludedDates.includes(normalizedOccurrenceDate)) {
+        plans[index].excludedDates.push(normalizedOccurrenceDate);
         applyPlanDerivedFields(plans[index]);
       }
     }
@@ -4466,7 +4694,10 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
     plans.splice(index, 1);
   }
 
-  savePlans();
+  const saveResult = await savePlans();
+  if (saveResult === false) {
+    return false;
+  }
   renderCalendarContent();
   updateCurrentDateDisplay();
   return true;
@@ -4544,8 +4775,8 @@ function showWeeklyGridPlanModal(planData = null) {
           ">
         </div>
         
-        <!-- 日期和时间 -->
-        <div class="controler-form-modal-split" style="display: flex; gap: 10px;">
+        <!-- 日期 -->
+        <div>
           <div style="flex: 1;">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               日期
@@ -4560,6 +4791,9 @@ function showWeeklyGridPlanModal(planData = null) {
               font-size: 16px;
             ">
           </div>
+        </div>
+        <!-- 时间范围 -->
+        <div class="controler-form-modal-split controler-form-modal-time-range" style="display: flex; gap: 10px;">
           <div style="flex: 1;">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
@@ -4642,15 +4876,15 @@ function showWeeklyGridPlanModal(planData = null) {
         ${
           planData?.id
             ? `
-          <button class="bts" id="weekly-delete-plan-btn" style="background-color: var(--delete-btn);">
+          <button type="button" class="bts" id="weekly-delete-plan-btn" style="background-color: var(--delete-btn);">
             删除计划
           </button>
         `
             : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" id="weekly-cancel-plan-btn">取消</button>
-          <button class="bts" id="weekly-save-plan-btn">${planData?.id ? "保存更改" : "创建计划"}</button>
+          <button type="button" class="bts" id="weekly-cancel-plan-btn">取消</button>
+          <button type="button" class="bts" id="weekly-save-plan-btn">${planData?.id ? "保存更改" : "创建计划"}</button>
         </div>
       </div>
     </div>
@@ -4659,6 +4893,7 @@ function showWeeklyGridPlanModal(planData = null) {
   preparePlanModalOverlay(modal, {
     zIndex: 2000,
   });
+  bindPlanFormModalEventShield(modal);
 
   // 显示/隐藏每周重复详细设置
   const weeklyRadio = modal.querySelector(
@@ -4726,11 +4961,7 @@ function showWeeklyGridPlanModal(planData = null) {
 
   const closeWeeklyPlanModal = () => {
     weeklyPlanDraftSession.destroy();
-    if (uiTools?.closeModal) {
-      uiTools.closeModal(modal);
-    } else if (modal.parentNode) {
-      modal.parentNode.removeChild(modal);
-    }
+    removePlanModalElement(modal);
   };
   modal.__controlerCloseModal = closeWeeklyPlanModal;
 
@@ -4768,10 +4999,9 @@ function showWeeklyGridPlanModal(planData = null) {
         await weeklyPlanDraftSession.clear().catch((error) => {
           console.error("清理周视图计划草稿失败:", error);
         });
-        weeklyPlanDraftSession.destroy();
       }
-      if (deleted && modal.parentNode) {
-        document.body.removeChild(modal);
+      if (deleted) {
+        closeWeeklyPlanModal();
       }
     };
     if (uiTools?.bindModalAction) {
@@ -4787,12 +5017,6 @@ function showWeeklyGridPlanModal(planData = null) {
     }
   }
 
-  // 点击外部关闭
-  modal.addEventListener("click", function (e) {
-    if (e.target === this) {
-      document.body.removeChild(modal);
-    }
-  });
 }
 
 // 保存表格视图的计划
@@ -4873,7 +5097,7 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
       });
       updatedPlan.id = plans[index].id;
       updatedPlan.createdAt = plans[index].createdAt;
-      updatedPlan.isCompleted = plans[index].isCompleted;
+      setStoredPlanCompletionState(updatedPlan, plans[index].isCompleted, null);
       plans[index] = updatedPlan;
     }
   } else {
@@ -4910,7 +5134,8 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   if (saveResult === false) {
     return;
   }
-  document.body.removeChild(modal);
+  draftSession?.destroy?.();
+  removePlanModalElement(modal);
 }
 
 // 回到今天
@@ -4925,6 +5150,9 @@ function goToToday() {
 function showPlanEditModal(planData = null) {
   // 如果传入了计划数据，是编辑模式；否则是创建模式
   const isEditMode = !!planData && !!planData.id;
+  const completionChecked = planData?._occurrenceDate
+    ? getPlanCompletionState(planData, planData._occurrenceDate)
+    : !!planData?.isCompleted;
   const weeklyRepeatDays = Array.isArray(planData?.repeatDays)
     ? planData.repeatDays
         .map((day) => parseInt(day, 10))
@@ -4986,7 +5214,7 @@ function showPlanEditModal(planData = null) {
         </div>
         
         <!-- 时间范围 -->
-        <div class="controler-form-modal-split" style="display: flex; gap: 10px;">
+        <div class="controler-form-modal-split controler-form-modal-time-range" style="display: flex; gap: 10px;">
           <div style="flex: 1;">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
@@ -5096,7 +5324,7 @@ function showPlanEditModal(planData = null) {
         <!-- 完成状态 -->
         <div>
           <label style="display: flex; align-items: center; color: var(--text-color); gap: 10px; font-size: 14px;">
-            <input type="checkbox" id="plan-completed-checkbox" ${planData?.isCompleted ? "checked" : ""}>
+            <input type="checkbox" id="plan-completed-checkbox" ${completionChecked ? "checked" : ""}>
             <span>标记为已完成</span>
           </label>
         </div>
@@ -5107,15 +5335,15 @@ function showPlanEditModal(planData = null) {
         ${
           isEditMode
             ? `
-          <button class="bts" id="delete-plan-btn" style="background-color: var(--delete-btn);">
+          <button type="button" class="bts" id="delete-plan-btn" style="background-color: var(--delete-btn);">
             删除计划
           </button>
         `
             : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" id="cancel-plan-btn">取消</button>
-          <button class="bts" id="save-plan-btn">${isEditMode ? "保存更改" : "创建计划"}</button>
+          <button type="button" class="bts" id="cancel-plan-btn">取消</button>
+          <button type="button" class="bts" id="save-plan-btn">${isEditMode ? "保存更改" : "创建计划"}</button>
         </div>
       </div>
     </div>
@@ -5124,6 +5352,7 @@ function showPlanEditModal(planData = null) {
   preparePlanModalOverlay(modal, {
     zIndex: 2000,
   });
+  bindPlanFormModalEventShield(modal);
 
   const repeatRadios = modal.querySelectorAll('input[name="plan-repeat"]');
   const repeatDaysWrap = modal.querySelector("#plan-repeat-days-wrap");
@@ -5150,11 +5379,7 @@ function showPlanEditModal(planData = null) {
 
   const closePlanModal = () => {
     planDraftSession.destroy();
-    if (uiTools?.closeModal) {
-      uiTools.closeModal(modal);
-    } else if (modal.parentNode) {
-      modal.parentNode.removeChild(modal);
-    }
+    removePlanModalElement(modal);
   };
   modal.__controlerCloseModal = closePlanModal;
 
@@ -5186,10 +5411,9 @@ function showPlanEditModal(planData = null) {
         await planDraftSession.clear().catch((error) => {
           console.error("清理计划草稿失败:", error);
         });
-        planDraftSession.destroy();
       }
-      if (deleted && modal.parentNode) {
-        document.body.removeChild(modal);
+      if (deleted) {
+        closePlanModal();
       }
     };
     if (uiTools?.bindModalAction) {
@@ -5201,12 +5425,6 @@ function showPlanEditModal(planData = null) {
     }
   }
 
-  // 点击外部关闭
-  modal.addEventListener("click", function (e) {
-    if (e.target === this) {
-      document.body.removeChild(modal);
-    }
-  });
 }
 
 // 保存计划
@@ -5275,11 +5493,17 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
         repeat,
         repeatDays,
         notification: reminderConfig,
-        isCompleted,
+        isCompleted: plans[index].isCompleted,
       });
       updatedPlan.id = plans[index].id;
       updatedPlan.createdAt = plans[index].createdAt;
-      updatedPlan.isCompleted = isCompleted;
+      setStoredPlanCompletionState(
+        updatedPlan,
+        isCompleted,
+        isRecurringPlan(updatedPlan) && planData?._occurrenceDate
+          ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
+          : null,
+      );
       plans[index] = updatedPlan;
     }
   } else {
@@ -5295,7 +5519,13 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
       repeatDays,
       reminderConfig,
     );
-    newPlan.isCompleted = isCompleted;
+    setStoredPlanCompletionState(
+      newPlan,
+      isCompleted,
+      isRecurringPlan(newPlan) && planData?._occurrenceDate
+        ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
+        : null,
+    );
     plans.push(newPlan);
   }
 
@@ -5317,9 +5547,8 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   if (saveResult === false) {
     return;
   }
-  if (modal.parentNode) {
-    document.body.removeChild(modal);
-  }
+  draftSession?.destroy?.();
+  removePlanModalElement(modal);
 }
 
 // 显示计划详情弹窗
@@ -5351,6 +5580,8 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       plan,
       occurrenceDate || plan.date,
     ) || "不通知";
+  const detailDate = getPlanOccurrenceDateKey(plan, occurrenceDate) || plan.date;
+  const detailCompleted = getPlanCompletionState(plan, detailDate);
 
   // 弹窗内容
   modal.innerHTML = `
@@ -5363,7 +5594,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">📅 日期:</span>
-          <span style="color: var(--text-color); font-size: 16px; font-weight: bold;">${plan.date}</span>
+          <span style="color: var(--text-color); font-size: 16px; font-weight: bold;">${detailDate}</span>
         </div>
         
         <div style="display: flex; align-items: center; gap: 10px;">
@@ -5383,8 +5614,8 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
         
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">✅ 状态:</span>
-          <span style="color: ${plan.isCompleted ? "var(--accent-color)" : "var(--text-color)"}; font-size: 16px;">
-            ${plan.isCompleted ? "已完成" : "未完成"}
+          <span style="color: ${detailCompleted ? "var(--accent-color)" : "var(--text-color)"}; font-size: 16px;">
+            ${detailCompleted ? "已完成" : "未完成"}
           </span>
         </div>
         
@@ -5397,12 +5628,12 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       </div>
       
       <div style="display: flex; justify-content: space-between;">
-        <button class="bts" id="close-detail-btn">关闭</button>
+        <button type="button" class="bts" id="close-detail-btn">关闭</button>
         <div style="display: flex; gap: 10px;">
-          <button class="bts" id="toggle-complete-btn" style="background-color: ${plan.isCompleted ? "var(--bg-tertiary)" : "var(--accent-color)"};">
-            ${plan.isCompleted ? "标记为未完成" : "标记为已完成"}
+          <button type="button" class="bts" id="toggle-complete-btn" style="background-color: ${detailCompleted ? "var(--bg-tertiary)" : "var(--accent-color)"};">
+            ${detailCompleted ? "标记为未完成" : "标记为已完成"}
           </button>
-          <button class="bts" id="edit-plan-btn">编辑</button>
+          <button type="button" class="bts" id="edit-plan-btn">编辑</button>
         </div>
       </div>
     </div>
@@ -5414,11 +5645,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
 
   // 绑定事件
   const closeDetailModal = () => {
-    if (uiTools?.closeModal) {
-      uiTools.closeModal(modal);
-    } else if (modal.parentNode) {
-      modal.parentNode.removeChild(modal);
-    }
+    removePlanModalElement(modal);
   };
   modal.__controlerCloseModal = closeDetailModal;
 
@@ -5428,21 +5655,22 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       () =>
         showPlanEditModal({
           ...plan,
-          _occurrenceDate: occurrenceDate || plan.date,
+          _occurrenceDate: detailDate,
         }),
       100,
     );
   };
 
-  const togglePlanCompleteAction = () => {
+  const togglePlanCompleteAction = async () => {
     const index = plans.findIndex((p) => matchesId(p.id, plan.id));
     if (index !== -1) {
-      plans[index].isCompleted = !plans[index].isCompleted;
-      savePlans();
-      renderCalendarContent();
-      updateCurrentDateDisplay();
-      if (modal.parentNode) {
-        document.body.removeChild(modal);
+      const nextCompleted = !getPlanCompletionState(plans[index], detailDate);
+      setStoredPlanCompletionState(plans[index], nextCompleted, detailDate);
+      const saveResult = await savePlans();
+      if (saveResult !== false) {
+        renderCalendarContent();
+        updateCurrentDateDisplay();
+        closeDetailModal();
       }
     }
   };
@@ -5470,7 +5698,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   // 点击外部关闭
   modal.addEventListener("click", function (e) {
     if (e.target === this) {
-      document.body.removeChild(modal);
+      closeDetailModal();
     }
   });
 }
