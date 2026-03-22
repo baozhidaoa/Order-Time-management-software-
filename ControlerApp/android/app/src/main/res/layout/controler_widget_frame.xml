@@ -44,6 +44,18 @@
             android:textColor="#D2E4D7"
             android:textSize="11sp" />
 
+        <TextView
+            android:id="@+id/widget_header_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="#EAF6ED"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/widget_action_only_shell"
             android:layout_width="match_parent"

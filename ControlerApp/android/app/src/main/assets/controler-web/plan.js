@@ -796,8 +796,34 @@ function preparePlanModalOverlay(modal, options = {}) {
 }
 
 function removePlanModalElement(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return;
+  }
+  if (typeof uiTools?.closeModal === "function") {
+    const customCloseHandler = modal.__controlerCloseModal;
+    modal.__controlerCloseModal = null;
+    uiTools.closeModal(modal);
+    if (customCloseHandler && modal.isConnected) {
+      modal.__controlerCloseModal = customCloseHandler;
+    }
+    return;
+  }
   if (modal?.parentNode) {
     modal.parentNode.removeChild(modal);
+  }
+}
+
+function refreshPlanUiAfterMutation(options = {}) {
+  const { includeGuideCard = false, skipCoverageCheck = true } = options;
+  try {
+    if (includeGuideCard) {
+      renderPlanGuideCard();
+    }
+    renderCalendarView({
+      skipCoverageCheck,
+    });
+  } catch (error) {
+    console.error("刷新计划界面失败:", error);
   }
 }
 
@@ -4686,8 +4712,9 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
     if (saveResult === false) {
       return false;
     }
-    renderCalendarContent();
-    updateCurrentDateDisplay();
+    refreshPlanUiAfterMutation({
+      includeGuideCard: true,
+    });
     return true;
   }
 
@@ -4731,8 +4758,9 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
   if (saveResult === false) {
     return false;
   }
-  renderCalendarContent();
-  updateCurrentDateDisplay();
+  refreshPlanUiAfterMutation({
+    includeGuideCard: true,
+  });
   return true;
 }
 
@@ -5157,18 +5185,17 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
       console.error("清理周视图计划草稿失败:", error);
     });
   }
-  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-    silentWhenDisabled: false,
-  });
-  renderPlanGuideCard();
-  renderCalendarView({
-    skipCoverageCheck: true,
-  });
   if (saveResult === false) {
     return;
   }
   draftSession?.destroy?.();
   removePlanModalElement(modal);
+  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
+    silentWhenDisabled: false,
+  });
+  refreshPlanUiAfterMutation({
+    includeGuideCard: true,
+  });
 }
 
 // 回到今天
@@ -5570,18 +5597,17 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
       console.error("清理计划草稿失败:", error);
     });
   }
-  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-    silentWhenDisabled: false,
-  });
-  renderPlanGuideCard();
-  renderCalendarView({
-    skipCoverageCheck: true,
-  });
   if (saveResult === false) {
     return;
   }
   draftSession?.destroy?.();
   removePlanModalElement(modal);
+  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
+    silentWhenDisabled: false,
+  });
+  refreshPlanUiAfterMutation({
+    includeGuideCard: true,
+  });
 }
 
 // 显示计划详情弹窗

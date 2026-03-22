@@ -3982,6 +3982,7 @@ function createTodoElement(todo, listScale = 1) {
   const progressRecords = todoElement.querySelectorAll(".todo-progress-record");
   const progressDateElements = todoElement.querySelectorAll(".checkin-date");
   const progressMessageElements = todoElement.querySelectorAll(".checkin-message");
+  const shouldStackEmptyProgress = !hasProgressRecords && isCompactMobileLayout();
 
   if (headerElement) {
     headerElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
@@ -4013,10 +4014,13 @@ function createTodoElement(todo, listScale = 1) {
   if (progressCaptionElement) {
     progressCaptionElement.style.fontSize = `${Math.max(9, Math.round(11 * cardScale))}px`;
     progressCaptionElement.style.lineHeight = "1.15";
+    progressCaptionElement.style.whiteSpace = "nowrap";
   }
   if (progressEmptyElement) {
     progressEmptyElement.style.fontSize = `${metaFontSize}px`;
     progressEmptyElement.style.lineHeight = "1.25";
+    progressEmptyElement.style.display = "block";
+    progressEmptyElement.style.width = "100%";
   }
   if (footerElement) {
     footerElement.style.display = "flex";
@@ -4027,7 +4031,12 @@ function createTodoElement(todo, listScale = 1) {
   }
   if (progressBottomRowElement) {
     progressBottomRowElement.style.display = "flex";
-    progressBottomRowElement.style.alignItems = hasProgressRecords ? "flex-end" : "center";
+    progressBottomRowElement.style.flexWrap = shouldStackEmptyProgress ? "wrap" : "nowrap";
+    progressBottomRowElement.style.alignItems = shouldStackEmptyProgress
+      ? "stretch"
+      : hasProgressRecords
+        ? "flex-end"
+        : "center";
     progressBottomRowElement.style.justifyContent = "space-between";
     progressBottomRowElement.style.gap = `${Math.max(8, Math.round(10 * cardScale))}px`;
     progressBottomRowElement.style.minWidth = "0";
@@ -4036,17 +4045,23 @@ function createTodoElement(todo, listScale = 1) {
     progressLaneElement.style.display = "flex";
     progressLaneElement.style.flexDirection = "column";
     progressLaneElement.style.gap = `${Math.max(1, Math.round(2 * cardScale))}px`;
-    progressLaneElement.style.flex = "1 1 auto";
+    progressLaneElement.style.flex = shouldStackEmptyProgress ? "1 1 100%" : "1 1 auto";
+    progressLaneElement.style.width = shouldStackEmptyProgress ? "100%" : "";
     progressLaneElement.style.minWidth = "0";
   }
   if (actionStackElement) {
     actionStackElement.style.gap = `${Math.max(6, Math.round(8 * cardScale))}px`;
-    actionStackElement.style.marginLeft = "auto";
-    actionStackElement.style.flex = "0 0 auto";
+    actionStackElement.style.marginLeft = shouldStackEmptyProgress ? "0" : "auto";
+    actionStackElement.style.flex = shouldStackEmptyProgress ? "1 1 100%" : "0 0 auto";
+    actionStackElement.style.width = shouldStackEmptyProgress ? "100%" : "";
     actionStackElement.style.flexWrap = "nowrap";
     actionStackElement.style.alignItems = "center";
     actionStackElement.style.justifyContent = "flex-end";
-    actionStackElement.style.alignSelf = hasProgressRecords ? "flex-end" : "center";
+    actionStackElement.style.alignSelf = shouldStackEmptyProgress
+      ? "stretch"
+      : hasProgressRecords
+        ? "flex-end"
+        : "center";
   }
   if (progressRecordsContainer) {
     progressRecordsContainer.style.gap = `${Math.max(4, Math.round(6 * cardScale))}px`;

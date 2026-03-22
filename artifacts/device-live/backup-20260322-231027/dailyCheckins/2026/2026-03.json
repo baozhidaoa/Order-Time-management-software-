@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "section": "dailyCheckins",
+  "periodUnit": "month",
+  "periodId": "2026-03",
+  "count": 3,
+  "minDate": "2026-03-19",
+  "maxDate": "2026-03-22",
+  "fingerprint": "dailyCheckins:2026-03:3:2026-03-19:2026-03-22:404",
+  "items": [
+    {
+      "id": "1773933277660i27z8u4kr",
+      "itemId": "1773933228767oi9jp2xu6",
+      "date": "2026-03-19",
+      "checked": false,
+      "time": "2026-03-19T15:24:13.452Z"
+    },
+    {
+      "id": "1774105826877aom31hacn",
+      "itemId": "177400741898455soa75u3",
+      "date": "2026-03-21",
+      "checked": false,
+      "time": "2026-03-21T15:34:31.442Z"
+    },
+    {
+      "id": "1774153666230whvyxcwh3",
+      "itemId": "177400741898455soa75u3",
+      "date": "2026-03-22",
+      "checked": true,
+      "time": "2026-03-22T15:01:20.892Z"
+    }
+  ]
+}

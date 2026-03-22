@@ -5467,11 +5467,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         nativeMethods.getItem?.call(window.localStorage, BROWSER_STATE_KEY) || "";
       const migratedState = normalizeState({}, buildLegacyBrowserMetadata());
       const migratedKeys = [];
+      const migratedSharedKeys = new Set();
       let shouldRewriteRoot = false;
 
       if (typeof rawRoot === "string" && rawRoot.trim()) {
         const parsedRootState = parseJsonSafely(rawRoot, {});
         adoptLegacyLocalOnlyValues(parsedRootState);
+        Object.keys(parsedRootState).forEach((key) => {
+          if (isSharedStateKey(key)) {
+            migratedSharedKeys.add(key);
+          }
+        });
         const normalizedRootState = normalizeState(
           parsedRootState,
           buildLegacyBrowserMetadata(),
@@ -5504,6 +5510,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         );
         if (isSharedStateKey(key)) {
           migratedState[key] = rawValue;
+          migratedSharedKeys.add(key);
         } else {
           writeRawLocalOnlyValue(key, rawValue);
         }
@@ -5524,6 +5531,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return {
         state: normalizeState(migratedState, buildLegacyBrowserMetadata()),
         didMigrate: shouldRewriteRoot || migratedKeys.length > 0,
+        sharedKeys: Array.from(migratedSharedKeys),
       };
     }
 
@@ -5561,6 +5569,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         initialMirrorPendingWrite ||
         initialMirrorComparableSnapshot === emptyComparableSnapshot
       );
+    const initialPendingSharedKeys =
+      shouldAdoptLegacyBrowserBootstrap &&
+      Array.isArray(legacyBrowserBootstrap.sharedKeys)
+        ? legacyBrowserBootstrap.sharedKeys
+            .map((key) => String(key || "").trim())
+            .filter((key) => isSharedStateKey(key))
+        : [];
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
       : initialMirrorState;
@@ -5612,9 +5627,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !!initialMirrorStateRaw.trim() || shouldAdoptLegacyBrowserBootstrap;
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
-    let pendingNativeSharedKeyWrites = new Set();
+    let pendingNativeSharedKeyWrites = new Set(initialPendingSharedKeys);
     let pendingNativeStorageChangedSections = new Set();
     let pendingNativeStorageChangedPeriods = {};
+    let nativeFullStateRewriteRequested = false;
 
     function createManagedSectionCoverage() {
       return MANAGED_RANGE_SECTIONS.reduce((coverage, section) => {
@@ -5666,14 +5682,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       );
     }
 
+    function resetPendingNativeStorageChangeMetadata() {
+      pendingNativeSharedKeyWrites.clear();
+      pendingNativeStorageChangedSections.clear();
+      pendingNativeStorageChangedPeriods = {};
+      nativeFullStateRewriteRequested = false;
+    }
+
     function consumePendingNativeStorageChangeMetadata() {
       const changedSections = Array.from(pendingNativeStorageChangedSections);
       const changedPeriods = normalizeChangedPeriodsMap(
         pendingNativeStorageChangedPeriods,
       );
-      pendingNativeSharedKeyWrites.clear();
-      pendingNativeStorageChangedSections.clear();
-      pendingNativeStorageChangedPeriods = {};
+      resetPendingNativeStorageChangeMetadata();
       return {
         changedSections,
         changedPeriods,
@@ -5943,6 +5964,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (markFull) {
         managedFullyHydratedSections = new Set(MANAGED_RANGE_SECTIONS);
       }
+    }
+
+    function hasFullManagedStateSnapshot() {
+      return (
+        hasManagedCoreSnapshot &&
+        managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length
+      );
+    }
+
+    function canOverwriteNativeStateFromMirror() {
+      return nativeFullStateRewriteRequested || hasFullManagedStateSnapshot();
     }
 
     function markManagedSectionPeriodsLoaded(section, periodIds = []) {
@@ -6493,13 +6525,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     async function writeNativeState() {
       const pendingSharedKeys = peekPendingNativeSharedKeyChanges();
+      let latestSnapshot = null;
       let nextState = normalizeState(readState(), {
         ...buildMobileMetadata(),
         touchModified: true,
         touchSyncSave: true,
       });
-      if (pendingSharedKeys.length) {
-        const latestSnapshot = await readNativeSnapshot({
+      if (pendingSharedKeys.length && !nativeFullStateRewriteRequested) {
+        latestSnapshot = await readNativeSnapshot({
           suppressError: true,
         });
         if (latestSnapshot?.state) {
@@ -6517,12 +6550,38 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           );
         }
       }
+      const canWriteRebasedSharedSnapshot =
+        pendingSharedKeys.length > 0 &&
+        !nativeFullStateRewriteRequested &&
+        !!latestSnapshot?.state;
+      if (!canWriteRebasedSharedSnapshot && !canOverwriteNativeStateFromMirror()) {
+        if (pendingSharedKeys.length) {
+          console.warn(
+            "React Native 原生快照暂不可用，已跳过共享状态补写，避免覆盖整库。",
+          );
+        } else {
+          reportNativeStorageSyncError(
+            "移动端镜像尚未完成全量同步，已阻止整库覆盖。",
+            {
+              reason: "native-write-blocked-incomplete-mirror",
+            },
+          );
+          console.warn(
+            "React Native 镜像尚未完成全量同步，已阻止整库覆盖。",
+          );
+        }
+        persistMirrorSnapshot(true);
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+        });
+        return cachedStatus;
+      }
       cachedState = nextState;
       const serializedState = JSON.stringify(nextState);
       const nextComparableSnapshot = createComparableSnapshot(nextState);
 
       if (nextComparableSnapshot === lastWrittenComparableSnapshot) {
-        consumePendingNativeStorageChangeMetadata();
+        resetPendingNativeStorageChangeMetadata();
         if (cachedStatus && typeof cachedStatus === "object") {
           cachedStatus = {
             ...cachedStatus,
@@ -6608,6 +6667,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         options?.reason === "clear" ||
         options?.reason === "replace-all"
       ) {
+        nativeFullStateRewriteRequested = true;
         markPendingNativeStorageChangeMetadata({
           changedSections: DEFAULT_CHANGED_SECTIONS,
           changedPeriods: normalizedChangedPeriods,
@@ -6826,6 +6886,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           });
           cachedStatus = protectedNativeSnapshot.status || cachedStatus;
           lastWrittenComparableSnapshot = nextSnapshot;
+          resetPendingNativeStorageChangeMetadata();
           hasPendingStateChanges = false;
           persistMirrorSnapshot(true);
           updateVersionBaseline(cachedStatus);

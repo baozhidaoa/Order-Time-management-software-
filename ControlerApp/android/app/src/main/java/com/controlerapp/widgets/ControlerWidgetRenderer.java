@@ -105,6 +105,7 @@ public final class ControlerWidgetRenderer {
     private static final class WidgetContent {
         String title = "Order 小组件";
         String subtitle = "";
+        String headerSummary = "";
         String page = "index";
         String action = "";
         String actionLabel = "打开应用";
@@ -1076,10 +1077,15 @@ public final class ControlerWidgetRenderer {
 
         views.setTextViewText(R.id.widget_title, safeText(content.title));
         views.setTextViewText(R.id.widget_subtitle, safeText(content.subtitle));
+        views.setTextViewText(R.id.widget_header_summary, safeText(content.headerSummary));
         views.setTextViewText(R.id.widget_action, safeText(content.actionLabel));
         views.setTextViewText(R.id.widget_action_only_button, safeText(content.actionLabel));
         views.setTextColor(R.id.widget_title, palette.titleColor);
         views.setTextColor(R.id.widget_subtitle, palette.subtitleColor);
+        views.setTextColor(
+            R.id.widget_header_summary,
+            resolveReadableTextColor(palette.bodyColor, palette.surfaceColor, 4.1d)
+        );
         views.setTextColor(R.id.widget_line1, palette.bodyColor);
         views.setTextColor(R.id.widget_line2, palette.bodyColor);
         views.setTextColor(R.id.widget_line3, palette.bodyColor);
@@ -1206,6 +1212,12 @@ public final class ControlerWidgetRenderer {
         views.setViewVisibility(
             R.id.widget_subtitle,
             !showActionOnlyShell && shouldShowSubtitle(kind, content, metrics)
+                ? View.VISIBLE
+                : View.GONE
+        );
+        views.setViewVisibility(
+            R.id.widget_header_summary,
+            !showActionOnlyShell && shouldShowHeaderSummary(kind, content, metrics)
                 ? View.VISIBLE
                 : View.GONE
         );
@@ -1753,6 +1765,11 @@ public final class ControlerWidgetRenderer {
             clampFloat(11f * scale, 9f, 12f)
         );
         views.setTextViewTextSize(
+            R.id.widget_header_summary,
+            TypedValue.COMPLEX_UNIT_SP,
+            clampFloat(10f * scale, 8.4f, 11f)
+        );
+        views.setTextViewTextSize(
             R.id.widget_line1,
             TypedValue.COMPLEX_UNIT_SP,
             clampFloat(12f * scale, 9f, 13f)
@@ -1925,6 +1942,11 @@ public final class ControlerWidgetRenderer {
 
         views.setInt(R.id.widget_title, "setMaxLines", metrics.sizeClass == SIZE_LARGE ? 2 : 1);
         views.setInt(R.id.widget_subtitle, "setMaxLines", metrics.sizeClass == SIZE_LARGE ? 2 : 1);
+        views.setInt(
+            R.id.widget_header_summary,
+            "setMaxLines",
+            metrics.sizeClass == SIZE_LARGE ? 2 : 1
+        );
         for (int index = 0; index < itemTitleIds.length; index++) {
             views.setInt(
                 itemTitleIds[index],
@@ -2053,6 +2075,11 @@ public final class ControlerWidgetRenderer {
             shouldShowSubtitle(kind, content, metrics) && content != null ? content.subtitle : ""
         );
         signature.addString(
+            shouldShowHeaderSummary(kind, content, metrics) && content != null
+                ? content.headerSummary
+                : ""
+        );
+        signature.addString(
             shouldShowActionOnlyShell(kind, content, metrics) && content != null
                 ? content.actionLabel
                 : ""
@@ -2164,6 +2191,23 @@ public final class ControlerWidgetRenderer {
         return metrics != null
             && metrics.sizeClass != SIZE_COMPACT
             && !TextUtils.isEmpty(content.subtitle);
+    }
+
+    private static boolean shouldShowHeaderSummary(
+        String kind,
+        WidgetContent content,
+        WidgetMetrics metrics
+    ) {
+        if (content == null || TextUtils.isEmpty(content.headerSummary)) {
+            return false;
+        }
+        if (isActionOnlyKind(kind)) {
+            return false;
+        }
+        if (isListFirstKind(kind)) {
+            return metrics != null && !shouldUseMinimalListCards(kind, metrics);
+        }
+        return metrics != null && !shouldShowStats(kind, content, metrics);
     }
 
     private static boolean shouldShowTitle(
@@ -2912,6 +2956,7 @@ public final class ControlerWidgetRenderer {
         SignatureAccumulator signature = new SignatureAccumulator();
         signature.addString(content == null ? "" : content.title);
         signature.addString(content == null ? "" : content.subtitle);
+        signature.addString(content == null ? "" : content.headerSummary);
         signature.addString(content == null ? "" : content.actionLabel);
         signature.addString(content == null ? "" : content.statPrimary);
         signature.addString(content == null ? "" : content.statSecondary);
@@ -3366,6 +3411,13 @@ public final class ControlerWidgetRenderer {
             }
         );
         content.subtitle = todayCount > 0 ? "今日待办" : "待处理待办";
+        content.headerSummary =
+            "待办 "
+                + todayCount
+                + " 项 · 未完 "
+                + pendingCount
+                + " · 今到期 "
+                + dueTodayCount;
         content.actionLabel = "打开待办";
         content.statPrimary = "待办 " + todayCount + " 项";
         content.statSecondary = "未完 " + pendingCount + " · 今到期 " + dueTodayCount;
@@ -3438,6 +3490,8 @@ public final class ControlerWidgetRenderer {
             }
         );
         content.subtitle = "今日打卡";
+        content.headerSummary =
+            "今日 " + total + " 项 · 未打卡 " + Math.max(0, total - done) + " 项";
         content.statPrimary = "今日 " + total + " 项";
         content.statSecondary = "未打卡 " + Math.max(0, total - done) + " 项";
         content.actionLabel = "打开打卡";

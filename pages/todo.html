@@ -224,6 +224,26 @@
       .todo-progress-lane {
         min-width: 0;
         flex: 1 1 240px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .todo-progress-bottom-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .todo-progress-caption,
+      .todo-progress-empty {
+        color: var(--muted-text-color);
+      }
+
+      .todo-progress-empty {
+        margin: 0;
       }
 
       .todo-tags {
@@ -582,9 +602,18 @@
           gap: 10px;
         }
 
+        .todo-footer.is-progress-empty .todo-progress-bottom-row {
+          flex-wrap: wrap;
+          align-items: stretch;
+        }
+
         .todo-progress-lane {
           width: 100%;
           flex: 1 1 auto;
+        }
+
+        .todo-footer.is-progress-empty .todo-progress-lane {
+          flex-basis: 100%;
         }
 
         .todo-action-stack {
