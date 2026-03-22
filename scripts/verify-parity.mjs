@@ -30,13 +30,55 @@ const mobileBootstrapHtmlPages = new Set([
   "todo.html",
   "stats.html",
 ]);
+const unreadableOfflineAssetFallbacks = new Map([
+  [
+    "pages/offline-assets/d3.min.js",
+    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+  ],
+  [
+    "pages/offline-assets/cal-heatmap.min.js",
+    path.join(
+      repoRoot,
+      "node_modules",
+      "cal-heatmap",
+      "dist",
+      "cal-heatmap.min.js",
+    ),
+  ],
+]);
 
 function recordFailure(message) {
   failures.push(message);
 }
 
+function resolveUnreadableOfflineAssetFallback(targetPath) {
+  const relativePath = path.relative(repoRoot, targetPath).replace(/\\/g, "/");
+  return unreadableOfflineAssetFallbacks.get(relativePath) || null;
+}
+
+async function readFileWithFallback(targetPath, encoding = null) {
+  try {
+    if (encoding) {
+      return await fs.readFile(targetPath, encoding);
+    }
+    return await fs.readFile(targetPath);
+  } catch (error) {
+    if (error?.code !== "EPERM") {
+      throw error;
+    }
+    const fallbackPath = resolveUnreadableOfflineAssetFallback(targetPath);
+    if (!fallbackPath) {
+      throw error;
+    }
+    if (encoding) {
+      return fs.readFile(fallbackPath, encoding);
+    }
+    return fs.readFile(fallbackPath);
+  }
+}
+
 async function readUtf8(targetPath) {
-  return fs.readFile(targetPath, "utf8");
+  return readFileWithFallback(targetPath, "utf8");
 }
 
 async function assertFilesEqual(sourcePath, targetPath, label) {
@@ -155,7 +197,10 @@ async function compareDirectories(sourceDir, targetDir, label) {
       }
       continue;
     }
-    const [sourceBuffer, targetBuffer] = await Promise.all([fs.readFile(sourcePath), fs.readFile(targetPath)]);
+    const [sourceBuffer, targetBuffer] = await Promise.all([
+      readFileWithFallback(sourcePath),
+      readFileWithFallback(targetPath),
+    ]);
     if (!sourceBuffer.equals(targetBuffer)) {
       recordFailure(`${label} 文件内容不一致: ${relativePath}`);
     }

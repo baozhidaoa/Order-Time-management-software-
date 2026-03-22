@@ -105,6 +105,9 @@ type BridgeEnvelopePayload = {
   changedPeriods?: unknown;
   createdAt?: unknown;
   retryAfterMs?: unknown;
+  rects?: unknown;
+  viewportWidth?: unknown;
+  viewportHeight?: unknown;
 };
 
 type BridgeEnvelope = {
@@ -134,6 +137,19 @@ type TransitionState = {
 type PageTarget = {
   uri: string;
   pageKey: AppPageKey;
+};
+
+type EdgeBackSwipeExclusionRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+type EdgeBackSwipeExclusionState = {
+  rects: EdgeBackSwipeExclusionRect[];
+  viewportWidth: number;
+  viewportHeight: number;
 };
 
 type NavigationRequestSource = 'bridge' | 'webview';
@@ -196,6 +212,72 @@ function updateWebViewSlotsRef(
       ...ref.current[slot],
       ...nextState,
     },
+  };
+}
+
+function createDefaultEdgeBackSwipeExclusionState(): EdgeBackSwipeExclusionState {
+  return {
+    rects: [],
+    viewportWidth: 0,
+    viewportHeight: 0,
+  };
+}
+
+function normalizeEdgeBackSwipeExclusionRect(
+  value: unknown,
+): EdgeBackSwipeExclusionRect | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const rawLeft = Number(source.left);
+  const rawTop = Number(source.top);
+  const rawRight = Number(source.right);
+  const rawBottom = Number(source.bottom);
+  if (
+    !Number.isFinite(rawLeft) ||
+    !Number.isFinite(rawTop) ||
+    !Number.isFinite(rawRight) ||
+    !Number.isFinite(rawBottom)
+  ) {
+    return null;
+  }
+
+  const left = Math.max(0, Math.min(rawLeft, rawRight));
+  const top = Math.max(0, Math.min(rawTop, rawBottom));
+  const right = Math.max(left, Math.max(rawLeft, rawRight));
+  const bottom = Math.max(top, Math.max(rawTop, rawBottom));
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+  };
+}
+
+function normalizeEdgeBackSwipeExclusionState(
+  payload: BridgeEnvelopePayload | undefined,
+): EdgeBackSwipeExclusionState {
+  const rawRects = payload?.rects;
+  const rectSource = Array.isArray(rawRects) ? rawRects : [];
+  const rects = rectSource
+    .map(rect => normalizeEdgeBackSwipeExclusionRect(rect))
+    .filter((rect): rect is EdgeBackSwipeExclusionRect => !!rect);
+  const viewportWidth = Number(payload?.viewportWidth);
+  const viewportHeight = Number(payload?.viewportHeight);
+  return {
+    rects,
+    viewportWidth:
+      Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0,
+    viewportHeight:
+      Number.isFinite(viewportHeight) && viewportHeight > 0
+        ? viewportHeight
+        : 0,
   };
 }
 
@@ -343,6 +425,10 @@ const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
 const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 720 : 520;
 const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 260 : 180;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
+const INITIAL_WEBVIEW_HEIGHT = Math.max(
+  Dimensions.get('window').height || 0,
+  1,
+);
 const EDGE_BACK_SWIPE_REGION_WIDTH = IS_ANDROID ? 72 : 56;
 const EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT = IS_ANDROID ? 92 : 0;
 const EDGE_BACK_SWIPE_MIN_DISTANCE = IS_ANDROID ? 32 : 44;
@@ -1468,6 +1554,10 @@ function App({
   const [webViewHostWidth, setWebViewHostWidth] = useState(
     INITIAL_WEBVIEW_WIDTH,
   );
+  const webViewHostLayoutRef = useRef({
+    width: INITIAL_WEBVIEW_WIDTH,
+    height: INITIAL_WEBVIEW_HEIGHT,
+  });
   const [webViewSlots, setWebViewSlots] = useState<
     Record<WebViewSlot, WebViewSlotState>
   >({
@@ -1488,6 +1578,13 @@ function App({
     },
   });
   const webViewSlotsRef = useRef(webViewSlots);
+  const edgeBackSwipeExclusionBySlotRef = useRef<
+    Record<WebViewSlot, EdgeBackSwipeExclusionState>
+  >({
+    primary: createDefaultEdgeBackSwipeExclusionState(),
+    secondary: createDefaultEdgeBackSwipeExclusionState(),
+    tertiary: createDefaultEdgeBackSwipeExclusionState(),
+  });
   const transitionProgress = useRef(new Animated.Value(0)).current;
   const bootOverlayOpacity = useRef(new Animated.Value(1)).current;
   const bootCardScale = useRef(new Animated.Value(0.98)).current;
@@ -1762,11 +1859,48 @@ function App({
     return false;
   }, []);
 
+  const isEdgeBackSwipeStartExcluded = useCallback(
+    (pointX: number, pointY: number) => {
+      if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) {
+        return false;
+      }
+
+      const currentSlot = activeSlotRef.current;
+      const exclusionState = edgeBackSwipeExclusionBySlotRef.current[currentSlot];
+      if (!exclusionState.rects.length) {
+        return false;
+      }
+
+      const hostWidth = Math.max(webViewHostLayoutRef.current.width || 0, 1);
+      const hostHeight = Math.max(webViewHostLayoutRef.current.height || 0, 1);
+      const normalizedX =
+        exclusionState.viewportWidth > 0
+          ? pointX * (exclusionState.viewportWidth / hostWidth)
+          : pointX;
+      const normalizedY =
+        exclusionState.viewportHeight > 0
+          ? pointY * (exclusionState.viewportHeight / hostHeight)
+          : pointY;
+
+      return exclusionState.rects.some(
+        rect =>
+          normalizedX >= rect.left &&
+          normalizedX <= rect.right &&
+          normalizedY >= rect.top &&
+          normalizedY <= rect.bottom,
+      );
+    },
+    [],
+  );
+
   const shouldCaptureEdgeBackSwipe = (gestureState: {
     dx: number;
     dy: number;
+    x0: number;
+    y0: number;
   }) =>
     canStartEdgeBackSwipe() &&
+    !isEdgeBackSwipeStartExcluded(gestureState.x0, gestureState.y0) &&
     gestureState.dx >= 2 &&
     Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT &&
     Math.abs(gestureState.dx) >= Math.abs(gestureState.dy) * 0.75;
@@ -1850,6 +1984,8 @@ function App({
     canGoBackBySlotRef.current[slot] = false;
     modalOpenBySlotRef.current[slot] = false;
     busyLockBySlotRef.current[slot] = false;
+    edgeBackSwipeExclusionBySlotRef.current[slot] =
+      createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
     shellVisibilitySignatureRef.current[slot] = '';
     updateWebViewSlotsRef(webViewSlotsRef, slot, {
@@ -2801,6 +2937,8 @@ function App({
     canGoBackBySlotRef.current[nextSlot] = false;
     modalOpenBySlotRef.current[nextSlot] = false;
     busyLockBySlotRef.current[nextSlot] = false;
+    edgeBackSwipeExclusionBySlotRef.current[nextSlot] =
+      createDefaultEdgeBackSwipeExclusionState();
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     const nextTransition: TransitionState = {
@@ -4023,6 +4161,14 @@ function App({
         }
         return;
       }
+      if (eventName === 'ui.edge-back-swipe-exclusion') {
+        if (!isPayloadForCurrentSlot(slot, message.payload)) {
+          return;
+        }
+        edgeBackSwipeExclusionBySlotRef.current[slot] =
+          normalizeEdgeBackSwipeExclusionState(message.payload);
+        return;
+      }
       if (eventName === 'ui.theme-applied') {
         const nextThemeState =
           message.payload && typeof message.payload === 'object'
@@ -4712,6 +4858,14 @@ function App({
             Math.round(event.nativeEvent.layout.width) || 0,
             1,
           );
+          const nextHeight = Math.max(
+            Math.round(event.nativeEvent.layout.height) || 0,
+            1,
+          );
+          webViewHostLayoutRef.current = {
+            width: nextWidth,
+            height: nextHeight,
+          };
           setWebViewHostWidth(currentWidth =>
             currentWidth === nextWidth ? currentWidth : nextWidth,
           );
@@ -4721,6 +4875,7 @@ function App({
         {renderWebView('tertiary')}
         {transitionState?.status === 'loading' ? (
           <View
+            renderToHardwareTextureAndroid={Platform.OS === 'android'}
             style={[
               styles.transitionLoadingOverlay,
               {
@@ -4807,7 +4962,8 @@ function App({
 
         {!isPageReady ? (
           <Animated.View
-            pointerEvents="none"
+            pointerEvents="auto"
+            renderToHardwareTextureAndroid={Platform.OS === 'android'}
             style={[
               styles.bootOverlay,
               {
@@ -4861,11 +5017,14 @@ const styles = StyleSheet.create({
   bootOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: SCREEN_BG,
+    zIndex: 5,
+    elevation: 5,
   },
   transitionLoadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 21, 18, 0.26)',
     zIndex: 4,
+    elevation: 4,
   },
   center: {
     flex: 1,

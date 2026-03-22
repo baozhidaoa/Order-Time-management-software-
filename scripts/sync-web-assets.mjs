@@ -57,6 +57,10 @@ const assets = [
     to: path.join(offlineAssetsDir, "d3.min.js"),
   },
   {
+    from: path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+    to: path.join(offlineAssetsDir, "d3.runtime.js"),
+  },
+  {
     from: path.join(
       repoRoot,
       "node_modules",
@@ -72,11 +76,25 @@ const assets = [
       "node_modules",
       "cal-heatmap",
       "dist",
+      "cal-heatmap.min.js",
+    ),
+    to: path.join(offlineAssetsDir, "cal-heatmap.runtime.js"),
+  },
+  {
+    from: path.join(
+      repoRoot,
+      "node_modules",
+      "cal-heatmap",
+      "dist",
       "cal-heatmap.css",
     ),
     to: path.join(offlineAssetsDir, "cal-heatmap.css"),
   },
 ];
+
+const offlineAssetSourceByName = new Map(
+  assets.map((asset) => [path.basename(asset.to), asset.from]),
+);
 
 const mobileBootBundleEntries = {
   "mobile-common-boot.js": [
@@ -159,6 +177,15 @@ function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
 }
 
+function getOfflineAssetFallbackSource(sourcePath) {
+  if (
+    path.normalize(path.dirname(sourcePath)) !== path.normalize(offlineAssetsDir)
+  ) {
+    return null;
+  }
+  return offlineAssetSourceByName.get(path.basename(sourcePath)) || null;
+}
+
 async function copyFileWithEpermTolerance(fromPath, toPath) {
   try {
     await fs.copy(fromPath, toPath, { overwrite: true });
@@ -211,18 +238,27 @@ async function copyDirectoryTree(sourceDir, targetDir) {
 
     const sourcePath = path.join(sourceDir, entry);
     const targetPath = path.join(targetDir, entry);
+    let sourcePathForCopy = sourcePath;
     let sourceStats = null;
 
     try {
       sourceStats = await fs.stat(sourcePath);
     } catch (error) {
-      if (error?.code === "EPERM") {
-        console.warn(
-          `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
-        );
-        continue;
+      if (error?.code !== "EPERM") {
+        throw error;
       }
-      throw error;
+      if (error?.code === "EPERM") {
+        const fallbackSourcePath = getOfflineAssetFallbackSource(sourcePath);
+        if (fallbackSourcePath) {
+          sourcePathForCopy = fallbackSourcePath;
+          sourceStats = await fs.stat(sourcePathForCopy);
+        } else {
+          console.warn(
+            `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
+          );
+          continue;
+        }
+      }
     }
 
     if (sourceStats.isDirectory()) {
@@ -235,9 +271,14 @@ async function copyDirectoryTree(sourceDir, targetDir) {
     }
 
     try {
-      await fs.copy(sourcePath, targetPath, { overwrite: true });
+      await fs.copy(sourcePathForCopy, targetPath, { overwrite: true });
     } catch (error) {
       if (error?.code === "EPERM") {
+        const fallbackSourcePath = getOfflineAssetFallbackSource(sourcePath);
+        if (fallbackSourcePath) {
+          await fs.copy(fallbackSourcePath, targetPath, { overwrite: true });
+          continue;
+        }
         console.warn(
           `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
         );

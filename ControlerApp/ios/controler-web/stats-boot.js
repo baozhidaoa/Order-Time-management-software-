@@ -1499,9 +1499,9 @@ let statsHeatmapRuntimeLoader = null;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
 const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
-const STATS_D3_RUNTIME_URL = "offline-assets/d3.min.js";
+const STATS_D3_RUNTIME_URL = "offline-assets/d3.runtime.js";
 const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
-const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.min.js";
+const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.runtime.js";
 const STATS_VIEW_LABELS = {
   table: "表格视图",
   charts: "饼状图和折线图",
@@ -5711,34 +5711,6 @@ function renderCurrentView() {
             container,
             STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
             `图表资源加载失败：${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        });
-      return;
-    }
-  }
-  if (safeMode === "heatmap") {
-    if (
-      typeof window.d3 === "undefined" ||
-      typeof window.CalHeatmap === "undefined"
-    ) {
-      renderStatsRuntimeMessage(
-        container,
-        STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
-        "正在加载热图资源...",
-      );
-      void ensureStatsHeatmapRuntimeLoaded()
-        .then(() => {
-          if (statsViewMode === safeMode) {
-            renderCurrentView();
-          }
-        })
-        .catch((error) => {
-          renderStatsRuntimeMessage(
-            container,
-            STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
-            `热图资源加载失败：${
               error instanceof Error ? error.message : String(error)
             }`,
           );

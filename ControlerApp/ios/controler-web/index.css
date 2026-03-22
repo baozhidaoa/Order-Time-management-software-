@@ -2245,8 +2245,8 @@ select optgroup {
   position: relative;
   grid-column: 2;
   z-index: 18;
-  width: auto !important;
-  min-width: 0 !important;
+  width: 38px !important;
+  min-width: 38px !important;
   max-width: 100%;
   justify-self: start;
 }
@@ -2268,12 +2268,14 @@ select optgroup {
   .stats-range-control-strip
   > .native-select-enhancer
   .tree-select-button {
-  width: auto !important;
-  min-width: 0 !important;
-  min-height: 34px;
-  padding: 4px 10px !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 !important;
   border-radius: 10px;
-  gap: 4px;
+  justify-content: center;
+  gap: 0;
 }
 
 .stats-toolbar-group--range .native-select-enhancer .tree-select-menu {
@@ -4728,10 +4730,17 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     height: 38px;
   }
 
+  body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .native-select-enhancer {
+    width: 36px !important;
+    min-width: 36px !important;
+  }
+
   body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .tree-select-button,
   body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .native-select-enhancer .tree-select-button {
-    min-height: 32px;
-    padding: 4px 8px !important;
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px;
+    min-height: 36px;
   }
 
   body.page-stats .stats-date-field {
