@@ -59,10 +59,10 @@ let statsChartRuntimeLoader = null;
 let statsHeatmapRuntimeLoader = null;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
-const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
-const STATS_D3_RUNTIME_URL = "offline-assets/d3.runtime.js";
-const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
-const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.runtime.js";
+const STATS_CHART_RUNTIME_URL = "embedded-assets/chart.runtime.js";
+const STATS_D3_RUNTIME_URL = "embedded-assets/d3.runtime.js";
+const STATS_HEATMAP_STYLE_URL = "embedded-assets/cal-heatmap.css";
+const STATS_HEATMAP_RUNTIME_URL = "embedded-assets/cal-heatmap.runtime.js";
 const STATS_VIEW_LABELS = {
   table: "表格视图",
   charts: "饼状图和折线图",

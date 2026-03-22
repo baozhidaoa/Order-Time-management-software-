@@ -21,6 +21,7 @@ const mobileContractTargetPath = path.join(
   "platform-contract.js",
 );
 const offlineAssetsDir = path.join(repoRoot, "pages", "offline-assets");
+const embeddedAssetsDir = path.join(repoRoot, "pages", "embedded-assets");
 const chartRuntimeSourcePath = path.join(
   repoRoot,
   "node_modules",
@@ -224,6 +225,24 @@ async function canReuseExistingCopy(fromPath, toPath) {
   }
 }
 
+async function copyRuntimeAsset(fromPath, toPath) {
+  try {
+    await fs.copy(fromPath, toPath, { overwrite: true });
+  } catch (error) {
+    if (
+      error?.code === "EPERM" &&
+      (await canReuseExistingCopy(fromPath, toPath))
+    ) {
+      return;
+    }
+    if (error?.code === "EPERM") {
+      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(toPath)}`);
+      return;
+    }
+    throw error;
+  }
+}
+
 async function copyDirectoryTree(sourceDir, targetDir) {
   await fs.ensureDir(targetDir);
   const entries = await fs.readdir(sourceDir);
@@ -399,6 +418,7 @@ async function validateMobileBootstrapHtml(targetDir, pageKey) {
 }
 
 await fs.ensureDir(offlineAssetsDir);
+await fs.ensureDir(embeddedAssetsDir);
 if (!(await fs.pathExists(sharedContractSourcePath))) {
   throw new Error(`缺少共享平台契约文件: ${sharedContractSourcePath}`);
 }
@@ -409,39 +429,31 @@ for (const asset of assets) {
   if (!(await fs.pathExists(asset.from))) {
     throw new Error(`缺少资源文件: ${asset.from}`);
   }
-  try {
-    await fs.copy(asset.from, asset.to, { overwrite: true });
-  } catch (error) {
-    if (
-      error?.code === "EPERM" &&
-      (await canReuseExistingCopy(asset.from, asset.to))
-    ) {
-      continue;
-    }
-    if (error?.code === "EPERM") {
-      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(asset.to)}`);
-      continue;
-    }
-    throw error;
-  }
+  await copyRuntimeAsset(asset.from, asset.to);
+  await copyRuntimeAsset(
+    asset.from,
+    path.join(embeddedAssetsDir, path.basename(asset.to)),
+  );
 }
 
 const expectedRuntimeAssetFiles = new Set(
   assets.map((asset) => path.basename(asset.to)),
 );
-for (const entry of await fs.readdir(offlineAssetsDir)) {
-  const fullPath = path.join(offlineAssetsDir, entry);
-  let stats = null;
-  try {
-    stats = await fs.stat(fullPath);
-  } catch (error) {
-    if (error?.code === "EPERM") {
-      continue;
+for (const runtimeAssetDir of [offlineAssetsDir, embeddedAssetsDir]) {
+  for (const entry of await fs.readdir(runtimeAssetDir)) {
+    const fullPath = path.join(runtimeAssetDir, entry);
+    let stats = null;
+    try {
+      stats = await fs.stat(fullPath);
+    } catch (error) {
+      if (error?.code === "EPERM") {
+        continue;
+      }
+      throw error;
     }
-    throw error;
-  }
-  if (stats.isFile() && !expectedRuntimeAssetFiles.has(entry)) {
-    await fs.remove(fullPath);
+    if (stats.isFile() && !expectedRuntimeAssetFiles.has(entry)) {
+      await fs.remove(fullPath);
+    }
   }
 }
 

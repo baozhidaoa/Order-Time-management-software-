@@ -12689,6 +12689,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  function syncNativeEdgeBackSwipeExclusion(root = document) {
+    reportNativeEdgeBackSwipeExclusions(root);
+  }
+
   function scheduleNativeEdgeBackSwipeExclusionSync(root = document) {
     if (pendingEdgeBackSwipeExclusionSyncFrame) {
       return;
@@ -17272,6 +17276,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
     loadScriptOnce,
     loadStyleOnce,
+    syncNativeEdgeBackSwipeExclusion,
+    scheduleNativeEdgeBackSwipeExclusionSync,
     markPerfStage: markPagePerfStage,
     getNativePageReadyMode,
     setNativePageReadyMode,

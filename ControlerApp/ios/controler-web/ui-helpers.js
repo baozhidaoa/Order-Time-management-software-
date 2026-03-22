@@ -1059,6 +1059,10 @@
     });
   }
 
+  function syncNativeEdgeBackSwipeExclusion(root = document) {
+    reportNativeEdgeBackSwipeExclusions(root);
+  }
+
   function scheduleNativeEdgeBackSwipeExclusionSync(root = document) {
     if (pendingEdgeBackSwipeExclusionSyncFrame) {
       return;
@@ -5642,6 +5646,8 @@
       DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
     loadScriptOnce,
     loadStyleOnce,
+    syncNativeEdgeBackSwipeExclusion,
+    scheduleNativeEdgeBackSwipeExclusionSync,
     markPerfStage: markPagePerfStage,
     getNativePageReadyMode,
     setNativePageReadyMode,

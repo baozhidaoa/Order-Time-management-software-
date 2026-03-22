@@ -1440,7 +1440,7 @@
 const uiTools = window.ControlerUI || null;
 const storageBundleApi = window.ControlerStorageBundle || null;
 let indexChartRuntimeLoader = null;
-const INDEX_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
+const INDEX_CHART_RUNTIME_URL = "embedded-assets/chart.runtime.js";
 
 function ensureIndexChartRuntimeLoaded() {
   if (typeof window.Chart !== "undefined") {
@@ -6128,21 +6128,74 @@ function queueRecordNameFocus(recordId) {
   pendingRecordNameFocusId = String(recordId || "").trim();
 }
 
+function focusRecordNameInput(input, recordId, options = {}) {
+  if (!(input instanceof HTMLElement)) {
+    return;
+  }
+
+  const normalizedRecordId = String(recordId || "").trim();
+  if (
+    !normalizedRecordId ||
+    String(editingRecordId || "").trim() !== normalizedRecordId
+  ) {
+    return;
+  }
+
+  try {
+    input.focus({ preventScroll: true });
+  } catch (error) {
+    input.focus();
+  }
+  input.select?.();
+
+  const shouldRetry = options.retry === true;
+  const attempt = Number.isFinite(options.attempt)
+    ? Math.max(0, Number(options.attempt))
+    : 0;
+  if (!shouldRetry || attempt >= 2) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    if (String(editingRecordId || "").trim() !== normalizedRecordId) {
+      return;
+    }
+
+    const latestInput = getRecordNameInputElement(normalizedRecordId);
+    if (!(latestInput instanceof HTMLElement) || document.activeElement === latestInput) {
+      return;
+    }
+
+    latestInput.closest(".record-item")?.scrollIntoView?.({
+      block: "center",
+      inline: "nearest",
+    });
+    focusRecordNameInput(latestInput, normalizedRecordId, {
+      retry: true,
+      attempt: attempt + 1,
+    });
+  }, 120 + attempt * 120);
+}
+
 function setRecordNameFocus(recordId) {
   requestAnimationFrame(() => {
     const input = getRecordNameInputElement(recordId);
     if (!input) return;
     const recordElement = input.closest(".record-item");
+    const shouldCenterInMobile =
+      document.body?.classList.contains("controler-mobile-runtime") === true;
     recordElement?.scrollIntoView?.({
-      block: "nearest",
+      block: shouldCenterInMobile ? "center" : "nearest",
       inline: "nearest",
     });
-    try {
-      input.focus({ preventScroll: true });
-    } catch (error) {
-      input.focus();
-    }
-    input.select();
+    window.setTimeout(
+      () => {
+        focusRecordNameInput(input, recordId, {
+          retry: shouldCenterInMobile,
+        });
+      },
+      shouldCenterInMobile ? 48 : 0,
+    );
   });
 }
 
@@ -6723,6 +6776,7 @@ function openModal() {
   modal.removeEventListener("click", modal._handleModalOutsideClick);
   modal._handleModalOutsideClick = handleModalOutsideClick;
   modal.addEventListener("click", handleModalOutsideClick);
+  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   return true;
 }
 
@@ -6739,6 +6793,7 @@ function closeModal() {
     modal.hidden = true;
     modal.style.display = "none";
   }
+  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   modalProjectInputTargetManual = false;
   hideAllProjectSuggestions();
   if (modalDurationTimer) {

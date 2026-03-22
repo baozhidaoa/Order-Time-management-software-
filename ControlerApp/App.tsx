@@ -2348,7 +2348,7 @@ function App({
     const loadingTransition = transitionStateRef.current;
     const shellActiveSlot =
       loadingTransition?.status === 'loading'
-        ? loadingTransition.fromSlot
+        ? loadingTransition.toSlot
         : activeSlotRef.current;
 
     WEBVIEW_SLOTS.forEach(slot => {
@@ -4605,7 +4605,7 @@ function App({
     const currentTransition = transitionState;
     const shellActiveSlot =
       currentTransition?.status === 'loading'
-        ? currentTransition.fromSlot
+        ? currentTransition.toSlot
         : activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
     let wrapperStyle: Array<object> = [
