@@ -1766,6 +1766,73 @@ function queueStatsPersistenceTask(
   return queuedTask;
 }
 
+function clearStatsPersistenceError() {
+  statsLastPersistenceError = null;
+}
+
+function consumeStatsPersistenceError(
+  fallbackMessage = "保存失败，请稍后重试。",
+) {
+  const failure = statsLastPersistenceError;
+  clearStatsPersistenceError();
+  if (
+    failure instanceof Error &&
+    typeof failure.message === "string" &&
+    failure.message.trim()
+  ) {
+    return failure;
+  }
+  return new Error(fallbackMessage);
+}
+
+function cloneStatsRecordSnapshot(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+  try {
+    return JSON.parse(JSON.stringify(record));
+  } catch (error) {
+    return { ...record };
+  }
+}
+
+function cloneStatsRecordSnapshotList(recordList = []) {
+  return Array.isArray(recordList)
+    ? recordList
+        .map((record) => cloneStatsRecordSnapshot(record))
+        .filter(Boolean)
+    : [];
+}
+
+function getStatsRecordStableId(record) {
+  return String(record?.id || "").trim();
+}
+
+async function showStatsPersistenceFailureAlert(
+  fallbackMessage = "保存失败，请稍后重试。",
+  options = {},
+) {
+  const failure = consumeStatsPersistenceError(fallbackMessage);
+  const title =
+    typeof options?.title === "string" && options.title.trim()
+      ? options.title.trim()
+      : "保存失败";
+  const message =
+    typeof failure.message === "string" && failure.message.trim()
+      ? failure.message.trim()
+      : fallbackMessage;
+  if (uiTools?.alertDialog) {
+    await uiTools.alertDialog({
+      title,
+      message,
+      confirmText: "知道了",
+      danger: true,
+    });
+    return;
+  }
+  window.alert(message);
+}
+
 async function flushStatsPendingPersistence() {
   if (statsPendingPersistenceCount > 0) {
     await statsPersistChain.catch(() => false);
@@ -1788,10 +1855,17 @@ function registerStatsBeforePageLeaveGuard() {
   }
   statsBeforePageLeaveGuardBound = true;
   uiTools?.registerBeforePageLeave?.(async () => {
-    if (statsPendingPersistenceCount <= 0 && !statsLastPersistenceError) {
+    if (statsPendingPersistenceCount <= 0) {
+      clearStatsPersistenceError();
       return true;
     }
-    return flushStatsPendingPersistence();
+    try {
+      return await flushStatsPendingPersistence();
+    } catch (error) {
+      console.error("统计页离开前等待保存失败，继续允许切页:", error);
+      clearStatsPersistenceError();
+      return true;
+    }
   });
 }
 
@@ -3972,6 +4046,7 @@ function getStatsLoadScope() {
 let statsRangeDataRequestId = 0;
 
 function applyStatsWorkspaceState(snapshot = {}) {
+  clearStatsPersistenceError();
   projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
   records = normalizeStatsLoadedRecords(snapshot.records, projects);
   refreshStatsAvailableRecordDateBounds(records);
@@ -6424,6 +6499,81 @@ function saveStatsRecordsToStorage() {
   }, "保存统计记录失败:");
 }
 
+function saveStatsRecordPeriodReplace(periodId, recordsSnapshot = []) {
+  return window.ControlerStorage.saveSectionRange("records", {
+    periodId,
+    items: recordsSnapshot.filter(
+      (record) => getStatsRecordPeriodId(record) === periodId,
+    ),
+    mode: "replace",
+  });
+}
+
+function saveStatsRecordUpdateToStorage(
+  previousRecord,
+  nextRecord,
+  recordsSnapshot = [],
+) {
+  const previousPeriodId = previousRecord
+    ? getStatsRecordPeriodId(previousRecord)
+    : "";
+  const nextPeriodId = nextRecord ? getStatsRecordPeriodId(nextRecord) : "";
+  const previousRecordId = getStatsRecordStableId(previousRecord);
+  const nextRecordId = getStatsRecordStableId(nextRecord);
+  const stableRecordId = nextRecordId || previousRecordId;
+
+  return queueStatsPersistenceTask(async () => {
+    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
+      const canUsePatch =
+        !!stableRecordId &&
+        !!previousPeriodId &&
+        previousPeriodId === nextPeriodId;
+      if (canUsePatch) {
+        await window.ControlerStorage.saveSectionRange("records", {
+          periodId: nextPeriodId,
+          items: nextRecord ? [nextRecord] : [],
+          mode: "patch",
+        });
+      } else {
+        const periodIds = [...new Set([previousPeriodId, nextPeriodId].filter(Boolean))];
+        await Promise.all(
+          periodIds.map((periodId) =>
+            saveStatsRecordPeriodReplace(periodId, recordsSnapshot),
+          ),
+        );
+      }
+    } else {
+      localStorage.setItem("records", JSON.stringify(recordsSnapshot));
+    }
+    return true;
+  }, "保存统计记录失败:");
+}
+
+function deleteStatsRecordFromStorage(deletedRecord, recordsSnapshot = []) {
+  const deletedPeriodId = deletedRecord ? getStatsRecordPeriodId(deletedRecord) : "";
+  const deletedRecordId = getStatsRecordStableId(deletedRecord);
+
+  return queueStatsPersistenceTask(async () => {
+    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
+      const canUsePatch = !!deletedRecordId && !!deletedPeriodId;
+      if (canUsePatch) {
+        await window.ControlerStorage.saveSectionRange("records", {
+          periodId: deletedPeriodId,
+          items: [],
+          removedItems: deletedRecord ? [deletedRecord] : [],
+          removeIds: deletedRecordId ? [deletedRecordId] : [],
+          mode: "patch",
+        });
+      } else if (deletedPeriodId) {
+        await saveStatsRecordPeriodReplace(deletedPeriodId, recordsSnapshot);
+      }
+    } else {
+      localStorage.setItem("records", JSON.stringify(recordsSnapshot));
+    }
+    return true;
+  }, "删除统计记录失败:");
+}
+
 function getStatsRecordPeriodId(record) {
   if (typeof window.ControlerStorageBundle?.getPeriodIdForSectionItem === "function") {
     return (
@@ -6590,14 +6740,27 @@ async function openStatsRecordEditModal(locator) {
 
     const nextProject =
       projects.find((project) => project.name === nextName) || null;
+    const previousRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
     records[liveRecordIndex] = {
       ...records[liveRecordIndex],
       name: nextName,
       projectId: nextProject?.id || null,
     };
-    const persistPromise = saveStatsRecordsToStorage();
+    syncStatsDataIndex(["records"]);
+    const nextRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
+    const recordsSnapshot = cloneStatsRecordSnapshotList(records);
+    const persistPromise = saveStatsRecordUpdateToStorage(
+      previousRecordSnapshot,
+      nextRecordSnapshot,
+      recordsSnapshot,
+    );
     refreshAfterMutation();
-    await persistPromise;
+    const persisted = await persistPromise;
+    if (!persisted) {
+      await showStatsPersistenceFailureAlert("记录保存失败，请稍后重试。", {
+        title: "保存失败",
+      });
+    }
   });
 
   deleteBtn?.addEventListener("click", async () => {
@@ -6620,10 +6783,21 @@ async function openStatsRecordEditModal(locator) {
       return;
     }
 
+    const deletedRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
     records.splice(liveRecordIndex, 1);
-    const persistPromise = saveStatsRecordsToStorage();
+    syncStatsDataIndex(["records"]);
+    const recordsSnapshot = cloneStatsRecordSnapshotList(records);
+    const persistPromise = deleteStatsRecordFromStorage(
+      deletedRecordSnapshot,
+      recordsSnapshot,
+    );
     refreshAfterMutation();
-    await persistPromise;
+    const persisted = await persistPromise;
+    if (!persisted) {
+      await showStatsPersistenceFailureAlert("记录删除失败，请稍后重试。", {
+        title: "删除失败",
+      });
+    }
   });
 
   modal.addEventListener("click", (event) => {

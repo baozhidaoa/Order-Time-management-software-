@@ -18,7 +18,6 @@
     "controler:shell-visibility-changed";
   const EDGE_BACK_SWIPE_EXCLUSION_ATTR =
     "data-controler-edge-back-exclusion";
-  const EDGE_BACK_SWIPE_EXCLUDED_NAV_KEYS = new Set(["index", "settings"]);
   const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
@@ -1166,11 +1165,7 @@
     label.textContent = labelText;
 
     button.classList.add("app-nav-button");
-    if (EDGE_BACK_SWIPE_EXCLUDED_NAV_KEYS.has(navItem.key)) {
-      button.setAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR, "true");
-    } else {
-      button.removeAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR);
-    }
+    button.removeAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR);
     if (!button.dataset.navPressFeedbackBound) {
       button.dataset.navPressFeedbackBound = "true";
       const clearAndroidNavFocus = (event) => {
@@ -1262,6 +1257,7 @@
     const order = navigationState.order;
     const currentPageKey = getCurrentAppNavigationItem()?.key || "";
     root.querySelectorAll(".app-nav").forEach((nav) => {
+      nav.setAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR, "true");
       const buttons = Array.from(nav.querySelectorAll("[data-nav-page]"));
       const buttonMap = new Map(
         buttons.map((button) => [

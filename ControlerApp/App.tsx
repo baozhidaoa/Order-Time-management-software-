@@ -429,12 +429,13 @@ const INITIAL_WEBVIEW_HEIGHT = Math.max(
   Dimensions.get('window').height || 0,
   1,
 );
-const EDGE_BACK_SWIPE_REGION_WIDTH = IS_ANDROID ? 72 : 56;
+const EDGE_BACK_SWIPE_REGION_WIDTH = IS_ANDROID ? 48 : 56;
 const EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT = IS_ANDROID ? 92 : 0;
-const EDGE_BACK_SWIPE_MIN_DISTANCE = IS_ANDROID ? 32 : 44;
-const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = IS_ANDROID ? 14 : 20;
-const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.22 : 0.32;
-const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 110 : 84;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = IS_ANDROID ? 24 : 44;
+const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = IS_ANDROID ? 10 : 20;
+const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.18 : 0.32;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 128 : 84;
+const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = IS_ANDROID ? 0.6 : 0.75;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
@@ -1903,7 +1904,8 @@ function App({
     !isEdgeBackSwipeStartExcluded(gestureState.x0, gestureState.y0) &&
     gestureState.dx >= 2 &&
     Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT &&
-    Math.abs(gestureState.dx) >= Math.abs(gestureState.dy) * 0.75;
+    Math.abs(gestureState.dx) >=
+      Math.abs(gestureState.dy) * EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO;
 
   const shouldFinishEdgeBackSwipe = (gestureState: {
     dx: number;
