@@ -917,7 +917,12 @@ async function flushTodoPendingPersistence() {
   if (todoLastPersistenceError) {
     throw todoLastPersistenceError;
   }
-  if (typeof window.ControlerStorage?.flush === "function") {
+  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+    await window.ControlerStorage.saveCoordinator.flush(
+      "todo-flush",
+      "todo-persistence",
+    );
+  } else if (typeof window.ControlerStorage?.flush === "function") {
     await window.ControlerStorage.flush();
   }
   if (todoLastPersistenceError) {
@@ -2543,17 +2548,148 @@ function appendTodoManagedModal(modal, role = "") {
   document.body.appendChild(modal);
 }
 
-async function requestTodoConfirmation(message, options = {}) {
-  if (uiTools?.confirmDialog) {
-    return uiTools.confirmDialog({
-      title: options.title || "请确认操作",
-      message,
-      confirmText: options.confirmText || "确定",
-      cancelText: options.cancelText || "取消",
-      danger: !!options.danger,
-    });
+function getTopVisibleTodoModalOverlayZIndex(fallbackZIndex = 2000) {
+  if (typeof document === "undefined") {
+    return fallbackZIndex;
   }
-  return confirm(message);
+  return Array.from(document.querySelectorAll(".modal-overlay")).reduce(
+    (maxZIndex, modal) => {
+      if (!(modal instanceof HTMLElement)) {
+        return maxZIndex;
+      }
+      const computedStyle = window.getComputedStyle(modal);
+      const hiddenByStyle =
+        modal.hidden ||
+        computedStyle.display === "none" ||
+        computedStyle.visibility === "hidden";
+      if (hiddenByStyle) {
+        return maxZIndex;
+      }
+      const modalZIndex = Number.parseInt(
+        modal.style.zIndex || computedStyle.zIndex,
+        10,
+      );
+      if (!Number.isFinite(modalZIndex)) {
+        return maxZIndex;
+      }
+      return Math.max(maxZIndex, modalZIndex);
+    },
+    fallbackZIndex,
+  );
+}
+
+function showTodoFallbackConfirmationDialog(options = {}) {
+  if (!(typeof document !== "undefined" && document.body instanceof HTMLElement)) {
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return Promise.resolve(window.confirm(String(options.message || "")));
+    }
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    const {
+      title = "请确认操作",
+      message = "",
+      confirmText = "确定",
+      cancelText = "取消",
+      danger = false,
+    } = options;
+
+    const modal = document.createElement("div");
+    modal.className = "modal-overlay";
+    modal.style.display = "flex";
+    modal.style.zIndex = String(getTopVisibleTodoModalOverlayZIndex(4200) + 20);
+    modal.innerHTML = `
+      <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100vw - 32px)); max-width:min(420px, calc(100vw - 32px));">
+        <div class="themed-dialog-title">${escapeHtml(title)}</div>
+        <div class="themed-dialog-message">${escapeHtml(String(message ?? ""))}</div>
+        <div class="themed-dialog-actions">
+          <button type="button" class="bts themed-dialog-cancel-btn" data-todo-fallback-dialog-action="cancel" style="margin:0;">
+            ${escapeHtml(cancelText)}
+          </button>
+          <button type="button" class="bts themed-dialog-confirm-btn${danger ? " is-danger" : ""}" data-todo-fallback-dialog-action="confirm" style="margin:0;">
+            ${escapeHtml(confirmText)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    const confirmButton = modal.querySelector(
+      '[data-todo-fallback-dialog-action="confirm"]',
+    );
+    const cancelButton = modal.querySelector(
+      '[data-todo-fallback-dialog-action="cancel"]',
+    );
+    let settled = false;
+
+    const cleanup = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      document.removeEventListener("keydown", handleKeydown, true);
+      closeModalElement(modal);
+      resolve(result === true);
+    };
+
+    const handleKeydown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(false);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        cleanup(true);
+      }
+    };
+
+    confirmButton?.addEventListener("click", (event) => {
+      event.preventDefault();
+      cleanup(true);
+    });
+    cancelButton?.addEventListener("click", (event) => {
+      event.preventDefault();
+      cleanup(false);
+    });
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        cleanup(false);
+      }
+    });
+
+    document.body.appendChild(modal);
+    uiTools?.stopModalContentPropagation?.(modal);
+    document.addEventListener("keydown", handleKeydown, true);
+    window.setTimeout(() => {
+      (confirmButton || cancelButton)?.focus?.();
+    }, 0);
+  });
+}
+
+async function requestTodoConfirmation(message, options = {}) {
+  const forceFallback = options.forceFallback === true;
+  const dialogOptions = {
+    title: options.title || "请确认操作",
+    message,
+    confirmText: options.confirmText || "确定",
+    cancelText: options.cancelText || "取消",
+    danger: !!options.danger,
+  };
+
+  if (!forceFallback && typeof uiTools?.confirmDialog === "function") {
+    try {
+      const result = await uiTools.confirmDialog(dialogOptions);
+      if (typeof result === "boolean") {
+        return result;
+      }
+      console.warn("待办确认弹窗返回了非布尔值，回退内置确认弹窗:", result);
+    } catch (error) {
+      console.error("调用全局确认弹窗失败，回退内置确认弹窗:", error);
+    }
+  }
+
+  return showTodoFallbackConfirmationDialog(dialogOptions);
 }
 
 async function showTodoAlert(message, options = {}) {
@@ -4945,6 +5081,7 @@ function showCheckinModal(todoId, checkinId = null) {
       confirmText: "删除",
       cancelText: "取消",
       danger: true,
+      forceFallback: true,
     });
   };
 

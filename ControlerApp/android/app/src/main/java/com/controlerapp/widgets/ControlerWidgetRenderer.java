@@ -1224,14 +1224,22 @@ public final class ControlerWidgetRenderer {
                 appWidgetId,
                 kind,
                 COLLECTION_SLOT_YEAR_ANNUAL,
-                buildYearGoalCollectionRowsPayload(content.yearAnnualGoalCards, palette)
+                buildYearGoalCollectionRowsPayload(
+                    content.yearAnnualGoalCards,
+                    palette,
+                    true
+                )
             );
             ControlerWidgetCollectionStore.saveRows(
                 context,
                 appWidgetId,
                 kind,
                 COLLECTION_SLOT_YEAR_MONTH,
-                buildYearGoalCollectionRowsPayload(content.yearMonthGoalCards, palette)
+                buildYearGoalCollectionRowsPayload(
+                    content.yearMonthGoalCards,
+                    palette,
+                    false
+                )
             );
             views.setRemoteAdapter(
                 R.id.widget_year_annual_list,
@@ -2899,7 +2907,8 @@ public final class ControlerWidgetRenderer {
 
     private static JSONArray buildYearGoalCollectionRowsPayload(
         List<WidgetItemCard> items,
-        ThemePalette palette
+        ThemePalette palette,
+        boolean annual
     ) {
         JSONArray rows = new JSONArray();
         if (items == null || items.isEmpty()) {
@@ -2907,17 +2916,37 @@ public final class ControlerWidgetRenderer {
         }
 
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
-        int rowSurfaceColor = resolveCollectionRowSurfaceColor(palette);
-        int rowTitleColor = resolveReadableTextColor(
-            safePalette.bodyColor,
-            rowSurfaceColor,
-            4.2d
+        int baseRowSurfaceColor = resolveCollectionRowSurfaceColor(safePalette);
+        int scopeAccentColor = resolveVisibleAccentColor(
+            annual
+                ? safePalette.accentColor
+                : blendColors(safePalette.accentColor, safePalette.bodyColor, 0.30f),
+            baseRowSurfaceColor,
+            safePalette.accentColor
         );
 
         for (WidgetItemCard item : items) {
             if (item == null) {
                 continue;
             }
+            int rowSurfaceColor = resolveOpaqueColor(
+                blendColors(
+                    baseRowSurfaceColor,
+                    scopeAccentColor,
+                    safePalette.surfaceIsLight ? 0.10f : 0.14f
+                ),
+                safePalette.surfaceColor
+            );
+            int rowAccentColor = resolveVisibleAccentColor(
+                scopeAccentColor,
+                rowSurfaceColor,
+                safePalette.accentColor
+            );
+            int rowTitleColor = resolveReadableTextColor(
+                safePalette.bodyColor,
+                rowSurfaceColor,
+                4.9d
+            );
             JSONObject row = new JSONObject();
             try {
                 row.put("title", safeText(item.title));
@@ -2927,7 +2956,7 @@ public final class ControlerWidgetRenderer {
                 row.put("action", "");
                 row.put("command", ControlerWidgetActionHandler.COMMAND_NO_OP);
                 row.put("targetId", safeText(item.targetId));
-                row.put("accentColor", item.accentColor);
+                row.put("accentColor", rowAccentColor);
                 row.put("backgroundColor", rowSurfaceColor);
                 row.put("titleColor", rowTitleColor);
                 row.put("metaColor", rowTitleColor);
@@ -2945,10 +2974,53 @@ public final class ControlerWidgetRenderer {
 
     private static int resolveCollectionRowSurfaceColor(ThemePalette palette) {
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
-        return blendColors(
-            safePalette.cardFillColor,
-            safePalette.contrastReferenceColor,
-            safePalette.surfaceIsLight ? 0.08f : 0.10f
+        return resolveOpaqueColor(
+            blendColors(
+                safePalette.cardFillColor,
+                safePalette.contrastReferenceColor,
+                safePalette.surfaceIsLight ? 0.08f : 0.10f
+            ),
+            safePalette.surfaceColor
+        );
+    }
+
+    private static int resolveOpaqueColor(int foregroundColor, int backgroundColor) {
+        int compositedColor = compositeColors(foregroundColor, backgroundColor);
+        return Color.argb(
+            255,
+            Color.red(compositedColor),
+            Color.green(compositedColor),
+            Color.blue(compositedColor)
+        );
+    }
+
+    private static int compositeColors(int foregroundColor, int backgroundColor) {
+        float fgAlpha = Color.alpha(foregroundColor) / 255f;
+        float bgAlpha = Color.alpha(backgroundColor) / 255f;
+        float outAlpha = fgAlpha + bgAlpha * (1f - fgAlpha);
+        if (outAlpha <= 0f) {
+            return Color.argb(0, 0, 0, 0);
+        }
+        float outRed =
+            (
+                Color.red(foregroundColor) * fgAlpha
+                    + Color.red(backgroundColor) * bgAlpha * (1f - fgAlpha)
+            ) / outAlpha;
+        float outGreen =
+            (
+                Color.green(foregroundColor) * fgAlpha
+                    + Color.green(backgroundColor) * bgAlpha * (1f - fgAlpha)
+            ) / outAlpha;
+        float outBlue =
+            (
+                Color.blue(foregroundColor) * fgAlpha
+                    + Color.blue(backgroundColor) * bgAlpha * (1f - fgAlpha)
+            ) / outAlpha;
+        return Color.argb(
+            Math.round(clampFloat(outAlpha * 255f, 0f, 255f)),
+            Math.round(clampFloat(outRed, 0f, 255f)),
+            Math.round(clampFloat(outGreen, 0f, 255f)),
+            Math.round(clampFloat(outBlue, 0f, 255f))
         );
     }
 

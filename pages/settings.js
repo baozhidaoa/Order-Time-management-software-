@@ -2531,11 +2531,49 @@ function updateStorageStatus() {
           status?.sizePending === true
             ? `${sizeKb.toFixed(2)} KB（正在刷新精确体积）`
             : `${sizeKb.toFixed(2)} KB`;
+        const recoverySummary =
+          status?.recoverySummary &&
+          typeof status.recoverySummary === "object" &&
+          !Array.isArray(status.recoverySummary)
+            ? status.recoverySummary
+            : null;
+        const recoveryLines = [];
+        if (status?.recoveryState && status.recoveryState !== "ok") {
+          recoveryLines.push(
+            `<p>恢复状态: ${status.recoveryState === "needs-recovery" ? "需要人工恢复" : "已自动修复"}</p>`,
+          );
+        }
+        if (
+          recoverySummary &&
+          Number.isFinite(recoverySummary.totalInvalidCount) &&
+          recoverySummary.totalInvalidCount > 0
+        ) {
+          recoveryLines.push(
+            `<p>恢复摘要: ${recoverySummary.totalInvalidCount} 项异常，${Math.max(0, Number(recoverySummary.hardInvalidCount || 0))} 项高风险</p>`,
+          );
+          if (
+            typeof recoverySummary.lastCapturedAt === "string" &&
+            recoverySummary.lastCapturedAt
+          ) {
+            const detectedAt = new Date(recoverySummary.lastCapturedAt);
+            if (!Number.isNaN(detectedAt.getTime())) {
+              recoveryLines.push(
+                `<p>最近检测: ${detectedAt.toLocaleString()}</p>`,
+              );
+            }
+          }
+        }
+        if (typeof status?.persistError === "string" && status.persistError.trim()) {
+          recoveryLines.push(
+            `<p>最近写入错误: ${status.persistError.trim()}${status?.persistErrorCode ? ` (${status.persistErrorCode})` : ""}</p>`,
+          );
+        }
         statusElement.innerHTML = `
           <p>存储模式: ${status.storageMode || status.bundleMode || "directory-bundle"}</p>
           <p>存储使用: ${sizeLabel}</p>
           <p>记录数量: ${status.records || 0} 条</p>
           <p>项目数量: ${status.projects || 0} 个</p>
+          ${recoveryLines.join("")}
         `;
         void updateBundleStoragePanels(status);
         void refreshAutoBackupPanel();
@@ -2847,6 +2885,12 @@ function normalizeImportedBackupPayload(data) {
 }
 
 async function flushStorageWrites() {
+  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+    return window.ControlerStorage.saveCoordinator.flush(
+      "settings-flush",
+      "settings-persistence",
+    );
+  }
   if (typeof window.ControlerStorage?.flush === "function") {
     return window.ControlerStorage.flush();
   }

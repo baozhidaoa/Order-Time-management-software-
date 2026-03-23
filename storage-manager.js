@@ -96,9 +96,17 @@ const RECURRING_PLAN_PERIOD_ID = "__recurring__";
 const RECORD_PARTITION_PATCH_DIR_SUFFIX = ".ops";
 const RECORD_PARTITION_PATCH_COMPACT_THRESHOLD = 24;
 const RECORD_PARTITION_PATCH_COMPACT_DELAY_MS = 1200;
+const STORAGE_SCHEMA_VERSION = 3;
+const PROTECTION_MODE_OFF = "off";
+const PROTECTION_MODE_READONLY = "readonly_due_to_load_failure";
+const PROTECTION_MODE_BLOCKED = "blocked_due_to_persist_failure";
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function createEmptyRecoveryState() {
+  return bundleHelper.normalizeRecoveryState({});
 }
 
 function normalizeChangedSections(changedSections = []) {
@@ -468,10 +476,32 @@ function recordOverlapsScope(record = {}, rawScope = {}) {
   return endTime > lower.getTime() && startTime < upperExclusive;
 }
 
+function createIntegrityError(code = "storage-data-invalid", message = "", details = {}) {
+  const error = new Error(
+    typeof message === "string" && message.trim()
+      ? message.trim()
+      : "检测到高风险脏数据，已停止当前写入。",
+  );
+  error.code = String(code || "storage-data-invalid").trim() || "storage-data-invalid";
+  error.reasonCode = error.code;
+  error.details =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? bundleHelper.cloneValue(details)
+      : {};
+  return error;
+}
+
+function formatIntegrityIssueLabel(issue = {}) {
+  const section = String(issue?.section || "").trim() || "unknown";
+  const reason = String(issue?.reason || "").trim() || "invalid-item";
+  return `${section}:${reason}`;
+}
+
 class StorageManager {
   constructor(app) {
     this.app = app;
     this.fileName = "controler-data.json";
+    this.schemaVersion = STORAGE_SCHEMA_VERSION;
     this.userDataPath = app.getPath("userData");
     this.documentsPath = app.getPath("documents");
     this.legacyStoragePath = path.join(this.userDataPath, "storage.json");
@@ -504,6 +534,9 @@ class StorageManager {
     this.storageRecoveryState = "ok";
     this.storageRecoveryMessage = "";
     this.storageRecoveryTargetPath = "";
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.lastPersistError = "";
+    this.lastPersistErrorCode = "";
     this.ensureStorageReady();
     void this.initializeSidecarSqliteRuntime()
       .then(() =>
@@ -516,6 +549,7 @@ class StorageManager {
 
   createEmptyStorageData() {
     return {
+      schemaVersion: this.schemaVersion,
       projects: [],
       records: [],
       plans: [],
@@ -529,6 +563,8 @@ class StorageManager {
       customThemes: [],
       builtInThemeOverrides: {},
       selectedTheme: "default",
+      recovery: createEmptyRecoveryState(),
+      protectionMode: PROTECTION_MODE_OFF,
       createdAt: new Date().toISOString(),
       lastModified: null,
       syncMeta: {
@@ -558,6 +594,9 @@ class StorageManager {
         !Array.isArray(guideSeed.guideState)
           ? guideSeed.guideState
           : guideBundle.getDefaultGuideState(),
+      schemaVersion: this.schemaVersion,
+      recovery: createEmptyRecoveryState(),
+      protectionMode: PROTECTION_MODE_OFF,
       createdAt: now.toISOString(),
     };
   }
@@ -615,9 +654,315 @@ class StorageManager {
     return targetPath;
   }
 
+  createInvalidRecoveryEntry(entry = {}) {
+    const source =
+      entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    return {
+      section:
+        typeof source.section === "string" && source.section.trim()
+          ? source.section.trim()
+          : "unknown",
+      periodId:
+        typeof source.periodId === "string" && source.periodId.trim()
+          ? source.periodId.trim()
+          : "",
+      actualPeriodId:
+        typeof source.actualPeriodId === "string" && source.actualPeriodId.trim()
+          ? source.actualPeriodId.trim()
+          : "",
+      reason:
+        typeof source.reason === "string" && source.reason.trim()
+          ? source.reason.trim()
+          : "invalid-item",
+      item: bundleHelper.cloneValue(source.item),
+      capturedAt:
+        typeof source.capturedAt === "string" && source.capturedAt.trim()
+          ? source.capturedAt.trim()
+          : new Date().toISOString(),
+    };
+  }
+
+  appendInvalidRecoveryItems(recoveryState = createEmptyRecoveryState(), items = []) {
+    const normalizedRecovery = bundleHelper.normalizeRecoveryState(recoveryState);
+    return bundleHelper.appendRecoveryItems(
+      normalizedRecovery,
+      bundleHelper.ensureArray(items).map((item) =>
+        this.createInvalidRecoveryEntry(item),
+      ),
+    );
+  }
+
+  getRecoverySummary(recoveryState = createEmptyRecoveryState()) {
+    return bundleHelper.normalizeRecoveryState(recoveryState).summary;
+  }
+
+  getHardRecoveryIssues(recoveryState = createEmptyRecoveryState()) {
+    return bundleHelper
+      .normalizeRecoveryState(recoveryState)
+      .invalidItems.filter((entry) => bundleHelper.isHardRecoveryReason(entry?.reason));
+  }
+
+  buildHardIssueMessage(issues = [], fallback = "检测到高风险脏数据，已停止当前写入。") {
+    const normalizedIssues = bundleHelper.ensureArray(issues);
+    if (!normalizedIssues.length) {
+      return fallback;
+    }
+    const labels = Array.from(
+      new Set(normalizedIssues.slice(0, 4).map((issue) => formatIntegrityIssueLabel(issue))),
+    );
+    const suffix =
+      normalizedIssues.length > labels.length
+        ? ` 等 ${normalizedIssues.length} 项`
+        : "";
+    return `检测到高风险脏数据：${labels.join("、")}${suffix}，已停止当前写入。`;
+  }
+
+  inspectProjectsForIntegrity(projects = []) {
+    return bundleHelper.inspectProjectCollectionIntegrity(projects);
+  }
+
+  inspectSectionForIntegrity(section, items = []) {
+    return bundleHelper.inspectSectionCollectionIntegrity(section, items);
+  }
+
+  inspectStateIntegrity(rawState = {}) {
+    const source = this.migrateLegacyData(rawState);
+    const projectResult = this.inspectProjectsForIntegrity(
+      this.normalizeProjectCollection(source.projects),
+    );
+    let recovery = this.appendInvalidRecoveryItems(
+      createEmptyRecoveryState(),
+      projectResult.invalidItems,
+    );
+    bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
+      recovery = this.appendInvalidRecoveryItems(
+        recovery,
+        this.inspectSectionForIntegrity(section, source[section]).invalidItems,
+      );
+    });
+    return bundleHelper.normalizeRecoveryState(recovery);
+  }
+
+  assertNoHardRecoveryIssues(recoveryState = createEmptyRecoveryState(), fallbackMessage = "") {
+    const hardIssues = this.getHardRecoveryIssues(recoveryState);
+    if (!hardIssues.length) {
+      return;
+    }
+    const primaryCode = String(hardIssues[0]?.reason || "storage-data-invalid").trim();
+    throw createIntegrityError(
+      primaryCode,
+      this.buildHardIssueMessage(
+        hardIssues,
+        fallbackMessage || "检测到高风险脏数据，已停止当前写入。",
+      ),
+      {
+        issues: hardIssues,
+        summary: this.getRecoverySummary(recoveryState),
+      },
+    );
+  }
+
+  clearPersistErrorState() {
+    this.lastPersistError = "";
+    this.lastPersistErrorCode = "";
+  }
+
+  capturePersistError(error, fallbackMessage = "保存失败") {
+    this.lastPersistError =
+      error instanceof Error && error.message
+        ? error.message
+        : String(error || fallbackMessage);
+    this.lastPersistErrorCode =
+      typeof error?.code === "string" && error.code.trim()
+        ? error.code.trim()
+        : typeof error?.reasonCode === "string" && error.reasonCode.trim()
+          ? error.reasonCode.trim()
+          : "";
+    return this.lastPersistError;
+  }
+
+  migrateLegacyData(input = {}) {
+    const source =
+      input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const next = {
+      ...bundleHelper.cloneValue(source),
+    };
+
+    const assignAliasArray = (targetKey, aliasKeys = []) => {
+      if (Array.isArray(next[targetKey])) {
+        return;
+      }
+      const matchedKey = aliasKeys.find((key) => Array.isArray(next[key]));
+      if (!matchedKey) {
+        return;
+      }
+      next[targetKey] = bundleHelper.cloneValue(next[matchedKey]);
+    };
+
+    assignAliasArray("records", ["recordItems", "timeRecords", "recordList"]);
+    assignAliasArray("plans", ["planItems", "schedules"]);
+    assignAliasArray("todos", ["todoItems", "todoList"]);
+    assignAliasArray("checkinItems", ["checkInItems", "checkinConfigs"]);
+    assignAliasArray("dailyCheckins", ["dailyCheckinItems", "dailyCheckinRecords"]);
+    assignAliasArray("checkins", ["checkinHistory", "monthlyCheckins"]);
+    assignAliasArray("diaryEntries", ["diary", "diaries", "journalEntries"]);
+    assignAliasArray("diaryCategories", ["diaryTags", "journalCategories"]);
+    assignAliasArray("customThemes", ["themes"]);
+
+    if (
+      !(
+        next.builtInThemeOverrides &&
+        typeof next.builtInThemeOverrides === "object" &&
+        !Array.isArray(next.builtInThemeOverrides)
+      ) &&
+      next.themeOverrides &&
+      typeof next.themeOverrides === "object" &&
+      !Array.isArray(next.themeOverrides)
+    ) {
+      next.builtInThemeOverrides = bundleHelper.cloneValue(next.themeOverrides);
+    }
+    if (
+      !(typeof next.selectedTheme === "string" && next.selectedTheme.trim()) &&
+      typeof next.theme === "string" &&
+      next.theme.trim()
+    ) {
+      next.selectedTheme = next.theme.trim();
+    }
+    if (
+      !(
+        next.recovery &&
+        typeof next.recovery === "object" &&
+        !Array.isArray(next.recovery)
+      )
+    ) {
+      next.recovery = createEmptyRecoveryState();
+    }
+    return next;
+  }
+
+  normalizeProjectCollection(projects = []) {
+    return bundleHelper.ensureArray(projects).map((project, index) => {
+      const source =
+        project && typeof project === "object" && !Array.isArray(project)
+          ? bundleHelper.cloneValue(project)
+          : {};
+      const normalizedName = String(source.name || source.title || "").trim();
+      const normalizedId = String(source.id || source.projectId || "").trim();
+      return {
+        ...source,
+        id:
+          normalizedId ||
+          `legacy-project-${index + 1}-${Buffer.from(normalizedName || JSON.stringify(source)).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}`,
+        name: normalizedName || `未命名项目 ${index + 1}`,
+        parentId: String(source.parentId || source.parentID || "").trim() || null,
+      };
+    });
+  }
+
+  normalizeSectionCollection(section, items = [], recoveryState = createEmptyRecoveryState()) {
+    const nextItems = [];
+    let nextRecovery = recoveryState;
+    bundleHelper.ensureArray(items).forEach((item, index) => {
+      const canonicalized = bundleHelper.canonicalizeSectionItem(section, item, {
+        index,
+      });
+      if (!canonicalized.item) {
+        nextRecovery = this.appendInvalidRecoveryItems(nextRecovery, [
+          {
+            section,
+            reason: canonicalized.reason || "invalid-item",
+            item,
+          },
+        ]);
+        return;
+      }
+      nextItems.push(canonicalized.item);
+    });
+    return {
+      items: nextItems,
+      recovery: nextRecovery,
+    };
+  }
+
+  canonicalizeForSave(data = {}, options = {}) {
+    const source = this.migrateLegacyData(data);
+    let recovery = this.appendInvalidRecoveryItems(
+      source.recovery,
+      options.invalidItems || [],
+    );
+    const next = {
+      ...bundleHelper.cloneValue(source),
+      schemaVersion: this.schemaVersion,
+      protectionMode:
+        typeof options.protectionMode === "string" && options.protectionMode.trim()
+          ? options.protectionMode.trim()
+          : PROTECTION_MODE_OFF,
+    };
+
+    next.projects = this.normalizeProjectCollection(source.projects);
+
+    ["records", "plans", "todos", "checkinItems", "dailyCheckins", "checkins", "diaryEntries", "diaryCategories", "customThemes"].forEach(
+      (key) => {
+        if (!Array.isArray(source[key])) {
+          return;
+        }
+        if (bundleHelper.PARTITIONED_SECTIONS.includes(key)) {
+          const normalizedSection = this.normalizeSectionCollection(
+            key,
+            source[key],
+            recovery,
+          );
+          next[key] = normalizedSection.items;
+          recovery = normalizedSection.recovery;
+          return;
+        }
+        next[key] = bundleHelper.cloneValue(source[key]);
+      },
+    );
+
+    next.records = bundleHelper.attachProjectIdsToRecords(
+      bundleHelper.ensureArray(next.records),
+      next.projects,
+    );
+    next.recovery = recovery;
+    return next;
+  }
+
+  buildProtectedFallbackState(root = this.getBundleRoot(this.storagePath), options = {}) {
+    const storagePath = this.getBundleDisplayPath(root);
+    const protectionMode =
+      typeof options.protectionMode === "string" && options.protectionMode.trim()
+        ? options.protectionMode.trim()
+        : PROTECTION_MODE_READONLY;
+    const payload = this.buildRecoveredBundlePayloadFromFilesystem(root).payload;
+    if (payload) {
+      return this.normalizeStorageData(
+        bundleHelper.buildLegacyStateFromBundle(payload),
+        {
+          storagePath,
+          protectionMode,
+        },
+      );
+    }
+    const legacyFilePath = this.getLegacyFilePath(this.storagePath);
+    const legacyParsed = this.readJsonFileSync(legacyFilePath, null);
+    if (legacyParsed && typeof legacyParsed === "object" && !Array.isArray(legacyParsed)) {
+      return this.normalizeStorageData(legacyParsed, {
+        storagePath,
+        protectionMode,
+      });
+    }
+    const fallbackSource =
+      this.pendingSnapshot || this.cachedStorageSnapshot || this.createEmptyStorageData();
+    return this.normalizeStorageData(fallbackSource, {
+      storagePath,
+      protectionMode,
+    });
+  }
+
   normalizeStorageData(data = {}, options = {}) {
     const defaults = this.createEmptyStorageData();
-    const source = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    const source = this.canonicalizeForSave(data, options);
     const normalizedGuideState =
       source.guideState &&
       typeof source.guideState === "object" &&
@@ -633,15 +978,15 @@ class StorageManager {
       ? options.storagePath
       : this.getBundleDisplayPath(this.getBundleRoot(this.storagePath));
     const next = { ...defaults };
-    SHARED_ARRAY_KEYS.forEach((key) => { next[key] = Array.isArray(source[key]) ? source[key] : []; });
+    SHARED_ARRAY_KEYS.forEach((key) => { next[key] = Array.isArray(source[key]) ? bundleHelper.cloneValue(source[key]) : []; });
     next.yearlyGoals = source.yearlyGoals && typeof source.yearlyGoals === "object" && !Array.isArray(source.yearlyGoals)
-      ? source.yearlyGoals
+      ? bundleHelper.cloneValue(source.yearlyGoals)
       : {};
     next.builtInThemeOverrides =
       source.builtInThemeOverrides &&
       typeof source.builtInThemeOverrides === "object" &&
       !Array.isArray(source.builtInThemeOverrides)
-        ? source.builtInThemeOverrides
+        ? bundleHelper.cloneValue(source.builtInThemeOverrides)
         : {};
     next.selectedTheme =
       typeof source.selectedTheme === "string" && source.selectedTheme.trim()
@@ -664,6 +1009,19 @@ class StorageManager {
     next.projects = bundleHelper.rebuildProjectDurationCaches(
       next.projects,
       next.records,
+    );
+    next.schemaVersion = Number.isFinite(source.schemaVersion)
+      ? Math.max(1, Math.round(Number(source.schemaVersion)))
+      : this.schemaVersion;
+    next.protectionMode =
+      typeof options.protectionMode === "string" && options.protectionMode.trim()
+        ? options.protectionMode.trim()
+        : typeof source.protectionMode === "string" && source.protectionMode.trim()
+          ? source.protectionMode.trim()
+          : PROTECTION_MODE_OFF;
+    next.recovery = this.appendInvalidRecoveryItems(
+      source.recovery,
+      options.invalidItems || [],
     );
     next.createdAt = typeof source.createdAt === "string" && source.createdAt ? source.createdAt : defaults.createdAt;
     next.lastModified = typeof source.lastModified === "string" && source.lastModified ? source.lastModified : next.createdAt;
@@ -1748,12 +2106,58 @@ class StorageManager {
     };
   }
 
+  inspectBundleContentIntegrity(bundle = {}) {
+    const source = bundleHelper.ensureObject(bundle, {});
+    let recovery = createEmptyRecoveryState();
+    const core = bundleHelper.ensureObject(source.core, {});
+    const partitionMap = bundleHelper.ensureObject(source.partitionMap, {});
+    recovery = this.appendInvalidRecoveryItems(
+      recovery,
+      this.inspectProjectsForIntegrity(core.projects).invalidItems,
+    );
+    bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
+      const sectionPartitions = partitionMap[section];
+      if (sectionPartitions instanceof Map) {
+        sectionPartitions.forEach((items, periodId) => {
+          recovery = this.appendInvalidRecoveryItems(
+            recovery,
+            bundleHelper.validateAndRepairForPeriod(
+              section,
+              periodId,
+              items,
+            ).invalidItems,
+          );
+        });
+        return;
+      }
+      if (bundleHelper.isRecurringPlan && section === "plans") {
+        recovery = this.appendInvalidRecoveryItems(
+          recovery,
+          this.inspectSectionForIntegrity(section, source.recurringPlans).invalidItems,
+        );
+      }
+    });
+    return bundleHelper.normalizeRecoveryState(recovery);
+  }
+
+  buildNeedsRecoveryMessageFromRecovery(recoveryState = createEmptyRecoveryState(), fallback = "") {
+    const summary = this.getRecoverySummary(recoveryState);
+    if (summary?.hardInvalidCount > 0) {
+      return `检测到 ${summary.hardInvalidCount} 项高风险脏数据，已停止自动写入以保护现有数据。请先在设置页查看恢复摘要。`;
+    }
+    if (summary?.totalInvalidCount > 0) {
+      return `检测到 ${summary.totalInvalidCount} 项存储异常，已停止自动写入以保护现有数据。请先在设置页查看恢复摘要。`;
+    }
+    return fallback;
+  }
+
   buildRecoveredBundlePayloadFromFilesystem(root = this.getBundleRoot(), options = {}) {
     const inspection = this.inspectBundleArtifacts(root);
     if (!inspection.hasLiveBundleArtifacts) {
       return {
         inspection,
         payload: null,
+        recovery: createEmptyRecoveryState(),
       };
     }
     const core = bundleHelper.ensureObject(
@@ -1789,9 +2193,20 @@ class StorageManager {
       recurringPlans,
       partitionMap,
     });
+    const recovery = this.appendInvalidRecoveryItems(
+      recoveredState.recovery,
+      this.inspectBundleContentIntegrity({
+        core,
+        recurringPlans,
+        partitionMap,
+      }).invalidItems,
+    );
+    recoveredState.recovery = recovery;
     const payload = this.buildBundlePayloadFromState(recoveredState, root, {
       touchModified: options.touchModified === true,
       touchSyncSave: options.touchSyncSave === true,
+      skipIntegrityValidation: true,
+      invalidItems: [],
       legacyBackups:
         inspection.manifest?.legacyBackups ||
         bundleHelper.ensureArray(options.legacyBackups),
@@ -1799,6 +2214,7 @@ class StorageManager {
     return {
       inspection,
       payload,
+      recovery,
     };
   }
 
@@ -1825,7 +2241,7 @@ class StorageManager {
   }
 
   repairBundleArtifactsIfNeeded(root = this.getBundleRoot()) {
-    const { inspection, payload } = this.buildRecoveredBundlePayloadFromFilesystem(root);
+    const { inspection, payload, recovery } = this.buildRecoveredBundlePayloadFromFilesystem(root);
     if (!inspection.hasAnyArtifacts) {
       this.resetStorageRecoveryState(root);
       return {
@@ -1838,13 +2254,30 @@ class StorageManager {
     if (!inspection.hasLiveBundleArtifacts) {
       const recoveryMessage = inspection.legacyExists
         ? "检测到旧版单文件数据，正在等待迁移，当前不会自动写入空库。"
-        : "检测到残留的存储目录或备份文件，但缺少可直接恢复的实时数据。为避免清空原数据，已停止自动写入。";
+        : this.buildNeedsRecoveryMessageFromRecovery(
+            recovery,
+            "检测到残留的存储目录或备份文件，但缺少可直接恢复的实时数据。为避免清空原数据，已停止自动写入。",
+          );
       this.setStorageRecoveryState("needs-recovery", recoveryMessage, root);
       return {
         state: "needs-recovery",
         repaired: false,
         inspection,
         payload: null,
+        message: recoveryMessage,
+      };
+    }
+    if (this.getHardRecoveryIssues(recovery).length) {
+      const recoveryMessage = this.buildNeedsRecoveryMessageFromRecovery(
+        recovery,
+        "检测到高风险脏数据，已停止自动写入以保护现有数据。",
+      );
+      this.setStorageRecoveryState("needs-recovery", recoveryMessage, root);
+      return {
+        state: "needs-recovery",
+        repaired: false,
+        inspection,
+        payload,
         message: recoveryMessage,
       };
     }
@@ -1895,6 +2328,7 @@ class StorageManager {
       if (!String(raw || "").trim()) return fallback;
       return JSON.parse(raw);
     } catch (error) {
+      console.error("读取 JSON 文件失败:", filePath, error);
       return fallback;
     }
   }
@@ -1921,7 +2355,19 @@ class StorageManager {
   }
 
   readCoreSync(root = this.getBundleRoot()) {
-    return bundleHelper.ensureObject(this.readJsonFileSync(this.getCorePath(root), {}), {});
+    const core = bundleHelper.ensureObject(
+      this.readJsonFileSync(this.getCorePath(root), {}),
+      {},
+    );
+    core.recovery = bundleHelper.normalizeRecoveryState(core.recovery);
+    core.schemaVersion = Number.isFinite(core.schemaVersion)
+      ? Math.max(1, Math.round(Number(core.schemaVersion)))
+      : this.schemaVersion;
+    core.protectionMode =
+      typeof core.protectionMode === "string" && core.protectionMode.trim()
+        ? core.protectionMode.trim()
+        : PROTECTION_MODE_OFF;
+    return core;
   }
 
   normalizeCoreProjectsSnapshot(core = {}) {
@@ -1955,6 +2401,16 @@ class StorageManager {
 
   repairStoredCoreProjectsIfNeeded(root = this.getBundleRoot()) {
     const currentCore = this.readCoreSync(root);
+    const integrity = this.inspectProjectsForIntegrity(currentCore.projects);
+    if (integrity.hasHardIssues) {
+      return {
+        ...currentCore,
+        recovery: this.appendInvalidRecoveryItems(
+          currentCore.recovery,
+          integrity.invalidItems,
+        ),
+      };
+    }
     const normalized = this.normalizeCoreProjectsSnapshot(currentCore);
     if (!normalized.repaired) {
       return normalized.core;
@@ -3250,6 +3706,10 @@ class StorageManager {
     const normalizedPage = this.normalizePageBootstrapKey(pageKey);
     const root = this.getBundleRoot(this.storagePath);
     const core = this.repairStoredCoreProjectsIfNeeded(root);
+    const effectiveRecovery =
+      this.storageRecoveryState === "needs-recovery"
+        ? this.buildRecoveredBundlePayloadFromFilesystem(root).recovery || core?.recovery
+        : core?.recovery;
     const manifest = this.readManifestSync(root);
     const recurringPlans = this.readRecurringPlansSync(root);
     const sourceFingerprint = this.buildBundleSourceFingerprint(root, manifest);
@@ -3335,6 +3795,9 @@ class StorageManager {
       data = {
         storageStatus: this.getStorageStatus(),
         autoBackupStatus: this.getAutoBackupStatus(),
+        recoverySummary: bundleHelper.cloneValue(
+          this.getRecoverySummary(effectiveRecovery),
+        ),
         themeSummary: {
           selectedTheme:
             typeof core?.selectedTheme === "string" && core.selectedTheme.trim()
@@ -3428,11 +3891,22 @@ class StorageManager {
 
   buildBundlePayloadFromState(rawState, root, options = {}) {
     const storagePath = this.getBundleDisplayPath(root);
+    const integrityRecovery = this.appendInvalidRecoveryItems(
+      createEmptyRecoveryState(),
+      options.invalidItems || this.inspectStateIntegrity(rawState).invalidItems,
+    );
+    if (options.skipIntegrityValidation !== true) {
+      this.assertNoHardRecoveryIssues(
+        integrityRecovery,
+        "检测到高风险脏数据，已停止当前写入。",
+      );
+    }
     const normalized = this.normalizeStorageData(rawState, {
       storagePath,
       touchModified: options.touchModified === true,
       touchSyncSave: options.touchSyncSave === true,
       pendingWriteCount: Number.isFinite(options.pendingWriteCount) ? options.pendingWriteCount : 0,
+      invalidItems: integrityRecovery.invalidItems,
     });
     return bundleHelper.splitLegacyState(normalized, {
       storagePath,
@@ -3461,6 +3935,7 @@ class StorageManager {
         }
       });
     });
+    this.writeJsonFileSync(this.getManifestPath(root), payload.manifest);
     bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
       (previousManifest?.sections?.[section]?.partitions || []).forEach((partition) => {
         if (section === "records") {
@@ -3469,7 +3944,6 @@ class StorageManager {
         if (!desiredFiles.has(partition.file)) fs.removeSync(path.join(root, partition.file));
       });
     });
-    this.writeJsonFileSync(this.getManifestPath(root), payload.manifest);
   }
 
   writeBundleFromState(root, rawState, options = {}) {
@@ -3504,9 +3978,19 @@ class StorageManager {
   }
 
   validateStorageData(data) {
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("无效的数据格式");
-    if (!Array.isArray(data.projects) || !Array.isArray(data.records)) throw new Error("缺少必需的数据字段");
-    return data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw createIntegrityError("invalid-storage-format", "无效的数据格式");
+    }
+    const migrated = this.migrateLegacyData(data);
+    const hasCoreShape =
+      Array.isArray(migrated.projects) ||
+      Array.isArray(migrated.records) ||
+      Array.isArray(migrated.todos) ||
+      Array.isArray(migrated.plans);
+    if (!hasCoreShape) {
+      throw createIntegrityError("invalid-storage-shape", "缺少可识别的存储数据字段");
+    }
+    return migrated;
   }
 
   remapProjectIdsInArray(items = [], projectIdMap = new Map()) {
@@ -3588,6 +4072,17 @@ class StorageManager {
     };
   }
 
+  mergeInvalidItemsIntoCore(core = {}, invalidItems = []) {
+    const nextCore = bundleHelper.ensureObject(bundleHelper.cloneValue(core), {});
+    nextCore.schemaVersion = this.schemaVersion;
+    nextCore.recovery = this.appendInvalidRecoveryItems(
+      nextCore.recovery,
+      invalidItems,
+    );
+    nextCore.protectionMode = PROTECTION_MODE_OFF;
+    return nextCore;
+  }
+
   replaceCoreStateInternal(partialCore = {}, options = {}) {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
@@ -3601,6 +4096,9 @@ class StorageManager {
       storageDirectory: root,
       userDataPath: this.userDataPath,
       documentsPath: this.documentsPath,
+      schemaVersion: this.schemaVersion,
+      recovery: this.appendInvalidRecoveryItems(currentCore.recovery, []),
+      protectionMode: PROTECTION_MODE_OFF,
     };
     if (Object.prototype.hasOwnProperty.call(partialCore, "projects")) {
       nextCore.projects = bundleHelper.reconcileProjectDurationCaches(
@@ -3612,6 +4110,14 @@ class StorageManager {
         bundleHelper.ensureArray(currentCore.projects),
       );
     }
+    nextCore.recovery = this.appendInvalidRecoveryItems(
+      nextCore.recovery,
+      this.inspectProjectsForIntegrity(nextCore.projects).invalidItems,
+    );
+    this.assertNoHardRecoveryIssues(
+      nextCore.recovery,
+      "检测到重复项目 ID，已停止核心状态写入。",
+    );
     this.writeJsonFileSync(this.getCorePath(root), nextCore);
     const manifest = this.readManifestSync(root);
     if (manifest) {
@@ -3619,6 +4125,8 @@ class StorageManager {
       this.writeJsonFileSync(this.getManifestPath(root), manifest);
     }
     this.cachedStorageSnapshot = null;
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.clearPersistErrorState();
     this.markKnownFileVersion({ includeHash: true });
     const changeReason =
       typeof options.reason === "string" && options.reason.trim()
@@ -3649,15 +4157,27 @@ class StorageManager {
       bundleHelper.ensureArray(payload.removedItems),
       currentCore.projects || [],
     );
-    if (!bundleHelper.validateItemsForPeriod("records", periodId, normalizedIncoming)) {
-      throw new Error("分区文件中的项目不属于目标月份");
-    }
-    if (!bundleHelper.validateItemsForPeriod("records", periodId, normalizedRemoved)) {
-      throw new Error("删除项目中的记录不属于目标月份");
-    }
+    const repairedIncoming = bundleHelper.validateAndRepairForPeriod(
+      "records",
+      periodId,
+      normalizedIncoming,
+    );
+    const repairedRemoved = bundleHelper.validateAndRepairForPeriod(
+      "records",
+      periodId,
+      normalizedRemoved,
+    );
+    const invalidItems = [
+      ...bundleHelper.ensureArray(repairedIncoming.invalidItems),
+      ...bundleHelper.ensureArray(repairedRemoved.invalidItems),
+    ];
+    this.assertNoHardRecoveryIssues(
+      this.appendInvalidRecoveryItems(createEmptyRecoveryState(), invalidItems),
+      "检测到高风险脏数据，已停止 records patch 写入。",
+    );
     const patchEnvelope = this.buildRecordPartitionPatchEnvelope(periodId, {
-      upsertItems: normalizedIncoming,
-      removedItems: normalizedRemoved,
+      upsertItems: repairedIncoming.items,
+      removedItems: repairedRemoved.items,
       removeIds: payload.removeIds,
     });
     if (
@@ -3712,8 +4232,8 @@ class StorageManager {
     currentCore.projects = bundleHelper.applyProjectRecordDurationChanges(
       currentCore.projects || [],
       {
-        removedRecords: normalizedRemoved,
-        addedRecords: normalizedIncoming,
+        removedRecords: repairedRemoved.items,
+        addedRecords: repairedIncoming.items,
       },
     );
     currentCore.lastModified = manifest.lastModified;
@@ -3721,9 +4241,14 @@ class StorageManager {
     currentCore.storageDirectory = root;
     currentCore.userDataPath = this.userDataPath;
     currentCore.documentsPath = this.documentsPath;
-    this.writeJsonFileSync(this.getCorePath(root), currentCore);
+    this.writeJsonFileSync(
+      this.getCorePath(root),
+      this.mergeInvalidItemsIntoCore(currentCore, invalidItems),
+    );
     this.writeJsonFileSync(this.getManifestPath(root), manifest);
     this.cachedStorageSnapshot = null;
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.clearPersistErrorState();
     this.markKnownFileVersion({ includeHash: true });
     if (allPatchEnvelopes.length >= RECORD_PARTITION_PATCH_COMPACT_THRESHOLD) {
       this.scheduleRecordPartitionCompaction(this.storagePath, periodId);
@@ -3746,6 +4271,7 @@ class StorageManager {
       mode: "patch",
       patched: true,
       patchCount: allPatchEnvelopes.length,
+      skippedInvalidCount: invalidItems.length,
     };
   }
 
@@ -3758,7 +4284,18 @@ class StorageManager {
     const periodId = bundleHelper.normalizePeriodId(payload.periodId);
     if (!periodId) throw new Error("分区 periodId 无效");
     const incomingItems = bundleHelper.ensureArray(payload.items);
-    if (!bundleHelper.validateItemsForPeriod(section, periodId, incomingItems)) throw new Error("分区文件中的项目不属于目标月份");
+    const repairedIncoming = bundleHelper.validateAndRepairForPeriod(
+      section,
+      periodId,
+      incomingItems,
+    );
+    this.assertNoHardRecoveryIssues(
+      this.appendInvalidRecoveryItems(
+        createEmptyRecoveryState(),
+        repairedIncoming.invalidItems,
+      ),
+      `检测到高风险脏数据，已停止 ${section} 分区写入。`,
+    );
     const root = this.getBundleRoot(this.storagePath);
     this.assertStorageWritable(root);
     const currentCore = this.readCoreSync(root);
@@ -3773,15 +4310,20 @@ class StorageManager {
     const normalizedIncoming =
       section === "records"
         ? bundleHelper.attachProjectIdsToRecords(
-            incomingItems,
+            repairedIncoming.items,
             currentCore.projects || [],
           )
-        : incomingItems;
+        : repairedIncoming.items;
+    const shouldPreserveExistingForInvalidReplace =
+      payload.mode !== "merge" &&
+      incomingItems.length > 0 &&
+      normalizedIncoming.length === 0 &&
+      repairedIncoming.invalidItems.length > 0;
     const mergedItems = bundleHelper.mergePartitionItems(
       section,
       normalizedExisting,
-      normalizedIncoming,
-      payload.mode === "merge" ? "merge" : "replace",
+      shouldPreserveExistingForInvalidReplace ? normalizedExisting : normalizedIncoming,
+      payload.mode === "merge" || shouldPreserveExistingForInvalidReplace ? "merge" : "replace",
     );
     const relativePath = bundleHelper.getPartitionRelativePath(section, periodId);
     if (mergedItems.length) this.writeJsonFileSync(path.join(root, relativePath), bundleHelper.createPartitionEnvelope(section, periodId, mergedItems));
@@ -3798,6 +4340,11 @@ class StorageManager {
     partitions.sort((left, right) => String(left.periodId).localeCompare(String(right.periodId)));
     manifest.lastModified = new Date().toISOString();
     manifest.sections[section] = { periodUnit: bundleHelper.PERIOD_UNIT, partitions };
+    currentCore.lastModified = manifest.lastModified;
+    currentCore.storagePath = this.storagePath;
+    currentCore.storageDirectory = root;
+    currentCore.userDataPath = this.userDataPath;
+    currentCore.documentsPath = this.documentsPath;
     if (section === "records") {
       currentCore.projects = bundleHelper.applyProjectRecordDurationChanges(
         currentCore.projects || [],
@@ -3806,15 +4353,20 @@ class StorageManager {
           addedRecords: mergedItems,
         },
       );
-      currentCore.lastModified = manifest.lastModified;
-      currentCore.storagePath = this.storagePath;
-      currentCore.storageDirectory = root;
-      currentCore.userDataPath = this.userDataPath;
-      currentCore.documentsPath = this.documentsPath;
-      this.writeJsonFileSync(this.getCorePath(root), currentCore);
+      this.writeJsonFileSync(
+        this.getCorePath(root),
+        this.mergeInvalidItemsIntoCore(currentCore, repairedIncoming.invalidItems),
+      );
+    } else if (repairedIncoming.invalidItems.length) {
+      this.writeJsonFileSync(
+        this.getCorePath(root),
+        this.mergeInvalidItemsIntoCore(currentCore, repairedIncoming.invalidItems),
+      );
     }
     this.writeJsonFileSync(this.getManifestPath(root), manifest);
     this.cachedStorageSnapshot = null;
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.clearPersistErrorState();
     this.markKnownFileVersion({ includeHash: true });
     if (options.emitChange !== false) {
       this.emitChange("section-save", { changedSections: [section], changedPeriods: { [section]: [periodId] } });
@@ -3824,7 +4376,12 @@ class StorageManager {
         changedPeriods: { [section]: [periodId] },
       });
     }
-    return { section, periodId, count: mergedItems.length };
+    return {
+      section,
+      periodId,
+      count: mergedItems.length,
+      skippedInvalidCount: repairedIncoming.invalidItems.length,
+    };
   }
 
   mergeRecurringPlans(existingItems = [], incomingItems = []) {
@@ -4057,7 +4614,7 @@ class StorageManager {
   migrateLegacyFileToBundleRoot(legacyFilePath, root) {
     const parsed = JSON.parse(fs.readFileSync(legacyFilePath, "utf8"));
     this.validateStorageData(parsed);
-    const backupName = `controler-data.legacy-${this.createTimestampTag()}.json`;
+    const backupName = `backup-before-migration-${this.createTimestampTag()}.json`;
     const backupPath = path.join(root, backupName);
     const payload = this.buildBundlePayloadFromState(parsed, root, {
       touchModified: true,
@@ -4122,16 +4679,29 @@ class StorageManager {
     try {
       this.ensureStorageReady();
       if (this.storageRecoveryState === "needs-recovery") {
-        return this.normalizeStorageData(this.createDefaultStorageData(), {
-          storagePath: this.storagePath,
-        });
+        this.protectionMode = PROTECTION_MODE_READONLY;
+        this.cachedStorageSnapshot = this.buildProtectedFallbackState(
+          this.getBundleRoot(this.storagePath),
+          {
+            protectionMode: PROTECTION_MODE_READONLY,
+          },
+        );
+        return this.cachedStorageSnapshot;
       }
       this.cachedStorageSnapshot = this.loadBundleStateSync(this.getBundleRoot(this.storagePath));
+      this.protectionMode = PROTECTION_MODE_OFF;
       this.markKnownFileVersion({ includeHash: true });
       return this.cachedStorageSnapshot;
     } catch (error) {
       console.error("加载存储数据失败:", error);
-      return this.normalizeStorageData(this.createDefaultStorageData(), { storagePath: this.storagePath });
+      this.protectionMode = PROTECTION_MODE_READONLY;
+      this.cachedStorageSnapshot = this.buildProtectedFallbackState(
+        this.getBundleRoot(this.storagePath),
+        {
+          protectionMode: PROTECTION_MODE_READONLY,
+        },
+      );
+      return this.cachedStorageSnapshot;
     }
   }
 
@@ -4150,12 +4720,16 @@ class StorageManager {
       const incoming = data && typeof data === "object" ? data : {};
       const next = options.replace ? incoming : { ...current, ...incoming };
       this.cachedStorageSnapshot = this.writeBundleFromState(this.getBundleRoot(this.storagePath), next, { touchModified: true, touchSyncSave: true });
+      this.protectionMode = PROTECTION_MODE_OFF;
+      this.clearPersistErrorState();
       this.markKnownFileVersion({ includeHash: true });
       this.emitChange(options.reason || "save");
       this.maybeRunAutoBackup({ reason: options.reason || "save" });
       return true;
     } catch (error) {
       console.error("保存存储数据失败:", error);
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "保存失败");
       return false;
     }
   }
@@ -4191,10 +4765,14 @@ class StorageManager {
         normalizedChangedPeriods,
       );
       this.pendingWriteCount += 1;
+      this.protectionMode = PROTECTION_MODE_OFF;
+      this.clearPersistErrorState();
       void this.flushPendingWrites();
       return true;
     } catch (error) {
       console.error("队列化保存存储数据失败:", error);
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "队列化保存失败");
       return false;
     }
   }
@@ -4220,15 +4798,19 @@ class StorageManager {
         const changedPeriods = normalizeChangedPeriods(
           this.pendingWriteChangedPeriods,
         );
-        this.pendingSnapshot = null;
-        this.pendingWriteReason = "";
-        this.pendingWriteChangedSections = [];
-        this.pendingWriteChangedPeriods = {};
-        this.pendingWriteCount = 0;
         this.cachedStorageSnapshot = this.writeBundleFromState(
           this.getBundleRoot(this.storagePath),
           snapshot,
         );
+        if (this.pendingSnapshot === snapshot) {
+          this.pendingSnapshot = null;
+          this.pendingWriteReason = "";
+          this.pendingWriteChangedSections = [];
+          this.pendingWriteChangedPeriods = {};
+          this.pendingWriteCount = 0;
+        }
+        this.protectionMode = PROTECTION_MODE_OFF;
+        this.clearPersistErrorState();
         this.markKnownFileVersion({ includeHash: true });
         this.emitChange(
           reason,
@@ -4243,6 +4825,10 @@ class StorageManager {
         latestStatus = this.getStorageStatus();
       }
       return latestStatus;
+    }).catch((error) => {
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "强制保存失败");
+      throw error;
     }).finally(() => {
       this.flushInFlight = null;
     });
@@ -4354,6 +4940,10 @@ class StorageManager {
       const manifestPath = this.getBundleDisplayPath(root);
       const manifest = this.readManifestSync(root) || bundleHelper.createEmptyBundle().manifest;
       const core = this.readCoreSync(root);
+      const effectiveRecovery =
+        this.storageRecoveryState === "needs-recovery"
+          ? this.buildRecoveredBundlePayloadFromFilesystem(root).recovery || core.recovery
+          : core.recovery;
       const version = this.inspectStorageVersion(this.storagePath, { includeHash: true });
       const count = (section) => (manifest?.sections?.[section]?.partitions || []).reduce(
         (total, partition) => total + Math.max(0, Number(partition?.count || 0)),
@@ -4384,6 +4974,15 @@ class StorageManager {
         legacyBackups: Array.isArray(manifest?.legacyBackups) ? manifest.legacyBackups : [],
         recoveryState: this.storageRecoveryState || "ok",
         recoveryMessage: this.storageRecoveryMessage || "",
+        recoverySummary: bundleHelper.cloneValue(
+          this.getRecoverySummary(effectiveRecovery),
+        ),
+        protectionMode:
+          this.storageRecoveryState === "needs-recovery"
+            ? PROTECTION_MODE_READONLY
+            : this.protectionMode || PROTECTION_MODE_OFF,
+        persistError: this.lastPersistError || "",
+        persistErrorCode: this.lastPersistErrorCode || "",
       };
     } catch (error) {
       console.error("获取存储状态失败:", error);
@@ -4546,13 +5145,31 @@ class StorageManager {
   }
 
   saveSectionRange(section, payload = {}) {
-    return this.saveSectionRangeInternal(section, payload, { emitChange: true });
+    try {
+      const result = this.saveSectionRangeInternal(section, payload, { emitChange: true });
+      this.protectionMode = PROTECTION_MODE_OFF;
+      this.clearPersistErrorState();
+      return result;
+    } catch (error) {
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "分区保存失败");
+      throw error;
+    }
   }
   replaceCoreState(partialCore = {}, options = {}) {
-    return this.replaceCoreStateInternal(partialCore, {
-      emitChange: options?.emitChange !== false,
-      reason: options?.reason,
-    });
+    try {
+      const result = this.replaceCoreStateInternal(partialCore, {
+        emitChange: options?.emitChange !== false,
+        reason: options?.reason,
+      });
+      this.protectionMode = PROTECTION_MODE_OFF;
+      this.clearPersistErrorState();
+      return result;
+    } catch (error) {
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "核心状态保存失败");
+      throw error;
+    }
   }
 
   replaceRecurringPlansInternal(items = [], options = {}) {
@@ -4560,6 +5177,13 @@ class StorageManager {
     const root = this.getBundleRoot(this.storagePath);
     this.assertStorageWritable(root);
     const recurringPlans = bundleHelper.ensureArray(items).filter((item) => bundleHelper.isRecurringPlan(item));
+    this.assertNoHardRecoveryIssues(
+      this.appendInvalidRecoveryItems(
+        createEmptyRecoveryState(),
+        this.inspectSectionForIntegrity("plans", recurringPlans).invalidItems,
+      ),
+      "检测到高风险脏数据，已停止循环计划写入。",
+    );
     this.writeJsonFileSync(this.getRecurringPlansPath(root), recurringPlans);
     const manifest = this.readManifestSync(root);
     if (manifest) {
@@ -4568,6 +5192,8 @@ class StorageManager {
       this.writeJsonFileSync(this.getManifestPath(root), manifest);
     }
     this.cachedStorageSnapshot = null;
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.clearPersistErrorState();
     this.markKnownFileVersion({ includeHash: true });
     const changeReason =
       typeof options.reason === "string" && options.reason.trim()
@@ -4642,7 +5268,16 @@ class StorageManager {
   }
 
   replaceRecurringPlans(items = []) {
-    return this.replaceRecurringPlansInternal(items, { emitChange: true });
+    try {
+      const result = this.replaceRecurringPlansInternal(items, { emitChange: true });
+      this.protectionMode = PROTECTION_MODE_OFF;
+      this.clearPersistErrorState();
+      return result;
+    } catch (error) {
+      this.protectionMode = PROTECTION_MODE_BLOCKED;
+      this.capturePersistError(error, "循环计划保存失败");
+      throw error;
+    }
   }
 
   async exportBundle(options = {}) {
@@ -4759,7 +5394,7 @@ class StorageManager {
     this.validateStorageData(normalizedParsed);
     const root = this.getBundleRoot(this.storagePath);
     const importsDirectory = path.join(root, "imports");
-    const backupName = `legacy-import-${this.createTimestampTag()}.json`;
+    const backupName = `backup-before-migration-${this.createTimestampTag()}.json`;
     await fs.ensureDir(importsDirectory);
     await fs.copy(filePath, path.join(importsDirectory, backupName));
     const mergedResult = fullImportMode === "diff"

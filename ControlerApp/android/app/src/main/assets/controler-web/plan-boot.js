@@ -880,7 +880,12 @@ async function flushPlanPendingPersistence() {
   if (planLastPersistenceError) {
     throw planLastPersistenceError;
   }
-  if (typeof window.ControlerStorage?.flush === "function") {
+  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+    await window.ControlerStorage.saveCoordinator.flush(
+      "plan-flush",
+      "plan-persistence",
+    );
+  } else if (typeof window.ControlerStorage?.flush === "function") {
     await window.ControlerStorage.flush();
   }
   if (planLastPersistenceError) {
