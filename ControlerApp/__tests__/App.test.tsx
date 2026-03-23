@@ -19,6 +19,7 @@ jest.mock('react-native-webview', () => {
 
 import App, {
   buildWidgetLaunchHref,
+  compareNavigationIntentPriority,
   getComparableUrl,
   isWebViewLayerInteractive,
   resolveBridgeNavigationDispatchPolicy,
@@ -58,13 +59,14 @@ describe('buildWidgetLaunchHref', () => {
   });
 
   it('does not depend on URL base parsing for android asset hrefs', () => {
-    const NativeURL = global.URL;
-    global.URL = class extends NativeURL {
+    const globalWithUrl = global as typeof globalThis & {URL: typeof URL};
+    const NativeURL = globalWithUrl.URL;
+    globalWithUrl.URL = class extends NativeURL {
       constructor(input: string | URL, base?: string | URL) {
         if (typeof base !== 'undefined') {
           throw new TypeError('Invalid base URL');
         }
-        super(input);
+        super(typeof input === 'string' ? input : input.toString());
       }
     } as typeof URL;
 
@@ -80,7 +82,7 @@ describe('buildWidgetLaunchHref', () => {
         'todo.html?widgetAction=show-todos&widgetSource=android-widget&widgetKind=todos&widgetLaunchId=launch-hermes',
       );
     } finally {
-      global.URL = NativeURL;
+      globalWithUrl.URL = NativeURL;
     }
   });
 });
@@ -115,7 +117,7 @@ describe('resolveAppPageUri', () => {
 });
 
 describe('resolveBridgeNavigationDispatchPolicy', () => {
-  it('drops stale android bridge navigation from inactive slots', () => {
+  it('queues android bridge navigation from inactive slots instead of ignoring it', () => {
     expect(
       resolveBridgeNavigationDispatchPolicy({
         isAndroid: true,
@@ -124,12 +126,12 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
         transitionBusy: false,
       }),
     ).toEqual({
-      ignore: true,
-      queue: false,
+      ignore: false,
+      queue: true,
     });
   });
 
-  it('does not queue android bridge navigation while a transition is busy', () => {
+  it('queues android bridge navigation while a transition is busy', () => {
     expect(
       resolveBridgeNavigationDispatchPolicy({
         isAndroid: true,
@@ -139,7 +141,7 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: false,
-      queue: false,
+      queue: true,
     });
   });
 
@@ -155,6 +157,53 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
       ignore: false,
       queue: true,
     });
+  });
+});
+
+describe('compareNavigationIntentPriority', () => {
+  it('treats a newer requestedAt as higher priority', () => {
+    expect(
+      compareNavigationIntentPriority(
+        {
+          intentId: 'intent-old',
+          requestedAt: 100,
+        },
+        {
+          intentId: 'intent-new',
+          requestedAt: 200,
+        },
+      ),
+    ).toBe(1);
+  });
+
+  it('treats an older requestedAt as stale', () => {
+    expect(
+      compareNavigationIntentPriority(
+        {
+          intentId: 'intent-new',
+          requestedAt: 200,
+        },
+        {
+          intentId: 'intent-old',
+          requestedAt: 100,
+        },
+      ),
+    ).toBe(-1);
+  });
+
+  it('treats identical requestedAt values as the same priority', () => {
+    expect(
+      compareNavigationIntentPriority(
+        {
+          intentId: 'intent-a',
+          requestedAt: 200,
+        },
+        {
+          intentId: 'intent-b',
+          requestedAt: 200,
+        },
+      ),
+    ).toBe(0);
   });
 });
 
