@@ -1986,9 +1986,63 @@
   }
 
   let lastStorageSyncErrorSignature = "";
+  let lastStorageRecoveryNoticeSignature = "";
 
   function clearStorageSyncError() {
     lastStorageSyncErrorSignature = "";
+  }
+
+  function maybeNotifyStorageRecoveryStatus(status) {
+    const recoveryState =
+      typeof status?.recoveryState === "string"
+        ? status.recoveryState.trim()
+        : "";
+    const recoveryMessage =
+      typeof status?.recoveryMessage === "string"
+        ? status.recoveryMessage.trim()
+        : "";
+    if (!recoveryState || recoveryState === "ok") {
+      lastStorageRecoveryNoticeSignature = "";
+      return;
+    }
+
+    const noticeMessage =
+      recoveryMessage ||
+      (recoveryState === "repaired"
+        ? "检测到存储文件不完整，现有数据已自动修复。"
+        : "检测到存储仍需恢复，已停止自动写入，避免现有数据被清空。");
+    const signature = `${recoveryState}:${noticeMessage}`;
+    if (signature === lastStorageRecoveryNoticeSignature) {
+      return;
+    }
+    lastStorageRecoveryNoticeSignature = signature;
+
+    if (document.hidden) {
+      return;
+    }
+
+    if (typeof window.ControlerUI?.alertDialog === "function") {
+      void window.ControlerUI
+        .alertDialog({
+          title:
+            recoveryState === "repaired" ? "存储已修复" : "存储需要恢复",
+          message: noticeMessage,
+          confirmText: "知道了",
+          danger: recoveryState === "needs-recovery",
+        })
+        .catch(() => {});
+      return;
+    }
+
+    if (typeof window.alert === "function") {
+      window.setTimeout(() => {
+        try {
+          window.alert(noticeMessage);
+        } catch (error) {
+          console.error("显示存储恢复提示失败:", error);
+        }
+      }, 0);
+    }
   }
 
   function reportStorageSyncError(message, options = {}) {
@@ -2808,6 +2862,7 @@
         console.error("刷新 Electron 存储状态失败:", error);
         return null;
       });
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
       hasPendingStateChanges = false;
       pendingElectronWriteReason = "";
       clearPendingElectronStorageChangeMetadata();
@@ -2896,6 +2951,7 @@
           return null;
         }));
       cachedStatus = nextStatus;
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
 
       clearStorageSyncError();
       if (
@@ -2938,6 +2994,7 @@
             console.error("获取 Electron 存储状态失败:", error);
             return null;
           });
+          maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         });
         writeChain = nextWrite.catch((error) => {
@@ -2953,6 +3010,7 @@
       async getStorageStatus() {
         try {
           cachedStatus = await electronAPI.storageStatus();
+          maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         } catch (error) {
           console.error("获取 Electron 存储状态失败:", error);
@@ -3033,6 +3091,7 @@
           console.error("获取 Electron 存储状态失败:", error);
           return null;
         });
+        maybeNotifyStorageRecoveryStatus(cachedStatus);
         return cachedStatus;
       },
       extraMethods: {
@@ -3360,17 +3419,27 @@
       });
     }
 
+    const forceFlushElectronStorage = (reason = "forced-persist") => {
+      void window.ControlerStorage
+        ?.flushJournal?.({
+          reason,
+        })
+        ?.catch((error) => {
+          console.error("强制立即保存 Electron 存储失败:", error);
+        });
+    };
+
     window.addEventListener("visibilitychange", () => {
       if (document.hidden) {
-        void window.ControlerStorage?.persistNow?.();
+        forceFlushElectronStorage("visibility-hidden");
       }
     });
     window.addEventListener("pagehide", () => {
-      void window.ControlerStorage?.persistNow?.();
+      forceFlushElectronStorage("pagehide");
     });
     window.addEventListener("beforeunload", () => {
       window.clearTimeout(writeTimer);
-      void window.ControlerStorage?.persistNow?.();
+      forceFlushElectronStorage("beforeunload");
     });
 
     bindExternalSyncAutoReload();
@@ -4341,6 +4410,7 @@
         const nextState =
           payload.state && typeof payload.state === "object" ? payload.state : {};
         adoptLegacyLocalOnlyValues(nextState);
+        maybeNotifyStorageRecoveryStatus(nextStatus);
 
         return {
           state: normalizeState(nextState, buildMobileMetadata(nextStatus || {})),
@@ -4367,6 +4437,7 @@
         const rawPayload = await reactNativeBridge.call("storage.getStatus");
         const parsed = parseJsonSafely(rawPayload, null);
         clearStorageSyncError();
+        maybeNotifyStorageRecoveryStatus(parsed);
         return parsed;
       } catch (error) {
         if (!suppressError) {
@@ -4391,6 +4462,7 @@
         .then((nextStatus) => {
           if (nextStatus && typeof nextStatus === "object") {
             cachedStatus = nextStatus;
+            maybeNotifyStorageRecoveryStatus(cachedStatus);
             persistMirrorSnapshot(true);
             updateVersionBaseline(cachedStatus);
             clearStorageSyncError();
@@ -4487,13 +4559,19 @@
         !nativeFullStateRewriteRequested &&
         !!latestSnapshot?.state;
       if (!canWriteRebasedSharedSnapshot && !canOverwriteNativeStateFromMirror()) {
+        const blockedMessage = pendingSharedKeys.length
+          ? "移动端原生快照暂不可用，已阻止共享状态补写，请稍候重试。"
+          : "移动端镜像尚未完成全量同步，已阻止整库覆盖，请稍候重试。";
         if (pendingSharedKeys.length) {
+          reportNativeStorageSyncError(blockedMessage, {
+            reason: "native-write-blocked-shared-rebase",
+          });
           console.warn(
-            "React Native 原生快照暂不可用，已跳过共享状态补写，避免覆盖整库。",
+            "React Native 原生快照暂不可用，已阻止共享状态补写，避免覆盖整库。",
           );
         } else {
           reportNativeStorageSyncError(
-            "移动端镜像尚未完成全量同步，已阻止整库覆盖。",
+            blockedMessage,
             {
               reason: "native-write-blocked-incomplete-mirror",
             },
@@ -4506,7 +4584,7 @@
         scheduleNativeStatusRefresh({
           suppressError: true,
         });
-        return cachedStatus;
+        throw new Error(blockedMessage);
       }
       cachedState = nextState;
       const serializedState = JSON.stringify(nextState);
@@ -4552,6 +4630,7 @@
         markFull: true,
       });
       cachedStatus = nextStatus;
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
       persistMirrorSnapshot(true);
@@ -5516,6 +5595,7 @@
             if (nextStatus && typeof nextStatus === "object") {
               cachedStatus = nextStatus;
             }
+            maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
           } catch (error) {
             console.error("刷新 React Native 存储日志失败:", error);
@@ -6337,6 +6417,15 @@
         scheduleNativeProbeLoop();
       }
     });
+    const forceFlushNativeStorage = (reason = "forced-persist") => {
+      void window.ControlerStorage
+        ?.flushJournal?.({
+          reason,
+        })
+        ?.catch((error) => {
+          console.error("强制立即保存 React Native 存储失败:", error);
+        });
+    };
     window.addEventListener("controler:native-bridge-event", (event) => {
       const detail =
         event && typeof event.detail === "object" && event.detail
@@ -6394,9 +6483,7 @@
           resetWindow: false,
         };
         stopNativeProbeLoop();
-        void persistNow().catch((error) => {
-          console.error("隐藏页面时刷新 React Native 存储失败:", error);
-        });
+        forceFlushNativeStorage("shell-hidden");
         return;
       }
 
@@ -6416,9 +6503,7 @@
     });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
-        void persistNow().catch((error) => {
-          console.error("页面隐藏时刷新 React Native 存储失败:", error);
-        });
+        forceFlushNativeStorage("visibility-hidden");
         stopNativeProbeLoop();
         return;
       }
@@ -6432,6 +6517,7 @@
       window.clearTimeout(writeTimer);
       window.clearTimeout(mirrorFlushTimer);
       stopNativeProbeLoop();
+      forceFlushNativeStorage("beforeunload");
       persistMirrorSnapshot(true);
     });
     return;

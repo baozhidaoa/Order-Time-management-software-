@@ -4060,9 +4060,63 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   let lastStorageSyncErrorSignature = "";
+  let lastStorageRecoveryNoticeSignature = "";
 
   function clearStorageSyncError() {
     lastStorageSyncErrorSignature = "";
+  }
+
+  function maybeNotifyStorageRecoveryStatus(status) {
+    const recoveryState =
+      typeof status?.recoveryState === "string"
+        ? status.recoveryState.trim()
+        : "";
+    const recoveryMessage =
+      typeof status?.recoveryMessage === "string"
+        ? status.recoveryMessage.trim()
+        : "";
+    if (!recoveryState || recoveryState === "ok") {
+      lastStorageRecoveryNoticeSignature = "";
+      return;
+    }
+
+    const noticeMessage =
+      recoveryMessage ||
+      (recoveryState === "repaired"
+        ? "检测到存储文件不完整，现有数据已自动修复。"
+        : "检测到存储仍需恢复，已停止自动写入，避免现有数据被清空。");
+    const signature = `${recoveryState}:${noticeMessage}`;
+    if (signature === lastStorageRecoveryNoticeSignature) {
+      return;
+    }
+    lastStorageRecoveryNoticeSignature = signature;
+
+    if (document.hidden) {
+      return;
+    }
+
+    if (typeof window.ControlerUI?.alertDialog === "function") {
+      void window.ControlerUI
+        .alertDialog({
+          title:
+            recoveryState === "repaired" ? "存储已修复" : "存储需要恢复",
+          message: noticeMessage,
+          confirmText: "知道了",
+          danger: recoveryState === "needs-recovery",
+        })
+        .catch(() => {});
+      return;
+    }
+
+    if (typeof window.alert === "function") {
+      window.setTimeout(() => {
+        try {
+          window.alert(noticeMessage);
+        } catch (error) {
+          console.error("显示存储恢复提示失败:", error);
+        }
+      }, 0);
+    }
   }
 
   function reportStorageSyncError(message, options = {}) {
@@ -4882,6 +4936,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         console.error("刷新 Electron 存储状态失败:", error);
         return null;
       });
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
       hasPendingStateChanges = false;
       pendingElectronWriteReason = "";
       clearPendingElectronStorageChangeMetadata();
@@ -4970,6 +5025,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return null;
         }));
       cachedStatus = nextStatus;
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
 
       clearStorageSyncError();
       if (
@@ -5012,6 +5068,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             console.error("获取 Electron 存储状态失败:", error);
             return null;
           });
+          maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         });
         writeChain = nextWrite.catch((error) => {
@@ -5027,6 +5084,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       async getStorageStatus() {
         try {
           cachedStatus = await electronAPI.storageStatus();
+          maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         } catch (error) {
           console.error("获取 Electron 存储状态失败:", error);
@@ -5107,6 +5165,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           console.error("获取 Electron 存储状态失败:", error);
           return null;
         });
+        maybeNotifyStorageRecoveryStatus(cachedStatus);
         return cachedStatus;
       },
       extraMethods: {
@@ -5434,17 +5493,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     }
 
+    const forceFlushElectronStorage = (reason = "forced-persist") => {
+      void window.ControlerStorage
+        ?.flushJournal?.({
+          reason,
+        })
+        ?.catch((error) => {
+          console.error("强制立即保存 Electron 存储失败:", error);
+        });
+    };
+
     window.addEventListener("visibilitychange", () => {
       if (document.hidden) {
-        void window.ControlerStorage?.persistNow?.();
+        forceFlushElectronStorage("visibility-hidden");
       }
     });
     window.addEventListener("pagehide", () => {
-      void window.ControlerStorage?.persistNow?.();
+      forceFlushElectronStorage("pagehide");
     });
     window.addEventListener("beforeunload", () => {
       window.clearTimeout(writeTimer);
-      void window.ControlerStorage?.persistNow?.();
+      forceFlushElectronStorage("beforeunload");
     });
 
     bindExternalSyncAutoReload();
@@ -6415,6 +6484,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const nextState =
           payload.state && typeof payload.state === "object" ? payload.state : {};
         adoptLegacyLocalOnlyValues(nextState);
+        maybeNotifyStorageRecoveryStatus(nextStatus);
 
         return {
           state: normalizeState(nextState, buildMobileMetadata(nextStatus || {})),
@@ -6441,6 +6511,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const rawPayload = await reactNativeBridge.call("storage.getStatus");
         const parsed = parseJsonSafely(rawPayload, null);
         clearStorageSyncError();
+        maybeNotifyStorageRecoveryStatus(parsed);
         return parsed;
       } catch (error) {
         if (!suppressError) {
@@ -6465,6 +6536,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         .then((nextStatus) => {
           if (nextStatus && typeof nextStatus === "object") {
             cachedStatus = nextStatus;
+            maybeNotifyStorageRecoveryStatus(cachedStatus);
             persistMirrorSnapshot(true);
             updateVersionBaseline(cachedStatus);
             clearStorageSyncError();
@@ -6561,13 +6633,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         !nativeFullStateRewriteRequested &&
         !!latestSnapshot?.state;
       if (!canWriteRebasedSharedSnapshot && !canOverwriteNativeStateFromMirror()) {
+        const blockedMessage = pendingSharedKeys.length
+          ? "移动端原生快照暂不可用，已阻止共享状态补写，请稍候重试。"
+          : "移动端镜像尚未完成全量同步，已阻止整库覆盖，请稍候重试。";
         if (pendingSharedKeys.length) {
+          reportNativeStorageSyncError(blockedMessage, {
+            reason: "native-write-blocked-shared-rebase",
+          });
           console.warn(
-            "React Native 原生快照暂不可用，已跳过共享状态补写，避免覆盖整库。",
+            "React Native 原生快照暂不可用，已阻止共享状态补写，避免覆盖整库。",
           );
         } else {
           reportNativeStorageSyncError(
-            "移动端镜像尚未完成全量同步，已阻止整库覆盖。",
+            blockedMessage,
             {
               reason: "native-write-blocked-incomplete-mirror",
             },
@@ -6580,7 +6658,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         scheduleNativeStatusRefresh({
           suppressError: true,
         });
-        return cachedStatus;
+        throw new Error(blockedMessage);
       }
       cachedState = nextState;
       const serializedState = JSON.stringify(nextState);
@@ -6626,6 +6704,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         markFull: true,
       });
       cachedStatus = nextStatus;
+      maybeNotifyStorageRecoveryStatus(cachedStatus);
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
       persistMirrorSnapshot(true);
@@ -7590,6 +7669,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             if (nextStatus && typeof nextStatus === "object") {
               cachedStatus = nextStatus;
             }
+            maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
           } catch (error) {
             console.error("刷新 React Native 存储日志失败:", error);
@@ -8411,6 +8491,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         scheduleNativeProbeLoop();
       }
     });
+    const forceFlushNativeStorage = (reason = "forced-persist") => {
+      void window.ControlerStorage
+        ?.flushJournal?.({
+          reason,
+        })
+        ?.catch((error) => {
+          console.error("强制立即保存 React Native 存储失败:", error);
+        });
+    };
     window.addEventListener("controler:native-bridge-event", (event) => {
       const detail =
         event && typeof event.detail === "object" && event.detail
@@ -8468,9 +8557,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           resetWindow: false,
         };
         stopNativeProbeLoop();
-        void persistNow().catch((error) => {
-          console.error("隐藏页面时刷新 React Native 存储失败:", error);
-        });
+        forceFlushNativeStorage("shell-hidden");
         return;
       }
 
@@ -8490,9 +8577,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
-        void persistNow().catch((error) => {
-          console.error("页面隐藏时刷新 React Native 存储失败:", error);
-        });
+        forceFlushNativeStorage("visibility-hidden");
         stopNativeProbeLoop();
         return;
       }
@@ -8506,6 +8591,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.clearTimeout(writeTimer);
       window.clearTimeout(mirrorFlushTimer);
       stopNativeProbeLoop();
+      forceFlushNativeStorage("beforeunload");
       persistMirrorSnapshot(true);
     });
     return;
@@ -14983,31 +15069,115 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const messageNode = overlay.querySelector("[data-loading-message]");
     const normalizeMode = (value) =>
       String(value || "").trim() === "fullscreen" ? "fullscreen" : "inline";
+    const getViewportWidth = () => {
+      const visualViewportWidth = Number(window.visualViewport?.width);
+      if (Number.isFinite(visualViewportWidth) && visualViewportWidth > 0) {
+        return visualViewportWidth;
+      }
+      const innerWidth = Number(window.innerWidth);
+      if (Number.isFinite(innerWidth) && innerWidth > 0) {
+        return innerWidth;
+      }
+      const clientWidth = Number(document.documentElement?.clientWidth);
+      if (Number.isFinite(clientWidth) && clientWidth > 0) {
+        return clientWidth;
+      }
+      return 0;
+    };
+    const isCompactBlockingOverlayLayout = () => {
+      const root = document.documentElement;
+      const body = document.body;
+      if (!(body instanceof HTMLElement)) {
+        return false;
+      }
+      const viewportWidth = getViewportWidth();
+      if (
+        Number.isFinite(viewportWidth) &&
+        viewportWidth > 0 &&
+        viewportWidth <= MODAL_GESTURE_MAX_WIDTH
+      ) {
+        return true;
+      }
+      if (
+        root?.classList.contains("controler-mobile-runtime") ||
+        root?.classList.contains("controler-android-native") ||
+        root?.classList.contains("controler-ios-native") ||
+        body.classList.contains("controler-mobile-runtime") ||
+        body.classList.contains("controler-android-native") ||
+        body.classList.contains("controler-ios-native")
+      ) {
+        return true;
+      }
+      const nav = body.querySelector(".app-nav");
+      if (!(nav instanceof HTMLElement)) {
+        return false;
+      }
+      const navComputedStyle = window.getComputedStyle(nav);
+      return navComputedStyle.display === "grid";
+    };
     const shouldForceFullscreenMode = (mode, visible) => {
       if (!visible || mode !== "inline") {
         return false;
       }
       const platform = String(window.ControlerNativeBridge?.platform || "").trim();
-      if (platform === "android") {
+      if (platform === "android" || platform === "ios") {
         return true;
       }
-      const root = document.documentElement;
-      const body = document.body;
-      return Boolean(
-        root?.classList.contains("controler-android-native") ||
-          body?.classList.contains("controler-android-native"),
-      );
+      return isCompactBlockingOverlayLayout();
     };
     let overlayTimerId = 0;
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
+    let currentNativeBusySignature = "";
     let requestedOverlayState = {
       visible: currentVisibility,
       mode: currentMode,
       title:
         titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
       message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+      lockNavigation: currentMode === "fullscreen" && currentVisibility,
+    };
+
+    const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
+      if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (!isReactNativeNavigationRuntime()) {
+        return false;
+      }
+      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      return platform === "android" || platform === "ios";
+    };
+
+    const syncNativeBusyState = (busyState = {}) => {
+      if (!isReactNativeNavigationRuntime()) {
+        return;
+      }
+      const nextPayload = {
+        href: window.location.href,
+        isBusy: busyState.active === true,
+        busy: busyState.active === true,
+        lockNavigation: busyState.lockNavigation === true,
+        title:
+          typeof busyState.title === "string" && busyState.title.trim()
+            ? busyState.title.trim()
+            : "",
+        message:
+          typeof busyState.message === "string" && busyState.message.trim()
+            ? busyState.message.trim()
+            : "",
+        presentation:
+          typeof busyState.presentation === "string" && busyState.presentation.trim()
+            ? busyState.presentation.trim()
+            : "",
+      };
+      const nextSignature = JSON.stringify(nextPayload);
+      if (nextSignature === currentNativeBusySignature) {
+        return;
+      }
+      currentNativeBusySignature = nextSignature;
+      window.ControlerNativeBridge?.emitEvent?.("ui.busy-state", nextPayload);
     };
 
     const clearFullscreenGeometry = () => {
@@ -15124,6 +15294,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       mode = "inline",
       title = "",
       message = "",
+      lockNavigation = false,
     } = {}) => {
       if (destroyed) {
         return;
@@ -15138,12 +15309,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         mode: requestedMode,
         title,
         message,
+        lockNavigation,
       };
       const suppressedByShell = shouldSuppressFullscreenOverlay(
         visible,
         resolvedMode,
       );
-      const actualVisible = visible && !suppressedByShell;
+      const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
+        visible,
+        resolvedMode,
+      ) && !suppressedByShell;
+      const actualVisible = visible && !suppressedByShell && !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
@@ -15156,6 +15332,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
       currentVisibility = actualVisible;
       currentMode = resolvedMode;
+
+      syncNativeBusyState({
+        active: delegatedToNative,
+        lockNavigation: lockNavigation === true || (delegatedToNative && visible),
+        title,
+        message,
+        presentation: delegatedToNative ? "native-fullscreen" : "",
+      });
 
       if (titleNode instanceof HTMLElement && typeof title === "string") {
         titleNode.textContent = title;
@@ -15224,6 +15408,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const delayMs = Number.isFinite(nextState.delayMs)
           ? Math.max(0, Math.round(Number(nextState.delayMs)))
           : 0;
+        const lockNavigation =
+          nextState.lockNavigation === true ||
+          (nextState.lockNavigation !== false && active && mode === "fullscreen");
 
         window.clearTimeout(overlayTimerId);
         overlayTimerId = 0;
@@ -15234,6 +15421,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             mode,
             title,
             message,
+            lockNavigation,
           });
           return;
         }
@@ -15244,6 +15432,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             mode,
             title,
             message,
+            lockNavigation,
           });
           overlayTimerId = window.setTimeout(() => {
             overlayTimerId = 0;
@@ -15252,6 +15441,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               mode,
               title,
               message,
+              lockNavigation,
             });
           }, delayMs);
           return;
@@ -15262,6 +15452,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           mode,
           title,
           message,
+          lockNavigation,
         });
       },
       destroy() {
@@ -15278,6 +15469,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           SHELL_VISIBILITY_EVENT_NAME,
           handleShellVisibilityChange,
         );
+        syncNativeBusyState({
+          active: false,
+          lockNavigation: false,
+          title: "",
+          message: "",
+          presentation: "",
+        });
         clearFullscreenGeometry();
       },
     };

@@ -91,6 +91,11 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
             views.setTextColor(R.id.widget_collection_item_title, row.titleColor);
             views.setTextColor(R.id.widget_collection_item_meta, row.metaColor);
             views.setTextColor(R.id.widget_collection_item_action, row.actionTextColor);
+            views.setInt(
+                R.id.widget_collection_item_background,
+                "setColorFilter",
+                row.backgroundColor
+            );
             views.setViewVisibility(
                 R.id.widget_collection_item_meta,
                 row.meta == null || row.meta.trim().isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE

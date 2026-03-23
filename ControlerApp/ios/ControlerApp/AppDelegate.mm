@@ -33,6 +33,9 @@ static NSString * const kPendingLaunchActionDefaultsKey = @"controler.pendingLau
 static NSString * const kStorageModeDefault = @"default";
 static NSString * const kStorageModeFile = @"file";
 static NSString * const kStorageModeDirectory = @"directory";
+static NSString * const kStorageRecoveryStateOk = @"ok";
+static NSString * const kStorageRecoveryStateRepaired = @"repaired";
+static NSString * const kStorageRecoveryStateNeedsRecovery = @"needs-recovery";
 static NSString * const kStorageSwitchActionAdoptedExisting = @"adopted-existing";
 static NSString * const kStorageSwitchActionSeededCurrent = @"seeded-current";
 static NSString * const kStorageSwitchActionMigratedLegacy = @"migrated-legacy";
@@ -216,6 +219,8 @@ static NSDictionary *ControlerConsumePendingLaunchAction(void)
 @property (nonatomic, copy) RCTPromiseResolveBlock pendingDocumentPickerResolve;
 @property (nonatomic, copy) RCTPromiseRejectBlock pendingDocumentPickerReject;
 @property (nonatomic, strong) NSDictionary *pendingDocumentPickerContext;
+@property (nonatomic, copy) NSString *storageRecoveryState;
+@property (nonatomic, copy) NSString *storageRecoveryMessage;
 @end
 
 @implementation AppDelegate
@@ -1006,6 +1011,10 @@ RCT_EXPORT_MODULE(ControlerBridge);
 
 - (NSDictionary *)writeBundleFromState:(NSDictionary *)state legacyBackups:(NSArray *)legacyBackups touchModified:(BOOL)touchModified touchSyncSave:(BOOL)touchSyncSave error:(NSError **)error
 {
+  if ([self storageNeedsRecovery]) {
+    if (error) *error = [self storageRecoveryError];
+    return nil;
+  }
   if ([self isFileStorageMode]) {
     NSError *selectionError = nil;
     NSDictionary *selection = [self resolvedStorageSelectionWithError:&selectionError];
@@ -1134,8 +1143,175 @@ RCT_EXPORT_MODULE(ControlerBridge);
   return [[self fileManager] copyItemAtPath:sourcePath toPath:targetPath error:error];
 }
 
+- (NSString *)currentStorageRecoveryState
+{
+  NSString *state = ControlerTrimmedString(self.storageRecoveryState);
+  return state.length > 0 ? state : kStorageRecoveryStateOk;
+}
+
+- (NSString *)currentStorageRecoveryMessage
+{
+  return ControlerTrimmedString(self.storageRecoveryMessage);
+}
+
+- (void)resetStorageRecoveryState
+{
+  self.storageRecoveryState = kStorageRecoveryStateOk;
+  self.storageRecoveryMessage = @"";
+}
+
+- (void)setStorageRecoveryStateValue:(NSString *)state message:(NSString *)message
+{
+  self.storageRecoveryState = ControlerOptionalTrimmedString(state) ?: kStorageRecoveryStateOk;
+  self.storageRecoveryMessage = ControlerOptionalTrimmedString(message) ?: @"";
+}
+
+- (BOOL)storageNeedsRecovery
+{
+  return [[self currentStorageRecoveryState] isEqualToString:kStorageRecoveryStateNeedsRecovery];
+}
+
+- (NSError *)storageRecoveryError
+{
+  NSString *message = [self currentStorageRecoveryMessage];
+  return [self bridgeErrorWithDescription:(message.length > 0 ? message : @"当前存储目录需要恢复，已阻止继续写入。") code:1021];
+}
+
+- (BOOL)isBundlePartitionRelativePath:(NSString *)relativePath
+{
+  NSString *normalized = [[ControlerTrimmedString(relativePath) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] copy];
+  if (normalized.length == 0
+      || [normalized isEqualToString:kBundleManifestFileName]
+      || [normalized isEqualToString:kBundleCoreFileName]
+      || [normalized isEqualToString:kBundleRecurringPlansFileName]
+      || [normalized isEqualToString:kLegacyStorageFileName]) {
+    return NO;
+  }
+  for (NSString *section in ControlerPartitionedSections()) {
+    if ([normalized hasPrefix:[section stringByAppendingString:@"/"]] && [[normalized lowercaseString] hasSuffix:@".json"]) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+- (NSArray<NSString *> *)bundlePartitionRelativePathsAtRoot:(NSString *)root
+{
+  if (root.length == 0 || ![[self fileManager] fileExistsAtPath:root]) return @[];
+  NSMutableArray<NSString *> *results = [NSMutableArray array];
+  NSDirectoryEnumerator *enumerator = [[self fileManager] enumeratorAtPath:root];
+  for (NSString *relativePath in enumerator) {
+    NSString *normalized = [[ControlerTrimmedString(relativePath) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] copy];
+    if ([self isBundlePartitionRelativePath:normalized]) [results addObject:normalized];
+  }
+  [results sortUsingSelector:@selector(compare:)];
+  return results;
+}
+
+- (NSDictionary *)inspectBundleArtifactsAtRoot:(NSString *)root
+{
+  NSString *resolvedRoot = ControlerTrimmedString(root);
+  NSString *manifestPath = [resolvedRoot stringByAppendingPathComponent:kBundleManifestFileName];
+  NSString *corePath = [resolvedRoot stringByAppendingPathComponent:kBundleCoreFileName];
+  NSString *recurringPath = [resolvedRoot stringByAppendingPathComponent:kBundleRecurringPlansFileName];
+  NSString *legacyPath = [resolvedRoot stringByAppendingPathComponent:kLegacyStorageFileName];
+  BOOL manifestExists = [[self fileManager] fileExistsAtPath:manifestPath];
+  NSDictionary *manifest = manifestExists ? [self normalizedManifest:[self jsonObjectFromFile:manifestPath fallback:nil]] : nil;
+  return @{
+    @"manifestExists": @(manifestExists),
+    @"manifestInvalid": @(manifestExists && !manifest),
+    @"coreExists": @([[self fileManager] fileExistsAtPath:corePath]),
+    @"recurringExists": @([[self fileManager] fileExistsAtPath:recurringPath]),
+    @"legacyExists": @([[self fileManager] fileExistsAtPath:legacyPath]),
+    @"partitionFiles": [self bundlePartitionRelativePathsAtRoot:resolvedRoot],
+    @"manifest": ControlerJSONValue(manifest),
+  };
+}
+
+- (BOOL)bundleInspectionNeedsRepair:(NSDictionary *)inspection root:(NSString *)root
+{
+  NSDictionary *source = ControlerEnsureDictionary(inspection);
+  BOOL manifestExists = [source[@"manifestExists"] boolValue];
+  BOOL manifestInvalid = [source[@"manifestInvalid"] boolValue];
+  BOOL coreExists = [source[@"coreExists"] boolValue];
+  BOOL recurringExists = [source[@"recurringExists"] boolValue];
+  NSArray<NSString *> *partitionFiles = ControlerEnsureArray(source[@"partitionFiles"]);
+  BOOL hasBundleArtifacts = coreExists || recurringExists || partitionFiles.count > 0;
+  NSDictionary *manifest = [source[@"manifest"] isKindOfClass:[NSDictionary class]] ? source[@"manifest"] : nil;
+  if (!manifestExists) return hasBundleArtifacts;
+  if (manifestInvalid || !manifest) return YES;
+  if (!coreExists) return YES;
+
+  NSSet<NSString *> *manifestFiles = [NSSet setWithArray:[self bundleRelativeFilePathsFromManifest:manifest]];
+  for (NSString *relativePath in manifestFiles) {
+    if ([relativePath isEqualToString:kBundleManifestFileName]) continue;
+    if (![[self fileManager] fileExistsAtPath:[root stringByAppendingPathComponent:relativePath]]) return YES;
+  }
+  return NO;
+}
+
+- (NSDictionary *)recoveredBundleStateFromInspection:(NSDictionary *)inspection root:(NSString *)root
+{
+  NSDictionary *source = ControlerEnsureDictionary(inspection);
+  NSArray<NSString *> *partitionFiles = ControlerEnsureArray(source[@"partitionFiles"]);
+  BOOL hasBundleArtifacts = [source[@"coreExists"] boolValue] || [source[@"recurringExists"] boolValue] || partitionFiles.count > 0;
+  if (!hasBundleArtifacts) return nil;
+
+  NSString *corePath = [root stringByAppendingPathComponent:kBundleCoreFileName];
+  id coreObject = [self jsonObjectFromFile:corePath fallback:nil];
+  BOOL recoveredAnyArtifacts = [coreObject isKindOfClass:[NSDictionary class]];
+  NSMutableDictionary *state = [NSMutableDictionary dictionaryWithDictionary:ControlerEnsureDictionary(coreObject)];
+
+  for (NSString *section in ControlerPartitionedSections()) {
+    NSMutableArray *items = [NSMutableArray array];
+    NSMutableArray<NSString *> *sectionFiles = [NSMutableArray array];
+    if ([source[@"manifestExists"] boolValue]) {
+      for (id partitionValue in ControlerEnsureArray(ControlerEnsureDictionary(ControlerEnsureDictionary(ControlerEnsureDictionary(source[@"manifest"])[@"sections"])[section])[@"partitions"])) {
+        NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(partitionValue)[@"file"]);
+        if (relativePath.length > 0) [sectionFiles addObject:relativePath];
+      }
+    } else {
+      [sectionFiles addObjectsFromArray:partitionFiles];
+    }
+    for (NSString *relativePath in sectionFiles) {
+      if (![relativePath hasPrefix:[section stringByAppendingString:@"/"]]) continue;
+      NSDictionary *envelope = ControlerEnsureDictionary([self jsonObjectFromFile:[root stringByAppendingPathComponent:relativePath] fallback:nil]);
+      if (envelope.count > 0) recoveredAnyArtifacts = YES;
+      [items addObjectsFromArray:ControlerDeepCopyJSON(ControlerEnsureArray(envelope[@"items"])) ?: @[]];
+    }
+    if ([section isEqualToString:@"plans"]) {
+      id recurringObject = [self jsonObjectFromFile:[root stringByAppendingPathComponent:kBundleRecurringPlansFileName] fallback:nil];
+      if (recurringObject) recoveredAnyArtifacts = YES;
+      [items addObjectsFromArray:ControlerDeepCopyJSON(ControlerEnsureArray(recurringObject)) ?: @[]];
+    }
+    state[section] = items;
+  }
+
+  if (!recoveredAnyArtifacts) return nil;
+  return [self normalizedState:state touchModified:NO touchSyncSave:NO];
+}
+
+- (BOOL)repairBundleArtifactsAtRoot:(NSString *)root inspection:(NSDictionary *)inspection error:(NSError **)error
+{
+  if (![self bundleInspectionNeedsRepair:inspection root:root]) return NO;
+  NSDictionary *inspectionSource = ControlerEnsureDictionary(inspection);
+  NSDictionary *manifest = [inspectionSource[@"manifest"] isKindOfClass:[NSDictionary class]] ? inspectionSource[@"manifest"] : nil;
+  NSDictionary *recoveredState = [self recoveredBundleStateFromInspection:inspection root:root];
+  if (!recoveredState) {
+    if (error) *error = [self bridgeErrorWithDescription:@"检测到存储目录中存在未完成或损坏的 bundle 数据，当前无法自动修复。" code:1022];
+    return NO;
+  }
+  NSDictionary *payload = [self splitStateIntoBundle:recoveredState legacyBackups:ControlerEnsureArray(manifest[@"legacyBackups"]) touchModified:NO touchSyncSave:NO];
+  BOOL success = [self writeBundlePayload:payload previousManifest:manifest toDirectory:root error:error];
+  if (success) {
+    [self setStorageRecoveryStateValue:kStorageRecoveryStateRepaired message:@"检测到存储索引缺失或过期，已根据现有数据文件自动修复。"];
+  }
+  return success;
+}
+
 - (BOOL)ensureStorageReady:(NSError **)error
 {
+  NSString *previousRecoveryState = [self currentStorageRecoveryState];
   if ([self isFileStorageMode]) {
     NSError *selectionError = nil;
     NSDictionary *selection = [self resolvedStorageSelectionWithError:&selectionError];
@@ -1162,9 +1338,15 @@ RCT_EXPORT_MODULE(ControlerBridge);
       NSDictionary *seedState = [self normalizedState:@{} touchModified:YES touchSyncSave:YES];
       BOOL success = [self writeJsonObject:seedState toFile:filePath error:error];
       [self releaseStorageSelectionAccess:selection];
+      if (success && [previousRecoveryState isEqualToString:kStorageRecoveryStateNeedsRecovery]) {
+        [self setStorageRecoveryStateValue:kStorageRecoveryStateOk message:nil];
+      }
       return success;
     }
     [self releaseStorageSelectionAccess:selection];
+    if ([previousRecoveryState isEqualToString:kStorageRecoveryStateNeedsRecovery]) {
+      [self setStorageRecoveryStateValue:kStorageRecoveryStateOk message:nil];
+    }
     return YES;
   }
 
@@ -1179,14 +1361,32 @@ RCT_EXPORT_MODULE(ControlerBridge);
     [self releaseStorageSelectionAccess:selection];
     return NO;
   }
-  if ([[self fileManager] fileExistsAtPath:paths[@"manifest"]]) {
-    NSDictionary *existingState = [self loadBundleState];
-    [self releaseStorageSelectionAccess:selection];
-    if (!existingState) {
-      if (error) *error = [self bridgeErrorWithDescription:@"目标目录中的 bundle 数据无效，无法载入。" code:1015];
-      return NO;
+  NSDictionary *inspection = [self inspectBundleArtifactsAtRoot:paths[@"root"]];
+  BOOL hasBundleArtifacts =
+    [inspection[@"coreExists"] boolValue] ||
+    [inspection[@"recurringExists"] boolValue] ||
+    ControlerEnsureArray(inspection[@"partitionFiles"]).count > 0;
+  if ([inspection[@"manifestExists"] boolValue] || hasBundleArtifacts) {
+    if (![self bundleInspectionNeedsRepair:inspection root:paths[@"root"]]) {
+      [self releaseStorageSelectionAccess:selection];
+      if ([previousRecoveryState isEqualToString:kStorageRecoveryStateNeedsRecovery]) {
+        [self setStorageRecoveryStateValue:kStorageRecoveryStateOk message:nil];
+      }
+      return YES;
     }
-    return YES;
+    NSError *repairError = nil;
+    if ([self repairBundleArtifactsAtRoot:paths[@"root"] inspection:inspection error:&repairError]) {
+      [self releaseStorageSelectionAccess:selection];
+      return YES;
+    }
+    NSString *message =
+      repairError.localizedDescription.length > 0
+        ? repairError.localizedDescription
+        : @"检测到存储目录中存在未完成或损坏的 bundle 数据，当前无法自动修复。";
+    [self setStorageRecoveryStateValue:kStorageRecoveryStateNeedsRecovery message:message];
+    [self releaseStorageSelectionAccess:selection];
+    if (error) *error = repairError ?: [self storageRecoveryError];
+    return NO;
   }
   BOOL migratedLegacyData = NO;
   if ([[self fileManager] fileExistsAtPath:paths[@"legacy"]]) {
@@ -1221,6 +1421,9 @@ RCT_EXPORT_MODULE(ControlerBridge);
     }
   }
   [self releaseStorageSelectionAccess:selection];
+  if ([previousRecoveryState isEqualToString:kStorageRecoveryStateNeedsRecovery]) {
+    [self setStorageRecoveryStateValue:kStorageRecoveryStateOk message:nil];
+  }
   if (migratedLegacyData) [self maybeRunAutoBackup];
   return YES;
 }
@@ -1304,7 +1507,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
   NSString *storageMode = fileMode ? @"file" : kBundleMode;
   NSString *serialized = [self serializeObject:(state ?: @{})];
   unsigned long long size = [version[@"size"] unsignedLongLongValue]; if (size == 0ULL) size = (unsigned long long)[serialized lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-  return @{@"projects": @([ControlerEnsureArray(state[@"projects"]) count]), @"records": @(recordCount), @"size": @(size), @"modifiedAt": version[@"modifiedAt"] ?: @(0LL), @"fingerprint": ControlerTrimmedString(version[@"fingerprint"]), @"supportsModifiedAt": version[@"supportsModifiedAt"] ?: @NO, @"fallbackHashUsed": version[@"fallbackHashUsed"] ?: @NO, @"storagePath": storagePath, @"actualUri": ControlerOptionalTrimmedString(version[@"actualUri"]) ?: storagePath, @"storageDirectory": storageDirectory, @"defaultStoragePath": [self defaultManifestPath], @"defaultStorageDirectory": [self defaultBundleDirectoryPath], @"userDataPath": [self documentsPath], @"documentsPath": [self documentsPath], @"storageMode": storageMode, @"bundleMode": kBundleMode, @"isCustomPath": @(isCustomPath), @"syncFileName": syncFileName, @"syncMeta": ControlerJSONValue(state[@"syncMeta"]), @"formatVersion": manifest[@"formatVersion"] ?: @(kBundleFormatVersion), @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(manifest[@"legacyBackups"])) ?: @[], @"isNativeApp": @YES, @"platform": @"ios"};
+  return @{@"projects": @([ControlerEnsureArray(state[@"projects"]) count]), @"records": @(recordCount), @"size": @(size), @"modifiedAt": version[@"modifiedAt"] ?: @(0LL), @"fingerprint": ControlerTrimmedString(version[@"fingerprint"]), @"supportsModifiedAt": version[@"supportsModifiedAt"] ?: @NO, @"fallbackHashUsed": version[@"fallbackHashUsed"] ?: @NO, @"storagePath": storagePath, @"actualUri": ControlerOptionalTrimmedString(version[@"actualUri"]) ?: storagePath, @"storageDirectory": storageDirectory, @"defaultStoragePath": [self defaultManifestPath], @"defaultStorageDirectory": [self defaultBundleDirectoryPath], @"userDataPath": [self documentsPath], @"documentsPath": [self documentsPath], @"storageMode": storageMode, @"bundleMode": kBundleMode, @"isCustomPath": @(isCustomPath), @"syncFileName": syncFileName, @"syncMeta": ControlerJSONValue(state[@"syncMeta"]), @"formatVersion": manifest[@"formatVersion"] ?: @(kBundleFormatVersion), @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(manifest[@"legacyBackups"])) ?: @[], @"recoveryState": [self currentStorageRecoveryState], @"recoveryMessage": [self currentStorageRecoveryMessage], @"isNativeApp": @YES, @"platform": @"ios"};
 }
 
 - (NSDictionary *)coreStatePayload
@@ -2175,6 +2378,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
     if (error) *error = saveSelectionError;
     return nil;
   }
+  [self resetStorageRecoveryState];
   NSDictionary *writtenState = hasExistingData ? ([self loadBundleState] ?: currentState) : [self writeBundleFromState:currentState legacyBackups:nil touchModified:YES touchSyncSave:YES error:error];
   if (!writtenState) {
     [self restoreStoredStorageSelection:previousSelection];
@@ -2199,16 +2403,22 @@ RCT_EXPORT_MODULE(ControlerBridge);
     if (error) *error = [self bridgeErrorWithDescription:@"无法解析所选目录路径。" code:1013];
     return nil;
   }
-  BOOL hasManifest = [[self fileManager] fileExistsAtPath:[directoryPath stringByAppendingPathComponent:kBundleManifestFileName]];
-  BOOL hasLegacyFile = !hasManifest && [[self fileManager] fileExistsAtPath:[directoryPath stringByAppendingPathComponent:kLegacyStorageFileName]];
+  NSDictionary *targetInspection = [self inspectBundleArtifactsAtRoot:directoryPath];
+  BOOL hasManifest = [targetInspection[@"manifestExists"] boolValue];
+  BOOL hasLegacyFile = [targetInspection[@"legacyExists"] boolValue];
+  BOOL hasBundleArtifacts =
+    [targetInspection[@"coreExists"] boolValue] ||
+    [targetInspection[@"recurringExists"] boolValue] ||
+    ControlerEnsureArray(targetInspection[@"partitionFiles"]).count > 0;
   NSError *saveSelectionError = nil;
   [self saveStoredStorageSelectionFromURL:url mode:kStorageModeDirectory displayName:displayName error:&saveSelectionError];
   if (saveSelectionError) {
     if (error) *error = saveSelectionError;
     return nil;
   }
+  [self resetStorageRecoveryState];
   NSDictionary *writtenState = nil;
-  if (hasManifest || hasLegacyFile) {
+  if (hasManifest || hasLegacyFile || hasBundleArtifacts) {
     NSError *storageError = nil;
     if (![self ensureStorageReady:&storageError]) {
       [self restoreStoredStorageSelection:previousSelection];
@@ -2227,7 +2437,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
   [self maybeRunAutoBackup];
   [self reloadWidgetsIfSupported];
   NSMutableDictionary *status = [[self storageStatusForState:writtenState] mutableCopy];
-  status[@"switchAction"] = hasManifest ? kStorageSwitchActionAdoptedExisting : (hasLegacyFile ? kStorageSwitchActionMigratedLegacy : kStorageSwitchActionSeededCurrent);
+  status[@"switchAction"] = hasLegacyFile ? kStorageSwitchActionMigratedLegacy : ((hasManifest || hasBundleArtifacts) ? kStorageSwitchActionAdoptedExisting : kStorageSwitchActionSeededCurrent);
   return status;
 }
 

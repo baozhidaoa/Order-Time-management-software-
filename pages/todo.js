@@ -2691,6 +2691,19 @@ function createTodoModalLockedAction(modal, action) {
   };
 }
 
+function createTodoModalConfirmedAction(modal, confirmAction, action) {
+  const runLockedAction = createTodoModalLockedAction(modal, action);
+  return async (...args) => {
+    if (typeof confirmAction === "function") {
+      const confirmed = await confirmAction(...args);
+      if (!confirmed) {
+        return false;
+      }
+    }
+    return runLockedAction(...args);
+  };
+}
+
 function restoreTodoStateSnapshot(snapshot = {}) {
   if (Object.prototype.hasOwnProperty.call(snapshot, "todos")) {
     todos = hydrateTodoCollection("todos", snapshot.todos);
@@ -4587,20 +4600,25 @@ function showTodoEditModal(todo = null) {
         closeModal: closeTodoModal,
       }),
     ),
-    "delete-todo": createTodoModalLockedAction(modal, async () => {
+    "delete-todo": createTodoModalConfirmedAction(
+      modal,
+      () => {
+        if (!isEditMode || !todo) {
+          return false;
+        }
+        return (
+        requestTodoConfirmation(
+          "确定要删除这个待办事项吗？此操作不可撤销！",
+          {
+            title: "删除待办事项",
+            confirmText: "删除",
+            cancelText: "取消",
+            danger: true,
+          },
+        ));
+      },
+      async () => {
       if (!isEditMode || !todo) {
-        return false;
-      }
-      const confirmed = await requestTodoConfirmation(
-        "确定要删除这个待办事项吗？此操作不可撤销！",
-        {
-          title: "删除待办事项",
-          confirmText: "删除",
-          cancelText: "取消",
-          danger: true,
-        },
-      );
-      if (!confirmed) {
         return false;
       }
       await todoDraftSession.clear().catch((error) => {
@@ -4610,7 +4628,8 @@ function showTodoEditModal(todo = null) {
         confirmDelete: false,
         closeModal: closeTodoModal,
       });
-    }),
+      },
+    ),
   });
 
   // 点击外部关闭
@@ -4916,15 +4935,20 @@ function showCheckinModal(todoId, checkinId = null) {
     return true;
   };
 
-  const deleteAction = async () => {
-    if (!existingRecord) return false;
-    const confirmed = await requestTodoConfirmation("确定删除这条进度记录吗？", {
+  const confirmDeleteAction = () => {
+    if (!existingRecord) {
+      return false;
+    }
+    return requestTodoConfirmation("确定删除这条进度记录吗？", {
       title: "删除进度记录",
       confirmText: "删除",
       cancelText: "取消",
       danger: true,
     });
-    if (!confirmed) return false;
+  };
+
+  const deleteAction = async () => {
+    if (!existingRecord) return false;
     const previousCheckins = getTodoSectionStateSnapshot("checkins");
     const deleted = deleteTodoProgressRecord(existingRecord.id);
     if (!deleted) {
@@ -4962,7 +4986,11 @@ function showCheckinModal(todoId, checkinId = null) {
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: closeModal,
     save: createTodoModalLockedAction(modal, saveAction),
-    "delete-progress": createTodoModalLockedAction(modal, deleteAction),
+    "delete-progress": createTodoModalConfirmedAction(
+      modal,
+      confirmDeleteAction,
+      deleteAction,
+    ),
   });
 
   modal.addEventListener("click", function (event) {
@@ -5511,27 +5539,33 @@ function showCheckinItemModal(item = null) {
   unbindModalActions = bindTodoModalActions(modal, {
     cancel: cancelAction,
     save: createTodoModalLockedAction(modal, saveAction),
-    "delete-checkin-item": createTodoModalLockedAction(modal, async () => {
+    "delete-checkin-item": createTodoModalConfirmedAction(
+      modal,
+      () => {
+        if (!isEditMode || !item) {
+          return false;
+        }
+        return (
+        requestTodoConfirmation(
+          "确定要删除这个打卡项目吗？此操作不可撤销！",
+          {
+            title: "删除打卡项目",
+            confirmText: "删除",
+            cancelText: "取消",
+            danger: true,
+          },
+        ));
+      },
+      async () => {
       if (!isEditMode || !item) {
-        return false;
-      }
-      const confirmed = await requestTodoConfirmation(
-        "确定要删除这个打卡项目吗？此操作不可撤销！",
-        {
-          title: "删除打卡项目",
-          confirmText: "删除",
-          cancelText: "取消",
-          danger: true,
-        },
-      );
-      if (!confirmed) {
         return false;
       }
       return deleteCheckinItem(item.id, {
         confirmDelete: false,
         closeModal: closeCheckinItemModal,
       });
-    }),
+      },
+    ),
   });
 
   // 点击外部关闭

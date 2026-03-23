@@ -1096,6 +1096,18 @@ public final class ControlerWidgetRenderer {
         views.setTextViewText(R.id.widget_year_summary1, safeText(pickLine(content.lines, 0)));
         views.setTextViewText(R.id.widget_year_summary2, safeText(pickLine(content.lines, 1)));
         views.setTextViewText(R.id.widget_year_summary3, safeText(pickLine(content.lines, 2)));
+        int annualCountSurfaceColor = resolveYearGoalCountSurfaceColor(palette, true);
+        int monthCountSurfaceColor = resolveYearGoalCountSurfaceColor(palette, false);
+        int annualCountTextColor = resolveYearGoalCountTextColor(
+            palette,
+            annualCountSurfaceColor,
+            true
+        );
+        int monthCountTextColor = resolveYearGoalCountTextColor(
+            palette,
+            monthCountSurfaceColor,
+            false
+        );
         views.setTextColor(R.id.widget_title, palette.titleColor);
         views.setTextColor(R.id.widget_subtitle, palette.subtitleColor);
         views.setTextColor(
@@ -1107,8 +1119,18 @@ public final class ControlerWidgetRenderer {
         views.setTextColor(R.id.widget_line3, palette.bodyColor);
         views.setTextColor(R.id.widget_year_annual_title, palette.bodyColor);
         views.setTextColor(R.id.widget_year_month_title, palette.bodyColor);
-        views.setTextColor(R.id.widget_year_annual_count, palette.bodyColor);
-        views.setTextColor(R.id.widget_year_month_count, palette.bodyColor);
+        views.setInt(
+            R.id.widget_year_annual_count_background,
+            "setColorFilter",
+            annualCountSurfaceColor
+        );
+        views.setInt(
+            R.id.widget_year_month_count_background,
+            "setColorFilter",
+            monthCountSurfaceColor
+        );
+        views.setTextColor(R.id.widget_year_annual_count, annualCountTextColor);
+        views.setTextColor(R.id.widget_year_month_count, monthCountTextColor);
         views.setTextColor(R.id.widget_year_summary1, palette.bodyColor);
         views.setTextColor(R.id.widget_year_summary2, palette.bodyColor);
         views.setTextColor(R.id.widget_year_summary3, palette.bodyColor);
@@ -2928,6 +2950,38 @@ public final class ControlerWidgetRenderer {
             safePalette.contrastReferenceColor,
             safePalette.surfaceIsLight ? 0.08f : 0.10f
         );
+    }
+
+    private static int resolveYearGoalCountSurfaceColor(
+        ThemePalette palette,
+        boolean annual
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int baseSurfaceColor = resolveCollectionRowSurfaceColor(safePalette);
+        int accentColor =
+            annual
+                ? safePalette.accentColor
+                : blendColors(safePalette.accentColor, safePalette.bodyColor, 0.32f);
+        return blendColors(
+            baseSurfaceColor,
+            accentColor,
+            safePalette.surfaceIsLight
+                ? (annual ? 0.20f : 0.14f)
+                : (annual ? 0.26f : 0.18f)
+        );
+    }
+
+    private static int resolveYearGoalCountTextColor(
+        ThemePalette palette,
+        int backgroundColor,
+        boolean annual
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int preferredColor =
+            annual
+                ? safePalette.accentColor
+                : blendColors(safePalette.accentColor, safePalette.bodyColor, 0.32f);
+        return resolveReadableTextColor(preferredColor, backgroundColor, 4.2d);
     }
 
     private static Intent buildCollectionServiceIntent(

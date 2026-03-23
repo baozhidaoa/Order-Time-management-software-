@@ -501,6 +501,9 @@ class StorageManager {
     this.autoBackupInFlight = null;
     this.recordPartitionCompactionTimers = new Map();
     this.recordPartitionCompactions = new Map();
+    this.storageRecoveryState = "ok";
+    this.storageRecoveryMessage = "";
+    this.storageRecoveryTargetPath = "";
     this.ensureStorageReady();
     void this.initializeSidecarSqliteRuntime()
       .then(() =>
@@ -1597,6 +1600,294 @@ class StorageManager {
 
   bundleExists(root = this.getBundleRoot()) { return fs.existsSync(this.getManifestPath(root)); }
 
+  resetStorageRecoveryState(root = this.getBundleRoot()) {
+    this.storageRecoveryState = "ok";
+    this.storageRecoveryMessage = "";
+    this.storageRecoveryTargetPath = path.resolve(root);
+  }
+
+  setStorageRecoveryState(state = "ok", message = "", root = this.getBundleRoot()) {
+    this.storageRecoveryState =
+      state === "repaired" || state === "needs-recovery" ? state : "ok";
+    this.storageRecoveryMessage =
+      typeof message === "string" && message.trim() ? message.trim() : "";
+    this.storageRecoveryTargetPath = path.resolve(root);
+  }
+
+  listJsonFilesRecursive(directoryPath) {
+    if (!fs.existsSync(directoryPath)) {
+      return [];
+    }
+    return fs.readdirSync(directoryPath).flatMap((entryName) => {
+      const entryPath = path.join(directoryPath, entryName);
+      try {
+        const stats = fs.statSync(entryPath);
+        if (stats.isDirectory()) {
+          return this.listJsonFilesRecursive(entryPath);
+        }
+        return /\.json$/i.test(String(entryName || "")) ? [entryPath] : [];
+      } catch (error) {
+        return [];
+      }
+    });
+  }
+
+  getBundleSectionDirectoryRelativePath(section) {
+    return path.dirname(
+      bundleHelper.getPartitionRelativePath(section, bundleHelper.UNDATED_PERIOD_ID),
+    );
+  }
+
+  parseBundlePeriodIdFromRelativePath(section, relativePath) {
+    const normalizedRelativePath = String(relativePath || "").replace(/\\/g, "/");
+    const sectionDirectory = this.getBundleSectionDirectoryRelativePath(section);
+    if (
+      !normalizedRelativePath ||
+      (normalizedRelativePath !== `${sectionDirectory}/undated.json` &&
+        !normalizedRelativePath.startsWith(`${sectionDirectory}/`))
+    ) {
+      return "";
+    }
+    if (section === "records") {
+      const patchSegment = normalizedRelativePath
+        .split("/")
+        .find((segment) =>
+          String(segment || "").endsWith(RECORD_PARTITION_PATCH_DIR_SUFFIX),
+        );
+      if (patchSegment) {
+        const baseName = patchSegment.slice(
+          0,
+          Math.max(0, patchSegment.length - RECORD_PARTITION_PATCH_DIR_SUFFIX.length),
+        );
+        return baseName === "undated"
+          ? bundleHelper.UNDATED_PERIOD_ID
+          : bundleHelper.normalizePeriodId(baseName) || "";
+      }
+    }
+    const parsed = path.posix.parse(normalizedRelativePath);
+    if (parsed.base === "undated.json") {
+      return bundleHelper.UNDATED_PERIOD_ID;
+    }
+    return /^\d{4}-\d{2}$/.test(parsed.name)
+      ? bundleHelper.normalizePeriodId(parsed.name) || ""
+      : "";
+  }
+
+  collectBundleSectionPeriods(root, section) {
+    const periods = new Set();
+    const sectionDirectory = path.join(
+      root,
+      this.getBundleSectionDirectoryRelativePath(section),
+    );
+    this.listJsonFilesRecursive(sectionDirectory).forEach((filePath) => {
+      const periodId = this.parseBundlePeriodIdFromRelativePath(
+        section,
+        path.relative(root, filePath),
+      );
+      if (periodId) {
+        periods.add(periodId);
+      }
+    });
+    return Array.from(periods).sort((left, right) =>
+      String(left).localeCompare(String(right)),
+    );
+  }
+
+  inspectBundleArtifacts(root = this.getBundleRoot()) {
+    const manifestPath = this.getManifestPath(root);
+    const corePath = this.getCorePath(root);
+    const recurringPath = this.getRecurringPlansPath(root);
+    const legacyPath = this.getLegacyFilePath(path.join(root, this.fileName));
+    const manifest = this.readManifestSync(root);
+    const sectionPeriods = bundleHelper.PARTITIONED_SECTIONS.reduce(
+      (summary, section) => ({
+        ...summary,
+        [section]: this.collectBundleSectionPeriods(root, section),
+      }),
+      {},
+    );
+    const livePartitionCount = bundleHelper.PARTITIONED_SECTIONS.reduce(
+      (total, section) => total + (sectionPeriods[section] || []).length,
+      0,
+    );
+    const auxiliaryArtifactPaths = [
+      path.join(root, "backups"),
+      path.join(root, "imports"),
+    ];
+    const auxiliaryArtifactsExist = auxiliaryArtifactPaths.some((filePath) => {
+      try {
+        return fs.existsSync(filePath) && fs.readdirSync(filePath).length > 0;
+      } catch (error) {
+        return fs.existsSync(filePath);
+      }
+    });
+    const dataArtifactCount =
+      (fs.existsSync(corePath) ? 1 : 0) +
+      (fs.existsSync(recurringPath) ? 1 : 0) +
+      livePartitionCount;
+    return {
+      manifestPath,
+      corePath,
+      recurringPath,
+      legacyPath,
+      manifestExists: fs.existsSync(manifestPath),
+      manifest,
+      coreExists: fs.existsSync(corePath),
+      recurringExists: fs.existsSync(recurringPath),
+      legacyExists: fs.existsSync(legacyPath),
+      sectionPeriods,
+      livePartitionCount,
+      dataArtifactCount,
+      auxiliaryArtifactsExist,
+      hasLiveBundleArtifacts: dataArtifactCount > 0,
+      hasAnyArtifacts:
+        fs.existsSync(manifestPath) ||
+        dataArtifactCount > 0 ||
+        fs.existsSync(legacyPath) ||
+        auxiliaryArtifactsExist,
+    };
+  }
+
+  buildRecoveredBundlePayloadFromFilesystem(root = this.getBundleRoot(), options = {}) {
+    const inspection = this.inspectBundleArtifacts(root);
+    if (!inspection.hasLiveBundleArtifacts) {
+      return {
+        inspection,
+        payload: null,
+      };
+    }
+    const core = bundleHelper.ensureObject(
+      this.readJsonFileSync(inspection.corePath, {}),
+      {},
+    );
+    const recurringPlans = bundleHelper.ensureArray(
+      this.readJsonFileSync(inspection.recurringPath, []),
+    );
+    const partitionMap = {};
+    bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
+      const sectionMap = new Map();
+      const periodIds = inspection.manifestExists
+        ? bundleHelper
+            .ensureArray(inspection.manifest?.sections?.[section]?.partitions || [])
+            .map((partition) => String(partition?.periodId || "").trim())
+            .filter(Boolean)
+        : inspection.sectionPeriods?.[section] || [];
+      periodIds.forEach((periodId) => {
+        const envelope = this.readPartitionEnvelopeSync(root, section, periodId);
+        const items = bundleHelper.ensureArray(envelope?.items);
+        if (items.length) {
+          sectionMap.set(periodId, items);
+        }
+      });
+      partitionMap[section] = sectionMap;
+    });
+    const baseManifest =
+      inspection.manifest || bundleHelper.createEmptyBundle().manifest;
+    const recoveredState = bundleHelper.buildLegacyStateFromBundle({
+      manifest: baseManifest,
+      core,
+      recurringPlans,
+      partitionMap,
+    });
+    const payload = this.buildBundlePayloadFromState(recoveredState, root, {
+      touchModified: options.touchModified === true,
+      touchSyncSave: options.touchSyncSave === true,
+      legacyBackups:
+        inspection.manifest?.legacyBackups ||
+        bundleHelper.ensureArray(options.legacyBackups),
+    });
+    return {
+      inspection,
+      payload,
+    };
+  }
+
+  shouldRepairBundleArtifacts(root = this.getBundleRoot(), payload = null, inspection = null) {
+    const resolvedInspection = inspection || this.inspectBundleArtifacts(root);
+    const resolvedPayload =
+      payload || this.buildRecoveredBundlePayloadFromFilesystem(root).payload;
+    if (!resolvedPayload) {
+      return false;
+    }
+    if (!resolvedInspection.manifestExists) {
+      return true;
+    }
+    if (!resolvedInspection.coreExists || !resolvedInspection.recurringExists) {
+      return true;
+    }
+    const currentManifest = bundleHelper.normalizeManifest(
+      resolvedInspection.manifest || {},
+    );
+    const recoveredManifest = bundleHelper.normalizeManifest(
+      resolvedPayload.manifest || {},
+    );
+    return JSON.stringify(currentManifest) !== JSON.stringify(recoveredManifest);
+  }
+
+  repairBundleArtifactsIfNeeded(root = this.getBundleRoot()) {
+    const { inspection, payload } = this.buildRecoveredBundlePayloadFromFilesystem(root);
+    if (!inspection.hasAnyArtifacts) {
+      this.resetStorageRecoveryState(root);
+      return {
+        state: "empty",
+        repaired: false,
+        inspection,
+        payload: null,
+      };
+    }
+    if (!inspection.hasLiveBundleArtifacts) {
+      const recoveryMessage = inspection.legacyExists
+        ? "检测到旧版单文件数据，正在等待迁移，当前不会自动写入空库。"
+        : "检测到残留的存储目录或备份文件，但缺少可直接恢复的实时数据。为避免清空原数据，已停止自动写入。";
+      this.setStorageRecoveryState("needs-recovery", recoveryMessage, root);
+      return {
+        state: "needs-recovery",
+        repaired: false,
+        inspection,
+        payload: null,
+        message: recoveryMessage,
+      };
+    }
+    if (!this.shouldRepairBundleArtifacts(root, payload, inspection)) {
+      if (
+        this.storageRecoveryState !== "repaired" ||
+        path.resolve(root) !== this.storageRecoveryTargetPath
+      ) {
+        this.resetStorageRecoveryState(root);
+      }
+      return {
+        state: "ok",
+        repaired: false,
+        inspection,
+        payload,
+      };
+    }
+    this.writeBundlePayloadSync(root, payload, inspection.manifest || null);
+    const message = inspection.manifestExists
+      ? "检测到分片清单或文件不完整，已根据现有数据自动修复。"
+      : "检测到 bundle 清单缺失，已根据现有数据自动重建。";
+    this.setStorageRecoveryState("repaired", message, root);
+    return {
+      state: "repaired",
+      repaired: true,
+      inspection,
+      payload,
+      message,
+    };
+  }
+
+  assertStorageWritable(root = this.getBundleRoot()) {
+    if (
+      this.storageRecoveryState === "needs-recovery" &&
+      path.resolve(root) === this.storageRecoveryTargetPath
+    ) {
+      throw new Error(
+        this.storageRecoveryMessage ||
+          "当前存储仍待恢复，已停止写入以避免把现有数据覆盖成空状态。",
+      );
+    }
+  }
+
   readJsonFileSync(filePath, fallback = null) {
     try {
       if (!fs.existsSync(filePath)) return fallback;
@@ -2390,6 +2681,7 @@ class StorageManager {
         duration_ms
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const seenRecordKeys = new Set();
     try {
       bundleHelper
         .ensureArray(manifest?.sections?.records?.partitions || [])
@@ -2402,11 +2694,16 @@ class StorageManager {
           const periodId = String(partition?.periodId || "").trim();
           const envelope = this.readPartitionEnvelopeSync(root, "records", periodId);
           bundleHelper.ensureArray(envelope?.items).forEach((record) => {
+            const recordKey = this.buildRecordIndexKey(record);
+            if (seenRecordKeys.has(recordKey)) {
+              return;
+            }
+            seenRecordKeys.add(recordKey);
             const dateKey = this.buildBootstrapDateKey(
               record?.endTime || record?.timestamp || record?.startTime,
             );
             statement.run([
-              this.buildRecordIndexKey(record),
+              recordKey,
               String(record?.id || ""),
               periodId,
               String(record?.projectId || ""),
@@ -3294,6 +3591,7 @@ class StorageManager {
   replaceCoreStateInternal(partialCore = {}, options = {}) {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
     const currentCore = this.readCoreSync(root);
     const nextCore = {
       ...currentCore,
@@ -3341,6 +3639,7 @@ class StorageManager {
       throw new Error("分区 periodId 无效");
     }
     const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
     const currentCore = this.readCoreSync(root);
     const normalizedIncoming = bundleHelper.attachProjectIdsToRecords(
       bundleHelper.ensureArray(payload.items),
@@ -3461,6 +3760,7 @@ class StorageManager {
     const incomingItems = bundleHelper.ensureArray(payload.items);
     if (!bundleHelper.validateItemsForPeriod(section, periodId, incomingItems)) throw new Error("分区文件中的项目不属于目标月份");
     const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
     const currentCore = this.readCoreSync(root);
     const existing = this.readPartitionEnvelopeSync(root, section, periodId).items || [];
     const normalizedExisting =
@@ -3773,8 +4073,16 @@ class StorageManager {
     this.storagePath = this.resolveStoragePathFromConfig();
     const root = this.getBundleRoot(this.storagePath);
     let migratedLegacyData = false;
+    if (path.resolve(root) !== this.storageRecoveryTargetPath) {
+      this.resetStorageRecoveryState(root);
+    }
     fs.ensureDirSync(root);
     if (this.bundleExists(root)) {
+      const repairResult = this.repairBundleArtifactsIfNeeded(root);
+      if (repairResult.state === "needs-recovery") {
+        this.startWatching();
+        return;
+      }
       this.startWatching();
       return;
     }
@@ -3794,7 +4102,13 @@ class StorageManager {
         console.error("迁移旧存储文件失败:", error);
       }
     }
-    if (!this.bundleExists(root)) {
+    const repairResult = this.repairBundleArtifactsIfNeeded(root);
+    if (repairResult.state === "needs-recovery") {
+      this.startWatching();
+      return;
+    }
+    if (!this.bundleExists(root) && repairResult.state === "empty") {
+      this.resetStorageRecoveryState(root);
       this.writeBundleFromState(root, this.createDefaultStorageData(), { touchModified: true, touchSyncSave: true });
     }
     this.writeConfig({ storagePath: this.getBundleDisplayPath(root) });
@@ -3807,6 +4121,11 @@ class StorageManager {
   loadStorageData() {
     try {
       this.ensureStorageReady();
+      if (this.storageRecoveryState === "needs-recovery") {
+        return this.normalizeStorageData(this.createDefaultStorageData(), {
+          storagePath: this.storagePath,
+        });
+      }
       this.cachedStorageSnapshot = this.loadBundleStateSync(this.getBundleRoot(this.storagePath));
       this.markKnownFileVersion({ includeHash: true });
       return this.cachedStorageSnapshot;
@@ -3821,6 +4140,12 @@ class StorageManager {
   saveStorageData(data, options = {}) {
     try {
       this.ensureStorageReady();
+      if (this.storageRecoveryState === "needs-recovery") {
+        throw new Error(
+          this.storageRecoveryMessage ||
+            "当前存储存在待恢复数据，已阻止写入以避免原数据被清空。",
+        );
+      }
       const current = this.loadStorageData();
       const incoming = data && typeof data === "object" ? data : {};
       const next = options.replace ? incoming : { ...current, ...incoming };
@@ -3837,6 +4162,13 @@ class StorageManager {
 
   saveStorageSnapshot(data, options = {}) {
     try {
+      this.ensureStorageReady();
+      if (this.storageRecoveryState === "needs-recovery") {
+        throw new Error(
+          this.storageRecoveryMessage ||
+            "当前存储存在待恢复数据，已阻止写入以避免原数据被清空。",
+        );
+      }
       const normalizedChangedSections = normalizeChangedSections(
         options.changedSections,
       );
@@ -3871,6 +4203,13 @@ class StorageManager {
     if (this.flushInFlight) return this.flushInFlight;
     if (!this.pendingSnapshot) return this.getStorageStatus();
     this.flushInFlight = Promise.resolve().then(async () => {
+      this.ensureStorageReady();
+      if (this.storageRecoveryState === "needs-recovery") {
+        throw new Error(
+          this.storageRecoveryMessage ||
+            "检测到存储仍待恢复，已停止强制立即保存，避免把现有数据覆盖成空状态。",
+        );
+      }
       let latestStatus = this.getStorageStatus();
       while (this.pendingSnapshot) {
         const snapshot = this.pendingSnapshot;
@@ -3915,7 +4254,16 @@ class StorageManager {
   }
   inspectStorageTarget(nextStoragePath, currentData) {
     const root = this.getBundleRoot(nextStoragePath);
-    if (this.bundleExists(root)) return { switchAction: "adopted-existing", shouldWrite: false };
+    const repairResult = this.repairBundleArtifactsIfNeeded(root);
+    if (this.bundleExists(root) || repairResult.state === "repaired") {
+      return { switchAction: repairResult.state === "repaired" ? "repaired-existing" : "adopted-existing", shouldWrite: false };
+    }
+    if (repairResult.state === "needs-recovery") {
+      throw new Error(
+        repairResult.message ||
+          "目标目录中存在损坏或残留数据，已停止自动写入当前数据以避免清空原内容。",
+      );
+    }
     if (fs.existsSync(this.getLegacyFilePath(nextStoragePath))) return { switchAction: "migrated-legacy", shouldWrite: false };
     return {
       switchAction: "seeded-current",
@@ -4004,7 +4352,7 @@ class StorageManager {
       this.ensureStorageReady();
       const root = this.getBundleRoot(this.storagePath);
       const manifestPath = this.getBundleDisplayPath(root);
-      const manifest = this.readManifestSync(root);
+      const manifest = this.readManifestSync(root) || bundleHelper.createEmptyBundle().manifest;
       const core = this.readCoreSync(root);
       const version = this.inspectStorageVersion(this.storagePath, { includeHash: true });
       const count = (section) => (manifest?.sections?.[section]?.partitions || []).reduce(
@@ -4034,6 +4382,8 @@ class StorageManager {
         bundleMode: bundleHelper.BUNDLE_MODE,
         formatVersion: manifest?.formatVersion || bundleHelper.FORMAT_VERSION,
         legacyBackups: Array.isArray(manifest?.legacyBackups) ? manifest.legacyBackups : [],
+        recoveryState: this.storageRecoveryState || "ok",
+        recoveryMessage: this.storageRecoveryMessage || "",
       };
     } catch (error) {
       console.error("获取存储状态失败:", error);
@@ -4208,6 +4558,7 @@ class StorageManager {
   replaceRecurringPlansInternal(items = [], options = {}) {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
     const recurringPlans = bundleHelper.ensureArray(items).filter((item) => bundleHelper.isRecurringPlan(item));
     this.writeJsonFileSync(this.getRecurringPlansPath(root), recurringPlans);
     const manifest = this.readManifestSync(root);
@@ -4231,6 +4582,7 @@ class StorageManager {
 
   appendJournal(operations = [], options = {}) {
     this.ensureStorageReady();
+    this.assertStorageWritable(this.getBundleRoot(this.storagePath));
     const normalizedOperations = coalesceJournalOperations(operations);
     const metadata = collectJournalMetadata(normalizedOperations);
     const reason =

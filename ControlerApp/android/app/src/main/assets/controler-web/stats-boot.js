@@ -1859,13 +1859,7 @@ function registerStatsBeforePageLeaveGuard() {
       clearStatsPersistenceError();
       return true;
     }
-    try {
-      return await flushStatsPendingPersistence();
-    } catch (error) {
-      console.error("统计页离开前等待保存失败，继续允许切页:", error);
-      clearStatsPersistenceError();
-      return true;
-    }
+    return flushStatsPendingPersistence();
   });
 }
 
