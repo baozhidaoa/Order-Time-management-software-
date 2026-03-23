@@ -99,6 +99,13 @@ type BridgeEnvelopePayload = {
   page?: string;
   href?: string;
   direction?: string;
+  intentId?: string;
+  requestedAt?: unknown;
+  sourcePage?: string;
+  sourceHref?: string;
+  targetPage?: string;
+  targetHref?: string;
+  state?: string;
   hiddenPages?: unknown;
   order?: unknown;
   changedSections?: unknown;
@@ -154,6 +161,10 @@ type EdgeBackSwipeExclusionState = {
 
 type NavigationRequestSource = 'bridge' | 'webview';
 type NavigationRequestResult = 'intercept' | 'allow-default' | 'noop';
+type NavigationIntentStamp = {
+  intentId: string;
+  requestedAt: number;
+};
 type LaunchContext = {
   active: boolean;
   pageKey: AppPageKey | '';
@@ -176,6 +187,7 @@ type QueuedNavigationRequest = {
   payload: Record<string, unknown>;
   source: NavigationRequestSource;
   queuedAt: number;
+  intent: NavigationIntentStamp | null;
 };
 
 type WidgetRefreshPayload = {
@@ -884,6 +896,24 @@ function normalizeNavigationDirection(value: unknown): NavigationDirection | '' 
   return '';
 }
 
+function readNavigationIntentStamp(
+  payload: Record<string, unknown> | BridgeEnvelopePayload | null | undefined,
+): NavigationIntentStamp | null {
+  const intentId =
+    payload && typeof payload.intentId === 'string' ? payload.intentId.trim() : '';
+  const requestedAt = Math.max(
+    0,
+    Number.isFinite(Number(payload?.requestedAt)) ? Number(payload?.requestedAt) : 0,
+  );
+  if (!intentId && requestedAt <= 0) {
+    return null;
+  }
+  return {
+    intentId,
+    requestedAt,
+  };
+}
+
 type BridgeNavigationDispatchPolicyOptions = {
   isAndroid: boolean;
   sourceSlot: WebViewSlot;
@@ -900,11 +930,35 @@ export function resolveBridgeNavigationDispatchPolicy({
   ignore: boolean;
   queue: boolean;
 } {
-  const ignore = isAndroid && sourceSlot !== activeSlot;
   return {
-    ignore,
-    queue: transitionBusy && !isAndroid && !ignore,
+    ignore: false,
+    queue: transitionBusy || (isAndroid && sourceSlot !== activeSlot),
   };
+}
+
+export function compareNavigationIntentPriority(
+  current: Partial<NavigationIntentStamp> | null | undefined,
+  incoming: Partial<NavigationIntentStamp> | null | undefined,
+): -1 | 0 | 1 {
+  const currentRequestedAt = Math.max(
+    0,
+    Number.isFinite(Number(current?.requestedAt))
+      ? Number(current?.requestedAt)
+      : 0,
+  );
+  const incomingRequestedAt = Math.max(
+    0,
+    Number.isFinite(Number(incoming?.requestedAt))
+      ? Number(incoming?.requestedAt)
+      : 0,
+  );
+  if (incomingRequestedAt > currentRequestedAt) {
+    return 1;
+  }
+  if (incomingRequestedAt < currentRequestedAt) {
+    return -1;
+  }
+  return 0;
 }
 
 type WebViewInteractivityOptions = {
@@ -1567,6 +1621,9 @@ function App({
     tertiary: '',
   });
   const queuedNavigationRequestRef = useRef<QueuedNavigationRequest | null>(null);
+  const latestBridgeNavigationIntentRef = useRef<NavigationIntentStamp | null>(
+    null,
+  );
   const lastVisiblePagePersistedRef = useRef<AppPageKey | ''>('');
   const postBridgeEventRef = useRef(
     (
@@ -2612,6 +2669,7 @@ function App({
       tertiary: false,
     };
     queuedNavigationRequestRef.current = null;
+    latestBridgeNavigationIntentRef.current = null;
     transitionStateRef.current = null;
     setTransitionState(null);
   }, [
@@ -2719,6 +2777,37 @@ function App({
     return Date.now() - watchdog.startedAt >= PAGE_SWITCH_LOAD_TIMEOUT_MS;
   };
 
+  const flushQueuedNavigationRequestIfReady = useCallback(
+    (reason = 'queue-flush') => {
+      const queuedRequest = queuedNavigationRequestRef.current;
+      if (
+        !queuedRequest ||
+        transitionStateRef.current ||
+        busyLockBySlotRef.current[activeSlotRef.current]
+      ) {
+        return false;
+      }
+
+      queuedNavigationRequestRef.current = null;
+      const navigationResult = requestPageNavigationRef.current(
+        queuedRequest.payload,
+        queuedRequest.source,
+      );
+      logPerfMetric('navigation-replayed', {
+        source: queuedRequest.source,
+        reason,
+        page:
+          typeof queuedRequest.payload.page === 'string'
+            ? queuedRequest.payload.page
+            : getPageByHref(queuedRequest.payload.href)?.key || '',
+        queuedForMs: Date.now() - queuedRequest.queuedAt,
+        navigationResult,
+      });
+      return navigationResult !== 'noop';
+    },
+    [logPerfMetric],
+  );
+
   const clearPendingTransition = (slot: WebViewSlot) => {
     const currentTransition = transitionStateRef.current;
     if (!currentTransition || currentTransition.toSlot !== slot) {
@@ -2739,19 +2828,7 @@ function App({
     }
     if (queuedNavigationRequestRef.current) {
       requestAnimationFrame(() => {
-        const queuedRequest = queuedNavigationRequestRef.current;
-        if (
-          !queuedRequest ||
-          transitionStateRef.current ||
-          busyLockBySlotRef.current[activeSlotRef.current]
-        ) {
-          return;
-        }
-        queuedNavigationRequestRef.current = null;
-        requestPageNavigationRef.current(
-          queuedRequest.payload,
-          queuedRequest.source,
-        );
+        flushQueuedNavigationRequestIfReady('transition-cleared');
       });
     }
   };
@@ -2761,10 +2838,12 @@ function App({
       payload: Record<string, unknown> = {},
       source: NavigationRequestSource = 'bridge',
     ) => {
+      const intent = readNavigationIntentStamp(payload);
       queuedNavigationRequestRef.current = {
         payload: {...payload},
         source,
         queuedAt: Date.now(),
+        intent,
       };
       logPerfMetric('navigation-queued', {
         source,
@@ -2772,6 +2851,7 @@ function App({
           typeof payload.page === 'string'
             ? payload.page
             : getPageByHref(payload.href)?.key || '',
+        intentId: intent?.intentId || '',
       });
     },
     [logPerfMetric],
@@ -2800,28 +2880,7 @@ function App({
     clearHiddenCachedSlots();
     if (queuedNavigationRequestRef.current) {
       requestAnimationFrame(() => {
-        const queuedRequest = queuedNavigationRequestRef.current;
-        if (
-          !queuedRequest ||
-          transitionStateRef.current ||
-          busyLockBySlotRef.current[activeSlotRef.current]
-        ) {
-          return;
-        }
-        queuedNavigationRequestRef.current = null;
-        const navigationResult = requestPageNavigationRef.current(
-          queuedRequest.payload,
-          queuedRequest.source,
-        );
-        logPerfMetric('navigation-replayed', {
-          source: queuedRequest.source,
-          page:
-            typeof queuedRequest.payload.page === 'string'
-              ? queuedRequest.payload.page
-              : getPageByHref(queuedRequest.payload.href)?.key || '',
-          queuedForMs: Date.now() - queuedRequest.queuedAt,
-          navigationResult,
-        });
+        flushQueuedNavigationRequestIfReady('transition-complete');
       });
     }
   };
@@ -4205,6 +4264,15 @@ function App({
         if (busyLockBySlotRef.current[slot] !== nextBusy) {
           busyLockBySlotRef.current[slot] = nextBusy;
           setBusyStateVersion(version => version + 1);
+          if (
+            !nextBusy &&
+            slot === activeSlotRef.current &&
+            !transitionStateRef.current
+          ) {
+            requestAnimationFrame(() => {
+              flushQueuedNavigationRequestIfReady('busy-lock-cleared');
+            });
+          }
         }
         return;
       }
@@ -4297,6 +4365,9 @@ function App({
         }
         if (slot === activeSlotRef.current) {
           revealWebView();
+          requestAnimationFrame(() => {
+            flushQueuedNavigationRequestIfReady('page-ready');
+          });
         }
         return;
       }
@@ -4326,6 +4397,11 @@ function App({
         const activeSlot = activeSlotRef.current;
         const transitionBusy = !!transitionStateRef.current;
         const navigationLocked = busyLockBySlotRef.current[activeSlot];
+        const incomingIntent = readNavigationIntentStamp(message.payload || {});
+        const targetPage =
+          typeof message.payload?.page === 'string'
+            ? message.payload.page
+            : getPageByHref(message.payload?.href)?.key || '';
         const dispatchPolicy = resolveBridgeNavigationDispatchPolicy({
           isAndroid: IS_ANDROID,
           sourceSlot: slot,
@@ -4335,34 +4411,62 @@ function App({
         let navigationResult: NavigationRequestResult = 'noop';
         let accepted = false;
         let queued = false;
-        if (dispatchPolicy.ignore) {
+        let ackState = 'rejected';
+        let ackReason = 'unresolved-target';
+        if (
+          incomingIntent &&
+          compareNavigationIntentPriority(
+            latestBridgeNavigationIntentRef.current,
+            incomingIntent,
+          ) < 0
+        ) {
+          ackState = 'dropped-stale';
+          ackReason = 'stale-intent';
+        } else if (incomingIntent) {
+          latestBridgeNavigationIntentRef.current = incomingIntent;
+        }
+
+        const shouldQueue = dispatchPolicy.queue || navigationLocked;
+        if (ackState !== 'dropped-stale' && shouldQueue) {
+          queueNavigationRequest(message.payload || {}, 'bridge');
+          queued = true;
           accepted = true;
-        } else if (transitionBusy) {
-          if (dispatchPolicy.queue) {
-            queueNavigationRequest(message.payload || {}, 'bridge');
-            queued = true;
-          }
-          accepted = true;
-        } else if (!navigationLocked) {
+          ackState = 'queued';
+          ackReason = transitionBusy
+            ? 'transition-busy'
+            : navigationLocked
+              ? 'navigation-locked'
+              : slot !== activeSlot
+                ? 'inactive-slot'
+                : 'queued';
+          requestAnimationFrame(() => {
+            flushQueuedNavigationRequestIfReady('bridge-event-queued');
+          });
+        } else if (ackState !== 'dropped-stale') {
           navigationResult = requestPageNavigation(message.payload || {}, 'bridge');
           accepted = navigationResult === 'intercept';
+          ackState = accepted ? 'accepted-now' : 'rejected';
+          ackReason = accepted ? 'dispatched' : 'navigation-noop';
         }
         const requestId =
           typeof message.payload?.requestId === 'string'
             ? message.payload.requestId
             : '';
         if (requestId) {
-          const busy = dispatchPolicy.ignore || transitionBusy || navigationLocked;
-          const retryAfterMs = busy
-            ? transitionStateRef.current
-              ? 220
-              : 140
-            : 0;
+          const busy =
+            ackState === 'queued' ||
+            transitionBusy ||
+            navigationLocked ||
+            (dispatchPolicy.queue && slot !== activeSlot);
+          const retryAfterMs = ackState === 'queued' ? 0 : 0;
           postBridgeEvent(slot, 'ui.navigate-ack', {
             requestId,
             accepted,
             busy,
             queued,
+            state: ackState,
+            reason: ackReason,
+            targetPage,
             retryAfterMs,
           });
         }
