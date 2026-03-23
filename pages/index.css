@@ -6756,7 +6756,7 @@ body :is(
   min-height: var(--controler-visual-viewport-height, 100dvh);
   height: var(--controler-visual-viewport-height, 100dvh);
   max-height: var(--controler-visual-viewport-height, 100dvh);
-  z-index: 2400;
+  z-index: 4400;
   border-radius: 0;
   overflow: hidden;
   overscroll-behavior: contain;

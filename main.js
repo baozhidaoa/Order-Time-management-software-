@@ -439,7 +439,9 @@ async function logRendererBridgeHealth(targetWindow, context = {}) {
           typeof navigator?.userAgent === "string" ? navigator.userAgent : "";
         return {
           href: typeof window.location?.href === "string" ? window.location.href : "",
-          userAgentHasElectron: /\\\\bElectron\\\\/\\\\d+/i.test(userAgent),
+          userAgentHasElectron:
+            typeof userAgent === "string" &&
+            userAgent.toLowerCase().includes("electron/"),
           hasElectronAPI: !!electronAPI,
           hasVersionsBridge: !!window.versions,
           isElectronFlag: !!electronAPI?.isElectron,

@@ -142,6 +142,7 @@ public final class ControlerWidgetDataStore {
         public String title = "";
         public String description = "";
         public String priority = "medium";
+        public boolean isCompleted = false;
         public String createdAt = "";
     }
 
@@ -5715,12 +5716,17 @@ public final class ControlerWidgetDataStore {
                 goal.title = "未命名目标";
                 goal.description = "";
                 goal.priority = "medium";
+                goal.isCompleted = false;
                 goal.createdAt = "";
             } else {
                 goal.id = item.optString("id", "");
                 goal.title = item.optString("title", item.optString("text", "未命名目标"));
                 goal.description = item.optString("description", "");
                 goal.priority = item.optString("priority", "medium");
+                goal.isCompleted = item.optBoolean(
+                    "isCompleted",
+                    item.optBoolean("completed", false)
+                );
                 goal.createdAt = item.optString("createdAt", "");
             }
             if (TextUtils.isEmpty(goal.priority)) {

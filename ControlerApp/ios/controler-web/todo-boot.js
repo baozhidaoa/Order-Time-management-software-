@@ -3831,9 +3831,9 @@ function createTodoElement(todo, listScale = 1) {
   const metaFontSize = Math.max(9, Math.round(12 * cardScale));
   const actionFontSize = Math.max(10, Math.round(13 * cardScale));
   const cardMaxWidth = getTodoListCardMaxWidth(listScale);
-  const cardPadding = Math.max(8, Math.round(14 * cardScale));
-  const cardGap = Math.max(4, Math.round(8 * cardScale));
-  const progressCardWidth = Math.max(104, Math.round(176 * cardScale));
+  const cardPadding = Math.max(7, Math.round(12 * cardScale));
+  const cardGap = Math.max(3, Math.round(6 * cardScale));
+  const progressCardWidth = Math.max(96, Math.round(160 * cardScale));
   todoElement.className = `todo-item ${todo.completed ? "completed" : ""}`;
   todoElement.dataset.todoId = todo.id;
   todoElement.style.setProperty(
@@ -3855,6 +3855,9 @@ function createTodoElement(todo, listScale = 1) {
   const todoCheckins = getTodoCheckins(todo.id);
   todoCheckins.sort((left, right) => new Date(right.time) - new Date(left.time));
   const hasProgressRecords = todoCheckins.length > 0;
+  const progressSummaryText = hasProgressRecords
+    ? `已记录 ${todoCheckins.length} 条`
+    : "暂无进度，点右侧“＋”补一条";
   const reminderSummary =
     reminderTools?.describeTodoReminder?.(todo) || "不通知";
 
@@ -3903,63 +3906,53 @@ function createTodoElement(todo, listScale = 1) {
       ${
         hasProgressRecords
           ? `
-        <div class="todo-progress-caption">进度记录</div>
-        <div class="todo-progress-bottom-row">
-          <div class="checkin-records checkin-records-inline todo-progress-records-row">
-            ${todoCheckins
-              .map(
-                (checkin) => `
-              <div
-                class="checkin-record todo-progress-record"
-                role="button"
-                tabindex="0"
-                data-checkin-id="${escapeHtml(checkin.id)}"
-                title="点击编辑这条进度记录：${escapeHtml(checkin.message)}"
-              >
-                <div class="checkin-date">${escapeHtml(checkin.getTimeDisplay())}</div>
-                <div class="checkin-message">${escapeHtml(checkin.message)}</div>
-              </div>
-            `,
-              )
-              .join("")}
-          </div>
-          <div class="todo-action-stack">
-            <button
-              type="button"
-              class="todo-action-btn todo-progress-btn"
-              data-action="add-progress"
-              title="添加进度记录"
+        <div class="checkin-records checkin-records-inline todo-progress-records-row">
+          ${todoCheckins
+            .map(
+              (checkin) => `
+            <div
+              class="checkin-record todo-progress-record"
+              role="button"
+              tabindex="0"
+              data-checkin-id="${escapeHtml(checkin.id)}"
+              title="点击编辑这条进度记录：${escapeHtml(checkin.message)}"
             >
-              +
-            </button>
-            <button type="button" class="todo-action-btn complete-btn" data-action="complete">
-              ${todo.completed ? "取消完成" : "完成"}
-            </button>
-          </div>
+              <div class="checkin-date">${escapeHtml(checkin.getTimeDisplay())}</div>
+              <div class="checkin-message">${escapeHtml(checkin.message)}</div>
+            </div>
+          `,
+            )
+            .join("")}
         </div>
       `
-          : `
-        <div class="todo-progress-bottom-row">
-          <div class="todo-progress-lane">
-            <div class="todo-progress-caption">进度记录</div>
-            <div class="todo-progress-empty">暂无进度，点右侧“＋”补一条</div>
-          </div>
-          <div class="todo-action-stack">
-            <button
-              type="button"
-              class="todo-action-btn todo-progress-btn"
-              data-action="add-progress"
-              title="添加进度记录"
-            >
-              +
-            </button>
-            <button type="button" class="todo-action-btn complete-btn" data-action="complete">
-              ${todo.completed ? "取消完成" : "完成"}
-            </button>
-          </div>
-        </div>
-      `
+          : ""
       }
+      <div class="todo-progress-bottom-row">
+        <div class="todo-progress-lane">
+          <div class="todo-progress-summary-row">
+            <div class="todo-progress-caption">进度记录</div>
+            <div
+              class="todo-progress-status"
+              title="${escapeHtml(progressSummaryText)}"
+            >
+              ${escapeHtml(progressSummaryText)}
+            </div>
+          </div>
+        </div>
+        <div class="todo-action-stack">
+          <button
+            type="button"
+            class="todo-action-btn todo-progress-btn"
+            data-action="add-progress"
+            title="添加进度记录"
+          >
+            +
+          </button>
+          <button type="button" class="todo-action-btn complete-btn" data-action="complete">
+            ${todo.completed ? "取消完成" : "完成"}
+          </button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -3976,14 +3969,14 @@ function createTodoElement(todo, listScale = 1) {
   const progressBottomRowElement = todoElement.querySelector(".todo-progress-bottom-row");
   const actionStackElement = todoElement.querySelector(".todo-action-stack");
   const progressLaneElement = todoElement.querySelector(".todo-progress-lane");
+  const progressSummaryRowElement = todoElement.querySelector(".todo-progress-summary-row");
   const repeatSummaryElement = todoElement.querySelector(".todo-repeat-summary");
   const progressCaptionElement = todoElement.querySelector(".todo-progress-caption");
-  const progressEmptyElement = todoElement.querySelector(".todo-progress-empty");
+  const progressStatusElement = todoElement.querySelector(".todo-progress-status");
   const progressRecordsContainer = todoElement.querySelector(".todo-progress-records-row");
   const progressRecords = todoElement.querySelectorAll(".todo-progress-record");
   const progressDateElements = todoElement.querySelectorAll(".checkin-date");
   const progressMessageElements = todoElement.querySelectorAll(".checkin-message");
-  const shouldStackEmptyProgress = !hasProgressRecords && isCompactMobileLayout();
 
   if (headerElement) {
     headerElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
@@ -4017,56 +4010,59 @@ function createTodoElement(todo, listScale = 1) {
     progressCaptionElement.style.lineHeight = "1.15";
     progressCaptionElement.style.whiteSpace = "nowrap";
   }
-  if (progressEmptyElement) {
-    progressEmptyElement.style.fontSize = `${metaFontSize}px`;
-    progressEmptyElement.style.lineHeight = "1.25";
-    progressEmptyElement.style.display = "block";
-    progressEmptyElement.style.width = "100%";
+  if (progressStatusElement) {
+    progressStatusElement.style.fontSize = `${metaFontSize}px`;
+    progressStatusElement.style.lineHeight = "1.2";
+    progressStatusElement.style.whiteSpace = "nowrap";
+    progressStatusElement.style.overflow = "hidden";
+    progressStatusElement.style.textOverflow = "ellipsis";
+    progressStatusElement.style.minWidth = "0";
   }
   if (footerElement) {
     footerElement.style.display = "flex";
     footerElement.style.flexDirection = "column";
     footerElement.style.alignItems = "stretch";
-    footerElement.style.gap = `${Math.max(3, Math.round(5 * cardScale))}px`;
+    footerElement.style.gap = `${Math.max(2, Math.round(4 * cardScale))}px`;
     footerElement.style.minWidth = "0";
   }
   if (progressBottomRowElement) {
     progressBottomRowElement.style.display = "flex";
-    progressBottomRowElement.style.flexWrap = shouldStackEmptyProgress ? "wrap" : "nowrap";
-    progressBottomRowElement.style.alignItems = shouldStackEmptyProgress
-      ? "stretch"
-      : hasProgressRecords
-        ? "flex-end"
-        : "center";
+    progressBottomRowElement.style.flexWrap = "nowrap";
+    progressBottomRowElement.style.alignItems = "center";
     progressBottomRowElement.style.justifyContent = "space-between";
-    progressBottomRowElement.style.gap = `${Math.max(8, Math.round(10 * cardScale))}px`;
+    progressBottomRowElement.style.gap = `${Math.max(6, Math.round(8 * cardScale))}px`;
     progressBottomRowElement.style.minWidth = "0";
+    progressBottomRowElement.style.overflow = "hidden";
   }
   if (progressLaneElement) {
     progressLaneElement.style.display = "flex";
-    progressLaneElement.style.flexDirection = "column";
-    progressLaneElement.style.gap = `${Math.max(1, Math.round(2 * cardScale))}px`;
-    progressLaneElement.style.flex = shouldStackEmptyProgress ? "1 1 100%" : "1 1 auto";
-    progressLaneElement.style.width = shouldStackEmptyProgress ? "100%" : "";
+    progressLaneElement.style.alignItems = "center";
+    progressLaneElement.style.flex = "1 1 auto";
     progressLaneElement.style.minWidth = "0";
+    progressLaneElement.style.overflow = "hidden";
+  }
+  if (progressSummaryRowElement) {
+    progressSummaryRowElement.style.display = "flex";
+    progressSummaryRowElement.style.alignItems = "center";
+    progressSummaryRowElement.style.gap = `${Math.max(4, Math.round(6 * cardScale))}px`;
+    progressSummaryRowElement.style.flexWrap = "nowrap";
+    progressSummaryRowElement.style.width = "100%";
+    progressSummaryRowElement.style.minWidth = "0";
   }
   if (actionStackElement) {
     actionStackElement.style.gap = `${Math.max(6, Math.round(8 * cardScale))}px`;
-    actionStackElement.style.marginLeft = shouldStackEmptyProgress ? "0" : "auto";
-    actionStackElement.style.flex = shouldStackEmptyProgress ? "1 1 100%" : "0 0 auto";
-    actionStackElement.style.width = shouldStackEmptyProgress ? "100%" : "";
+    actionStackElement.style.marginLeft = "auto";
+    actionStackElement.style.flex = "0 0 auto";
+    actionStackElement.style.width = "";
     actionStackElement.style.flexWrap = "nowrap";
     actionStackElement.style.alignItems = "center";
     actionStackElement.style.justifyContent = "flex-end";
-    actionStackElement.style.alignSelf = shouldStackEmptyProgress
-      ? "stretch"
-      : hasProgressRecords
-        ? "flex-end"
-        : "center";
+    actionStackElement.style.alignSelf = "center";
   }
   if (progressRecordsContainer) {
     progressRecordsContainer.style.gap = `${Math.max(4, Math.round(6 * cardScale))}px`;
-    progressRecordsContainer.style.flex = "1 1 auto";
+    progressRecordsContainer.style.flex = "0 1 auto";
+    progressRecordsContainer.style.width = "100%";
     progressRecordsContainer.style.minWidth = "0";
     progressRecordsContainer.style.paddingBottom = "0";
     progressRecordsContainer.style.alignItems = "stretch";
@@ -4078,7 +4074,7 @@ function createTodoElement(todo, listScale = 1) {
   });
   if (completeButton) {
     completeButton.style.fontSize = `${actionFontSize}px`;
-    completeButton.style.padding = `${Math.max(4, Math.round(6 * cardScale))}px ${Math.max(10, Math.round(13 * cardScale))}px`;
+    completeButton.style.padding = `${Math.max(4, Math.round(5 * cardScale))}px ${Math.max(9, Math.round(12 * cardScale))}px`;
     completeButton.style.whiteSpace = "nowrap";
     completeButton.style.flexShrink = "0";
     completeButton.disabled = false;
@@ -4090,9 +4086,9 @@ function createTodoElement(todo, listScale = 1) {
     });
   }
   if (progressButton) {
-    progressButton.style.fontSize = `${Math.max(actionFontSize + 2, Math.round(16 * cardScale))}px`;
-    progressButton.style.width = `${Math.max(28, Math.round(34 * cardScale))}px`;
-    progressButton.style.height = `${Math.max(28, Math.round(34 * cardScale))}px`;
+    progressButton.style.fontSize = `${Math.max(actionFontSize + 1, Math.round(15 * cardScale))}px`;
+    progressButton.style.width = `${Math.max(26, Math.round(32 * cardScale))}px`;
+    progressButton.style.height = `${Math.max(26, Math.round(32 * cardScale))}px`;
     progressButton.style.padding = "0";
     progressButton.style.display = "inline-flex";
     progressButton.style.alignItems = "center";
@@ -4107,10 +4103,10 @@ function createTodoElement(todo, listScale = 1) {
     });
   }
   progressRecords.forEach((recordElement) => {
-    recordElement.style.padding = `${Math.max(4, Math.round(6 * cardScale))}px ${Math.max(8, Math.round(10 * cardScale))}px`;
+    recordElement.style.padding = `${Math.max(4, Math.round(5 * cardScale))}px ${Math.max(7, Math.round(9 * cardScale))}px`;
     recordElement.style.marginTop = "0";
     recordElement.style.minWidth = `${progressCardWidth}px`;
-    recordElement.style.maxWidth = `${Math.max(progressCardWidth, Math.round(214 * cardScale))}px`;
+    recordElement.style.maxWidth = `${Math.max(progressCardWidth, Math.round(196 * cardScale))}px`;
     recordElement.style.borderRadius = `${Math.max(12, Math.round(18 * cardScale))}px`;
     const openProgressEditor = (event) => {
       event.preventDefault();

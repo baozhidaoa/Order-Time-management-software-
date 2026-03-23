@@ -2755,6 +2755,12 @@
       return cachedState;
     }
 
+    function buildCurrentElectronMergedState() {
+      return buildMergedState(readState(), {
+        includeAliases: true,
+      });
+    }
+
     function assignState(nextState) {
       adoptLegacyLocalOnlyValues(nextState);
       cachedState = normalizeState(nextState);
@@ -3041,7 +3047,7 @@
                 pageKey,
                 payload,
                 options,
-                buildCurrentMergedState(),
+                buildCurrentElectronMergedState(),
                 {
                   storageStatus: cachedStatus,
                 },
@@ -3051,7 +3057,7 @@
             }
           }
           return buildPageBootstrapStateFromState(
-            buildCurrentMergedState(),
+            buildCurrentElectronMergedState(),
             pageKey,
             options,
             {
@@ -3073,7 +3079,7 @@
                 pageKey,
                 payload,
                 options,
-                buildCurrentMergedState(),
+                buildCurrentElectronMergedState(),
                 {
                   storageStatus: cachedStatus,
                 },
@@ -3087,7 +3093,7 @@
               pageKey,
               options,
               {
-                fallbackState: buildCurrentMergedState(),
+                fallbackState: buildCurrentElectronMergedState(),
                 getCoreState: async () =>
                   typeof electronAPI.storageGetCoreState === "function"
                     ? electronAPI.storageGetCoreState()
