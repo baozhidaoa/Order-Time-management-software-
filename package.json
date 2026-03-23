@@ -1,6 +1,6 @@
 {
   "name": "order",
-  "version": "1.276.0",
+  "version": "1.277.0",
   "description": "Order is a local-first time tracker for desktop and mobile.",
   "main": "main.js",
   "scripts": {
@@ -9,6 +9,7 @@
     "bench:cold-start": "node scripts/benchmark-storage-cold-start.mjs",
     "bench:matrix": "node scripts/benchmark-storage-matrix.mjs",
     "bench:recovery": "node scripts/test-storage-recovery.mjs",
+    "test:storage-hardening": "node scripts/test-storage-hardening.mjs",
     "test:index-record-persistence": "node scripts/test-index-record-persistence.mjs",
     "docs:screenshots": "node scripts/run-readme-screenshots.js",
     "ci:mac": "npm run dist:mac",
@@ -65,7 +66,7 @@
   "build": {
     "appId": "com.controler.timetracker",
     "productName": "Order",
-    "buildVersion": "1.276",
+    "buildVersion": "1.277",
     "electronDist": "node_modules/electron/dist",
     "afterPack": "scripts/after-pack-windows.js",
     "asar": true,

@@ -731,6 +731,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "userDataPath",
     "documentsPath",
     "syncMeta",
+    "schemaVersion",
+    "recovery",
+    "protectionMode",
   ]);
   const SECTION_DIRECTORY_MAP = Object.freeze({
     records: "records",
@@ -750,6 +753,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "diaryEntries",
     "diaryCategories",
   ]);
+  const RECURRING_PLAN_VIRTUAL_PERIOD_ID = "__recurring__";
+  const HARD_RECOVERY_REASONS = new Set([
+    "invalid-item",
+    "missing-record-time",
+    "missing-record-reference",
+    "missing-plan-date",
+    "missing-diary-date",
+    "missing-daily-checkin-date",
+    "missing-checkin-time",
+    "duplicate-project-id",
+    "duplicate-record-id",
+    "duplicate-plan-id",
+    "duplicate-diary-id",
+    "duplicate-daily-checkin-id",
+    "duplicate-checkin-id",
+  ]);
+  const DUPLICATE_ITEM_REASON_BY_SECTION = Object.freeze({
+    projects: "duplicate-project-id",
+    records: "duplicate-record-id",
+    plans: "duplicate-plan-id",
+    diaryEntries: "duplicate-diary-id",
+    dailyCheckins: "duplicate-daily-checkin-id",
+    checkins: "duplicate-checkin-id",
+  });
 
   function cloneValue(value) {
     if (value === null || value === undefined) {
@@ -774,8 +801,151 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return isPlainObject(value) ? value : fallback;
   }
 
+  function createEmptyRecoverySummary() {
+    return {
+      totalInvalidCount: 0,
+      hardInvalidCount: 0,
+      softInvalidCount: 0,
+      hasHardIssues: false,
+      reasonCounts: {},
+      hardReasonCounts: {},
+      lastCapturedAt: null,
+    };
+  }
+
+  function normalizeRecoveryEntry(entry = {}) {
+    const source = ensureObject(entry, {});
+    return {
+      section:
+        typeof source.section === "string" && source.section.trim()
+          ? source.section.trim()
+          : "unknown",
+      periodId:
+        typeof source.periodId === "string" && source.periodId.trim()
+          ? source.periodId.trim()
+          : "",
+      actualPeriodId:
+        typeof source.actualPeriodId === "string" && source.actualPeriodId.trim()
+          ? source.actualPeriodId.trim()
+          : "",
+      reason:
+        typeof source.reason === "string" && source.reason.trim()
+          ? source.reason.trim()
+          : "invalid-item",
+      item: cloneValue(source.item),
+      capturedAt:
+        typeof source.capturedAt === "string" && source.capturedAt.trim()
+          ? source.capturedAt.trim()
+          : new Date().toISOString(),
+    };
+  }
+
+  function isHardRecoveryReason(reason = "") {
+    return HARD_RECOVERY_REASONS.has(String(reason || "").trim());
+  }
+
+  function buildRecoverySummary(invalidItems = [], fallbackSummary = {}) {
+    const summary = createEmptyRecoverySummary();
+    ensureArray(invalidItems).forEach((entry) => {
+      const normalizedEntry = normalizeRecoveryEntry(entry);
+      const reason = normalizedEntry.reason || "invalid-item";
+      const capturedAt =
+        typeof normalizedEntry.capturedAt === "string" &&
+        normalizedEntry.capturedAt.trim()
+          ? normalizedEntry.capturedAt.trim()
+          : null;
+      summary.totalInvalidCount += 1;
+      summary.reasonCounts[reason] = (summary.reasonCounts[reason] || 0) + 1;
+      if (isHardRecoveryReason(reason)) {
+        summary.hardInvalidCount += 1;
+        summary.hardReasonCounts[reason] =
+          (summary.hardReasonCounts[reason] || 0) + 1;
+      } else {
+        summary.softInvalidCount += 1;
+      }
+      if (!summary.lastCapturedAt) {
+        summary.lastCapturedAt = capturedAt;
+        return;
+      }
+      const currentTime = Date.parse(summary.lastCapturedAt);
+      const nextTime = capturedAt ? Date.parse(capturedAt) : Number.NaN;
+      if (
+        capturedAt &&
+        (!Number.isFinite(currentTime) ||
+          (Number.isFinite(nextTime) && nextTime > currentTime))
+      ) {
+        summary.lastCapturedAt = capturedAt;
+      }
+    });
+    if (!summary.lastCapturedAt) {
+      summary.lastCapturedAt =
+        typeof fallbackSummary?.lastCapturedAt === "string" &&
+        fallbackSummary.lastCapturedAt.trim()
+          ? fallbackSummary.lastCapturedAt.trim()
+          : null;
+    }
+    summary.hasHardIssues = summary.hardInvalidCount > 0;
+    return summary;
+  }
+
+  function normalizeRecoveryState(recovery = {}) {
+    const source = ensureObject(recovery, {});
+    const invalidItems = ensureArray(source.invalidItems).map((entry) =>
+      normalizeRecoveryEntry(entry),
+    );
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems, source.summary),
+    };
+  }
+
+  function appendRecoveryItems(recovery = {}, invalidItems = []) {
+    const normalized = normalizeRecoveryState(recovery);
+    return normalizeRecoveryState({
+      invalidItems: normalized.invalidItems.concat(
+        ensureArray(invalidItems).map((entry) => normalizeRecoveryEntry(entry)),
+      ),
+    });
+  }
+
   function padNumber(value) {
     return String(value).padStart(2, "0");
+  }
+
+  function formatDateOnly(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+  }
+
+  function formatDateTime(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const milliseconds = date.getMilliseconds();
+    const base = `${formatDateOnly(date)}T${padNumber(date.getHours())}:${padNumber(date.getMinutes())}:${padNumber(date.getSeconds())}`;
+    if (!milliseconds) {
+      return base;
+    }
+    return `${base}.${String(milliseconds).padStart(3, "0")}`;
+  }
+
+  function buildStableHash(value) {
+    const text = String(value || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
+  function buildLegacyItemId(prefix, item = {}, index = 0) {
+    const existingId = String(item?.id || item?._id || "").trim();
+    if (existingId) {
+      return existingId;
+    }
+    return `${prefix}-${buildStableHash(JSON.stringify(item))}-${Math.max(0, Number(index) || 0) + 1}`;
   }
 
   function formatDateToPeriodId(date) {
@@ -789,6 +959,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (value instanceof Date) {
       return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
     }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const normalizedNumber = Math.abs(value) < 1e12 ? value * 1000 : value;
+      const parsedNumber = new Date(normalizedNumber);
+      return Number.isNaN(parsedNumber.getTime()) ? null : parsedNumber;
+    }
     if (typeof value !== "string") {
       return null;
     }
@@ -796,8 +971,38 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!normalized) {
       return null;
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-      const [yearText, monthText, dayText] = normalized.split("-");
+    if (/^\d{10,13}$/.test(normalized)) {
+      const numeric = Number.parseInt(normalized, 10);
+      if (!Number.isFinite(numeric)) {
+        return null;
+      }
+      const normalizedNumber = normalized.length <= 10 ? numeric * 1000 : numeric;
+      const parsedNumeric = new Date(normalizedNumber);
+      return Number.isNaN(parsedNumeric.getTime()) ? null : parsedNumeric;
+    }
+    if (/^\d{8}$/.test(normalized)) {
+      const year = Number.parseInt(normalized.slice(0, 4), 10);
+      const month = Number.parseInt(normalized.slice(4, 6), 10);
+      const day = Number.parseInt(normalized.slice(6, 8), 10);
+      if (
+        !Number.isFinite(year) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(day)
+      ) {
+        return null;
+      }
+      return new Date(year, month - 1, day);
+    }
+    let normalizedDateText = normalized;
+    const simpleDateMatch = normalized.match(
+      /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(.*)$/,
+    );
+    if (simpleDateMatch) {
+      const [, yearText, monthText, dayText, suffixText] = simpleDateMatch;
+      normalizedDateText = `${yearText}-${monthText}-${dayText}${suffixText || ""}`;
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(normalizedDateText)) {
+      const [yearText, monthText, dayText] = normalizedDateText.split("-");
       const year = Number.parseInt(yearText, 10);
       const month = Number.parseInt(monthText, 10);
       const day = Number.parseInt(dayText, 10);
@@ -810,7 +1015,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       return new Date(year, month - 1, day);
     }
-    const parsed = new Date(normalized);
+    const normalizedDateTimeText = normalizedDateText.replace(
+      /^(\d{4}-\d{1,2}-\d{1,2})\s+/,
+      "$1T",
+    );
+    const parsed = new Date(normalizedDateTimeText);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
@@ -1487,6 +1696,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof options.now === "string" && options.now
         ? options.now
         : new Date().toISOString();
+    const recovery = normalizeRecoveryState(options.recovery);
     return {
       projects: [],
       records: [],
@@ -1513,6 +1723,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         typeof options.userDataPath === "string" ? options.userDataPath : null,
       documentsPath:
         typeof options.documentsPath === "string" ? options.documentsPath : null,
+      schemaVersion: Number.isFinite(options.schemaVersion)
+        ? Math.max(1, Math.round(Number(options.schemaVersion)))
+        : 1,
+      recovery,
+      protectionMode:
+        typeof options.protectionMode === "string" && options.protectionMode.trim()
+          ? options.protectionMode.trim()
+          : "off",
       syncMeta: createBaseSyncMeta(options.syncMeta, {
         fileName: options.fileName,
       }),
@@ -1566,6 +1784,309 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     const itemDate = getSectionItemDate(section, item);
     return formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID;
+  }
+
+  function canonicalizeSectionItem(section, item = {}, options = {}) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        item: null,
+        repaired: false,
+        reason: "invalid-item",
+      };
+    }
+
+    const nextItem = cloneValue(item);
+    let repaired = false;
+    const index = Math.max(0, Number(options.index) || 0);
+    const assignIfChanged = (key, value) => {
+      if (typeof value === "undefined") {
+        return;
+      }
+      if (value === null) {
+        if (nextItem[key] !== null) {
+          nextItem[key] = null;
+          repaired = true;
+        }
+        return;
+      }
+      if (nextItem[key] !== value) {
+        nextItem[key] = value;
+        repaired = true;
+      }
+    };
+    const normalizeId = (value) => {
+      const normalized = String(value || "").trim();
+      return normalized || "";
+    };
+    const normalizeDateField = (value, mode = "datetime") => {
+      const normalizedDate = normalizeDateInput(value);
+      if (!normalizedDate) {
+        return "";
+      }
+      return mode === "date" ? formatDateOnly(normalizedDate) : formatDateTime(normalizedDate);
+    };
+    const assignGeneratedId = (prefix) => {
+      assignIfChanged("id", buildLegacyItemId(prefix, nextItem, index));
+    };
+
+    if (section === "records") {
+      assignGeneratedId("legacy-record");
+      const normalizedName = String(
+        nextItem.name ||
+          nextItem.project ||
+          nextItem.projectName ||
+          nextItem.title ||
+          "",
+      ).trim();
+      const normalizedProjectId =
+        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
+        null;
+      assignIfChanged("name", normalizedName);
+      assignIfChanged("projectId", normalizedProjectId);
+      assignIfChanged(
+        "nextProjectId",
+        normalizeId(
+          nextItem.nextProjectId ||
+            nextItem.next_project_id ||
+            nextItem.nextProjectID,
+        ) || null,
+      );
+      const normalizedStartTime = normalizeDateField(
+        nextItem.startTime || nextItem.startedAt || nextItem.beginTime,
+      );
+      const normalizedEndTime = normalizeDateField(
+        nextItem.endTime ||
+          nextItem.timestamp ||
+          nextItem.sptTime ||
+          nextItem.finishedAt ||
+          nextItem.time,
+      );
+      const normalizedTimestamp = normalizeDateField(
+        nextItem.timestamp || normalizedEndTime || normalizedStartTime,
+      );
+      if (
+        !normalizedStartTime &&
+        !normalizedEndTime &&
+        !normalizedTimestamp
+      ) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-record-time",
+        };
+      }
+      if (!normalizedName && !normalizedProjectId) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-record-reference",
+        };
+      }
+      if (normalizedStartTime) {
+        assignIfChanged("startTime", normalizedStartTime);
+      }
+      if (normalizedEndTime) {
+        assignIfChanged("endTime", normalizedEndTime);
+      } else if (normalizedTimestamp) {
+        assignIfChanged("endTime", normalizedTimestamp);
+      }
+      if (normalizedTimestamp) {
+        assignIfChanged("timestamp", normalizedTimestamp);
+      } else if (normalizedEndTime) {
+        assignIfChanged("timestamp", normalizedEndTime);
+      }
+      if (nextItem.sptTime) {
+        const normalizedSpentTime = normalizeDateField(
+          nextItem.sptTime || normalizedEndTime || normalizedTimestamp,
+        );
+        if (normalizedSpentTime) {
+          assignIfChanged("sptTime", normalizedSpentTime);
+        }
+      }
+      if (
+        !Number.isFinite(nextItem.durationMs) &&
+        getRecordDurationMs(nextItem) > 0
+      ) {
+        assignIfChanged("durationMs", getRecordDurationMs(nextItem));
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "plans") {
+      assignGeneratedId("legacy-plan");
+      assignIfChanged(
+        "projectId",
+        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
+          null,
+      );
+      if (!isRecurringPlan(nextItem)) {
+        const normalizedDate = normalizeDateField(
+          nextItem.date || nextItem.day || nextItem.targetDate || nextItem.startDate,
+          "date",
+        );
+        if (!normalizedDate) {
+          return {
+            item: null,
+            repaired,
+            reason: "missing-plan-date",
+          };
+        }
+        assignIfChanged("date", normalizedDate);
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "diaryEntries") {
+      assignGeneratedId("legacy-diary");
+      const normalizedDate = normalizeDateField(
+        nextItem.date || nextItem.day || nextItem.createdAt || nextItem.updatedAt,
+        "date",
+      );
+      const normalizedUpdatedAt = normalizeDateField(
+        nextItem.updatedAt || nextItem.date || nextItem.createdAt,
+      );
+      if (!normalizedDate && !normalizedUpdatedAt) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-diary-date",
+        };
+      }
+      if (normalizedDate) {
+        assignIfChanged("date", normalizedDate);
+      }
+      if (normalizedUpdatedAt) {
+        assignIfChanged("updatedAt", normalizedUpdatedAt);
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "dailyCheckins") {
+      assignGeneratedId("legacy-daily-checkin");
+      const normalizedDate = normalizeDateField(
+        nextItem.date || nextItem.day || nextItem.updatedAt,
+        "date",
+      );
+      if (!normalizedDate) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-daily-checkin-date",
+        };
+      }
+      assignIfChanged("date", normalizedDate);
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "checkins") {
+      assignGeneratedId("legacy-checkin");
+      const normalizedTime = normalizeDateField(
+        nextItem.updatedAt || nextItem.time || nextItem.date,
+      );
+      if (!normalizedTime) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-checkin-time",
+        };
+      }
+      assignIfChanged("updatedAt", normalizedTime);
+      assignIfChanged("time", normalizedTime);
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    return {
+      item: nextItem,
+      repaired,
+      reason: "",
+    };
+  }
+
+  function validateAndRepairForPeriod(section, periodId, items = [], options = {}) {
+    const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
+    const repairedItems = [];
+    const invalidItems = [];
+    let repaired = false;
+    const duplicateReason =
+      DUPLICATE_ITEM_REASON_BY_SECTION[section] || "duplicate-item-id";
+    const seenIds = new Set();
+
+    ensureArray(items).forEach((item, index) => {
+      const canonicalized = canonicalizeSectionItem(section, item, {
+        ...options,
+        index,
+      });
+      if (!canonicalized.item) {
+        repaired = true;
+        invalidItems.push({
+          section,
+          periodId: normalizedPeriodId,
+          item: cloneValue(item),
+          actualPeriodId: "",
+          reason: canonicalized.reason || "invalid-item",
+        });
+        return;
+      }
+      if (canonicalized.repaired) {
+        repaired = true;
+      }
+      const itemPeriodId =
+        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+      if (itemPeriodId !== normalizedPeriodId) {
+        repaired = true;
+        invalidItems.push({
+          section,
+          periodId: normalizedPeriodId,
+          item: cloneValue(canonicalized.item),
+          actualPeriodId: itemPeriodId,
+          reason: "period-mismatch",
+        });
+        return;
+      }
+      const itemId = String(canonicalized.item?.id || "").trim();
+      if (itemId) {
+        if (seenIds.has(itemId)) {
+          repaired = true;
+          invalidItems.push({
+            section,
+            periodId: normalizedPeriodId,
+            item: cloneValue(canonicalized.item),
+            actualPeriodId: itemPeriodId,
+            reason: duplicateReason,
+          });
+          return;
+        }
+        seenIds.add(itemId);
+      }
+      repairedItems.push(canonicalized.item);
+    });
+
+    return {
+      periodId: normalizedPeriodId,
+      items: repairedItems,
+      invalidItems,
+      repaired,
+    };
   }
 
   function getPartitionRelativePath(section, periodId) {
@@ -1661,6 +2182,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? options.now
         : source.lastModified || source.createdAt || new Date().toISOString();
     const normalizedGuideState = ensureObject(source.guideState, null);
+    const recovery = normalizeRecoveryState(source.recovery);
     const core = {
       projects: ensureArray(source.projects),
       todos: ensureArray(source.todos),
@@ -1705,6 +2227,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : typeof source.documentsPath === "string"
             ? source.documentsPath
             : null,
+      schemaVersion: Number.isFinite(source.schemaVersion)
+        ? Math.max(1, Math.round(Number(source.schemaVersion)))
+        : 1,
+      recovery,
+      protectionMode:
+        typeof source.protectionMode === "string" && source.protectionMode.trim()
+          ? source.protectionMode.trim()
+          : "off",
       syncMeta: createBaseSyncMeta(source.syncMeta, {
         fileName:
           typeof options.fileName === "string" ? options.fileName : undefined,
@@ -1717,16 +2247,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const partitionMap = {};
     PARTITIONED_SECTIONS.forEach((section) => {
       partitionMap[section] = new Map();
-      ensureArray(source[section]).forEach((item) => {
-        if (section === "plans" && isRecurringPlan(item)) {
-          recurringPlans.push(cloneValue(item));
+      ensureArray(source[section]).forEach((item, index) => {
+        const canonicalized = canonicalizeSectionItem(section, item, {
+          index,
+        });
+        if (!canonicalized.item) {
           return;
         }
-        const periodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
+        if (section === "plans" && isRecurringPlan(canonicalized.item)) {
+          recurringPlans.push(cloneValue(canonicalized.item));
+          return;
+        }
+        const periodId =
+          getPeriodIdForSectionItem(section, canonicalized.item) ||
+          UNDATED_PERIOD_ID;
         if (!partitionMap[section].has(periodId)) {
           partitionMap[section].set(periodId, []);
         }
-        partitionMap[section].get(periodId).push(cloneValue(item));
+        partitionMap[section].get(periodId).push(cloneValue(canonicalized.item));
       });
     });
     const manifest = {
@@ -1773,6 +2311,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         nextState[key] = cloneValue(core[key]);
       }
     });
+    nextState.recovery = normalizeRecoveryState(nextState.recovery);
     PARTITIONED_SECTIONS.forEach((section) => {
       const sectionPartitions = partitionMap[section];
       const items = [];
@@ -1815,6 +2354,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       nextState.selectedTheme.trim()
         ? nextState.selectedTheme.trim()
         : "default";
+    nextState.recovery = normalizeRecoveryState(nextState.recovery);
     nextState.syncMeta = createBaseSyncMeta(nextState.syncMeta);
     return nextState;
   }
@@ -2014,6 +2554,123 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return grouped;
   }
 
+  function inspectProjectCollectionIntegrity(projects = []) {
+    const seenIds = new Set();
+    const invalidItems = [];
+    ensureArray(projects).forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      if (!projectId) {
+        return;
+      }
+      if (seenIds.has(projectId)) {
+        invalidItems.push(
+          normalizeRecoveryEntry({
+            section: "projects",
+            reason: "duplicate-project-id",
+            item: cloneValue(project),
+          }),
+        );
+        return;
+      }
+      seenIds.add(projectId);
+    });
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems),
+      hasHardIssues: invalidItems.some((entry) =>
+        isHardRecoveryReason(entry.reason),
+      ),
+    };
+  }
+
+  function inspectSectionCollectionIntegrity(section, items = [], options = {}) {
+    const invalidItems = [];
+    const groupedItems = new Map();
+    const recurringItems = [];
+    let repaired = false;
+
+    ensureArray(items).forEach((item, index) => {
+      const canonicalized = canonicalizeSectionItem(section, item, {
+        ...options,
+        index,
+      });
+      if (!canonicalized.item) {
+        repaired = true;
+        invalidItems.push(
+          normalizeRecoveryEntry({
+            section,
+            reason: canonicalized.reason || "invalid-item",
+            item,
+          }),
+        );
+        return;
+      }
+      if (canonicalized.repaired) {
+        repaired = true;
+      }
+      if (section === "plans" && isRecurringPlan(canonicalized.item)) {
+        recurringItems.push(cloneValue(canonicalized.item));
+        return;
+      }
+      const periodId =
+        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+      if (!groupedItems.has(periodId)) {
+        groupedItems.set(periodId, []);
+      }
+      groupedItems.get(periodId).push(cloneValue(canonicalized.item));
+    });
+
+    groupedItems.forEach((periodItems, periodId) => {
+      const inspected = validateAndRepairForPeriod(
+        section,
+        periodId,
+        periodItems,
+        options,
+      );
+      if (inspected.repaired) {
+        repaired = true;
+      }
+      invalidItems.push(
+        ...ensureArray(inspected.invalidItems).map((entry) =>
+          normalizeRecoveryEntry(entry),
+        ),
+      );
+    });
+
+    if (section === "plans" && recurringItems.length) {
+      const recurringIds = new Set();
+      recurringItems.forEach((item) => {
+        const itemId = String(item?.id || "").trim();
+        if (!itemId) {
+          return;
+        }
+        if (recurringIds.has(itemId)) {
+          repaired = true;
+          invalidItems.push(
+            normalizeRecoveryEntry({
+              section,
+              periodId: RECURRING_PLAN_VIRTUAL_PERIOD_ID,
+              reason:
+                DUPLICATE_ITEM_REASON_BY_SECTION[section] || "duplicate-item-id",
+              item: cloneValue(item),
+            }),
+          );
+          return;
+        }
+        recurringIds.add(itemId);
+      });
+    }
+
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems),
+      hasHardIssues: invalidItems.some((entry) =>
+        isHardRecoveryReason(entry.reason),
+      ),
+      repaired,
+    };
+  }
+
   return {
     FORMAT_VERSION,
     BUNDLE_MODE,
@@ -2053,6 +2710,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     reconcileProjectDurationCaches,
     applyProjectRecordDurationChanges,
     createBaseSyncMeta,
+    createEmptyRecoverySummary,
+    normalizeRecoveryEntry,
+    buildRecoverySummary,
+    normalizeRecoveryState,
+    appendRecoveryItems,
     createEmptyLegacyState,
     createEmptyBundle,
     createPartitionEnvelope,
@@ -2064,6 +2726,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     buildPartitionMergeKey,
     mergePartitionItems,
     validateItemsForPeriod,
+    validateAndRepairForPeriod,
+    canonicalizeSectionItem,
+    isHardRecoveryReason,
+    inspectProjectCollectionIntegrity,
+    inspectSectionCollectionIntegrity,
     groupItemsByPeriod,
     isRecurringPlan,
     sortPartitionItems,
@@ -2082,10 +2749,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
-  const JOURNAL_BATCH_DELAY_MS = 90;
-  const ELECTRON_WRITE_DELAY_MS = 250;
+  const JOURNAL_BATCH_DELAY_MS = 40;
+  const ELECTRON_WRITE_DELAY_MS = 72;
   const EXTERNAL_RELOAD_DELAY_MS = 120;
-  const NATIVE_WRITE_DELAY_MS = 240;
+  const NATIVE_WRITE_DELAY_MS = 64;
   const NATIVE_PROBE_DEBOUNCE_MS = 150;
   const NATIVE_PROBE_FAST_INTERVAL_MS = 2000;
   const NATIVE_PROBE_STABLE_INTERVAL_MS = 6000;
@@ -2093,6 +2760,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS = 30000;
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
+  const SAVE_COORDINATOR_RETRY_DELAY_MS = 240;
 
   const electronAPI = window.electronAPI;
   const hasElectronStorageBridge =
@@ -2162,6 +2830,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "createdAt",
     "lastModified",
     "syncMeta",
+    "schemaVersion",
+    "recovery",
+    "protectionMode",
   ]);
   const SHARED_STATE_KEYS = new Set([
     "projects",
@@ -2309,6 +2980,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     storageDirectory: null,
     userDataPath: null,
     documentsPath: null,
+    schemaVersion: 1,
+    recovery: {
+      invalidItems: [],
+    },
+    protectionMode: "off",
     syncMeta: {
       mode: "folder-file",
       fileName: MOBILE_FILE_NAME,
@@ -2904,6 +3580,29 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : typeof base.documentsPath === "string"
           ? base.documentsPath
           : null;
+    base.schemaVersion = Number.isFinite(sourceState?.schemaVersion)
+      ? Math.max(1, Math.round(Number(sourceState.schemaVersion)))
+      : Number.isFinite(base.schemaVersion)
+        ? Math.max(1, Math.round(Number(base.schemaVersion)))
+        : 1;
+    base.recovery =
+      base.recovery && typeof base.recovery === "object" && !Array.isArray(base.recovery)
+        ? {
+            invalidItems: Array.isArray(base.recovery.invalidItems)
+              ? cloneValue(base.recovery.invalidItems)
+              : [],
+          }
+        : {
+            invalidItems: [],
+          };
+    base.protectionMode =
+      typeof metadata.protectionMode === "string" && metadata.protectionMode.trim()
+        ? metadata.protectionMode.trim()
+        : typeof sourceState?.protectionMode === "string" && sourceState.protectionMode.trim()
+          ? sourceState.protectionMode.trim()
+          : typeof base.protectionMode === "string" && base.protectionMode.trim()
+            ? base.protectionMode.trim()
+            : "off";
     base.createdAt = base.createdAt || metadata.createdAt || now;
     base.lastModified = metadata.touchModified
       ? now
@@ -4333,6 +5032,110 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  function createSaveCoordinator(runTask) {
+    if (typeof runTask !== "function") {
+      return {
+        enqueue() {
+          return Promise.resolve(null);
+        },
+        flush() {
+          return Promise.resolve(null);
+        },
+        hasPending() {
+          return false;
+        },
+      };
+    }
+
+    const entries = new Map();
+    const normalizeScope = (scope) => {
+      if (Array.isArray(scope)) {
+        const joinedScope = scope
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .join(":");
+        return joinedScope || "global";
+      }
+      const normalized = String(scope || "").trim();
+      return normalized || "global";
+    };
+    const ensureEntry = (scopeKey) => {
+      if (!entries.has(scopeKey)) {
+        entries.set(scopeKey, {
+          pending: false,
+          activePromise: null,
+          reason: "save",
+          retryDelayMs: SAVE_COORDINATOR_RETRY_DELAY_MS,
+        });
+      }
+      return entries.get(scopeKey);
+    };
+    const drainEntry = (scopeKey, entry) => {
+      if (entry.activePromise) {
+        return entry.activePromise;
+      }
+      entry.activePromise = Promise.resolve()
+        .then(async () => {
+          let lastResult = null;
+          while (entry.pending) {
+            entry.pending = false;
+            const currentReason = entry.reason || "save";
+            try {
+              lastResult = await runTask({
+                scope: scopeKey,
+                reason: currentReason,
+              });
+              entry.retryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
+            } catch (error) {
+              entry.pending = true;
+              const retryDelayMs = entry.retryDelayMs;
+              entry.retryDelayMs = Math.min(retryDelayMs * 2, 2000);
+              window.setTimeout(() => {
+                if (!entry.activePromise && entry.pending) {
+                  void drainEntry(scopeKey, entry).catch(() => {});
+                }
+              }, retryDelayMs);
+              throw error;
+            }
+          }
+          return lastResult;
+        })
+        .finally(() => {
+          entry.activePromise = null;
+          if (!entry.pending) {
+            entries.delete(scopeKey);
+          }
+        });
+      return entry.activePromise;
+    };
+
+    return {
+      enqueue(reason = "save", scope = "global") {
+        const scopeKey = normalizeScope(scope);
+        const entry = ensureEntry(scopeKey);
+        entry.pending = true;
+        entry.reason =
+          typeof reason === "string" && reason.trim()
+            ? reason.trim()
+            : entry.reason || "save";
+        return drainEntry(scopeKey, entry);
+      },
+      flush(reason = "save", scope = "global") {
+        return this.enqueue(reason, scope);
+      },
+      hasPending(scope = null) {
+        if (scope === null || typeof scope === "undefined") {
+          return Array.from(entries.values()).some(
+            (entry) => entry.pending || !!entry.activePromise,
+          );
+        }
+        const scopeKey = normalizeScope(scope);
+        const entry = entries.get(scopeKey);
+        return !!entry && (entry.pending || !!entry.activePromise);
+      },
+    };
+  }
+
   function installManagedLocalStorage(options) {
     const {
       isElectron = false,
@@ -4840,6 +5643,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
     };
 
+    window.ControlerStorage.saveCoordinator = createSaveCoordinator(
+      async ({ reason = "save", scope = "global" } = {}) => {
+        if (typeof window.ControlerStorage?.flushJournal === "function") {
+          return window.ControlerStorage.flushJournal({
+            reason,
+            scope,
+          });
+        }
+        if (typeof window.ControlerStorage?.flush === "function") {
+          return window.ControlerStorage.flush();
+        }
+        return null;
+      },
+    );
+
     Object.keys(extraMethods).forEach((key) => {
       if (typeof extraMethods[key] === "function") {
         window.ControlerStorage[key] = extraMethods[key];
@@ -4851,6 +5669,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     window.ControlerStorage = createNativeStorageApi({
       capabilities: resolvedRuntimeCapabilities,
     });
+    window.ControlerStorage.saveCoordinator = createSaveCoordinator(
+      async ({ reason = "save", scope = "global" } = {}) =>
+        window.ControlerStorage.flushJournal?.({
+          reason,
+          scope,
+        }) || window.ControlerStorage.flush?.(),
+    );
     return;
   }
 
@@ -4863,6 +5688,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let pendingElectronWriteReason = "";
     let pendingElectronStorageChangedSections = new Set();
     let pendingElectronStorageChangedPeriods = {};
+    let electronRetryTimer = 0;
+    let electronRetryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
 
     function readState() {
       if (cachedState) {
@@ -4875,9 +5702,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         cachedState = normalizeState(rawState);
         persistSharedBootstrapMirrors(cachedState);
       } catch (error) {
-        console.error("同步读取 Electron 存储失败，回退为空状态:", error);
-        cachedState = normalizeState({});
-        persistSharedBootstrapMirrors(cachedState);
+        console.error("同步读取 Electron 存储失败，保留当前内存状态:", error);
+        if (!cachedState) {
+          cachedState = normalizeState({
+            protectionMode: "readonly_due_to_load_failure",
+          });
+        }
       }
 
       return cachedState;
@@ -4920,6 +5750,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       pendingElectronStorageChangedPeriods = {};
     }
 
+    function clearElectronRetryTimer() {
+      if (electronRetryTimer) {
+        window.clearTimeout(electronRetryTimer);
+        electronRetryTimer = 0;
+      }
+      electronRetryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
+    }
+
+    function scheduleElectronFlushRetry() {
+      if (electronRetryTimer || !hasPendingStateChanges) {
+        return;
+      }
+      const retryDelayMs = electronRetryDelayMs;
+      electronRetryDelayMs = Math.min(retryDelayMs * 2, 2000);
+      electronRetryTimer = window.setTimeout(() => {
+        electronRetryTimer = 0;
+        writeChain = writeChain
+          .then(async () => {
+            if (!hasPendingStateChanges) {
+              return cachedStatus;
+            }
+            return flushElectronState();
+          })
+          .catch((error) => {
+            console.error("重试 Electron 存储刷新失败:", error);
+            scheduleElectronFlushRetry();
+            return cachedStatus;
+          });
+      }, retryDelayMs);
+    }
+
     async function flushElectronState() {
       const pendingChangeMetadata = peekPendingElectronStorageChangeMetadata();
       const nextState = normalizeState(readState(), {
@@ -4927,20 +5788,28 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         touchSyncSave: true,
       });
       cachedState = nextState;
-      await electronAPI.storageSaveSnapshot(nextState, {
-        reason: pendingElectronWriteReason || "save",
-        changedSections: pendingChangeMetadata.changedSections,
-        changedPeriods: pendingChangeMetadata.changedPeriods,
-      });
-      cachedStatus = await electronAPI.storageFlush().catch((error) => {
-        console.error("刷新 Electron 存储状态失败:", error);
-        return null;
-      });
-      maybeNotifyStorageRecoveryStatus(cachedStatus);
-      hasPendingStateChanges = false;
-      pendingElectronWriteReason = "";
-      clearPendingElectronStorageChangeMetadata();
-      return cachedStatus;
+      try {
+        await electronAPI.storageSaveSnapshot(nextState, {
+          reason: pendingElectronWriteReason || "save",
+          changedSections: pendingChangeMetadata.changedSections,
+          changedPeriods: pendingChangeMetadata.changedPeriods,
+        });
+        const nextStatus = await electronAPI.storageFlush();
+        if (!nextStatus || typeof nextStatus !== "object") {
+          throw new Error("刷新 Electron 存储未返回有效状态。");
+        }
+        cachedStatus = nextStatus;
+        maybeNotifyStorageRecoveryStatus(cachedStatus);
+        hasPendingStateChanges = false;
+        pendingElectronWriteReason = "";
+        clearPendingElectronStorageChangeMetadata();
+        clearElectronRetryTimer();
+        return cachedStatus;
+      } catch (error) {
+        hasPendingStateChanges = true;
+        scheduleElectronFlushRetry();
+        throw error;
+      }
     }
 
     function persistState(options = {}) {
@@ -4996,6 +5865,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           })
           .catch((error) => {
             console.error("异步写入 Electron 存储失败:", error);
+            scheduleElectronFlushRetry();
             return cachedStatus;
           });
       }, ELECTRON_WRITE_DELAY_MS);
@@ -5009,8 +5879,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const currentSnapshot = createComparableSnapshot(readState());
       const nextRawState =
         (await electronAPI.storageLoadSnapshot().catch((error) => {
-          console.error("异步读取 Electron 存储失败，回退同步读取:", error);
-          cachedState = null;
+          console.error("异步读取 Electron 存储失败，保留当前内存快照:", error);
           return readState();
         })) || {};
       adoptLegacyLocalOnlyValues(nextRawState);
@@ -5474,6 +6343,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             hasPendingStateChanges = false;
             pendingElectronWriteReason = "";
             clearPendingElectronStorageChangeMetadata();
+            clearElectronRetryTimer();
             const reason =
               typeof payload?.reason === "string" && payload.reason.trim()
                 ? payload.reason.trim()
@@ -5494,6 +6364,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const forceFlushElectronStorage = (reason = "forced-persist") => {
+      const saveCoordinator = window.ControlerStorage?.saveCoordinator;
+      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
+        void saveCoordinator.enqueue(reason, "electron-lifecycle").catch((error) => {
+          console.error("强制立即保存 Electron 存储失败:", error);
+        });
+        return;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
           reason,
@@ -8492,6 +9369,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     });
     const forceFlushNativeStorage = (reason = "forced-persist") => {
+      const saveCoordinator = window.ControlerStorage?.saveCoordinator;
+      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
+        void saveCoordinator.enqueue(reason, "native-lifecycle").catch((error) => {
+          console.error("强制立即保存 React Native 存储失败:", error);
+        });
+        return;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
           reason,
@@ -12184,6 +13068,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         typeof initialState?.page === "string" ? initialState.page.trim() : "",
       href:
         typeof initialState?.href === "string" ? initialState.href.trim() : "",
+      transitionLoading: initialState?.transitionLoading === true,
       receivedAt:
         Number.isFinite(initialState?.receivedAt) && initialState.receivedAt > 0
           ? initialState.receivedAt
@@ -12379,6 +13264,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : "unknown",
       page: typeof source.page === "string" ? source.page.trim() : "",
       href: typeof source.href === "string" ? source.href.trim() : "",
+      transitionLoading: source.transitionLoading === true,
       receivedAt: Date.now(),
     };
   }
@@ -12391,6 +13277,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return shellVisibilityState.active !== false;
   }
 
+  function isShellTransitionLoading() {
+    return (
+      shellVisibilityState.active !== false &&
+      shellVisibilityState.transitionLoading === true
+    );
+  }
+
   function applyShellVisibilityState(detail = {}) {
     const nextState = normalizeShellVisibilityState(detail);
     const nextSignature = JSON.stringify({
@@ -12399,6 +13292,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       reason: nextState.reason,
       page: nextState.page,
       href: nextState.href,
+      transitionLoading: nextState.transitionLoading === true,
     });
     if (nextSignature === lastShellVisibilityStateSignature) {
       return;
@@ -12671,7 +13565,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? "rejected"
             : "accepted-now");
       const shouldKeepOverlay =
-        ackState === "accepted-now" || ackState === "queued";
+        ackState === "queued" ||
+        (
+          ackState === "accepted-now" &&
+          !isReactNativeNavigationRuntime()
+        );
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
         hideOverlay: !shouldKeepOverlay,
@@ -13598,7 +14496,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const shouldShowOverlay = guardEntries.some(
       (entry) => entry?.options?.showLoadingOverlay !== false,
     );
-    if (shouldShowOverlay || appPageLeaveOverlayVisible) {
+    const hasVisibleFullscreenOverlayExcludingLeaveGuard = () =>
+      Array.from(document.querySelectorAll(".page-loading-overlay")).some(
+        (overlay) =>
+          overlay !== appPageLeaveOverlayElement &&
+          isVisibleBlockingLoadingOverlay(overlay),
+      );
+    const shouldUseLeaveGuardOverlay =
+      !hasVisibleFullscreenOverlayExcludingLeaveGuard();
+    if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
@@ -13606,13 +14512,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? 0
           : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
       });
+    } else if (appPageLeaveOverlayVisible) {
+      setAppPageLeaveOverlayState({
+        active: false,
+      });
     }
 
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      if (shouldShowOverlay || appPageLeaveOverlayVisible) {
+      if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
         slowMessageTimerId = window.setTimeout(() => {
+          if (hasVisibleFullscreenOverlayExcludingLeaveGuard()) {
+            setAppPageLeaveOverlayState({
+              active: false,
+            });
+            return;
+          }
           setAppPageLeaveOverlayState({
             active: true,
             ...overlayCopy,
@@ -15140,14 +16056,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
-      if (!visible || mode !== "fullscreen") {
-        return false;
-      }
-      if (!isReactNativeNavigationRuntime()) {
-        return false;
-      }
-      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
-      return platform === "android" || platform === "ios";
+      return false;
     };
 
     const syncNativeBusyState = (busyState = {}) => {
@@ -15229,7 +16138,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!isReactNativeNavigationRuntime()) {
         return false;
       }
-      return !isShellPageActive();
+      return !isShellPageActive() || isShellTransitionLoading();
     };
 
     const syncFullscreenGeometry = () => {

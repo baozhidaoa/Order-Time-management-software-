@@ -401,6 +401,7 @@
         typeof initialState?.page === "string" ? initialState.page.trim() : "",
       href:
         typeof initialState?.href === "string" ? initialState.href.trim() : "",
+      transitionLoading: initialState?.transitionLoading === true,
       receivedAt:
         Number.isFinite(initialState?.receivedAt) && initialState.receivedAt > 0
           ? initialState.receivedAt
@@ -596,6 +597,7 @@
           : "unknown",
       page: typeof source.page === "string" ? source.page.trim() : "",
       href: typeof source.href === "string" ? source.href.trim() : "",
+      transitionLoading: source.transitionLoading === true,
       receivedAt: Date.now(),
     };
   }
@@ -608,6 +610,13 @@
     return shellVisibilityState.active !== false;
   }
 
+  function isShellTransitionLoading() {
+    return (
+      shellVisibilityState.active !== false &&
+      shellVisibilityState.transitionLoading === true
+    );
+  }
+
   function applyShellVisibilityState(detail = {}) {
     const nextState = normalizeShellVisibilityState(detail);
     const nextSignature = JSON.stringify({
@@ -616,6 +625,7 @@
       reason: nextState.reason,
       page: nextState.page,
       href: nextState.href,
+      transitionLoading: nextState.transitionLoading === true,
     });
     if (nextSignature === lastShellVisibilityStateSignature) {
       return;
@@ -888,7 +898,11 @@
             ? "rejected"
             : "accepted-now");
       const shouldKeepOverlay =
-        ackState === "accepted-now" || ackState === "queued";
+        ackState === "queued" ||
+        (
+          ackState === "accepted-now" &&
+          !isReactNativeNavigationRuntime()
+        );
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
         hideOverlay: !shouldKeepOverlay,
@@ -1815,7 +1829,15 @@
     const shouldShowOverlay = guardEntries.some(
       (entry) => entry?.options?.showLoadingOverlay !== false,
     );
-    if (shouldShowOverlay || appPageLeaveOverlayVisible) {
+    const hasVisibleFullscreenOverlayExcludingLeaveGuard = () =>
+      Array.from(document.querySelectorAll(".page-loading-overlay")).some(
+        (overlay) =>
+          overlay !== appPageLeaveOverlayElement &&
+          isVisibleBlockingLoadingOverlay(overlay),
+      );
+    const shouldUseLeaveGuardOverlay =
+      !hasVisibleFullscreenOverlayExcludingLeaveGuard();
+    if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
@@ -1823,13 +1845,23 @@
           ? 0
           : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
       });
+    } else if (appPageLeaveOverlayVisible) {
+      setAppPageLeaveOverlayState({
+        active: false,
+      });
     }
 
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      if (shouldShowOverlay || appPageLeaveOverlayVisible) {
+      if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
         slowMessageTimerId = window.setTimeout(() => {
+          if (hasVisibleFullscreenOverlayExcludingLeaveGuard()) {
+            setAppPageLeaveOverlayState({
+              active: false,
+            });
+            return;
+          }
           setAppPageLeaveOverlayState({
             active: true,
             ...overlayCopy,
@@ -3357,14 +3389,7 @@
     };
 
     const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
-      if (!visible || mode !== "fullscreen") {
-        return false;
-      }
-      if (!isReactNativeNavigationRuntime()) {
-        return false;
-      }
-      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
-      return platform === "android" || platform === "ios";
+      return false;
     };
 
     const syncNativeBusyState = (busyState = {}) => {
@@ -3446,7 +3471,7 @@
       if (!isReactNativeNavigationRuntime()) {
         return false;
       }
-      return !isShellPageActive();
+      return !isShellPageActive() || isShellTransitionLoading();
     };
 
     const syncFullscreenGeometry = () => {

@@ -3,9 +3,9 @@
     android:id="@+id/widget_collection_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="34dp"
-    android:paddingTop="2dp"
-    android:paddingBottom="2dp">
+    android:minHeight="40dp"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp">
 
     <ImageView
         android:id="@+id/widget_collection_item_background"
@@ -14,42 +14,39 @@
         android:adjustViewBounds="false"
         android:contentDescription="@null"
         android:scaleType="fitXY"
-        android:src="@drawable/controler_widget_tintable_pill_fill" />
+        android:src="@drawable/controler_widget_tintable_goal_fill" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="34dp"
+        android:minHeight="40dp"
         android:orientation="horizontal"
-        android:paddingLeft="10dp"
-        android:paddingTop="4dp"
-        android:paddingRight="10dp"
-        android:paddingBottom="4dp">
+        android:paddingLeft="12dp"
+        android:paddingTop="7dp"
+        android:paddingRight="12dp"
+        android:paddingBottom="7dp">
 
         <View
             android:id="@+id/widget_collection_item_accent"
-            android:layout_width="3dp"
-            android:layout_height="16dp"
-            android:background="#8ED6A4" />
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="#8ED6A4"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_collection_item_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:autoSizeMaxTextSize="12sp"
-            android:autoSizeMinTextSize="9sp"
-            android:autoSizeStepGranularity="1sp"
-            android:autoSizeTextType="uniform"
             android:ellipsize="end"
             android:gravity="center_vertical"
             android:includeFontPadding="false"
-            android:maxLines="2"
+            android:maxLines="1"
             android:text="目标内容"
             android:textColor="#EAF6ED"
-            android:textSize="11sp" />
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_collection_item_meta"

@@ -401,7 +401,12 @@ async function flushStatsPendingPersistence() {
   if (statsLastPersistenceError) {
     throw statsLastPersistenceError;
   }
-  if (typeof window.ControlerStorage?.flush === "function") {
+  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+    await window.ControlerStorage.saveCoordinator.flush(
+      "stats-flush",
+      "stats-persistence",
+    );
+  } else if (typeof window.ControlerStorage?.flush === "function") {
     await window.ControlerStorage.flush();
   }
   if (statsLastPersistenceError) {

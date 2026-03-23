@@ -8,10 +8,10 @@
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
-  const JOURNAL_BATCH_DELAY_MS = 90;
-  const ELECTRON_WRITE_DELAY_MS = 250;
+  const JOURNAL_BATCH_DELAY_MS = 40;
+  const ELECTRON_WRITE_DELAY_MS = 72;
   const EXTERNAL_RELOAD_DELAY_MS = 120;
-  const NATIVE_WRITE_DELAY_MS = 240;
+  const NATIVE_WRITE_DELAY_MS = 64;
   const NATIVE_PROBE_DEBOUNCE_MS = 150;
   const NATIVE_PROBE_FAST_INTERVAL_MS = 2000;
   const NATIVE_PROBE_STABLE_INTERVAL_MS = 6000;
@@ -19,6 +19,7 @@
   const NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS = 30000;
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
+  const SAVE_COORDINATOR_RETRY_DELAY_MS = 240;
 
   const electronAPI = window.electronAPI;
   const hasElectronStorageBridge =
@@ -88,6 +89,9 @@
     "createdAt",
     "lastModified",
     "syncMeta",
+    "schemaVersion",
+    "recovery",
+    "protectionMode",
   ]);
   const SHARED_STATE_KEYS = new Set([
     "projects",
@@ -235,6 +239,20 @@
     storageDirectory: null,
     userDataPath: null,
     documentsPath: null,
+    schemaVersion: 1,
+    recovery: {
+      invalidItems: [],
+      summary: {
+        totalInvalidCount: 0,
+        hardInvalidCount: 0,
+        softInvalidCount: 0,
+        hasHardIssues: false,
+        reasonCounts: {},
+        hardReasonCounts: {},
+        lastCapturedAt: null,
+      },
+    },
+    protectionMode: "off",
     syncMeta: {
       mode: "folder-file",
       fileName: MOBILE_FILE_NAME,
@@ -249,6 +267,52 @@
       uri: null,
     },
   });
+
+  function normalizeRecoveryStateForClient(recovery = {}) {
+    if (typeof storageBundle?.normalizeRecoveryState === "function") {
+      return storageBundle.normalizeRecoveryState(recovery);
+    }
+    const invalidItems =
+      recovery && typeof recovery === "object" && !Array.isArray(recovery) &&
+      Array.isArray(recovery.invalidItems)
+        ? cloneValue(recovery.invalidItems)
+        : [];
+    return {
+      invalidItems,
+      summary: {
+        totalInvalidCount: invalidItems.length,
+        hardInvalidCount: 0,
+        softInvalidCount: invalidItems.length,
+        hasHardIssues: false,
+        reasonCounts: {},
+        hardReasonCounts: {},
+        lastCapturedAt: null,
+      },
+    };
+  }
+
+  function getRecoverySummaryFromState(state = {}) {
+    return normalizeRecoveryStateForClient(state?.recovery).summary;
+  }
+
+  function enrichStorageStatusWithRecovery(status, state = {}) {
+    if (!status || typeof status !== "object" || Array.isArray(status)) {
+      return status;
+    }
+    return {
+      ...status,
+      recoverySummary:
+        status?.recoverySummary &&
+        typeof status.recoverySummary === "object" &&
+        !Array.isArray(status.recoverySummary)
+          ? cloneValue(status.recoverySummary)
+          : cloneValue(getRecoverySummaryFromState(state)),
+      persistErrorCode:
+        typeof status?.persistErrorCode === "string"
+          ? status.persistErrorCode.trim()
+          : "",
+    };
+  }
 
   const getNativeStoragePrototype = () => {
     try {
@@ -830,6 +894,21 @@
         : typeof base.documentsPath === "string"
           ? base.documentsPath
           : null;
+    base.schemaVersion = Number.isFinite(sourceState?.schemaVersion)
+      ? Math.max(1, Math.round(Number(sourceState.schemaVersion)))
+      : Number.isFinite(base.schemaVersion)
+        ? Math.max(1, Math.round(Number(base.schemaVersion)))
+        : 1;
+    base.recovery =
+      normalizeRecoveryStateForClient(base.recovery);
+    base.protectionMode =
+      typeof metadata.protectionMode === "string" && metadata.protectionMode.trim()
+        ? metadata.protectionMode.trim()
+        : typeof sourceState?.protectionMode === "string" && sourceState.protectionMode.trim()
+          ? sourceState.protectionMode.trim()
+          : typeof base.protectionMode === "string" && base.protectionMode.trim()
+            ? base.protectionMode.trim()
+            : "off";
     base.createdAt = base.createdAt || metadata.createdAt || now;
     base.lastModified = metadata.touchModified
       ? now
@@ -1265,7 +1344,7 @@
           extra?.storageStatus &&
           typeof extra.storageStatus === "object" &&
           !Array.isArray(extra.storageStatus)
-            ? cloneValue(extra.storageStatus)
+            ? cloneValue(enrichStorageStatusWithRecovery(extra.storageStatus, state))
             : null,
         autoBackupStatus:
           extra?.autoBackupStatus &&
@@ -1273,6 +1352,7 @@
           !Array.isArray(extra.autoBackupStatus)
             ? cloneValue(extra.autoBackupStatus)
             : null,
+        recoverySummary: cloneValue(getRecoverySummaryFromState(state)),
         themeSummary: buildThemeSummary(state),
         navigationVisibility: cloneValue(
           normalizeNavigationVisibilityState(state?.appNavigationVisibility || {}),
@@ -1981,7 +2061,7 @@
   function createSourceSyncResult(state, status) {
     return {
       state: cloneValue(state),
-      status: cloneValue(status),
+      status: cloneValue(enrichStorageStatusWithRecovery(status, state)),
     };
   }
 
@@ -1993,14 +2073,20 @@
   }
 
   function maybeNotifyStorageRecoveryStatus(status) {
+    const normalizedStatus = enrichStorageStatusWithRecovery(status);
     const recoveryState =
-      typeof status?.recoveryState === "string"
-        ? status.recoveryState.trim()
+      typeof normalizedStatus?.recoveryState === "string"
+        ? normalizedStatus.recoveryState.trim()
         : "";
     const recoveryMessage =
-      typeof status?.recoveryMessage === "string"
-        ? status.recoveryMessage.trim()
+      typeof normalizedStatus?.recoveryMessage === "string"
+        ? normalizedStatus.recoveryMessage.trim()
         : "";
+    const hardInvalidCount = Number.isFinite(
+      normalizedStatus?.recoverySummary?.hardInvalidCount,
+    )
+      ? Math.max(0, Number(normalizedStatus.recoverySummary.hardInvalidCount))
+      : 0;
     if (!recoveryState || recoveryState === "ok") {
       lastStorageRecoveryNoticeSignature = "";
       return;
@@ -2010,7 +2096,9 @@
       recoveryMessage ||
       (recoveryState === "repaired"
         ? "检测到存储文件不完整，现有数据已自动修复。"
-        : "检测到存储仍需恢复，已停止自动写入，避免现有数据被清空。");
+        : hardInvalidCount > 0
+          ? `检测到 ${hardInvalidCount} 项高风险脏数据，已停止自动写入，避免现有数据被清空。`
+          : "检测到存储仍需恢复，已停止自动写入，避免现有数据被清空。");
     const signature = `${recoveryState}:${noticeMessage}`;
     if (signature === lastStorageRecoveryNoticeSignature) {
       return;
@@ -2257,6 +2345,110 @@
         window.location.reload();
       }, EXTERNAL_RELOAD_DELAY_MS);
     });
+  }
+
+  function createSaveCoordinator(runTask) {
+    if (typeof runTask !== "function") {
+      return {
+        enqueue() {
+          return Promise.resolve(null);
+        },
+        flush() {
+          return Promise.resolve(null);
+        },
+        hasPending() {
+          return false;
+        },
+      };
+    }
+
+    const entries = new Map();
+    const normalizeScope = (scope) => {
+      if (Array.isArray(scope)) {
+        const joinedScope = scope
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .join(":");
+        return joinedScope || "global";
+      }
+      const normalized = String(scope || "").trim();
+      return normalized || "global";
+    };
+    const ensureEntry = (scopeKey) => {
+      if (!entries.has(scopeKey)) {
+        entries.set(scopeKey, {
+          pending: false,
+          activePromise: null,
+          reason: "save",
+          retryDelayMs: SAVE_COORDINATOR_RETRY_DELAY_MS,
+        });
+      }
+      return entries.get(scopeKey);
+    };
+    const drainEntry = (scopeKey, entry) => {
+      if (entry.activePromise) {
+        return entry.activePromise;
+      }
+      entry.activePromise = Promise.resolve()
+        .then(async () => {
+          let lastResult = null;
+          while (entry.pending) {
+            entry.pending = false;
+            const currentReason = entry.reason || "save";
+            try {
+              lastResult = await runTask({
+                scope: scopeKey,
+                reason: currentReason,
+              });
+              entry.retryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
+            } catch (error) {
+              entry.pending = true;
+              const retryDelayMs = entry.retryDelayMs;
+              entry.retryDelayMs = Math.min(retryDelayMs * 2, 2000);
+              window.setTimeout(() => {
+                if (!entry.activePromise && entry.pending) {
+                  void drainEntry(scopeKey, entry).catch(() => {});
+                }
+              }, retryDelayMs);
+              throw error;
+            }
+          }
+          return lastResult;
+        })
+        .finally(() => {
+          entry.activePromise = null;
+          if (!entry.pending) {
+            entries.delete(scopeKey);
+          }
+        });
+      return entry.activePromise;
+    };
+
+    return {
+      enqueue(reason = "save", scope = "global") {
+        const scopeKey = normalizeScope(scope);
+        const entry = ensureEntry(scopeKey);
+        entry.pending = true;
+        entry.reason =
+          typeof reason === "string" && reason.trim()
+            ? reason.trim()
+            : entry.reason || "save";
+        return drainEntry(scopeKey, entry);
+      },
+      flush(reason = "save", scope = "global") {
+        return this.enqueue(reason, scope);
+      },
+      hasPending(scope = null) {
+        if (scope === null || typeof scope === "undefined") {
+          return Array.from(entries.values()).some(
+            (entry) => entry.pending || !!entry.activePromise,
+          );
+        }
+        const scopeKey = normalizeScope(scope);
+        const entry = entries.get(scopeKey);
+        return !!entry && (entry.pending || !!entry.activePromise);
+      },
+    };
   }
 
   function installManagedLocalStorage(options) {
@@ -2766,6 +2958,21 @@
       },
     };
 
+    window.ControlerStorage.saveCoordinator = createSaveCoordinator(
+      async ({ reason = "save", scope = "global" } = {}) => {
+        if (typeof window.ControlerStorage?.flushJournal === "function") {
+          return window.ControlerStorage.flushJournal({
+            reason,
+            scope,
+          });
+        }
+        if (typeof window.ControlerStorage?.flush === "function") {
+          return window.ControlerStorage.flush();
+        }
+        return null;
+      },
+    );
+
     Object.keys(extraMethods).forEach((key) => {
       if (typeof extraMethods[key] === "function") {
         window.ControlerStorage[key] = extraMethods[key];
@@ -2777,6 +2984,13 @@
     window.ControlerStorage = createNativeStorageApi({
       capabilities: resolvedRuntimeCapabilities,
     });
+    window.ControlerStorage.saveCoordinator = createSaveCoordinator(
+      async ({ reason = "save", scope = "global" } = {}) =>
+        window.ControlerStorage.flushJournal?.({
+          reason,
+          scope,
+        }) || window.ControlerStorage.flush?.(),
+    );
     return;
   }
 
@@ -2789,6 +3003,8 @@
     let pendingElectronWriteReason = "";
     let pendingElectronStorageChangedSections = new Set();
     let pendingElectronStorageChangedPeriods = {};
+    let electronRetryTimer = 0;
+    let electronRetryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
 
     function readState() {
       if (cachedState) {
@@ -2801,9 +3017,12 @@
         cachedState = normalizeState(rawState);
         persistSharedBootstrapMirrors(cachedState);
       } catch (error) {
-        console.error("同步读取 Electron 存储失败，回退为空状态:", error);
-        cachedState = normalizeState({});
-        persistSharedBootstrapMirrors(cachedState);
+        console.error("同步读取 Electron 存储失败，保留当前内存状态:", error);
+        if (!cachedState) {
+          cachedState = normalizeState({
+            protectionMode: "readonly_due_to_load_failure",
+          });
+        }
       }
 
       return cachedState;
@@ -2846,6 +3065,37 @@
       pendingElectronStorageChangedPeriods = {};
     }
 
+    function clearElectronRetryTimer() {
+      if (electronRetryTimer) {
+        window.clearTimeout(electronRetryTimer);
+        electronRetryTimer = 0;
+      }
+      electronRetryDelayMs = SAVE_COORDINATOR_RETRY_DELAY_MS;
+    }
+
+    function scheduleElectronFlushRetry() {
+      if (electronRetryTimer || !hasPendingStateChanges) {
+        return;
+      }
+      const retryDelayMs = electronRetryDelayMs;
+      electronRetryDelayMs = Math.min(retryDelayMs * 2, 2000);
+      electronRetryTimer = window.setTimeout(() => {
+        electronRetryTimer = 0;
+        writeChain = writeChain
+          .then(async () => {
+            if (!hasPendingStateChanges) {
+              return cachedStatus;
+            }
+            return flushElectronState();
+          })
+          .catch((error) => {
+            console.error("重试 Electron 存储刷新失败:", error);
+            scheduleElectronFlushRetry();
+            return cachedStatus;
+          });
+      }, retryDelayMs);
+    }
+
     async function flushElectronState() {
       const pendingChangeMetadata = peekPendingElectronStorageChangeMetadata();
       const nextState = normalizeState(readState(), {
@@ -2853,20 +3103,28 @@
         touchSyncSave: true,
       });
       cachedState = nextState;
-      await electronAPI.storageSaveSnapshot(nextState, {
-        reason: pendingElectronWriteReason || "save",
-        changedSections: pendingChangeMetadata.changedSections,
-        changedPeriods: pendingChangeMetadata.changedPeriods,
-      });
-      cachedStatus = await electronAPI.storageFlush().catch((error) => {
-        console.error("刷新 Electron 存储状态失败:", error);
-        return null;
-      });
-      maybeNotifyStorageRecoveryStatus(cachedStatus);
-      hasPendingStateChanges = false;
-      pendingElectronWriteReason = "";
-      clearPendingElectronStorageChangeMetadata();
-      return cachedStatus;
+      try {
+        await electronAPI.storageSaveSnapshot(nextState, {
+          reason: pendingElectronWriteReason || "save",
+          changedSections: pendingChangeMetadata.changedSections,
+          changedPeriods: pendingChangeMetadata.changedPeriods,
+        });
+        const nextStatus = await electronAPI.storageFlush();
+        if (!nextStatus || typeof nextStatus !== "object") {
+          throw new Error("刷新 Electron 存储未返回有效状态。");
+        }
+        cachedStatus = nextStatus;
+        maybeNotifyStorageRecoveryStatus(cachedStatus);
+        hasPendingStateChanges = false;
+        pendingElectronWriteReason = "";
+        clearPendingElectronStorageChangeMetadata();
+        clearElectronRetryTimer();
+        return cachedStatus;
+      } catch (error) {
+        hasPendingStateChanges = true;
+        scheduleElectronFlushRetry();
+        throw error;
+      }
     }
 
     function persistState(options = {}) {
@@ -2922,6 +3180,7 @@
           })
           .catch((error) => {
             console.error("异步写入 Electron 存储失败:", error);
+            scheduleElectronFlushRetry();
             return cachedStatus;
           });
       }, ELECTRON_WRITE_DELAY_MS);
@@ -2935,8 +3194,7 @@
       const currentSnapshot = createComparableSnapshot(readState());
       const nextRawState =
         (await electronAPI.storageLoadSnapshot().catch((error) => {
-          console.error("异步读取 Electron 存储失败，回退同步读取:", error);
-          cachedState = null;
+          console.error("异步读取 Electron 存储失败，保留当前内存快照:", error);
           return readState();
         })) || {};
       adoptLegacyLocalOnlyValues(nextRawState);
@@ -2950,7 +3208,7 @@
           console.error("获取 Electron 存储状态失败:", error);
           return null;
         }));
-      cachedStatus = nextStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(nextStatus, nextState);
       maybeNotifyStorageRecoveryStatus(cachedStatus);
 
       clearStorageSyncError();
@@ -2990,10 +3248,13 @@
           if (cachedStatus) {
             return cachedStatus;
           }
-          cachedStatus = await electronAPI.storageStatus().catch((error) => {
-            console.error("获取 Electron 存储状态失败:", error);
-            return null;
-          });
+          cachedStatus = enrichStorageStatusWithRecovery(
+            await electronAPI.storageStatus().catch((error) => {
+              console.error("获取 Electron 存储状态失败:", error);
+              return null;
+            }),
+            cachedState || readState(),
+          );
           maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         });
@@ -3009,7 +3270,10 @@
       },
       async getStorageStatus() {
         try {
-          cachedStatus = await electronAPI.storageStatus();
+          cachedStatus = enrichStorageStatusWithRecovery(
+            await electronAPI.storageStatus(),
+            cachedState || readState(),
+          );
           maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         } catch (error) {
@@ -3087,10 +3351,13 @@
         if (cachedStatus) {
           return cachedStatus;
         }
-        cachedStatus = await electronAPI.storageStatus().catch((error) => {
-          console.error("获取 Electron 存储状态失败:", error);
-          return null;
-        });
+        cachedStatus = enrichStorageStatusWithRecovery(
+          await electronAPI.storageStatus().catch((error) => {
+            console.error("获取 Electron 存储状态失败:", error);
+            return null;
+          }),
+          cachedState || readState(),
+        );
         maybeNotifyStorageRecoveryStatus(cachedStatus);
         return cachedStatus;
       },
@@ -3400,6 +3667,7 @@
             hasPendingStateChanges = false;
             pendingElectronWriteReason = "";
             clearPendingElectronStorageChangeMetadata();
+            clearElectronRetryTimer();
             const reason =
               typeof payload?.reason === "string" && payload.reason.trim()
                 ? payload.reason.trim()
@@ -3420,6 +3688,13 @@
     }
 
     const forceFlushElectronStorage = (reason = "forced-persist") => {
+      const saveCoordinator = window.ControlerStorage?.saveCoordinator;
+      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
+        void saveCoordinator.enqueue(reason, "electron-lifecycle").catch((error) => {
+          console.error("强制立即保存 Electron 存储失败:", error);
+        });
+        return;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
           reason,
@@ -4273,7 +4548,7 @@
         suppressError: true,
       });
       if (nextStatus && typeof nextStatus === "object") {
-        cachedStatus = nextStatus;
+        cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
       }
       if (
         checkpoint &&
@@ -4435,7 +4710,10 @@
       const { suppressError = false } = options;
       try {
         const rawPayload = await reactNativeBridge.call("storage.getStatus");
-        const parsed = parseJsonSafely(rawPayload, null);
+        const parsed = enrichStorageStatusWithRecovery(
+          parseJsonSafely(rawPayload, null),
+          cachedState,
+        );
         clearStorageSyncError();
         maybeNotifyStorageRecoveryStatus(parsed);
         return parsed;
@@ -4461,7 +4739,7 @@
       })
         .then((nextStatus) => {
           if (nextStatus && typeof nextStatus === "object") {
-            cachedStatus = nextStatus;
+            cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             persistMirrorSnapshot(true);
             updateVersionBaseline(cachedStatus);
@@ -4629,7 +4907,7 @@
       rebuildManagedSectionCoverage(cachedState, {
         markFull: true,
       });
-      cachedStatus = nextStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
       maybeNotifyStorageRecoveryStatus(cachedStatus);
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -4744,7 +5022,10 @@
       rebuildManagedSectionCoverage(cachedState, {
         markFull: true,
       });
-      cachedStatus = next.status || cachedStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(
+        next.status || cachedStatus,
+        cachedState,
+      );
       lastWrittenComparableSnapshot = nextSnapshot;
       hasPendingStateChanges = false;
       persistMirrorSnapshot(true);
@@ -4973,7 +5254,10 @@
         rebuildManagedSectionCoverage(cachedState, {
           markFull: true,
         });
-        cachedStatus = next.status || cachedStatus;
+        cachedStatus = enrichStorageStatusWithRecovery(
+          next.status || cachedStatus,
+          cachedState,
+        );
         lastWrittenComparableSnapshot = nextSnapshot;
         hasPendingStateChanges = false;
         persistMirrorSnapshot(true);
@@ -5470,7 +5754,10 @@
             suppressError: true,
           });
         }
-        return cachedStatus || (await getNativeStatusSnapshot());
+        return enrichStorageStatusWithRecovery(
+          cachedStatus || (await getNativeStatusSnapshot()),
+          cachedState,
+        );
       },
       async syncFromSource(options = {}) {
         const reason =
@@ -5593,7 +5880,10 @@
               suppressError: true,
             });
             if (nextStatus && typeof nextStatus === "object") {
-              cachedStatus = nextStatus;
+              cachedStatus = enrichStorageStatusWithRecovery(
+                nextStatus,
+                cachedState,
+              );
             }
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
@@ -6418,6 +6708,13 @@
       }
     });
     const forceFlushNativeStorage = (reason = "forced-persist") => {
+      const saveCoordinator = window.ControlerStorage?.saveCoordinator;
+      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
+        void saveCoordinator.enqueue(reason, "native-lifecycle").catch((error) => {
+          console.error("强制立即保存 React Native 存储失败:", error);
+        });
+        return;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
           reason,
@@ -6658,7 +6955,7 @@
     },
     async getStorageStatus() {
       const serialized = JSON.stringify(buildMergedState(readBrowserState()));
-      return {
+      return enrichStorageStatusWithRecovery({
         projects: Array.isArray(cachedBrowserState.projects)
           ? cachedBrowserState.projects.length
           : 0,
@@ -6676,7 +6973,7 @@
         bundleMode: "directory-bundle",
         syncFileName: MOBILE_FILE_NAME,
         platform: browserPlatform,
-      };
+      }, cachedBrowserState);
     },
     syncFromSource(options = {}) {
       return syncFromBrowserSource(options);

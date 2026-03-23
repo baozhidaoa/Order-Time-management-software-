@@ -2572,6 +2572,8 @@ function App({
         reason,
         page: slotState.pageKey,
         href: slotState.uri,
+        transitionLoading:
+          loadingTransition?.status === 'loading' && slot === shellActiveSlot,
       };
       const signature = JSON.stringify(payload);
       if (shellVisibilitySignatureRef.current[slot] === signature) {

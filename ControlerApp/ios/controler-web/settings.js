@@ -2847,6 +2847,12 @@ function normalizeImportedBackupPayload(data) {
 }
 
 async function flushStorageWrites() {
+  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+    return window.ControlerStorage.saveCoordinator.flush(
+      "settings-flush",
+      "settings-persistence",
+    );
+  }
   if (typeof window.ControlerStorage?.flush === "function") {
     return window.ControlerStorage.flush();
   }

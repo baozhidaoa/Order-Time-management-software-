@@ -40,6 +40,9 @@
     "userDataPath",
     "documentsPath",
     "syncMeta",
+    "schemaVersion",
+    "recovery",
+    "protectionMode",
   ]);
   const SECTION_DIRECTORY_MAP = Object.freeze({
     records: "records",
@@ -59,6 +62,30 @@
     "diaryEntries",
     "diaryCategories",
   ]);
+  const RECURRING_PLAN_VIRTUAL_PERIOD_ID = "__recurring__";
+  const HARD_RECOVERY_REASONS = new Set([
+    "invalid-item",
+    "missing-record-time",
+    "missing-record-reference",
+    "missing-plan-date",
+    "missing-diary-date",
+    "missing-daily-checkin-date",
+    "missing-checkin-time",
+    "duplicate-project-id",
+    "duplicate-record-id",
+    "duplicate-plan-id",
+    "duplicate-diary-id",
+    "duplicate-daily-checkin-id",
+    "duplicate-checkin-id",
+  ]);
+  const DUPLICATE_ITEM_REASON_BY_SECTION = Object.freeze({
+    projects: "duplicate-project-id",
+    records: "duplicate-record-id",
+    plans: "duplicate-plan-id",
+    diaryEntries: "duplicate-diary-id",
+    dailyCheckins: "duplicate-daily-checkin-id",
+    checkins: "duplicate-checkin-id",
+  });
 
   function cloneValue(value) {
     if (value === null || value === undefined) {
@@ -83,8 +110,151 @@
     return isPlainObject(value) ? value : fallback;
   }
 
+  function createEmptyRecoverySummary() {
+    return {
+      totalInvalidCount: 0,
+      hardInvalidCount: 0,
+      softInvalidCount: 0,
+      hasHardIssues: false,
+      reasonCounts: {},
+      hardReasonCounts: {},
+      lastCapturedAt: null,
+    };
+  }
+
+  function normalizeRecoveryEntry(entry = {}) {
+    const source = ensureObject(entry, {});
+    return {
+      section:
+        typeof source.section === "string" && source.section.trim()
+          ? source.section.trim()
+          : "unknown",
+      periodId:
+        typeof source.periodId === "string" && source.periodId.trim()
+          ? source.periodId.trim()
+          : "",
+      actualPeriodId:
+        typeof source.actualPeriodId === "string" && source.actualPeriodId.trim()
+          ? source.actualPeriodId.trim()
+          : "",
+      reason:
+        typeof source.reason === "string" && source.reason.trim()
+          ? source.reason.trim()
+          : "invalid-item",
+      item: cloneValue(source.item),
+      capturedAt:
+        typeof source.capturedAt === "string" && source.capturedAt.trim()
+          ? source.capturedAt.trim()
+          : new Date().toISOString(),
+    };
+  }
+
+  function isHardRecoveryReason(reason = "") {
+    return HARD_RECOVERY_REASONS.has(String(reason || "").trim());
+  }
+
+  function buildRecoverySummary(invalidItems = [], fallbackSummary = {}) {
+    const summary = createEmptyRecoverySummary();
+    ensureArray(invalidItems).forEach((entry) => {
+      const normalizedEntry = normalizeRecoveryEntry(entry);
+      const reason = normalizedEntry.reason || "invalid-item";
+      const capturedAt =
+        typeof normalizedEntry.capturedAt === "string" &&
+        normalizedEntry.capturedAt.trim()
+          ? normalizedEntry.capturedAt.trim()
+          : null;
+      summary.totalInvalidCount += 1;
+      summary.reasonCounts[reason] = (summary.reasonCounts[reason] || 0) + 1;
+      if (isHardRecoveryReason(reason)) {
+        summary.hardInvalidCount += 1;
+        summary.hardReasonCounts[reason] =
+          (summary.hardReasonCounts[reason] || 0) + 1;
+      } else {
+        summary.softInvalidCount += 1;
+      }
+      if (!summary.lastCapturedAt) {
+        summary.lastCapturedAt = capturedAt;
+        return;
+      }
+      const currentTime = Date.parse(summary.lastCapturedAt);
+      const nextTime = capturedAt ? Date.parse(capturedAt) : Number.NaN;
+      if (
+        capturedAt &&
+        (!Number.isFinite(currentTime) ||
+          (Number.isFinite(nextTime) && nextTime > currentTime))
+      ) {
+        summary.lastCapturedAt = capturedAt;
+      }
+    });
+    if (!summary.lastCapturedAt) {
+      summary.lastCapturedAt =
+        typeof fallbackSummary?.lastCapturedAt === "string" &&
+        fallbackSummary.lastCapturedAt.trim()
+          ? fallbackSummary.lastCapturedAt.trim()
+          : null;
+    }
+    summary.hasHardIssues = summary.hardInvalidCount > 0;
+    return summary;
+  }
+
+  function normalizeRecoveryState(recovery = {}) {
+    const source = ensureObject(recovery, {});
+    const invalidItems = ensureArray(source.invalidItems).map((entry) =>
+      normalizeRecoveryEntry(entry),
+    );
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems, source.summary),
+    };
+  }
+
+  function appendRecoveryItems(recovery = {}, invalidItems = []) {
+    const normalized = normalizeRecoveryState(recovery);
+    return normalizeRecoveryState({
+      invalidItems: normalized.invalidItems.concat(
+        ensureArray(invalidItems).map((entry) => normalizeRecoveryEntry(entry)),
+      ),
+    });
+  }
+
   function padNumber(value) {
     return String(value).padStart(2, "0");
+  }
+
+  function formatDateOnly(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+  }
+
+  function formatDateTime(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const milliseconds = date.getMilliseconds();
+    const base = `${formatDateOnly(date)}T${padNumber(date.getHours())}:${padNumber(date.getMinutes())}:${padNumber(date.getSeconds())}`;
+    if (!milliseconds) {
+      return base;
+    }
+    return `${base}.${String(milliseconds).padStart(3, "0")}`;
+  }
+
+  function buildStableHash(value) {
+    const text = String(value || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
+  function buildLegacyItemId(prefix, item = {}, index = 0) {
+    const existingId = String(item?.id || item?._id || "").trim();
+    if (existingId) {
+      return existingId;
+    }
+    return `${prefix}-${buildStableHash(JSON.stringify(item))}-${Math.max(0, Number(index) || 0) + 1}`;
   }
 
   function formatDateToPeriodId(date) {
@@ -98,6 +268,11 @@
     if (value instanceof Date) {
       return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
     }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const normalizedNumber = Math.abs(value) < 1e12 ? value * 1000 : value;
+      const parsedNumber = new Date(normalizedNumber);
+      return Number.isNaN(parsedNumber.getTime()) ? null : parsedNumber;
+    }
     if (typeof value !== "string") {
       return null;
     }
@@ -105,8 +280,38 @@
     if (!normalized) {
       return null;
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-      const [yearText, monthText, dayText] = normalized.split("-");
+    if (/^\d{10,13}$/.test(normalized)) {
+      const numeric = Number.parseInt(normalized, 10);
+      if (!Number.isFinite(numeric)) {
+        return null;
+      }
+      const normalizedNumber = normalized.length <= 10 ? numeric * 1000 : numeric;
+      const parsedNumeric = new Date(normalizedNumber);
+      return Number.isNaN(parsedNumeric.getTime()) ? null : parsedNumeric;
+    }
+    if (/^\d{8}$/.test(normalized)) {
+      const year = Number.parseInt(normalized.slice(0, 4), 10);
+      const month = Number.parseInt(normalized.slice(4, 6), 10);
+      const day = Number.parseInt(normalized.slice(6, 8), 10);
+      if (
+        !Number.isFinite(year) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(day)
+      ) {
+        return null;
+      }
+      return new Date(year, month - 1, day);
+    }
+    let normalizedDateText = normalized;
+    const simpleDateMatch = normalized.match(
+      /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(.*)$/,
+    );
+    if (simpleDateMatch) {
+      const [, yearText, monthText, dayText, suffixText] = simpleDateMatch;
+      normalizedDateText = `${yearText}-${monthText}-${dayText}${suffixText || ""}`;
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(normalizedDateText)) {
+      const [yearText, monthText, dayText] = normalizedDateText.split("-");
       const year = Number.parseInt(yearText, 10);
       const month = Number.parseInt(monthText, 10);
       const day = Number.parseInt(dayText, 10);
@@ -119,7 +324,11 @@
       }
       return new Date(year, month - 1, day);
     }
-    const parsed = new Date(normalized);
+    const normalizedDateTimeText = normalizedDateText.replace(
+      /^(\d{4}-\d{1,2}-\d{1,2})\s+/,
+      "$1T",
+    );
+    const parsed = new Date(normalizedDateTimeText);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
@@ -796,6 +1005,7 @@
       typeof options.now === "string" && options.now
         ? options.now
         : new Date().toISOString();
+    const recovery = normalizeRecoveryState(options.recovery);
     return {
       projects: [],
       records: [],
@@ -822,6 +1032,14 @@
         typeof options.userDataPath === "string" ? options.userDataPath : null,
       documentsPath:
         typeof options.documentsPath === "string" ? options.documentsPath : null,
+      schemaVersion: Number.isFinite(options.schemaVersion)
+        ? Math.max(1, Math.round(Number(options.schemaVersion)))
+        : 1,
+      recovery,
+      protectionMode:
+        typeof options.protectionMode === "string" && options.protectionMode.trim()
+          ? options.protectionMode.trim()
+          : "off",
       syncMeta: createBaseSyncMeta(options.syncMeta, {
         fileName: options.fileName,
       }),
@@ -875,6 +1093,309 @@
     }
     const itemDate = getSectionItemDate(section, item);
     return formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID;
+  }
+
+  function canonicalizeSectionItem(section, item = {}, options = {}) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        item: null,
+        repaired: false,
+        reason: "invalid-item",
+      };
+    }
+
+    const nextItem = cloneValue(item);
+    let repaired = false;
+    const index = Math.max(0, Number(options.index) || 0);
+    const assignIfChanged = (key, value) => {
+      if (typeof value === "undefined") {
+        return;
+      }
+      if (value === null) {
+        if (nextItem[key] !== null) {
+          nextItem[key] = null;
+          repaired = true;
+        }
+        return;
+      }
+      if (nextItem[key] !== value) {
+        nextItem[key] = value;
+        repaired = true;
+      }
+    };
+    const normalizeId = (value) => {
+      const normalized = String(value || "").trim();
+      return normalized || "";
+    };
+    const normalizeDateField = (value, mode = "datetime") => {
+      const normalizedDate = normalizeDateInput(value);
+      if (!normalizedDate) {
+        return "";
+      }
+      return mode === "date" ? formatDateOnly(normalizedDate) : formatDateTime(normalizedDate);
+    };
+    const assignGeneratedId = (prefix) => {
+      assignIfChanged("id", buildLegacyItemId(prefix, nextItem, index));
+    };
+
+    if (section === "records") {
+      assignGeneratedId("legacy-record");
+      const normalizedName = String(
+        nextItem.name ||
+          nextItem.project ||
+          nextItem.projectName ||
+          nextItem.title ||
+          "",
+      ).trim();
+      const normalizedProjectId =
+        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
+        null;
+      assignIfChanged("name", normalizedName);
+      assignIfChanged("projectId", normalizedProjectId);
+      assignIfChanged(
+        "nextProjectId",
+        normalizeId(
+          nextItem.nextProjectId ||
+            nextItem.next_project_id ||
+            nextItem.nextProjectID,
+        ) || null,
+      );
+      const normalizedStartTime = normalizeDateField(
+        nextItem.startTime || nextItem.startedAt || nextItem.beginTime,
+      );
+      const normalizedEndTime = normalizeDateField(
+        nextItem.endTime ||
+          nextItem.timestamp ||
+          nextItem.sptTime ||
+          nextItem.finishedAt ||
+          nextItem.time,
+      );
+      const normalizedTimestamp = normalizeDateField(
+        nextItem.timestamp || normalizedEndTime || normalizedStartTime,
+      );
+      if (
+        !normalizedStartTime &&
+        !normalizedEndTime &&
+        !normalizedTimestamp
+      ) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-record-time",
+        };
+      }
+      if (!normalizedName && !normalizedProjectId) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-record-reference",
+        };
+      }
+      if (normalizedStartTime) {
+        assignIfChanged("startTime", normalizedStartTime);
+      }
+      if (normalizedEndTime) {
+        assignIfChanged("endTime", normalizedEndTime);
+      } else if (normalizedTimestamp) {
+        assignIfChanged("endTime", normalizedTimestamp);
+      }
+      if (normalizedTimestamp) {
+        assignIfChanged("timestamp", normalizedTimestamp);
+      } else if (normalizedEndTime) {
+        assignIfChanged("timestamp", normalizedEndTime);
+      }
+      if (nextItem.sptTime) {
+        const normalizedSpentTime = normalizeDateField(
+          nextItem.sptTime || normalizedEndTime || normalizedTimestamp,
+        );
+        if (normalizedSpentTime) {
+          assignIfChanged("sptTime", normalizedSpentTime);
+        }
+      }
+      if (
+        !Number.isFinite(nextItem.durationMs) &&
+        getRecordDurationMs(nextItem) > 0
+      ) {
+        assignIfChanged("durationMs", getRecordDurationMs(nextItem));
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "plans") {
+      assignGeneratedId("legacy-plan");
+      assignIfChanged(
+        "projectId",
+        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
+          null,
+      );
+      if (!isRecurringPlan(nextItem)) {
+        const normalizedDate = normalizeDateField(
+          nextItem.date || nextItem.day || nextItem.targetDate || nextItem.startDate,
+          "date",
+        );
+        if (!normalizedDate) {
+          return {
+            item: null,
+            repaired,
+            reason: "missing-plan-date",
+          };
+        }
+        assignIfChanged("date", normalizedDate);
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "diaryEntries") {
+      assignGeneratedId("legacy-diary");
+      const normalizedDate = normalizeDateField(
+        nextItem.date || nextItem.day || nextItem.createdAt || nextItem.updatedAt,
+        "date",
+      );
+      const normalizedUpdatedAt = normalizeDateField(
+        nextItem.updatedAt || nextItem.date || nextItem.createdAt,
+      );
+      if (!normalizedDate && !normalizedUpdatedAt) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-diary-date",
+        };
+      }
+      if (normalizedDate) {
+        assignIfChanged("date", normalizedDate);
+      }
+      if (normalizedUpdatedAt) {
+        assignIfChanged("updatedAt", normalizedUpdatedAt);
+      }
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "dailyCheckins") {
+      assignGeneratedId("legacy-daily-checkin");
+      const normalizedDate = normalizeDateField(
+        nextItem.date || nextItem.day || nextItem.updatedAt,
+        "date",
+      );
+      if (!normalizedDate) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-daily-checkin-date",
+        };
+      }
+      assignIfChanged("date", normalizedDate);
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    if (section === "checkins") {
+      assignGeneratedId("legacy-checkin");
+      const normalizedTime = normalizeDateField(
+        nextItem.updatedAt || nextItem.time || nextItem.date,
+      );
+      if (!normalizedTime) {
+        return {
+          item: null,
+          repaired,
+          reason: "missing-checkin-time",
+        };
+      }
+      assignIfChanged("updatedAt", normalizedTime);
+      assignIfChanged("time", normalizedTime);
+      return {
+        item: nextItem,
+        repaired,
+        reason: "",
+      };
+    }
+
+    return {
+      item: nextItem,
+      repaired,
+      reason: "",
+    };
+  }
+
+  function validateAndRepairForPeriod(section, periodId, items = [], options = {}) {
+    const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
+    const repairedItems = [];
+    const invalidItems = [];
+    let repaired = false;
+    const duplicateReason =
+      DUPLICATE_ITEM_REASON_BY_SECTION[section] || "duplicate-item-id";
+    const seenIds = new Set();
+
+    ensureArray(items).forEach((item, index) => {
+      const canonicalized = canonicalizeSectionItem(section, item, {
+        ...options,
+        index,
+      });
+      if (!canonicalized.item) {
+        repaired = true;
+        invalidItems.push({
+          section,
+          periodId: normalizedPeriodId,
+          item: cloneValue(item),
+          actualPeriodId: "",
+          reason: canonicalized.reason || "invalid-item",
+        });
+        return;
+      }
+      if (canonicalized.repaired) {
+        repaired = true;
+      }
+      const itemPeriodId =
+        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+      if (itemPeriodId !== normalizedPeriodId) {
+        repaired = true;
+        invalidItems.push({
+          section,
+          periodId: normalizedPeriodId,
+          item: cloneValue(canonicalized.item),
+          actualPeriodId: itemPeriodId,
+          reason: "period-mismatch",
+        });
+        return;
+      }
+      const itemId = String(canonicalized.item?.id || "").trim();
+      if (itemId) {
+        if (seenIds.has(itemId)) {
+          repaired = true;
+          invalidItems.push({
+            section,
+            periodId: normalizedPeriodId,
+            item: cloneValue(canonicalized.item),
+            actualPeriodId: itemPeriodId,
+            reason: duplicateReason,
+          });
+          return;
+        }
+        seenIds.add(itemId);
+      }
+      repairedItems.push(canonicalized.item);
+    });
+
+    return {
+      periodId: normalizedPeriodId,
+      items: repairedItems,
+      invalidItems,
+      repaired,
+    };
   }
 
   function getPartitionRelativePath(section, periodId) {
@@ -970,6 +1491,7 @@
         ? options.now
         : source.lastModified || source.createdAt || new Date().toISOString();
     const normalizedGuideState = ensureObject(source.guideState, null);
+    const recovery = normalizeRecoveryState(source.recovery);
     const core = {
       projects: ensureArray(source.projects),
       todos: ensureArray(source.todos),
@@ -1014,6 +1536,14 @@
           : typeof source.documentsPath === "string"
             ? source.documentsPath
             : null,
+      schemaVersion: Number.isFinite(source.schemaVersion)
+        ? Math.max(1, Math.round(Number(source.schemaVersion)))
+        : 1,
+      recovery,
+      protectionMode:
+        typeof source.protectionMode === "string" && source.protectionMode.trim()
+          ? source.protectionMode.trim()
+          : "off",
       syncMeta: createBaseSyncMeta(source.syncMeta, {
         fileName:
           typeof options.fileName === "string" ? options.fileName : undefined,
@@ -1026,16 +1556,24 @@
     const partitionMap = {};
     PARTITIONED_SECTIONS.forEach((section) => {
       partitionMap[section] = new Map();
-      ensureArray(source[section]).forEach((item) => {
-        if (section === "plans" && isRecurringPlan(item)) {
-          recurringPlans.push(cloneValue(item));
+      ensureArray(source[section]).forEach((item, index) => {
+        const canonicalized = canonicalizeSectionItem(section, item, {
+          index,
+        });
+        if (!canonicalized.item) {
           return;
         }
-        const periodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
+        if (section === "plans" && isRecurringPlan(canonicalized.item)) {
+          recurringPlans.push(cloneValue(canonicalized.item));
+          return;
+        }
+        const periodId =
+          getPeriodIdForSectionItem(section, canonicalized.item) ||
+          UNDATED_PERIOD_ID;
         if (!partitionMap[section].has(periodId)) {
           partitionMap[section].set(periodId, []);
         }
-        partitionMap[section].get(periodId).push(cloneValue(item));
+        partitionMap[section].get(periodId).push(cloneValue(canonicalized.item));
       });
     });
     const manifest = {
@@ -1082,6 +1620,7 @@
         nextState[key] = cloneValue(core[key]);
       }
     });
+    nextState.recovery = normalizeRecoveryState(nextState.recovery);
     PARTITIONED_SECTIONS.forEach((section) => {
       const sectionPartitions = partitionMap[section];
       const items = [];
@@ -1124,6 +1663,7 @@
       nextState.selectedTheme.trim()
         ? nextState.selectedTheme.trim()
         : "default";
+    nextState.recovery = normalizeRecoveryState(nextState.recovery);
     nextState.syncMeta = createBaseSyncMeta(nextState.syncMeta);
     return nextState;
   }
@@ -1323,6 +1863,123 @@
     return grouped;
   }
 
+  function inspectProjectCollectionIntegrity(projects = []) {
+    const seenIds = new Set();
+    const invalidItems = [];
+    ensureArray(projects).forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      if (!projectId) {
+        return;
+      }
+      if (seenIds.has(projectId)) {
+        invalidItems.push(
+          normalizeRecoveryEntry({
+            section: "projects",
+            reason: "duplicate-project-id",
+            item: cloneValue(project),
+          }),
+        );
+        return;
+      }
+      seenIds.add(projectId);
+    });
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems),
+      hasHardIssues: invalidItems.some((entry) =>
+        isHardRecoveryReason(entry.reason),
+      ),
+    };
+  }
+
+  function inspectSectionCollectionIntegrity(section, items = [], options = {}) {
+    const invalidItems = [];
+    const groupedItems = new Map();
+    const recurringItems = [];
+    let repaired = false;
+
+    ensureArray(items).forEach((item, index) => {
+      const canonicalized = canonicalizeSectionItem(section, item, {
+        ...options,
+        index,
+      });
+      if (!canonicalized.item) {
+        repaired = true;
+        invalidItems.push(
+          normalizeRecoveryEntry({
+            section,
+            reason: canonicalized.reason || "invalid-item",
+            item,
+          }),
+        );
+        return;
+      }
+      if (canonicalized.repaired) {
+        repaired = true;
+      }
+      if (section === "plans" && isRecurringPlan(canonicalized.item)) {
+        recurringItems.push(cloneValue(canonicalized.item));
+        return;
+      }
+      const periodId =
+        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+      if (!groupedItems.has(periodId)) {
+        groupedItems.set(periodId, []);
+      }
+      groupedItems.get(periodId).push(cloneValue(canonicalized.item));
+    });
+
+    groupedItems.forEach((periodItems, periodId) => {
+      const inspected = validateAndRepairForPeriod(
+        section,
+        periodId,
+        periodItems,
+        options,
+      );
+      if (inspected.repaired) {
+        repaired = true;
+      }
+      invalidItems.push(
+        ...ensureArray(inspected.invalidItems).map((entry) =>
+          normalizeRecoveryEntry(entry),
+        ),
+      );
+    });
+
+    if (section === "plans" && recurringItems.length) {
+      const recurringIds = new Set();
+      recurringItems.forEach((item) => {
+        const itemId = String(item?.id || "").trim();
+        if (!itemId) {
+          return;
+        }
+        if (recurringIds.has(itemId)) {
+          repaired = true;
+          invalidItems.push(
+            normalizeRecoveryEntry({
+              section,
+              periodId: RECURRING_PLAN_VIRTUAL_PERIOD_ID,
+              reason:
+                DUPLICATE_ITEM_REASON_BY_SECTION[section] || "duplicate-item-id",
+              item: cloneValue(item),
+            }),
+          );
+          return;
+        }
+        recurringIds.add(itemId);
+      });
+    }
+
+    return {
+      invalidItems,
+      summary: buildRecoverySummary(invalidItems),
+      hasHardIssues: invalidItems.some((entry) =>
+        isHardRecoveryReason(entry.reason),
+      ),
+      repaired,
+    };
+  }
+
   return {
     FORMAT_VERSION,
     BUNDLE_MODE,
@@ -1362,6 +2019,11 @@
     reconcileProjectDurationCaches,
     applyProjectRecordDurationChanges,
     createBaseSyncMeta,
+    createEmptyRecoverySummary,
+    normalizeRecoveryEntry,
+    buildRecoverySummary,
+    normalizeRecoveryState,
+    appendRecoveryItems,
     createEmptyLegacyState,
     createEmptyBundle,
     createPartitionEnvelope,
@@ -1373,6 +2035,11 @@
     buildPartitionMergeKey,
     mergePartitionItems,
     validateItemsForPeriod,
+    validateAndRepairForPeriod,
+    canonicalizeSectionItem,
+    isHardRecoveryReason,
+    inspectProjectCollectionIntegrity,
+    inspectSectionCollectionIntegrity,
     groupItemsByPeriod,
     isRecurringPlan,
     sortPartitionItems,

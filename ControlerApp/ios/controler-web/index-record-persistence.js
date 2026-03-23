@@ -218,9 +218,13 @@
       }
 
       if (!hasExplicitMutations) {
-        throw new Error(
-          `首页记录未全量加载，无法安全 replace 月分区 ${periodId}`,
-        );
+        return {
+          periodId,
+          mode: "skipped",
+          itemCount: 0,
+          removedCount: 0,
+          source: "no-op",
+        };
       }
       if (typeof loadSectionRange !== "function") {
         throw new Error("persistRecordMutations 缺少 loadSectionRange");

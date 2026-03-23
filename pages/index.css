@@ -6361,6 +6361,8 @@ body.page-settings.settings-bootstrap-ready .settings-main > :not(#settings-back
 body.controler-blocking-overlay-active > div:first-of-type > .app-nav,
 body.controler-blocking-overlay-active > div:first-of-type > .app-sidebar {
   pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 body.controler-android-native.app-page-transition-enabled > div:nth-of-type(2),
@@ -6750,21 +6752,26 @@ body :is(
 }
 
 .page-loading-overlay[data-mode="fullscreen"] {
-  position: fixed;
-  inset: 0;
+  position: fixed !important;
+  inset: 0 !important;
   width: 100vw;
-  min-height: var(--controler-visual-viewport-height, 100dvh);
-  height: var(--controler-visual-viewport-height, 100dvh);
-  max-height: var(--controler-visual-viewport-height, 100dvh);
-  z-index: 4400;
+  min-height: 100vh;
+  height: 100vh;
+  max-height: none;
+  z-index: 9500;
   border-radius: 0;
   overflow: hidden;
   overscroll-behavior: contain;
   pointer-events: auto;
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
   background:
-    radial-gradient(circle at top, rgba(var(--accent-color-rgb), 0.16), transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
-    var(--controler-perf-overlay-bg-strong);
+    radial-gradient(circle at top, rgba(var(--accent-color-rgb), 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--bg-color, #f4efe7) 88%, rgba(0, 0, 0, 0.18));
 }
 
 .page-loading-overlay[hidden] {
@@ -6776,17 +6783,20 @@ body :is(
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 22px 24px;
-  border-radius: 22px;
-  border: 1px solid rgba(var(--accent-color-rgb), 0.14);
+  gap: 10px;
+  padding: 26px 26px 24px;
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--panel-border-color) 78%, rgba(255, 255, 255, 0.22));
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
-    color-mix(in srgb, var(--panel-strong-bg) 86%, transparent);
-  box-shadow: var(--controler-perf-surface-shadow-strong);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--panel-strong-bg) 92%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 26px 48px rgba(0, 0, 0, 0.16);
   text-align: center;
 }
 
-.page-loading-card:not(.settings-backup-card)::before {
+.page-loading-card::before {
   content: "";
   width: 54px;
   height: 54px;
@@ -6838,33 +6848,41 @@ body.settings-backup-busy {
 }
 
 .settings-backup-overlay {
-  z-index: 2460 !important;
+  z-index: 9500 !important;
   pointer-events: auto;
   touch-action: none;
 }
 
 .settings-backup-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-backup-spinner {
-  width: 54px;
-  height: 54px;
-  border-radius: 999px;
-  border: 3px solid color-mix(in srgb, rgba(var(--accent-color-rgb), 0.22) 82%, transparent);
-  border-top-color: var(--accent-color);
-  border-right-color: color-mix(in srgb, var(--accent-color) 42%, transparent);
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-color-rgb), 0.08),
-    0 12px 24px rgba(0, 0, 0, 0.12);
-  animation: settings-backup-spin 0.9s linear infinite !important;
+  display: none !important;
 }
 
 @keyframes settings-backup-spin {
   to {
     transform: rotate(360deg);
   }
+}
+
+.record-item-pending {
+  border-color: rgba(var(--accent-color-rgb), 0.3) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-color-rgb), 0.16),
+    0 18px 34px rgba(0, 0, 0, 0.14) !important;
+}
+
+.record-persist-pending-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-color);
+  background: color-mix(in srgb, rgba(var(--accent-color-rgb), 0.16) 82%, transparent);
+  border: 1px solid rgba(var(--accent-color-rgb), 0.18);
 }
