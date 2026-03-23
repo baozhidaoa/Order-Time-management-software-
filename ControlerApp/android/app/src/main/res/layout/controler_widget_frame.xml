@@ -580,21 +580,34 @@
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:id="@+id/widget_year_annual_count"
+                        <FrameLayout
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/controler_widget_action_background"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:paddingLeft="8dp"
-                            android:paddingTop="4dp"
-                            android:paddingRight="8dp"
-                            android:paddingBottom="4dp"
-                            android:text="0项"
-                            android:textColor="#EAF6ED"
-                            android:textSize="10sp"
-                            android:textStyle="bold" />
+                            android:layout_height="wrap_content">
+
+                            <ImageView
+                                android:id="@+id/widget_year_annual_count_background"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:adjustViewBounds="false"
+                                android:contentDescription="@null"
+                                android:scaleType="fitXY"
+                                android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+                            <TextView
+                                android:id="@+id/widget_year_annual_count"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:paddingLeft="8dp"
+                                android:paddingTop="4dp"
+                                android:paddingRight="8dp"
+                                android:paddingBottom="4dp"
+                                android:text="0项"
+                                android:textColor="#EAF6ED"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </FrameLayout>
                     </LinearLayout>
 
                     <FrameLayout
@@ -662,21 +675,34 @@
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:id="@+id/widget_year_month_count"
+                        <FrameLayout
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/controler_widget_action_background"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:paddingLeft="8dp"
-                            android:paddingTop="4dp"
-                            android:paddingRight="8dp"
-                            android:paddingBottom="4dp"
-                            android:text="0项"
-                            android:textColor="#EAF6ED"
-                            android:textSize="10sp"
-                            android:textStyle="bold" />
+                            android:layout_height="wrap_content">
+
+                            <ImageView
+                                android:id="@+id/widget_year_month_count_background"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:adjustViewBounds="false"
+                                android:contentDescription="@null"
+                                android:scaleType="fitXY"
+                                android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+                            <TextView
+                                android:id="@+id/widget_year_month_count"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:paddingLeft="8dp"
+                                android:paddingTop="4dp"
+                                android:paddingRight="8dp"
+                                android:paddingBottom="4dp"
+                                android:text="0项"
+                                android:textColor="#EAF6ED"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+                        </FrameLayout>
                     </LinearLayout>
 
                     <FrameLayout

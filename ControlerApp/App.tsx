@@ -94,6 +94,9 @@ type BridgeEnvelopePayload = {
   isBusy?: boolean;
   busy?: boolean;
   lockNavigation?: boolean;
+  title?: string;
+  message?: string;
+  presentation?: string;
   queued?: boolean;
   modalCount?: number;
   page?: string;
@@ -197,6 +200,15 @@ type WidgetRefreshPayload = {
   source?: string;
 };
 
+type BusyOverlayState = {
+  active: boolean;
+  lockNavigation: boolean;
+  title: string;
+  message: string;
+  presentation: string;
+  href: string;
+};
+
 type ShellBootTheme = {
   screenBg: string;
   cardBg: string;
@@ -291,6 +303,51 @@ function normalizeEdgeBackSwipeExclusionState(
         ? viewportHeight
         : 0,
   };
+}
+
+function createDefaultBusyOverlayState(): BusyOverlayState {
+  return {
+    active: false,
+    lockNavigation: false,
+    title: '',
+    message: '',
+    presentation: '',
+    href: '',
+  };
+}
+
+function normalizeBusyOverlayState(
+  payload: BridgeEnvelopePayload | undefined,
+): BusyOverlayState {
+  const isBusy =
+    payload?.lockNavigation === true ||
+    payload?.isBusy === true ||
+    payload?.busy === true;
+  return {
+    active: isBusy,
+    lockNavigation: payload?.lockNavigation === true,
+    title: typeof payload?.title === 'string' ? payload.title.trim() : '',
+    message: typeof payload?.message === 'string' ? payload.message.trim() : '',
+    presentation:
+      typeof payload?.presentation === 'string'
+        ? payload.presentation.trim()
+        : '',
+    href: typeof payload?.href === 'string' ? payload.href.trim() : '',
+  };
+}
+
+function areBusyOverlayStatesEqual(
+  left: BusyOverlayState,
+  right: BusyOverlayState,
+) {
+  return (
+    left.active === right.active &&
+    left.lockNavigation === right.lockNavigation &&
+    left.title === right.title &&
+    left.message === right.message &&
+    left.presentation === right.presentation &&
+    left.href === right.href
+  );
 }
 
 const nativeBridge = NativeModules.ControlerBridge as
@@ -430,6 +487,7 @@ const SHELL_THEME_SECTION_KEYS = new Set([
 const IS_ANDROID = Platform.OS === 'android';
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
+const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
 const NAVIGATION_PREWARM_DELAY_MS = 260;
 const WIDGET_PREWARM_AFTER_READY_MS = 220;
 const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 2400;
@@ -1573,6 +1631,11 @@ function App({
     secondary: false,
     tertiary: false,
   });
+  const busyOverlayBySlotRef = useRef<Record<WebViewSlot, BusyOverlayState>>({
+    primary: createDefaultBusyOverlayState(),
+    secondary: createDefaultBusyOverlayState(),
+    tertiary: createDefaultBusyOverlayState(),
+  });
   const slotLastUsedAtRef = useRef<Record<WebViewSlot, number>>({
     primary: 0,
     secondary: 0,
@@ -1912,6 +1975,46 @@ function App({
         ? secondaryWebViewRef
         : tertiaryWebViewRef;
 
+  const requestLoadedWebViewsPersist = useCallback((reason: string) => {
+    WEBVIEW_SLOTS.forEach(slot => {
+      if (!webViewSlotsRef.current[slot].uri) {
+        return;
+      }
+      const script = `(() => {
+        try {
+          const storage = window.ControlerStorage;
+          if (storage && typeof storage.flushJournal === 'function') {
+            void storage.flushJournal({ reason: ${JSON.stringify(reason)} });
+          } else {
+            if (storage && typeof storage.flush === 'function') {
+              void storage.flush();
+            }
+            if (storage && typeof storage.persistNow === 'function') {
+              void storage.persistNow();
+            }
+          }
+        } catch (error) {}
+      })(); true;`;
+      getWebViewRef(slot).current?.injectJavaScript(script);
+    });
+  }, []);
+
+  const flushShellStorageBeforeBackground = useCallback(
+    async (reason: string) => {
+      requestLoadedWebViewsPersist(reason);
+      if (typeof nativeBridge?.flushStorageJournal !== 'function') {
+        return;
+      }
+      await Promise.race([
+        nativeBridge.flushStorageJournal().catch(() => undefined),
+        new Promise(resolve => {
+          setTimeout(resolve, APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS);
+        }),
+      ]);
+    },
+    [requestLoadedWebViewsPersist],
+  );
+
   const handleShellBackNavigation = useCallback((allowExit = true) => {
     if (transitionStateRef.current) {
       return true;
@@ -2088,6 +2191,7 @@ function App({
     canGoBackBySlotRef.current[slot] = false;
     modalOpenBySlotRef.current[slot] = false;
     busyLockBySlotRef.current[slot] = false;
+    busyOverlayBySlotRef.current[slot] = createDefaultBusyOverlayState();
     edgeBackSwipeExclusionBySlotRef.current[slot] =
       createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
@@ -2667,6 +2771,11 @@ function App({
       primary: false,
       secondary: false,
       tertiary: false,
+    };
+    busyOverlayBySlotRef.current = {
+      primary: createDefaultBusyOverlayState(),
+      secondary: createDefaultBusyOverlayState(),
+      tertiary: createDefaultBusyOverlayState(),
     };
     queuedNavigationRequestRef.current = null;
     latestBridgeNavigationIntentRef.current = null;
@@ -3494,6 +3603,7 @@ function App({
         persistLastVisiblePage(
           webViewSlotsRef.current[activeSlotRef.current].pageKey,
         );
+        void flushShellStorageBeforeBackground('app-state-background');
       }
       if (nextState === 'active') {
         handleAppActive();
@@ -3508,6 +3618,7 @@ function App({
       subscription.remove();
     };
   }, [
+    flushShellStorageBeforeBackground,
     handleWidgetLaunchContext,
     logPerfMetric,
     persistLastVisiblePage,
@@ -3685,6 +3796,7 @@ function App({
         persistLastVisiblePage(
           webViewSlotsRef.current[activeSlotRef.current].pageKey,
         );
+        void flushShellStorageBeforeBackground('app-state-background');
       }
       if (nextState === 'active') {
         getWebViewRef(activeSlotRef.current).current?.injectJavaScript(
@@ -3706,7 +3818,12 @@ function App({
       changeSubscription.remove();
       memoryWarningSubscription.remove();
     };
-  }, [clearInactiveCachedSlots, logPerfMetric, persistLastVisiblePage]);
+  }, [
+    clearInactiveCachedSlots,
+    flushShellStorageBeforeBackground,
+    logPerfMetric,
+    persistLastVisiblePage,
+  ]);
 
   async function callNativeMethod(
     method: string,
@@ -4257,12 +4374,26 @@ function App({
         return;
       }
       if (eventName === 'ui.busy-state') {
+        const nextBusyOverlayState = normalizeBusyOverlayState(message.payload);
+        if (
+          nextBusyOverlayState.active &&
+          !isPayloadForCurrentSlot(slot, message.payload)
+        ) {
+          return;
+        }
         const nextBusy =
-          message.payload?.lockNavigation === true ||
-          (message.payload?.lockNavigation === undefined &&
-            !!message.payload?.isBusy);
-        if (busyLockBySlotRef.current[slot] !== nextBusy) {
-          busyLockBySlotRef.current[slot] = nextBusy;
+          nextBusyOverlayState.lockNavigation || nextBusyOverlayState.active;
+        const normalizedBusyOverlayState = nextBusyOverlayState.active
+          ? nextBusyOverlayState
+          : createDefaultBusyOverlayState();
+        const lockChanged = busyLockBySlotRef.current[slot] !== nextBusy;
+        const busyOverlayChanged = !areBusyOverlayStatesEqual(
+          busyOverlayBySlotRef.current[slot],
+          normalizedBusyOverlayState,
+        );
+        busyLockBySlotRef.current[slot] = nextBusy;
+        busyOverlayBySlotRef.current[slot] = normalizedBusyOverlayState;
+        if (lockChanged || busyOverlayChanged) {
           setBusyStateVersion(version => version + 1);
           if (
             !nextBusy &&
@@ -4996,6 +5127,44 @@ function App({
     loadingTargetPageKey,
     shellLanguage,
   );
+  const activeBusyOverlay = busyOverlayBySlotRef.current[activeSlot];
+  const shellBlockingOverlay =
+    transitionState?.status === 'loading'
+      ? {
+          title: selectShellText(
+            shellLanguage,
+            '正在打开页面',
+            'Opening page',
+          ),
+          message: loadingTargetPageKey
+            ? shellLanguage === 'en-US'
+              ? `Preparing the ${loadingTargetPageLabel} page.`
+              : `正在准备${loadingTargetPageLabel}页面，请稍候`
+            : selectShellText(
+                shellLanguage,
+                '正在准备目标页面，请稍候',
+                'Preparing the destination page.',
+              ),
+        }
+      : activeBusyOverlay.active &&
+          activeBusyOverlay.presentation === 'native-fullscreen'
+        ? {
+            title:
+              activeBusyOverlay.title ||
+              selectShellText(
+                shellLanguage,
+                '正在处理数据',
+                'Working on your data',
+              ),
+            message:
+              activeBusyOverlay.message ||
+              selectShellText(
+                shellLanguage,
+                '正在准备当前页面，请稍候。',
+                'Preparing the current page.',
+              ),
+          }
+        : null;
   if (!activeUri) {
     return (
       <ScreenContainer style={styles.screen}>
@@ -5041,7 +5210,7 @@ function App({
         {renderWebView('primary')}
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
-        {transitionState?.status === 'loading' ? (
+        {shellBlockingOverlay ? (
           <View
             accessible={false}
             pointerEvents="auto"
@@ -5089,11 +5258,7 @@ function App({
                       color: shellBootTheme.text,
                     },
                   ]}>
-                  {selectShellText(
-                    shellLanguage,
-                    '正在打开页面',
-                    'Opening page',
-                  )}
+                  {shellBlockingOverlay.title}
                 </Text>
                 <Text
                   style={[
@@ -5102,15 +5267,7 @@ function App({
                       color: shellBootTheme.mutedText,
                     },
                   ]}>
-                  {loadingTargetPageKey
-                    ? shellLanguage === 'en-US'
-                      ? `Preparing the ${loadingTargetPageLabel} page.`
-                      : `正在准备${loadingTargetPageLabel}页面，请稍候`
-                    : selectShellText(
-                        shellLanguage,
-                        '正在准备目标页面，请稍候',
-                        'Preparing the destination page.',
-                      )}
+                  {shellBlockingOverlay.message}
                 </Text>
               </View>
             </View>

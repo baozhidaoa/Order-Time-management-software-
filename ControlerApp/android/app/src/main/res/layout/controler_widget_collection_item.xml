@@ -1,68 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_collection_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/controler_widget_stat_background"
-    android:gravity="center_vertical"
     android:minHeight="56dp"
-    android:orientation="horizontal"
-    android:padding="10dp">
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
 
     <ImageView
-        android:id="@+id/widget_collection_item_accent"
-        android:layout_width="4dp"
+        android:id="@+id/widget_collection_item_background"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#8ED6A4"
+        android:adjustViewBounds="false"
         android:contentDescription="@null"
-        android:scaleType="fitXY" />
+        android:scaleType="fitXY"
+        android:src="@drawable/controler_widget_tintable_panel_fill" />
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
-        android:layout_marginEnd="8dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:gravity="center_vertical"
+        android:minHeight="56dp"
+        android:orientation="horizontal"
+        android:padding="10dp">
+
+        <ImageView
+            android:id="@+id/widget_collection_item_accent"
+            android:layout_width="4dp"
+            android:layout_height="match_parent"
+            android:background="#8ED6A4"
+            android:contentDescription="@null"
+            android:scaleType="fitXY" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_collection_item_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="项目标题"
+                android:textColor="#EAF6ED"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_collection_item_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="项目说明"
+                android:textColor="#D2E4D7"
+                android:textSize="10sp" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/widget_collection_item_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="项目标题"
-            android:textColor="#EAF6ED"
-            android:textSize="12sp"
+            android:id="@+id/widget_collection_item_action"
+            android:layout_width="64dp"
+            android:layout_height="48dp"
+            android:background="@drawable/controler_widget_action_background"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:minWidth="64dp"
+            android:minHeight="48dp"
+            android:paddingLeft="12dp"
+            android:paddingTop="10dp"
+            android:paddingRight="12dp"
+            android:paddingBottom="10dp"
+            android:text="完成"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
             android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_collection_item_meta"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:text="项目说明"
-            android:textColor="#D2E4D7"
-            android:textSize="10sp" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/widget_collection_item_action"
-        android:layout_width="64dp"
-        android:layout_height="48dp"
-        android:background="@drawable/controler_widget_action_background"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:minWidth="64dp"
-        android:minHeight="48dp"
-        android:paddingLeft="12dp"
-        android:paddingTop="10dp"
-        android:paddingRight="12dp"
-        android:paddingBottom="10dp"
-        android:text="完成"
-        android:textColor="#FFFFFF"
-        android:textSize="10sp"
-        android:textStyle="bold" />
-</LinearLayout>
+</FrameLayout>

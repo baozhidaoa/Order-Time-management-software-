@@ -68,6 +68,9 @@ public final class ControlerWidgetDataStore {
     public static final String BUNDLE_MANIFEST_FILE_NAME = "bundle-manifest.json";
     public static final String BUNDLE_CORE_FILE_NAME = "core.json";
     public static final String BUNDLE_RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+    private static final String STORAGE_RECOVERY_STATE_OK = "ok";
+    private static final String STORAGE_RECOVERY_STATE_REPAIRED = "repaired";
+    private static final String STORAGE_RECOVERY_STATE_NEEDS_RECOVERY = "needs-recovery";
     private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
         "directory-document-uri-cache.json";
     private static final String BUNDLE_SIZE_CACHE_FILE_NAME = "bundle-size-cache.json";
@@ -75,6 +78,8 @@ public final class ControlerWidgetDataStore {
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
     private static final String PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
+    private static volatile String storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
+    private static volatile String storageRecoveryMessage = "";
 
     private ControlerWidgetDataStore() {}
 
@@ -220,6 +225,24 @@ public final class ControlerWidgetDataStore {
         }
     }
 
+    private static final class BundleArtifactInspection {
+        public boolean manifestExists = false;
+        public boolean manifestInvalid = false;
+        public boolean coreExists = false;
+        public boolean recurringExists = false;
+        public boolean legacyExists = false;
+        public final ArrayList<String> partitionFiles = new ArrayList<>();
+        public JSONObject manifest = null;
+
+        public boolean hasBundleArtifacts() {
+            return coreExists || recurringExists || !partitionFiles.isEmpty();
+        }
+
+        public boolean hasAnyArtifacts() {
+            return manifestExists || legacyExists || hasBundleArtifacts();
+        }
+    }
+
     private static final class ProjectDurationContext {
         public final ArrayList<JSONObject> projects = new ArrayList<>();
         public final Map<String, ProjectDurationIndexEntry> byId = new HashMap<>();
@@ -313,6 +336,10 @@ public final class ControlerWidgetDataStore {
 
     public static boolean saveRoot(Context context, JSONObject root) {
         try {
+            if (usesDirectoryBundleStorage(context)) {
+                ensureBundleStorageReady(context);
+                assertStorageWritable();
+            }
             JSONObject normalizedRoot = normalizeRoot(context, root, true);
             if (usesDirectoryBundleStorage(context)) {
                 return writeBundleRoot(context, normalizedRoot);
@@ -331,6 +358,37 @@ public final class ControlerWidgetDataStore {
         } catch (Exception error) {
             error.printStackTrace();
             return false;
+        }
+    }
+
+    public static String getStorageRecoveryState() {
+        return TextUtils.isEmpty(storageRecoveryState)
+            ? STORAGE_RECOVERY_STATE_OK
+            : storageRecoveryState;
+    }
+
+    public static String getStorageRecoveryMessage() {
+        return TextUtils.isEmpty(storageRecoveryMessage) ? "" : storageRecoveryMessage;
+    }
+
+    private static void resetStorageRecoveryState() {
+        storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
+        storageRecoveryMessage = "";
+    }
+
+    private static void setStorageRecoveryState(String state, String message) {
+        storageRecoveryState =
+            TextUtils.isEmpty(state) ? STORAGE_RECOVERY_STATE_OK : state;
+        storageRecoveryMessage = TextUtils.isEmpty(message) ? "" : message;
+    }
+
+    private static void assertStorageWritable() throws Exception {
+        if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())) {
+            throw new Exception(
+                TextUtils.isEmpty(getStorageRecoveryMessage())
+                    ? "当前存储目录需要恢复，已阻止写入。"
+                    : getStorageRecoveryMessage()
+            );
         }
     }
 
@@ -1060,7 +1118,23 @@ public final class ControlerWidgetDataStore {
             BUNDLE_MANIFEST_FILE_NAME,
             false,
             false
-        ) != null || resolveDirectoryStorageDocumentUri(context, treeUri, false) != null;
+        ) != null
+            || resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                BUNDLE_CORE_FILE_NAME,
+                false,
+                false
+            ) != null
+            || resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                BUNDLE_RECURRING_PLANS_FILE_NAME,
+                false,
+                false
+            ) != null
+            || !listBundlePartitionRelativePaths(context, treeUri, null).isEmpty()
+            || resolveDirectoryStorageDocumentUri(context, treeUri, false) != null;
     }
 
     public static void writeBundleSnapshotToDirectory(
@@ -1723,30 +1797,295 @@ public final class ControlerWidgetDataStore {
     }
 
     private static void ensureBundleStorageReady(Context context) throws Exception {
-        if (!usesDirectoryBundleStorage(context) || bundlePathExists(context, BUNDLE_MANIFEST_FILE_NAME)) {
+        if (!usesDirectoryBundleStorage(context)) {
             return;
         }
 
+        String previousRecoveryState = getStorageRecoveryState();
+        BundleArtifactInspection inspection = inspectBundleArtifacts(context);
+        if (inspection.manifestExists || inspection.hasBundleArtifacts()) {
+            if (!shouldRepairBundleArtifacts(context, inspection)) {
+                if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+                    setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
+                }
+                return;
+            }
+            if (repairBundleArtifactsIfNeeded(context, inspection)) {
+                return;
+            }
+
+            String recoveryMessage =
+                "检测到存储目录中存在未完成或损坏的 bundle 数据，当前无法自动修复，请先恢复后再继续。";
+            setStorageRecoveryState(STORAGE_RECOVERY_STATE_NEEDS_RECOVERY, recoveryMessage);
+            throw new Exception(recoveryMessage);
+        }
+
+        if (inspection.legacyExists) {
+            if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+                Uri directoryUri = getCustomStorageDirectoryUri(context);
+                Uri legacyDocument =
+                    resolveDirectoryRelativeDocumentUri(
+                        context,
+                        directoryUri,
+                        "controler-data.json",
+                        false,
+                        false
+                    );
+                if (legacyDocument != null) {
+                    migrateLegacyDirectoryDocumentToBundle(context, directoryUri, legacyDocument);
+                }
+            } else {
+                File legacyFile = getStorageFile(context);
+                if (legacyFile.exists()) {
+                    migrateLegacyLocalFileToBundle(context, legacyFile);
+                }
+            }
+            if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+                setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
+            }
+            return;
+        }
+
+        if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+            setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
+        }
+    }
+
+    private static boolean shouldRepairBundleArtifacts(
+        Context context,
+        BundleArtifactInspection inspection
+    ) throws Exception {
+        if (inspection == null) {
+            return false;
+        }
+        if (!inspection.manifestExists) {
+            return inspection.hasBundleArtifacts();
+        }
+        if (inspection.manifestInvalid || inspection.manifest == null) {
+            return true;
+        }
+        if (!inspection.coreExists) {
+            return true;
+        }
+
+        Set<String> manifestFiles = collectBundleFilesFromManifest(inspection.manifest);
+        for (String file : manifestFiles) {
+            if (BUNDLE_MANIFEST_FILE_NAME.equals(file)) {
+                continue;
+            }
+            if (!bundlePathExists(context, file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean repairBundleArtifactsIfNeeded(
+        Context context,
+        BundleArtifactInspection inspection
+    ) throws Exception {
+        if (inspection == null || !shouldRepairBundleArtifacts(context, inspection)) {
+            return false;
+        }
+
+        JSONObject repairedRoot = buildRecoveredBundlePayloadFromFilesystem(context, inspection);
+        if (repairedRoot == null) {
+            return false;
+        }
+
+        writeRecoveredBundleRoot(context, repairedRoot, inspection.manifest);
+        setStorageRecoveryState(
+            STORAGE_RECOVERY_STATE_REPAIRED,
+            "检测到存储索引缺失或过期，已根据现有数据文件自动修复。"
+        );
+        return true;
+    }
+
+    private static BundleArtifactInspection inspectBundleArtifacts(Context context) {
+        BundleArtifactInspection inspection = new BundleArtifactInspection();
+        inspection.manifestExists = bundlePathExists(context, BUNDLE_MANIFEST_FILE_NAME);
+        inspection.coreExists = bundlePathExists(context, BUNDLE_CORE_FILE_NAME);
+        inspection.recurringExists = bundlePathExists(context, BUNDLE_RECURRING_PLANS_FILE_NAME);
         if (MODE_DIRECTORY.equals(getStorageMode(context))) {
             Uri directoryUri = getCustomStorageDirectoryUri(context);
-            Uri legacyDocument =
+            inspection.legacyExists =
                 resolveDirectoryRelativeDocumentUri(
                     context,
                     directoryUri,
                     "controler-data.json",
                     false,
                     false
-                );
-            if (legacyDocument != null) {
-                migrateLegacyDirectoryDocumentToBundle(context, directoryUri, legacyDocument);
-            }
-            return;
+                ) != null;
+            inspection.partitionFiles.addAll(listBundlePartitionRelativePaths(context, directoryUri, null));
+        } else {
+            File legacyFile = getStorageFile(context);
+            inspection.legacyExists = legacyFile != null && legacyFile.exists();
+            inspection.partitionFiles.addAll(
+                listBundlePartitionRelativePaths(
+                    context,
+                    null,
+                    getDefaultBundleRootDirectory(context)
+                )
+            );
+        }
+        if (inspection.manifestExists) {
+            inspection.manifest = tryReadBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
+            inspection.manifestInvalid = inspection.manifest == null;
+        }
+        return inspection;
+    }
+
+    private static JSONObject buildRecoveredBundlePayloadFromFilesystem(
+        Context context,
+        BundleArtifactInspection inspection
+    ) throws Exception {
+        if (inspection == null || !inspection.hasBundleArtifacts()) {
+            return null;
         }
 
-        File legacyFile = getStorageFile(context);
-        if (legacyFile.exists()) {
-            migrateLegacyLocalFileToBundle(context, legacyFile);
+        JSONObject root =
+            tryReadBundleJsonObject(context, BUNDLE_CORE_FILE_NAME);
+        boolean recoveredAnyArtifacts = root != null;
+        if (root == null) {
+            root = new JSONObject();
+        } else {
+            root = cloneJsonObject(root);
         }
+
+        String[] sections = new String[] {
+            "records",
+            "diaryEntries",
+            "dailyCheckins",
+            "checkins",
+            "plans"
+        };
+        for (String section : sections) {
+            JSONArray mergedItems = new JSONArray();
+            ArrayList<String> sectionFiles = new ArrayList<>();
+            if (inspection.manifestExists && inspection.manifest != null) {
+                JSONObject sectionObject =
+                    inspection.manifest.optJSONObject("sections") == null
+                        ? null
+                        : inspection.manifest.optJSONObject("sections").optJSONObject(section);
+                JSONArray partitions =
+                    sectionObject == null ? null : sectionObject.optJSONArray("partitions");
+                if (partitions != null) {
+                    for (int partitionIndex = 0; partitionIndex < partitions.length(); partitionIndex += 1) {
+                        JSONObject partition = partitions.optJSONObject(partitionIndex);
+                        String file =
+                            partition == null ? "" : normalizeBundleRelativePath(partition.optString("file", ""));
+                        if (!TextUtils.isEmpty(file)) {
+                            sectionFiles.add(file);
+                        }
+                    }
+                }
+            } else {
+                sectionFiles.addAll(inspection.partitionFiles);
+            }
+            for (String relativePath : sectionFiles) {
+                String normalizedPath = normalizeBundleRelativePath(relativePath);
+                if (!normalizedPath.startsWith(section + "/")) {
+                    continue;
+                }
+                JSONObject envelope = readBundlePartitionEnvelope(context, normalizedPath);
+                JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
+                if (items == null) {
+                    continue;
+                }
+                recoveredAnyArtifacts = true;
+                for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
+                    JSONObject item = items.optJSONObject(itemIndex);
+                    if (item != null) {
+                        mergedItems.put(cloneJsonObject(item));
+                    }
+                }
+            }
+            if ("plans".equals(section)) {
+                JSONArray recurringPlans = tryReadBundleJsonArray(
+                    context,
+                    BUNDLE_RECURRING_PLANS_FILE_NAME
+                );
+                if (recurringPlans != null) {
+                    recoveredAnyArtifacts = true;
+                    for (int index = 0; index < recurringPlans.length(); index += 1) {
+                        JSONObject item = recurringPlans.optJSONObject(index);
+                        if (item != null) {
+                            mergedItems.put(cloneJsonObject(item));
+                        }
+                    }
+                }
+            }
+            root.put(section, mergedItems);
+        }
+
+        if (!recoveredAnyArtifacts) {
+            return null;
+        }
+        return normalizeRoot(context, root, false);
+    }
+
+    private static JSONObject tryReadBundleJsonObject(Context context, String relativePath) {
+        try {
+            return readBundleJsonObject(context, relativePath);
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static JSONArray tryReadBundleJsonArray(Context context, String relativePath) {
+        try {
+            return readBundleJsonArray(context, relativePath);
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static void writeRecoveredBundleRoot(
+        Context context,
+        JSONObject normalizedRoot,
+        JSONObject previousManifest
+    ) throws Exception {
+        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+            clearDirectoryDocumentUriCache(context, getCustomStorageDirectoryUri(context));
+        }
+        JSONObject manifest = buildStorageManifest(normalizedRoot);
+        if (previousManifest != null && previousManifest.optJSONArray("legacyBackups") != null) {
+            manifest.put(
+                "legacyBackups",
+                cloneJsonArray(previousManifest.optJSONArray("legacyBackups"))
+            );
+        }
+
+        writeBundleJson(context, BUNDLE_CORE_FILE_NAME, buildCoreStateFromRoot(normalizedRoot));
+        writeBundleJson(
+            context,
+            BUNDLE_RECURRING_PLANS_FILE_NAME,
+            collectRecurringPlans(normalizedRoot.optJSONArray("plans"))
+        );
+
+        String[] sections = new String[] {
+            "records",
+            "diaryEntries",
+            "dailyCheckins",
+            "checkins",
+            "plans"
+        };
+        for (String section : sections) {
+            Map<String, ArrayList<JSONObject>> grouped = groupItemsByPeriod(
+                section,
+                normalizedRoot.optJSONArray(section)
+            );
+            for (Map.Entry<String, ArrayList<JSONObject>> entry : grouped.entrySet()) {
+                writeBundleJson(
+                    context,
+                    getPartitionRelativePath(section, entry.getKey()),
+                    buildPartitionEnvelope(section, entry.getKey(), entry.getValue())
+                );
+            }
+        }
+
+        writeBundleJson(context, BUNDLE_MANIFEST_FILE_NAME, manifest);
+        deleteStaleBundleFiles(context, previousManifest, manifest);
     }
 
     private static JSONObject buildCoreStateFromRoot(JSONObject root) {
@@ -3194,6 +3533,160 @@ public final class ControlerWidgetDataStore {
             .replaceAll("^/+|/+$", "");
     }
 
+    private static ArrayList<String> listBundlePartitionRelativePaths(
+        Context context,
+        Uri treeUri,
+        File localRoot
+    ) {
+        ArrayList<String> relativePaths = new ArrayList<>();
+        if (treeUri != null && context != null) {
+            try {
+                Uri rootDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri,
+                    DocumentsContract.getTreeDocumentId(treeUri)
+                );
+                collectDirectoryBundleJsonPaths(
+                    context,
+                    treeUri,
+                    rootDocumentUri,
+                    "",
+                    relativePaths
+                );
+            } catch (Exception ignored) {
+            }
+        } else if (localRoot != null && localRoot.exists()) {
+            collectLocalBundleJsonPaths(localRoot, "", relativePaths);
+        }
+
+        ArrayList<String> partitions = new ArrayList<>();
+        for (String relativePath : relativePaths) {
+            String normalizedPath = normalizeBundleRelativePath(relativePath);
+            if (isBundlePartitionRelativePath(normalizedPath)) {
+                partitions.add(normalizedPath);
+            }
+        }
+        Collections.sort(partitions);
+        return partitions;
+    }
+
+    private static void collectLocalBundleJsonPaths(
+        File directory,
+        String relativePrefix,
+        ArrayList<String> output
+    ) {
+        if (directory == null || output == null || !directory.exists()) {
+            return;
+        }
+        File[] children = directory.listFiles();
+        if (children == null) {
+            return;
+        }
+        for (File child : children) {
+            if (child == null) {
+                continue;
+            }
+            String relativePath =
+                TextUtils.isEmpty(relativePrefix)
+                    ? child.getName()
+                    : relativePrefix + "/" + child.getName();
+            if (child.isDirectory()) {
+                collectLocalBundleJsonPaths(child, relativePath, output);
+                continue;
+            }
+            if (child.isFile() && child.getName().toLowerCase(Locale.US).endsWith(".json")) {
+                output.add(normalizeBundleRelativePath(relativePath));
+            }
+        }
+    }
+
+    private static void collectDirectoryBundleJsonPaths(
+        Context context,
+        Uri treeUri,
+        Uri parentDocumentUri,
+        String relativePrefix,
+        ArrayList<String> output
+    ) {
+        if (context == null || treeUri == null || parentDocumentUri == null || output == null) {
+            return;
+        }
+        Cursor cursor = null;
+        try {
+            String parentDocumentId = DocumentsContract.getDocumentId(parentDocumentUri);
+            Uri childrenUri =
+                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId);
+            cursor = context.getContentResolver().query(
+                childrenUri,
+                new String[] {
+                    Document.COLUMN_DOCUMENT_ID,
+                    Document.COLUMN_DISPLAY_NAME,
+                    Document.COLUMN_MIME_TYPE
+                },
+                null,
+                null,
+                null
+            );
+            if (cursor == null) {
+                return;
+            }
+            while (cursor.moveToNext()) {
+                String documentId = cursor.getString(0);
+                String displayName = cursor.getString(1);
+                String mimeType = cursor.getString(2);
+                if (TextUtils.isEmpty(documentId) || TextUtils.isEmpty(displayName)) {
+                    continue;
+                }
+                String relativePath =
+                    TextUtils.isEmpty(relativePrefix)
+                        ? displayName
+                        : relativePrefix + "/" + displayName;
+                Uri childDocumentUri =
+                    DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
+                if (Document.MIME_TYPE_DIR.equals(mimeType)) {
+                    collectDirectoryBundleJsonPaths(
+                        context,
+                        treeUri,
+                        childDocumentUri,
+                        relativePath,
+                        output
+                    );
+                    continue;
+                }
+                if (displayName.toLowerCase(Locale.US).endsWith(".json")) {
+                    output.add(normalizeBundleRelativePath(relativePath));
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    private static boolean isBundlePartitionRelativePath(String relativePath) {
+        String normalizedPath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedPath)
+            || BUNDLE_MANIFEST_FILE_NAME.equals(normalizedPath)
+            || BUNDLE_CORE_FILE_NAME.equals(normalizedPath)
+            || BUNDLE_RECURRING_PLANS_FILE_NAME.equals(normalizedPath)
+            || "controler-data.json".equals(normalizedPath)) {
+            return false;
+        }
+        for (String section : new String[] {
+            "records",
+            "diaryEntries",
+            "dailyCheckins",
+            "checkins",
+            "plans"
+        }) {
+            if (normalizedPath.startsWith(section + "/")
+                && normalizedPath.toLowerCase(Locale.US).endsWith(".json")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static File getRuntimeSidecarCacheFile(Context context, String fileName) {
         return new File(
             getRuntimeSidecarBaseDirectory(context),
@@ -3420,6 +3913,7 @@ public final class ControlerWidgetDataStore {
     }
 
     public static void clearStorageRuntimeCaches(Context context) {
+        resetStorageRecoveryState();
         clearDirectoryDocumentUriCache(context, null);
         File sizeCacheFile = getBundleSizeCacheFile(context);
         if (sizeCacheFile.exists()) {

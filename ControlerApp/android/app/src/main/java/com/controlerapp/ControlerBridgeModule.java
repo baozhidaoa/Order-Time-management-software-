@@ -1950,6 +1950,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             if (hadExistingData) {
                 ControlerWidgetDataStore.setCustomStorageDirectoryUri(context, targetUri, "");
                 ControlerWidgetDataStore.loadRoot(context);
+                if ("needs-recovery".equals(ControlerWidgetDataStore.getStorageRecoveryState())) {
+                    throw new Exception(ControlerWidgetDataStore.getStorageRecoveryMessage());
+                }
             } else {
                 ControlerWidgetDataStore.setCustomStorageDirectoryUri(context, targetUri, "");
                 boolean saved =
@@ -1961,6 +1964,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             String displayName = resolveDocumentName(targetUri);
             ControlerWidgetDataStore.setCustomStorageDirectoryUri(context, targetUri, displayName);
             JSONObject refreshedRoot = ControlerWidgetDataStore.loadRoot(context);
+            if ("needs-recovery".equals(ControlerWidgetDataStore.getStorageRecoveryState())) {
+                throw new Exception(ControlerWidgetDataStore.getStorageRecoveryMessage());
+            }
             ControlerNotificationScheduler.rescheduleAll(context, refreshedRoot);
             ControlerWidgetRenderer.scheduleRefreshAll(context);
             maybeRunAutoBackup(context);
@@ -4301,6 +4307,13 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             core == null || core.optJSONObject("syncMeta") == null
                 ? JSONObject.NULL
                 : core.optJSONObject("syncMeta")
+        );
+        status.put("recoveryState", ControlerWidgetDataStore.getStorageRecoveryState());
+        status.put(
+            "recoveryMessage",
+            TextUtils.isEmpty(ControlerWidgetDataStore.getStorageRecoveryMessage())
+                ? ""
+                : ControlerWidgetDataStore.getStorageRecoveryMessage()
         );
         status.put("isNativeApp", true);
         status.put("platform", "android");

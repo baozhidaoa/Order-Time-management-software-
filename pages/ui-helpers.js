@@ -3286,31 +3286,115 @@
     const messageNode = overlay.querySelector("[data-loading-message]");
     const normalizeMode = (value) =>
       String(value || "").trim() === "fullscreen" ? "fullscreen" : "inline";
+    const getViewportWidth = () => {
+      const visualViewportWidth = Number(window.visualViewport?.width);
+      if (Number.isFinite(visualViewportWidth) && visualViewportWidth > 0) {
+        return visualViewportWidth;
+      }
+      const innerWidth = Number(window.innerWidth);
+      if (Number.isFinite(innerWidth) && innerWidth > 0) {
+        return innerWidth;
+      }
+      const clientWidth = Number(document.documentElement?.clientWidth);
+      if (Number.isFinite(clientWidth) && clientWidth > 0) {
+        return clientWidth;
+      }
+      return 0;
+    };
+    const isCompactBlockingOverlayLayout = () => {
+      const root = document.documentElement;
+      const body = document.body;
+      if (!(body instanceof HTMLElement)) {
+        return false;
+      }
+      const viewportWidth = getViewportWidth();
+      if (
+        Number.isFinite(viewportWidth) &&
+        viewportWidth > 0 &&
+        viewportWidth <= MODAL_GESTURE_MAX_WIDTH
+      ) {
+        return true;
+      }
+      if (
+        root?.classList.contains("controler-mobile-runtime") ||
+        root?.classList.contains("controler-android-native") ||
+        root?.classList.contains("controler-ios-native") ||
+        body.classList.contains("controler-mobile-runtime") ||
+        body.classList.contains("controler-android-native") ||
+        body.classList.contains("controler-ios-native")
+      ) {
+        return true;
+      }
+      const nav = body.querySelector(".app-nav");
+      if (!(nav instanceof HTMLElement)) {
+        return false;
+      }
+      const navComputedStyle = window.getComputedStyle(nav);
+      return navComputedStyle.display === "grid";
+    };
     const shouldForceFullscreenMode = (mode, visible) => {
       if (!visible || mode !== "inline") {
         return false;
       }
       const platform = String(window.ControlerNativeBridge?.platform || "").trim();
-      if (platform === "android") {
+      if (platform === "android" || platform === "ios") {
         return true;
       }
-      const root = document.documentElement;
-      const body = document.body;
-      return Boolean(
-        root?.classList.contains("controler-android-native") ||
-          body?.classList.contains("controler-android-native"),
-      );
+      return isCompactBlockingOverlayLayout();
     };
     let overlayTimerId = 0;
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
+    let currentNativeBusySignature = "";
     let requestedOverlayState = {
       visible: currentVisibility,
       mode: currentMode,
       title:
         titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
       message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+      lockNavigation: currentMode === "fullscreen" && currentVisibility,
+    };
+
+    const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
+      if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (!isReactNativeNavigationRuntime()) {
+        return false;
+      }
+      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      return platform === "android" || platform === "ios";
+    };
+
+    const syncNativeBusyState = (busyState = {}) => {
+      if (!isReactNativeNavigationRuntime()) {
+        return;
+      }
+      const nextPayload = {
+        href: window.location.href,
+        isBusy: busyState.active === true,
+        busy: busyState.active === true,
+        lockNavigation: busyState.lockNavigation === true,
+        title:
+          typeof busyState.title === "string" && busyState.title.trim()
+            ? busyState.title.trim()
+            : "",
+        message:
+          typeof busyState.message === "string" && busyState.message.trim()
+            ? busyState.message.trim()
+            : "",
+        presentation:
+          typeof busyState.presentation === "string" && busyState.presentation.trim()
+            ? busyState.presentation.trim()
+            : "",
+      };
+      const nextSignature = JSON.stringify(nextPayload);
+      if (nextSignature === currentNativeBusySignature) {
+        return;
+      }
+      currentNativeBusySignature = nextSignature;
+      window.ControlerNativeBridge?.emitEvent?.("ui.busy-state", nextPayload);
     };
 
     const clearFullscreenGeometry = () => {
@@ -3427,6 +3511,7 @@
       mode = "inline",
       title = "",
       message = "",
+      lockNavigation = false,
     } = {}) => {
       if (destroyed) {
         return;
@@ -3441,12 +3526,17 @@
         mode: requestedMode,
         title,
         message,
+        lockNavigation,
       };
       const suppressedByShell = shouldSuppressFullscreenOverlay(
         visible,
         resolvedMode,
       );
-      const actualVisible = visible && !suppressedByShell;
+      const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
+        visible,
+        resolvedMode,
+      ) && !suppressedByShell;
+      const actualVisible = visible && !suppressedByShell && !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
@@ -3459,6 +3549,14 @@
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
       currentVisibility = actualVisible;
       currentMode = resolvedMode;
+
+      syncNativeBusyState({
+        active: delegatedToNative,
+        lockNavigation: lockNavigation === true || (delegatedToNative && visible),
+        title,
+        message,
+        presentation: delegatedToNative ? "native-fullscreen" : "",
+      });
 
       if (titleNode instanceof HTMLElement && typeof title === "string") {
         titleNode.textContent = title;
@@ -3527,6 +3625,9 @@
         const delayMs = Number.isFinite(nextState.delayMs)
           ? Math.max(0, Math.round(Number(nextState.delayMs)))
           : 0;
+        const lockNavigation =
+          nextState.lockNavigation === true ||
+          (nextState.lockNavigation !== false && active && mode === "fullscreen");
 
         window.clearTimeout(overlayTimerId);
         overlayTimerId = 0;
@@ -3537,6 +3638,7 @@
             mode,
             title,
             message,
+            lockNavigation,
           });
           return;
         }
@@ -3547,6 +3649,7 @@
             mode,
             title,
             message,
+            lockNavigation,
           });
           overlayTimerId = window.setTimeout(() => {
             overlayTimerId = 0;
@@ -3555,6 +3658,7 @@
               mode,
               title,
               message,
+              lockNavigation,
             });
           }, delayMs);
           return;
@@ -3565,6 +3669,7 @@
           mode,
           title,
           message,
+          lockNavigation,
         });
       },
       destroy() {
@@ -3581,6 +3686,13 @@
           SHELL_VISIBILITY_EVENT_NAME,
           handleShellVisibilityChange,
         );
+        syncNativeBusyState({
+          active: false,
+          lockNavigation: false,
+          title: "",
+          message: "",
+          presentation: "",
+        });
         clearFullscreenGeometry();
       },
     };

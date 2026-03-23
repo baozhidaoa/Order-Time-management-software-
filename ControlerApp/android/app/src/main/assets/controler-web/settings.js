@@ -4057,7 +4057,6 @@ async function promptSettingsFileSelection(accept = ".json,.zip", options = {}) 
 
   if (
     window.ControlerStorage?.isNativeApp &&
-    window.ControlerStorage?.platform === "android" &&
     typeof window.ControlerStorage?.pickImportSourceFile === "function"
   ) {
     const selectedFile = await window.ControlerStorage.pickImportSourceFile({
@@ -5486,6 +5485,9 @@ async function importData(options = {}) {
   const nativeBundleImport =
     window.ControlerStorage?.isNativeApp &&
     typeof window.ControlerStorage?.importSource === "function";
+  const canPreselectNativeImportFile =
+    nativeBundleImport &&
+    typeof window.ControlerStorage?.pickImportSourceFile === "function";
 
   if (nativeBundleImport) {
     try {
@@ -5544,31 +5546,44 @@ async function importData(options = {}) {
         importOptions.importType === "partition" || options.jsonOnly
           ? "json"
           : "auto";
-      const file = await promptSettingsFileSelection(
-        accept === "json" ? ".json" : ".json,.zip",
-        {
-          title: "正在导入数据",
-          message: "已选择文件，正在准备导入，请稍候。导入完成前请不要离开当前页面。",
-        },
-      );
-      if (!file) {
-        return;
-      }
       const result = await runWithSettingsBusyState(
         {
           title: "正在导入数据",
           message: "正在准备文件并导入数据，请稍候。导入完成前请不要离开当前页面。",
           delayMs: SETTINGS_BUSY_OVERLAY_DELAY_MS,
         },
-        async () =>
-          window.ControlerStorage.importSource({
+        async () => {
+          if (!canPreselectNativeImportFile) {
+            return window.ControlerStorage.importSource({
+              type: importOptions.importType,
+              mode: importOptions.mode,
+              accept,
+            });
+          }
+
+          const file = await promptSettingsFileSelection(
+            accept === "json" ? ".json" : ".json,.zip",
+            {
+              title: "正在导入数据",
+              message: "已选择文件，正在准备导入，请稍候。导入完成前请不要离开当前页面。",
+            },
+          );
+          if (!file) {
+            return null;
+          }
+
+          return window.ControlerStorage.importSource({
             type: importOptions.importType,
             mode: importOptions.mode,
             accept,
             filePath: file?.path || "",
             uri: file?.nativeImportUri || "",
-          }),
+          });
+        },
       );
+      if (result === null) {
+        return;
+      }
       if (!result || typeof result !== "object") {
         throw new Error("导入未返回结果，请重试。");
       }
