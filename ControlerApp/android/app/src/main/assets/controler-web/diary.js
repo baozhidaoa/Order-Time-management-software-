@@ -732,6 +732,7 @@ function getDiaryLoadingOverlayController() {
   diaryLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
     overlay,
     inlineHost: ".diary-main",
+    scopeFullscreenToInlineHost: false,
   }) || null;
   return diaryLoadingOverlayController;
 }

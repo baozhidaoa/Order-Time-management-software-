@@ -293,9 +293,9 @@
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
   const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
-  const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在保存最新数据";
+  const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在跳转";
   const APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE =
-    "请稍候，保存完成后会自动切换页面";
+    "正在处理当前页面数据并切换页面，请稍候";
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -359,6 +359,8 @@
   const pendingAssetLoads = new Map();
   let appPageLeaveOverlayElement = null;
   let appPageLeaveOverlayController = null;
+  let appPageLeaveOverlayVisible = false;
+  let appPageLeaveOverlayShellVisibilityBound = false;
   const pagePerfStartTime =
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
@@ -1457,12 +1459,18 @@
 
   function resetAppPageTransitionRuntimeState(options = {}) {
     const clearStoredState = options.clearStoredState !== false;
+    const hideOverlay = options.hideOverlay !== false;
     appPageTransitionLocked = false;
     appPageLeavePreflightLocked = false;
     clearDeferredAppNavigationRequest();
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
     clearNativeNavigationRetryTimer();
+    if (hideOverlay) {
+      setAppPageLeaveOverlayState({
+        active: false,
+      });
+    }
     if (clearStoredState) {
       clearAppPageTransitionState();
     }
@@ -1577,7 +1585,50 @@
       overlay,
       inlineHost: document.body,
     });
+    bindAppPageLeaveOverlayShellVisibility();
     return appPageLeaveOverlayController;
+  }
+
+  function bindAppPageLeaveOverlayShellVisibility() {
+    if (appPageLeaveOverlayShellVisibilityBound) {
+      return;
+    }
+    appPageLeaveOverlayShellVisibilityBound = true;
+    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, (event) => {
+      const detail =
+        event && typeof event.detail === "object" && event.detail
+          ? event.detail
+          : {};
+      if (detail.active === false) {
+        setAppPageLeaveOverlayState({
+          active: false,
+        });
+      }
+    });
+  }
+
+  function setAppPageLeaveOverlayState(options = {}) {
+    const active = options.active === true;
+    appPageLeaveOverlayVisible = active;
+    if (!active && !appPageLeaveOverlayController) {
+      return;
+    }
+    const overlayController = getAppPageLeaveOverlayController();
+    overlayController?.setState({
+      active,
+      mode: "fullscreen",
+      title:
+        typeof options.title === "string" && options.title.trim()
+          ? options.title.trim()
+          : APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+      message:
+        typeof options.message === "string" && options.message.trim()
+          ? options.message.trim()
+          : APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+      delayMs: Number.isFinite(options.delayMs)
+        ? Math.max(0, Math.round(Number(options.delayMs)))
+        : 0,
+    });
   }
 
   function registerBeforePageLeave(handler, options = {}) {
@@ -1619,25 +1670,24 @@
     const shouldShowOverlay = guardEntries.some(
       (entry) => entry?.options?.showLoadingOverlay !== false,
     );
-    const overlayController = shouldShowOverlay
-      ? getAppPageLeaveOverlayController()
-      : null;
-    overlayController?.setState({
-      active: true,
-      mode: "fullscreen",
-      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-      delayMs: APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
-    });
+    if (shouldShowOverlay || appPageLeaveOverlayVisible) {
+      setAppPageLeaveOverlayState({
+        active: true,
+        title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+        message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+        delayMs: appPageLeaveOverlayVisible
+          ? 0
+          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+      });
+    }
 
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      if (shouldShowOverlay) {
+      if (shouldShowOverlay || appPageLeaveOverlayVisible) {
         slowMessageTimerId = window.setTimeout(() => {
-          overlayController?.setState({
+          setAppPageLeaveOverlayState({
             active: true,
-            mode: "fullscreen",
             title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
             message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
             delayMs: 0,
@@ -1664,15 +1714,15 @@
       if (slowMessageTimerId) {
         window.clearTimeout(slowMessageTimerId);
       }
-      overlayController?.setState({
-        active: false,
-        mode: "fullscreen",
-      });
     }
 
     if (!failure) {
       return true;
     }
+
+    setAppPageLeaveOverlayState({
+      active: false,
+    });
 
     await alertDialog({
       title: "保存失败，未切换页面",
@@ -1749,6 +1799,12 @@
       return true;
     }
 
+    setAppPageLeaveOverlayState({
+      active: true,
+      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+      delayMs: 0,
+    });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
     void (async () => {
@@ -1780,7 +1836,9 @@
         }
 
         if (nativeNavigationRuntime) {
-          resetAppPageTransitionRuntimeState();
+          resetAppPageTransitionRuntimeState({
+            hideOverlay: false,
+          });
           appPageTransitionLocked = true;
           appPageLeavePreflightLocked = true;
           if (androidReactNativeNavigationRuntime) {
@@ -1828,7 +1886,9 @@
           return;
         }
 
-        resetAppPageTransitionRuntimeState();
+        resetAppPageTransitionRuntimeState({
+          hideOverlay: false,
+        });
         appPageTransitionLocked = true;
         appPageLeavePreflightLocked = true;
         shouldUnlock = false;

@@ -31,11 +31,22 @@ public final class ControlerWidgetCollectionStore {
         public int actionTextColor = Color.parseColor("#FFFFFF");
         public boolean openEnabled = false;
         public boolean actionEnabled = true;
+        public boolean compactGoalStyle = false;
     }
 
     private ControlerWidgetCollectionStore() {}
 
     public static void saveRows(Context context, int appWidgetId, String kind, JSONArray rows) {
+        saveRows(context, appWidgetId, kind, "", rows);
+    }
+
+    public static void saveRows(
+        Context context,
+        int appWidgetId,
+        String kind,
+        String slot,
+        JSONArray rows
+    ) {
         if (context == null || appWidgetId <= 0) {
             return;
         }
@@ -43,11 +54,15 @@ public final class ControlerWidgetCollectionStore {
             context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         preferences
             .edit()
-            .putString(buildKey(appWidgetId, kind), rows == null ? "[]" : rows.toString())
+            .putString(buildKey(appWidgetId, kind, slot), rows == null ? "[]" : rows.toString())
             .commit();
     }
 
     public static List<RowData> loadRows(Context context, int appWidgetId, String kind) {
+        return loadRows(context, appWidgetId, kind, "");
+    }
+
+    public static List<RowData> loadRows(Context context, int appWidgetId, String kind, String slot) {
         ArrayList<RowData> rows = new ArrayList<>();
         if (context == null || appWidgetId <= 0) {
             return rows;
@@ -55,7 +70,7 @@ public final class ControlerWidgetCollectionStore {
 
         SharedPreferences preferences =
             context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String raw = preferences.getString(buildKey(appWidgetId, kind), "[]");
+        String raw = preferences.getString(buildKey(appWidgetId, kind, slot), "[]");
         if (TextUtils.isEmpty(raw)) {
             return rows;
         }
@@ -97,6 +112,7 @@ public final class ControlerWidgetCollectionStore {
                 );
                 row.openEnabled = item.optBoolean("openEnabled", false);
                 row.actionEnabled = item.optBoolean("actionEnabled", true);
+                row.compactGoalStyle = item.optBoolean("compactGoalStyle", false);
                 rows.add(row);
             }
         } catch (Exception ignored) {
@@ -129,7 +145,12 @@ public final class ControlerWidgetCollectionStore {
         editor.apply();
     }
 
-    private static String buildKey(int appWidgetId, String kind) {
-        return KEY_PREFIX + appWidgetId + ":" + String.valueOf(kind == null ? "" : kind.trim());
+    private static String buildKey(int appWidgetId, String kind, String slot) {
+        String safeKind = String.valueOf(kind == null ? "" : kind.trim());
+        String safeSlot = String.valueOf(slot == null ? "" : slot.trim());
+        if (TextUtils.isEmpty(safeSlot)) {
+            return KEY_PREFIX + appWidgetId + ":" + safeKind;
+        }
+        return KEY_PREFIX + appWidgetId + ":" + safeKind + ":" + safeSlot;
     }
 }

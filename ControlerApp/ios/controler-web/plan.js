@@ -2314,6 +2314,7 @@ function getPlanLoadingOverlayController() {
   planLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
     overlay,
     inlineHost: ".app-main",
+    scopeFullscreenToInlineHost: false,
   }) || null;
   return planLoadingOverlayController;
 }

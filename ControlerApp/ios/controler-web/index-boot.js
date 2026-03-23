@@ -1436,9 +1436,286 @@
 })();
 
 
+;/* pages/index-record-persistence.js */
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+    return;
+  }
+  root.ControlerIndexRecordPersistence = factory();
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  function ensureArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function cloneValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      return value;
+    }
+  }
+
+  function normalizePeriodId(value) {
+    const normalized = String(value || "").trim();
+    return normalized || "";
+  }
+
+  function getRecordPeriodId(record = {}) {
+    const anchor =
+      record?.endTime || record?.timestamp || record?.startTime || "";
+    return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+  }
+
+  function buildRecordMergeKey(record = {}) {
+    const recordId = String(record?.id || "").trim();
+    if (recordId) {
+      return `id:${recordId}`;
+    }
+    return [
+      record?.projectId || "",
+      record?.name || "",
+      record?.startTime || "",
+      record?.endTime || "",
+      record?.timestamp || "",
+      record?.spendtime || "",
+    ].join("|");
+  }
+
+  function compareRecordDates(left, right) {
+    const leftText = String(
+      left?.endTime || left?.timestamp || left?.startTime || "",
+    ).trim();
+    const rightText = String(
+      right?.endTime || right?.timestamp || right?.startTime || "",
+    ).trim();
+    const leftTime = leftText ? Date.parse(leftText) || 0 : 0;
+    const rightTime = rightText ? Date.parse(rightText) || 0 : 0;
+    return leftTime - rightTime;
+  }
+
+  function sortRecordItems(items = []) {
+    return ensureArray(items).slice().sort(compareRecordDates);
+  }
+
+  function groupRecordsByPeriod(items = [], options = {}) {
+    const resolvePeriodId =
+      typeof options.getPeriodId === "function"
+        ? options.getPeriodId
+        : getRecordPeriodId;
+    const clone =
+      typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
+    const grouped = new Map();
+    ensureArray(items).forEach((item) => {
+      const periodId = normalizePeriodId(resolvePeriodId(item) || "undated");
+      if (!periodId) {
+        return;
+      }
+      if (!grouped.has(periodId)) {
+        grouped.set(periodId, []);
+      }
+      grouped.get(periodId).push(clone(item));
+    });
+    return grouped;
+  }
+
+  function applyRecordMutations(existingItems = [], mutations = {}, options = {}) {
+    const buildMergeKey =
+      typeof options.buildMergeKey === "function"
+        ? options.buildMergeKey
+        : buildRecordMergeKey;
+    const sortItems =
+      typeof options.sortItems === "function" ? options.sortItems : sortRecordItems;
+    const clone =
+      typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
+    const merged = new Map();
+
+    sortItems(ensureArray(existingItems)).forEach((item) => {
+      merged.set(buildMergeKey(item), clone(item));
+    });
+
+    ensureArray(mutations?.removedItems).forEach((item) => {
+      const mergeKey = buildMergeKey(item);
+      if (mergeKey) {
+        merged.delete(mergeKey);
+      }
+      const recordId = String(item?.id || "").trim();
+      if (recordId) {
+        merged.delete(`id:${recordId}`);
+      }
+    });
+
+    ensureArray(mutations?.upserts).forEach((item) => {
+      merged.set(buildMergeKey(item), clone(item));
+    });
+
+    return sortItems(Array.from(merged.values()));
+  }
+
+  async function persistRecordMutations(options = {}) {
+    const clone =
+      typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
+    const getPeriodId =
+      typeof options.getPeriodId === "function"
+        ? options.getPeriodId
+        : getRecordPeriodId;
+    const buildMergeKey =
+      typeof options.buildMergeKey === "function"
+        ? options.buildMergeKey
+        : buildRecordMergeKey;
+    const sortItems =
+      typeof options.sortItems === "function" ? options.sortItems : sortRecordItems;
+    const loadSectionRange = options.loadSectionRange;
+    const saveSectionRange = options.saveSectionRange;
+
+    if (typeof saveSectionRange !== "function") {
+      throw new Error("persistRecordMutations 缺少 saveSectionRange");
+    }
+
+    const allRecordsLoaded = options.allRecordsLoaded === true;
+    const supportsPatch = options.supportsPatch === true;
+    const currentRecords = ensureArray(options.currentRecords).map((item) =>
+      clone(item),
+    );
+    const upsertsByPeriod = groupRecordsByPeriod(options.upserts, {
+      getPeriodId,
+      cloneValue: clone,
+    });
+    const removedByPeriod = groupRecordsByPeriod(options.removedItems, {
+      getPeriodId,
+      cloneValue: clone,
+    });
+    const targetPeriodIds = new Set(
+      ensureArray(options.periodIds)
+        .map((periodId) => normalizePeriodId(periodId))
+        .filter(Boolean),
+    );
+    const forceReplacePeriodIds = new Set(
+      ensureArray(options.forceReplacePeriodIds)
+        .map((periodId) => normalizePeriodId(periodId))
+        .filter(Boolean),
+    );
+
+    upsertsByPeriod.forEach((_items, periodId) => {
+      targetPeriodIds.add(periodId);
+    });
+    removedByPeriod.forEach((_items, periodId) => {
+      targetPeriodIds.add(periodId);
+    });
+
+    const persistTasks = Array.from(targetPeriodIds).map(async (periodId) => {
+      const periodUpserts = upsertsByPeriod.get(periodId) || [];
+      const periodRemovedItems = removedByPeriod.get(periodId) || [];
+      const hasExplicitMutations =
+        periodUpserts.length > 0 || periodRemovedItems.length > 0;
+      const canUsePatch =
+        supportsPatch &&
+        !forceReplacePeriodIds.has(periodId) &&
+        hasExplicitMutations &&
+        periodRemovedItems.every(
+          (item) => typeof item?.id === "string" && item.id.trim(),
+        );
+
+      if (canUsePatch) {
+        const removeIds = periodRemovedItems
+          .map((item) => String(item?.id || "").trim())
+          .filter(Boolean);
+        await saveSectionRange("records", {
+          periodId,
+          mode: "patch",
+          items: periodUpserts.map((item) => clone(item)),
+          removedItems: periodRemovedItems.map((item) => clone(item)),
+          removeIds,
+        });
+        return {
+          periodId,
+          mode: "patch",
+          itemCount: periodUpserts.length,
+          removedCount: periodRemovedItems.length,
+        };
+      }
+
+      if (allRecordsLoaded) {
+        const nextItems = sortItems(
+          currentRecords.filter((item) => getPeriodId(item) === periodId),
+        );
+        await saveSectionRange("records", {
+          periodId,
+          mode: "replace",
+          items: nextItems.map((item) => clone(item)),
+        });
+        return {
+          periodId,
+          mode: "replace",
+          itemCount: nextItems.length,
+          removedCount: periodRemovedItems.length,
+          source: "memory",
+        };
+      }
+
+      if (!hasExplicitMutations) {
+        throw new Error(
+          `首页记录未全量加载，无法安全 replace 月分区 ${periodId}`,
+        );
+      }
+      if (typeof loadSectionRange !== "function") {
+        throw new Error("persistRecordMutations 缺少 loadSectionRange");
+      }
+
+      const authoritativeRange = await loadSectionRange("records", {
+        periodIds: [periodId],
+      });
+      const authoritativeItems = ensureArray(authoritativeRange?.items).filter(
+        (item) => getPeriodId(item) === periodId,
+      );
+      const nextItems = applyRecordMutations(
+        authoritativeItems,
+        {
+          upserts: periodUpserts,
+          removedItems: periodRemovedItems,
+        },
+        {
+          buildMergeKey,
+          sortItems,
+          cloneValue: clone,
+        },
+      );
+      await saveSectionRange("records", {
+        periodId,
+        mode: "replace",
+        items: nextItems.map((item) => clone(item)),
+      });
+      return {
+        periodId,
+        mode: "replace",
+        itemCount: nextItems.length,
+        removedCount: periodRemovedItems.length,
+        source: "storage",
+      };
+    });
+
+    return Promise.all(persistTasks);
+  }
+
+  return {
+    cloneValue,
+    getRecordPeriodId,
+    buildRecordMergeKey,
+    sortRecordItems,
+    groupRecordsByPeriod,
+    applyRecordMutations,
+    persistRecordMutations,
+  };
+});
+
+
 ;/* pages/index.js */
 const uiTools = window.ControlerUI || null;
 const storageBundleApi = window.ControlerStorageBundle || null;
+const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
 let indexChartRuntimeLoader = null;
 const INDEX_CHART_RUNTIME_URL = "embedded-assets/chart.runtime.js";
 
@@ -1694,6 +1971,7 @@ let indexInitialDataLoaded = false;
 let indexLoadingOverlayTimer = 0;
 let indexLoadingOverlayController = null;
 let indexNativeBusyLockActive = false;
+let indexModalConfirmPending = false;
 let indexPrimaryBindingsInitialized = false;
 let indexModalBindingsInitialized = false;
 let indexSecondaryBindingsInitialized = false;
@@ -1949,6 +2227,7 @@ function getIndexLoadingOverlayController() {
   indexLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
     overlay,
     inlineHost: ".record-main",
+    scopeFullscreenToInlineHost: false,
   }) || null;
   return indexLoadingOverlayController;
 }
@@ -6944,6 +7223,22 @@ function updateRemainingTimeDisplay() {
   );
 }
 
+function setIndexModalConfirmPending(pending) {
+  indexModalConfirmPending = pending === true;
+  const confirmButton = document.getElementById("modal-confirm");
+  if (confirmButton instanceof HTMLButtonElement) {
+    confirmButton.disabled = indexModalConfirmPending;
+    confirmButton.setAttribute(
+      "aria-busy",
+      indexModalConfirmPending ? "true" : "false",
+    );
+  }
+  const cancelButton = document.getElementById("modal-cancel");
+  if (cancelButton instanceof HTMLButtonElement) {
+    cancelButton.disabled = indexModalConfirmPending;
+  }
+}
+
 // 点击计算循环
 function spend(options = {}) {
   const resolvedClickTime =
@@ -7093,131 +7388,169 @@ function initIndexModalBindings() {
 }
 
 async function handleIndexModalConfirmClick() {
+  if (indexModalConfirmPending) {
+    return;
+  }
+  setIndexModalConfirmPending(true);
   if (!indexInitialDataLoaded) {
-    await showIndexAlert("记录数据仍在加载，请稍候再保存。", {
-      title: "正在准备记录页",
-    });
-    return;
-  }
-
-  const projectNameInput = document.getElementById("project-name-input");
-  const nextProjectInput = document.getElementById("next-project-input");
-
-  const currentProjectName = resolveProjectNameFromInput(
-    projectNameInput?.value?.trim() || selectedProject || "",
-  );
-  const nextProjectName = resolveProjectNameFromInput(
-    nextProjectInput?.value?.trim() || "",
-  );
-
-  if (!currentProjectName) {
-    await showIndexAlert("请输入当前项目名称", {
-      title: "无法保存记录",
-      danger: true,
-    });
-    return;
-  }
-
-  if (!ensureProjectExists(currentProjectName)) {
-    return;
-  }
-
-  selectedProject = currentProjectName;
-  lastEnteredProjectName = currentProjectName;
-  const resolvedNextProjectName = nextProjectName || currentProjectName;
-
-  const shortenResult = applyShortenTime();
-  if (!shortenResult.valid) {
-    return;
-  }
-
-  const pendingClickTime = getPendingSpendModalClickTime() || new Date();
-  const pendingBaseState =
-    getPendingSpendModalBaseState() || captureTimerCoreState();
-  const spendAccepted = spend({
-    clickTime: pendingClickTime,
-    baseState: pendingBaseState,
-  });
-  if (!spendAccepted) {
-    await showIndexAlert("计时状态已失效，请重新点击开始计时。", {
-      title: "无法保存记录",
-      danger: true,
-    });
-    closeModal();
-    return;
-  }
-
-  if (ptn >= 2) {
-    const rawEndTime =
-      spt instanceof Date && !Number.isNaN(spt.getTime()) ? new Date(spt) : new Date();
-    const startTime =
-      fpt instanceof Date && !Number.isNaN(fpt.getTime()) ? new Date(fpt) : null;
-    const adjustedEndTime = new Date(
-      rawEndTime.getTime() - shortenResult.shortenMs,
-    );
-    const targetProject =
-      shortenResult.shortenMs > 0 ? resolvedNextProjectName : "";
-    const appliedCarryover = pendingDurationCarryoverState
-      ? { ...pendingDurationCarryoverState }
-      : null;
-    result = formatDurationFromMs(shortenResult.remainingMs);
-    const savedRecord = save({
-      startTime,
-      endTime: adjustedEndTime,
-      rawEndTime,
-      durationMs: shortenResult.remainingMs,
-      durationMeta: {
-        originalMs: shortenResult.remainingMs + shortenResult.shortenMs,
-        recordedMs: shortenResult.remainingMs,
-        returnedMs: shortenResult.shortenMs,
-        returnTargetProject: targetProject,
-        appliedCarryover,
-      },
-      nextProjectName: resolvedNextProjectName,
-      nextProjectId: projects.find(
-        (project) => project.name === resolvedNextProjectName,
-      )?.id || null,
-    });
-    pendingDurationCarryoverState = null;
-
-    if (shortenResult.shortenMs > 0) {
-      ensureProjectExists(targetProject);
-      pendingDurationCarryoverState = normalizeDurationCarryoverState({
-        carryoverMs: shortenResult.shortenMs,
-        sourceRecordId: savedRecord?.id || "",
-        sourceProject: currentProjectName,
-        targetProject,
-        createdAt: new Date().toISOString(),
+    try {
+      await showIndexAlert("记录数据仍在加载，请稍候再保存。", {
+        title: "正在准备记录页",
       });
-      applyShortenCarryoverToNextInterval(shortenResult.shortenMs);
+      return;
+    } finally {
+      setIndexModalConfirmPending(false);
+    }
+  }
+
+  try {
+    const projectNameInput = document.getElementById("project-name-input");
+    const nextProjectInput = document.getElementById("next-project-input");
+
+    const currentProjectName = resolveProjectNameFromInput(
+      projectNameInput?.value?.trim() || selectedProject || "",
+    );
+    const nextProjectName = resolveProjectNameFromInput(
+      nextProjectInput?.value?.trim() || "",
+    );
+
+    if (!currentProjectName) {
+      await showIndexAlert("请输入当前项目名称", {
+        title: "无法保存记录",
+        danger: true,
+      });
+      return;
     }
 
-    updateDisplay();
-  }
+    if (!ensureProjectExists(currentProjectName)) {
+      return;
+    }
 
-  if (nextProjectName) {
-    ensureProjectExists(nextProjectName);
-  }
-  nextProject = resolvedNextProjectName;
+    selectedProject = currentProjectName;
+    lastEnteredProjectName = currentProjectName;
+    const resolvedNextProjectName = nextProjectName || currentProjectName;
 
-  selectedProject = nextProject;
-  setProjectInputValue("project-name-input", nextProject);
-  setProjectInputValue("next-project-input", "");
-  resetShortenTimeInputs(false);
-  setModalProjectInputTarget("next-project-input", { manual: false });
-  {
-    const previousModalOpen = isModalOpen;
-    isModalOpen = false;
-    persistTimerSessionState();
-    isModalOpen = previousModalOpen;
-  }
+    const shortenResult = applyShortenTime();
+    if (!shortenResult.valid) {
+      return;
+    }
 
-  closeModal({ discardUnsavedClick: false });
-  lastSpendButtonAcceptedAt = Date.now();
-  updateRemainingTimeDisplay();
-  updateProjectsList();
-  updateExistingProjectsList();
-  refreshIndexWorkspace({ immediate: true });
+    const pendingClickTime = getPendingSpendModalClickTime() || new Date();
+    const pendingBaseState =
+      getPendingSpendModalBaseState() || captureTimerCoreState();
+    const spendAccepted = spend({
+      clickTime: pendingClickTime,
+      baseState: pendingBaseState,
+    });
+    if (!spendAccepted) {
+      await showIndexAlert("计时状态已失效，请重新点击开始计时。", {
+        title: "无法保存记录",
+        danger: true,
+      });
+      closeModal();
+      return;
+    }
+
+    let savedRecord = null;
+    if (ptn >= 2) {
+      const rawEndTime =
+        spt instanceof Date && !Number.isNaN(spt.getTime()) ? new Date(spt) : new Date();
+      const startTime =
+        fpt instanceof Date && !Number.isNaN(fpt.getTime()) ? new Date(fpt) : null;
+      const adjustedEndTime = new Date(
+        rawEndTime.getTime() - shortenResult.shortenMs,
+      );
+      const targetProject =
+        shortenResult.shortenMs > 0 ? resolvedNextProjectName : "";
+      const appliedCarryover = pendingDurationCarryoverState
+        ? { ...pendingDurationCarryoverState }
+        : null;
+      result = formatDurationFromMs(shortenResult.remainingMs);
+      savedRecord = save({
+        startTime,
+        endTime: adjustedEndTime,
+        rawEndTime,
+        durationMs: shortenResult.remainingMs,
+        durationMeta: {
+          originalMs: shortenResult.remainingMs + shortenResult.shortenMs,
+          recordedMs: shortenResult.remainingMs,
+          returnedMs: shortenResult.shortenMs,
+          returnTargetProject: targetProject,
+          appliedCarryover,
+        },
+        nextProjectName: resolvedNextProjectName,
+        nextProjectId: projects.find(
+          (project) => project.name === resolvedNextProjectName,
+        )?.id || null,
+      });
+      pendingDurationCarryoverState = null;
+
+      setIndexLoadingState({
+        active: true,
+        mode: "fullscreen",
+        title: "正在保存记录",
+        message: "正在写入新记录，请稍候后再切换页面。",
+        lockNativeExit: true,
+      });
+      try {
+        await flushIndexPendingPersistence();
+      } finally {
+        setIndexLoadingState({
+          active: false,
+        });
+      }
+
+      if (shortenResult.shortenMs > 0) {
+        ensureProjectExists(targetProject);
+        pendingDurationCarryoverState = normalizeDurationCarryoverState({
+          carryoverMs: shortenResult.shortenMs,
+          sourceRecordId: savedRecord?.id || "",
+          sourceProject: currentProjectName,
+          targetProject,
+          createdAt: new Date().toISOString(),
+        });
+        applyShortenCarryoverToNextInterval(shortenResult.shortenMs);
+      }
+
+      updateDisplay();
+    }
+
+    if (nextProjectName) {
+      ensureProjectExists(nextProjectName);
+    }
+    await flushIndexPendingPersistence();
+    nextProject = resolvedNextProjectName;
+
+    selectedProject = nextProject;
+    setProjectInputValue("project-name-input", nextProject);
+    setProjectInputValue("next-project-input", "");
+    resetShortenTimeInputs(false);
+    setModalProjectInputTarget("next-project-input", { manual: false });
+    {
+      const previousModalOpen = isModalOpen;
+      isModalOpen = false;
+      persistTimerSessionState();
+      isModalOpen = previousModalOpen;
+    }
+
+    closeModal({ discardUnsavedClick: false });
+    lastSpendButtonAcceptedAt = Date.now();
+    updateRemainingTimeDisplay();
+    updateProjectsList();
+    updateExistingProjectsList();
+    refreshIndexWorkspace({ immediate: true });
+  } catch (error) {
+    console.error("保存记录失败:", error);
+    await showIndexAlert("新记录保存失败，当前页面已保持原状，请重试。", {
+      title: "保存失败",
+      danger: true,
+    });
+  } finally {
+    setIndexModalConfirmPending(false);
+    setIndexLoadingState({
+      active: false,
+    });
+  }
 }
 
 function initIndexPrimaryBindings() {
@@ -9348,10 +9681,11 @@ function showProjectEditModal(project) {
           .map((record) => ({
             ...record,
           }));
-        mergedRecordCount = mergeProjectRecordsIntoTarget(
+        const mergeResult = mergeProjectRecordsIntoTarget(
           liveProject,
           mergeTargetProject,
         );
+        mergedRecordCount = mergeResult.mergedCount;
         applyIndexProjectRecordDurationChanges({
           removedRecords: sourceRecordsBeforeMerge,
           addedRecords: sourceRecordsBeforeMerge.map((record) => ({
@@ -9370,7 +9704,12 @@ function showProjectEditModal(project) {
         updateExistingProjectsList();
         updateParentProjectSelect(1);
         bumpIndexRecordMutationRevision();
-        markAllLoadedRecordPeriodsDirty();
+        markIndexRecordPeriodsDirty([
+          ...mergeResult.changedBeforeRecords,
+          ...mergeResult.changedAfterRecords,
+        ]);
+        queueIndexRecordPatchRemovals(mergeResult.changedBeforeRecords);
+        queueIndexRecordPatchUpserts(mergeResult.changedAfterRecords);
         await Promise.all([saveRecordsToStorage(), saveProjectsToStorage()]);
         await window.ControlerStorage?.flush?.();
         refreshIndexWorkspace({ immediate: true });
@@ -9613,6 +9952,8 @@ function showProjectEditModal(project) {
         removedRecords,
       });
       const deletedDurationBaseProjects = cloneProjectDurationSnapshot(projects);
+      const updatedNextProjectBeforeRecords = [];
+      const updatedNextProjectAfterRecords = [];
 
       projects = projects.filter((p) => !projectIdsToDelete.has(p.id));
       records = records
@@ -9631,11 +9972,19 @@ function showProjectEditModal(project) {
           if (!nextProjectDeleted) {
             return record;
           }
-          return {
+          const previousRecord = {
+            ...record,
+          };
+          const nextRecord = {
             ...record,
             nextProjectName: String(record?.name || "").trim() || "未命名项目",
             nextProjectId: String(record?.projectId || "").trim() || null,
           };
+          updatedNextProjectBeforeRecords.push(previousRecord);
+          updatedNextProjectAfterRecords.push({
+            ...nextRecord,
+          });
+          return nextRecord;
         });
 
       if (projectNameSet.has(selectedProject)) {
@@ -9651,7 +10000,14 @@ function showProjectEditModal(project) {
       updateExistingProjectsList();
       updateParentProjectSelect(1);
       bumpIndexRecordMutationRevision();
-      markAllLoadedRecordPeriodsDirty();
+      markIndexRecordPeriodsDirty([
+        ...removedRecords,
+        ...updatedNextProjectBeforeRecords,
+        ...updatedNextProjectAfterRecords,
+      ]);
+      queueIndexRecordPatchRemovals(removedRecords);
+      queueIndexRecordPatchRemovals(updatedNextProjectBeforeRecords);
+      queueIndexRecordPatchUpserts(updatedNextProjectAfterRecords);
       await saveRecordsToStorage();
       saveProjectsToStorage();
       refreshIndexWorkspace({ immediate: true });
@@ -10013,6 +10369,16 @@ function cloneIndexValue(value) {
   return value;
 }
 
+function sortIndexRecordPartitionItems(items = []) {
+  if (typeof storageBundleApi?.sortPartitionItems === "function") {
+    return storageBundleApi.sortPartitionItems("records", items);
+  }
+  if (typeof indexRecordPersistenceApi?.sortRecordItems === "function") {
+    return indexRecordPersistenceApi.sortRecordItems(items);
+  }
+  return Array.isArray(items) ? items.slice() : [];
+}
+
 function hasManagedIndexRecordStorage() {
   return (
     typeof window.ControlerStorage?.loadSectionRange === "function" &&
@@ -10088,17 +10454,14 @@ function queueIndexRecordPatchRemovals(items = []) {
     if (indexForceReplaceRecordPeriods.has(periodId)) {
       return;
     }
-    const recordId = String(record?.id || "").trim();
-    if (!recordId) {
-      indexForceReplaceRecordPeriods.add(periodId);
-      indexPendingRecordPatchByPeriod.delete(periodId);
-      return;
-    }
     const patch = ensureIndexPendingRecordPatch(periodId);
     const patchKey = buildIndexRecordPatchKey(record);
+    const recordId = String(record?.id || "").trim();
     patch.upserts.delete(patchKey);
-    patch.upserts.delete(`id:${recordId}`);
-    patch.removed.set(`id:${recordId}`, cloneIndexValue(record));
+    if (recordId) {
+      patch.upserts.delete(`id:${recordId}`);
+    }
+    patch.removed.set(recordId ? `id:${recordId}` : patchKey, cloneIndexValue(record));
   });
 }
 
@@ -10261,6 +10624,7 @@ function saveRecordsToStorage() {
   const saveRevision = indexRecordMutationRevision;
   const recordsSnapshot = cloneIndexValue(records);
   const projectsSnapshot = cloneIndexValue(projects);
+  const allHistoricalRecordsLoadedSnapshot = indexAllHistoricalRecordsLoaded === true;
   const loadedPeriodIdsSnapshot = getIndexRecordPeriodIds(recordsSnapshot);
   const periodIds = indexDirtyRecordPeriodIds.size
     ? [...indexDirtyRecordPeriodIds]
@@ -10298,37 +10662,34 @@ function saveRecordsToStorage() {
         }
 
         localStorage.removeItem("records");
-        await Promise.all(
-          periodIds.map((periodId) => {
-            const patch = patchSnapshotByPeriod.get(periodId) || null;
-            const canUsePatch =
-              supportsRecordPartitionPatch &&
-              !forceReplacePeriods.has(periodId) &&
-              patch &&
-              (patch.upserts.length > 0 || patch.removed.length > 0) &&
-              patch.removed.every(
-                (record) => typeof record?.id === "string" && record.id.trim(),
-              );
-            if (canUsePatch) {
-              return window.ControlerStorage.saveSectionRange("records", {
-                periodId,
-                mode: "patch",
-                items: patch.upserts,
-                removedItems: patch.removed,
-                removeIds: patch.removed
-                  .map((record) => String(record?.id || "").trim())
-                  .filter(Boolean),
-              });
-            }
-            return window.ControlerStorage.saveSectionRange("records", {
-              periodId,
-              items: recordsSnapshot.filter(
-                (record) => getIndexRecordPeriodId(record) === periodId,
-              ),
-              mode: "replace",
-            });
-          }),
-        );
+        if (periodIds.length > 0) {
+          if (typeof indexRecordPersistenceApi?.persistRecordMutations !== "function") {
+            throw new Error("首页记录持久化模块未加载");
+          }
+          const mutationUpserts = [];
+          const mutationRemovedItems = [];
+          patchSnapshotByPeriod.forEach((patch) => {
+            mutationUpserts.push(...(patch?.upserts || []));
+            mutationRemovedItems.push(...(patch?.removed || []));
+          });
+          await indexRecordPersistenceApi.persistRecordMutations({
+            periodIds,
+            forceReplacePeriodIds: [...forceReplacePeriods],
+            currentRecords: recordsSnapshot,
+            upserts: mutationUpserts,
+            removedItems: mutationRemovedItems,
+            allRecordsLoaded: allHistoricalRecordsLoadedSnapshot,
+            supportsPatch: supportsRecordPartitionPatch,
+            loadSectionRange: (section, scope) =>
+              window.ControlerStorage.loadSectionRange(section, scope),
+            saveSectionRange: (section, payload) =>
+              window.ControlerStorage.saveSectionRange(section, payload),
+            getPeriodId: getIndexRecordPeriodId,
+            buildMergeKey: buildIndexRecordPatchKey,
+            sortItems: sortIndexRecordPartitionItems,
+            cloneValue: cloneIndexValue,
+          });
+        }
 
         if (saveRevision === indexRecordMutationRevision) {
           periodIds.forEach((periodId) => {
@@ -10388,6 +10749,8 @@ async function updateRecordsProjectName(oldName, newName, projectId = "") {
       normalizedProjectId ||
       projects.find((project) => project.name === newName)?.id ||
       null;
+    const changedBeforeRecords = [];
+    const changedAfterRecords = [];
     records = records.map((record) => {
       const matchesByProjectId =
         normalizedProjectId &&
@@ -10405,7 +10768,10 @@ async function updateRecordsProjectName(oldName, newName, projectId = "") {
         matchesNextProjectByName
       ) {
         updated = true;
-        return {
+        const previousRecord = {
+          ...record,
+        };
+        const nextRecord = {
           ...record,
           name:
             matchesByProjectId || matchesByProjectName ? newName : record.name,
@@ -10422,13 +10788,23 @@ async function updateRecordsProjectName(oldName, newName, projectId = "") {
               ? nextProjectId
               : String(record?.nextProjectId || "").trim() || null,
         };
+        changedBeforeRecords.push(previousRecord);
+        changedAfterRecords.push({
+          ...nextRecord,
+        });
+        return nextRecord;
       }
       return record;
     });
 
     if (updated) {
       bumpIndexRecordMutationRevision();
-      markAllLoadedRecordPeriodsDirty();
+      markIndexRecordPeriodsDirty([
+        ...changedBeforeRecords,
+        ...changedAfterRecords,
+      ]);
+      queueIndexRecordPatchRemovals(changedBeforeRecords);
+      queueIndexRecordPatchUpserts(changedAfterRecords);
       await saveRecordsToStorage();
       console.log(`已更新 ${oldName} 到 ${newName} 的记录`);
     }
@@ -10447,10 +10823,16 @@ function mergeProjectRecordsIntoTarget(sourceProject, targetProject) {
     String(targetProject?.name || "").trim() || "未命名项目";
 
   if ((!sourceProjectId && !sourceProjectName) || !targetProjectId) {
-    return 0;
+    return {
+      mergedCount: 0,
+      changedBeforeRecords: [],
+      changedAfterRecords: [],
+    };
   }
 
   let mergedCount = 0;
+  const changedBeforeRecords = [];
+  const changedAfterRecords = [];
   records = records.map((record) => {
     const recordProjectId = String(record?.projectId || "").trim();
     const matchesByProjectId =
@@ -10476,7 +10858,10 @@ function mergeProjectRecordsIntoTarget(sourceProject, targetProject) {
     if (shouldMergeCurrentProject) {
       mergedCount += 1;
     }
-    return {
+    const previousRecord = {
+      ...record,
+    };
+    const nextRecord = {
       ...record,
       name: shouldMergeCurrentProject ? targetProjectName : record.name,
       projectId: shouldMergeCurrentProject ? targetProjectId : record.projectId || null,
@@ -10489,9 +10874,18 @@ function mergeProjectRecordsIntoTarget(sourceProject, targetProject) {
           ? targetProjectId
           : recordNextProjectId || null,
     };
+    changedBeforeRecords.push(previousRecord);
+    changedAfterRecords.push({
+      ...nextRecord,
+    });
+    return nextRecord;
   });
 
-  return mergedCount;
+  return {
+    mergedCount,
+    changedBeforeRecords,
+    changedAfterRecords,
+  };
 }
 
 function updateProjectNameReferences(oldName, newName, projectId = "") {

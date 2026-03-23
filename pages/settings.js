@@ -3641,6 +3641,7 @@ function getSettingsLoadingOverlayController() {
   settingsLoadingOverlayController = window.ControlerUI?.createPageLoadingOverlayController?.({
     overlay,
     inlineHost: ".settings-main",
+    scopeFullscreenToInlineHost: false,
   }) || null;
   return settingsLoadingOverlayController;
 }

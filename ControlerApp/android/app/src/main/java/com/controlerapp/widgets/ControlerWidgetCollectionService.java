@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class ControlerWidgetCollectionService extends RemoteViewsService {
+    static final String EXTRA_COLLECTION_SLOT = "widgetCollectionSlot";
+
     @Override
     public RemoteViewsFactory onGetViewFactory(Intent intent) {
         return new Factory(getApplicationContext(), intent);
@@ -21,6 +23,7 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
         private final Context context;
         private final int appWidgetId;
         private final String kind;
+        private final String slot;
         private final List<ControlerWidgetCollectionStore.RowData> rows = new ArrayList<>();
 
         Factory(Context context, Intent intent) {
@@ -38,6 +41,12 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                     : ControlerWidgetKinds.normalize(
                         intent.getStringExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND)
                     );
+            this.slot =
+                intent == null
+                    ? ""
+                    : intent.getStringExtra(EXTRA_COLLECTION_SLOT) == null
+                        ? ""
+                        : intent.getStringExtra(EXTRA_COLLECTION_SLOT).trim();
         }
 
         @Override
@@ -49,7 +58,7 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
         public void onDataSetChanged() {
             rows.clear();
             rows.addAll(
-                ControlerWidgetCollectionStore.loadRows(context, appWidgetId, kind)
+                ControlerWidgetCollectionStore.loadRows(context, appWidgetId, kind, slot)
             );
         }
 
@@ -72,7 +81,9 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
             ControlerWidgetCollectionStore.RowData row = rows.get(position);
             RemoteViews views = new RemoteViews(
                 context.getPackageName(),
-                R.layout.controler_widget_collection_item
+                row.compactGoalStyle
+                    ? R.layout.controler_widget_goal_collection_item
+                    : R.layout.controler_widget_collection_item
             );
             views.setTextViewText(R.id.widget_collection_item_title, row.title);
             views.setTextViewText(R.id.widget_collection_item_meta, row.meta);
@@ -169,7 +180,7 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
 
         @Override
         public int getViewTypeCount() {
-            return 1;
+            return 2;
         }
 
         @Override

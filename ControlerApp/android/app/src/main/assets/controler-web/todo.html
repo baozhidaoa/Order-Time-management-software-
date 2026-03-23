@@ -205,18 +205,25 @@
 
       .todo-footer {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
       }
 
       .todo-progress-lane {
         min-width: 0;
-        flex: 1 1 240px;
         display: flex;
-        flex-direction: column;
-        gap: 4px;
+        align-items: center;
+        flex: 1 1 auto;
+      }
+
+      .todo-progress-summary-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        width: 100%;
+        flex-wrap: nowrap;
       }
 
       .todo-progress-bottom-row {
@@ -225,15 +232,26 @@
         justify-content: space-between;
         gap: 10px;
         min-width: 0;
+        flex-wrap: nowrap;
       }
 
       .todo-progress-caption,
-      .todo-progress-empty {
+      .todo-progress-status {
         color: var(--muted-text-color);
       }
 
-      .todo-progress-empty {
+      .todo-progress-caption {
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+
+      .todo-progress-status {
         margin: 0;
+        min-width: 0;
+        flex: 1 1 auto;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .todo-tags {
@@ -255,7 +273,7 @@
         flex-direction: row;
         align-items: center;
         gap: 8px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         justify-content: flex-end;
         flex: 0 0 auto;
       }
@@ -589,30 +607,21 @@
         .todo-footer {
           flex-direction: column;
           align-items: stretch;
-          gap: 10px;
-        }
-
-        .todo-footer.is-progress-empty .todo-progress-bottom-row {
-          flex-wrap: wrap;
-          align-items: stretch;
+          gap: 8px;
         }
 
         .todo-progress-lane {
-          width: 100%;
           flex: 1 1 auto;
-        }
-
-        .todo-footer.is-progress-empty .todo-progress-lane {
-          flex-basis: 100%;
+          min-width: 0;
         }
 
         .todo-action-stack {
           position: static;
-          width: 100%;
+          width: auto;
           flex-direction: row;
           justify-content: flex-end;
           align-items: center;
-          gap: 8px;
+          gap: 6px;
         }
 
         .todo-action-btn {

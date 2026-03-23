@@ -140,6 +140,10 @@ const mobileBootBundleEntries = {
       label: "pages/data-index.js",
       file: path.join(pagesSourceDir, "data-index.js"),
     },
+    {
+      label: "pages/index-record-persistence.js",
+      file: path.join(pagesSourceDir, "index-record-persistence.js"),
+    },
     { label: "pages/index.js", file: path.join(pagesSourceDir, "index.js") },
   ],
   "diary-boot.js": [
