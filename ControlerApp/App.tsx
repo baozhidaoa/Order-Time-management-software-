@@ -5,6 +5,7 @@ import {
   BackHandler,
   DeviceEventEmitter,
   Dimensions,
+  Easing,
   NativeModules,
   PanResponder,
   Platform,
@@ -75,6 +76,7 @@ type NativeBridgeModule = {
   syncNotificationSchedule?: (scheduleJson: string) => Promise<string>;
   setLastVisiblePage?: (pageKey: string) => Promise<string>;
   showToast?: (message: string) => Promise<string>;
+  showSoftInput?: () => Promise<string>;
 };
 
 type BridgeEnvelopePayload = {
@@ -3646,7 +3648,17 @@ function App({
   useEffect(() => {
     bootPulse.stopAnimation();
     bootPulse.setValue(0);
+    const animation = Animated.loop(
+      Animated.timing(bootPulse, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
     return () => {
+      animation.stop();
       bootPulse.stopAnimation();
       bootPulse.setValue(0);
     };
@@ -4280,6 +4292,14 @@ function App({
         return {
           shown: await nativeBridge.showToast(String(payload.message || '')),
         };
+      case 'ui.showSoftInput':
+        if (typeof nativeBridge.showSoftInput !== 'function') {
+          throw createUnsupportedBridgeError(
+            '调起输入法',
+            'showing the soft keyboard',
+          );
+        }
+        return parseBridgeJson(await nativeBridge.showSoftInput());
       default:
         throw new Error(`Unsupported native bridge method: ${method}`);
     }
@@ -4383,8 +4403,7 @@ function App({
         ) {
           return;
         }
-        const nextBusy =
-          nextBusyOverlayState.lockNavigation || nextBusyOverlayState.active;
+        const nextBusy = nextBusyOverlayState.lockNavigation === true;
         const normalizedBusyOverlayState = nextBusyOverlayState.active
           ? nextBusyOverlayState
           : createDefaultBusyOverlayState();
@@ -4820,14 +4839,9 @@ function App({
     return navigationResult !== 'intercept';
   };
 
-  const bootPulseScale = bootPulse.interpolate({
+  const bootSpinnerRotate = bootPulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.05],
-  });
-
-  const bootPulseOpacity = bootPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.76, 1],
+    outputRange: ['0deg', '360deg'],
   });
 
   const bootCard = (
@@ -4846,22 +4860,15 @@ function App({
         style={[
           styles.bootIndicator,
           {
-            backgroundColor: shellBootTheme.indicatorBg,
+            borderColor: `${shellBootTheme.accent}38`,
+            borderTopColor: shellBootTheme.accent,
+            borderRightColor: `${shellBootTheme.accent}88`,
           },
           {
-            opacity: bootPulseOpacity,
-            transform: [{scale: bootPulseScale}],
+            transform: [{rotate: bootSpinnerRotate}],
           },
-        ]}>
-        <View
-          style={[
-            styles.bootIndicatorDot,
-            {
-              backgroundColor: shellBootTheme.accent,
-            },
-          ]}
-        />
-      </Animated.View>
+        ]}
+      />
       <Text
         style={[
           styles.loadingText,
@@ -5135,17 +5142,17 @@ function App({
       ? {
           title: selectShellText(
             shellLanguage,
-            '正在打开页面',
-            'Opening page',
+            '正在加载数据中',
+            'Loading data',
           ),
           message: loadingTargetPageKey
             ? shellLanguage === 'en-US'
-              ? `Preparing the ${loadingTargetPageLabel} page.`
-              : `正在准备${loadingTargetPageLabel}页面，请稍候`
+              ? `Preparing ${loadingTargetPageLabel} page resources and local data.`
+              : `正在准备${loadingTargetPageLabel}页面资源与本地数据，请稍候`
             : selectShellText(
                 shellLanguage,
-                '正在准备目标页面，请稍候',
-                'Preparing the destination page.',
+                '页面资源与本地数据正在就绪',
+                'Page resources and local data are getting ready.',
               ),
         }
       : activeBusyOverlay.active &&
@@ -5167,6 +5174,62 @@ function App({
               ),
           }
         : null;
+  const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
+  const shellBlockingOverlayView = shellBlockingOverlay ? (
+    <View
+      accessible={false}
+      pointerEvents="auto"
+      renderToHardwareTextureAndroid={Platform.OS === 'android'}
+      style={[
+        styles.shellBlockingOverlay,
+        {
+          backgroundColor: shellBootTheme.screenBg,
+        },
+      ]}>
+      <View style={styles.center}>
+        <View
+          style={[
+            styles.bootCard,
+            {
+              backgroundColor: shellBootTheme.cardBg,
+              borderColor: shellBootTheme.cardBorder,
+            },
+          ]}>
+          <Animated.View
+            style={[
+              styles.bootIndicator,
+              {
+                borderColor: `${shellBootTheme.accent}38`,
+                borderTopColor: shellBootTheme.accent,
+                borderRightColor: `${shellBootTheme.accent}88`,
+              },
+              {
+                transform: [{rotate: bootSpinnerRotate}],
+              },
+            ]}
+          />
+          <Text
+            style={[
+              styles.loadingText,
+              {
+                color: shellBootTheme.text,
+              },
+            ]}>
+            {shellBlockingOverlay.title}
+          </Text>
+          <Text
+            style={[
+              styles.loadingSubText,
+              {
+                color: shellBootTheme.mutedText,
+              },
+            ]}>
+            {shellBlockingOverlay.message}
+          </Text>
+        </View>
+      </View>
+    </View>
+  ) : null;
   if (!activeUri) {
     return (
       <ScreenContainer style={styles.screen}>
@@ -5212,69 +5275,6 @@ function App({
         {renderWebView('primary')}
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
-        {shellBlockingOverlay ? (
-          <View
-            accessible={false}
-            pointerEvents="auto"
-            renderToHardwareTextureAndroid={Platform.OS === 'android'}
-            style={[
-              styles.transitionLoadingOverlay,
-              {
-                backgroundColor: shellBootTheme.transitionOverlay,
-              },
-            ]}>
-            <View style={styles.center}>
-              <View
-                style={[
-                  styles.bootCard,
-                  styles.transitionLoadingCard,
-                  {
-                    backgroundColor: shellBootTheme.cardBg,
-                    borderColor: shellBootTheme.cardBorder,
-                  },
-                ]}>
-                <Animated.View
-                  style={[
-                    styles.bootIndicator,
-                    {
-                      backgroundColor: shellBootTheme.indicatorBg,
-                    },
-                    {
-                      opacity: bootPulseOpacity,
-                      transform: [{scale: bootPulseScale}],
-                    },
-                  ]}>
-                  <View
-                    style={[
-                      styles.bootIndicatorDot,
-                      {
-                        backgroundColor: shellBootTheme.accent,
-                      },
-                    ]}
-                  />
-                </Animated.View>
-                <Text
-                  style={[
-                    styles.loadingText,
-                    {
-                      color: shellBootTheme.text,
-                    },
-                  ]}>
-                  {shellBlockingOverlay.title}
-                </Text>
-                <Text
-                  style={[
-                    styles.loadingSubText,
-                    {
-                      color: shellBootTheme.mutedText,
-                    },
-                  ]}>
-                  {shellBlockingOverlay.message}
-                </Text>
-              </View>
-            </View>
-          </View>
-        ) : null}
         {isPageReady ? (
           <View
             {...edgeBackPanResponder.panHandlers}
@@ -5289,7 +5289,7 @@ function App({
           />
         ) : null}
 
-        {!isPageReady ? (
+        {shouldShowBootOverlay ? (
           <Animated.View
             pointerEvents="auto"
             renderToHardwareTextureAndroid={Platform.OS === 'android'}
@@ -5304,6 +5304,7 @@ function App({
           </Animated.View>
         ) : null}
       </View>
+      {shellBlockingOverlayView}
     </ScreenContainer>
   );
 }
@@ -5349,11 +5350,11 @@ const styles = StyleSheet.create({
     zIndex: 5,
     elevation: 5,
   },
-  transitionLoadingOverlay: {
+  shellBlockingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 21, 18, 0.26)',
-    zIndex: 4,
-    elevation: 4,
+    backgroundColor: SCREEN_BG,
+    zIndex: 6,
+    elevation: 6,
   },
   center: {
     flex: 1,
@@ -5363,43 +5364,42 @@ const styles = StyleSheet.create({
   },
   bootCard: {
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 360,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 19,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(142, 214, 164, 0.14)',
+    borderColor: 'rgba(142, 214, 164, 0.18)',
     backgroundColor: 'rgba(22, 31, 27, 0.88)',
   },
-  transitionLoadingCard: {
-    backgroundColor: 'rgba(18, 26, 23, 0.94)',
-  },
   bootIndicator: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    backgroundColor: 'rgba(47, 111, 84, 0.14)',
-  },
-  bootIndicatorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: ACCENT_COLOR,
+    width: 54,
+    height: 54,
+    marginBottom: 14,
+    borderRadius: 27,
+    borderWidth: 3,
+    borderColor: 'rgba(142, 214, 164, 0.22)',
+    borderTopColor: ACCENT_COLOR,
+    borderRightColor: 'rgba(95, 196, 135, 0.46)',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
   },
   loadingText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#d4f5df',
   },
   loadingSubText: {
     marginTop: 8,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 20,
     color: 'rgba(212, 245, 223, 0.68)',
     textAlign: 'center',
   },

@@ -16,10 +16,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.AtomicFile;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.database.Cursor;
 import android.widget.Toast;
 
@@ -71,8 +75,12 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 public class ControlerBridgeModule extends ReactContextBaseJavaModule {
+    private static final String TAG = "ControlerBridge";
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static final int REQUEST_SELECT_STORAGE_FILE = 41021;
     private static final int REQUEST_SELECT_STORAGE_DIRECTORY = 41022;
@@ -792,7 +800,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         try {
             JSONObject root =
                 TextUtils.isEmpty(stateJson) ? new JSONObject() : new JSONObject(stateJson);
-            boolean saved = ControlerWidgetDataStore.saveRoot(getReactApplicationContext(), root);
+            boolean saved =
+                ControlerWidgetDataStore.saveManagedRoot(getReactApplicationContext(), root);
             if (!saved) {
                 promise.reject("storage_write_failed", "保存移动端数据失败。");
                 return;
@@ -1045,6 +1054,261 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(normalizedMessage);
         } catch (Exception error) {
             promise.reject("show_toast_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void showSoftInput(Promise promise) {
+        Activity activity = getCurrentActivity();
+        if (activity == null) {
+            try {
+                JSONObject result = new JSONObject();
+                result.put("ok", false);
+                result.put("shown", false);
+                result.put("focused", false);
+                result.put("targetClass", "");
+                result.put("message", "当前没有可用的前台页面。");
+                promise.resolve(result.toString());
+            } catch (Exception error) {
+                promise.reject("show_soft_input_failed", error);
+            }
+            return;
+        }
+
+        MAIN_HANDLER.post(() -> {
+            try {
+                Context context = activity;
+                InputMethodManager inputMethodManager =
+                    (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
+                showSoftInputWithRetry(activity, inputMethodManager, 0, promise);
+            } catch (Exception error) {
+                Log.e(TAG, "showSoftInput failed", error);
+                promise.reject("show_soft_input_failed", error);
+            }
+        });
+    }
+
+    private void showSoftInputWithRetry(
+        Activity activity,
+        InputMethodManager inputMethodManager,
+        int attempt,
+        Promise promise
+    ) {
+        try {
+            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            WindowInsetsControllerCompat insetsController =
+                activity.getWindow() == null || targetView == null
+                    ? null
+                    : WindowCompat.getInsetsController(activity.getWindow(), targetView);
+            requestSoftInputTargetFocus(targetView);
+            if (insetsController != null) {
+                insetsController.show(WindowInsetsCompat.Type.ime());
+            }
+
+            boolean focused = targetView != null && targetView.hasFocus();
+            boolean served =
+                inputMethodManager != null &&
+                targetView != null &&
+                inputMethodManager.isActive(targetView);
+            boolean shown = false;
+            if (served && inputMethodManager != null && targetView != null) {
+                shown =
+                    inputMethodManager.showSoftInput(
+                        targetView,
+                        InputMethodManager.SHOW_IMPLICIT
+                    );
+            }
+
+            Log.d(
+                TAG,
+                "showSoftInput target="
+                    + (targetView == null ? "null" : targetView.getClass().getName())
+                    + " focused="
+                    + focused
+                    + " served="
+                    + served
+                    + " shown="
+                    + shown
+                    + " attempt="
+                    + attempt
+            );
+
+            if ((!served && !shown) && attempt < 2) {
+                final int nextAttempt = attempt + 1;
+                final long retryDelayMs = nextAttempt == 1 ? 96L : 220L;
+                MAIN_HANDLER.postDelayed(
+                    () -> showSoftInputWithRetry(activity, inputMethodManager, nextAttempt, promise),
+                    retryDelayMs
+                );
+                return;
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("ok", targetView != null);
+            result.put("shown", shown);
+            result.put("focused", focused);
+            result.put("served", served);
+            result.put(
+                "targetClass",
+                targetView == null ? "" : targetView.getClass().getName()
+            );
+            result.put(
+                "message",
+                targetView == null
+                    ? "未找到可聚焦的输入承载视图。"
+                    : served || shown
+                        ? ""
+                        : "输入目标尚未接管输入法服务。"
+            );
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            Log.e(TAG, "showSoftInput failed", error);
+            promise.reject("show_soft_input_failed", error);
+        }
+    }
+
+    private View resolveSoftInputTarget(
+        Activity activity,
+        InputMethodManager inputMethodManager
+    ) {
+        if (activity == null) {
+            return null;
+        }
+        View decorView =
+            activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        View currentFocus = activity.getCurrentFocus();
+        View decorFocus = decorView == null ? null : decorView.findFocus();
+        ArrayList<View> candidates = new ArrayList<>();
+        addSoftInputCandidate(candidates, currentFocus);
+        addSoftInputCandidate(candidates, decorFocus);
+        addSoftInputCandidate(candidates, decorView);
+        collectSoftInputCandidates(decorView, candidates);
+
+        View bestTarget = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (View candidate : candidates) {
+            int score =
+                scoreSoftInputTarget(candidate, currentFocus, decorFocus, inputMethodManager);
+            if (score > bestScore) {
+                bestScore = score;
+                bestTarget = candidate;
+            }
+        }
+        if (bestTarget != null) {
+            return bestTarget;
+        }
+        if (decorFocus != null) {
+            return decorFocus;
+        }
+        if (currentFocus != null) {
+            return currentFocus;
+        }
+        return decorView;
+    }
+
+    private void addSoftInputCandidate(ArrayList<View> candidates, View candidate) {
+        if (candidate == null) {
+            return;
+        }
+        for (View existing : candidates) {
+            if (existing == candidate) {
+                return;
+            }
+        }
+        candidates.add(candidate);
+    }
+
+    private void collectSoftInputCandidates(View root, ArrayList<View> candidates) {
+        if (root == null) {
+            return;
+        }
+        if (root.isFocusable() || isLikelySoftInputHost(root)) {
+            addSoftInputCandidate(candidates, root);
+        }
+        if (!(root instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) root;
+        for (int index = 0; index < group.getChildCount(); index++) {
+            collectSoftInputCandidates(group.getChildAt(index), candidates);
+        }
+    }
+
+    private boolean isLikelySoftInputHost(View view) {
+        if (view == null) {
+            return false;
+        }
+        String className = view.getClass().getName();
+        return className.contains("RNCWebView") || className.contains("WebView");
+    }
+
+    private boolean isViewHierarchyVisible(View view) {
+        if (view == null || !view.isAttachedToWindow()) {
+            return false;
+        }
+        View current = view;
+        while (current != null) {
+            if (current.getVisibility() != View.VISIBLE || current.getAlpha() <= 0.01f) {
+                return false;
+            }
+            if (!(current.getParent() instanceof View)) {
+                break;
+            }
+            current = (View) current.getParent();
+        }
+        return view.getWidth() > 0 && view.getHeight() > 0;
+    }
+
+    private int scoreSoftInputTarget(
+        View candidate,
+        View currentFocus,
+        View decorFocus,
+        InputMethodManager inputMethodManager
+    ) {
+        if (candidate == null) {
+            return Integer.MIN_VALUE;
+        }
+        int score = 0;
+        if (candidate == currentFocus) {
+            score += 18;
+        }
+        if (candidate == decorFocus) {
+            score += 14;
+        }
+        if (candidate.hasFocus()) {
+            score += 18;
+        }
+        if (candidate.hasWindowFocus()) {
+            score += 8;
+        }
+        if (candidate.isAttachedToWindow()) {
+            score += 6;
+        }
+        if (isViewHierarchyVisible(candidate)) {
+            score += 8;
+        } else {
+            score -= 24;
+        }
+        if (isLikelySoftInputHost(candidate)) {
+            score += 12;
+        }
+        if (inputMethodManager != null && inputMethodManager.isActive(candidate)) {
+            score += 36;
+        }
+        return score;
+    }
+
+    private void requestSoftInputTargetFocus(View targetView) {
+        if (targetView == null) {
+            return;
+        }
+        try {
+            targetView.requestFocusFromTouch();
+        } catch (Exception ignored) {
+        }
+        try {
+            targetView.requestFocus();
+        } catch (Exception ignored) {
         }
     }
 

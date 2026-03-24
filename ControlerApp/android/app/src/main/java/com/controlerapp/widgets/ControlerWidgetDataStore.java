@@ -339,11 +339,10 @@ public final class ControlerWidgetDataStore {
             if (usesDirectoryBundleStorage(context)) {
                 ensureBundleStorageReady(context);
                 assertStorageWritable();
-            }
-            JSONObject normalizedRoot = normalizeRoot(context, root, true);
-            if (usesDirectoryBundleStorage(context)) {
+                JSONObject normalizedRoot = normalizeRoot(context, root, true);
                 return writeBundleRoot(context, normalizedRoot);
             }
+            JSONObject normalizedRoot = normalizeRoot(context, root, true);
             OutputStream outputStream = openStorageOutputStream(context);
             if (outputStream == null) {
                 return false;
@@ -359,6 +358,230 @@ public final class ControlerWidgetDataStore {
             error.printStackTrace();
             return false;
         }
+    }
+
+    public static boolean saveManagedRoot(Context context, JSONObject root) {
+        try {
+            if (!usesDirectoryBundleStorage(context)) {
+                return saveRoot(context, root);
+            }
+            ensureBundleStorageReady(context);
+            assertStorageWritable();
+            JSONObject mergedRoot = mergeBundleWriteRootWithCurrent(context, root);
+            return writeBundleRoot(context, mergedRoot);
+        } catch (Exception error) {
+            error.printStackTrace();
+            return false;
+        }
+    }
+
+    private static JSONObject mergeBundleWriteRootWithCurrent(
+        Context context,
+        JSONObject incomingRoot
+    ) throws Exception {
+        JSONObject currentRoot = normalizeRoot(context, loadRoot(context), false);
+        JSONObject normalizedIncoming = normalizeRoot(context, incomingRoot, false);
+        JSONObject nextRoot = cloneJsonObject(normalizedIncoming);
+        boolean suspiciousShrink = isSuspiciousManagedSnapshotShrink(
+            currentRoot,
+            normalizedIncoming
+        );
+
+        String[] coreKeys = new String[] {
+            "projects",
+            "todos",
+            "checkinItems",
+            "timerSessionState",
+            "yearlyGoals",
+            "diaryCategories",
+            "guideState",
+            "customThemes",
+            "builtInThemeOverrides",
+            "selectedTheme",
+            "tableScaleSettings"
+        };
+        for (String key : coreKeys) {
+            if (
+                suspiciousShrink
+                    && shouldPreserveManagedCoreValue(key, currentRoot, normalizedIncoming)
+            ) {
+                nextRoot.put(key, cloneJsonValue(currentRoot.opt(key)));
+            }
+        }
+
+        String[] partitionedSections = new String[] {
+            "records",
+            "diaryEntries",
+            "dailyCheckins",
+            "checkins",
+            "plans"
+        };
+        for (String section : partitionedSections) {
+            Map<String, ArrayList<JSONObject>> mergedByPeriod = groupItemsByPeriod(
+                section,
+                currentRoot.optJSONArray(section)
+            );
+            Map<String, ArrayList<JSONObject>> incomingByPeriod = groupItemsByPeriod(
+                section,
+                normalizedIncoming.optJSONArray(section)
+            );
+            for (Map.Entry<String, ArrayList<JSONObject>> entry : incomingByPeriod.entrySet()) {
+                String periodId = entry.getKey();
+                ArrayList<JSONObject> mergedItems = mergePartitionItems(
+                    section,
+                    mergedByPeriod.get(periodId),
+                    entry.getValue(),
+                    true
+                );
+                if (mergedItems.isEmpty()) {
+                    mergedByPeriod.remove(periodId);
+                } else {
+                    mergedByPeriod.put(periodId, mergedItems);
+                }
+            }
+
+            ArrayList<String> periodIds = new ArrayList<>(mergedByPeriod.keySet());
+            Collections.sort(periodIds);
+            ArrayList<JSONObject> flattenedItems = new ArrayList<>();
+            for (String periodId : periodIds) {
+                ArrayList<JSONObject> items = mergedByPeriod.get(periodId);
+                if (items != null) {
+                    flattenedItems.addAll(items);
+                }
+            }
+            sortJsonItems(section, flattenedItems);
+            nextRoot.put(section, buildJsonArrayFromObjects(flattenedItems));
+        }
+
+        ArrayList<JSONObject> mergedRecurringPlans = mergePartitionItems(
+            "plans",
+            jsonArrayToObjectList(collectRecurringPlans(currentRoot.optJSONArray("plans"))),
+            jsonArrayToObjectList(collectRecurringPlans(normalizedIncoming.optJSONArray("plans"))),
+            true
+        );
+        JSONArray nextPlans = nextRoot.optJSONArray("plans");
+        if (nextPlans == null) {
+            nextPlans = new JSONArray();
+        }
+        for (JSONObject recurringPlan : mergedRecurringPlans) {
+            nextPlans.put(cloneJsonObject(recurringPlan));
+        }
+        ArrayList<JSONObject> sortedPlans = jsonArrayToObjectList(nextPlans);
+        sortJsonItems("plans", sortedPlans);
+        nextRoot.put("plans", buildJsonArrayFromObjects(sortedPlans));
+        nextRoot.put(
+            "createdAt",
+            firstNonEmpty(
+                currentRoot.optString("createdAt", ""),
+                normalizedIncoming.optString("createdAt", ""),
+                isoNow()
+            )
+        );
+
+        return normalizeRoot(context, nextRoot, true);
+    }
+
+    private static boolean isSuspiciousManagedSnapshotShrink(
+        JSONObject currentRoot,
+        JSONObject incomingRoot
+    ) {
+        String[] primarySections = new String[] {
+            "projects",
+            "records",
+            "plans",
+            "todos",
+            "checkinItems",
+            "dailyCheckins",
+            "checkins",
+            "yearlyGoals",
+            "diaryEntries",
+            "diaryCategories"
+        };
+        int droppedSections = 0;
+        int currentTotal = 0;
+        int incomingTotal = 0;
+        for (String key : primarySections) {
+            int currentCount = countManagedSnapshotItems(key, currentRoot.opt(key));
+            int incomingCount = countManagedSnapshotItems(key, incomingRoot.opt(key));
+            currentTotal += currentCount;
+            incomingTotal += incomingCount;
+            if (currentCount > 0 && incomingCount == 0) {
+                droppedSections += 1;
+            }
+        }
+        if (currentTotal <= 0 || droppedSections <= 0) {
+            return false;
+        }
+        if (droppedSections >= 3 && incomingTotal <= Math.max(6, currentTotal / 2)) {
+            return true;
+        }
+        return droppedSections >= 2
+            && currentTotal >= 24
+            && incomingTotal <= Math.max(8, Math.round(currentTotal * 0.40f));
+    }
+
+    private static boolean shouldPreserveManagedCoreValue(
+        String key,
+        JSONObject currentRoot,
+        JSONObject incomingRoot
+    ) {
+        int currentCount = countManagedSnapshotItems(key, currentRoot.opt(key));
+        if (currentCount <= 0) {
+            return false;
+        }
+        return countManagedSnapshotItems(key, incomingRoot.opt(key)) == 0;
+    }
+
+    private static int countManagedSnapshotItems(String key, Object rawValue) {
+        if ("yearlyGoals".equals(key)) {
+            return countYearGoalEntries(rawValue instanceof JSONObject ? (JSONObject) rawValue : null);
+        }
+        if (rawValue instanceof JSONArray) {
+            return ((JSONArray) rawValue).length();
+        }
+        if (rawValue instanceof JSONObject) {
+            return ((JSONObject) rawValue).length();
+        }
+        if (rawValue instanceof String) {
+            return TextUtils.isEmpty(((String) rawValue).trim()) ? 0 : 1;
+        }
+        return 0;
+    }
+
+    private static int countYearGoalEntries(JSONObject yearlyGoals) {
+        if (yearlyGoals == null) {
+            return 0;
+        }
+        int total = 0;
+        JSONArray yearKeys = yearlyGoals.names();
+        if (yearKeys == null) {
+            return 0;
+        }
+        for (int yearIndex = 0; yearIndex < yearKeys.length(); yearIndex += 1) {
+            String yearKey = safeText(yearKeys.optString(yearIndex, ""));
+            if (TextUtils.isEmpty(yearKey)) {
+                continue;
+            }
+            JSONObject yearBucket = yearlyGoals.optJSONObject(yearKey);
+            if (yearBucket == null) {
+                continue;
+            }
+            JSONArray scopeKeys = yearBucket.names();
+            if (scopeKeys == null) {
+                continue;
+            }
+            for (int scopeIndex = 0; scopeIndex < scopeKeys.length(); scopeIndex += 1) {
+                String scopeKey = safeText(scopeKeys.optString(scopeIndex, ""));
+                if (TextUtils.isEmpty(scopeKey)) {
+                    continue;
+                }
+                JSONArray goals = yearBucket.optJSONArray(scopeKey);
+                if (goals != null) {
+                    total += goals.length();
+                }
+            }
+        }
+        return total;
     }
 
     public static String getStorageRecoveryState() {

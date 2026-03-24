@@ -60,6 +60,61 @@ function waitForPlanStorageReady() {
   });
 }
 
+function clonePlanValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return value;
+  }
+}
+
+function capturePlanWorkspaceSnapshot(snapshot = {}) {
+  return {
+    plans: Array.isArray(snapshot?.plans)
+      ? clonePlanValue(snapshot.plans)
+      : clonePlanValue(plans),
+    yearlyGoals: clonePlanValue(
+      normalizeYearlyGoalsState(snapshot?.yearlyGoals || yearlyGoals || {}),
+    ),
+    loadedPeriodIds: Array.isArray(snapshot?.loadedPeriodIds)
+      ? snapshot.loadedPeriodIds
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean)
+      : planLoadedPeriodIds.slice(),
+  };
+}
+
+function mergePlanWorkspaceSnapshot(
+  snapshot = {},
+  fallbackSnapshot = capturePlanWorkspaceSnapshot(),
+) {
+  const fallback =
+    fallbackSnapshot &&
+    typeof fallbackSnapshot === "object" &&
+    !Array.isArray(fallbackSnapshot)
+      ? fallbackSnapshot
+      : capturePlanWorkspaceSnapshot();
+  return {
+    plans: Array.isArray(snapshot?.plans)
+      ? clonePlanValue(snapshot.plans)
+      : clonePlanValue(fallback.plans),
+    yearlyGoals:
+      snapshot?.yearlyGoals &&
+      typeof snapshot.yearlyGoals === "object" &&
+      !Array.isArray(snapshot.yearlyGoals)
+        ? clonePlanValue(snapshot.yearlyGoals)
+        : clonePlanValue(fallback.yearlyGoals),
+    loadedPeriodIds: Array.isArray(snapshot?.loadedPeriodIds)
+      ? snapshot.loadedPeriodIds
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean)
+      : clonePlanValue(fallback.loadedPeriodIds || []),
+  };
+}
+
 function escapePlanSelectorValue(value) {
   if (typeof window.CSS?.escape === "function") {
     return window.CSS.escape(String(value ?? ""));
@@ -148,14 +203,22 @@ function applyPlanModalDraftFields(modal, fields = {}) {
 
 function createPlanModalDraftSession(modal, draftKey) {
   let timer = 0;
+  const initialFieldsSignature = JSON.stringify(capturePlanModalDraftFields(modal));
   const persistDraft = async () => {
     if (!modal?.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+      return;
+    }
+    const fields = capturePlanModalDraftFields(modal);
+    if (JSON.stringify(fields) === initialFieldsSignature) {
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(draftKey);
+      }
       return;
     }
     await window.ControlerStorage.setDraft(
       draftKey,
       {
-        fields: capturePlanModalDraftFields(modal),
+        fields,
       },
       {
         scope: "plan",
@@ -249,14 +312,6 @@ async function flushPlanPendingPersistence() {
   }
   if (planLastPersistenceError) {
     throw planLastPersistenceError;
-  }
-  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
-    await window.ControlerStorage.saveCoordinator.flush(
-      "plan-flush",
-      "plan-persistence",
-    );
-  } else if (typeof window.ControlerStorage?.flush === "function") {
-    await window.ControlerStorage.flush();
   }
   if (planLastPersistenceError) {
     throw planLastPersistenceError;
@@ -1931,6 +1986,10 @@ async function showPlanAlert(message, options = {}) {
 
 function handlePlanNonBlockingSaveFailure(message, options = {}) {
   console.error(message, options.error || "");
+  const retainedSnapshot = mergePlanWorkspaceSnapshot(
+    options?.retainedSnapshot,
+    capturePlanWorkspaceSnapshot(),
+  );
   if (typeof window.ControlerStorage?.syncFromSource === "function") {
     void window.ControlerStorage
       .syncFromSource({
@@ -1940,11 +1999,9 @@ function handlePlanNonBlockingSaveFailure(message, options = {}) {
         if (!result?.state || typeof result.state !== "object") {
           return;
         }
-        applyPlanWorkspaceState({
-          plans: result.state.plans || [],
-          yearlyGoals: result.state.yearlyGoals || {},
-          loadedPeriodIds: planLoadedPeriodIds,
-        });
+        applyPlanWorkspaceState(
+          mergePlanWorkspaceSnapshot(result.state, retainedSnapshot),
+        );
         renderPlanGuideCard();
         renderCalendarContent();
         clearPlanPersistenceError();
@@ -1961,21 +2018,26 @@ function handlePlanNonBlockingSaveFailure(message, options = {}) {
 
 // 加载数据
 async function readPlanWorkspace(options = {}) {
+  const targetView =
+    typeof options?.view === "string" && options.view.trim()
+      ? options.view.trim()
+      : currentView;
+  const shouldLoadPlans =
+    options.includePlans !== false && targetView !== "year";
+  const retainedPlans = Array.isArray(options?.basePlans)
+    ? options.basePlans
+    : Array.isArray(plans)
+      ? plans
+      : [];
+  const retainedPeriodIds = Array.isArray(options?.loadedPeriodIds)
+    ? options.loadedPeriodIds
+    : planLoadedPeriodIds;
+  const retainedSnapshot = capturePlanWorkspaceSnapshot({
+    plans: retainedPlans,
+    yearlyGoals,
+    loadedPeriodIds: retainedPeriodIds,
+  });
   try {
-    const targetView =
-      typeof options?.view === "string" && options.view.trim()
-        ? options.view.trim()
-        : currentView;
-    const shouldLoadPlans =
-      options.includePlans !== false && targetView !== "year";
-    const retainedPlans = Array.isArray(options?.basePlans)
-      ? options.basePlans
-      : Array.isArray(plans)
-        ? plans
-        : [];
-    const retainedPeriodIds = Array.isArray(options?.loadedPeriodIds)
-      ? options.loadedPeriodIds
-      : planLoadedPeriodIds;
     const bootstrapOptions = {
       includeYearlyGoals: options.includeYearlyGoals !== false,
       includeRecurringPlans:
@@ -2098,11 +2160,7 @@ async function readPlanWorkspace(options = {}) {
     };
   } catch (e) {
     console.error("加载计划数据失败:", e);
-    return {
-      plans: [],
-      yearlyGoals: normalizeYearlyGoalsState({}),
-      loadedPeriodIds: [],
-    };
+    return retainedSnapshot;
   }
 }
 
@@ -5026,17 +5084,31 @@ function showWeeklyGridPlanModal(planData = null) {
     console.error("恢复周视图计划草稿失败:", error);
   });
 
-  const closeWeeklyPlanModal = () => {
+  const discardWeeklyPlanDraft = () => {
+    void weeklyPlanDraftSession.clear().catch((error) => {
+      console.error("清理周视图计划草稿失败:", error);
+    });
+  };
+  const closeWeeklyPlanModal = (options = {}) => {
     weeklyPlanDraftSession.destroy();
     removePlanModalElement(modal);
+    if (options?.discardDraft === true) {
+      discardWeeklyPlanDraft();
+    }
   };
-  modal.__controlerCloseModal = closeWeeklyPlanModal;
+  modal.__controlerCloseModal = () =>
+    closeWeeklyPlanModal({
+      discardDraft: true,
+    });
 
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(
       modal,
       "#weekly-cancel-plan-btn",
-      closeWeeklyPlanModal,
+      () =>
+        closeWeeklyPlanModal({
+          discardDraft: true,
+        }),
     );
     uiTools.bindModalAction(modal, "#weekly-save-plan-btn", () => {
       void saveWeeklyGridPlan(modal, planData, {
@@ -5046,7 +5118,11 @@ function showWeeklyGridPlanModal(planData = null) {
   } else {
     modal
       .querySelector("#weekly-cancel-plan-btn")
-      .addEventListener("click", closeWeeklyPlanModal);
+      .addEventListener("click", () => {
+        closeWeeklyPlanModal({
+          discardDraft: true,
+        });
+      });
     modal
       .querySelector("#weekly-save-plan-btn")
       .addEventListener("click", () => {
@@ -5443,14 +5519,29 @@ function showPlanEditModal(planData = null) {
     console.error("恢复计划草稿失败:", error);
   });
 
-  const closePlanModal = () => {
+  const discardPlanDraft = () => {
+    void planDraftSession.clear().catch((error) => {
+      console.error("清理计划草稿失败:", error);
+    });
+  };
+  const closePlanModal = (options = {}) => {
     planDraftSession.destroy();
     removePlanModalElement(modal);
+    if (options?.discardDraft === true) {
+      discardPlanDraft();
+    }
   };
-  modal.__controlerCloseModal = closePlanModal;
+  modal.__controlerCloseModal = () =>
+    closePlanModal({
+      discardDraft: true,
+    });
 
   if (uiTools?.bindModalAction) {
-    uiTools.bindModalAction(modal, "#cancel-plan-btn", closePlanModal);
+    uiTools.bindModalAction(modal, "#cancel-plan-btn", () =>
+      closePlanModal({
+        discardDraft: true,
+      }),
+    );
     uiTools.bindModalAction(modal, "#save-plan-btn", () => {
       void savePlan(modal, isEditMode, planData, {
         draftSession: planDraftSession,
@@ -5459,7 +5550,11 @@ function showPlanEditModal(planData = null) {
   } else {
     modal
       .querySelector("#cancel-plan-btn")
-      .addEventListener("click", closePlanModal);
+      .addEventListener("click", () => {
+        closePlanModal({
+          discardDraft: true,
+        });
+      });
     modal.querySelector("#save-plan-btn").addEventListener("click", () => {
       void savePlan(modal, isEditMode, planData, {
         draftSession: planDraftSession,

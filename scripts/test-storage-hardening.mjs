@@ -695,10 +695,7 @@ async function main() {
       2,
     ),
   );
-
-  if (!allPassed) {
-    process.exitCode = 1;
-  }
+  process.exit(allPassed ? 0 : 1);
 }
 
 main().catch((error) => {

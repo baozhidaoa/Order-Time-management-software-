@@ -4057,6 +4057,10 @@
         console.warn(message, options.error || "");
         return;
       }
+      if (options.suppressUserAlert === true) {
+        console.warn(message, options.error || "");
+        return;
+      }
       reportStorageSyncError(message, options);
     }
 
@@ -4843,6 +4847,7 @@
         if (pendingSharedKeys.length) {
           reportNativeStorageSyncError(blockedMessage, {
             reason: "native-write-blocked-shared-rebase",
+            suppressUserAlert: true,
           });
           console.warn(
             "React Native 原生快照暂不可用，已阻止共享状态补写，避免覆盖整库。",
@@ -4852,6 +4857,7 @@
             blockedMessage,
             {
               reason: "native-write-blocked-incomplete-mirror",
+              suppressUserAlert: true,
             },
           );
           console.warn(
@@ -5922,12 +5928,17 @@
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
+          const preferManagedBootstrap =
+            hasPendingStateChanges && hasManagedCoreSnapshot;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             normalizedOptions,
           );
           const shouldHydrateManagedMirror =
             useFreshBootstrap || !canUseManagedBootstrap;
+          if (preferManagedBootstrap) {
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+          }
           if (canUseManagedBootstrap && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
@@ -6253,9 +6264,14 @@
         },
         async loadSectionRange(section, scope = {}) {
           const normalizedRange = canServeManagedSectionRange(section, scope);
-          if (normalizedRange) {
+          const preferManagedRange =
+            hasPendingStateChanges && hasManagedCoreSnapshot;
+          if (normalizedRange || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
-            return loadManagedSectionRange(section, normalizedRange);
+            return loadManagedSectionRange(
+              section,
+              normalizedRange || scope,
+            );
           }
           try {
             const rawPayload = await reactNativeBridge.call("storage.loadSectionRange", {

@@ -2,7 +2,8 @@ const uiTools = window.ControlerUI || null;
 const storageBundleApi = window.ControlerStorageBundle || null;
 const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
 let indexChartRuntimeLoader = null;
-const INDEX_CHART_RUNTIME_URL = "embedded-assets/chart.runtime.js";
+let indexChartRuntimePreloadQueued = false;
+const INDEX_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
 
 function ensureIndexChartRuntimeLoaded() {
   if (typeof window.Chart !== "undefined") {
@@ -20,6 +21,29 @@ function ensureIndexChartRuntimeLoaded() {
     throw error;
   });
   return indexChartRuntimeLoader;
+}
+
+function scheduleIndexChartRuntimePreload() {
+  if (
+    indexChartRuntimePreloadQueued ||
+    typeof window.Chart !== "undefined"
+  ) {
+    return;
+  }
+  indexChartRuntimePreloadQueued = true;
+  const startPreload = () => {
+    indexChartRuntimePreloadQueued = false;
+    void ensureIndexChartRuntimeLoaded().catch((error) => {
+      console.error("后台预热记录页图表资源失败:", error);
+    });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(startPreload, {
+      timeout: 800,
+    });
+    return;
+  }
+  window.setTimeout(startPreload, 120);
 }
 function localizeIndexUiText(value) {
   return window.ControlerI18n?.translateUiText?.(String(value ?? "")) || String(value ?? "");
@@ -90,6 +114,7 @@ let indexDirtyRecordPeriodIds = new Set();
 const indexPendingRecordPatchByPeriod = new Map();
 const indexForceReplaceRecordPeriods = new Set();
 const indexPendingPersistenceTasks = new Set();
+const indexBlockingPersistenceTasks = new Set();
 const indexPendingRecordSaveIds = new Set();
 let indexLastPersistenceError = null;
 let indexBeforePageLeaveGuardBound = false;
@@ -111,6 +136,7 @@ const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
 const TABLE_SIZE_EVENT_NAME = "ui:table-scale-settings-changed";
 const INDEX_LOADING_OVERLAY_DELAY_MS = 150;
 const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
+const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
@@ -136,6 +162,7 @@ let projectHierarchyExpansionState = createEmptyProjectHierarchyExpansionState()
 let projectTotalsExpansionState = createEmptyProjectHierarchyExpansionState();
 let recordSectionCollapseState = createDefaultRecordSectionCollapseState();
 let timerSessionDraftSnapshot = null;
+let timerSessionModalBaselineSnapshot = null;
 let timerSessionDraftTimer = 0;
 const indexWorkspaceRefreshScheduler = uiTools?.createFrameScheduler?.(() => {
   renderProjectsTable();
@@ -610,6 +637,7 @@ function scheduleSilentIndexProjectDurationCachePersist() {
     indexPendingDurationCachePersist = false;
     void persistIndexProjectSnapshot(projects, {
       emitChange: false,
+      blockPageLeave: false,
       reason: "duration-cache-repair",
       errorLabel: "静默持久化项目时长缓存失败:",
     });
@@ -2386,6 +2414,111 @@ function buildTimerSessionSnapshotForPersistence() {
   };
 }
 
+function cloneTimerSessionSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  return cloneIndexValue(snapshot);
+}
+
+function hasMeaningfulTimerSessionManagedDraft(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return false;
+  }
+  if (snapshot.modalOpen === true) {
+    return true;
+  }
+  return [
+    snapshot.projectInputValue,
+    snapshot.nextProjectInputValue,
+    snapshot.shortenHours,
+    snapshot.shortenMinutes,
+  ].some((value) => typeof value === "string" && value.trim());
+}
+
+function applyTimerSessionSnapshot(snapshot) {
+  const source =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? snapshot
+      : {};
+  ptn =
+    Number.isFinite(source.ptn) && source.ptn >= 0
+      ? Math.max(0, Math.floor(source.ptn))
+      : 0;
+  fpt = deserializeTimerDate(source.fpt);
+  spt = deserializeTimerDate(source.spt);
+  lastspt = deserializeTimerDate(source.lastspt);
+  diffMs =
+    Number.isFinite(source.diffMs) && source.diffMs >= 0 ? source.diffMs : null;
+  selectedProject =
+    typeof source.selectedProject === "string" ? source.selectedProject : "";
+  nextProject = typeof source.nextProject === "string" ? source.nextProject : "";
+  lastEnteredProjectName =
+    typeof source.lastEnteredProjectName === "string"
+      ? source.lastEnteredProjectName
+      : "";
+  pendingDurationCarryoverState = normalizeDurationCarryoverState(
+    source.pendingDurationCarryoverState,
+  );
+
+  const normalizedSnapshot = {
+    sessionVersion:
+      Number.isFinite(source.sessionVersion) && source.sessionVersion > 0
+        ? Math.floor(source.sessionVersion)
+        : TIMER_STATE_STORAGE_VERSION,
+    ptn,
+    fpt: serializeTimerDate(fpt),
+    spt: serializeTimerDate(spt),
+    lastspt: serializeTimerDate(lastspt),
+    diffMs: Number.isFinite(diffMs) ? Math.max(diffMs, 0) : null,
+    selectedProject,
+    nextProject,
+    lastEnteredProjectName,
+    pendingDurationCarryoverState: pendingDurationCarryoverState
+      ? { ...pendingDurationCarryoverState }
+      : null,
+    modalOpen: source.modalOpen === true,
+    projectInputValue:
+      typeof source.projectInputValue === "string" ? source.projectInputValue : "",
+    nextProjectInputValue:
+      typeof source.nextProjectInputValue === "string"
+        ? source.nextProjectInputValue
+        : "",
+    shortenHours:
+      typeof source.shortenHours === "string" ? source.shortenHours : "",
+    shortenMinutes:
+      typeof source.shortenMinutes === "string" ? source.shortenMinutes : "",
+    savedAt:
+      typeof source.savedAt === "string" && source.savedAt.trim()
+        ? source.savedAt
+        : new Date().toISOString(),
+  };
+  timerSessionDraftSnapshot = cloneTimerSessionSnapshot(normalizedSnapshot);
+  try {
+    localStorage.setItem(
+      TIMER_STATE_STORAGE_KEY,
+      JSON.stringify(normalizedSnapshot),
+    );
+  } catch (error) {
+    console.error("回滚计时状态失败:", error);
+  }
+  return normalizedSnapshot;
+}
+
+async function clearTimerSessionManagedDraft() {
+  window.clearTimeout(timerSessionDraftTimer);
+  if (typeof window.ControlerStorage?.removeDraft !== "function") {
+    return true;
+  }
+  try {
+    await window.ControlerStorage.removeDraft(INDEX_TIMER_DRAFT_KEY);
+    return true;
+  } catch (error) {
+    console.error("清理计时草稿失败:", error);
+    return false;
+  }
+}
+
 function scheduleTimerSessionDraftPersist() {
   window.clearTimeout(timerSessionDraftTimer);
   timerSessionDraftTimer = window.setTimeout(() => {
@@ -2395,10 +2528,14 @@ function scheduleTimerSessionDraftPersist() {
 
 async function persistTimerSessionDraftImmediately() {
   window.clearTimeout(timerSessionDraftTimer);
+  const snapshot = buildTimerSessionSnapshotForPersistence();
+  timerSessionDraftSnapshot = cloneTimerSessionSnapshot(snapshot);
+  if (!hasMeaningfulTimerSessionManagedDraft(snapshot)) {
+    return clearTimerSessionManagedDraft();
+  }
   if (typeof window.ControlerStorage?.setDraft !== "function") {
     return false;
   }
-  const snapshot = buildTimerSessionSnapshotForPersistence();
   try {
     await window.ControlerStorage.setDraft(INDEX_TIMER_DRAFT_KEY, snapshot, {
       scope: "timer-session",
@@ -2439,9 +2576,12 @@ async function restoreTimerSessionDraftFromStorage() {
     if (!draftValue || typeof draftValue !== "object") {
       return null;
     }
-    timerSessionDraftSnapshot = { ...draftValue };
-    localStorage.setItem(TIMER_STATE_STORAGE_KEY, JSON.stringify(draftValue));
-    return draftValue;
+    if (!hasMeaningfulTimerSessionManagedDraft(draftValue)) {
+      await clearTimerSessionManagedDraft();
+      return null;
+    }
+    const normalizedSnapshot = applyTimerSessionSnapshot(draftValue);
+    return normalizedSnapshot;
   } catch (error) {
     console.error("恢复计时草稿失败:", error);
     return null;
@@ -3654,6 +3794,7 @@ function persistNormalizedProjectsRepairIfNeeded(
 
   void persistIndexProjectSnapshot(normalizedProjects, {
     emitChange: false,
+    blockPageLeave: false,
     reason:
       typeof options.reason === "string" && options.reason.trim()
         ? options.reason.trim()
@@ -4149,8 +4290,15 @@ function commitPrimaryModalProjectInput(options = {}) {
     return false;
   }
 
-  if (!ensureProjectExists(resolvedName)) {
-    return false;
+  const projectExists = projects.some((project) => project.name === resolvedName);
+  if (!projectExists) {
+    if (options.allowCreate === true) {
+      if (!ensureProjectExists(resolvedName)) {
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
 
   selectedProject = resolvedName;
@@ -4283,7 +4431,19 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
   if (!targetInput) return;
 
   if (focus) {
-    targetInput.focus();
+    if (
+      targetInput instanceof HTMLElement &&
+      typeof uiTools?.focusAndroidInteractiveTextControl === "function"
+    ) {
+      uiTools.focusAndroidInteractiveTextControl(targetInput, {
+        forceFocus: true,
+        selectText: true,
+        retryDelayMs: 72,
+        retrySequence: [160, 300],
+      });
+    } else {
+      targetInput.focus();
+    }
   }
 
   if (showSuggestions) {
@@ -4404,6 +4564,15 @@ function focusAdvancedProjectNameInput() {
   }
 
   requestAnimationFrame(() => {
+    if (typeof uiTools?.focusAndroidInteractiveTextControl === "function") {
+      uiTools.focusAndroidInteractiveTextControl(input, {
+        forceFocus: true,
+        selectText: true,
+        retryDelayMs: 72,
+        retrySequence: [160, 300],
+      });
+      return;
+    }
     input.focus();
     input.select();
   });
@@ -5284,6 +5453,9 @@ function openModal() {
     return false;
   }
 
+  timerSessionModalBaselineSnapshot = cloneTimerSessionSnapshot(
+    buildTimerSessionSnapshotForPersistence(),
+  );
   isModalOpen = true;
   modal.hidden = false;
   modal.style.display = "flex";
@@ -5318,11 +5490,7 @@ function openModal() {
     setProjectInputValue("next-project-input", nextToPrefill);
     renderNextProjectSuggestions(nextProjectInput.value, false);
   }
-  const currentInput = document.getElementById("project-name-input");
-  const defaultTarget =
-    currentInput && !currentInput.value.trim()
-      ? "project-name-input"
-      : "next-project-input";
+  const defaultTarget = "project-name-input";
   setModalProjectInputTarget(defaultTarget);
 
   resetShortenTimeInputs(false);
@@ -5359,12 +5527,14 @@ function openModal() {
 }
 
 // 关闭弹窗
-function closeModal() {
+function closeModal(options = {}) {
+  const shouldDiscardDraft =
+    options?.discardDraft !== false && options?.discardUnsavedClick !== false;
+  const baselineSnapshot = shouldDiscardDraft
+    ? cloneTimerSessionSnapshot(timerSessionModalBaselineSnapshot)
+    : null;
   spendModalClickLocked = false;
   clearPendingSpendModalState();
-  commitPrimaryModalProjectInput({
-    canonicalizeEmpty: true,
-  });
   const modal = document.getElementById("modal-overlay");
   isModalOpen = false;
   if (modal) {
@@ -5377,6 +5547,17 @@ function closeModal() {
   if (modalDurationTimer) {
     clearInterval(modalDurationTimer);
     modalDurationTimer = null;
+  }
+  timerSessionModalBaselineSnapshot = null;
+  if (baselineSnapshot) {
+    applyTimerSessionSnapshot(baselineSnapshot);
+    updateProjectsList();
+    refreshIndexWorkspace({ immediate: true });
+    void clearTimerSessionManagedDraft();
+    return;
+  }
+  if (shouldDiscardDraft) {
+    void clearTimerSessionManagedDraft();
   }
 }
 
@@ -5410,7 +5591,9 @@ function updateExistingProjectsList() {
       });
       this.classList.add("selected");
 
-      const targetInputId = getDefaultModalProjectInputTarget();
+      const targetInputId = modalProjectInputTargetManual
+        ? getDefaultModalProjectInputTarget()
+        : "project-name-input";
       const targetInput = document.getElementById(targetInputId);
       setProjectInputValue(targetInputId, selectedProject);
 
@@ -5421,35 +5604,11 @@ function updateExistingProjectsList() {
           true,
         );
       }
-
-      if (
-        !modalProjectInputTargetManual &&
-        targetInputId === "project-name-input"
-      ) {
-        const nextInput = document.getElementById("next-project-input");
-        if (nextInput && !nextInput.value.trim()) {
-          setModalProjectInputTarget("next-project-input", {
-            focus: true,
-            showSuggestions: true,
-            manual: false,
-          });
-          return;
-        }
-      }
-      const nextProjectInput = document.getElementById("next-project-input");
-      if (nextProjectInput && targetInputId === "next-project-input") {
-        setModalProjectInputTarget("next-project-input", {
-          focus: true,
-          showSuggestions: true,
-          manual: modalProjectInputTargetManual,
-        });
-      } else {
-        setModalProjectInputTarget(targetInputId, {
-          focus: true,
-          showSuggestions: true,
-          manual: modalProjectInputTargetManual,
-        });
-      }
+      setModalProjectInputTarget(targetInputId, {
+        manual: modalProjectInputTargetManual,
+      });
+      hideAllProjectSuggestions();
+      persistTimerSessionState();
     });
 
     container.appendChild(option);
@@ -5657,6 +5816,7 @@ function initIndexModalBindings() {
       if (inputId === "project-name-input") {
         commitPrimaryModalProjectInput({
           canonicalizeEmpty: true,
+          allowCreate: false,
         });
       }
       setTimeout(() => {
@@ -6865,9 +7025,11 @@ function renderPieChart() {
         console.error("加载记录页图表资源失败:", error);
       });
     statsContent.innerHTML = `
-      <div style="color: var(--text-color); padding: 20px; text-align: center">
-        <h4>饼状图统计</h4>
-        <p>正在加载图表资源...</p>
+      <div class="chart-runtime-status">
+        <div class="page-loading-card chart-runtime-status-card" role="status" aria-live="polite">
+          <div class="page-loading-title">正在加载图表中</div>
+          <div class="page-loading-message">正在准备饼状图资源，请稍候</div>
+        </div>
       </div>
     `;
     container.appendChild(statsContent);
@@ -7208,9 +7370,11 @@ function renderLineChart() {
         console.error("加载记录页折线图资源失败:", error);
       });
     statsContent.innerHTML = `
-      <div style="color: var(--text-color); padding: 20px; text-align: center">
-        <h4>折线图统计</h4>
-        <p>正在加载图表资源...</p>
+      <div class="chart-runtime-status">
+        <div class="page-loading-card chart-runtime-status-card" role="status" aria-live="polite">
+          <div class="page-loading-title">正在加载图表中</div>
+          <div class="page-loading-message">正在准备折线图资源，请稍候</div>
+        </div>
       </div>
     `;
     container.appendChild(statsContent);
@@ -8528,6 +8692,7 @@ function scheduleIndexPersistenceRetry(reason = "index-persist-retry") {
       persistIndexProjectSnapshot(projects, {
         reason,
         emitChange: false,
+        blockPageLeave: false,
         errorLabel: "自动重试保存项目失败:",
       }),
     );
@@ -8821,20 +8986,34 @@ async function recoverIndexWorkspaceAfterPersistenceFailure(fallbackSnapshot = n
   }
 }
 
-function trackIndexPersistenceTask(task, errorLabel = "保存记录页数据失败:") {
-  indexLastPersistenceError = null;
+function trackIndexPersistenceTask(
+  task,
+  errorLabel = "保存记录页数据失败:",
+  options = {},
+) {
+  const shouldBlockPageLeave = options?.blockPageLeave !== false;
+  if (shouldBlockPageLeave) {
+    indexLastPersistenceError = null;
+  }
   const trackedTask = Promise.resolve()
     .then(() => (typeof task === "function" ? task() : true))
     .catch(async (error) => {
-      indexLastPersistenceError =
+      const normalizedError =
         error instanceof Error ? error : new Error(String(error || "保存失败"));
-      console.error(errorLabel, indexLastPersistenceError);
+      if (shouldBlockPageLeave) {
+        indexLastPersistenceError = normalizedError;
+      }
+      console.error(errorLabel, normalizedError);
       scheduleIndexPersistenceRetry("index-persist-retry");
       return false;
     });
   indexPendingPersistenceTasks.add(trackedTask);
+  if (shouldBlockPageLeave) {
+    indexBlockingPersistenceTasks.add(trackedTask);
+  }
   return trackedTask.finally(() => {
     indexPendingPersistenceTasks.delete(trackedTask);
+    indexBlockingPersistenceTasks.delete(trackedTask);
     if (indexPendingPersistenceTasks.size === 0) {
       flushDeferredIndexExternalRefreshIfNeeded();
     }
@@ -8859,29 +9038,81 @@ function queueIndexProjectPersistence(task) {
   return queuedTask;
 }
 
-async function flushIndexPendingPersistence() {
-  const pendingTasks = Array.from(indexPendingPersistenceTasks);
+function shouldAllowIndexDeferredPageLeavePersistence() {
+  return (
+    window.ControlerNativeBridge?.isReactNativeApp === true &&
+    typeof window.ControlerStorage?.dump === "function"
+  );
+}
+
+async function waitForIndexBlockingPersistenceBarrier(
+  pendingTasks = [],
+  timeoutMs = INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS,
+) {
+  const normalizedTasks = Array.isArray(pendingTasks) ? pendingTasks : [];
+  if (!normalizedTasks.length) {
+    return true;
+  }
+  const normalizedTimeoutMs = Number.isFinite(timeoutMs)
+    ? Math.max(0, Math.round(Number(timeoutMs)))
+    : INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS;
+  if (normalizedTimeoutMs <= 0) {
+    await Promise.all(normalizedTasks);
+    return true;
+  }
+
+  let barrierTimerId = 0;
+  try {
+    const barrierResult = await Promise.race([
+      Promise.all(normalizedTasks).then(() => "completed"),
+      new Promise((resolve) => {
+        barrierTimerId = window.setTimeout(() => {
+          resolve("timed-out");
+        }, normalizedTimeoutMs);
+      }),
+    ]);
+    return barrierResult === "completed";
+  } finally {
+    if (barrierTimerId) {
+      window.clearTimeout(barrierTimerId);
+    }
+  }
+}
+
+async function flushIndexPendingPersistence(options = {}) {
+  const pendingTasks = Array.from(indexBlockingPersistenceTasks);
   if (!pendingTasks.length && !indexLastPersistenceError) {
     return true;
   }
+
+  const allowDeferredBarrier =
+    options?.allowDeferredBarrier !== false &&
+    shouldAllowIndexDeferredPageLeavePersistence();
+  const barrierTimeoutMs = Number.isFinite(options?.barrierTimeoutMs)
+    ? Math.max(0, Math.round(Number(options.barrierTimeoutMs)))
+    : INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS;
+  let completedWithinBarrier = true;
+
   if (pendingTasks.length) {
-    await Promise.all(pendingTasks);
+    completedWithinBarrier = allowDeferredBarrier
+      ? await waitForIndexBlockingPersistenceBarrier(
+          pendingTasks,
+          barrierTimeoutMs,
+        )
+      : await Promise.all(pendingTasks).then(() => true);
   }
   if (indexLastPersistenceError) {
     scheduleIndexPersistenceRetry("index-flush-retry");
     return false;
   }
-  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
-    await window.ControlerStorage.saveCoordinator.flush(
-      "index-flush",
-      "index-persistence",
+  if (!completedWithinBarrier && allowDeferredBarrier) {
+    console.warn(
+      "记录页离页保存超过等待阈值，继续使用本地安全镜像跳转，后台会自动补写原生存储。",
+      {
+        pendingTaskCount: pendingTasks.length,
+        barrierTimeoutMs,
+      },
     );
-  } else if (typeof window.ControlerStorage?.flush === "function") {
-    await window.ControlerStorage.flush();
-  }
-  if (indexLastPersistenceError) {
-    scheduleIndexPersistenceRetry("index-flush-retry");
-    return false;
   }
   return true;
 }
@@ -8892,7 +9123,10 @@ function registerIndexBeforePageLeaveGuard() {
   }
   indexBeforePageLeaveGuardBound = true;
   uiTools?.registerBeforePageLeave?.(async () => {
-    return flushIndexPendingPersistence();
+    return flushIndexPendingPersistence({
+      allowDeferredBarrier: true,
+      barrierTimeoutMs: INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS,
+    });
   });
 }
 
@@ -8928,6 +9162,9 @@ function persistIndexProjectSnapshot(projectList = projects, options = {}) {
         return true;
       }),
     errorLabel,
+    {
+      blockPageLeave: options.blockPageLeave !== false,
+    },
   );
 }
 
@@ -9910,6 +10147,7 @@ function renderIndexBootstrapError(error, stage = "init") {
 
 // 初始化
 async function init() {
+  scheduleIndexChartRuntimePreload();
   setIndexLoadingState({
     active: true,
     mode: "fullscreen",

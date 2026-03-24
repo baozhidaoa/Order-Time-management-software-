@@ -1,6 +1,7 @@
 package com.controlerapp;
 
 import android.app.Application;
+import android.webkit.WebView;
 import com.facebook.react.PackageList;
 import com.facebook.react.ReactApplication;
 import com.facebook.react.ReactHost;
@@ -68,6 +69,7 @@ public class MainApplication extends Application implements ReactApplication {
   public void onCreate() {
     super.onCreate();
     ControlerStartupTrace.mark("application_on_create");
+    WebView.setWebContentsDebuggingEnabled(true);
     try {
       SoLoader.init(this, OpenSourceMergedSoMapping.INSTANCE);
     } catch (IOException error) {

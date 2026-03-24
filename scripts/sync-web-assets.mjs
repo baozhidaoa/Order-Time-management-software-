@@ -252,6 +252,15 @@ async function copyRuntimeAsset(fromPath, toPath) {
 async function copyDirectoryTree(sourceDir, targetDir) {
   await fs.ensureDir(targetDir);
   const entries = await fs.readdir(sourceDir);
+  const expectedEntries = new Set(
+    entries.filter(
+      (entry) =>
+        !(
+          sourceDir === pagesSourceDir &&
+          entry === "runtime-assets"
+        ),
+    ),
+  );
 
   for (const entry of entries) {
     if (
@@ -311,6 +320,14 @@ async function copyDirectoryTree(sourceDir, targetDir) {
       }
       throw error;
     }
+  }
+
+  const targetEntries = await fs.readdir(targetDir);
+  for (const entry of targetEntries) {
+    if (expectedEntries.has(entry)) {
+      continue;
+    }
+    await fs.remove(path.join(targetDir, entry));
   }
 }
 
@@ -469,8 +486,6 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
     mobileContractTargetPath,
   );
 
-  await fs.emptyDir(mobileAndroidWebDir);
-  await fs.emptyDir(mobileIosWebDir);
   await copyDirectoryTree(pagesSourceDir, mobileAndroidWebDir);
   await copyDirectoryTree(pagesSourceDir, mobileIosWebDir);
 

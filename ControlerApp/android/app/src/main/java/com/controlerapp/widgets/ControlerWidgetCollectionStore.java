@@ -26,9 +26,17 @@ public final class ControlerWidgetCollectionStore {
         public String targetId = "";
         public int accentColor = Color.parseColor("#8ED6A4");
         public int backgroundColor = Color.parseColor("#20362B");
+        public int outlineColor = Color.parseColor("#24FFFFFF");
         public int titleColor = Color.parseColor("#EAF6ED");
         public int metaColor = Color.parseColor("#D2E4D7");
         public int actionTextColor = Color.parseColor("#FFFFFF");
+        public String badgeText = "";
+        public int badgeColor = Color.parseColor("#ED8936");
+        public int badgeTextColor = Color.parseColor("#FFFFFF");
+        public boolean completed = false;
+        public int completionFillColor = Color.TRANSPARENT;
+        public int completionOutlineColor = Color.parseColor("#24FFFFFF");
+        public int completionTextColor = Color.parseColor("#FFFFFF");
         public boolean openEnabled = false;
         public boolean actionEnabled = true;
         public boolean compactGoalStyle = false;
@@ -98,6 +106,10 @@ public final class ControlerWidgetCollectionStore {
                     "backgroundColor",
                     Color.parseColor("#20362B")
                 );
+                row.outlineColor = item.optInt(
+                    "outlineColor",
+                    Color.parseColor("#24FFFFFF")
+                );
                 row.titleColor = item.optInt(
                     "titleColor",
                     Color.parseColor("#EAF6ED")
@@ -108,6 +120,28 @@ public final class ControlerWidgetCollectionStore {
                 );
                 row.actionTextColor = item.optInt(
                     "actionTextColor",
+                    Color.parseColor("#FFFFFF")
+                );
+                row.badgeText = item.optString("badgeText", "").trim();
+                row.badgeColor = item.optInt(
+                    "badgeColor",
+                    Color.parseColor("#ED8936")
+                );
+                row.badgeTextColor = item.optInt(
+                    "badgeTextColor",
+                    Color.parseColor("#FFFFFF")
+                );
+                row.completed = item.optBoolean("completed", false);
+                row.completionFillColor = item.optInt(
+                    "completionFillColor",
+                    Color.TRANSPARENT
+                );
+                row.completionOutlineColor = item.optInt(
+                    "completionOutlineColor",
+                    Color.parseColor("#24FFFFFF")
+                );
+                row.completionTextColor = item.optInt(
+                    "completionTextColor",
                     Color.parseColor("#FFFFFF")
                 );
                 row.openEnabled = item.optBoolean("openEnabled", false);

@@ -326,6 +326,25 @@
   const ANDROID_PRESS_ANIMATION_MS = 360;
   const ANDROID_TOUCH_PRESS_POINTER_ID = -101;
   const ANDROID_NAV_PRESS_MIN_ACTIVE_MS = 92;
+  const ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR = [
+    "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='hidden']):not(:disabled)",
+    "textarea:not(:disabled)",
+    "select:not(:disabled)",
+    "[contenteditable='true']",
+    "[contenteditable]:not([contenteditable='false'])",
+  ].join(", ");
+  const ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR = [
+    "input[type='text']:not(:disabled)",
+    "input[type='search']:not(:disabled)",
+    "input[type='email']:not(:disabled)",
+    "input[type='url']:not(:disabled)",
+    "input[type='tel']:not(:disabled)",
+    "input[type='password']:not(:disabled)",
+    "input[type='number']:not(:disabled)",
+    "textarea:not(:disabled)",
+    "[contenteditable='true']",
+    "[contenteditable]:not([contenteditable='false'])",
+  ].join(", ");
   let modalHistoryObserver = null;
   let modalHistorySyncQueued = false;
   let blockingOverlaySyncQueued = false;
@@ -333,7 +352,7 @@
   let suppressModalPopClose = false;
   const trackedModalTokens = new Map();
   let lastReportedModalCount = -1;
-  let lastReportedBlockingOverlayActive = null;
+  let lastReportedBlockingOverlaySignature = "";
   let appNavigationInitialized = false;
   let appPageTransitionInitialized = false;
   let appPageTransitionLocked = false;
@@ -354,8 +373,30 @@
   let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
+  let androidInteractiveTextAssistInitialized = false;
+  let androidModalAutofocusQueued = false;
   let androidReactNativeAppNavLocked = false;
+  let lastAndroidSoftInputRequestAt = 0;
   const activeAndroidPressTargets = new Map();
+  const androidAutofocusedModalRoots = new WeakSet();
+  function resetAndroidModalAutofocusState(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    androidAutofocusedModalRoots.delete(target);
+  }
+
+  function releaseAndroidModalAutofocusFromNode(node) {
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+    if (node.classList.contains("modal-overlay")) {
+      resetAndroidModalAutofocusState(node);
+    }
+    node.querySelectorAll?.(".modal-overlay").forEach((modal) => {
+      resetAndroidModalAutofocusState(modal);
+    });
+  }
   const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
   let appPageLeaveOverlayElement = null;
@@ -459,8 +500,44 @@
     }
   }
 
-  function normalizeAssetUrl(assetUrl) {
+  function rewriteLegacyEmbeddedAssetUrl(assetUrl) {
     const rawUrl = String(assetUrl || "").trim();
+    if (!rawUrl) {
+      return "";
+    }
+
+    const rewritePathname = (pathname) => {
+      const normalizedPathname = String(pathname || "");
+      if (!normalizedPathname) {
+        return normalizedPathname;
+      }
+      if (normalizedPathname.includes("/embedded-assets/")) {
+        return normalizedPathname.replace(
+          "/embedded-assets/",
+          "/offline-assets/",
+        );
+      }
+      if (normalizedPathname.startsWith("embedded-assets/")) {
+        return `offline-assets/${normalizedPathname.slice("embedded-assets/".length)}`;
+      }
+      return normalizedPathname;
+    };
+
+    try {
+      const parsed = new URL(rawUrl, window.location.href);
+      const rewrittenPathname = rewritePathname(parsed.pathname);
+      if (rewrittenPathname !== parsed.pathname) {
+        parsed.pathname = rewrittenPathname;
+        return parsed.toString();
+      }
+      return rawUrl;
+    } catch (error) {
+      return rewritePathname(rawUrl);
+    }
+  }
+
+  function normalizeAssetUrl(assetUrl) {
+    const rawUrl = rewriteLegacyEmbeddedAssetUrl(assetUrl);
     if (!rawUrl) {
       return "";
     }
@@ -635,6 +712,9 @@
       isReactNativeNavigationRuntime() &&
       shellVisibilityState.active !== nextState.active
     ) {
+      if (nextState.active === false) {
+        releaseAndroidInteractiveTextControlFocus();
+      }
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
       });
@@ -898,11 +978,7 @@
             ? "rejected"
             : "accepted-now");
       const shouldKeepOverlay =
-        ackState === "queued" ||
-        (
-          ackState === "accepted-now" &&
-          !isReactNativeNavigationRuntime()
-        );
+        ackState === "queued" || ackState === "accepted-now";
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
         hideOverlay: !shouldKeepOverlay,
@@ -1300,6 +1376,331 @@
       return;
     }
     window.setTimeout(run, 0);
+  }
+
+  function isVisibleInteractiveTextControl(target) {
+    if (!(target instanceof HTMLElement) || !target.isConnected) {
+      return false;
+    }
+    const computedStyle = window.getComputedStyle(target);
+    return (
+      computedStyle.display !== "none" &&
+      computedStyle.visibility !== "hidden" &&
+      !target.hidden &&
+      target.getClientRects().length > 0
+    );
+  }
+
+  function resolveInteractiveTextControlTarget(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    const directTarget = target.closest(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR);
+    if (directTarget instanceof HTMLElement && isVisibleInteractiveTextControl(directTarget)) {
+      return directTarget;
+    }
+
+    const labelTarget = target.closest("label");
+    if (labelTarget instanceof HTMLElement) {
+      const control = labelTarget.querySelector(
+        ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR,
+      );
+      if (control instanceof HTMLElement && isVisibleInteractiveTextControl(control)) {
+        return control;
+      }
+    }
+
+    let currentNode = target;
+    let depth = 0;
+    while (currentNode instanceof HTMLElement && depth < 4) {
+      const candidates = Array.from(
+        currentNode.querySelectorAll(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR),
+      ).filter((candidate) => isVisibleInteractiveTextControl(candidate));
+      if (candidates.length === 1 && candidates[0] instanceof HTMLElement) {
+        return candidates[0];
+      }
+      currentNode = currentNode.parentElement;
+      depth += 1;
+    }
+
+    return null;
+  }
+
+  function isFocusedInteractiveTextControl(target) {
+    return (
+      target instanceof HTMLElement &&
+      document.activeElement === target &&
+      target.matches?.(":focus")
+    );
+  }
+
+  function requestAndroidSoftInputForFocusedTarget(target) {
+    if (
+      !isAndroidNativeRuntime() ||
+      !(target instanceof HTMLElement) ||
+      !isVisibleInteractiveTextControl(target)
+    ) {
+      return false;
+    }
+
+    const shouldRequestSoftInput =
+      target.matches?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
+      target.isContentEditable === true;
+    if (
+      !shouldRequestSoftInput ||
+      !isFocusedInteractiveTextControl(target) ||
+      typeof window.ControlerNativeBridge?.call !== "function"
+    ) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (now - lastAndroidSoftInputRequestAt < 220) {
+      return false;
+    }
+    lastAndroidSoftInputRequestAt = now;
+    void window.ControlerNativeBridge.call("ui.showSoftInput").catch(
+      () => undefined,
+    );
+    return true;
+  }
+
+  function focusAndroidInteractiveTextControl(target, options = {}) {
+    if (!isAndroidNativeRuntime()) {
+      return false;
+    }
+
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (
+      !(focusTarget instanceof HTMLElement) ||
+      !isVisibleInteractiveTextControl(focusTarget)
+    ) {
+      return false;
+    }
+
+    const selectText = options.selectText === true;
+    const allowRefocus = options.forceFocus === true;
+    const retrySequence = Array.isArray(options.retrySequence)
+      ? options.retrySequence
+          .map((delayMs) => Number(delayMs))
+          .filter((delayMs) => Number.isFinite(delayMs) && delayMs >= 0)
+      : [];
+    const requestSoftInput = () => {
+      requestAndroidSoftInputForFocusedTarget(focusTarget);
+    };
+    const clearPendingFocusRetries = () => {
+      const pendingTimers = Array.isArray(
+        focusTarget.__controlerAndroidFocusRetryTimers,
+      )
+        ? focusTarget.__controlerAndroidFocusRetryTimers
+        : [];
+      pendingTimers.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      focusTarget.__controlerAndroidFocusRetryTimers = [];
+    };
+    const scheduleRetrySequence = (delays = [], retryAction = focusOnce) => {
+      if (!Array.isArray(delays) || !delays.length) {
+        return;
+      }
+      delays.forEach((delayMs) => {
+        const timerId = window.setTimeout(() => {
+          if (
+            !focusTarget.isConnected ||
+            !isVisibleInteractiveTextControl(focusTarget)
+          ) {
+            return;
+          }
+          retryAction();
+        }, delayMs);
+        focusTarget.__controlerAndroidFocusRetryTimers.push(timerId);
+      });
+    };
+    const focusOnce = () => {
+      if (
+        !focusTarget.isConnected ||
+        !isVisibleInteractiveTextControl(focusTarget)
+      ) {
+        return false;
+      }
+
+      try {
+        focusTarget.focus({
+          preventScroll: true,
+        });
+      } catch (error) {
+        focusTarget.focus?.();
+      }
+
+      const focusedNow = isFocusedInteractiveTextControl(focusTarget);
+
+      if (
+        focusedNow &&
+        selectText &&
+        typeof focusTarget.setSelectionRange === "function" &&
+        typeof focusTarget.value === "string"
+      ) {
+        const textLength = focusTarget.value.length;
+        try {
+          focusTarget.setSelectionRange(textLength, textLength);
+        } catch (error) {}
+      }
+
+      if (focusedNow) {
+        requestSoftInput();
+      }
+
+      return focusedNow;
+    };
+
+    if (isFocusedInteractiveTextControl(focusTarget) && !allowRefocus) {
+      clearPendingFocusRetries();
+      requestSoftInput();
+      return true;
+    }
+
+    if (focusOnce()) {
+      clearPendingFocusRetries();
+      return true;
+    }
+
+    const fallbackRetryDelayMs = Math.max(48, Number(options.retryDelayMs) || 120);
+    const fallbackRetrySequence = retrySequence.length
+      ? retrySequence
+      : [fallbackRetryDelayMs, fallbackRetryDelayMs + 120];
+    clearPendingFocusRetries();
+    scheduleRetrySequence(fallbackRetrySequence);
+    return false;
+  }
+
+  function clearAndroidInteractiveTextControlPendingRetries(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const pendingTimers = Array.isArray(target.__controlerAndroidFocusRetryTimers)
+      ? target.__controlerAndroidFocusRetryTimers
+      : [];
+    pendingTimers.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    target.__controlerAndroidFocusRetryTimers = [];
+  }
+
+  function releaseAndroidInteractiveTextControlFocus() {
+    const activeElement = document.activeElement;
+    const focusTarget =
+      activeElement instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(activeElement) ||
+          (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+          activeElement.isContentEditable === true
+            ? activeElement
+            : null)
+        : null;
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    clearAndroidInteractiveTextControlPendingRetries(focusTarget);
+    try {
+      focusTarget.blur?.();
+    } catch (error) {}
+    return true;
+  }
+
+  function autofocusInteractiveTextControl(root, options = {}) {
+    if (!isAndroidNativeRuntime()) {
+      return false;
+    }
+
+    const scope = root instanceof HTMLElement ? root : document;
+    const focusTarget =
+      scope.querySelector?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
+      scope.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+      null;
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+
+    const delayMs = Math.max(0, Number(options.delayMs) || 0);
+    const scheduleFocus = () => {
+      focusAndroidInteractiveTextControl(focusTarget, {
+        selectText: options.selectText === true,
+        forceFocus: options.forceFocus === true,
+        retryDelayMs: options.retryDelayMs,
+        retrySequence: options.retrySequence,
+      });
+    };
+    if (delayMs > 0) {
+      window.setTimeout(scheduleFocus, delayMs);
+      return true;
+    }
+    scheduleFocus();
+    return true;
+  }
+
+  function scheduleAndroidModalAutofocus() {
+    return false;
+  }
+
+  function initAndroidInteractiveTextAssist() {
+    if (androidInteractiveTextAssistInitialized || !isAndroidNativeRuntime()) {
+      return;
+    }
+    androidInteractiveTextAssistInitialized = true;
+
+    const handleInteractiveFocusGesture = (event) => {
+      const focusTarget = resolveInteractiveTextControlTarget(event.target);
+      if (!(focusTarget instanceof HTMLElement)) {
+        return;
+      }
+      const now = Date.now();
+      const lastGestureAt = Number(focusTarget.__controlerAndroidGestureFocusAt) || 0;
+      const lastGestureType = String(
+        focusTarget.__controlerAndroidGestureFocusType || "",
+      ).trim();
+      const eventType = String(event?.type || "").trim();
+      const isDuplicateGesture =
+        now - lastGestureAt < 280 &&
+        (lastGestureType === eventType ||
+          ((lastGestureType === "pointerup" ||
+            lastGestureType === "touchend" ||
+            lastGestureType === "mouseup") &&
+            eventType === "click"));
+      focusTarget.__controlerAndroidGestureFocusAt = now;
+      focusTarget.__controlerAndroidGestureFocusType = eventType;
+      if (isDuplicateGesture) {
+        return;
+      }
+      focusAndroidInteractiveTextControl(focusTarget, {
+        forceFocus: true,
+        retryDelayMs: 72,
+        retrySequence: [160, 300],
+      });
+    };
+
+    document.addEventListener(
+      "focusin",
+      (event) => {
+        const focusTarget = resolveInteractiveTextControlTarget(event.target);
+        if (!(focusTarget instanceof HTMLElement)) {
+          return;
+        }
+        window.setTimeout(() => {
+          requestAndroidSoftInputForFocusedTarget(focusTarget);
+        }, 24);
+      },
+      true,
+    );
+
+    if (typeof window.PointerEvent === "function") {
+      document.addEventListener("pointerup", handleInteractiveFocusGesture, true);
+    } else {
+      document.addEventListener("touchend", handleInteractiveFocusGesture, true);
+      document.addEventListener("mouseup", handleInteractiveFocusGesture, true);
+    }
   }
 
   function isAndroidReactNativeNavigationRuntime() {
@@ -1770,6 +2171,7 @@
     overlayController?.setState({
       active,
       mode: "fullscreen",
+      lockNavigation: false,
       title:
         typeof options.title === "string" && options.title.trim()
           ? options.title.trim()
@@ -2419,22 +2821,57 @@
     );
   }
 
+  function hasVisibleFullscreenBlockingOverlay() {
+    if (typeof document === "undefined") {
+      return false;
+    }
+
+    return Array.from(document.querySelectorAll(".page-loading-overlay")).some(
+      (overlay) => isVisibleBlockingLoadingOverlay(overlay),
+    );
+  }
+
   function syncBlockingOverlayState() {
     blockingOverlaySyncQueued = false;
     const root = document.documentElement;
     const body = document.body;
-    const active = hasVisibleBlockingOverlay();
-    applyBlockingOverlayScrollLock(active);
+    const modalCount = getVisibleModalOverlays().length;
+    const hasOpenModal = modalCount > 0;
+    const hasFullscreenBlockingOverlay = hasVisibleFullscreenBlockingOverlay();
+    const active = hasOpenModal || hasFullscreenBlockingOverlay;
+    const lockMode = hasFullscreenBlockingOverlay
+      ? "fullscreen"
+      : hasOpenModal
+        ? "modal"
+        : "none";
+    applyBlockingOverlayScrollLock(lockMode);
     root?.classList.toggle("controler-blocking-overlay-active", active);
     body?.classList.toggle("controler-blocking-overlay-active", active);
-    if (lastReportedBlockingOverlayActive !== active) {
-      lastReportedBlockingOverlayActive = active;
+    root?.classList.toggle(
+      "controler-fullscreen-overlay-active",
+      hasFullscreenBlockingOverlay,
+    );
+    body?.classList.toggle(
+      "controler-fullscreen-overlay-active",
+      hasFullscreenBlockingOverlay,
+    );
+    root?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
+    body?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
+    const nextSignature = JSON.stringify({
+      active,
+      hasOpenModal,
+      modalCount,
+      hasFullscreenBlockingOverlay,
+    });
+    if (lastReportedBlockingOverlaySignature !== nextSignature) {
+      lastReportedBlockingOverlaySignature = nextSignature;
       window.dispatchEvent(
         new CustomEvent(BLOCKING_OVERLAY_STATE_EVENT_NAME, {
           detail: {
             active,
-            modalCount: getVisibleModalOverlays().length,
-            hasOpenModal: getVisibleModalOverlays().length > 0,
+            modalCount,
+            hasOpenModal,
+            hasFullscreenBlockingOverlay,
           },
         }),
       );
@@ -2455,7 +2892,7 @@
     schedule(syncBlockingOverlayState);
   }
 
-  function applyBlockingOverlayScrollLock(active) {
+  function applyBlockingOverlayScrollLock(nextMode = "none") {
     if (typeof document === "undefined") {
       return;
     }
@@ -2466,16 +2903,58 @@
       return;
     }
 
-    if (active) {
-      if (blockingOverlayScrollLockState) {
+    const normalizedMode =
+      nextMode === "fullscreen" || nextMode === "modal" ? nextMode : "none";
+    const currentMode = blockingOverlayScrollLockState?.mode || "none";
+
+    if (normalizedMode === currentMode) {
+      return;
+    }
+
+    const releaseExistingLock = () => {
+      if (!blockingOverlayScrollLockState) {
         return;
       }
 
+      const {
+        mode,
+        scrollTop,
+        rootOverflow,
+        rootOverscrollBehavior,
+        bodyOverflow,
+        bodyPosition,
+        bodyTop,
+        bodyLeft,
+        bodyRight,
+        bodyWidth,
+        bodyTouchAction,
+      } = blockingOverlayScrollLockState;
+      blockingOverlayScrollLockState = null;
+      root.style.overflow = rootOverflow || "";
+      root.style.overscrollBehavior = rootOverscrollBehavior || "";
+      body.style.overflow = bodyOverflow || "";
+      body.style.position = bodyPosition || "";
+      body.style.top = bodyTop || "";
+      body.style.left = bodyLeft || "";
+      body.style.right = bodyRight || "";
+      body.style.width = bodyWidth || "";
+      body.style.touchAction = bodyTouchAction || "";
+      root.classList.remove("controler-scroll-locked");
+      body.classList.remove("controler-scroll-locked");
+      if (mode === "fullscreen") {
+        window.scrollTo(0, Math.max(0, Number(scrollTop) || 0));
+      }
+    };
+
+    releaseExistingLock();
+
+    if (normalizedMode !== "none") {
       const scrollTop = Math.max(
         window.scrollY || window.pageYOffset || root.scrollTop || body.scrollTop || 0,
         0,
       );
       blockingOverlayScrollLockState = {
+        mode: normalizedMode,
         scrollTop,
         rootOverflow: root.style.overflow,
         rootOverscrollBehavior: root.style.overscrollBehavior,
@@ -2490,12 +2969,21 @@
       root.style.overflow = "hidden";
       root.style.overscrollBehavior = "none";
       body.style.overflow = "hidden";
-      body.style.position = "fixed";
-      body.style.top = `-${scrollTop}px`;
-      body.style.left = "0";
-      body.style.right = "0";
-      body.style.width = "100%";
-      body.style.touchAction = "none";
+      if (normalizedMode === "fullscreen") {
+        body.style.position = "fixed";
+        body.style.top = `-${scrollTop}px`;
+        body.style.left = "0";
+        body.style.right = "0";
+        body.style.width = "100%";
+        body.style.touchAction = "none";
+      } else {
+        body.style.position = "";
+        body.style.top = "";
+        body.style.left = "";
+        body.style.right = "";
+        body.style.width = "";
+        body.style.touchAction = "";
+      }
       root.classList.add("controler-scroll-locked");
       body.classList.add("controler-scroll-locked");
       return;
@@ -2504,32 +2992,6 @@
     if (!blockingOverlayScrollLockState) {
       return;
     }
-
-    const {
-      scrollTop,
-      rootOverflow,
-      rootOverscrollBehavior,
-      bodyOverflow,
-      bodyPosition,
-      bodyTop,
-      bodyLeft,
-      bodyRight,
-      bodyWidth,
-      bodyTouchAction,
-    } = blockingOverlayScrollLockState;
-    blockingOverlayScrollLockState = null;
-    root.style.overflow = rootOverflow || "";
-    root.style.overscrollBehavior = rootOverscrollBehavior || "";
-    body.style.overflow = bodyOverflow || "";
-    body.style.position = bodyPosition || "";
-    body.style.top = bodyTop || "";
-    body.style.left = bodyLeft || "";
-    body.style.right = bodyRight || "";
-    body.style.width = bodyWidth || "";
-    body.style.touchAction = bodyTouchAction || "";
-    root.classList.remove("controler-scroll-locked");
-    body.classList.remove("controler-scroll-locked");
-    window.scrollTo(0, Math.max(0, Number(scrollTop) || 0));
   }
 
   function buildModalHistoryState(token) {
@@ -2638,6 +3100,24 @@
       }
 
       modalHistoryObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (!mutation) {
+            return;
+          }
+          if (
+            mutation.type === "attributes" &&
+            mutation.target instanceof HTMLElement &&
+            mutation.target.classList.contains("modal-overlay") &&
+            !isVisibleModalOverlay(mutation.target)
+          ) {
+            resetAndroidModalAutofocusState(mutation.target);
+          }
+          if (mutation.type === "childList") {
+            mutation.removedNodes.forEach((node) => {
+              releaseAndroidModalAutofocusFromNode(node);
+            });
+          }
+        });
         if (didMutationAffectBlockingOverlayState(mutations)) {
           scheduleBlockingOverlaySync();
         }
@@ -3389,7 +3869,19 @@
     };
 
     const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
-      return false;
+      if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (!isReactNativeNavigationRuntime() || !isShellPageActive()) {
+        return false;
+      }
+      const isLeaveGuardOverlay =
+        overlay === appPageLeaveOverlayElement ||
+        overlay.id === "controler-page-leave-overlay";
+      if (appPageLeaveOverlayVisible && !isLeaveGuardOverlay) {
+        return false;
+      }
+      return true;
     };
 
     const syncNativeBusyState = (busyState = {}) => {
@@ -3470,6 +3962,12 @@
       }
       if (!isReactNativeNavigationRuntime()) {
         return false;
+      }
+      const isLeaveGuardOverlay =
+        overlay === appPageLeaveOverlayElement ||
+        overlay.id === "controler-page-leave-overlay";
+      if (!isLeaveGuardOverlay && appPageLeaveOverlayVisible) {
+        return true;
       }
       return !isShellPageActive() || isShellTransitionLoading();
     };
@@ -3577,7 +4075,7 @@
 
       syncNativeBusyState({
         active: delegatedToNative,
-        lockNavigation: lockNavigation === true || (delegatedToNative && visible),
+        lockNavigation: lockNavigation === true,
         title,
         message,
         presentation: delegatedToNative ? "native-fullscreen" : "",
@@ -3845,6 +4343,77 @@
     );
   }
 
+  const MODAL_INTERACTION_SHIELD_DURATION_MS = 360;
+  let modalInteractionShield = null;
+  let modalInteractionShieldTimer = 0;
+
+  function getModalInteractionShield() {
+    if (modalInteractionShield instanceof HTMLElement) {
+      return modalInteractionShield;
+    }
+    if (typeof document === "undefined") {
+      return null;
+    }
+    const shield = document.createElement("div");
+    shield.dataset.controlerModalInteractionShield = "true";
+    shield.setAttribute("aria-hidden", "true");
+    shield.style.position = "fixed";
+    shield.style.inset = "0";
+    shield.style.width = "100vw";
+    shield.style.height = "var(--controler-visual-viewport-height, 100dvh)";
+    shield.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    shield.style.background = "transparent";
+    shield.style.pointerEvents = "none";
+    shield.style.touchAction = "none";
+    shield.style.zIndex = "2147483647";
+    shield.style.display = "none";
+    const swallowInteraction = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+    };
+    [
+      "pointerdown",
+      "pointerup",
+      "click",
+      "touchstart",
+      "touchend",
+      "mousedown",
+      "mouseup",
+    ].forEach((eventName) => {
+      shield.addEventListener(eventName, swallowInteraction, true);
+    });
+    modalInteractionShield = shield;
+    return shield;
+  }
+
+  function activateModalInteractionShield(
+    durationMs = MODAL_INTERACTION_SHIELD_DURATION_MS,
+  ) {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const shield = getModalInteractionShield();
+    if (!(shield instanceof HTMLElement)) {
+      return;
+    }
+    if (!document.body?.contains(shield)) {
+      document.body.appendChild(shield);
+    }
+    shield.style.display = "block";
+    shield.style.pointerEvents = "auto";
+    if (modalInteractionShieldTimer) {
+      window.clearTimeout(modalInteractionShieldTimer);
+    }
+    modalInteractionShieldTimer = window.setTimeout(() => {
+      shield.style.pointerEvents = "none";
+      shield.style.display = "none";
+      modalInteractionShieldTimer = 0;
+    }, Math.max(80, Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS));
+  }
+
   function closeModal(modal) {
     if (!modal) {
       scheduleModalHistorySync();
@@ -3852,8 +4421,11 @@
     }
 
     if (modal instanceof HTMLElement) {
+      resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
     }
+
+    activateModalInteractionShield();
 
     const customCloseHandler = modal.__controlerCloseModal;
     if (typeof customCloseHandler === "function") {
@@ -3887,8 +4459,11 @@
   function stopModalContentPropagation(modal) {
     const content = modal?.querySelector?.(".modal-content");
     if (!content) return;
-    content.addEventListener("click", (event) => {
+    const stopPropagation = (event) => {
       event.stopPropagation();
+    };
+    ["pointerdown", "pointerup", "click"].forEach((eventName) => {
+      content.addEventListener(eventName, stopPropagation);
     });
   }
 
@@ -6002,7 +6577,9 @@
   initModalHistoryObserver();
   initAppNavigationVisibility();
   initAppPageTransitions();
+  initAndroidInteractiveTextAssist();
   initAndroidPressFeedback();
+  setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
   scheduleInitialPagePerfReport();
   scheduleNativePageReadyReport();
 
@@ -6031,6 +6608,8 @@
     bindHorizontalDragScroll,
     bindVerticalDragScroll,
     bindWindowMoveHandle,
+    focusAndroidInteractiveTextControl,
+    autofocusInteractiveTextControl,
     mountDesktopWidgetScale,
     blockingOverlayStateEventName: BLOCKING_OVERLAY_STATE_EVENT_NAME,
     shellVisibilityEventName: SHELL_VISIBILITY_EVENT_NAME,

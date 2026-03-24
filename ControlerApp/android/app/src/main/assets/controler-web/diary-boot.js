@@ -3042,17 +3042,25 @@ function showDiaryModal(dateText, entryId = null) {
     },
   );
 
+  const buildDiaryDraftPayload = () => ({
+    dateText,
+    entryId: activeEntryId,
+    title: titleInput?.value || "",
+    content: contentInput?.value || "",
+    categoryId: categorySelector.getValue(),
+  });
+  const initialDiaryDraftSignature = JSON.stringify(buildDiaryDraftPayload());
   const persistDiaryDraft = async () => {
     if (!modal.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
       return;
     }
-    const payload = {
-      dateText,
-      entryId: activeEntryId,
-      title: titleInput?.value || "",
-      content: contentInput?.value || "",
-      categoryId: categorySelector.getValue(),
-    };
+    const payload = buildDiaryDraftPayload();
+    if (JSON.stringify(payload) === initialDiaryDraftSignature) {
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(diaryDraftKey);
+      }
+      return;
+    }
     if (!payload.title.trim() && !payload.content.trim() && !payload.categoryId) {
       if (typeof window.ControlerStorage?.removeDraft === "function") {
         await window.ControlerStorage.removeDraft(diaryDraftKey);
@@ -3117,7 +3125,15 @@ function showDiaryModal(dateText, entryId = null) {
   }
 
   let unbindModalActions = () => {};
-  const closeModal = () => {
+  const discardDiaryDraft = () => {
+    if (typeof window.ControlerStorage?.removeDraft !== "function") {
+      return;
+    }
+    void window.ControlerStorage.removeDraft(diaryDraftKey).catch((error) => {
+      console.error("清理日记草稿失败:", error);
+    });
+  };
+  const closeModal = (options = {}) => {
     window.clearTimeout(draftTimer);
     window.removeEventListener("pagehide", handleDiaryDraftPageHide);
     document.removeEventListener(
@@ -3129,7 +3145,14 @@ function showDiaryModal(dateText, entryId = null) {
     if (modal.parentNode) {
       document.body.removeChild(modal);
     }
+    if (options?.discardDraft === true) {
+      discardDiaryDraft();
+    }
   };
+  modal.__controlerCloseModal = () =>
+    closeModal({
+      discardDraft: true,
+    });
 
   const saveAction = () => {
     const title = modal.querySelector("#diary-title-input").value.trim();
@@ -3214,14 +3237,19 @@ function showDiaryModal(dateText, entryId = null) {
   };
 
   unbindModalActions = bindDiaryModalActions(modal, {
-    cancel: closeModal,
+    cancel: () =>
+      closeModal({
+        discardDraft: true,
+      }),
     save: saveAction,
     "delete-entry": deleteAction,
   });
 
   modal.addEventListener("click", function (event) {
     if (event.target === this) {
-      closeModal();
+      closeModal({
+        discardDraft: true,
+      });
     }
   });
 }
