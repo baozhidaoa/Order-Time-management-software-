@@ -1,6 +1,6 @@
 {
   "name": "order",
-  "version": "1.283.0",
+  "version": "1.284.0",
   "description": "Order is a local-first time tracker for desktop and mobile.",
   "main": "main.js",
   "scripts": {
@@ -67,7 +67,7 @@
   "build": {
     "appId": "com.controler.timetracker",
     "productName": "Order",
-    "buildVersion": "1.283",
+    "buildVersion": "1.284",
     "electronDist": "node_modules/electron/dist",
     "afterPack": "scripts/after-pack-windows.js",
     "asar": true,
@@ -91,6 +91,9 @@
       "!pages/embedded-assets{,/**}",
       "!pages/runtime-assets{,/**}",
       "!pages/vendor{,/**}",
+      "!pages/offline-assets/chart.runtime.js",
+      "!pages/offline-assets/chart.runtime.v2.js",
+      "!pages/offline-assets/d3.runtime.js",
       "!TmpPackageBuild_*{,/**}",
       "!TmpRn*{,/**}",
       "!tmp-build-assets{,/**}"

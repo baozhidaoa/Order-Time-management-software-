@@ -2107,6 +2107,34 @@ function App({
     [],
   );
 
+  const broadcastThemeStateToLoadedSlots = useCallback(
+    (
+      themeState: Record<string, unknown> | null,
+      options: {
+        sourceSlot?: WebViewSlot | null;
+        includeSource?: boolean;
+      } = {},
+    ) => {
+      const normalizedThemeState = buildLaunchThemeStatePayload(themeState);
+      const sourceSlot = options.sourceSlot || null;
+      const includeSource = options.includeSource === true;
+
+      WEBVIEW_SLOTS.forEach(targetSlot => {
+        if (!includeSource && sourceSlot && targetSlot === sourceSlot) {
+          return;
+        }
+        if (!webViewSlotsRef.current[targetSlot].uri) {
+          return;
+        }
+        postBridgeEventRef.current(targetSlot, 'ui.theme-sync', {
+          href: webViewSlotsRef.current[targetSlot].uri,
+          ...normalizedThemeState,
+        });
+      });
+    },
+    [],
+  );
+
   const refreshShellBootThemeFromNative = useCallback(async () => {
     if (typeof nativeBridge?.getStorageCoreState !== 'function') {
       return null;
@@ -2115,8 +2143,15 @@ function App({
     launchThemeStateRef.current = buildLaunchThemeStatePayload(coreState);
     applyShellBootThemeFromCoreState(coreState);
     persistLaunchThemeState(coreState).catch(() => undefined);
+    broadcastThemeStateToLoadedSlots(coreState, {
+      includeSource: true,
+    });
     return coreState;
-  }, [applyShellBootThemeFromCoreState, persistLaunchThemeState]);
+  }, [
+    applyShellBootThemeFromCoreState,
+    broadcastThemeStateToLoadedSlots,
+    persistLaunchThemeState,
+  ]);
 
   const persistLastVisiblePage = useCallback((pageKey: AppPageKey | '') => {
     if (
@@ -4704,15 +4739,18 @@ function App({
           message.payload && typeof message.payload === 'object'
             ? message.payload
             : {};
-        launchThemeStateRef.current = buildLaunchThemeStatePayload(
-          nextThemeState,
-        );
+        const normalizedThemeState =
+          buildLaunchThemeStatePayload(nextThemeState);
+        launchThemeStateRef.current = normalizedThemeState;
         initialCoreStateRef.current = {
           ...(initialCoreStateRef.current || {}),
-          ...launchThemeStateRef.current,
+          ...normalizedThemeState,
         };
-        applyShellBootThemeFromCoreState(nextThemeState);
-        persistLaunchThemeState(nextThemeState).catch(() => undefined);
+        applyShellBootThemeFromCoreState(normalizedThemeState);
+        persistLaunchThemeState(normalizedThemeState).catch(() => undefined);
+        broadcastThemeStateToLoadedSlots(normalizedThemeState, {
+          sourceSlot: slot,
+        });
         return;
       }
       if (eventName === 'perf.metric') {
