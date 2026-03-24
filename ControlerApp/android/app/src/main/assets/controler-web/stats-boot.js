@@ -1501,10 +1501,10 @@ let statsInitialViewRuntimePromise = null;
 let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
-const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.v2.js";
-const STATS_D3_RUNTIME_URL = "offline-assets/d3.runtime.js";
-const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
-const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.runtime.js";
+const STATS_CHART_RUNTIME_KEY = "chart";
+const STATS_D3_RUNTIME_KEY = "d3";
+const STATS_HEATMAP_STYLE_KEY = "calHeatmapCss";
+const STATS_HEATMAP_RUNTIME_KEY = "calHeatmapJs";
 const STATS_VIEW_LABELS = {
   table: "表格视图",
   charts: "饼状图和折线图",
@@ -1576,6 +1576,13 @@ const HEATMAP_THRESHOLD_DEFAULTS = Object.freeze({
   mediumMaxHours: 6,
 });
 const DOUBLE_TAP_ACTIVATION_DELAY_MS = 320;
+
+function resolveStatsOfflineAssetUrl(assetKey) {
+  if (typeof uiTools?.resolveOfflineAssetUrl !== "function") {
+    throw new Error("缺少离线图表资源解析能力");
+  }
+  return uiTools.resolveOfflineAssetUrl(assetKey);
+}
 
 function waitForStatsStorageReady() {
   if (typeof window.ControlerStorage?.whenReady !== "function") {
@@ -2076,9 +2083,15 @@ function ensureStatsChartRuntimeLoaded() {
   if (statsChartRuntimeLoader) {
     return statsChartRuntimeLoader;
   }
+  let runtimeUrl = "";
+  try {
+    runtimeUrl = resolveStatsOfflineAssetUrl(STATS_CHART_RUNTIME_KEY);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   const loader =
     typeof uiTools?.loadScriptOnce === "function"
-      ? uiTools.loadScriptOnce(STATS_CHART_RUNTIME_URL, {
+      ? uiTools.loadScriptOnce(runtimeUrl, {
           ready: () => typeof window.Chart !== "undefined",
         })
       : Promise.reject(new Error("缺少动态图表脚本加载能力"));
@@ -2096,9 +2109,15 @@ function ensureStatsD3RuntimeLoaded() {
   if (statsHeatmapRuntimeLoader && typeof window.d3 === "undefined") {
     return statsHeatmapRuntimeLoader;
   }
+  let runtimeUrl = "";
+  try {
+    runtimeUrl = resolveStatsOfflineAssetUrl(STATS_D3_RUNTIME_KEY);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   const loader =
     typeof uiTools?.loadScriptOnce === "function"
-      ? uiTools.loadScriptOnce(STATS_D3_RUNTIME_URL, {
+      ? uiTools.loadScriptOnce(runtimeUrl, {
           ready: () => typeof window.d3 !== "undefined",
         })
       : Promise.reject(new Error("缺少 D3 脚本加载能力"));
@@ -2117,9 +2136,10 @@ function ensureStatsHeatmapRuntimeLoaded() {
   }
   statsHeatmapRuntimeLoader = (async () => {
     if (typeof uiTools?.loadStyleOnce === "function") {
+      const styleUrl = resolveStatsOfflineAssetUrl(STATS_HEATMAP_STYLE_KEY);
       // Some local WebView runtimes do not reliably dispatch `load` for asset CSS.
       // The stylesheet improves appearance only, so avoid blocking the heatmap scripts on it.
-      void uiTools.loadStyleOnce(STATS_HEATMAP_STYLE_URL).catch((error) => {
+      void uiTools.loadStyleOnce(styleUrl).catch((error) => {
         console.warn("热图样式加载失败，继续使用默认样式:", error);
       });
     }
@@ -2128,7 +2148,8 @@ function ensureStatsHeatmapRuntimeLoaded() {
       if (typeof uiTools?.loadScriptOnce !== "function") {
         throw new Error("缺少热图脚本加载能力");
       }
-      await uiTools.loadScriptOnce(STATS_HEATMAP_RUNTIME_URL, {
+      const runtimeUrl = resolveStatsOfflineAssetUrl(STATS_HEATMAP_RUNTIME_KEY);
+      await uiTools.loadScriptOnce(runtimeUrl, {
         ready: () => typeof window.CalHeatmap !== "undefined",
       });
     }

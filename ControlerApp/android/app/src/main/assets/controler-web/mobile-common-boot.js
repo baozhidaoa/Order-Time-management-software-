@@ -11700,6 +11700,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     projectLevel1: "#79af85",
     projectLevel2: "#5a7f68",
     projectLevel3: "#3a5d48",
+    projectButtonLevel1: "#79af85",
+    projectButtonLevel2: "#5a7f68",
+    projectButtonLevel3: "#3a5d48",
     panel: "rgba(24, 41, 33, 0.62)",
     panelStrong: "rgba(31, 53, 42, 0.74)",
     panelBorder: "rgba(142, 214, 164, 0.28)",
@@ -12386,6 +12389,42 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "#16211c",
       "#f8fafc",
     );
+    const projectLevel1 = isValidThemeColorValue(source.projectLevel1)
+      ? source.projectLevel1.trim()
+      : DEFAULT_THEME_COLORS.projectLevel1;
+    const projectLevel2 = isValidThemeColorValue(source.projectLevel2)
+      ? source.projectLevel2.trim()
+      : DEFAULT_THEME_COLORS.projectLevel2;
+    const projectLevel3 = isValidThemeColorValue(source.projectLevel3)
+      ? source.projectLevel3.trim()
+      : DEFAULT_THEME_COLORS.projectLevel3;
+    const projectButtonLevel1 = isValidThemeColorValue(source.projectButtonLevel1)
+      ? source.projectButtonLevel1.trim()
+      : projectLevel1;
+    const projectButtonLevel2 = isValidThemeColorValue(source.projectButtonLevel2)
+      ? source.projectButtonLevel2.trim()
+      : projectLevel2;
+    const projectButtonLevel3 = isValidThemeColorValue(source.projectButtonLevel3)
+      ? source.projectButtonLevel3.trim()
+      : projectLevel3;
+    const projectButtonLevel1Text = ensureReadableTextColor(
+      projectButtonLevel1,
+      source.projectButtonLevel1Text,
+      "#16211c",
+      "#f8fafc",
+    );
+    const projectButtonLevel2Text = ensureReadableTextColor(
+      projectButtonLevel2,
+      source.projectButtonLevel2Text,
+      "#16211c",
+      "#f8fafc",
+    );
+    const projectButtonLevel3Text = ensureReadableTextColor(
+      projectButtonLevel3,
+      source.projectButtonLevel3Text,
+      "#16211c",
+      "#f8fafc",
+    );
     const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
     const primaryRgb = parseHexColor(primaryHex);
     const isLightSurface =
@@ -12412,15 +12451,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       deleteHover: isValidThemeColorValue(source.deleteHover)
         ? source.deleteHover.trim()
         : DEFAULT_THEME_COLORS.deleteHover,
-      projectLevel1: isValidThemeColorValue(source.projectLevel1)
-        ? source.projectLevel1.trim()
-        : DEFAULT_THEME_COLORS.projectLevel1,
-      projectLevel2: isValidThemeColorValue(source.projectLevel2)
-        ? source.projectLevel2.trim()
-        : DEFAULT_THEME_COLORS.projectLevel2,
-      projectLevel3: isValidThemeColorValue(source.projectLevel3)
-        ? source.projectLevel3.trim()
-        : DEFAULT_THEME_COLORS.projectLevel3,
+      projectLevel1,
+      projectLevel2,
+      projectLevel3,
+      projectButtonLevel1,
+      projectButtonLevel2,
+      projectButtonLevel3,
+      projectButtonLevel1Text,
+      projectButtonLevel2Text,
+      projectButtonLevel3Text,
       panel,
       panelStrong,
       panelBorder,
@@ -12532,6 +12571,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     root.style.setProperty("--project-level-1", resolvedColors.projectLevel1);
     root.style.setProperty("--project-level-2", resolvedColors.projectLevel2);
     root.style.setProperty("--project-level-3", resolvedColors.projectLevel3);
+    root.style.setProperty(
+      "--project-button-level-1-bg",
+      resolvedColors.projectButtonLevel1,
+    );
+    root.style.setProperty(
+      "--project-button-level-2-bg",
+      resolvedColors.projectButtonLevel2,
+    );
+    root.style.setProperty(
+      "--project-button-level-3-bg",
+      resolvedColors.projectButtonLevel3,
+    );
+    root.style.setProperty(
+      "--project-button-level-1-text",
+      resolvedColors.projectButtonLevel1Text,
+    );
+    root.style.setProperty(
+      "--project-button-level-2-text",
+      resolvedColors.projectButtonLevel2Text,
+    );
+    root.style.setProperty(
+      "--project-button-level-3-text",
+      resolvedColors.projectButtonLevel3Text,
+    );
     root.style.setProperty("--panel-bg", resolvedColors.panel);
     root.style.setProperty("--panel-strong-bg", resolvedColors.panelStrong);
     root.style.setProperty("--panel-border-color", resolvedColors.panelBorder);
@@ -12818,6 +12881,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
   const PAGE_LOADING_OVERLAY_DELAY_MS = 120;
+  const OFFLINE_ASSET_MANIFEST_GLOBAL =
+    "__CONTROLER_OFFLINE_ASSET_MANIFEST__";
+  const OFFLINE_ASSET_KEYS = new Set([
+    "chart",
+    "d3",
+    "calHeatmapJs",
+    "calHeatmapCss",
+  ]);
 
   function clonePlatformContractValue(value) {
     try {
@@ -13307,6 +13378,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } catch (error) {
       return rawUrl;
     }
+  }
+
+  function getOfflineAssetManifest() {
+    const manifest =
+      window[OFFLINE_ASSET_MANIFEST_GLOBAL] ||
+      globalThis?.[OFFLINE_ASSET_MANIFEST_GLOBAL] ||
+      null;
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      return null;
+    }
+    return manifest;
+  }
+
+  function resolveOfflineAssetUrl(assetKey) {
+    const normalizedKey = String(assetKey || "").trim();
+    if (!OFFLINE_ASSET_KEYS.has(normalizedKey)) {
+      throw new Error(`未知离线资源键: ${normalizedKey || "(empty)"}`);
+    }
+
+    const manifest = getOfflineAssetManifest();
+    if (!manifest) {
+      throw new Error("离线资源 manifest 未加载");
+    }
+
+    const fileName = String(manifest[normalizedKey] || "").trim();
+    if (!fileName) {
+      throw new Error(`离线资源 manifest 缺少条目: ${normalizedKey}`);
+    }
+
+    return normalizeAssetUrl(`offline-assets/${fileName}`);
   }
 
   function evaluateAssetReadyCheck(readyCheck) {
@@ -19498,6 +19599,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     createDeferredRefreshController,
     createAtomicRefreshController,
     createPageLoadingOverlayController,
+    resolveOfflineAssetUrl,
     positionFloatingMenu,
     measureExpandSurfaceWidth,
     normalizeExpandSurfaceWidthFactor,

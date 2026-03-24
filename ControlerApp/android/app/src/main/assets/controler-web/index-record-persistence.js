@@ -25,10 +25,30 @@
     return normalized || "";
   }
 
+  function normalizeRecordLoadMode(mode) {
+    return String(mode || "").trim() === "full-history"
+      ? "full-history"
+      : "recent-range";
+  }
+
   function getRecordPeriodId(record = {}) {
     const anchor =
       record?.endTime || record?.timestamp || record?.startTime || "";
     return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+  }
+
+  function getRecordPeriodIds(items = [], options = {}) {
+    const resolvePeriodId =
+      typeof options.getPeriodId === "function"
+        ? options.getPeriodId
+        : getRecordPeriodId;
+    return Array.from(
+      new Set(
+        ensureArray(items)
+          .map((item) => normalizePeriodId(resolvePeriodId(item) || "undated"))
+          .filter(Boolean),
+      ),
+    );
   }
 
   function buildRecordMergeKey(record = {}) {
@@ -60,6 +80,30 @@
 
   function sortRecordItems(items = []) {
     return ensureArray(items).slice().sort(compareRecordDates);
+  }
+
+  function mergeRecordItemsByPeriods(
+    existingItems = [],
+    incomingItems = [],
+    periodIds = [],
+    options = {},
+  ) {
+    const resolvePeriodId =
+      typeof options.getPeriodId === "function"
+        ? options.getPeriodId
+        : getRecordPeriodId;
+    const targetPeriods = new Set(
+      ensureArray(periodIds)
+        .map((periodId) => normalizePeriodId(periodId))
+        .filter(Boolean),
+    );
+    if (!targetPeriods.size) {
+      return ensureArray(incomingItems).slice();
+    }
+    const preserved = ensureArray(existingItems).filter(
+      (item) => !targetPeriods.has(resolvePeriodId(item)),
+    );
+    return [...preserved, ...ensureArray(incomingItems)];
   }
 
   function groupRecordsByPeriod(items = [], options = {}) {
@@ -114,6 +158,49 @@
     });
 
     return sortItems(Array.from(merged.values()));
+  }
+
+  function resolveRecordLoadResult(options = {}) {
+    const mode = normalizeRecordLoadMode(options.mode);
+    const existingItems = ensureArray(options.existingItems);
+    const fallbackItems = ensureArray(options.fallbackItems);
+    const rangeItems = ensureArray(options.rangeItems);
+    const getPeriodId =
+      typeof options.getPeriodId === "function"
+        ? options.getPeriodId
+        : getRecordPeriodId;
+    const rangePeriodIds = ensureArray(options.rangePeriodIds)
+      .map((periodId) => normalizePeriodId(periodId))
+      .filter(Boolean);
+    const mergeByPeriods =
+      typeof options.mergeByPeriods === "function"
+        ? options.mergeByPeriods
+        : (currentItems, incomingItems, targetPeriodIds) =>
+            mergeRecordItemsByPeriods(currentItems, incomingItems, targetPeriodIds, {
+              getPeriodId,
+            });
+
+    let items = fallbackItems.slice();
+    if (mode === "recent-range") {
+      items = rangeItems.slice();
+    } else if (rangeItems.length || rangePeriodIds.length) {
+      items = mergeByPeriods(existingItems, rangeItems, rangePeriodIds);
+    }
+
+    return {
+      mode,
+      items,
+      loadedPeriodIds:
+        mode === "full-history"
+          ? getRecordPeriodIds(items, {
+              getPeriodId,
+            })
+          : rangePeriodIds.length
+            ? rangePeriodIds.slice()
+            : getRecordPeriodIds(rangeItems, {
+                getPeriodId,
+              }),
+    };
   }
 
   async function persistRecordMutations(options = {}) {
@@ -267,9 +354,13 @@
 
   return {
     cloneValue,
+    normalizeRecordLoadMode,
     getRecordPeriodId,
+    getRecordPeriodIds,
     buildRecordMergeKey,
     sortRecordItems,
+    mergeRecordItemsByPeriods,
+    resolveRecordLoadResult,
     groupRecordsByPeriod,
     applyRecordMutations,
     persistRecordMutations,

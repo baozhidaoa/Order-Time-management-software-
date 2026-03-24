@@ -1,6 +1,12 @@
 import fs from "fs-extra";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  OFFLINE_ASSET_MANIFEST_FILE_NAME,
+  buildOfflineAssetManifest,
+  buildOfflineAssetManifestSource,
+  createOfflineAssetDefinitions,
+} from "./offline-assets-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,13 +27,6 @@ const mobileContractTargetPath = path.join(
   "platform-contract.js",
 );
 const offlineAssetsDir = path.join(repoRoot, "pages", "offline-assets");
-const chartRuntimeSourcePath = path.join(
-  repoRoot,
-  "node_modules",
-  "chart.js",
-  "dist",
-  "chart.umd.js",
-);
 const mobileAndroidWebDir = path.join(
   repoRoot,
   "ControlerApp",
@@ -47,45 +46,8 @@ const mobileIosWebDir = path.join(
 const pagesSourceDir = path.join(repoRoot, "pages");
 const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
 const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
-
-const assets = [
-  {
-    from: chartRuntimeSourcePath,
-    to: path.join(offlineAssetsDir, "chart.runtime.js"),
-  },
-  {
-    from: chartRuntimeSourcePath,
-    to: path.join(offlineAssetsDir, "chart.runtime.v2.js"),
-  },
-  {
-    from: path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-    to: path.join(offlineAssetsDir, "d3.runtime.js"),
-  },
-  {
-    from: path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
-    to: path.join(offlineAssetsDir, "cal-heatmap.runtime.js"),
-  },
-  {
-    from: path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.css",
-    ),
-    to: path.join(offlineAssetsDir, "cal-heatmap.css"),
-  },
-];
-
-const offlineAssetSourceByName = new Map(
-  assets.map((asset) => [path.basename(asset.to), asset.from]),
-);
+const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
+const pageMirrorExcludedDirs = new Set(["offline-assets"]);
 
 const mobileBootBundleEntries = {
   "mobile-common-boot.js": [
@@ -172,12 +134,65 @@ function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
 }
 
-function getRuntimeAssetFallbackSource(sourcePath) {
-  const normalizedSourceDir = path.normalize(path.dirname(sourcePath));
-  if (normalizedSourceDir !== path.normalize(offlineAssetsDir)) {
-    return null;
+async function writeFileIfChanged(targetPath, content) {
+  const nextBuffer = Buffer.isBuffer(content)
+    ? content
+    : Buffer.from(String(content || ""), "utf8");
+
+  try {
+    if (await fs.pathExists(targetPath)) {
+      const currentBuffer = await fs.readFile(targetPath);
+      if (currentBuffer.equals(nextBuffer)) {
+        return false;
+      }
+    }
+  } catch (error) {
+    if (error?.code !== "EPERM" && error?.code !== "ENOENT") {
+      throw error;
+    }
   }
-  return offlineAssetSourceByName.get(path.basename(sourcePath)) || null;
+
+  await fs.ensureDir(path.dirname(targetPath));
+  try {
+    await fs.writeFile(targetPath, nextBuffer);
+    return true;
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(targetPath)}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function buildOfflineAssetBuffers(definitions) {
+  const buffers = new Map();
+  for (const definition of definitions) {
+    if (!(await fs.pathExists(definition.sourcePath))) {
+      throw new Error(`缺少资源文件: ${definition.sourcePath}`);
+    }
+    buffers.set(definition.key, await fs.readFile(definition.sourcePath));
+  }
+  return buffers;
+}
+
+async function syncOfflineAssetsToTargetDir(targetDir, manifest, assetBuffersByKey) {
+  await fs.ensureDir(targetDir);
+
+  const manifestSource = buildOfflineAssetManifestSource(manifest);
+  await writeFileIfChanged(
+    path.join(targetDir, OFFLINE_ASSET_MANIFEST_FILE_NAME),
+    manifestSource,
+  );
+
+  for (const definition of offlineAssetDefinitions) {
+    const fileName = manifest[definition.key];
+    const sourceBuffer = assetBuffersByKey.get(definition.key);
+    if (!fileName || !Buffer.isBuffer(sourceBuffer)) {
+      throw new Error(`离线资源清单不完整: ${definition.key}`);
+    }
+    await writeFileIfChanged(path.join(targetDir, fileName), sourceBuffer);
+  }
 }
 
 async function copyFileWithEpermTolerance(fromPath, toPath) {
@@ -193,56 +208,12 @@ async function copyFileWithEpermTolerance(fromPath, toPath) {
   }
 }
 
-async function canReuseExistingCopy(fromPath, toPath) {
-  try {
-    if (!(await fs.pathExists(toPath))) {
-      return false;
-    }
-
-    const [fromStats, toStats] = await Promise.all([
-      fs.stat(fromPath),
-      fs.stat(toPath),
-    ]);
-
-    return (
-      fromStats.isFile() &&
-      toStats.isFile() &&
-      fromStats.size === toStats.size &&
-      Math.trunc(fromStats.mtimeMs) === Math.trunc(toStats.mtimeMs)
-    );
-  } catch (error) {
-    if (error?.code === "EPERM") {
-      return true;
-    }
-    return false;
-  }
-}
-
-async function copyRuntimeAsset(fromPath, toPath) {
-  try {
-    await fs.copy(fromPath, toPath, { overwrite: true });
-  } catch (error) {
-    if (
-      error?.code === "EPERM" &&
-      (await canReuseExistingCopy(fromPath, toPath))
-    ) {
-      return;
-    }
-    if (error?.code === "EPERM") {
-      console.warn(`跳过被占用的资源文件: ${formatRelativeRepoPath(toPath)}`);
-      return;
-    }
-    throw error;
-  }
-}
-
 async function copyDirectoryTree(sourceDir, targetDir) {
   await fs.ensureDir(targetDir);
   const entries = await fs.readdir(sourceDir);
   const expectedEntries = new Set(
     entries.filter(
-      (entry) =>
-        !(sourceDir === pagesSourceDir && legacyPageAssetDirs.includes(entry)),
+      (entry) => !(sourceDir === pagesSourceDir && legacyPageAssetDirs.includes(entry)),
     ),
   );
 
@@ -250,31 +221,13 @@ async function copyDirectoryTree(sourceDir, targetDir) {
     if (sourceDir === pagesSourceDir && legacyPageAssetDirs.includes(entry)) {
       continue;
     }
+    if (sourceDir === pagesSourceDir && pageMirrorExcludedDirs.has(entry)) {
+      continue;
+    }
 
     const sourcePath = path.join(sourceDir, entry);
     const targetPath = path.join(targetDir, entry);
-    let sourcePathForCopy = sourcePath;
-    let sourceStats = null;
-
-    try {
-      sourceStats = await fs.stat(sourcePath);
-    } catch (error) {
-      if (error?.code !== "EPERM") {
-        throw error;
-      }
-      if (error?.code === "EPERM") {
-        const fallbackSourcePath = getRuntimeAssetFallbackSource(sourcePath);
-        if (fallbackSourcePath) {
-          sourcePathForCopy = fallbackSourcePath;
-          sourceStats = await fs.stat(sourcePathForCopy);
-        } else {
-          console.warn(
-            `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
-          );
-          continue;
-        }
-      }
-    }
+    const sourceStats = await fs.stat(sourcePath);
 
     if (sourceStats.isDirectory()) {
       await copyDirectoryTree(sourcePath, targetPath);
@@ -285,22 +238,7 @@ async function copyDirectoryTree(sourceDir, targetDir) {
       continue;
     }
 
-    try {
-      await fs.copy(sourcePathForCopy, targetPath, { overwrite: true });
-    } catch (error) {
-      if (error?.code === "EPERM") {
-        const fallbackSourcePath = getRuntimeAssetFallbackSource(sourcePath);
-        if (fallbackSourcePath) {
-          await fs.copy(fallbackSourcePath, targetPath, { overwrite: true });
-          continue;
-        }
-        console.warn(
-          `跳过被占用的资源文件: ${formatRelativeRepoPath(sourcePath)}`,
-        );
-        continue;
-      }
-      throw error;
-    }
+    await fs.copy(sourcePath, targetPath, { overwrite: true });
   }
 
   const targetEntries = await fs.readdir(targetDir);
@@ -369,6 +307,7 @@ async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
   }
 
   const bootstrapScripts =
+    `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="mobile-common-boot.js"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
   const pageScriptPattern = new RegExp(
@@ -403,13 +342,19 @@ async function validateMobileBootstrapHtml(targetDir, pageKey) {
     return;
   }
   const html = await fs.readFile(htmlPath, "utf8");
+  const manifestScript =
+    `<script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>`;
   const commonBootScript = `<script defer src="mobile-common-boot.js"></script>`;
   const pageBootScript = `<script defer src="${pageKey}-boot.js"></script>`;
   const legacyPageScriptPattern = new RegExp(
     `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
     "i",
   );
-  if (!html.includes(commonBootScript) || !html.includes(pageBootScript)) {
+  if (
+    !html.includes(manifestScript) ||
+    !html.includes(commonBootScript) ||
+    !html.includes(pageBootScript)
+  ) {
     throw new Error(
       `移动端 HTML 启动脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
     );
@@ -431,31 +376,16 @@ for (const legacyDir of legacyPageAssetDirs) {
   await fs.remove(path.join(pagesSourceDir, legacyDir));
 }
 
-for (const asset of assets) {
-  if (!(await fs.pathExists(asset.from))) {
-    throw new Error(`缺少资源文件: ${asset.from}`);
-  }
-  await copyRuntimeAsset(asset.from, asset.to);
-}
-
-const expectedRuntimeAssetFiles = new Set(
-  assets.map((asset) => path.basename(asset.to)),
+const offlineAssetBuffers = await buildOfflineAssetBuffers(offlineAssetDefinitions);
+const offlineAssetManifest = buildOfflineAssetManifest(
+  offlineAssetDefinitions,
+  offlineAssetBuffers,
 );
-for (const entry of await fs.readdir(offlineAssetsDir)) {
-  const fullPath = path.join(offlineAssetsDir, entry);
-  let stats = null;
-  try {
-    stats = await fs.stat(fullPath);
-  } catch (error) {
-    if (error?.code === "EPERM") {
-      continue;
-    }
-    throw error;
-  }
-  if (stats.isFile() && !expectedRuntimeAssetFiles.has(entry)) {
-    await fs.remove(fullPath);
-  }
-}
+await syncOfflineAssetsToTargetDir(
+  offlineAssetsDir,
+  offlineAssetManifest,
+  offlineAssetBuffers,
+);
 
 if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
   await copyFileWithEpermTolerance(
@@ -472,6 +402,11 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
       sharedContractSourcePath,
       path.join(mobileWebDir, "platform-contract.js"),
     );
+    await syncOfflineAssetsToTargetDir(
+      path.join(mobileWebDir, "offline-assets"),
+      offlineAssetManifest,
+      offlineAssetBuffers,
+    );
     await writeMobileBootBundles(mobileWebDir, mobileBootBundles);
     for (const pageKey of mobileBootstrapPages) {
       await rewriteMobileBootstrapHtml(mobileWebDir, pageKey);
@@ -482,5 +417,5 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
 }
 
 console.log(
-  "已同步 pages/offline-assets 运行时资源与 React Native 移动端资源目录",
+  "已同步离线资源 manifest 与当前版本运行时资源到桌面页面和 React Native 资源目录",
 );
