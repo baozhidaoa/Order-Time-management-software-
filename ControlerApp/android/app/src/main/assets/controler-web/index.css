@@ -22,12 +22,6 @@
   --button-text: #173326;
   --button-border: rgba(142, 214, 164, 0.42);
   --on-accent-text: #173326;
-  --project-button-level-1-bg: var(--project-level-1);
-  --project-button-level-2-bg: var(--project-level-2);
-  --project-button-level-3-bg: var(--project-level-3);
-  --project-button-level-1-text: var(--on-accent-text);
-  --project-button-level-2-text: var(--on-accent-text);
-  --project-button-level-3-text: var(--on-accent-text);
   --bottom-nav-bg: rgba(17, 29, 23, 0.84);
   --bottom-nav-button-bg: rgba(142, 214, 164, 0.12);
   --bottom-nav-button-active-bg: rgba(135, 196, 153, 0.86);
@@ -712,27 +706,15 @@ body.controler-mobile-runtime.controler-keyboard-open .modal-content {
 }
 
 .project-item.level-1 {
-  background-color: var(
-    --project-button-level-1-bg,
-    var(--project-level-1, var(--accent-color))
-  );
-  color: var(--project-button-level-1-text, var(--on-accent-text));
+  background-color: var(--project-level-1, var(--accent-color));
 }
 
 .project-item.level-2 {
-  background-color: var(
-    --project-button-level-2-bg,
-    var(--project-level-2, var(--accent-color))
-  );
-  color: var(--project-button-level-2-text, var(--on-accent-text));
+  background-color: var(--project-level-2, var(--accent-color));
 }
 
 .project-item.level-3 {
-  background-color: var(
-    --project-button-level-3-bg,
-    var(--project-level-3, var(--accent-color))
-  );
-  color: var(--project-button-level-3-text, var(--on-accent-text));
+  background-color: var(--project-level-3, var(--accent-color));
 }
 
 .project-item:hover {

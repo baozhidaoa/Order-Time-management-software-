@@ -13,9 +13,6 @@ const DEFAULT_THEME_COLORS = {
   projectLevel1: "#79af85",
   projectLevel2: "#5a7f68",
   projectLevel3: "#3a5d48",
-  projectButtonLevel1: "#79af85",
-  projectButtonLevel2: "#5a7f68",
-  projectButtonLevel3: "#3a5d48",
   panel: "rgba(24, 41, 33, 0.62)",
   panelStrong: "rgba(31, 53, 42, 0.74)",
   panelBorder: "rgba(142, 214, 164, 0.28)",
@@ -417,12 +414,9 @@ const THEME_COLOR_FIELDS = [
   { key: "navButtonActiveBg", label: "底栏当前按钮" },
   { key: "delete", label: "删除按钮" },
   { key: "deleteHover", label: "删除悬停" },
-  { key: "projectLevel1", label: "一级项目图表色" },
-  { key: "projectLevel2", label: "二级项目图表色" },
-  { key: "projectLevel3", label: "三级项目图表色" },
-  { key: "projectButtonLevel1", label: "一级项目按钮" },
-  { key: "projectButtonLevel2", label: "二级项目按钮" },
-  { key: "projectButtonLevel3", label: "三级项目按钮" },
+  { key: "projectLevel1", label: "一级项目" },
+  { key: "projectLevel2", label: "二级项目" },
+  { key: "projectLevel3", label: "三级项目" },
   { key: "panel", label: "面板底色" },
   { key: "panelStrong", label: "强化面板" },
   { key: "panelBorder", label: "面板描边" },
@@ -1392,42 +1386,6 @@ function resolveThemeColors(theme = null) {
     "#16211c",
     "#f8fafc",
   );
-  const projectLevel1 = isValidThemeColorValue(source.projectLevel1)
-    ? source.projectLevel1.trim()
-    : DEFAULT_THEME_COLORS.projectLevel1;
-  const projectLevel2 = isValidThemeColorValue(source.projectLevel2)
-    ? source.projectLevel2.trim()
-    : DEFAULT_THEME_COLORS.projectLevel2;
-  const projectLevel3 = isValidThemeColorValue(source.projectLevel3)
-    ? source.projectLevel3.trim()
-    : DEFAULT_THEME_COLORS.projectLevel3;
-  const projectButtonLevel1 = isValidThemeColorValue(source.projectButtonLevel1)
-    ? source.projectButtonLevel1.trim()
-    : projectLevel1;
-  const projectButtonLevel2 = isValidThemeColorValue(source.projectButtonLevel2)
-    ? source.projectButtonLevel2.trim()
-    : projectLevel2;
-  const projectButtonLevel3 = isValidThemeColorValue(source.projectButtonLevel3)
-    ? source.projectButtonLevel3.trim()
-    : projectLevel3;
-  const projectButtonLevel1Text = ensureReadableTextColor(
-    projectButtonLevel1,
-    source.projectButtonLevel1Text,
-    "#16211c",
-    "#f8fafc",
-  );
-  const projectButtonLevel2Text = ensureReadableTextColor(
-    projectButtonLevel2,
-    source.projectButtonLevel2Text,
-    "#16211c",
-    "#f8fafc",
-  );
-  const projectButtonLevel3Text = ensureReadableTextColor(
-    projectButtonLevel3,
-    source.projectButtonLevel3Text,
-    "#16211c",
-    "#f8fafc",
-  );
   const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
   const primaryRgb = parseHexColor(primaryHex);
   const isLightSurface =
@@ -1455,15 +1413,15 @@ function resolveThemeColors(theme = null) {
     deleteHover: isValidThemeColorValue(source.deleteHover)
       ? source.deleteHover.trim()
       : DEFAULT_THEME_COLORS.deleteHover,
-    projectLevel1,
-    projectLevel2,
-    projectLevel3,
-    projectButtonLevel1,
-    projectButtonLevel2,
-    projectButtonLevel3,
-    projectButtonLevel1Text,
-    projectButtonLevel2Text,
-    projectButtonLevel3Text,
+    projectLevel1: isValidThemeColorValue(source.projectLevel1)
+      ? source.projectLevel1.trim()
+      : DEFAULT_THEME_COLORS.projectLevel1,
+    projectLevel2: isValidThemeColorValue(source.projectLevel2)
+      ? source.projectLevel2.trim()
+      : DEFAULT_THEME_COLORS.projectLevel2,
+    projectLevel3: isValidThemeColorValue(source.projectLevel3)
+      ? source.projectLevel3.trim()
+      : DEFAULT_THEME_COLORS.projectLevel3,
     panel,
     panelStrong,
     panelBorder,
@@ -2108,30 +2066,6 @@ function applyTheme(themeId) {
   root.style.setProperty("--project-level-2", resolvedColors.projectLevel2);
   root.style.setProperty("--project-level-3", resolvedColors.projectLevel3);
   root.style.setProperty(
-    "--project-button-level-1-bg",
-    resolvedColors.projectButtonLevel1,
-  );
-  root.style.setProperty(
-    "--project-button-level-2-bg",
-    resolvedColors.projectButtonLevel2,
-  );
-  root.style.setProperty(
-    "--project-button-level-3-bg",
-    resolvedColors.projectButtonLevel3,
-  );
-  root.style.setProperty(
-    "--project-button-level-1-text",
-    resolvedColors.projectButtonLevel1Text,
-  );
-  root.style.setProperty(
-    "--project-button-level-2-text",
-    resolvedColors.projectButtonLevel2Text,
-  );
-  root.style.setProperty(
-    "--project-button-level-3-text",
-    resolvedColors.projectButtonLevel3Text,
-  );
-  root.style.setProperty(
     "--panel-bg",
     resolvedColors.panel || resolvedColors.secondary,
   );
@@ -2418,7 +2352,7 @@ function showThemeEditorModal(theme = null) {
       <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px;">
         <div>
           <div class="themed-dialog-title">${dialogTitle}</div>
-          <div class="themed-dialog-message">支持输入 #RRGGBB 与 rgba(...)，保存后会立即应用到按钮、底部导航、面板、弹窗、下拉菜单、小组件与浮层边框等主题适配区域；项目图表色与三级分类按钮色可以分开配置。</div>
+          <div class="themed-dialog-message">支持输入 #RRGGBB 与 rgba(...)，保存后会立即应用到按钮、底部导航、面板、弹窗、下拉菜单、小组件与浮层边框等主题适配区域。</div>
         </div>
       </div>
       <label style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
