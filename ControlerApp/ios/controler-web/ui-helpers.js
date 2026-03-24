@@ -1693,50 +1693,6 @@
       return;
     }
     androidInteractiveTextAssistInitialized = true;
-
-    const handleInteractiveFocusGesture = (event) => {
-      const focusTarget = resolveInteractiveTextControlTarget(event.target);
-      if (!(focusTarget instanceof HTMLElement)) {
-        return;
-      }
-      const now = Date.now();
-      const lastGestureAt = Number(focusTarget.__controlerAndroidGestureFocusAt) || 0;
-      const lastGestureType = String(
-        focusTarget.__controlerAndroidGestureFocusType || "",
-      ).trim();
-      const eventType = String(event?.type || "").trim();
-      const isDuplicateGesture =
-        now - lastGestureAt < 280 &&
-        (lastGestureType === eventType ||
-          ((lastGestureType === "pointerup" ||
-            lastGestureType === "touchend" ||
-            lastGestureType === "mouseup") &&
-            eventType === "click"));
-      focusTarget.__controlerAndroidGestureFocusAt = now;
-      focusTarget.__controlerAndroidGestureFocusType = eventType;
-      if (isDuplicateGesture) {
-        return;
-      }
-      focusAndroidInteractiveTextControl(focusTarget, {
-        forceFocus: true,
-        retryDelayMs: 72,
-        retrySequence: [160, 300],
-      });
-    };
-
-    document.addEventListener(
-      "focusin",
-      (event) => {
-        const focusTarget = resolveInteractiveTextControlTarget(event.target);
-        if (!(focusTarget instanceof HTMLElement)) {
-          return;
-        }
-        window.setTimeout(() => {
-          requestAndroidSoftInputForFocusedTarget(focusTarget);
-        }, 24);
-      },
-      true,
-    );
     document.addEventListener(
       "focusout",
       (event) => {
@@ -1752,13 +1708,6 @@
       },
       true,
     );
-
-    if (typeof window.PointerEvent === "function") {
-      document.addEventListener("pointerup", handleInteractiveFocusGesture, true);
-    } else {
-      document.addEventListener("touchend", handleInteractiveFocusGesture, true);
-      document.addEventListener("mouseup", handleInteractiveFocusGesture, true);
-    }
   }
 
   function isAndroidReactNativeNavigationRuntime() {
@@ -4555,9 +4504,12 @@
     modal.style.bottom = "0";
     modal.style.inset = "0";
     modal.style.width = "100vw";
-    modal.style.minHeight = "100vh";
-    modal.style.height = "100vh";
-    modal.style.maxHeight = "100vh";
+    modal.style.minHeight =
+      "var(--controler-stable-visual-viewport-height, 100dvh)";
+    modal.style.height =
+      "var(--controler-stable-visual-viewport-height, 100dvh)";
+    modal.style.maxHeight =
+      "var(--controler-stable-visual-viewport-height, 100dvh)";
     modal.style.backgroundColor = "var(--overlay-bg)";
     modal.style.display = options.visible === false ? "none" : "flex";
     modal.style.alignItems = options.alignItems || "center";

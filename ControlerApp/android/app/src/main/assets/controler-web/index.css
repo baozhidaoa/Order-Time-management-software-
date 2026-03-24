@@ -543,9 +543,9 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   bottom: 0;
   inset: 0;
   width: 100vw;
-  min-height: 100vh;
-  height: 100vh;
-  max-height: 100vh;
+  min-height: var(--controler-visual-viewport-height, 100dvh);
+  height: var(--controler-visual-viewport-height, 100dvh);
+  max-height: var(--controler-visual-viewport-height, 100dvh);
   background-color: var(--overlay-bg);
   display: flex;
   justify-content: center;
@@ -565,6 +565,9 @@ body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
 
 .controler-form-modal-overlay {
   overflow: hidden;
+  min-height: var(--controler-stable-visual-viewport-height, 100dvh);
+  height: var(--controler-stable-visual-viewport-height, 100dvh);
+  max-height: var(--controler-stable-visual-viewport-height, 100dvh);
 }
 
 html.controler-blocking-overlay-active,
@@ -1140,13 +1143,16 @@ body.page-record #project-totals {
   -webkit-backdrop-filter: blur(16px) saturate(128%);
   box-shadow: var(--expand-surface-shadow);
   min-height: 72px;
+  max-height: min(220px, 36vh);
   align-content: start;
+  overflow-y: auto;
 }
 
 .timer-session-modal {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
   overflow: hidden !important;
 }
 
@@ -1159,6 +1165,15 @@ body.page-record #project-totals {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
+}
+
+.timer-session-modal .controler-form-modal-body > h2:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  background: var(--bg-secondary);
 }
 
 .timer-session-modal .form-group {
@@ -2810,7 +2825,7 @@ body.page-stats .weekly-glass-scroller {
   width: min(500px, calc(100vw - 24px)) !important;
   max-width: min(500px, calc(100vw - 24px)) !important;
   max-height: calc(
-    min(100dvh, var(--controler-visual-viewport-height, 100vh)) - 24px
+    min(100dvh, var(--controler-stable-visual-viewport-height, 100vh)) - 24px
   ) !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -5086,22 +5101,34 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     font-size: 12px !important;
   }
 
-  body.flex.row .controler-form-modal-overlay,
-  body.controler-mobile-runtime .controler-form-modal-overlay {
-    align-items: flex-start !important;
-    padding:
+body.flex.row .controler-form-modal-overlay,
+body.controler-mobile-runtime .controler-form-modal-overlay {
+  align-items: flex-start !important;
+  min-height: var(
+    --controler-stable-visual-viewport-height,
+    100dvh
+  ) !important;
+  height: var(
+    --controler-stable-visual-viewport-height,
+    100dvh
+  ) !important;
+  max-height: var(
+    --controler-stable-visual-viewport-height,
+    100dvh
+  ) !important;
+  padding:
       max(10px, env(safe-area-inset-top, 0px))
       10px
       calc(10px + env(safe-area-inset-bottom, 0px)) !important;
-    overflow-y: auto;
-  }
+    overflow: hidden !important;
+}
 
   body.flex.row .controler-form-modal,
   body.controler-mobile-runtime .controler-form-modal {
     width: min(100%, 460px) !important;
     max-width: min(100%, 460px) !important;
     max-height: calc(
-      min(100dvh, var(--controler-visual-viewport-height, 100vh)) - 20px
+      min(100dvh, var(--controler-stable-visual-viewport-height, 100vh)) - 20px
     ) !important;
     margin: auto 0;
     padding: 12px !important;
@@ -6395,9 +6422,15 @@ body.controler-fullscreen-overlay-active > div:first-of-type > .app-sidebar {
   visibility: hidden !important;
 }
 
-body.controler-modal-overlay-active > div:first-of-type > .app-nav,
-body.controler-modal-overlay-active > div:first-of-type > .app-sidebar {
+body.controler-mobile-runtime.controler-modal-overlay-active
+  > div:first-of-type
+  > .app-nav,
+body.controler-mobile-runtime.controler-modal-overlay-active
+  > div:first-of-type
+  > .app-sidebar {
   pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 body.controler-android-native.app-page-transition-enabled > div:nth-of-type(2),

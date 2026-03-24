@@ -3494,6 +3494,9 @@ function formatRecordDayHeading(targetDate, referenceDate = new Date()) {
   if (isSameCalendarDay(targetDate, yesterday)) {
     return "昨天";
   }
+  if (targetDate.getFullYear() !== referenceDate.getFullYear()) {
+    return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月${targetDate.getDate()}日`;
+  }
   return `${targetDate.getMonth() + 1}月${targetDate.getDate()}日`;
 }
 
@@ -6193,7 +6196,12 @@ function getDefaultModalProjectInputTarget() {
 }
 
 function setModalProjectInputTarget(targetInputId, options = {}) {
-  const { focus = false, showSuggestions = false, manual = false } = options;
+  const {
+    focus = false,
+    showSuggestions = false,
+    manual = false,
+    nativeAssist = false,
+  } = options;
   if (
     targetInputId !== "project-name-input" &&
     targetInputId !== "next-project-input"
@@ -6208,14 +6216,14 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
 
   if (focus) {
     if (
+      nativeAssist === true &&
       targetInput instanceof HTMLElement &&
       typeof uiTools?.focusAndroidInteractiveTextControl === "function"
     ) {
       uiTools.focusAndroidInteractiveTextControl(targetInput, {
-        forceFocus: true,
         selectText: true,
-        retryDelayMs: 72,
-        retrySequence: [160, 300],
+        retryDelayMs: 96,
+        retrySequence: [180],
       });
     } else {
       targetInput.focus();
@@ -6225,6 +6233,55 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
   if (showSuggestions) {
     renderProjectSuggestionsForInput(targetInputId, targetInput.value, true);
   }
+}
+
+function scheduleTimerSessionFieldReveal(target, options = {}) {
+  if (
+    !(target instanceof HTMLElement) ||
+    !document.body?.classList.contains("controler-mobile-runtime")
+  ) {
+    return false;
+  }
+
+  const modal = target.closest(".timer-session-modal");
+  const modalBody = modal?.querySelector?.(".controler-form-modal-body");
+  const field = target.closest(".form-group") || target;
+  if (!(modalBody instanceof HTMLElement) || !(field instanceof HTMLElement)) {
+    return false;
+  }
+
+  const delayMs = Math.max(
+    0,
+    Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
+  );
+  const reveal = () => {
+    if (
+      !isModalOpen ||
+      !modalBody.isConnected ||
+      !field.isConnected ||
+      modalBody.clientHeight <= 0
+    ) {
+      return;
+    }
+
+    const maxScrollTop = Math.max(
+      modalBody.scrollHeight - modalBody.clientHeight,
+      0,
+    );
+    const nextScrollTop = Math.min(Math.max(field.offsetTop - 12, 0), maxScrollTop);
+    modalBody.scrollTop = nextScrollTop;
+  };
+  const runReveal = () => {
+    window.setTimeout(reveal, delayMs);
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(runReveal);
+  } else {
+    runReveal();
+  }
+
+  return true;
 }
 
 function formatDurationFromMs(ms) {
@@ -6905,17 +6962,11 @@ function updateDisplay() {
   output.style.overflowX = "hidden";
 
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
   const visibleRecords = records
     .filter((record) => {
       const recordDate = resolveRecordTime(record);
-      if (!(recordDate instanceof Date) || Number.isNaN(recordDate.getTime())) {
-        return false;
-      }
       return (
-        isSameCalendarDay(recordDate, today) ||
-        isSameCalendarDay(recordDate, yesterday)
+        recordDate instanceof Date && !Number.isNaN(recordDate.getTime())
       );
     })
     .sort((left, right) => {
@@ -6938,7 +6989,7 @@ function updateDisplay() {
     }
     recordGroups.push({
       key: groupKey,
-      label: isSameCalendarDay(recordDate, today) ? "今天" : "昨天",
+      label: formatRecordDayHeading(recordDate, today),
       records: [record],
     });
   });
@@ -7279,6 +7330,7 @@ function openModal(options = {}) {
       setModalProjectInputTarget(focusTargetId || defaultTarget, {
         focus: true,
         manual: false,
+        nativeAssist: true,
       });
     });
   }
@@ -7304,6 +7356,12 @@ function openModal(options = {}) {
   // 添加点击外部关闭事件
   const handleModalOutsideClick = function (e) {
     if (e.target === this) {
+      if (
+        this?.dataset?.controlerModalPersistent === "true" &&
+        document.body?.classList.contains("controler-mobile-runtime")
+      ) {
+        return;
+      }
       closeModal();
       this.removeEventListener("click", handleModalOutsideClick);
     }
@@ -7592,6 +7650,11 @@ function initIndexModalBindings() {
         manual: true,
         showSuggestions: true,
       });
+      scheduleTimerSessionFieldReveal(input, {
+        delayMs: document.body?.classList.contains("controler-android-native")
+          ? 140
+          : 0,
+      });
     });
     input.addEventListener("input", () => {
       setModalProjectInputTarget(inputId, { manual: true });
@@ -7604,12 +7667,7 @@ function initIndexModalBindings() {
     });
     input.addEventListener("blur", () => {
       applyPathHint();
-      if (inputId === "project-name-input") {
-        commitPrimaryModalProjectInput({
-          canonicalizeEmpty: true,
-          allowCreate: false,
-        });
-      }
+      persistTimerSessionState();
       setTimeout(() => {
         hideProjectSuggestions(inputId);
       }, 120);
@@ -7877,6 +7935,13 @@ function initIndexPrimaryBindings() {
   const shortenHoursInput = document.getElementById("shorten-hours");
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput) {
+    shortenHoursInput.addEventListener("focus", () => {
+      scheduleTimerSessionFieldReveal(shortenHoursInput, {
+        delayMs: document.body?.classList.contains("controler-android-native")
+          ? 140
+          : 0,
+      });
+    });
     shortenHoursInput.addEventListener("input", () => {
       sanitizeShortenDurationInput(shortenHoursInput);
       updateRemainingTimeDisplay();
@@ -7888,6 +7953,13 @@ function initIndexPrimaryBindings() {
     });
   }
   if (shortenMinutesInput) {
+    shortenMinutesInput.addEventListener("focus", () => {
+      scheduleTimerSessionFieldReveal(shortenMinutesInput, {
+        delayMs: document.body?.classList.contains("controler-android-native")
+          ? 140
+          : 0,
+      });
+    });
     shortenMinutesInput.addEventListener("input", () => {
       sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
       updateRemainingTimeDisplay();
@@ -7903,6 +7975,12 @@ function initIndexPrimaryBindings() {
     .getElementById("modal-overlay")
     ?.addEventListener("click", function (e) {
       if (e.target === this) {
+        if (
+          this?.dataset?.controlerModalPersistent === "true" &&
+          document.body?.classList.contains("controler-mobile-runtime")
+        ) {
+          return;
+        }
         closeModal();
       }
     });

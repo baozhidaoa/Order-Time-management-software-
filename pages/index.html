@@ -239,14 +239,10 @@
             >
               <div style="display: flex; align-items: center; gap: 5px;">
                 <input
-                  type="text"
+                  type="number"
                   id="shorten-hours"
-                  data-controler-edge-back-exclusion="true"
                   placeholder="小时"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  autocomplete="off"
-                  enterkeyhint="next"
+                  min="0"
                   style="
                     width: 70px;
                     padding: 8px;
@@ -260,13 +256,11 @@
                 />
                 <span style="color: var(--text-color)">h</span>
                 <input
-                  type="text"
+                  type="number"
                   id="shorten-minutes"
                   placeholder="分钟"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  autocomplete="off"
-                  enterkeyhint="done"
+                  min="0"
+                  max="59"
                   style="
                     width: 70px;
                     padding: 8px;
