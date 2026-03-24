@@ -43,6 +43,41 @@ type ModalSubmissionAttempt = {
   isSubmitting: boolean;
 };
 
+type AndroidKeyboardViewportStateInput = {
+  viewportHeight: number;
+  baselineHeight: number;
+  lastViewportHeight: number;
+  keyboardOpen: boolean;
+};
+
+export type AndroidKeyboardViewportState = {
+  viewportHeight: number;
+  baselineHeight: number;
+  lastViewportHeight: number;
+  keyboardOpen: boolean;
+  keyboardDelta: number;
+  ignoredAsJitter: boolean;
+};
+
+type AndroidRecordResizeRefreshGuardInput = {
+  isAndroidMobileRuntime: boolean;
+  hasOpenTimerModal: boolean;
+  hasFocusedModalTextEntry: boolean;
+  keyboardOpen: boolean;
+  isInlineRecordEditActive: boolean;
+  isRecordNameInputFocused: boolean;
+};
+
+type AndroidNavigationInteractionGuardInput = {
+  isAndroidReactNativeNavigationRuntime: boolean;
+  hasVisibleBlockingOverlay: boolean;
+};
+
+const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
+const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
+const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
+const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
+
 export function isAndroidWidgetActionLaunch(
   context: Pick<LaunchPolicyContext, 'widgetAction' | 'widgetSource'>,
   isAndroid: boolean,
@@ -160,4 +195,96 @@ export function canAcquireModalSubmissionLock(
   input: ModalSubmissionAttempt,
 ): boolean {
   return input.modalPresent && !input.isSubmitting;
+}
+
+export function updateAndroidKeyboardViewportState(
+  input: AndroidKeyboardViewportStateInput,
+): AndroidKeyboardViewportState {
+  const viewportHeight = Math.max(
+    0,
+    Math.round(Number(input.viewportHeight) || 0),
+  );
+  const baselineHeight = Math.max(
+    0,
+    Math.round(Number(input.baselineHeight) || 0),
+  );
+  const lastViewportHeight = Math.max(
+    0,
+    Math.round(Number(input.lastViewportHeight) || 0),
+  );
+
+  if (!viewportHeight) {
+    return {
+      viewportHeight,
+      baselineHeight,
+      lastViewportHeight,
+      keyboardOpen: input.keyboardOpen === true,
+      keyboardDelta: Math.max(baselineHeight - viewportHeight, 0),
+      ignoredAsJitter: false,
+    };
+  }
+
+  if (
+    baselineHeight > 0 &&
+    Math.abs(viewportHeight - lastViewportHeight) <
+      ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+  ) {
+    return {
+      viewportHeight: lastViewportHeight,
+      baselineHeight,
+      lastViewportHeight,
+      keyboardOpen: input.keyboardOpen === true,
+      keyboardDelta: Math.max(baselineHeight - lastViewportHeight, 0),
+      ignoredAsJitter: true,
+    };
+  }
+
+  let nextBaselineHeight = baselineHeight;
+  if (!nextBaselineHeight || viewportHeight > nextBaselineHeight) {
+    nextBaselineHeight = viewportHeight;
+  }
+
+  const keyboardDelta = Math.max(nextBaselineHeight - viewportHeight, 0);
+  const nextKeyboardOpen =
+    input.keyboardOpen === true
+      ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
+      : keyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
+
+  if (
+    !nextKeyboardOpen &&
+    viewportHeight >=
+      nextBaselineHeight - ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+  ) {
+    nextBaselineHeight = Math.max(nextBaselineHeight, viewportHeight);
+  }
+
+  return {
+    viewportHeight,
+    baselineHeight: nextBaselineHeight,
+    lastViewportHeight: viewportHeight,
+    keyboardOpen: nextKeyboardOpen,
+    keyboardDelta,
+    ignoredAsJitter: false,
+  };
+}
+
+export function shouldSkipAndroidRecordResizeRefresh(
+  input: AndroidRecordResizeRefreshGuardInput,
+): boolean {
+  return (
+    input.isAndroidMobileRuntime &&
+    (input.hasOpenTimerModal ||
+      input.hasFocusedModalTextEntry ||
+      input.keyboardOpen ||
+      (input.isInlineRecordEditActive && input.isRecordNameInputFocused))
+  );
+}
+
+export function shouldConsumeAndroidNavigationRequest(
+  input: AndroidNavigationInteractionGuardInput,
+): boolean {
+  return (
+    input.isAndroidReactNativeNavigationRuntime &&
+    input.hasVisibleBlockingOverlay
+  );
 }

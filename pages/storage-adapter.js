@@ -5928,18 +5928,22 @@
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
-          const preferManagedBootstrap =
-            hasPendingStateChanges && hasManagedCoreSnapshot;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             normalizedOptions,
           );
+          const canUseManagedBootstrapFastPath =
+            nativeInitializationSettled && canUseManagedBootstrap;
+          const preferManagedBootstrap =
+            nativeInitializationSettled &&
+            hasPendingStateChanges &&
+            hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =
-            useFreshBootstrap || !canUseManagedBootstrap;
+            useFreshBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          if (canUseManagedBootstrap && !useFreshBootstrap) {
+          if (canUseManagedBootstrapFastPath && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -6264,9 +6268,13 @@
         },
         async loadSectionRange(section, scope = {}) {
           const normalizedRange = canServeManagedSectionRange(section, scope);
+          const canUseManagedRangeFastPath =
+            nativeInitializationSettled && !!normalizedRange;
           const preferManagedRange =
-            hasPendingStateChanges && hasManagedCoreSnapshot;
-          if (normalizedRange || preferManagedRange) {
+            nativeInitializationSettled &&
+            hasPendingStateChanges &&
+            hasManagedCoreSnapshot;
+          if (canUseManagedRangeFastPath || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
               section,

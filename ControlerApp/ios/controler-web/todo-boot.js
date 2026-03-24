@@ -6770,6 +6770,8 @@ window.ControlerTodoRuntime = {
 async function init() {
   initTodoWidgetLaunchAction();
   registerTodoBeforePageLeaveGuard();
+  bindTodoExternalStorageRefresh();
+  await waitForTodoStorageReady();
   applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());
   ensureTodoBaseBindings({
     skipInitialDataLoad: true,

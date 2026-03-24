@@ -1133,7 +1133,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     + attempt
             );
 
-            if ((!served && !shown) && attempt < 2) {
+            if (shouldRetryShowSoftInput(activity, targetView, focused, served, shown)
+                && attempt < 2) {
                 final int nextAttempt = attempt + 1;
                 final long retryDelayMs = nextAttempt == 1 ? 96L : 220L;
                 MAIN_HANDLER.postDelayed(
@@ -1165,6 +1166,32 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             Log.e(TAG, "showSoftInput failed", error);
             promise.reject("show_soft_input_failed", error);
         }
+    }
+
+    private boolean shouldRetryShowSoftInput(
+        Activity activity,
+        View targetView,
+        boolean focused,
+        boolean served,
+        boolean shown
+    ) {
+        if (activity == null || targetView == null) {
+            return false;
+        }
+        if (
+            shown
+                || served
+                || !targetView.isAttachedToWindow()
+                || !targetView.hasWindowFocus()
+                || !isViewHierarchyVisible(targetView)
+        ) {
+            return false;
+        }
+        View currentFocus = activity.getCurrentFocus();
+        View decorView =
+            activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        View decorFocus = decorView == null ? null : decorView.findFocus();
+        return focused || targetView == currentFocus || targetView == decorFocus;
     }
 
     private View resolveSoftInputTarget(

@@ -604,9 +604,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     body.classList.toggle("controler-ios-native", isNative && platform === "ios");
   }
 
+  const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
+  const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
+  const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
+  const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
   let keyboardViewportBaseHeight = 0;
   let lastKeyboardViewportHeight = 0;
   let keyboardStateFrameId = 0;
+  let keyboardOpen = false;
 
   function applyKeyboardOpenState() {
     const platform = getNativeHostPlatform();
@@ -621,7 +626,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
 
-    if (viewportHeight === lastKeyboardViewportHeight && keyboardViewportBaseHeight) {
+    if (
+      keyboardViewportBaseHeight &&
+      Math.abs(viewportHeight - lastKeyboardViewportHeight) <
+        ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+    ) {
       return;
     }
     lastKeyboardViewportHeight = viewportHeight;
@@ -630,18 +639,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       keyboardViewportBaseHeight = viewportHeight;
     }
 
-    const keyboardOpen = keyboardViewportBaseHeight - viewportHeight > 140;
+    const keyboardDelta = Math.max(keyboardViewportBaseHeight - viewportHeight, 0);
+    const nextKeyboardOpen = keyboardOpen
+      ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
+      : keyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
     const root = document.documentElement;
     const body = document.body;
     root?.style.setProperty(
       "--controler-visual-viewport-height",
       `${viewportHeight}px`,
     );
+    keyboardOpen = nextKeyboardOpen;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
 
-    if (!keyboardOpen && viewportHeight >= keyboardViewportBaseHeight - 48) {
-      keyboardViewportBaseHeight = viewportHeight;
+    if (
+      !keyboardOpen &&
+      viewportHeight >=
+        keyboardViewportBaseHeight - ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+    ) {
+      keyboardViewportBaseHeight = Math.max(keyboardViewportBaseHeight, viewportHeight);
     }
   }
 
@@ -8669,18 +8686,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
-          const preferManagedBootstrap =
-            hasPendingStateChanges && hasManagedCoreSnapshot;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             normalizedOptions,
           );
+          const canUseManagedBootstrapFastPath =
+            nativeInitializationSettled && canUseManagedBootstrap;
+          const preferManagedBootstrap =
+            nativeInitializationSettled &&
+            hasPendingStateChanges &&
+            hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =
-            useFreshBootstrap || !canUseManagedBootstrap;
+            useFreshBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          if (canUseManagedBootstrap && !useFreshBootstrap) {
+          if (canUseManagedBootstrapFastPath && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -9005,9 +9026,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         async loadSectionRange(section, scope = {}) {
           const normalizedRange = canServeManagedSectionRange(section, scope);
+          const canUseManagedRangeFastPath =
+            nativeInitializationSettled && !!normalizedRange;
           const preferManagedRange =
-            hasPendingStateChanges && hasManagedCoreSnapshot;
-          if (normalizedRange || preferManagedRange) {
+            nativeInitializationSettled &&
+            hasPendingStateChanges &&
+            hasManagedCoreSnapshot;
+          if (canUseManagedRangeFastPath || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
               section,
@@ -14265,8 +14290,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.clearTimeout(timerId);
       });
       focusTarget.__controlerAndroidFocusRetryTimers = [];
+      focusTarget.__controlerAndroidFocusRetryToken = "";
     };
-    const scheduleRetrySequence = (delays = [], retryAction = focusOnce) => {
+    const createRetryToken = () => {
+      const nextToken = `controler-android-focus-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      focusTarget.__controlerAndroidFocusRetryToken = nextToken;
+      return nextToken;
+    };
+    const scheduleRetrySequence = (
+      delays = [],
+      retryAction = focusOnce,
+      retryToken = "",
+    ) => {
       if (!Array.isArray(delays) || !delays.length) {
         return;
       }
@@ -14277,6 +14314,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             !isVisibleInteractiveTextControl(focusTarget)
           ) {
             return;
+          }
+          if (
+            retryToken &&
+            focusTarget.__controlerAndroidFocusRetryToken !== retryToken
+          ) {
+            return;
+          }
+          const activeElement = document.activeElement;
+          if (
+            activeElement instanceof HTMLElement &&
+            activeElement !== focusTarget &&
+            activeElement !== document.body &&
+            activeElement !== document.documentElement
+          ) {
+            const activeInteractiveTarget =
+              resolveInteractiveTextControlTarget(activeElement) ||
+              (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+              activeElement.isContentEditable === true
+                ? activeElement
+                : null);
+            if (
+              activeInteractiveTarget instanceof HTMLElement &&
+              activeInteractiveTarget !== focusTarget
+            ) {
+              return;
+            }
+            if (activeElement.closest?.(".app-nav")) {
+              return;
+            }
           }
           retryAction();
         }, delayMs);
@@ -14336,7 +14402,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ? retrySequence
       : [fallbackRetryDelayMs, fallbackRetryDelayMs + 120];
     clearPendingFocusRetries();
-    scheduleRetrySequence(fallbackRetrySequence);
+    const retryToken = createRetryToken();
+    scheduleRetrySequence(fallbackRetrySequence, focusOnce, retryToken);
     return false;
   }
 
@@ -14351,6 +14418,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.clearTimeout(timerId);
     });
     target.__controlerAndroidFocusRetryTimers = [];
+    target.__controlerAndroidFocusRetryToken = "";
   }
 
   function releaseAndroidInteractiveTextControlFocus() {
@@ -14454,6 +14522,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.setTimeout(() => {
           requestAndroidSoftInputForFocusedTarget(focusTarget);
         }, 24);
+      },
+      true,
+    );
+    document.addEventListener(
+      "focusout",
+      (event) => {
+        const focusTarget = resolveInteractiveTextControlTarget(event.target);
+        if (!(focusTarget instanceof HTMLElement)) {
+          return;
+        }
+        window.setTimeout(() => {
+          if (!isFocusedInteractiveTextControl(focusTarget)) {
+            clearAndroidInteractiveTextControlPendingRetries(focusTarget);
+          }
+        }, 0);
       },
       true,
     );
@@ -15096,6 +15179,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function startAppPageTransition(targetItem, options = {}) {
     clearAndroidNavButtonFocus(document.activeElement, true);
+    releaseAndroidInteractiveTextControlFocus();
     clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidReactNativeNavigationRuntime =
@@ -15248,6 +15332,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!targetItem) {
       return false;
     }
+    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      clearAndroidNavButtonFocus(document.activeElement, true);
+      return true;
+    }
     clearAndroidNavButtonFocus(document.activeElement, true);
     return startAppPageTransition(targetItem);
   }
@@ -15256,6 +15344,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const targetItem = resolveAppNavigationItemByHref(targetHref);
     if (!targetItem) {
       return false;
+    }
+    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      clearAndroidNavButtonFocus(document.activeElement, true);
+      return true;
     }
     clearAndroidNavButtonFocus(document.activeElement, true);
     return startAppPageTransition(targetItem, {
@@ -17123,8 +17215,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     shield.style.position = "fixed";
     shield.style.inset = "0";
     shield.style.width = "100vw";
-    shield.style.height = "var(--controler-visual-viewport-height, 100dvh)";
-    shield.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    shield.style.height = "100vh";
+    shield.style.maxHeight = "100vh";
     shield.style.background = "transparent";
     shield.style.pointerEvents = "none";
     shield.style.touchAction = "none";
@@ -17251,9 +17343,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     modal.style.bottom = "0";
     modal.style.inset = "0";
     modal.style.width = "100vw";
-    modal.style.minHeight = "var(--controler-visual-viewport-height, 100dvh)";
-    modal.style.height = "var(--controler-visual-viewport-height, 100dvh)";
-    modal.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.minHeight = "100vh";
+    modal.style.height = "100vh";
+    modal.style.maxHeight = "100vh";
     modal.style.backgroundColor = "var(--overlay-bg)";
     modal.style.display = options.visible === false ? "none" : "flex";
     modal.style.alignItems = options.alignItems || "center";

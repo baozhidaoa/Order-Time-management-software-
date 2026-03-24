@@ -2,7 +2,10 @@ package com.controlerapp.widgets;
 
 import android.content.Context;
 import android.content.Intent;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.StrikethroughSpan;
 import android.widget.RemoteViews;
 import android.widget.RemoteViewsService;
 
@@ -85,27 +88,29 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                     ? R.layout.controler_widget_goal_collection_item
                     : R.layout.controler_widget_collection_item
             );
-            views.setTextViewText(R.id.widget_collection_item_title, row.title);
+            views.setTextViewText(
+                R.id.widget_collection_item_title,
+                buildCollectionItemTitleText(row)
+            );
             views.setTextViewText(R.id.widget_collection_item_meta, row.meta);
             views.setTextViewText(R.id.widget_collection_item_action, row.actionLabel);
             views.setTextColor(R.id.widget_collection_item_title, row.titleColor);
             views.setTextColor(R.id.widget_collection_item_meta, row.metaColor);
             views.setTextColor(R.id.widget_collection_item_action, row.actionTextColor);
-            views.setInt(
-                R.id.widget_collection_item_background,
-                "setColorFilter",
-                row.backgroundColor
-            );
             views.setViewVisibility(
                 R.id.widget_collection_item_accent,
                 row.compactGoalStyle ? android.view.View.GONE : android.view.View.VISIBLE
             );
             if (row.compactGoalStyle) {
+                ControlerWidgetGoalBitmapHelper.applyCompactGoalStyle(context, views, row);
+            } else {
                 views.setInt(
-                    R.id.widget_collection_item_outline,
+                    R.id.widget_collection_item_background,
                     "setColorFilter",
-                    row.outlineColor
+                    row.backgroundColor
                 );
+            }
+            if (row.compactGoalStyle) {
                 views.setTextViewText(
                     R.id.widget_collection_item_goal_badge_text,
                     row.badgeText
@@ -114,26 +119,11 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                     R.id.widget_collection_item_goal_badge_text,
                     row.badgeTextColor
                 );
-                views.setInt(
-                    R.id.widget_collection_item_goal_badge_background,
-                    "setColorFilter",
-                    row.badgeColor
-                );
                 views.setViewVisibility(
                     R.id.widget_collection_item_goal_badge,
                     row.badgeText == null || row.badgeText.trim().isEmpty()
                         ? android.view.View.GONE
                         : android.view.View.VISIBLE
-                );
-                views.setInt(
-                    R.id.widget_collection_item_goal_toggle_fill,
-                    "setColorFilter",
-                    row.completionFillColor
-                );
-                views.setInt(
-                    R.id.widget_collection_item_goal_toggle_outline,
-                    "setColorFilter",
-                    row.completionOutlineColor
                 );
                 views.setTextViewText(
                     R.id.widget_collection_item_goal_toggle_text,
@@ -248,6 +238,23 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
         @Override
         public boolean hasStableIds() {
             return true;
+        }
+
+        private CharSequence buildCollectionItemTitleText(
+            ControlerWidgetCollectionStore.RowData row
+        ) {
+            String title = row == null ? "" : row.title;
+            if (TextUtils.isEmpty(title) || row == null || !row.compactGoalStyle || !row.completed) {
+                return title;
+            }
+            SpannableString spannedTitle = new SpannableString(title);
+            spannedTitle.setSpan(
+                new StrikethroughSpan(),
+                0,
+                spannedTitle.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+            return spannedTitle;
         }
     }
 }

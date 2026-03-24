@@ -167,180 +167,175 @@
     </div>
     <!-- 弹窗模态框 -->
     <div
-      class="modal-overlay"
+      class="modal-overlay controler-form-modal-overlay timer-session-modal-overlay"
       id="modal-overlay"
       data-controler-modal-persistent="true"
       style="display: none"
     >
       <div
-        class="modal-content ms"
+        class="modal-content ms controler-form-modal timer-session-modal"
         style="padding: 20px; border-radius: 15px; max-width: 500px; width: 90%"
       >
-        <h2 style="margin-top: 0; color: var(--text-color)">配置计时</h2>
+        <div class="controler-form-modal-body timer-session-modal-body">
+          <h2 style="margin-top: 0; color: var(--text-color)">配置计时</h2>
 
-        <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
-            >当前项目</label
-          >
-          <div class="input-with-suggestions">
-            <input
-              type="text"
-              id="project-name-input"
-              placeholder="输入或选择本次计时项目"
-              style="
-                width: 100%;
-                padding: 10px;
-                border-radius: 8px;
-                border: 1px solid var(--bg-tertiary);
-                background-color: var(--bg-quaternary);
-                color: var(--text-color);
-                font-size: 16px;
-              "
-            />
-            <div id="project-name-suggestions" class="suggestion-popover"></div>
+          <div class="form-group" style="margin-bottom: 15px">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+              >当前项目</label
+            >
+            <div class="input-with-suggestions">
+              <input
+                type="text"
+                id="project-name-input"
+                placeholder="输入或选择本次计时项目"
+                style="
+                  width: 100%;
+                  padding: 10px;
+                  border-radius: 8px;
+                  border: 1px solid var(--bg-tertiary);
+                  background-color: var(--bg-quaternary);
+                  color: var(--text-color);
+                  font-size: 16px;
+                "
+              />
+              <div id="project-name-suggestions" class="suggestion-popover"></div>
+            </div>
           </div>
-        </div>
 
-        <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
-            >用时</label
-          >
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              margin-bottom: 10px;
-            "
-          >
-            <div style="flex: 1; color: var(--text-color)">
-              <div style="font-size: 13px; font-weight: bold">
-                当前用时: <span id="spendtime-display">小于1min</span>
+          <div class="form-group" style="margin-bottom: 15px">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+              >用时</label
+            >
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 10px;
+              "
+            >
+              <div style="flex: 1; color: var(--text-color)">
+                <div style="font-size: 13px; font-weight: bold">
+                  当前用时: <span id="spendtime-display">小于1min</span>
+                </div>
+              </div>
+              <div style="color: var(--text-color); font-size: 14px">
+                剩余: <span id="remaining-time">-</span>
               </div>
             </div>
-            <div style="color: var(--text-color); font-size: 14px">
-              剩余: <span id="remaining-time">-</span>
-            </div>
           </div>
-        </div>
 
-        <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
-            >缩短时间</label
-          >
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              margin-bottom: 10px;
-            "
-          >
-            <div style="display: flex; align-items: center; gap: 5px;">
-              <input
-                type="text"
-                id="shorten-hours"
-                data-controler-edge-back-exclusion="true"
-                placeholder="小时"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                autocomplete="off"
-                enterkeyhint="next"
-                style="
-                  width: 70px;
-                  padding: 8px;
-                  border-radius: 8px;
-                  border: 1px solid var(--input-border-color);
-                  background-color: var(--bg-quaternary);
-                  color: var(--text-color);
-                  position: relative;
-                  z-index: 1;
-                "
-              />
-              <span style="color: var(--text-color)">h</span>
-              <input
-                type="text"
-                id="shorten-minutes"
-                placeholder="分钟"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                autocomplete="off"
-                enterkeyhint="done"
-                style="
-                  width: 70px;
-                  padding: 8px;
-                  border-radius: 8px;
-                  border: 1px solid var(--input-border-color);
-                  background-color: var(--bg-quaternary);
-                  color: var(--text-color);
-                  position: relative;
-                  z-index: 1;
-                "
-              />
-              <span style="color: var(--text-color)">min</span>
-            </div>
-          </div>
-          <div
-            id="shorten-error"
-            style="color: var(--delete-btn); font-size: 12px; display: none"
-          >
-            缩短时间不能超过当前时长，且不能小于1分钟
-          </div>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
-            >下一个项目</label
-          >
-          <div class="input-with-suggestions">
-            <input
-              type="text"
-              id="next-project-input"
-              placeholder="例如：一级盒子/二级盒子"
+          <div class="form-group" style="margin-bottom: 15px">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+              >缩短时间</label
+            >
+            <div
               style="
-                width: 100%;
-                padding: 10px;
-                border-radius: 8px;
-                border: 1px solid var(--bg-tertiary);
-                background-color: var(--bg-quaternary);
-                color: var(--text-color);
-                font-size: 16px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 10px;
               "
-            />
-            <div id="next-project-suggestions" class="suggestion-popover"></div>
+            >
+              <div style="display: flex; align-items: center; gap: 5px;">
+                <input
+                  type="text"
+                  id="shorten-hours"
+                  data-controler-edge-back-exclusion="true"
+                  placeholder="小时"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  enterkeyhint="next"
+                  style="
+                    width: 70px;
+                    padding: 8px;
+                    border-radius: 8px;
+                    border: 1px solid var(--input-border-color);
+                    background-color: var(--bg-quaternary);
+                    color: var(--text-color);
+                    position: relative;
+                    z-index: 1;
+                  "
+                />
+                <span style="color: var(--text-color)">h</span>
+                <input
+                  type="text"
+                  id="shorten-minutes"
+                  placeholder="分钟"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  enterkeyhint="done"
+                  style="
+                    width: 70px;
+                    padding: 8px;
+                    border-radius: 8px;
+                    border: 1px solid var(--input-border-color);
+                    background-color: var(--bg-quaternary);
+                    color: var(--text-color);
+                    position: relative;
+                    z-index: 1;
+                  "
+                />
+                <span style="color: var(--text-color)">min</span>
+              </div>
+            </div>
+            <div
+              id="shorten-error"
+              style="color: var(--delete-btn); font-size: 12px; display: none"
+            >
+              缩短时间不能超过当前时长，且不能小于1分钟
+            </div>
           </div>
-          <div
-            class="existing-projects"
-            id="existing-projects"
-            style="
-              margin-top: 8px;
-              display: grid;
-              grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-              gap: 8px;
-              border-radius: 10px;
-              padding: 8px;
-              max-height: 140px;
-              overflow-y: auto;
-            "
-          >
-            <!-- 已创建项目将动态添加到这里 -->
-          </div>
-          <div style="margin-top: 5px; font-size: 12px; color: var(--muted-text-color)">
-            留空则沿用当前项目；输入二级/三级项目会自动显示完整路径
+
+          <div class="form-group" style="margin-bottom: 15px">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+              >下一个项目</label
+            >
+            <div class="input-with-suggestions">
+              <input
+                type="text"
+                id="next-project-input"
+                placeholder="例如：一级盒子/二级盒子"
+                style="
+                  width: 100%;
+                  padding: 10px;
+                  border-radius: 8px;
+                  border: 1px solid var(--bg-tertiary);
+                  background-color: var(--bg-quaternary);
+                  color: var(--text-color);
+                  font-size: 16px;
+                "
+              />
+              <div id="next-project-suggestions" class="suggestion-popover"></div>
+            </div>
+            <div
+              class="existing-projects"
+              id="existing-projects"
+              style="
+                margin-top: 8px;
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+                gap: 8px;
+                border-radius: 10px;
+                padding: 8px;
+                max-height: 140px;
+                overflow-y: auto;
+              "
+            >
+              <!-- 已创建项目将动态添加到这里 -->
+            </div>
+            <div style="margin-top: 5px; font-size: 12px; color: var(--muted-text-color)">
+              留空则沿用当前项目；输入二级/三级项目会自动显示完整路径
+            </div>
           </div>
         </div>
-
-        <div
-          class="modal-buttons"
-          style="
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-top: 20px;
-          "
-        >
-          <button class="bts" id="modal-cancel">取消</button>
-          <button class="bts" id="modal-confirm">确定</button>
+        <div class="modal-buttons controler-form-modal-footer">
+          <div class="controler-form-modal-footer-actions">
+            <button class="bts" id="modal-cancel">取消</button>
+            <button class="bts" id="modal-confirm">确定</button>
+          </div>
         </div>
       </div>
     </div>

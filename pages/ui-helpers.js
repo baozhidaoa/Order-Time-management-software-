@@ -1502,8 +1502,20 @@
         window.clearTimeout(timerId);
       });
       focusTarget.__controlerAndroidFocusRetryTimers = [];
+      focusTarget.__controlerAndroidFocusRetryToken = "";
     };
-    const scheduleRetrySequence = (delays = [], retryAction = focusOnce) => {
+    const createRetryToken = () => {
+      const nextToken = `controler-android-focus-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      focusTarget.__controlerAndroidFocusRetryToken = nextToken;
+      return nextToken;
+    };
+    const scheduleRetrySequence = (
+      delays = [],
+      retryAction = focusOnce,
+      retryToken = "",
+    ) => {
       if (!Array.isArray(delays) || !delays.length) {
         return;
       }
@@ -1514,6 +1526,35 @@
             !isVisibleInteractiveTextControl(focusTarget)
           ) {
             return;
+          }
+          if (
+            retryToken &&
+            focusTarget.__controlerAndroidFocusRetryToken !== retryToken
+          ) {
+            return;
+          }
+          const activeElement = document.activeElement;
+          if (
+            activeElement instanceof HTMLElement &&
+            activeElement !== focusTarget &&
+            activeElement !== document.body &&
+            activeElement !== document.documentElement
+          ) {
+            const activeInteractiveTarget =
+              resolveInteractiveTextControlTarget(activeElement) ||
+              (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+              activeElement.isContentEditable === true
+                ? activeElement
+                : null);
+            if (
+              activeInteractiveTarget instanceof HTMLElement &&
+              activeInteractiveTarget !== focusTarget
+            ) {
+              return;
+            }
+            if (activeElement.closest?.(".app-nav")) {
+              return;
+            }
           }
           retryAction();
         }, delayMs);
@@ -1573,7 +1614,8 @@
       ? retrySequence
       : [fallbackRetryDelayMs, fallbackRetryDelayMs + 120];
     clearPendingFocusRetries();
-    scheduleRetrySequence(fallbackRetrySequence);
+    const retryToken = createRetryToken();
+    scheduleRetrySequence(fallbackRetrySequence, focusOnce, retryToken);
     return false;
   }
 
@@ -1588,6 +1630,7 @@
       window.clearTimeout(timerId);
     });
     target.__controlerAndroidFocusRetryTimers = [];
+    target.__controlerAndroidFocusRetryToken = "";
   }
 
   function releaseAndroidInteractiveTextControlFocus() {
@@ -1691,6 +1734,21 @@
         window.setTimeout(() => {
           requestAndroidSoftInputForFocusedTarget(focusTarget);
         }, 24);
+      },
+      true,
+    );
+    document.addEventListener(
+      "focusout",
+      (event) => {
+        const focusTarget = resolveInteractiveTextControlTarget(event.target);
+        if (!(focusTarget instanceof HTMLElement)) {
+          return;
+        }
+        window.setTimeout(() => {
+          if (!isFocusedInteractiveTextControl(focusTarget)) {
+            clearAndroidInteractiveTextControlPendingRetries(focusTarget);
+          }
+        }, 0);
       },
       true,
     );
@@ -2333,6 +2391,7 @@
 
   function startAppPageTransition(targetItem, options = {}) {
     clearAndroidNavButtonFocus(document.activeElement, true);
+    releaseAndroidInteractiveTextControlFocus();
     clearNativeNavigationRetryTimer();
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidReactNativeNavigationRuntime =
@@ -2485,6 +2544,10 @@
     if (!targetItem) {
       return false;
     }
+    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      clearAndroidNavButtonFocus(document.activeElement, true);
+      return true;
+    }
     clearAndroidNavButtonFocus(document.activeElement, true);
     return startAppPageTransition(targetItem);
   }
@@ -2493,6 +2556,10 @@
     const targetItem = resolveAppNavigationItemByHref(targetHref);
     if (!targetItem) {
       return false;
+    }
+    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      clearAndroidNavButtonFocus(document.activeElement, true);
+      return true;
     }
     clearAndroidNavButtonFocus(document.activeElement, true);
     return startAppPageTransition(targetItem, {
@@ -4360,8 +4427,8 @@
     shield.style.position = "fixed";
     shield.style.inset = "0";
     shield.style.width = "100vw";
-    shield.style.height = "var(--controler-visual-viewport-height, 100dvh)";
-    shield.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    shield.style.height = "100vh";
+    shield.style.maxHeight = "100vh";
     shield.style.background = "transparent";
     shield.style.pointerEvents = "none";
     shield.style.touchAction = "none";
@@ -4488,9 +4555,9 @@
     modal.style.bottom = "0";
     modal.style.inset = "0";
     modal.style.width = "100vw";
-    modal.style.minHeight = "var(--controler-visual-viewport-height, 100dvh)";
-    modal.style.height = "var(--controler-visual-viewport-height, 100dvh)";
-    modal.style.maxHeight = "var(--controler-visual-viewport-height, 100dvh)";
+    modal.style.minHeight = "100vh";
+    modal.style.height = "100vh";
+    modal.style.maxHeight = "100vh";
     modal.style.backgroundColor = "var(--overlay-bg)";
     modal.style.display = options.visible === false ? "none" : "flex";
     modal.style.alignItems = options.alignItems || "center";
