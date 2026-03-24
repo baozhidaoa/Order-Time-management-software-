@@ -6606,28 +6606,6 @@ function getThemeProjectColor(level = 1) {
   return "var(--project-level-1)";
 }
 
-function getThemeProjectButtonColor(level = 1) {
-  const projectLevel = normalizeProjectLevel(level);
-  if (projectLevel === 2) {
-    return "var(--project-button-level-2-bg, var(--project-level-2, var(--accent-color)))";
-  }
-  if (projectLevel === 3) {
-    return "var(--project-button-level-3-bg, var(--project-level-3, var(--accent-color)))";
-  }
-  return "var(--project-button-level-1-bg, var(--project-level-1, var(--accent-color)))";
-}
-
-function getThemeProjectButtonTextColor(level = 1) {
-  const projectLevel = normalizeProjectLevel(level);
-  if (projectLevel === 2) {
-    return "var(--project-button-level-2-text, var(--on-accent-text))";
-  }
-  if (projectLevel === 3) {
-    return "var(--project-button-level-3-text, var(--on-accent-text))";
-  }
-  return "var(--project-button-level-1-text, var(--on-accent-text))";
-}
-
 function getProjectStatsColor(project, fallbackLevel = 1) {
   const projectLevel = normalizeProjectLevel(project?.level || fallbackLevel);
   return normalizeProjectColorToHex(
@@ -10512,8 +10490,8 @@ function updateProjectsList() {
     projectElement.style.whiteSpace = "nowrap";
     projectElement.style.overflow = "hidden";
     projectElement.style.textOverflow = "ellipsis";
-    projectElement.style.background = getThemeProjectButtonColor(projectLevel);
-    projectElement.style.color = getThemeProjectButtonTextColor(projectLevel);
+    projectElement.style.background = getThemeProjectColor(projectLevel);
+    projectElement.style.color = "var(--on-accent-text)";
 
     // 点击项目显示编辑弹窗
     projectElement.addEventListener("click", function (e) {
@@ -13277,8 +13255,8 @@ function renderProjectsTable() {
     // 一级项目标题
     const level1Header = document.createElement("div");
     level1Header.className = "level1-header";
-    level1Header.style.background = getThemeProjectButtonColor(1);
-    level1Header.style.color = getThemeProjectButtonTextColor(1);
+    level1Header.style.background = getThemeProjectColor(1);
+    level1Header.style.color = "var(--on-accent-text)";
     level1Header.style.padding = `${level1Padding}px`;
     level1Header.style.borderRadius = "8px";
     level1Header.style.fontWeight = "bold";
@@ -13349,8 +13327,8 @@ function renderProjectsTable() {
           // 二级项目标题
           const level2Header = document.createElement("div");
           level2Header.className = "level2-header";
-          level2Header.style.background = getThemeProjectButtonColor(2);
-          level2Header.style.color = getThemeProjectButtonTextColor(2);
+          level2Header.style.background = getThemeProjectColor(2);
+          level2Header.style.color = "var(--on-accent-text)";
           level2Header.style.padding = `${level2Padding}px`;
           level2Header.style.borderRadius = "6px";
           level2Header.style.fontWeight = "bold";
@@ -13400,8 +13378,8 @@ function renderProjectsTable() {
               level3Item.className = "level3-item";
               level3Item.dataset.projectId = level3Project.id;
               level3Item.dataset.parentId = level3Project.parentId;
-              level3Item.style.background = getThemeProjectButtonColor(3);
-              level3Item.style.color = getThemeProjectButtonTextColor(3);
+              level3Item.style.background = getThemeProjectColor(3);
+              level3Item.style.color = "var(--on-accent-text)";
               level3Item.style.padding = `${level3Padding}px`;
               level3Item.style.borderRadius = "4px";
               level3Item.style.fontSize = `${bodyFontSize}px`;
@@ -14038,4 +14016,5 @@ if (document.readyState === "loading") {
     renderIndexBootstrapError(error, "ready");
   });
 }
+
 
