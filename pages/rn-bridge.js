@@ -265,6 +265,10 @@
       keyboardViewportBaseHeight = viewportHeight;
     }
 
+    const stableViewportHeight = Math.max(
+      keyboardViewportBaseHeight || 0,
+      viewportHeight,
+    );
     const keyboardDelta = Math.max(keyboardViewportBaseHeight - viewportHeight, 0);
     const nextKeyboardOpen = keyboardOpen
       ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
@@ -274,6 +278,10 @@
     root?.style.setProperty(
       "--controler-visual-viewport-height",
       `${viewportHeight}px`,
+    );
+    root?.style.setProperty(
+      "--controler-stable-visual-viewport-height",
+      `${stableViewportHeight}px`,
     );
     keyboardOpen = nextKeyboardOpen;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
