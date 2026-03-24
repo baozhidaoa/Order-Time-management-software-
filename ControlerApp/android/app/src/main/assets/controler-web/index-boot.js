@@ -3501,18 +3501,75 @@ function bindTableScaleLiveRefresh() {
   const rerender = () => {
     refreshIndexWorkspace();
   };
+  const isModalTextEntryElement = (target) => {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    if (target.isContentEditable === true) {
+      return true;
+    }
+    const tagName = String(target.tagName || "").trim().toLowerCase();
+    if (tagName === "textarea") {
+      return true;
+    }
+    if (tagName !== "input") {
+      return false;
+    }
+    const inputType = String(target.type || "").trim().toLowerCase();
+    return ![
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "hidden",
+      "image",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ].includes(inputType);
+  };
+  const isVisibleModalOverlayElement = (modal) => {
+    if (!(modal instanceof HTMLElement)) {
+      return false;
+    }
+    const computedStyle = window.getComputedStyle(modal);
+    return (
+      computedStyle.display !== "none" &&
+      computedStyle.visibility !== "hidden" &&
+      !modal.hidden
+    );
+  };
+  const hasFocusedVisibleModalTextEntry = () => {
+    const activeElement = document.activeElement;
+    if (!isModalTextEntryElement(activeElement)) {
+      return false;
+    }
+    const modal = activeElement.closest(".modal-overlay");
+    return isVisibleModalOverlayElement(modal);
+  };
   const rerenderForResize = () => {
+    const activeElement = document.activeElement;
     const isInlineRecordEditActive = !!editingRecordId;
-    const isRecordNameInputFocused = document.activeElement?.classList?.contains(
+    const isRecordNameInputFocused = activeElement?.classList?.contains(
       "record-name-input",
     );
+    const isAndroidMobileRuntime =
+      document.body?.classList.contains("controler-mobile-runtime") &&
+      document.body?.classList.contains("controler-android-native");
     const keyboardOpen = document.body?.classList.contains(
       "controler-keyboard-open",
     );
+    const timerModal = document.getElementById("modal-overlay");
+    const hasOpenTimerModal =
+      isModalOpen && isVisibleModalOverlayElement(timerModal);
+    const hasFocusedModalTextEntry = hasFocusedVisibleModalTextEntry();
     if (
-      document.body?.classList.contains("controler-mobile-runtime") &&
-      isInlineRecordEditActive &&
-      (isRecordNameInputFocused || keyboardOpen)
+      isAndroidMobileRuntime &&
+      (hasOpenTimerModal ||
+        hasFocusedModalTextEntry ||
+        keyboardOpen ||
+        (isInlineRecordEditActive && isRecordNameInputFocused))
     ) {
       return;
     }
@@ -7164,7 +7221,7 @@ function bindOutsideRecordEditCancellation() {
 }
 
 // “开始计时” 打开弹窗
-function openModal() {
+function openModal(options = {}) {
   const modal = document.getElementById("modal-overlay");
   if (!modal) {
     spendModalClickLocked = false;
@@ -7178,6 +7235,7 @@ function openModal() {
   isModalOpen = true;
   modal.hidden = false;
   modal.style.display = "flex";
+  modal.style.pointerEvents = "auto";
   modal.style.zIndex = indexInitialDataLoaded ? "1000" : "2600";
 
   // 更新现有项目列表
@@ -7211,6 +7269,19 @@ function openModal() {
   }
   const defaultTarget = "project-name-input";
   setModalProjectInputTarget(defaultTarget);
+  if (options.focusInput === true) {
+    const focusTargetId =
+      options.focusTargetId === "next-project-input" ||
+      options.focusTargetId === "project-name-input"
+        ? options.focusTargetId
+        : getDefaultModalProjectInputTarget();
+    requestAnimationFrame(() => {
+      setModalProjectInputTarget(focusTargetId || defaultTarget, {
+        focus: true,
+        manual: false,
+      });
+    });
+  }
 
   resetShortenTimeInputs(false);
   const shortenHoursInput = document.getElementById("shorten-hours");
@@ -7256,6 +7327,7 @@ function closeModal(options = {}) {
   clearPendingSpendModalState();
   const modal = document.getElementById("modal-overlay");
   isModalOpen = false;
+  uiTools?.releaseAndroidInteractiveTextControlFocus?.();
   if (modal) {
     modal.hidden = true;
     modal.style.display = "none";
@@ -7457,7 +7529,7 @@ function spend(options = {}) {
   return true;
 }
 
-function requestSpendModalOpen(requestedClickTime = new Date()) {
+function requestSpendModalOpen(requestedClickTime = new Date(), options = {}) {
   const now = Date.now();
   const clickTime =
     requestedClickTime instanceof Date &&
@@ -7477,7 +7549,7 @@ function requestSpendModalOpen(requestedClickTime = new Date()) {
   spendModalClickLocked = true;
   capturePendingSpendModalState(clickTime);
 
-  if (openModal()) {
+  if (openModal(options)) {
     return true;
   }
 
@@ -10623,8 +10695,6 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
   updateProjectsList();
   updateExistingProjectsList();
   updateParentProjectSelect(1);
-  refreshIndexWorkspace({ immediate: true });
-
   if (ui.modalOpen === true) {
     isModalOpen = true;
     const modal = document.getElementById("modal-overlay");
@@ -10632,6 +10702,7 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
       modal.hidden = false;
       modal.style.display = "flex";
       modal.style.pointerEvents = "auto";
+      modal.style.zIndex = indexInitialDataLoaded ? "1000" : "2600";
     }
 
     const projectNameInput = document.getElementById("project-name-input");
@@ -10658,11 +10729,20 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
         typeof ui.shortenMinutes === "string" ? ui.shortenMinutes : "";
       sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
     }
+    setModalProjectInputTarget(getDefaultModalProjectInputTarget(), {
+      manual: modalProjectInputTargetManual,
+    });
     updateRemainingTimeDisplay();
+    requestAnimationFrame(() => {
+      refreshIndexWorkspace({ immediate: true });
+      uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
+    });
+  } else {
+    refreshIndexWorkspace({ immediate: true });
+    uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   }
 
   persistTimerSessionState();
-  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   return true;
 }
 
@@ -12917,7 +12997,10 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
       ? new Date(requestedAt)
       : new Date();
   const accepted =
-    requestSpendModalOpen(clickTime) ||
+    requestSpendModalOpen(clickTime, {
+      focusInput: true,
+      focusTargetId: "project-name-input",
+    }) ||
     isIndexWidgetTimerModalVisible() ||
     !!pendingSpendModalState;
   if (accepted) {

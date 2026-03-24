@@ -3,9 +3,9 @@
     android:id="@+id/widget_collection_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="44dp"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp">
+    android:minHeight="48dp"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp">
 
     <ImageView
         android:id="@+id/widget_collection_item_background"
@@ -29,12 +29,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="44dp"
+        android:minHeight="48dp"
         android:orientation="horizontal"
         android:paddingLeft="12dp"
-        android:paddingTop="8dp"
+        android:paddingTop="9dp"
         android:paddingRight="12dp"
-        android:paddingBottom="8dp">
+        android:paddingBottom="9dp">
 
         <View
             android:id="@+id/widget_collection_item_accent"
@@ -87,11 +87,11 @@
                     android:layout_gravity="center"
                     android:gravity="center"
                     android:includeFontPadding="false"
-                    android:minWidth="24dp"
-                    android:paddingLeft="7dp"
-                    android:paddingTop="3dp"
-                    android:paddingRight="7dp"
-                    android:paddingBottom="3dp"
+                    android:minWidth="22dp"
+                    android:paddingLeft="5dp"
+                    android:paddingTop="2dp"
+                    android:paddingRight="5dp"
+                    android:paddingBottom="2dp"
                     android:text="中"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp"
@@ -100,8 +100,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_collection_item_goal_toggle"
-                android:layout_width="24dp"
-                android:layout_height="24dp">
+                android:layout_width="26dp"
+                android:layout_height="26dp">
 
                 <ImageView
                     android:id="@+id/widget_collection_item_goal_toggle_fill"

@@ -230,9 +230,14 @@
     body.classList.toggle("controler-ios-native", isNative && platform === "ios");
   }
 
+  const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
+  const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
+  const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
+  const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
   let keyboardViewportBaseHeight = 0;
   let lastKeyboardViewportHeight = 0;
   let keyboardStateFrameId = 0;
+  let keyboardOpen = false;
 
   function applyKeyboardOpenState() {
     const platform = getNativeHostPlatform();
@@ -247,7 +252,11 @@
       return;
     }
 
-    if (viewportHeight === lastKeyboardViewportHeight && keyboardViewportBaseHeight) {
+    if (
+      keyboardViewportBaseHeight &&
+      Math.abs(viewportHeight - lastKeyboardViewportHeight) <
+        ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+    ) {
       return;
     }
     lastKeyboardViewportHeight = viewportHeight;
@@ -256,18 +265,26 @@
       keyboardViewportBaseHeight = viewportHeight;
     }
 
-    const keyboardOpen = keyboardViewportBaseHeight - viewportHeight > 140;
+    const keyboardDelta = Math.max(keyboardViewportBaseHeight - viewportHeight, 0);
+    const nextKeyboardOpen = keyboardOpen
+      ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
+      : keyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
     const root = document.documentElement;
     const body = document.body;
     root?.style.setProperty(
       "--controler-visual-viewport-height",
       `${viewportHeight}px`,
     );
+    keyboardOpen = nextKeyboardOpen;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
 
-    if (!keyboardOpen && viewportHeight >= keyboardViewportBaseHeight - 48) {
-      keyboardViewportBaseHeight = viewportHeight;
+    if (
+      !keyboardOpen &&
+      viewportHeight >=
+        keyboardViewportBaseHeight - ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+    ) {
+      keyboardViewportBaseHeight = Math.max(keyboardViewportBaseHeight, viewportHeight);
     }
   }
 

@@ -543,9 +543,9 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   bottom: 0;
   inset: 0;
   width: 100vw;
-  min-height: var(--controler-visual-viewport-height, 100dvh);
-  height: var(--controler-visual-viewport-height, 100dvh);
-  max-height: var(--controler-visual-viewport-height, 100dvh);
+  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
   background-color: var(--overlay-bg);
   display: flex;
   justify-content: center;
@@ -1139,6 +1139,36 @@ body.page-record #project-totals {
   backdrop-filter: blur(16px) saturate(128%);
   -webkit-backdrop-filter: blur(16px) saturate(128%);
   box-shadow: var(--expand-surface-shadow);
+  min-height: 72px;
+  align-content: start;
+}
+
+.timer-session-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden !important;
+}
+
+.timer-session-modal .controler-form-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.timer-session-modal .form-group {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.timer-session-modal .controler-form-modal-footer {
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
 .existing-projects .project-option {
@@ -6363,6 +6393,11 @@ body.controler-fullscreen-overlay-active > div:first-of-type > .app-sidebar {
   pointer-events: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
+}
+
+body.controler-modal-overlay-active > div:first-of-type > .app-nav,
+body.controler-modal-overlay-active > div:first-of-type > .app-sidebar {
+  pointer-events: none !important;
 }
 
 body.controler-android-native.app-page-transition-enabled > div:nth-of-type(2),

@@ -299,12 +299,19 @@ function assertRegexMatch(sourceText, regex, message) {
   }
 }
 
+function escapeRegex(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function extractFunctionBlock(sourceText, functionName) {
-  const declaration = `function ${functionName}`;
-  const startIndex = sourceText.indexOf(declaration);
-  if (startIndex === -1) {
+  const declarationPattern = new RegExp(
+    `function\\s+${escapeRegex(functionName)}\\s*\\(`,
+  );
+  const declarationMatch = declarationPattern.exec(sourceText);
+  if (!declarationMatch) {
     return null;
   }
+  const startIndex = declarationMatch.index;
 
   const paramsStartIndex = sourceText.indexOf("(", startIndex);
   if (paramsStartIndex === -1) {
@@ -499,6 +506,7 @@ async function main() {
     androidWidgetDataStoreSource,
     guideUiSource,
     diarySource,
+    todoSource,
   ] =
     await Promise.all([
       readUtf8(
@@ -578,6 +586,7 @@ async function main() {
       ),
       readUtf8(path.join(repoRoot, "pages", "guide-ui.js")),
       readUtf8(path.join(repoRoot, "pages", "diary.js")),
+      readUtf8(path.join(repoRoot, "pages", "todo.js")),
     ]);
 
   const requiredBridgeMethods = platformContract.getReactNativeBridgeMethodNames();
@@ -639,6 +648,16 @@ async function main() {
     pagesStorageAdapterSource,
     /async getCoreState\(\)\s*\{[\s\S]*mergeManagedStateWithNativeCorePayload\(parsed,\s*currentState\)/,
     "React Native getCoreState 快路径未复用完整核心快照合并逻辑。",
+  );
+  assertRegexMatch(
+    pagesStorageAdapterSource,
+    /async getPageBootstrapState\(pageKey,\s*options = \{\}\)\s*\{[\s\S]*const useFreshBootstrap = normalizedOptions\.fresh === true;[\s\S]*const canUseManagedBootstrapFastPath =[\s\S]*nativeInitializationSettled && canUseManagedBootstrap;[\s\S]*const preferManagedBootstrap =[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot;[\s\S]*const shouldHydrateManagedMirror =[\s\S]*useFreshBootstrap \|\| !canUseManagedBootstrapFastPath;/,
+    "React Native 页面引导快路径仍可能在原生初始化完成前直接复用待补写镜像。",
+  );
+  assertRegexMatch(
+    pagesStorageAdapterSource,
+    /async loadSectionRange\(section,\s*scope = \{\}\)\s*\{[\s\S]*const normalizedRange = canServeManagedSectionRange\(section,\s*scope\);[\s\S]*const canUseManagedRangeFastPath =[\s\S]*nativeInitializationSettled && !!normalizedRange;[\s\S]*const preferManagedRange =[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot;/,
+    "React Native 分区范围快路径仍可能在原生初始化完成前直接复用待补写镜像。",
   );
   assertRegexMatch(
     iosBridgeSource,
@@ -746,6 +765,20 @@ async function main() {
     ],
     "日记页未复用共享 guideState 快照，或未优先持久化 guideState 以避免自动补种。",
   );
+  const todoInitFunction = extractFunctionBlock(todoSource, "init");
+  if (!todoInitFunction) {
+    recordFailure("找不到待办页 init 实现。");
+  } else {
+    assertIncludesInOrder(
+      todoInitFunction,
+      [
+        "bindTodoExternalStorageRefresh();",
+        "await waitForTodoStorageReady();",
+        "applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());",
+      ],
+      "待办页初始化未先绑定外部刷新并等待原生存储就绪，再执行首屏 fresh hydrate。",
+    );
+  }
 
   if (!appTsxSource.includes("getReactNativeRuntimeProfile")) {
     recordFailure("ControlerApp/App.tsx 尚未基于共享契约生成 RN runtime metadata。");
