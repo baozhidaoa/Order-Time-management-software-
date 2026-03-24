@@ -3208,7 +3208,7 @@
           console.error("获取 Electron 存储状态失败:", error);
           return null;
         }));
-      cachedStatus = nextStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(nextStatus, nextState);
       maybeNotifyStorageRecoveryStatus(cachedStatus);
 
       clearStorageSyncError();
@@ -3248,10 +3248,13 @@
           if (cachedStatus) {
             return cachedStatus;
           }
-          cachedStatus = await electronAPI.storageStatus().catch((error) => {
-            console.error("获取 Electron 存储状态失败:", error);
-            return null;
-          });
+          cachedStatus = enrichStorageStatusWithRecovery(
+            await electronAPI.storageStatus().catch((error) => {
+              console.error("获取 Electron 存储状态失败:", error);
+              return null;
+            }),
+            cachedState || readState(),
+          );
           maybeNotifyStorageRecoveryStatus(cachedStatus);
           return cachedStatus;
         });
@@ -3348,10 +3351,13 @@
         if (cachedStatus) {
           return cachedStatus;
         }
-        cachedStatus = await electronAPI.storageStatus().catch((error) => {
-          console.error("获取 Electron 存储状态失败:", error);
-          return null;
-        });
+        cachedStatus = enrichStorageStatusWithRecovery(
+          await electronAPI.storageStatus().catch((error) => {
+            console.error("获取 Electron 存储状态失败:", error);
+            return null;
+          }),
+          cachedState || readState(),
+        );
         maybeNotifyStorageRecoveryStatus(cachedStatus);
         return cachedStatus;
       },
@@ -4051,6 +4057,10 @@
         console.warn(message, options.error || "");
         return;
       }
+      if (options.suppressUserAlert === true) {
+        console.warn(message, options.error || "");
+        return;
+      }
       reportStorageSyncError(message, options);
     }
 
@@ -4542,7 +4552,7 @@
         suppressError: true,
       });
       if (nextStatus && typeof nextStatus === "object") {
-        cachedStatus = nextStatus;
+        cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
       }
       if (
         checkpoint &&
@@ -4733,7 +4743,7 @@
       })
         .then((nextStatus) => {
           if (nextStatus && typeof nextStatus === "object") {
-            cachedStatus = nextStatus;
+            cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             persistMirrorSnapshot(true);
             updateVersionBaseline(cachedStatus);
@@ -4837,6 +4847,7 @@
         if (pendingSharedKeys.length) {
           reportNativeStorageSyncError(blockedMessage, {
             reason: "native-write-blocked-shared-rebase",
+            suppressUserAlert: true,
           });
           console.warn(
             "React Native 原生快照暂不可用，已阻止共享状态补写，避免覆盖整库。",
@@ -4846,6 +4857,7 @@
             blockedMessage,
             {
               reason: "native-write-blocked-incomplete-mirror",
+              suppressUserAlert: true,
             },
           );
           console.warn(
@@ -4901,7 +4913,7 @@
       rebuildManagedSectionCoverage(cachedState, {
         markFull: true,
       });
-      cachedStatus = nextStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
       maybeNotifyStorageRecoveryStatus(cachedStatus);
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -5016,7 +5028,10 @@
       rebuildManagedSectionCoverage(cachedState, {
         markFull: true,
       });
-      cachedStatus = next.status || cachedStatus;
+      cachedStatus = enrichStorageStatusWithRecovery(
+        next.status || cachedStatus,
+        cachedState,
+      );
       lastWrittenComparableSnapshot = nextSnapshot;
       hasPendingStateChanges = false;
       persistMirrorSnapshot(true);
@@ -5245,7 +5260,10 @@
         rebuildManagedSectionCoverage(cachedState, {
           markFull: true,
         });
-        cachedStatus = next.status || cachedStatus;
+        cachedStatus = enrichStorageStatusWithRecovery(
+          next.status || cachedStatus,
+          cachedState,
+        );
         lastWrittenComparableSnapshot = nextSnapshot;
         hasPendingStateChanges = false;
         persistMirrorSnapshot(true);
@@ -5868,7 +5886,10 @@
               suppressError: true,
             });
             if (nextStatus && typeof nextStatus === "object") {
-              cachedStatus = nextStatus;
+              cachedStatus = enrichStorageStatusWithRecovery(
+                nextStatus,
+                cachedState,
+              );
             }
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
@@ -5907,12 +5928,17 @@
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
           const useFreshBootstrap = normalizedOptions.fresh === true;
+          const preferManagedBootstrap =
+            hasPendingStateChanges && hasManagedCoreSnapshot;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             normalizedOptions,
           );
           const shouldHydrateManagedMirror =
             useFreshBootstrap || !canUseManagedBootstrap;
+          if (preferManagedBootstrap) {
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+          }
           if (canUseManagedBootstrap && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
@@ -6238,9 +6264,14 @@
         },
         async loadSectionRange(section, scope = {}) {
           const normalizedRange = canServeManagedSectionRange(section, scope);
-          if (normalizedRange) {
+          const preferManagedRange =
+            hasPendingStateChanges && hasManagedCoreSnapshot;
+          if (normalizedRange || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
-            return loadManagedSectionRange(section, normalizedRange);
+            return loadManagedSectionRange(
+              section,
+              normalizedRange || scope,
+            );
           }
           try {
             const rawPayload = await reactNativeBridge.call("storage.loadSectionRange", {

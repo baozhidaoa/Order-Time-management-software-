@@ -138,6 +138,8 @@ public final class ControlerWidgetRenderer {
         String command = "";
         String targetId = "";
         int accentColor = Color.parseColor("#8ED6A4");
+        String badgeText = "";
+        boolean completed = false;
         boolean pending = false;
         boolean actionDisabled = false;
     }
@@ -2916,36 +2918,54 @@ public final class ControlerWidgetRenderer {
         }
 
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
-        int baseRowSurfaceColor = resolveCollectionRowSurfaceColor(safePalette);
-        int scopeAccentColor = resolveVisibleAccentColor(
-            annual
-                ? safePalette.accentColor
-                : blendColors(safePalette.accentColor, safePalette.bodyColor, 0.30f),
-            baseRowSurfaceColor,
-            safePalette.accentColor
-        );
 
         for (WidgetItemCard item : items) {
             if (item == null) {
                 continue;
             }
-            int rowSurfaceColor = resolveOpaqueColor(
-                blendColors(
-                    baseRowSurfaceColor,
-                    scopeAccentColor,
-                    safePalette.surfaceIsLight ? 0.10f : 0.14f
-                ),
-                safePalette.surfaceColor
+            int rowSurfaceColor = resolveYearGoalRowSurfaceColor(
+                safePalette,
+                item.accentColor,
+                annual,
+                item.completed
             );
-            int rowAccentColor = resolveVisibleAccentColor(
-                scopeAccentColor,
+            int rowOutlineColor = resolveYearGoalRowOutlineColor(
+                safePalette,
                 rowSurfaceColor,
-                safePalette.accentColor
+                item.accentColor,
+                annual,
+                item.completed
             );
-            int rowTitleColor = resolveReadableTextColor(
-                safePalette.bodyColor,
+            int rowTitleColor = resolveYearGoalRowTitleColor(
+                safePalette,
                 rowSurfaceColor,
-                4.9d
+                item.completed
+            );
+            int badgeColor = resolveYearGoalBadgeColor(
+                safePalette,
+                item.accentColor,
+                rowSurfaceColor
+            );
+            int badgeTextColor = resolveReadableTextColor(
+                Color.WHITE,
+                badgeColor,
+                4.2d
+            );
+            int completionFillColor = resolveYearGoalCompletionFillColor(
+                safePalette,
+                rowSurfaceColor,
+                item.completed
+            );
+            int completionOutlineColor = resolveYearGoalCompletionOutlineColor(
+                safePalette,
+                rowSurfaceColor,
+                completionFillColor,
+                item.completed
+            );
+            int completionTextColor = resolveReadableTextColor(
+                item.completed ? safePalette.accentTextColor : safePalette.bodyColor,
+                completionFillColor,
+                4.2d
             );
             JSONObject row = new JSONObject();
             try {
@@ -2956,11 +2976,19 @@ public final class ControlerWidgetRenderer {
                 row.put("action", "");
                 row.put("command", ControlerWidgetActionHandler.COMMAND_NO_OP);
                 row.put("targetId", safeText(item.targetId));
-                row.put("accentColor", rowAccentColor);
+                row.put("accentColor", item.accentColor);
                 row.put("backgroundColor", rowSurfaceColor);
+                row.put("outlineColor", rowOutlineColor);
                 row.put("titleColor", rowTitleColor);
                 row.put("metaColor", rowTitleColor);
                 row.put("actionTextColor", safePalette.actionTextColor);
+                row.put("badgeText", safeText(item.badgeText));
+                row.put("badgeColor", badgeColor);
+                row.put("badgeTextColor", badgeTextColor);
+                row.put("completed", item.completed);
+                row.put("completionFillColor", completionFillColor);
+                row.put("completionOutlineColor", completionOutlineColor);
+                row.put("completionTextColor", completionTextColor);
                 row.put("openEnabled", false);
                 row.put("actionEnabled", false);
                 row.put("compactGoalStyle", true);
@@ -2981,6 +3009,176 @@ public final class ControlerWidgetRenderer {
                 safePalette.surfaceIsLight ? 0.08f : 0.10f
             ),
             safePalette.surfaceColor
+        );
+    }
+
+    private static int resolveYearGoalRowSurfaceColor(
+        ThemePalette palette,
+        int accentColor,
+        boolean annual,
+        boolean completed
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int visibleAccent = resolveVisibleAccentColor(
+            accentColor,
+            safePalette.cardFillColor,
+            safePalette.accentColor
+        );
+        int baseSurfaceColor = resolveOpaqueColor(
+            blendColors(
+                safePalette.cardFillColor,
+                safePalette.backgroundColor,
+                safePalette.surfaceIsLight ? 0.18f : 0.24f
+            ),
+            safePalette.surfaceColor
+        );
+        return resolveOpaqueColor(
+            blendColors(
+                baseSurfaceColor,
+                completed
+                    ? resolveVisibleAccentColor(
+                        safePalette.accentColor,
+                        baseSurfaceColor,
+                        visibleAccent
+                    )
+                    : visibleAccent,
+                completed
+                    ? (safePalette.surfaceIsLight ? 0.12f : 0.20f)
+                    : safePalette.surfaceIsLight
+                        ? (annual ? 0.08f : 0.05f)
+                        : (annual ? 0.14f : 0.09f)
+            ),
+            safePalette.surfaceColor
+        );
+    }
+
+    private static int resolveYearGoalRowOutlineColor(
+        ThemePalette palette,
+        int rowSurfaceColor,
+        int accentColor,
+        boolean annual,
+        boolean completed
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int visibleAccent = resolveVisibleAccentColor(
+            completed ? safePalette.accentColor : accentColor,
+            rowSurfaceColor,
+            safePalette.accentColor
+        );
+        int outlineColor = blendColors(
+            blendColors(
+                rowSurfaceColor,
+                visibleAccent,
+                completed
+                    ? (safePalette.surfaceIsLight ? 0.30f : 0.24f)
+                    : safePalette.surfaceIsLight
+                        ? (annual ? 0.20f : 0.16f)
+                        : (annual ? 0.18f : 0.14f)
+            ),
+            safePalette.borderColor,
+            completed
+                ? (safePalette.surfaceIsLight ? 0.18f : 0.10f)
+                : safePalette.surfaceIsLight
+                    ? 0.32f
+                    : 0.18f
+        );
+        if (contrastRatio(outlineColor, rowSurfaceColor) >= 1.22d) {
+            return outlineColor;
+        }
+        return blendColors(
+            rowSurfaceColor,
+            visibleAccent,
+            completed
+                ? (safePalette.surfaceIsLight ? 0.36f : 0.30f)
+                : safePalette.surfaceIsLight
+                    ? (annual ? 0.26f : 0.22f)
+                    : (annual ? 0.22f : 0.18f)
+        );
+    }
+
+    private static int resolveYearGoalRowTitleColor(
+        ThemePalette palette,
+        int rowSurfaceColor,
+        boolean completed
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int preferredTitleColor =
+            completed
+                ? blendColors(
+                    safePalette.bodyColor,
+                    rowSurfaceColor,
+                    safePalette.surfaceIsLight ? 0.28f : 0.34f
+                )
+                : safePalette.bodyColor;
+        return resolveReadableTextColor(
+            preferredTitleColor,
+            rowSurfaceColor,
+            completed ? 4.0d : 4.6d
+        );
+    }
+
+    private static int resolveYearGoalBadgeColor(
+        ThemePalette palette,
+        int accentColor,
+        int rowSurfaceColor
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        return resolveVisibleAccentColor(accentColor, rowSurfaceColor, safePalette.accentColor);
+    }
+
+    private static int resolveYearGoalCompletionFillColor(
+        ThemePalette palette,
+        int rowSurfaceColor,
+        boolean completed
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (completed) {
+            return resolveVisibleAccentColor(
+                blendColors(
+                    safePalette.accentColor,
+                    safePalette.contrastReferenceColor,
+                    safePalette.surfaceIsLight ? 0.12f : 0.04f
+                ),
+                rowSurfaceColor,
+                safePalette.accentColor
+            );
+        }
+        return resolveOpaqueColor(
+            blendColors(
+                rowSurfaceColor,
+                safePalette.surfaceColor,
+                safePalette.surfaceIsLight ? 0.08f : 0.14f
+            ),
+            rowSurfaceColor
+        );
+    }
+
+    private static int resolveYearGoalCompletionOutlineColor(
+        ThemePalette palette,
+        int rowSurfaceColor,
+        int completionFillColor,
+        boolean completed
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        int preferredOutlineColor =
+            completed
+                ? blendColors(
+                    completionFillColor,
+                    safePalette.contrastReferenceColor,
+                    safePalette.surfaceIsLight ? 0.14f : 0.08f
+                )
+                : blendColors(
+                    rowSurfaceColor,
+                    safePalette.bodyColor,
+                    safePalette.surfaceIsLight ? 0.18f : 0.24f
+                );
+        if (contrastRatio(preferredOutlineColor, completionFillColor) >= 1.16d) {
+            return preferredOutlineColor;
+        }
+        return blendColors(
+            completionFillColor,
+            safePalette.borderColor,
+            safePalette.surfaceIsLight ? 0.42f : 0.28f
         );
     }
 
@@ -4278,6 +4476,8 @@ public final class ControlerWidgetRenderer {
         );
         card.meta = goal == null ? "" : safeText(goal.description);
         card.accentColor = resolveYearGoalAccent(goal, annual);
+        card.badgeText = resolveYearGoalPriorityBadgeText(goal);
+        card.completed = goal != null && goal.isCompleted;
         card.actionLabel = "";
         card.command = ControlerWidgetActionHandler.COMMAND_NO_OP;
         return card;
@@ -4289,12 +4489,23 @@ public final class ControlerWidgetRenderer {
     ) {
         String priority = goal == null ? "" : safeText(goal.priority);
         if ("high".equals(priority)) {
-            return annual ? Color.parseColor("#D97A6D") : Color.parseColor("#C9887C");
+            return Color.parseColor("#F56565");
         }
         if ("low".equals(priority)) {
-            return annual ? Color.parseColor("#78A9C7") : Color.parseColor("#88B6C8");
+            return Color.parseColor("#48BB78");
         }
-        return annual ? Color.parseColor("#8ED6A4") : Color.parseColor("#B1C9B7");
+        return Color.parseColor("#ED8936");
+    }
+
+    private static String resolveYearGoalPriorityBadgeText(ControlerWidgetDataStore.GoalInfo goal) {
+        String priority = goal == null ? "" : safeText(goal.priority);
+        if ("high".equals(priority)) {
+            return "高";
+        }
+        if ("low".equals(priority)) {
+            return "低";
+        }
+        return "中";
     }
 
     private static Bitmap buildPreviewBitmap(

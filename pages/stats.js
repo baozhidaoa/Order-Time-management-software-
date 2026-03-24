@@ -57,12 +57,14 @@ let statsLoadingOverlayTimer = 0;
 let statsLoadingOverlayController = null;
 let statsChartRuntimeLoader = null;
 let statsHeatmapRuntimeLoader = null;
+let statsInitialViewRuntimePromise = null;
+let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
-const STATS_CHART_RUNTIME_URL = "embedded-assets/chart.runtime.js";
-const STATS_D3_RUNTIME_URL = "embedded-assets/d3.min.js";
-const STATS_HEATMAP_STYLE_URL = "embedded-assets/cal-heatmap.css";
-const STATS_HEATMAP_RUNTIME_URL = "embedded-assets/cal-heatmap.runtime.js";
+const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
+const STATS_D3_RUNTIME_URL = "offline-assets/d3.min.js";
+const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
+const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.runtime.js";
 const STATS_VIEW_LABELS = {
   table: "表格视图",
   charts: "饼状图和折线图",
@@ -365,6 +367,67 @@ function cloneStatsRecordSnapshotList(recordList = []) {
     : [];
 }
 
+function cloneStatsValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return value;
+  }
+}
+
+function captureStatsWorkspaceSnapshot(snapshot = {}) {
+  return {
+    preferences: cloneStatsValue(
+      normalizeStatsPreferences(snapshot?.preferences || statsPreferencesState || {}),
+    ),
+    records: Array.isArray(snapshot?.records)
+      ? cloneStatsRecordSnapshotList(snapshot.records)
+      : cloneStatsRecordSnapshotList(records),
+    projects: Array.isArray(snapshot?.projects)
+      ? cloneStatsValue(snapshot.projects)
+      : cloneStatsValue(projects),
+    loadedRecordPeriodIds: Array.isArray(snapshot?.loadedRecordPeriodIds)
+      ? snapshot.loadedRecordPeriodIds
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean)
+      : statsLoadedRecordPeriodIds.slice(),
+  };
+}
+
+function mergeStatsWorkspaceSnapshot(
+  snapshot = {},
+  fallbackSnapshot = captureStatsWorkspaceSnapshot(),
+) {
+  const fallback =
+    fallbackSnapshot &&
+    typeof fallbackSnapshot === "object" &&
+    !Array.isArray(fallbackSnapshot)
+      ? fallbackSnapshot
+      : captureStatsWorkspaceSnapshot();
+  return {
+    preferences:
+      snapshot?.preferences &&
+      typeof snapshot.preferences === "object" &&
+      !Array.isArray(snapshot.preferences)
+        ? cloneStatsValue(snapshot.preferences)
+        : cloneStatsValue(fallback.preferences),
+    records: Array.isArray(snapshot?.records)
+      ? cloneStatsRecordSnapshotList(snapshot.records)
+      : cloneStatsRecordSnapshotList(fallback.records),
+    projects: Array.isArray(snapshot?.projects)
+      ? cloneStatsValue(snapshot.projects)
+      : cloneStatsValue(fallback.projects),
+    loadedRecordPeriodIds: Array.isArray(snapshot?.loadedRecordPeriodIds)
+      ? snapshot.loadedRecordPeriodIds
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean)
+      : cloneStatsValue(fallback.loadedRecordPeriodIds || []),
+  };
+}
+
 function getStatsRecordStableId(record) {
   return String(record?.id || "").trim();
 }
@@ -397,17 +460,6 @@ async function showStatsPersistenceFailureAlert(
 async function flushStatsPendingPersistence() {
   if (statsPendingPersistenceCount > 0) {
     await statsPersistChain.catch(() => false);
-  }
-  if (statsLastPersistenceError) {
-    throw statsLastPersistenceError;
-  }
-  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
-    await window.ControlerStorage.saveCoordinator.flush(
-      "stats-flush",
-      "stats-persistence",
-    );
-  } else if (typeof window.ControlerStorage?.flush === "function") {
-    await window.ControlerStorage.flush();
   }
   if (statsLastPersistenceError) {
     throw statsLastPersistenceError;
@@ -476,11 +528,27 @@ function renderStatsRuntimeMessage(container, title, message) {
 
   const body = document.createElement("div");
   body.className = "stats-section-body";
-  body.innerHTML = `
-    <div style="padding: 22px; color: var(--muted-text-color); text-align: center;">
-      ${message}
-    </div>
-  `;
+  const statusShell = document.createElement("div");
+  statusShell.className = "chart-runtime-status";
+  const statusCard = document.createElement("div");
+  const isError =
+    String(message || "").includes("失败") || String(message || "").includes("错误");
+  statusCard.className = `page-loading-card chart-runtime-status-card${isError ? " chart-runtime-status-card--error chart-runtime-status-card--static" : ""}`;
+  statusCard.setAttribute("role", isError ? "alert" : "status");
+  statusCard.setAttribute("aria-live", "polite");
+
+  const statusTitle = document.createElement("div");
+  statusTitle.className = "page-loading-title";
+  statusTitle.textContent = isError ? "图表资源加载失败" : "正在加载图表中";
+
+  const statusMessage = document.createElement("div");
+  statusMessage.className = "page-loading-message";
+  statusMessage.textContent = String(message || "").trim() || "正在准备图表资源，请稍候";
+
+  statusCard.appendChild(statusTitle);
+  statusCard.appendChild(statusMessage);
+  statusShell.appendChild(statusCard);
+  body.appendChild(statusShell);
   panel.appendChild(body);
   container.appendChild(panel);
 }
@@ -547,6 +615,61 @@ function ensureStatsHeatmapRuntimeLoaded() {
     throw error;
   });
   return statsHeatmapRuntimeLoader;
+}
+
+function preloadStatsVisualizationRuntimes() {
+  const needsChart = typeof window.Chart === "undefined";
+  const needsD3 = typeof window.d3 === "undefined";
+  if (!needsChart && !needsD3) {
+    return Promise.resolve(true);
+  }
+  return Promise.all([
+    needsChart ? ensureStatsChartRuntimeLoaded() : Promise.resolve(),
+    needsD3 ? ensureStatsD3RuntimeLoaded() : Promise.resolve(),
+  ]).then(() => true);
+}
+
+function ensureStatsViewRuntimeLoaded(viewMode = statsViewMode) {
+  const normalizedViewMode = normalizeStatsViewMode(viewMode);
+  switch (normalizedViewMode) {
+    case "charts":
+      return Promise.all([
+        ensureStatsChartRuntimeLoaded(),
+        ensureStatsD3RuntimeLoaded(),
+      ]).then(() => true);
+    case "day-line":
+      return ensureStatsChartRuntimeLoaded().then(() => true);
+    case "day-pie":
+      return ensureStatsD3RuntimeLoaded().then(() => true);
+    default:
+      return Promise.resolve(true);
+  }
+}
+
+function scheduleStatsVisualizationRuntimePreload() {
+  if (
+    statsVisualizationRuntimePreloadQueued ||
+    (
+      typeof window.Chart !== "undefined" &&
+      typeof window.d3 !== "undefined"
+    )
+  ) {
+    return;
+  }
+  statsVisualizationRuntimePreloadQueued = true;
+  const startPreload = () => {
+    statsVisualizationRuntimePreloadQueued = false;
+    void preloadStatsVisualizationRuntimes().catch((error) => {
+      console.error("后台预热统计图表资源失败:", error);
+    });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(startPreload, {
+      timeout: 800,
+    });
+    return;
+  }
+  window.setTimeout(startPreload, 120);
 }
 
 const statsViewRefreshScheduler = uiTools?.createFrameScheduler?.(
@@ -2619,6 +2742,10 @@ function applyStatsWorkspaceState(snapshot = {}) {
 
 async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
   const preferences = readStatsPreferencesFromStorage();
+  const retainedSnapshot = captureStatsWorkspaceSnapshot({
+    preferences,
+    loadedRecordPeriodIds: statsLoadedRecordPeriodIds,
+  });
   try {
     if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
       const recordScope = getExpandedStatsRecordLoadScope(scope);
@@ -2685,12 +2812,7 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
     };
   } catch (e) {
     console.error("加载数据失败:", e);
-    return {
-      preferences: createDefaultStatsPreferences(),
-      records: [],
-      projects: [],
-      loadedRecordPeriodIds: [],
-    };
+    return mergeStatsWorkspaceSnapshot({}, retainedSnapshot);
   }
 }
 
@@ -7919,6 +8041,7 @@ function initStatsWidgetLaunchAction() {
 }
 async function init() {
   ensureElectronStatsCompatibilityStyles();
+  scheduleStatsVisualizationRuntimePreload();
   const useWidgetLaunchFastPath =
     typeof STATS_WIDGET_CONTEXT.launchAction === "string" &&
     STATS_WIDGET_CONTEXT.launchAction.trim().length > 0;
@@ -7929,6 +8052,7 @@ async function init() {
   try {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
+    statsInitialViewRuntimePromise = ensureStatsViewRuntimeLoaded(statsViewMode);
     initStatsWidgetLaunchAction();
     registerStatsBeforePageLeaveGuard();
     if (useWidgetLaunchFastPath) {
@@ -7950,6 +8074,10 @@ async function init() {
     bindTableScaleLiveRefresh();
     initViewSelector({ shouldRender: false });
     bindStatsExternalStorageRefresh();
+    await statsInitialViewRuntimePromise.catch((error) => {
+      console.error("预加载统计视图资源失败:", error);
+      return false;
+    });
     renderCurrentView();
     statsInitialDataLoaded = true;
   } finally {

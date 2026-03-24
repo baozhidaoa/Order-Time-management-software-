@@ -179,6 +179,39 @@ function captureTodoWorkspaceSnapshot() {
   };
 }
 
+function mergeTodoWorkspaceSnapshot(
+  snapshot = {},
+  fallbackSnapshot = captureTodoWorkspaceSnapshot(),
+) {
+  const fallback =
+    fallbackSnapshot &&
+    typeof fallbackSnapshot === "object" &&
+    !Array.isArray(fallbackSnapshot)
+      ? fallbackSnapshot
+      : captureTodoWorkspaceSnapshot();
+  return {
+    todos: Array.isArray(snapshot?.todos)
+      ? cloneTodoValue(snapshot.todos)
+      : cloneTodoValue(fallback.todos),
+    checkinItems: Array.isArray(snapshot?.checkinItems)
+      ? cloneTodoValue(snapshot.checkinItems)
+      : cloneTodoValue(fallback.checkinItems),
+    dailyCheckins: Array.isArray(snapshot?.dailyCheckins)
+      ? cloneTodoValue(snapshot.dailyCheckins)
+      : cloneTodoValue(fallback.dailyCheckins),
+    checkins: Array.isArray(snapshot?.checkins)
+      ? cloneTodoValue(snapshot.checkins)
+      : cloneTodoValue(fallback.checkins),
+  };
+}
+
+function hasTodoWorkspaceCoreItems(snapshot = {}) {
+  return (
+    (Array.isArray(snapshot?.todos) && snapshot.todos.length > 0) ||
+    (Array.isArray(snapshot?.checkinItems) && snapshot.checkinItems.length > 0)
+  );
+}
+
 function getLocalDateText(dateValue = new Date()) {
   const date = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
   if (Number.isNaN(date.getTime())) {
@@ -278,14 +311,22 @@ function applyTodoModalDraftFields(modal, fields = {}) {
 
 function createTodoModalDraftSession(modal, draftKey, scope = "todo") {
   let timer = 0;
+  const initialFieldsSignature = JSON.stringify(captureTodoModalDraftFields(modal));
   const persistDraft = async () => {
     if (!modal?.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+      return;
+    }
+    const fields = captureTodoModalDraftFields(modal);
+    if (JSON.stringify(fields) === initialFieldsSignature) {
+      if (typeof window.ControlerStorage?.removeDraft === "function") {
+        await window.ControlerStorage.removeDraft(draftKey);
+      }
       return;
     }
     await window.ControlerStorage.setDraft(
       draftKey,
       {
-        fields: captureTodoModalDraftFields(modal),
+        fields,
       },
       {
         scope,
@@ -425,7 +466,7 @@ function readTodoWorkspaceSnapshotFromManagedStorage() {
   }
 }
 
-function readTodoWorkspaceSnapshotFromPageBootstrap() {
+function readTodoWorkspaceSnapshotFromPageBootstrap(preferredFallbackSnapshot = null) {
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
       return null;
@@ -436,39 +477,189 @@ function readTodoWorkspaceSnapshotFromPageBootstrap() {
     if (!data) {
       return null;
     }
-    return {
-      todos: Array.isArray(data.todos) ? data.todos : [],
-      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
-      dailyCheckins: Array.isArray(data.todayDailyCheckins)
-        ? data.todayDailyCheckins
-        : [],
-      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
-    };
+    const fallbackSnapshot =
+      getTodoWorkspaceFallbackSnapshot(preferredFallbackSnapshot);
+    return (
+      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+        {
+          todos: Array.isArray(data.todos) ? data.todos : [],
+          checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+          dailyCheckins: Array.isArray(data.todayDailyCheckins)
+            ? data.todayDailyCheckins
+            : [],
+          checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+        },
+        fallbackSnapshot,
+        {
+          reason: "todo-read-fresh",
+        },
+      ) || fallbackSnapshot
+    );
   } catch (error) {
     console.error("读取待办页引导快照失败，回退旧快照:", error);
     return null;
   }
 }
 
+function getTodoWorkspaceFallbackSnapshot(preferredSnapshot = null) {
+  const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
+  if (localSnapshot?.__hasMirror) {
+    return localSnapshot;
+  }
+  if (
+    preferredSnapshot &&
+    typeof preferredSnapshot === "object" &&
+    !Array.isArray(preferredSnapshot)
+  ) {
+    return mergeTodoWorkspaceSnapshot(preferredSnapshot);
+  }
+  return captureTodoWorkspaceSnapshot();
+}
+
+function protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+  snapshot = null,
+  fallbackSnapshot = null,
+  options = {},
+) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  const fallback = getTodoWorkspaceFallbackSnapshot(fallbackSnapshot);
+  const normalizedSnapshot = mergeTodoWorkspaceSnapshot(snapshot, fallback);
+  if (!hasTodoWorkspaceCoreItems(fallback)) {
+    return normalizedSnapshot;
+  }
+  const shouldRestoreTodos =
+    Array.isArray(snapshot?.todos) &&
+    snapshot.todos.length === 0 &&
+    Array.isArray(fallback.todos) &&
+    fallback.todos.length > 0;
+  const shouldRestoreCheckinItems =
+    Array.isArray(snapshot?.checkinItems) &&
+    snapshot.checkinItems.length === 0 &&
+    Array.isArray(fallback.checkinItems) &&
+    fallback.checkinItems.length > 0;
+  if (!shouldRestoreTodos && !shouldRestoreCheckinItems) {
+    return normalizedSnapshot;
+  }
+  console.warn(
+    "检测到待办核心快照异常清空，已保留最近有效镜像。",
+    options?.reason || "",
+  );
+  return {
+    ...normalizedSnapshot,
+    todos: shouldRestoreTodos
+      ? cloneTodoValue(fallback.todos || [])
+      : normalizedSnapshot.todos,
+    checkinItems: shouldRestoreCheckinItems
+      ? cloneTodoValue(fallback.checkinItems || [])
+      : normalizedSnapshot.checkinItems,
+  };
+}
+
+function protectTodoCoreStateForPersist(partialCore = {}, options = {}) {
+  const source =
+    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+      ? cloneTodoValue(partialCore)
+      : {};
+  const hasTodos = Object.prototype.hasOwnProperty.call(source, "todos");
+  const hasCheckinItems = Object.prototype.hasOwnProperty.call(source, "checkinItems");
+  if (!hasTodos && !hasCheckinItems) {
+    return source;
+  }
+
+  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot(
+    options?.fallbackSnapshot || readTodoWorkspaceSnapshotFromLocalStorage(),
+  );
+  const protectedCore =
+    protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+      {
+        todos: hasTodos ? source.todos : fallbackSnapshot.todos,
+        checkinItems: hasCheckinItems
+          ? source.checkinItems
+          : fallbackSnapshot.checkinItems,
+      },
+      fallbackSnapshot,
+      {
+        reason: options?.reason || "todo-persist-core",
+      },
+    ) || fallbackSnapshot;
+
+  if (hasTodos) {
+    source.todos = cloneTodoValue(protectedCore.todos || []);
+  }
+  if (hasCheckinItems) {
+    source.checkinItems = cloneTodoValue(protectedCore.checkinItems || []);
+  }
+  return source;
+}
+
+function protectTodoWorkspaceSnapshotForPersist(snapshot = null, options = {}) {
+  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot(
+    options?.fallbackSnapshot || readTodoWorkspaceSnapshotFromLocalStorage(),
+  );
+  return (
+    protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+      snapshot,
+      fallbackSnapshot,
+      {
+        reason: options?.reason || "todo-persist-workspace",
+      },
+    ) || mergeTodoWorkspaceSnapshot(snapshot, fallbackSnapshot)
+  );
+}
+
 function readTodoWorkspaceSnapshot() {
-  const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
+  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot();
+  const bootstrapSnapshot = protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+    readTodoWorkspaceSnapshotFromPageBootstrap(fallbackSnapshot),
+    fallbackSnapshot,
+    {
+      reason: "todo-bootstrap",
+    },
+  );
   if (bootstrapSnapshot) {
     return bootstrapSnapshot;
   }
   const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
-  const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
+  const managedSnapshot = protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+    readTodoWorkspaceSnapshotFromManagedStorage(),
+    fallbackSnapshot,
+    {
+      reason: "todo-managed-dump",
+    },
+  );
   if (window.ControlerStorage?.isNativeApp) {
-    return managedSnapshot || localSnapshot;
+    return (
+      managedSnapshot ||
+      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+        localSnapshot,
+        fallbackSnapshot,
+        {
+          reason: "todo-local-mirror",
+        },
+      ) ||
+      fallbackSnapshot
+    );
   }
   if (localSnapshot?.__hasMirror) {
     return localSnapshot;
   }
-  return managedSnapshot || localSnapshot;
+  return managedSnapshot || localSnapshot || fallbackSnapshot;
 }
 
 async function readFreshTodoWorkspaceSnapshot() {
+  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot();
   if (typeof window.ControlerStorage?.getPageBootstrapState !== "function") {
-    return readTodoWorkspaceSnapshot();
+    return (
+      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+        readTodoWorkspaceSnapshot(),
+        fallbackSnapshot,
+        {
+          reason: "todo-read-fresh-unsupported",
+        },
+      ) || fallbackSnapshot
+    );
   }
   try {
     const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
@@ -484,17 +675,33 @@ async function readFreshTodoWorkspaceSnapshot() {
     if (!data) {
       throw new Error("missing todo bootstrap data");
     }
-    return {
-      todos: Array.isArray(data.todos) ? data.todos : [],
-      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
-      dailyCheckins: Array.isArray(data.todayDailyCheckins)
-        ? data.todayDailyCheckins
-        : [],
-      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
-    };
+    return (
+      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+        {
+          todos: Array.isArray(data.todos) ? data.todos : [],
+          checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+          dailyCheckins: Array.isArray(data.todayDailyCheckins)
+            ? data.todayDailyCheckins
+            : [],
+          checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+        },
+        fallbackSnapshot,
+        {
+          reason: "todo-read-fresh-native",
+        },
+      ) || fallbackSnapshot
+    );
   } catch (error) {
     console.error("读取待办页最新引导数据失败，回退当前快照:", error);
-    return readTodoWorkspaceSnapshot();
+    return (
+      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+        readTodoWorkspaceSnapshot(),
+        fallbackSnapshot,
+        {
+          reason: "todo-read-fresh-fallback",
+        },
+      ) || fallbackSnapshot
+    );
   }
 }
 
@@ -507,6 +714,8 @@ function clearTodoWidgetLaunchQuery() {
   params.delete("widgetKind");
   params.delete("widgetSource");
   params.delete("widgetLaunchId");
+  params.delete("widgetTargetId");
+  params.delete("widgetCreatedAt");
   const queryText = params.toString();
   const nextUrl = `${window.location.pathname.split("/").pop()}${queryText ? `?${queryText}` : ""}${window.location.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -524,6 +733,14 @@ function waitForTodoStorageReady() {
 }
 
 function isTodoWidgetTargetVisible(action = "") {
+  if (action === "open-create-todo") {
+    const titleInput = document.getElementById("todo-title-input");
+    return (
+      todoPlanSidebarInitialized &&
+      currentView === "todos" &&
+      titleInput instanceof HTMLElement
+    );
+  }
   const expectedView = action === "show-checkins" ? "checkins" : "todos";
   return todoPlanSidebarInitialized && currentView === expectedView;
 }
@@ -917,14 +1134,6 @@ async function flushTodoPendingPersistence() {
   if (todoLastPersistenceError) {
     throw todoLastPersistenceError;
   }
-  if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
-    await window.ControlerStorage.saveCoordinator.flush(
-      "todo-flush",
-      "todo-persistence",
-    );
-  } else if (typeof window.ControlerStorage?.flush === "function") {
-    await window.ControlerStorage.flush();
-  }
   if (todoLastPersistenceError) {
     throw todoLastPersistenceError;
   }
@@ -955,7 +1164,10 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
   if (!changedSections.length) {
     return Promise.resolve(true);
   }
-  persistTodoLocalMirrorCore(source);
+  const protectedSource = protectTodoCoreStateForPersist(source, {
+    reason: options?.reason || "todo-core-save",
+  });
+  persistTodoLocalMirrorCore(protectedSource);
   markTodoSelfRefreshIgnored(changedSections);
   return queueTodoPersistenceTask(
     async () => {
@@ -965,7 +1177,7 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
           [
             {
               kind: "replaceCoreState",
-              partialCore: cloneTodoValue(source),
+              partialCore: cloneTodoValue(protectedSource),
             },
           ],
           {
@@ -978,7 +1190,7 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
         return true;
       }
       if (typeof bundleStorage?.replaceCoreState === "function") {
-        await bundleStorage.replaceCoreState(cloneTodoValue(source), {
+        await bundleStorage.replaceCoreState(cloneTodoValue(protectedSource), {
           reason:
             typeof options?.reason === "string" && options.reason.trim()
               ? options.reason.trim()
@@ -987,7 +1199,7 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
         return true;
       }
       changedSections.forEach((section) => {
-        persistTodoLocalSection(section, source[section] || []);
+        persistTodoLocalSection(section, protectedSource[section] || []);
       });
       return true;
     },
@@ -1092,8 +1304,12 @@ function handleTodoNonBlockingSaveFailure(message, options = {}) {
     !Array.isArray(options.rollbackSnapshot)
       ? options.rollbackSnapshot
       : null;
+  const retainedSnapshot = mergeTodoWorkspaceSnapshot(
+    options?.retainedSnapshot,
+    rollbackSnapshot || captureTodoWorkspaceSnapshot(),
+  );
   if (rollbackSnapshot) {
-    applyTodoWorkspaceSnapshot(rollbackSnapshot);
+    applyTodoWorkspaceSnapshot(retainedSnapshot);
     clearTodoPersistenceError();
     scheduleTodoInterfaceRefresh();
   }
@@ -1105,7 +1321,9 @@ function handleTodoNonBlockingSaveFailure(message, options = {}) {
       })
       .then((result) => {
         if (result?.state && typeof result.state === "object") {
-          applyTodoWorkspaceSnapshot(result.state);
+          applyTodoWorkspaceSnapshot(
+            mergeTodoWorkspaceSnapshot(result.state, retainedSnapshot),
+          );
           clearTodoPersistenceError();
           scheduleTodoInterfaceRefresh();
         }
@@ -1217,12 +1435,15 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
           dailyCheckins,
           checkins,
         };
+  const protectedSnapshot = protectTodoWorkspaceSnapshotForPersist(nextSnapshot, {
+    reason: "todo-workspace",
+  });
   const bundleStorage = window.ControlerStorage;
   if (
     typeof bundleStorage?.appendJournal === "function"
   ) {
     const sectionOps = ["dailyCheckins", "checkins"].flatMap((section) => {
-      const items = nextSnapshot[section] || [];
+      const items = protectedSnapshot[section] || [];
       const periodIds = Array.from(
         new Set([
           ...getTodoSectionPeriodIds(section, items),
@@ -1253,8 +1474,8 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
         {
           kind: "replaceCoreState",
           partialCore: {
-            todos: cloneTodoValue(nextSnapshot.todos || []),
-            checkinItems: cloneTodoValue(nextSnapshot.checkinItems || []),
+            todos: cloneTodoValue(protectedSnapshot.todos || []),
+            checkinItems: cloneTodoValue(protectedSnapshot.checkinItems || []),
           },
         },
         ...sectionOps,
@@ -1271,8 +1492,8 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
     typeof bundleStorage?.saveSectionRange === "function"
   ) {
     await bundleStorage.replaceCoreState({
-      todos: cloneTodoValue(nextSnapshot.todos || []),
-      checkinItems: cloneTodoValue(nextSnapshot.checkinItems || []),
+      todos: cloneTodoValue(protectedSnapshot.todos || []),
+      checkinItems: cloneTodoValue(protectedSnapshot.checkinItems || []),
     }, {
       reason: "todo-workspace",
     });
@@ -1304,28 +1525,33 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
       );
     };
 
-    await persistRangeSection("dailyCheckins", nextSnapshot.dailyCheckins || []);
-    await persistRangeSection("checkins", nextSnapshot.checkins || []);
+    await persistRangeSection("dailyCheckins", protectedSnapshot.dailyCheckins || []);
+    await persistRangeSection("checkins", protectedSnapshot.checkins || []);
     return true;
   }
 
-  localStorage.setItem("todos", JSON.stringify(nextSnapshot.todos || []));
-  localStorage.setItem("checkins", JSON.stringify(nextSnapshot.checkins || []));
-  localStorage.setItem("checkinItems", JSON.stringify(nextSnapshot.checkinItems || []));
+  localStorage.setItem("todos", JSON.stringify(protectedSnapshot.todos || []));
+  localStorage.setItem("checkins", JSON.stringify(protectedSnapshot.checkins || []));
+  localStorage.setItem(
+    "checkinItems",
+    JSON.stringify(protectedSnapshot.checkinItems || []),
+  );
   localStorage.setItem(
     "dailyCheckins",
-    JSON.stringify(nextSnapshot.dailyCheckins || []),
+    JSON.stringify(protectedSnapshot.dailyCheckins || []),
   );
   return true;
 }
 
 function queueTodoPersist() {
-  const snapshot = {
+  const snapshot = protectTodoWorkspaceSnapshotForPersist({
     todos: cloneTodoValue(todos),
     checkinItems: cloneTodoValue(checkinItems),
     dailyCheckins: cloneTodoValue(dailyCheckins),
     checkins: cloneTodoValue(checkins),
-  };
+  }, {
+    reason: "todo-workspace-queue",
+  });
   persistTodoLocalMirrorCore(snapshot);
   return queueTodoPersistenceTask(
     () => persistTodoWorkspaceSnapshot(snapshot),
@@ -2422,13 +2648,26 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     let nextCheckins = null;
     if (changedSections.includes("todos") || changedSections.includes("checkinItems")) {
       const coreSnapshot = await bundleStorage.getCoreState();
+      const protectedCoreSnapshot =
+        protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
+          {
+            todos: Array.isArray(coreSnapshot?.todos) ? coreSnapshot.todos : [],
+            checkinItems: Array.isArray(coreSnapshot?.checkinItems)
+              ? coreSnapshot.checkinItems
+              : [],
+          },
+          captureTodoWorkspaceSnapshot(),
+          {
+            reason: "todo-precise-core-refresh",
+          },
+        ) || {};
       if (changedSections.includes("todos")) {
-        nextTodos = hydrateTodoCollection("todos", coreSnapshot?.todos);
+        nextTodos = hydrateTodoCollection("todos", protectedCoreSnapshot?.todos);
       }
       if (changedSections.includes("checkinItems")) {
         nextCheckinItems = hydrateTodoCollection(
           "checkinItems",
-          coreSnapshot?.checkinItems,
+          protectedCoreSnapshot?.checkinItems,
         );
       }
     }
@@ -2511,7 +2750,14 @@ function bindTodoExternalStorageRefresh() {
 
 function closeModalElement(modal) {
   if (uiTools?.closeModal) {
+    const customCloseHandler = modal?.__controlerCloseModal;
+    if (customCloseHandler) {
+      modal.__controlerCloseModal = null;
+    }
     uiTools.closeModal(modal);
+    if (customCloseHandler && modal?.isConnected) {
+      modal.__controlerCloseModal = customCloseHandler;
+    }
     return;
   }
   if (modal?.parentNode) {
@@ -2546,6 +2792,11 @@ function appendTodoManagedModal(modal, role = "") {
     modal.dataset.todoModalRole = role.trim();
   }
   document.body.appendChild(modal);
+  uiTools?.autofocusInteractiveTextControl?.(modal, {
+    delayMs: 40,
+    retryDelayMs: 120,
+    selectText: true,
+  });
 }
 
 function getTopVisibleTodoModalOverlayZIndex(fallbackZIndex = 2000) {
@@ -3539,11 +3790,12 @@ function hydrateCheckin(rawCheckin) {
 
 // 加载数据
 function loadData() {
+  const retainedSnapshot = captureTodoWorkspaceSnapshot();
   try {
     applyTodoWorkspaceSnapshot(readTodoWorkspaceSnapshot());
   } catch (e) {
     console.error("加载数据失败:", e);
-    applyTodoWorkspaceSnapshot({});
+    applyTodoWorkspaceSnapshot(retainedSnapshot);
   }
 }
 
@@ -3655,13 +3907,18 @@ function initSort() {
 }
 
 // 初始化添加按钮
-function openTodoCreateFlow() {
-  if (currentView === "checkins") {
+function openTodoCreateFlow(options = {}) {
+  const shouldForceTodoModal = options?.forceTodoModal === true;
+  const prefillTodo =
+    options?.prefillTodo && typeof options.prefillTodo === "object"
+      ? options.prefillTodo
+      : null;
+  if (currentView === "checkins" && !shouldForceTodoModal && !prefillTodo) {
     showCheckinItemModal();
     return;
   }
-  if (TODO_WIDGET_CONTEXT.enabled) {
-    showTodoEditModal();
+  if (TODO_WIDGET_CONTEXT.enabled || shouldForceTodoModal || prefillTodo) {
+    showTodoEditModal(prefillTodo);
     return;
   }
   showTodoTypeModal();
@@ -4432,7 +4689,7 @@ function deleteTodo(todoId, options = {}) {
 
 // 显示待办事项编辑弹窗
 function showTodoEditModal(todo = null) {
-  const isEditMode = !!todo;
+  const isEditMode = !!(todo && typeof todo === "object" && todo.id);
   const todoWeekdays = Array.isArray(todo?.repeatWeekdays)
     ? todo.repeatWeekdays
     : [];
@@ -4684,11 +4941,23 @@ function showTodoEditModal(todo = null) {
   void todoDraftSession.restore().catch((error) => {
     console.error("恢复待办草稿失败:", error);
   });
-  const closeTodoModal = () => {
+  const discardTodoDraft = () => {
+    void todoDraftSession.clear().catch((error) => {
+      console.error("清理待办草稿失败:", error);
+    });
+  };
+  const closeTodoModal = (options = {}) => {
     todoDraftSession.destroy();
     unbindModalActions();
     closeModalElement(modal);
+    if (options?.discardDraft === true) {
+      discardTodoDraft();
+    }
   };
+  modal.__controlerCloseModal = () =>
+    closeTodoModal({
+      discardDraft: true,
+    });
 
   const repeatRadios = modal.querySelectorAll('input[name="todo-repeat-type"]');
   const weekdayWrap = modal.querySelector("#todo-weekday-wrap");
@@ -4730,7 +4999,7 @@ function showTodoEditModal(todo = null) {
   bindTodoReminderInputs(modal, "todo");
   bindTodoReminderBaseDateSync(modal, "todo");
   unbindModalActions = bindTodoModalActions(modal, {
-    cancel: closeTodoModal,
+    cancel: () => closeTodoModal({ discardDraft: true }),
     save: createTodoModalLockedAction(modal, () =>
       saveTodo(modal, isEditMode, todo, {
         draftSession: todoDraftSession,
@@ -4772,7 +5041,9 @@ function showTodoEditModal(todo = null) {
   // 点击外部关闭
   modal.addEventListener("click", function (e) {
     if (e.target === this) {
-      closeTodoModal();
+      closeTodoModal({
+        discardDraft: true,
+      });
     }
   });
 }
@@ -5022,11 +5293,23 @@ function showCheckinModal(todoId, checkinId = null) {
   void progressDraftSession.restore().catch((error) => {
     console.error("恢复进度草稿失败:", error);
   });
-  const closeModal = () => {
+  const discardProgressDraft = () => {
+    void progressDraftSession.clear().catch((error) => {
+      console.error("清理进度草稿失败:", error);
+    });
+  };
+  const closeModal = (options = {}) => {
     progressDraftSession.destroy();
     unbindModalActions();
     closeModalElement(modal);
+    if (options?.discardDraft === true) {
+      discardProgressDraft();
+    }
   };
+  modal.__controlerCloseModal = () =>
+    closeModal({
+      discardDraft: true,
+    });
 
   const saveAction = async () => {
     const message = modal.querySelector("#checkin-message-input").value.trim();
@@ -5122,7 +5405,7 @@ function showCheckinModal(todoId, checkinId = null) {
   };
 
   unbindModalActions = bindTodoModalActions(modal, {
-    cancel: closeModal,
+    cancel: () => closeModal({ discardDraft: true }),
     save: createTodoModalLockedAction(modal, saveAction),
     "delete-progress": createTodoModalConfirmedAction(
       modal,
@@ -5133,7 +5416,9 @@ function showCheckinModal(todoId, checkinId = null) {
 
   modal.addEventListener("click", function (event) {
     if (event.target === this) {
-      closeModal();
+      closeModal({
+        discardDraft: true,
+      });
     }
   });
 }
@@ -6341,7 +6626,15 @@ function handleTodoWidgetLaunchAction(payload = {}, options = {}) {
     typeof payload?.action === "string" && payload.action.trim()
       ? payload.action.trim()
       : "";
-  if (action !== "show-todos" && action !== "show-checkins") {
+  const targetId =
+    typeof payload?.targetId === "string" && payload.targetId.trim()
+      ? payload.targetId.trim()
+      : "";
+  if (
+    action !== "show-todos" &&
+    action !== "show-checkins" &&
+    action !== "open-create-todo"
+  ) {
     return false;
   }
   setTodoView(action === "show-checkins" ? "checkins" : "todos", {
@@ -6349,6 +6642,14 @@ function handleTodoWidgetLaunchAction(payload = {}, options = {}) {
   });
   applyTodoWidgetMode();
   renderTodoWorkspace();
+  if (action === "open-create-todo") {
+    openTodoCreateFlow({
+      forceTodoModal: true,
+      prefillTodo: {
+        title: targetId,
+      },
+    });
+  }
   scheduleTodoWidgetLaunchHandled(
     payload,
     () => isTodoWidgetTargetVisible(action),
@@ -6461,7 +6762,7 @@ window.ControlerTodoRuntime = {
         typeof options?.initialView === "string" ? options.initialView : currentView,
       persistWidgetView: true,
     });
-    openTodoCreateFlow();
+    openTodoCreateFlow(options);
   },
 };
 

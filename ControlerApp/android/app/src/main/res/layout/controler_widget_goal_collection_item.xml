@@ -3,9 +3,9 @@
     android:id="@+id/widget_collection_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="40dp"
-    android:paddingTop="3dp"
-    android:paddingBottom="3dp">
+    android:minHeight="44dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <ImageView
         android:id="@+id/widget_collection_item_background"
@@ -14,18 +14,27 @@
         android:adjustViewBounds="false"
         android:contentDescription="@null"
         android:scaleType="fitXY"
-        android:src="@drawable/controler_widget_tintable_goal_fill" />
+        android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+    <ImageView
+        android:id="@+id/widget_collection_item_outline"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:adjustViewBounds="false"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/controler_widget_tintable_pill_stroke" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="40dp"
+        android:minHeight="44dp"
         android:orientation="horizontal"
         android:paddingLeft="12dp"
-        android:paddingTop="7dp"
+        android:paddingTop="8dp"
         android:paddingRight="12dp"
-        android:paddingBottom="7dp">
+        android:paddingBottom="8dp">
 
         <View
             android:id="@+id/widget_collection_item_accent"
@@ -44,9 +53,87 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:text="目标内容"
-            android:textColor="#EAF6ED"
-            android:textSize="12sp"
+            android:textColor="#17212B"
+            android:textSize="12.5sp"
             android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/widget_collection_item_goal_trailing"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/widget_collection_item_goal_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp">
+
+                <ImageView
+                    android:id="@+id/widget_collection_item_goal_badge_background"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:adjustViewBounds="false"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+                <TextView
+                    android:id="@+id/widget_collection_item_goal_badge_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:minWidth="24dp"
+                    android:paddingLeft="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingRight="7dp"
+                    android:paddingBottom="3dp"
+                    android:text="中"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/widget_collection_item_goal_toggle"
+                android:layout_width="24dp"
+                android:layout_height="24dp">
+
+                <ImageView
+                    android:id="@+id/widget_collection_item_goal_toggle_fill"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:adjustViewBounds="false"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+                <ImageView
+                    android:id="@+id/widget_collection_item_goal_toggle_outline"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:adjustViewBounds="false"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/controler_widget_tintable_pill_stroke" />
+
+                <TextView
+                    android:id="@+id/widget_collection_item_goal_toggle_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:text=""
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/widget_collection_item_meta"

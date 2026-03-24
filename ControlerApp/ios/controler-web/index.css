@@ -2305,7 +2305,7 @@ body.page-stats.stats-toolbar-bootstrap-pending .stats-main > :not(#stats-loadin
   pointer-events: none;
 }
 
-body.page-stats.stats-toolbar-bootstrap-pending #stats-loading-overlay[hidden] {
+body.page-stats.stats-toolbar-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #stats-loading-overlay[hidden] {
   display: flex !important;
 }
 
@@ -6286,7 +6286,7 @@ body.page-plan.plan-bootstrap-pending .plan-main > :not(#plan-loading-overlay) {
   pointer-events: none;
 }
 
-body.page-plan.plan-bootstrap-pending #plan-loading-overlay[hidden] {
+body.page-plan.plan-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #plan-loading-overlay[hidden] {
   display: flex !important;
 }
 
@@ -6307,7 +6307,7 @@ body.page-record.record-bootstrap-pending .record-main > :not(#record-loading-ov
   pointer-events: none;
 }
 
-body.page-record.record-bootstrap-pending #record-loading-overlay[hidden] {
+body.page-record.record-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #record-loading-overlay[hidden] {
   display: flex !important;
 }
 
@@ -6328,7 +6328,7 @@ body.page-diary.diary-bootstrap-pending .diary-main > :not(#diary-loading-overla
   pointer-events: none;
 }
 
-body.page-diary.diary-bootstrap-pending #diary-loading-overlay[hidden] {
+body.page-diary.diary-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #diary-loading-overlay[hidden] {
   display: flex !important;
 }
 
@@ -6349,7 +6349,7 @@ body.page-settings.settings-bootstrap-pending .settings-main > :not(#settings-ba
   pointer-events: none;
 }
 
-body.page-settings.settings-bootstrap-pending #settings-backup-overlay[hidden] {
+body.page-settings.settings-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #settings-backup-overlay[hidden] {
   display: flex !important;
 }
 
@@ -6358,8 +6358,8 @@ body.page-settings.settings-bootstrap-ready .settings-main > :not(#settings-back
   visibility: visible;
 }
 
-body.controler-blocking-overlay-active > div:first-of-type > .app-nav,
-body.controler-blocking-overlay-active > div:first-of-type > .app-sidebar {
+body.controler-fullscreen-overlay-active > div:first-of-type > .app-nav,
+body.controler-fullscreen-overlay-active > div:first-of-type > .app-sidebar {
   pointer-events: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
@@ -6885,4 +6885,28 @@ body.settings-backup-busy {
   color: var(--text-color);
   background: color-mix(in srgb, rgba(var(--accent-color-rgb), 0.16) 82%, transparent);
   border: 1px solid rgba(var(--accent-color-rgb), 0.18);
+}
+
+.chart-runtime-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: clamp(180px, 32vh, 280px);
+  padding: 20px 8px;
+  box-sizing: border-box;
+}
+
+.chart-runtime-status-card {
+  width: min(420px, 100%);
+}
+
+.chart-runtime-status-card--static::before {
+  display: none !important;
+}
+
+.chart-runtime-status-card--error {
+  border-color: color-mix(in srgb, #d97757 60%, var(--panel-border-color));
+  background:
+    linear-gradient(180deg, rgba(217, 119, 87, 0.12), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--panel-strong-bg) 92%, rgba(255, 255, 255, 0.08));
 }

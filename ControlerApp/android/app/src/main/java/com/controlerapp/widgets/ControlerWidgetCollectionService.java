@@ -97,6 +97,54 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                 row.backgroundColor
             );
             views.setViewVisibility(
+                R.id.widget_collection_item_accent,
+                row.compactGoalStyle ? android.view.View.GONE : android.view.View.VISIBLE
+            );
+            if (row.compactGoalStyle) {
+                views.setInt(
+                    R.id.widget_collection_item_outline,
+                    "setColorFilter",
+                    row.outlineColor
+                );
+                views.setTextViewText(
+                    R.id.widget_collection_item_goal_badge_text,
+                    row.badgeText
+                );
+                views.setTextColor(
+                    R.id.widget_collection_item_goal_badge_text,
+                    row.badgeTextColor
+                );
+                views.setInt(
+                    R.id.widget_collection_item_goal_badge_background,
+                    "setColorFilter",
+                    row.badgeColor
+                );
+                views.setViewVisibility(
+                    R.id.widget_collection_item_goal_badge,
+                    row.badgeText == null || row.badgeText.trim().isEmpty()
+                        ? android.view.View.GONE
+                        : android.view.View.VISIBLE
+                );
+                views.setInt(
+                    R.id.widget_collection_item_goal_toggle_fill,
+                    "setColorFilter",
+                    row.completionFillColor
+                );
+                views.setInt(
+                    R.id.widget_collection_item_goal_toggle_outline,
+                    "setColorFilter",
+                    row.completionOutlineColor
+                );
+                views.setTextViewText(
+                    R.id.widget_collection_item_goal_toggle_text,
+                    row.completed ? "✓" : ""
+                );
+                views.setTextColor(
+                    R.id.widget_collection_item_goal_toggle_text,
+                    row.completionTextColor
+                );
+            }
+            views.setViewVisibility(
                 R.id.widget_collection_item_meta,
                 row.meta == null || row.meta.trim().isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE
             );
