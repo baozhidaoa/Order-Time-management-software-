@@ -616,14 +616,18 @@
                         android:layout_marginTop="8dp"
                         android:layout_weight="1">
 
-                        <LinearLayout
+                        <ListView
                             android:id="@+id/widget_year_annual_items"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:gravity="top"
-                            android:orientation="vertical"
+                            android:cacheColorHint="@android:color/transparent"
+                            android:clipToPadding="false"
+                            android:divider="@android:color/transparent"
+                            android:dividerHeight="4dp"
+                            android:overScrollMode="never"
                             android:paddingBottom="2dp"
                             android:paddingTop="2dp"
+                            android:scrollbars="none"
                             android:visibility="gone" />
 
                         <TextView
@@ -705,14 +709,18 @@
                         android:layout_marginTop="8dp"
                         android:layout_weight="1">
 
-                        <LinearLayout
+                        <ListView
                             android:id="@+id/widget_year_month_items"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:gravity="top"
-                            android:orientation="vertical"
+                            android:cacheColorHint="@android:color/transparent"
+                            android:clipToPadding="false"
+                            android:divider="@android:color/transparent"
+                            android:dividerHeight="4dp"
+                            android:overScrollMode="never"
                             android:paddingBottom="2dp"
                             android:paddingTop="2dp"
+                            android:scrollbars="none"
                             android:visibility="gone" />
 
                         <TextView

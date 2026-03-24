@@ -673,6 +673,20 @@
       <div class="todo-topbar flex juzhong ms mg" style="height: 7%">
         <h2 style="margin: 0; color: var(--text-color)">待办与打卡</h2>
       </div>
+      <div
+        id="todo-loading-overlay"
+        class="page-loading-overlay"
+        data-mode="fullscreen"
+        aria-hidden="true"
+        hidden
+      >
+        <div class="page-loading-card">
+          <div class="page-loading-title" data-loading-title>正在加载数据中</div>
+          <div class="page-loading-message" data-loading-message>
+            正在读取待办、打卡与今日进度，请稍候
+          </div>
+        </div>
+      </div>
 
       <div class="todo-shell">
         <div class="todo-panel-stack">

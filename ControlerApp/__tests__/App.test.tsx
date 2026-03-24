@@ -22,6 +22,7 @@ import App, {
   compareNavigationIntentPriority,
   getComparableUrl,
   isWebViewLayerInteractive,
+  resolveShellBlockingOverlayPayload,
   resolveBridgeNavigationDispatchPolicy,
   resolveAppPageUri,
 } from '../App';
@@ -227,11 +228,22 @@ describe('isWebViewLayerInteractive', () => {
     ).toBe(false);
   });
 
-  it('locks all android webview layers during transitions', () => {
+  it('keeps the source android webview interactive while a new page is loading', () => {
     expect(
       isWebViewLayerInteractive({
         isAndroid: true,
         slot: 'primary',
+        activeSlot: 'primary',
+        transitionState: {
+          status: 'loading',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'secondary',
         activeSlot: 'primary',
         transitionState: {
           status: 'loading',
@@ -264,5 +276,114 @@ describe('isWebViewLayerInteractive', () => {
         },
       }),
     ).toBe(false);
+  });
+
+  it('keeps the active slot interactive after loading transitions settle', () => {
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'secondary',
+        activeSlot: 'secondary',
+        transitionState: {
+          status: 'animating',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isWebViewLayerInteractive({
+        isAndroid: true,
+        slot: 'primary',
+        activeSlot: 'secondary',
+        transitionState: {
+          status: 'animating',
+          fromSlot: 'primary',
+        },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('resolveShellBlockingOverlayPayload', () => {
+  const webViewSlots = {
+    primary: {
+      uri: 'file:///android_asset/controler-web/index.html',
+      pageKey: 'index',
+      revision: 1,
+    },
+    secondary: {
+      uri: 'file:///android_asset/controler-web/todo.html',
+      pageKey: 'todo',
+      revision: 1,
+    },
+    tertiary: {
+      uri: 'file:///android_asset/controler-web/stats.html',
+      pageKey: 'stats',
+      revision: 1,
+    },
+  } as const;
+
+  it('uses the unified shell overlay while a target page is still loading', () => {
+    expect(
+      resolveShellBlockingOverlayPayload({
+        transitionState: {
+          status: 'loading',
+          toSlot: 'secondary',
+        },
+        webViewSlots,
+        activeSlot: 'primary',
+        activeBusyOverlay: {
+          active: false,
+          lockNavigation: false,
+          title: '',
+          message: '',
+          presentation: '',
+          href: '',
+        },
+        shellLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      title: '正在加载数据中',
+      message: '正在准备待办页面资源与本地数据，请稍候',
+    });
+  });
+
+  it('ignores inline page busy states and only surfaces native fullscreen overlays', () => {
+    expect(
+      resolveShellBlockingOverlayPayload({
+        transitionState: null,
+        webViewSlots,
+        activeSlot: 'primary',
+        activeBusyOverlay: {
+          active: true,
+          lockNavigation: false,
+          title: '内联刷新',
+          message: '这不应该接管壳层',
+          presentation: 'inline',
+          href: '',
+        },
+        shellLanguage: 'zh-CN',
+      }),
+    ).toBeNull();
+
+    expect(
+      resolveShellBlockingOverlayPayload({
+        transitionState: null,
+        webViewSlots,
+        activeSlot: 'primary',
+        activeBusyOverlay: {
+          active: true,
+          lockNavigation: true,
+          title: '正在同步',
+          message: '请稍候',
+          presentation: 'native-fullscreen',
+          href: '',
+        },
+        shellLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      title: '正在同步',
+      message: '请稍候',
+    });
   });
 });

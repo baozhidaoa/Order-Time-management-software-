@@ -32,58 +32,16 @@ const mobileBootstrapHtmlPages = new Set([
 ]);
 const unreadableOfflineAssetFallbacks = new Map([
   [
-    "pages/embedded-assets/chart.runtime.js",
-    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
-  ],
-  [
-    "pages/embedded-assets/d3.min.js",
-    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-  ],
-  [
-    "pages/embedded-assets/d3.runtime.js",
-    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-  ],
-  [
-    "pages/embedded-assets/cal-heatmap.min.js",
-    path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
-  ],
-  [
-    "pages/embedded-assets/cal-heatmap.runtime.js",
-    path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
-  ],
-  [
     "pages/offline-assets/chart.runtime.js",
     path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
   ],
   [
-    "pages/offline-assets/d3.min.js",
-    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
+    "pages/offline-assets/chart.runtime.v2.js",
+    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
   ],
   [
     "pages/offline-assets/d3.runtime.js",
     path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-  ],
-  [
-    "pages/offline-assets/cal-heatmap.min.js",
-    path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
   ],
   [
     "pages/offline-assets/cal-heatmap.runtime.js",
@@ -149,12 +107,6 @@ async function listRelativeFiles(rootDir) {
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
-      if (
-        relativePath === "runtime-assets" ||
-        relativePath.startsWith("runtime-assets/")
-      ) {
-        continue;
-      }
       if (entry.isDirectory()) {
         await walk(fullPath);
         continue;
@@ -773,10 +725,12 @@ async function main() {
       todoInitFunction,
       [
         "bindTodoExternalStorageRefresh();",
-        "await waitForTodoStorageReady();",
-        "applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());",
+        "const snapshot = bootstrapTodoFromCachedSnapshot();",
+        "renderTodoWorkspace();",
+        "queueTodoInitialReveal();",
+        "scheduleTodoDeferredFreshSync();",
       ],
-      "待办页初始化未先绑定外部刷新并等待原生存储就绪，再执行首屏 fresh hydrate。",
+      "待办页初始化未先绑定外部刷新，再基于当前快照快速首屏渲染，并在首屏后调度后台 fresh 同步。",
     );
   }
 

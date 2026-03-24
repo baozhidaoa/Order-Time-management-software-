@@ -149,6 +149,13 @@ vite.config.ts.timestamp-*
 .tmp-widget-javac/
 .tmp-capacitor-javac/
 
+# Local device data / recovery artifacts
+artifacts/device-live/
+artifacts/device_backups/
+artifacts/device_recovery_bundle/
+artifacts/touch-diagnosis/
+artifacts/android-real-device-regression/
+
 # Signing secrets
 ControlerApp/android/key.properties
 ControlerApp/android/*.jks

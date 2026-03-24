@@ -1448,6 +1448,7 @@ let statsLastPersistenceError = null;
 let statsBeforePageLeaveGuardBound = false;
 const uiTools = window.ControlerUI || null;
 const projectStatsApi = window.ControlerProjectStats || null;
+const statsStorageBundleApi = window.ControlerStorageBundle || null;
 const statsDataIndex = window.ControlerDataIndex?.createStore?.() || null;
 const IS_ANDROID_NATIVE_STATS_RUNTIME =
   window.ControlerNativeBridge?.platform === "android";
@@ -1500,8 +1501,8 @@ let statsInitialViewRuntimePromise = null;
 let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
-const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
-const STATS_D3_RUNTIME_URL = "offline-assets/d3.min.js";
+const STATS_CHART_RUNTIME_URL = "offline-assets/chart.runtime.v2.js";
+const STATS_D3_RUNTIME_URL = "offline-assets/d3.runtime.js";
 const STATS_HEATMAP_STYLE_URL = "offline-assets/cal-heatmap.css";
 const STATS_HEATMAP_RUNTIME_URL = "offline-assets/cal-heatmap.runtime.js";
 const STATS_VIEW_LABELS = {
@@ -1565,7 +1566,10 @@ const MOBILE_LINE_FILTER_WIDTH_FACTOR = 2 / 3;
 const MOBILE_HEATMAP_FILTER_WIDTH_FACTOR = 2 / 3;
 const MOBILE_HEATMAP_CELL_SHRINK_RATIO = 0.92;
 const STATS_PREFERENCES_STORAGE_KEY = "statsPreferences";
-const STATS_LOADING_OVERLAY_DELAY_MS = 180;
+const STATS_LOADING_OVERLAY_DELAY_MS = Math.max(
+  0,
+  Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
+);
 const STATS_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const HEATMAP_THRESHOLD_DEFAULTS = Object.freeze({
   lightMaxHours: 2,
@@ -1817,6 +1821,79 @@ function cloneStatsValue(value) {
   }
 }
 
+function cloneStatsProjectSnapshot(projectList = projects) {
+  return cloneStatsValue(Array.isArray(projectList) ? projectList : []);
+}
+
+async function loadAllStatsRecordsFromStorage(fallbackRecords = records) {
+  if (typeof window.ControlerStorage?.loadSectionRange === "function") {
+    const range = await window.ControlerStorage.loadSectionRange("records", {
+      all: true,
+    });
+    if (Array.isArray(range?.items)) {
+      return range.items;
+    }
+  }
+  try {
+    const storedRecords = JSON.parse(localStorage.getItem("records") || "[]");
+    if (Array.isArray(storedRecords)) {
+      return storedRecords;
+    }
+  } catch (error) {
+    console.error("读取统计页全量记录失败，回退当前工作区快照:", error);
+  }
+  return cloneStatsRecordSnapshotList(fallbackRecords);
+}
+
+function rebuildStatsProjectDurationCaches(
+  projectList = projects,
+  recordList = records,
+) {
+  if (typeof statsStorageBundleApi?.rebuildProjectDurationCaches !== "function") {
+    return null;
+  }
+  const nextProjects = statsStorageBundleApi.rebuildProjectDurationCaches(
+    cloneStatsProjectSnapshot(projectList),
+    cloneStatsRecordSnapshotList(recordList),
+  );
+  if (!Array.isArray(nextProjects)) {
+    return null;
+  }
+  projects = cloneStatsProjectSnapshot(nextProjects);
+  return cloneStatsProjectSnapshot(projects);
+}
+
+function applyStatsProjectRecordDurationChanges(changes = {}) {
+  if (typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !== "function") {
+    return null;
+  }
+  const nextProjects = statsStorageBundleApi.applyProjectRecordDurationChanges(
+    cloneStatsProjectSnapshot(projects),
+    {
+      removedRecords: cloneStatsRecordSnapshotList(changes?.removedRecords),
+      addedRecords: cloneStatsRecordSnapshotList(changes?.addedRecords),
+    },
+  );
+  if (!Array.isArray(nextProjects)) {
+    return null;
+  }
+  projects = cloneStatsProjectSnapshot(nextProjects);
+  return cloneStatsProjectSnapshot(projects);
+}
+
+async function persistStatsProjectsSnapshot(projectList = projects) {
+  const projectSnapshot = cloneStatsProjectSnapshot(projectList);
+  if (typeof window.ControlerStorage?.replaceCoreState === "function") {
+    await window.ControlerStorage.replaceCoreState({
+      projects: projectSnapshot,
+    });
+  } else {
+    localStorage.setItem("projects", JSON.stringify(projectSnapshot));
+  }
+  projects = cloneStatsProjectSnapshot(projectSnapshot);
+  return true;
+}
+
 function captureStatsWorkspaceSnapshot(snapshot = {}) {
   return {
     preferences: cloneStatsValue(
@@ -2001,7 +2078,9 @@ function ensureStatsChartRuntimeLoaded() {
   }
   const loader =
     typeof uiTools?.loadScriptOnce === "function"
-      ? uiTools.loadScriptOnce(STATS_CHART_RUNTIME_URL)
+      ? uiTools.loadScriptOnce(STATS_CHART_RUNTIME_URL, {
+          ready: () => typeof window.Chart !== "undefined",
+        })
       : Promise.reject(new Error("缺少动态图表脚本加载能力"));
   statsChartRuntimeLoader = loader.catch((error) => {
     statsChartRuntimeLoader = null;
@@ -2019,7 +2098,9 @@ function ensureStatsD3RuntimeLoaded() {
   }
   const loader =
     typeof uiTools?.loadScriptOnce === "function"
-      ? uiTools.loadScriptOnce(STATS_D3_RUNTIME_URL)
+      ? uiTools.loadScriptOnce(STATS_D3_RUNTIME_URL, {
+          ready: () => typeof window.d3 !== "undefined",
+        })
       : Promise.reject(new Error("缺少 D3 脚本加载能力"));
   return loader;
 }
@@ -2047,7 +2128,9 @@ function ensureStatsHeatmapRuntimeLoaded() {
       if (typeof uiTools?.loadScriptOnce !== "function") {
         throw new Error("缺少热图脚本加载能力");
       }
-      await uiTools.loadScriptOnce(STATS_HEATMAP_RUNTIME_URL);
+      await uiTools.loadScriptOnce(STATS_HEATMAP_RUNTIME_URL, {
+        ready: () => typeof window.CalHeatmap !== "undefined",
+      });
     }
   })().catch((error) => {
     statsHeatmapRuntimeLoader = null;
@@ -6615,7 +6698,12 @@ function saveStatsRecordsToStorage() {
     } else {
       localStorage.setItem("records", JSON.stringify(records));
     }
-    syncStatsDataIndex(["records"]);
+    const authoritativeRecords = await loadAllStatsRecordsFromStorage(records);
+    const nextProjects =
+      rebuildStatsProjectDurationCaches(projects, authoritativeRecords) ||
+      cloneStatsProjectSnapshot(projects);
+    await persistStatsProjectsSnapshot(nextProjects);
+    syncStatsDataIndex(["records", "projects"]);
     return true;
   }, "保存统计记录失败:");
 }
@@ -6634,6 +6722,7 @@ function saveStatsRecordUpdateToStorage(
   previousRecord,
   nextRecord,
   recordsSnapshot = [],
+  projectSnapshot = projects,
 ) {
   const previousPeriodId = previousRecord
     ? getStatsRecordPeriodId(previousRecord)
@@ -6666,11 +6755,16 @@ function saveStatsRecordUpdateToStorage(
     } else {
       localStorage.setItem("records", JSON.stringify(recordsSnapshot));
     }
+    await persistStatsProjectsSnapshot(projectSnapshot);
     return true;
   }, "保存统计记录失败:");
 }
 
-function deleteStatsRecordFromStorage(deletedRecord, recordsSnapshot = []) {
+function deleteStatsRecordFromStorage(
+  deletedRecord,
+  recordsSnapshot = [],
+  projectSnapshot = projects,
+) {
   const deletedPeriodId = deletedRecord ? getStatsRecordPeriodId(deletedRecord) : "";
   const deletedRecordId = getStatsRecordStableId(deletedRecord);
 
@@ -6691,6 +6785,7 @@ function deleteStatsRecordFromStorage(deletedRecord, recordsSnapshot = []) {
     } else {
       localStorage.setItem("records", JSON.stringify(recordsSnapshot));
     }
+    await persistStatsProjectsSnapshot(projectSnapshot);
     return true;
   }, "删除统计记录失败:");
 }
@@ -6867,13 +6962,19 @@ async function openStatsRecordEditModal(locator) {
       name: nextName,
       projectId: nextProject?.id || null,
     };
-    syncStatsDataIndex(["records"]);
     const nextRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
+    const nextProjectsSnapshot =
+      applyStatsProjectRecordDurationChanges({
+        removedRecords: [previousRecordSnapshot],
+        addedRecords: [nextRecordSnapshot],
+      }) || cloneStatsProjectSnapshot(projects);
+    syncStatsDataIndex(["records", "projects"]);
     const recordsSnapshot = cloneStatsRecordSnapshotList(records);
     const persistPromise = saveStatsRecordUpdateToStorage(
       previousRecordSnapshot,
       nextRecordSnapshot,
       recordsSnapshot,
+      nextProjectsSnapshot,
     );
     refreshAfterMutation();
     const persisted = await persistPromise;
@@ -6906,11 +7007,16 @@ async function openStatsRecordEditModal(locator) {
 
     const deletedRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
     records.splice(liveRecordIndex, 1);
-    syncStatsDataIndex(["records"]);
+    const nextProjectsSnapshot =
+      applyStatsProjectRecordDurationChanges({
+        removedRecords: [deletedRecordSnapshot],
+      }) || cloneStatsProjectSnapshot(projects);
+    syncStatsDataIndex(["records", "projects"]);
     const recordsSnapshot = cloneStatsRecordSnapshotList(records);
     const persistPromise = deleteStatsRecordFromStorage(
       deletedRecordSnapshot,
       recordsSnapshot,
+      nextProjectsSnapshot,
     );
     refreshAfterMutation();
     const persisted = await persistPromise;

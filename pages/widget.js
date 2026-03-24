@@ -2719,6 +2719,26 @@ function buildGoalPreviewNode(preview, metrics) {
     main.appendChild(head);
 
     const list = createElement("div", "widget-goal-card-list");
+    list.dataset.widgetInteractionZone = "isolated";
+    if (!list.dataset.widgetInteractionBound) {
+      list.dataset.widgetInteractionBound = "true";
+      [
+        "click",
+        "dblclick",
+        "mousedown",
+        "mouseup",
+        "pointerdown",
+        "pointerup",
+        "touchstart",
+        "touchend",
+        "touchmove",
+        "wheel",
+      ].forEach((eventName) => {
+        list.addEventListener(eventName, (event) => {
+          event.stopPropagation();
+        });
+      });
+    }
     if (goals.length === 0) {
       list.appendChild(
         createElement("div", "widget-goal-card-item", translateWidgetUiText("暂无目标")),
@@ -2979,7 +2999,13 @@ function buildWidgetCard(widgetType, content, metrics) {
   if (!content.actionOnly) {
     card.dataset.cardOpenable = "true";
     card.addEventListener("click", (event) => {
-      if (event.target instanceof HTMLElement && event.target.closest("button")) {
+      if (
+        event.target instanceof HTMLElement &&
+        (
+          event.target.closest("button") ||
+          event.target.closest('[data-widget-interaction-zone="isolated"]')
+        )
+      ) {
         return;
       }
       void openWidgetMainView(widgetType, content?.launchPayload);
@@ -3112,7 +3138,7 @@ function handleWidgetRenderFailure(root, widgetType, error, options = {}) {
 
 function buildWidgetLoadingCard(widgetType, options = {}) {
   const card = createElement("section", "widget-card");
-  const shell = createElement("div", "widget-state-shell");
+  const shell = createElement("div", "widget-state-shell widget-state-shell--loading");
   const title = createElement(
     "div",
     "widget-state-title",

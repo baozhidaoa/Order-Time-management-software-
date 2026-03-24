@@ -61851,10 +61851,24 @@
   "selectedTheme": "default",
   "createdAt": "2024-01-01T00:00:00.000Z",
   "lastModified": "2026-03-21T11:40:33.307Z",
-  "storagePath": "F:\\code\\Order\\benchmarks\\datasets\\XL\\controler-data.json",
+  "storagePath": "F:\\code\\Order\\benchmarks\\datasets\\XL\\bundle-manifest.json",
   "storageDirectory": "F:\\code\\Order\\benchmarks\\datasets\\XL",
-  "userDataPath": "C:\\Users\\22715\\AppData\\Local\\Temp\\order-write-bench-MNlM0F\\userData",
-  "documentsPath": "C:\\Users\\22715\\AppData\\Local\\Temp\\order-write-bench-MNlM0F\\documents",
+  "userDataPath": "C:\\Users\\22715\\AppData\\Local\\Temp\\order-bench-run-xl-7k4VFV\\userData",
+  "documentsPath": "C:\\Users\\22715\\AppData\\Local\\Temp\\order-bench-run-xl-7k4VFV\\documents",
+  "schemaVersion": 3,
+  "recovery": {
+    "invalidItems": [],
+    "summary": {
+      "totalInvalidCount": 0,
+      "hardInvalidCount": 0,
+      "softInvalidCount": 0,
+      "hasHardIssues": false,
+      "reasonCounts": {},
+      "hardReasonCounts": {},
+      "lastCapturedAt": null
+    }
+  },
+  "protectionMode": "off",
   "syncMeta": {
     "mode": "directory-bundle",
     "fileName": "bundle-manifest.json",

@@ -643,7 +643,10 @@ const DIARY_LIST_BATCH_SIZE = 60;
 const DIARY_SEARCH_DEBOUNCE_MS = 160;
 const DIARY_DRAFT_SAVE_DELAY_MS = 300;
 const DIARY_PREFETCH_MONTH_OFFSETS = Object.freeze([-1, 0, 1]);
-const DIARY_LOADING_OVERLAY_DELAY_MS = 180;
+const DIARY_LOADING_OVERLAY_DELAY_MS = Math.max(
+  0,
+  Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
+);
 const DIARY_STORAGE_REQUEST_TIMEOUT_MS = 4000;
 const DIARY_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 let diaryFilteredEntriesCacheKey = "";

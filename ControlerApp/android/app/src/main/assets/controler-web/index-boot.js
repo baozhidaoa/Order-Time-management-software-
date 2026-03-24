@@ -1722,7 +1722,7 @@ const storageBundleApi = window.ControlerStorageBundle || null;
 const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
 let indexChartRuntimeLoader = null;
 let indexChartRuntimePreloadQueued = false;
-const INDEX_CHART_RUNTIME_URL = "offline-assets/chart.runtime.js";
+const INDEX_CHART_RUNTIME_URL = "offline-assets/chart.runtime.v2.js";
 
 function ensureIndexChartRuntimeLoaded() {
   if (typeof window.Chart !== "undefined") {
@@ -1733,7 +1733,9 @@ function ensureIndexChartRuntimeLoaded() {
   }
   const loader =
     typeof uiTools?.loadScriptOnce === "function"
-      ? uiTools.loadScriptOnce(INDEX_CHART_RUNTIME_URL)
+      ? uiTools.loadScriptOnce(INDEX_CHART_RUNTIME_URL, {
+          ready: () => typeof window.Chart !== "undefined",
+        })
       : Promise.reject(new Error("缺少动态图表脚本加载能力"));
   indexChartRuntimeLoader = loader.catch((error) => {
     indexChartRuntimeLoader = null;
@@ -1853,15 +1855,25 @@ const SPEND_BUTTON_MULTI_CLICK_GUARD_MS = 1200;
 const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
 const TABLE_SIZE_EVENT_NAME = "ui:table-scale-settings-changed";
-const INDEX_LOADING_OVERLAY_DELAY_MS = 150;
+const INDEX_LOADING_OVERLAY_DELAY_MS = Math.max(
+  0,
+  Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
+);
 const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
 const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
+const INITIAL_RECORD_GROUP_RENDER_LIMIT = 24;
+const RECORD_GROUP_RENDER_BATCH_SIZE = 16;
+const RECORD_GROUP_LOAD_MORE_THRESHOLD_PX = 280;
 const PROJECT_HIERARCHY_EXPANSION_STORAGE_KEY =
   "projectHierarchyExpansionState";
 const PROJECT_HIERARCHY_EXPANSION_STATE_VERSION = 1;
+const PROJECT_TOTALS_DEFAULT_EXPANSION_OPTIONS = Object.freeze({
+  expandLevel1: false,
+  expandLevel2: false,
+});
 const RECORD_SECTION_COLLAPSE_STORAGE_KEY = "recordSectionCollapseState";
 const RECORD_SECTION_COLLAPSE_STATE_VERSION = 1;
 const PROJECT_TABLE_HEADER_DOUBLE_CLICK_DELAY_MS = 240;
@@ -2022,6 +2034,11 @@ let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
 let indexShellVisibilityBound = false;
+let indexDebugInteractivityProbeBound = false;
+let indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
+let indexRenderedRecordGroupSignature = "";
+let indexRecordListLazyLoadBound = false;
+let indexRecordListLazyLoadScheduled = false;
 const indexExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -2242,6 +2259,9 @@ function queueRecordInitialReveal() {
       body.classList.add("record-bootstrap-ready");
       uiTools?.markPerfStage?.("first-render-done");
       uiTools?.markNativePageReady?.();
+      window.setTimeout(() => {
+        reportIndexDebugInteractivityState("initial-reveal");
+      }, 120);
     });
   });
 }
@@ -2264,6 +2284,347 @@ function getIndexLoadingOverlayController() {
     scopeFullscreenToInlineHost: false,
   }) || null;
   return indexLoadingOverlayController;
+}
+
+function describeDebugDomNode(node) {
+  if (!(node instanceof Element)) {
+    return {
+      tag: "",
+      id: "",
+      className: "",
+    };
+  }
+  return {
+    tag: node.tagName,
+    id: node.id || "",
+    className:
+      typeof node.className === "string"
+        ? node.className
+        : node.className?.baseVal || "",
+  };
+}
+
+function buildIndexDebugScrollState(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const computedStyle = window.getComputedStyle(target);
+  return {
+    scrollTop: Math.round(target.scrollTop || 0),
+    scrollHeight: Math.round(target.scrollHeight || 0),
+    clientHeight: Math.round(target.clientHeight || 0),
+    overflowY: computedStyle.overflowY,
+    overflowX: computedStyle.overflowX,
+  };
+}
+
+function emitIndexDebugEvent(name, payload = {}) {
+  if (
+    typeof window === "undefined" ||
+    typeof window.ControlerNativeBridge?.emitEvent !== "function"
+  ) {
+    return;
+  }
+  window.ControlerNativeBridge.emitEvent(name, {
+    href: window.location.href,
+    ...payload,
+  });
+}
+
+function emitIndexDebugPerf(reason, payload = {}) {
+  emitIndexDebugEvent("ui.debug-perf", {
+    reason,
+    ...payload,
+  });
+}
+
+function getIndexRecordGroupSignature(recordGroups) {
+  if (!Array.isArray(recordGroups) || recordGroups.length === 0) {
+    return "0";
+  }
+  const firstKey = String(recordGroups[0]?.key || "").trim();
+  const lastKey = String(recordGroups[recordGroups.length - 1]?.key || "").trim();
+  return `${recordGroups.length}:${firstKey}:${lastKey}`;
+}
+
+function syncIndexVisibleRecordGroupLimit(recordGroups) {
+  const totalGroups = Array.isArray(recordGroups) ? recordGroups.length : 0;
+  const nextSignature = getIndexRecordGroupSignature(recordGroups);
+  if (indexRenderedRecordGroupSignature !== nextSignature) {
+    indexRenderedRecordGroupSignature = nextSignature;
+    indexVisibleRecordGroupLimit = Math.min(
+      Math.max(INITIAL_RECORD_GROUP_RENDER_LIMIT, 1),
+      Math.max(totalGroups, 0),
+    );
+  } else {
+    indexVisibleRecordGroupLimit = Math.min(
+      Math.max(indexVisibleRecordGroupLimit, 0),
+      Math.max(totalGroups, 0),
+    );
+  }
+}
+
+function requestMoreIndexRecordGroups(totalGroups, output) {
+  if (
+    indexRecordListLazyLoadScheduled ||
+    !Number.isFinite(totalGroups) ||
+    totalGroups <= indexVisibleRecordGroupLimit
+  ) {
+    return;
+  }
+  indexRecordListLazyLoadScheduled = true;
+  const preservedScrollTop =
+    output instanceof HTMLElement ? Math.max(output.scrollTop || 0, 0) : 0;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    indexRecordListLazyLoadScheduled = false;
+    indexVisibleRecordGroupLimit = Math.min(
+      totalGroups,
+      indexVisibleRecordGroupLimit + RECORD_GROUP_RENDER_BATCH_SIZE,
+    );
+    updateDisplay({
+      preserveScrollTop: preservedScrollTop,
+    });
+  });
+}
+
+function bindIndexRecordListLazyLoad(output, getTotalGroups) {
+  if (!(output instanceof HTMLElement) || indexRecordListLazyLoadBound) {
+    return;
+  }
+  indexRecordListLazyLoadBound = true;
+  output.addEventListener(
+    "scroll",
+    () => {
+      const totalGroups =
+        typeof getTotalGroups === "function" ? Number(getTotalGroups()) || 0 : 0;
+      if (totalGroups <= indexVisibleRecordGroupLimit) {
+        return;
+      }
+      const remainingScroll =
+        output.scrollHeight - output.clientHeight - output.scrollTop;
+      if (remainingScroll > RECORD_GROUP_LOAD_MORE_THRESHOLD_PX) {
+        return;
+      }
+      requestMoreIndexRecordGroups(totalGroups, output);
+    },
+    { passive: true },
+  );
+}
+
+function createIndexDebugInteraction(type, event) {
+  if (!event || typeof event !== "object") {
+    return null;
+  }
+  if (type === "touchstart") {
+    const touch = event.changedTouches?.[0] || event.touches?.[0] || null;
+    return {
+      type,
+      x:
+        Number.isFinite(touch?.clientX) && touch.clientX >= 0
+          ? Math.round(touch.clientX)
+          : null,
+      y:
+        Number.isFinite(touch?.clientY) && touch.clientY >= 0
+          ? Math.round(touch.clientY)
+          : null,
+      target: describeDebugDomNode(event.target),
+    };
+  }
+  return {
+    type,
+    x:
+      Number.isFinite(event.clientX) && event.clientX >= 0
+        ? Math.round(event.clientX)
+        : null,
+    y:
+      Number.isFinite(event.clientY) && event.clientY >= 0
+        ? Math.round(event.clientY)
+        : null,
+    target: describeDebugDomNode(event.target),
+  };
+}
+
+function buildDebugHitState(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const rect = target.getBoundingClientRect();
+  const computedStyle = window.getComputedStyle(target);
+  const baseState = {
+    target: describeDebugDomNode(target),
+    pointerEvents: computedStyle.pointerEvents,
+    disabled: "disabled" in target ? !!target.disabled : null,
+  };
+  if (!(rect.width > 0 && rect.height > 0)) {
+    return {
+      ...baseState,
+      hit: null,
+      hitInsideTarget: false,
+      pointX: null,
+      pointY: null,
+      rectTop: null,
+      rectBottom: null,
+      rectHeight: null,
+    };
+  }
+  const pointX = Math.min(
+    Math.max(rect.left + rect.width / 2, 0),
+    Math.max(window.innerWidth - 1, 0),
+  );
+  const pointY = Math.min(
+    Math.max(rect.top + rect.height / 2, 0),
+    Math.max(window.innerHeight - 1, 0),
+  );
+  const hit = document.elementFromPoint(pointX, pointY);
+  return {
+    ...baseState,
+    hit: describeDebugDomNode(hit),
+    hitInsideTarget: hit === target || !!target.contains(hit),
+    pointX: Math.round(pointX),
+    pointY: Math.round(pointY),
+    rectTop: Math.round(rect.top),
+    rectBottom: Math.round(rect.bottom),
+    rectHeight: Math.round(rect.height),
+  };
+}
+
+function emitIndexDebugAction(reason, target = null, extra = {}) {
+  const recordList = document.getElementById("output");
+  emitIndexDebugEvent("ui.debug-action", {
+    reason,
+    target: describeDebugDomNode(target),
+    activeElement: describeDebugDomNode(document.activeElement),
+    recordListScroll: buildIndexDebugScrollState(recordList),
+    ...extra,
+  });
+}
+
+function reportIndexDebugInteractivityState(reason = "manual", interaction = null) {
+  const spendButton = document.getElementById("spend");
+  const statsButton = document.querySelector('[data-nav-page="stats"]');
+  const hierarchyToggle = document.querySelector(
+    '#record-hierarchy-section .record-section-toggle',
+  );
+  const recordList = document.getElementById("output");
+  const overlays = Array.from(
+    document.querySelectorAll(".page-loading-overlay, .modal-overlay"),
+  ).map((node) => {
+    const computedStyle = window.getComputedStyle(node);
+    return {
+      id: node.id || "",
+      className: node.className || "",
+      hidden: !!node.hidden,
+      display: computedStyle.display,
+      visibility: computedStyle.visibility,
+      pointerEvents: computedStyle.pointerEvents,
+      opacity: computedStyle.opacity,
+    };
+  });
+  emitIndexDebugEvent("ui.debug-state", {
+    reason,
+    bodyClass: document.body?.className || "",
+    htmlClass: document.documentElement?.className || "",
+    viewportWidth: Math.round(window.innerWidth || 0),
+    viewportHeight: Math.round(window.innerHeight || 0),
+    devicePixelRatio:
+      typeof window.devicePixelRatio === "number"
+        ? Number(window.devicePixelRatio.toFixed(3))
+        : null,
+    activeElement: describeDebugDomNode(document.activeElement),
+    interaction,
+    spendButton: buildDebugHitState(spendButton),
+    statsButton: buildDebugHitState(statsButton),
+    hierarchyToggle: buildDebugHitState(hierarchyToggle),
+    recordList: buildDebugHitState(recordList),
+    recordListScroll: buildIndexDebugScrollState(recordList),
+    documentScroll: buildIndexDebugScrollState(document.scrollingElement),
+    overlays,
+  });
+}
+
+function bindIndexDebugInteractivityProbe() {
+  if (indexDebugInteractivityProbeBound || typeof document === "undefined") {
+    return;
+  }
+  indexDebugInteractivityProbeBound = true;
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      reportIndexDebugInteractivityState(
+        "touchstart",
+        createIndexDebugInteraction("touchstart", event),
+      );
+    },
+    true,
+  );
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      reportIndexDebugInteractivityState(
+        "pointerdown",
+        createIndexDebugInteraction("pointerdown", event),
+      );
+    },
+    true,
+  );
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target =
+        event.target instanceof Element ? event.target : null;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const navButton = target.closest("[data-nav-page]");
+      if (navButton instanceof Element) {
+        emitIndexDebugAction("nav-click-capture", navButton, {
+          page: navButton.dataset.navPage || "",
+        });
+      }
+      const spendButton = target.closest("#spend");
+      if (spendButton instanceof Element) {
+        emitIndexDebugAction("spend-click-capture", spendButton);
+      }
+      const sectionToggle = target.closest(".record-section-toggle");
+      if (sectionToggle instanceof Element) {
+        const section = sectionToggle.closest("[data-section-key], [id]");
+        emitIndexDebugAction("section-toggle-click-capture", sectionToggle, {
+          sectionId: section?.id || "",
+          sectionKey: sectionToggle.dataset.sectionKey || "",
+        });
+      }
+    },
+    true,
+  );
+  const recordList = document.getElementById("output");
+  if (recordList instanceof Element) {
+    recordList.addEventListener(
+      "scroll",
+      () => {
+        emitIndexDebugEvent("ui.debug-scroll", {
+          reason: "record-list-scroll",
+          target: describeDebugDomNode(recordList),
+          recordListScroll: buildIndexDebugScrollState(recordList),
+        });
+      },
+      { passive: true },
+    );
+  }
+  window.addEventListener(
+    "scroll",
+    () => {
+      emitIndexDebugEvent("ui.debug-scroll", {
+        reason: "window-scroll",
+        target: describeDebugDomNode(document.scrollingElement),
+        documentScroll: buildIndexDebugScrollState(document.scrollingElement),
+      });
+    },
+    { passive: true },
+  );
 }
 
 function syncIndexNativeBusyLock(active, lockNavigation = false) {
@@ -2407,7 +2768,7 @@ async function hydrateIndexWorkspace(options = {}) {
           ? bootstrap.loadedPeriodIds.slice()
           : getIndexRecordPeriodIds(records);
       loadProjectHierarchyExpansionStateFromStorage();
-      projectTotalsExpansionState = normalizeVisibleProjectHierarchyExpansionState(
+      projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
         projectTotalsExpansionState,
         projects,
       );
@@ -2454,12 +2815,27 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
 
   return new Promise((resolve) => {
     scheduleIndexUiCommit(() => {
+      const uiCommitStart =
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
       refreshIndexWorkspace({
         immediate: true,
       });
+      const uiCommitDuration =
+        (typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now()) - uiCommitStart;
       indexInitialDataLoaded = true;
       queueRecordInitialReveal();
-      void scheduleIndexHistoricalRecordHydration();
+      emitIndexDebugPerf("workspace-commit", {
+        projectCount: Array.isArray(projects) ? projects.length : 0,
+        recordCount: Array.isArray(records) ? records.length : 0,
+        periodIds: indexLoadedRecordPeriodIds.slice(),
+        durationMs: Math.round(uiCommitDuration),
+      });
       if (markFirstCommit) {
         uiTools?.markPerfStage?.("first-data-commit", {
           projectCount: projects.length,
@@ -2877,7 +3253,13 @@ function ensureRecordSectionCollapseUi() {
       `;
       toggle.addEventListener("click", () => {
         const collapsed = recordSectionCollapseState[definition.key] !== false;
-        setRecordSectionCollapsed(definition.key, !collapsed);
+        const nextCollapsed = !collapsed;
+        setRecordSectionCollapsed(definition.key, nextCollapsed);
+        emitIndexDebugAction("section-toggle-handler", toggle, {
+          sectionId: definition.sectionId,
+          sectionKey: definition.key,
+          collapsed: nextCollapsed,
+        });
       });
       section.insertBefore(toggle, body || section.firstChild);
     }
@@ -2911,6 +3293,17 @@ function normalizeVisibleProjectHierarchyExpansionState(
   }
 
   return createDefaultProjectHierarchyExpansionState(projectList, options);
+}
+
+function normalizeVisibleProjectTotalsExpansionState(
+  rawState = null,
+  projectList = projects,
+) {
+  return normalizeVisibleProjectHierarchyExpansionState(
+    rawState,
+    projectList,
+    PROJECT_TOTALS_DEFAULT_EXPANSION_OPTIONS,
+  );
 }
 
 function loadProjectHierarchyExpansionStateFromStorage() {
@@ -5787,6 +6180,12 @@ function scheduleIndexHistoricalRecordHydration(options = {}) {
 
   const hydrationPromise = new Promise((resolve) => {
     schedule(async () => {
+      const hydrationStart =
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const previousRecordCount = Array.isArray(records) ? records.length : 0;
       try {
         const allRecords = await loadAllIndexRecordsFromStorage();
         if (
@@ -5810,11 +6209,35 @@ function scheduleIndexHistoricalRecordHydration(options = {}) {
         indexLoadedRecordPeriodIds = nextPeriodIds;
         indexAllHistoricalRecordsLoaded = true;
 
+        let refreshDurationMs = 0;
         if (shouldRefreshUi) {
+          const refreshStart =
+            typeof performance !== "undefined" &&
+            typeof performance.now === "function"
+              ? performance.now()
+              : Date.now();
           refreshIndexWorkspace({
             immediate: true,
           });
+          refreshDurationMs =
+            (typeof performance !== "undefined" &&
+            typeof performance.now === "function"
+              ? performance.now()
+              : Date.now()) - refreshStart;
         }
+        const hydrationDurationMs =
+          (typeof performance !== "undefined" &&
+          typeof performance.now === "function"
+            ? performance.now()
+            : Date.now()) - hydrationStart;
+        emitIndexDebugPerf("historical-record-hydration", {
+          previousRecordCount,
+          nextRecordCount: normalizedRecords.length,
+          loadedPeriodCount: nextPeriodIds.length,
+          shouldRefreshUi,
+          durationMs: Math.round(hydrationDurationMs),
+          refreshDurationMs: Math.round(refreshDurationMs),
+        });
         resolve(records);
       } catch (error) {
         console.error("补载历史记录失败，保留当前记录快照:", error);
@@ -6933,9 +7356,17 @@ function applyShortenCarryoverToNextInterval(shortenMs) {
 }
 
 // 更新显示
-function updateDisplay() {
+function updateDisplay(options = {}) {
+  const renderStart =
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
   const output = document.getElementById("output");
   if (!output) return;
+  const preservedScrollTop = Number.isFinite(options.preserveScrollTop)
+    ? Math.max(Number(options.preserveScrollTop) || 0, 0)
+    : Math.max(output.scrollTop || 0, 0);
   syncRecordInlineEditingState();
 
   output.innerHTML = "";
@@ -6995,6 +7426,8 @@ function updateDisplay() {
   });
 
   if (visibleRecords.length === 0) {
+    indexRenderedRecordGroupSignature = "0";
+    indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
     const emptyState = document.createElement("div");
     emptyState.className = "record-item";
     emptyState.style.display = "flex";
@@ -7008,7 +7441,13 @@ function updateDisplay() {
     return;
   }
 
-  recordGroups.forEach((group) => {
+  syncIndexVisibleRecordGroupLimit(recordGroups);
+  const visibleGroupCount = Math.min(
+    recordGroups.length,
+    Math.max(indexVisibleRecordGroupLimit, 0),
+  );
+  const visibleRecordGroups = recordGroups.slice(0, visibleGroupCount);
+  visibleRecordGroups.forEach((group) => {
     const groupHeader = document.createElement("div");
     groupHeader.style.gridColumn = "1 / -1";
     groupHeader.style.display = "flex";
@@ -7033,197 +7472,215 @@ function updateDisplay() {
     fragment.appendChild(groupHeader);
 
     group.records.forEach((record) => {
-    const recordElement = document.createElement("div");
-    recordElement.className = "record-item";
-    recordElement.dataset.recordId = record.id;
-    recordElement.style.padding = `${cardPadding}px`;
-    recordElement.style.borderRadius = `${cardRadius}px`;
-    recordElement.style.fontSize = `${bodyFontSize}px`;
-    recordElement.style.minHeight = `${cardMinHeight}px`;
-    recordElement.style.height = "100%";
-    recordElement.style.boxSizing = "border-box";
-    if (record.id === activeRecordId) {
-      recordElement.classList.add("active");
-    }
-    if (record.id === editingRecordId) {
-      recordElement.classList.add("editing");
-    }
-    if (indexPendingRecordSaveIds.has(String(record.id || "").trim())) {
-      recordElement.classList.add("record-item-pending");
-    }
+      const recordElement = document.createElement("div");
+      recordElement.className = "record-item";
+      recordElement.dataset.recordId = record.id;
+      recordElement.style.padding = `${cardPadding}px`;
+      recordElement.style.borderRadius = `${cardRadius}px`;
+      recordElement.style.fontSize = `${bodyFontSize}px`;
+      recordElement.style.minHeight = `${cardMinHeight}px`;
+      recordElement.style.height = "100%";
+      recordElement.style.boxSizing = "border-box";
+      if (record.id === activeRecordId) {
+        recordElement.classList.add("active");
+      }
+      if (record.id === editingRecordId) {
+        recordElement.classList.add("editing");
+      }
+      if (indexPendingRecordSaveIds.has(String(record.id || "").trim())) {
+        recordElement.classList.add("record-item-pending");
+      }
 
-    const row = document.createElement("div");
-    row.className = "record-item-row";
-    row.style.gap = `${Math.max(6, Math.round(10 * recordScale))}px`;
-    row.style.minWidth = "0";
+      const row = document.createElement("div");
+      row.className = "record-item-row";
+      row.style.gap = `${Math.max(6, Math.round(10 * recordScale))}px`;
+      row.style.minWidth = "0";
 
-    const main = document.createElement("div");
-    main.className = "record-main";
-    main.style.minWidth = "0";
+      const main = document.createElement("div");
+      main.className = "record-main";
+      main.style.minWidth = "0";
 
-    const projectName = document.createElement("div");
-    projectName.className = "project-name record-name-text";
-    projectName.textContent = record.name;
-    projectName.title = "双击可编辑";
-    projectName.style.fontSize = `${titleFontSize}px`;
-    projectName.addEventListener("dblclick", (event) => {
-      event.stopPropagation();
-      activeRecordId = record.id;
-      editingRecordId = record.id;
-      queueRecordNameFocus(record.id);
-      updateDisplay();
-    });
+      const projectName = document.createElement("div");
+      projectName.className = "project-name record-name-text";
+      projectName.textContent = record.name;
+      projectName.title = "双击可编辑";
+      projectName.style.fontSize = `${titleFontSize}px`;
+      projectName.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        activeRecordId = record.id;
+        editingRecordId = record.id;
+        queueRecordNameFocus(record.id);
+        updateDisplay();
+      });
 
-    const recordNameEditor = document.createElement("div");
-    recordNameEditor.className = "record-name-editor";
+      const recordNameEditor = document.createElement("div");
+      recordNameEditor.className = "record-name-editor";
 
-    const recordNameInput = document.createElement("input");
-    recordNameInput.type = "text";
-    recordNameInput.className = "record-name-input";
-    recordNameInput.value = record.name;
-    recordNameInput.placeholder = "输入项目名称";
-    recordNameInput.style.fontSize = `${bodyFontSize}px`;
-    recordNameInput.style.padding = `${Math.max(6, Math.round(8 * recordScale))}px ${Math.max(8, Math.round(10 * recordScale))}px`;
-    recordNameInput.addEventListener("click", (event) => {
-      event.stopPropagation();
-    });
-    recordNameInput.addEventListener("keydown", async (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
+      const recordNameInput = document.createElement("input");
+      recordNameInput.type = "text";
+      recordNameInput.className = "record-name-input";
+      recordNameInput.value = record.name;
+      recordNameInput.placeholder = "输入项目名称";
+      recordNameInput.style.fontSize = `${bodyFontSize}px`;
+      recordNameInput.style.padding = `${Math.max(6, Math.round(8 * recordScale))}px ${Math.max(8, Math.round(10 * recordScale))}px`;
+      recordNameInput.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      recordNameInput.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await saveRecordNameEdit(record.id);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelRecordNameEdit();
+        }
+      });
+      recordNameEditor.appendChild(recordNameInput);
+
+      const spendtimeElement = document.createElement("div");
+      spendtimeElement.className = "record-spendtime";
+      spendtimeElement.textContent = `用时: ${record.spendtime}`;
+      spendtimeElement.style.fontSize = `${bodyFontSize}px`;
+      spendtimeElement.style.lineHeight = "1.35";
+
+      const recordTime = document.createElement("div");
+      recordTime.className = "record-time";
+      const recordDate = resolveRecordTime(record) || new Date();
+      recordTime.textContent = formatRecordCardTime(recordDate, compactMeta);
+      recordTime.style.fontSize = `${metaFontSize}px`;
+      recordTime.style.lineHeight = "1.35";
+      if (indexPendingRecordSaveIds.has(String(record.id || "").trim())) {
+        const pendingLabel = document.createElement("span");
+        pendingLabel.className = "record-persist-pending-chip";
+        pendingLabel.textContent = "等待保存";
+        pendingLabel.style.marginLeft = "8px";
+        recordTime.appendChild(pendingLabel);
+      }
+
+      main.appendChild(projectName);
+      main.appendChild(recordNameEditor);
+      main.appendChild(spendtimeElement);
+      main.appendChild(recordTime);
+
+      const actions = document.createElement("div");
+      actions.className = "record-item-actions";
+      actions.style.gap = `${Math.max(4, Math.round(6 * recordScale))}px`;
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "record-action-btn record-edit-btn";
+      editBtn.type = "button";
+      editBtn.textContent = "编辑";
+      editBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
+      editBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
+      editBtn.style.fontSize = `${buttonFontSize}px`;
+      editBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        activeRecordId = record.id;
+        editingRecordId = record.id;
+        queueRecordNameFocus(record.id);
+        updateDisplay();
+      });
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "record-action-btn record-save-btn";
+      saveBtn.type = "button";
+      saveBtn.textContent = "保存";
+      saveBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
+      saveBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
+      saveBtn.style.fontSize = `${buttonFontSize}px`;
+      saveBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
         await saveRecordNameEdit(record.id);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
+      });
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "record-action-btn record-cancel-btn";
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "取消";
+      cancelBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
+      cancelBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
+      cancelBtn.style.fontSize = `${buttonFontSize}px`;
+      cancelBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
         cancelRecordNameEdit();
-      }
-    });
-    recordNameEditor.appendChild(recordNameInput);
+      });
 
-    const spendtimeElement = document.createElement("div");
-    spendtimeElement.className = "record-spendtime";
-    spendtimeElement.textContent = `用时: ${record.spendtime}`;
-    spendtimeElement.style.fontSize = `${bodyFontSize}px`;
-    spendtimeElement.style.lineHeight = "1.35";
-
-    const recordTime = document.createElement("div");
-    recordTime.className = "record-time";
-    const recordDate = resolveRecordTime(record) || new Date();
-    recordTime.textContent = formatRecordCardTime(recordDate, compactMeta);
-    recordTime.style.fontSize = `${metaFontSize}px`;
-    recordTime.style.lineHeight = "1.35";
-    if (indexPendingRecordSaveIds.has(String(record.id || "").trim())) {
-      const pendingLabel = document.createElement("span");
-      pendingLabel.className = "record-persist-pending-chip";
-      pendingLabel.textContent = "等待保存";
-      pendingLabel.style.marginLeft = "8px";
-      recordTime.appendChild(pendingLabel);
-    }
-
-    main.appendChild(projectName);
-    main.appendChild(recordNameEditor);
-    main.appendChild(spendtimeElement);
-    main.appendChild(recordTime);
-
-    const actions = document.createElement("div");
-    actions.className = "record-item-actions";
-    actions.style.gap = `${Math.max(4, Math.round(6 * recordScale))}px`;
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "record-action-btn record-edit-btn";
-    editBtn.type = "button";
-    editBtn.textContent = "编辑";
-    editBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
-    editBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
-    editBtn.style.fontSize = `${buttonFontSize}px`;
-    editBtn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      activeRecordId = record.id;
-      editingRecordId = record.id;
-      queueRecordNameFocus(record.id);
-      updateDisplay();
-    });
-
-    const saveBtn = document.createElement("button");
-    saveBtn.className = "record-action-btn record-save-btn";
-    saveBtn.type = "button";
-    saveBtn.textContent = "保存";
-    saveBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
-    saveBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
-    saveBtn.style.fontSize = `${buttonFontSize}px`;
-    saveBtn.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await saveRecordNameEdit(record.id);
-    });
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.className = "record-action-btn record-cancel-btn";
-    cancelBtn.type = "button";
-    cancelBtn.textContent = "取消";
-    cancelBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
-    cancelBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
-    cancelBtn.style.fontSize = `${buttonFontSize}px`;
-    cancelBtn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      cancelRecordNameEdit();
-    });
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "delete-btn record-action-btn";
-    deleteBtn.type = "button";
-    deleteBtn.dataset.recordId = record.id;
-    deleteBtn.textContent = "删除";
-    deleteBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
-    deleteBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
-    deleteBtn.style.fontSize = `${buttonFontSize}px`;
-    deleteBtn.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const confirmed = await requestIndexConfirmation(
-        "确定要删除这条记录吗？此操作不可撤销！",
-        {
-          title: "删除记录",
-          confirmText: "删除",
-          cancelText: "取消",
-          danger: true,
-        },
-      );
-      if (!confirmed) {
-        return;
-      }
-      deleteRecord(record.id);
-      activeRecordId = null;
-      editingRecordId = null;
-    });
-
-    actions.appendChild(editBtn);
-    actions.appendChild(saveBtn);
-    actions.appendChild(cancelBtn);
-    actions.appendChild(deleteBtn);
-
-    row.appendChild(main);
-    row.appendChild(actions);
-    recordElement.appendChild(row);
-
-    recordElement.addEventListener("click", function (event) {
-      if (
-        event.target.closest("button") ||
-        event.target.closest("input") ||
-        editingRecordId === record.id
-      ) {
-        return;
-      }
-
-      const isActive = activeRecordId === record.id;
-      activeRecordId = isActive ? null : record.id;
-      if (editingRecordId && editingRecordId !== record.id) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "delete-btn record-action-btn";
+      deleteBtn.type = "button";
+      deleteBtn.dataset.recordId = record.id;
+      deleteBtn.textContent = "删除";
+      deleteBtn.style.minWidth = `${Math.max(46, Math.round(58 * recordScale))}px`;
+      deleteBtn.style.padding = `${buttonPaddingY}px ${buttonPaddingX}px`;
+      deleteBtn.style.fontSize = `${buttonFontSize}px`;
+      deleteBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const confirmed = await requestIndexConfirmation(
+          "确定要删除这条记录吗？此操作不可撤销！",
+          {
+            title: "删除记录",
+            confirmText: "删除",
+            cancelText: "取消",
+            danger: true,
+          },
+        );
+        if (!confirmed) {
+          return;
+        }
+        deleteRecord(record.id);
+        activeRecordId = null;
         editingRecordId = null;
-      }
-      updateDisplay();
-    });
+      });
+
+      actions.appendChild(editBtn);
+      actions.appendChild(saveBtn);
+      actions.appendChild(cancelBtn);
+      actions.appendChild(deleteBtn);
+
+      row.appendChild(main);
+      row.appendChild(actions);
+      recordElement.appendChild(row);
+
+      recordElement.addEventListener("click", function (event) {
+        if (
+          event.target.closest("button") ||
+          event.target.closest("input") ||
+          editingRecordId === record.id
+        ) {
+          return;
+        }
+
+        const isActive = activeRecordId === record.id;
+        activeRecordId = isActive ? null : record.id;
+        if (editingRecordId && editingRecordId !== record.id) {
+          editingRecordId = null;
+        }
+        updateDisplay();
+      });
 
       fragment.appendChild(recordElement);
     });
   });
 
+  const remainingGroupCount = Math.max(recordGroups.length - visibleGroupCount, 0);
+  const renderedRecordCount = visibleRecordGroups.reduce((total, group) => {
+    return total + (Array.isArray(group.records) ? group.records.length : 0);
+  }, 0);
+  if (remainingGroupCount > 0) {
+    const loadMoreHint = document.createElement("div");
+    loadMoreHint.className = "record-list-load-more-hint";
+    loadMoreHint.style.gridColumn = "1 / -1";
+    loadMoreHint.style.padding = `${Math.max(8, Math.round(12 * recordScale))}px`;
+    loadMoreHint.style.textAlign = "center";
+    loadMoreHint.style.color = "var(--muted-text-color)";
+    loadMoreHint.style.fontSize = `${metaFontSize}px`;
+    loadMoreHint.textContent = `继续下滑加载更早记录，剩余 ${remainingGroupCount} 天`;
+    fragment.appendChild(loadMoreHint);
+  }
+
   output.appendChild(fragment);
+  output.scrollTop = preservedScrollTop;
+  bindIndexRecordListLazyLoad(output, () => recordGroups.length);
 
   syncRecordInlineEditingState();
 
@@ -7235,6 +7692,22 @@ function updateDisplay() {
     const focusRecordId = pendingRecordNameFocusId;
     pendingRecordNameFocusId = "";
     setRecordNameFocus(focusRecordId);
+  }
+
+  const renderDurationMs =
+    (typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now()) - renderStart;
+  if (visibleRecords.length >= 120 || renderDurationMs >= 48) {
+    emitIndexDebugPerf("render-record-list", {
+      totalRecordCount: Array.isArray(records) ? records.length : 0,
+      renderedRecordCount,
+      renderedGroupCount: visibleGroupCount,
+      groupCount: recordGroups.length,
+      remainingGroupCount,
+      durationMs: Math.round(renderDurationMs),
+    });
   }
 }
 
@@ -7914,7 +8387,12 @@ function initIndexPrimaryBindings() {
   const spendBtn = document.getElementById("spend");
   if (spendBtn) {
     spendBtn.addEventListener("click", function () {
-      requestSpendModalOpen();
+      const accepted = requestSpendModalOpen();
+      emitIndexDebugAction("spend-handler", spendBtn, {
+        accepted,
+        modalOpen: isModalOpen,
+        pendingSpendModal: !!pendingSpendModalState,
+      });
     });
   }
 
@@ -10431,6 +10909,7 @@ function handleDragEnd(e) {
 function updateProjectTotals() {
   const container = document.getElementById("project-totals");
   if (!container) return;
+  const preservedScrollTop = Math.max(container.scrollTop || 0, 0);
   container.innerHTML = "";
   const summaryScale = getRecordSurfaceScale(container);
   const compactProjectTotals = isCompactAndroidProjectTotalsLayout();
@@ -10537,6 +11016,7 @@ function updateProjectTotals() {
   });
 
   container.appendChild(fragment);
+  container.scrollTop = preservedScrollTop;
 }
 
 function clearIndexPersistenceError() {
@@ -10682,7 +11162,7 @@ function restoreIndexWorkspacePersistenceSnapshot(snapshot) {
     });
   }
   loadProjectHierarchyExpansionStateFromStorage();
-  projectTotalsExpansionState = normalizeVisibleProjectHierarchyExpansionState(
+  projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
     projectTotalsExpansionState,
     projects,
   );
@@ -11328,7 +11808,7 @@ async function loadProjectsFromStorage(options = {}) {
       }
     }
     loadProjectHierarchyExpansionStateFromStorage();
-    projectTotalsExpansionState = normalizeVisibleProjectHierarchyExpansionState(
+    projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
       projectTotalsExpansionState,
       projects,
     );
@@ -11890,6 +12370,7 @@ function finalizeIndexInitialHydration(options = {}) {
   initIndexModalBindings();
   bindIndexExternalStorageRefresh();
   initIndexSecondaryBindings();
+  bindIndexDebugInteractivityProbe();
   persistTimerSessionState();
   initIndexWidgetLaunchAction();
   markIndexWidgetLaunchCoreReady();
@@ -11897,6 +12378,9 @@ function finalizeIndexInitialHydration(options = {}) {
     active: false,
   });
   queueRecordInitialReveal();
+  window.setTimeout(() => {
+    reportIndexDebugInteractivityState("initial-hydration");
+  }, 300);
   if (scheduleDeferredRuntime) {
     if (!indexShellPageActive) {
       indexDeferredRuntimePendingResume = true;
@@ -12037,6 +12521,7 @@ async function init() {
     registerIndexBeforePageLeaveGuard();
     initIndexPrimaryBindings();
     initIndexModalBindings();
+    bindIndexDebugInteractivityProbe();
     initIndexWidgetLaunchAction();
     await waitForIndexStorageReady();
     await restoreTimerSessionDraftFromStorage();
@@ -12054,6 +12539,9 @@ async function init() {
     }
 
     queueRecordInitialReveal();
+    window.setTimeout(() => {
+      reportIndexDebugInteractivityState("post-init");
+    }, 800);
     if (!indexShellPageActive) {
       indexDeferredHydrationPendingResume = true;
       return;
@@ -12327,6 +12815,11 @@ function attachTableLongPressDrag(element) {
 
 // 渲染项目表格视图
 function renderProjectsTable() {
+  const renderStart =
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
   const tableContainer = document.getElementById("projects-table");
   if (!tableContainer) return;
 
@@ -12586,6 +13079,19 @@ function renderProjectsTable() {
     );
     tableContainer.style.minHeight = `${scaledHeight + 20}px`;
   });
+
+  const renderDurationMs =
+    (typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now()) - renderStart;
+  if (level1Projects.length >= 20 || renderDurationMs >= 48) {
+    emitIndexDebugPerf("render-project-table", {
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      rootProjectCount: level1Projects.length,
+      durationMs: Math.round(renderDurationMs),
+    });
+  }
 }
 
 // 表格拖拽相关函数

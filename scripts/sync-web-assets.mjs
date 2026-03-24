@@ -21,7 +21,6 @@ const mobileContractTargetPath = path.join(
   "platform-contract.js",
 );
 const offlineAssetsDir = path.join(repoRoot, "pages", "offline-assets");
-const embeddedAssetsDir = path.join(repoRoot, "pages", "embedded-assets");
 const chartRuntimeSourcePath = path.join(
   repoRoot,
   "node_modules",
@@ -47,6 +46,7 @@ const mobileIosWebDir = path.join(
 );
 const pagesSourceDir = path.join(repoRoot, "pages");
 const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
+const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 
 const assets = [
   {
@@ -54,22 +54,12 @@ const assets = [
     to: path.join(offlineAssetsDir, "chart.runtime.js"),
   },
   {
-    from: path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-    to: path.join(offlineAssetsDir, "d3.min.js"),
+    from: chartRuntimeSourcePath,
+    to: path.join(offlineAssetsDir, "chart.runtime.v2.js"),
   },
   {
     from: path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
     to: path.join(offlineAssetsDir, "d3.runtime.js"),
-  },
-  {
-    from: path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
-    to: path.join(offlineAssetsDir, "cal-heatmap.min.js"),
   },
   {
     from: path.join(
@@ -184,10 +174,7 @@ function formatRelativeRepoPath(targetPath) {
 
 function getRuntimeAssetFallbackSource(sourcePath) {
   const normalizedSourceDir = path.normalize(path.dirname(sourcePath));
-  if (
-    normalizedSourceDir !== path.normalize(offlineAssetsDir) &&
-    normalizedSourceDir !== path.normalize(embeddedAssetsDir)
-  ) {
+  if (normalizedSourceDir !== path.normalize(offlineAssetsDir)) {
     return null;
   }
   return offlineAssetSourceByName.get(path.basename(sourcePath)) || null;
@@ -255,18 +242,12 @@ async function copyDirectoryTree(sourceDir, targetDir) {
   const expectedEntries = new Set(
     entries.filter(
       (entry) =>
-        !(
-          sourceDir === pagesSourceDir &&
-          entry === "runtime-assets"
-        ),
+        !(sourceDir === pagesSourceDir && legacyPageAssetDirs.includes(entry)),
     ),
   );
 
   for (const entry of entries) {
-    if (
-      sourceDir === pagesSourceDir &&
-      entry === "runtime-assets"
-    ) {
+    if (sourceDir === pagesSourceDir && legacyPageAssetDirs.includes(entry)) {
       continue;
     }
 
@@ -441,42 +422,38 @@ async function validateMobileBootstrapHtml(targetDir, pageKey) {
 }
 
 await fs.ensureDir(offlineAssetsDir);
-await fs.ensureDir(embeddedAssetsDir);
 if (!(await fs.pathExists(sharedContractSourcePath))) {
   throw new Error(`缺少共享平台契约文件: ${sharedContractSourcePath}`);
 }
 
 await copyFileWithEpermTolerance(sharedContractSourcePath, pagesContractTargetPath);
+for (const legacyDir of legacyPageAssetDirs) {
+  await fs.remove(path.join(pagesSourceDir, legacyDir));
+}
 
 for (const asset of assets) {
   if (!(await fs.pathExists(asset.from))) {
     throw new Error(`缺少资源文件: ${asset.from}`);
   }
   await copyRuntimeAsset(asset.from, asset.to);
-  await copyRuntimeAsset(
-    asset.from,
-    path.join(embeddedAssetsDir, path.basename(asset.to)),
-  );
 }
 
 const expectedRuntimeAssetFiles = new Set(
   assets.map((asset) => path.basename(asset.to)),
 );
-for (const runtimeAssetDir of [offlineAssetsDir, embeddedAssetsDir]) {
-  for (const entry of await fs.readdir(runtimeAssetDir)) {
-    const fullPath = path.join(runtimeAssetDir, entry);
-    let stats = null;
-    try {
-      stats = await fs.stat(fullPath);
-    } catch (error) {
-      if (error?.code === "EPERM") {
-        continue;
-      }
-      throw error;
+for (const entry of await fs.readdir(offlineAssetsDir)) {
+  const fullPath = path.join(offlineAssetsDir, entry);
+  let stats = null;
+  try {
+    stats = await fs.stat(fullPath);
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      continue;
     }
-    if (stats.isFile() && !expectedRuntimeAssetFiles.has(entry)) {
-      await fs.remove(fullPath);
-    }
+    throw error;
+  }
+  if (stats.isFile() && !expectedRuntimeAssetFiles.has(entry)) {
+    await fs.remove(fullPath);
   }
 }
 
@@ -505,5 +482,5 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
 }
 
 console.log(
-  "已同步离线 Web 资源到 pages/offline-assets 和 React Native 移动端资源目录",
+  "已同步 pages/offline-assets 运行时资源与 React Native 移动端资源目录",
 );

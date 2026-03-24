@@ -6,8 +6,10 @@ import {
   DeviceEventEmitter,
   Dimensions,
   Easing,
+  type GestureResponderEvent,
   NativeModules,
   PanResponder,
+  type PanResponderGestureState,
   Platform,
   SafeAreaView,
   StatusBar,
@@ -210,6 +212,11 @@ type BusyOverlayState = {
   presentation: string;
   href: string;
 };
+
+type ShellBlockingOverlayPayload = {
+  title: string;
+  message: string;
+} | null;
 
 type ShellBootTheme = {
   screenBg: string;
@@ -949,6 +956,60 @@ function selectShellText(
   return language === 'en-US' ? english : chinese;
 }
 
+export function resolveShellBlockingOverlayPayload({
+  transitionState,
+  webViewSlots,
+  activeSlot,
+  activeBusyOverlay,
+  shellLanguage,
+}: {
+  transitionState: Pick<TransitionState, 'status' | 'toSlot'> | null;
+  webViewSlots: Record<WebViewSlot, WebViewSlotState>;
+  activeSlot: WebViewSlot;
+  activeBusyOverlay: BusyOverlayState;
+  shellLanguage: UiLanguage;
+}): ShellBlockingOverlayPayload {
+  if (transitionState?.status === 'loading') {
+    const loadingTargetPageKey = webViewSlots[transitionState.toSlot].pageKey;
+    const loadingTargetPageLabel = getPageDisplayLabel(
+      loadingTargetPageKey,
+      shellLanguage,
+    );
+    return {
+      title: selectShellText(shellLanguage, '正在加载数据中', 'Loading data'),
+      message: loadingTargetPageKey
+        ? shellLanguage === 'en-US'
+          ? `Preparing ${loadingTargetPageLabel} page resources and local data.`
+          : `正在准备${loadingTargetPageLabel}页面资源与本地数据，请稍候`
+        : selectShellText(
+            shellLanguage,
+            '页面资源与本地数据正在就绪',
+            'Page resources and local data are getting ready.',
+          ),
+    };
+  }
+
+  if (
+    activeBusyOverlay.active &&
+    activeBusyOverlay.presentation === 'native-fullscreen'
+  ) {
+    return {
+      title:
+        activeBusyOverlay.title ||
+        selectShellText(shellLanguage, '正在处理数据', 'Working on your data'),
+      message:
+        activeBusyOverlay.message ||
+        selectShellText(
+          shellLanguage,
+          '正在准备当前页面，请稍候。',
+          'Preparing the current page.',
+        ),
+    };
+  }
+
+  return null;
+}
+
 function normalizeNavigationDirection(value: unknown): NavigationDirection | '' {
   if (value === 'forward' || value === 'back') {
     return value;
@@ -1037,10 +1098,10 @@ export function isWebViewLayerInteractive({
   if (!transitionState) {
     return slot === activeSlot;
   }
-  if (isAndroid) {
-    return false;
+  if (transitionState.status === 'loading') {
+    return slot === transitionState.fromSlot;
   }
-  return transitionState.status === 'loading' && slot === transitionState.fromSlot;
+  return slot === activeSlot;
 }
 
 function shouldRefreshShellThemeForSections(value: unknown): boolean {
@@ -1552,6 +1613,76 @@ function buildBridgeBootstrapScript(
           );
         }
       } catch (_error) {}
+      try {
+        if (
+          window.ReactNativeWebView &&
+          typeof window.ReactNativeWebView.postMessage === 'function'
+        ) {
+          const describeTarget = (target) => {
+            if (!(target instanceof Element)) {
+              return {
+                tag: '',
+                id: '',
+                className: '',
+              };
+            }
+            return {
+              tag: target.tagName || '',
+              id: target.id || '',
+              className:
+                typeof target.className === 'string'
+                  ? target.className
+                  : target.className?.baseVal || '',
+            };
+          };
+          const emitBootstrapTouch = (name, event) => {
+            const touch =
+              event?.changedTouches?.[0] ||
+              event?.touches?.[0] ||
+              event ||
+              null;
+            window.ReactNativeWebView.postMessage(
+              JSON.stringify({
+                type: 'bridge-event',
+                payload: {
+                  name: 'ui.debug-bootstrap-touch',
+                  eventName: name,
+                  x:
+                    Number.isFinite(touch?.clientX) && touch.clientX >= 0
+                      ? Math.round(touch.clientX)
+                      : null,
+                  y:
+                    Number.isFinite(touch?.clientY) && touch.clientY >= 0
+                      ? Math.round(touch.clientY)
+                      : null,
+                  target: describeTarget(event?.target),
+                },
+              }),
+            );
+          };
+          document.addEventListener(
+            'touchstart',
+            (event) => {
+              emitBootstrapTouch('touchstart', event);
+            },
+            true,
+          );
+          document.addEventListener(
+            'pointerdown',
+            (event) => {
+              emitBootstrapTouch('pointerdown', event);
+            },
+            true,
+          );
+          document.addEventListener(
+            'click',
+            (event) => {
+              emitBootstrapTouch('click', event);
+            },
+            true,
+          );
+        }
+      } catch (_error) {}
       return true;
     })();
     (function () {
@@ -1764,9 +1895,117 @@ function App({
     shellLanguageRef.current = shellLanguage;
   }, [shellLanguage]);
 
+  useEffect(() => {
+    const slotState = webViewSlotsRef.current;
+    const transition = transitionStateRef.current;
+    const interactiveState = WEBVIEW_SLOTS.map(slot => ({
+      slot,
+      uri: slotState[slot].pageKey,
+      interactive: isWebViewLayerInteractive({
+        isAndroid: IS_ANDROID,
+        slot,
+        activeSlot: activeSlotRef.current,
+        transitionState: transition
+          ? {
+              status: transition.status,
+              fromSlot: transition.fromSlot,
+            }
+          : null,
+      }),
+    }));
+    console.info(
+      '[OrderShellState]',
+      JSON.stringify({
+        activeSlot: activeSlotRef.current,
+        isPageReady: isPageReadyRef.current,
+        transition: transition
+          ? {
+              fromSlot: transition.fromSlot,
+              toSlot: transition.toSlot,
+              status: transition.status,
+            }
+          : null,
+        interactiveState,
+      }),
+    );
+  }, [activeSlot, isPageReady, transitionState, webViewSlots]);
+
   const shellText = useCallback((chinese: string, english: string) => {
     return selectShellText(shellLanguageRef.current, chinese, english);
   }, []);
+
+  const logShellNativeTouch = useCallback(
+    (area: string, event: GestureResponderEvent) => {
+      const nativeEvent = event.nativeEvent;
+      const touches = Array.isArray(nativeEvent.touches)
+        ? nativeEvent.touches
+        : [];
+      const changedTouches = Array.isArray(nativeEvent.changedTouches)
+        ? nativeEvent.changedTouches
+        : [];
+      const primaryTouch = changedTouches[0] || touches[0] || nativeEvent;
+      const transition = transitionStateRef.current;
+      console.info(
+        '[OrderNativeTouch]',
+        JSON.stringify({
+          area,
+          activeSlot: activeSlotRef.current,
+          pageKey: webViewSlotsRef.current[activeSlotRef.current].pageKey,
+          isPageReady: isPageReadyRef.current,
+          transition: transition
+            ? {
+                fromSlot: transition.fromSlot,
+                toSlot: transition.toSlot,
+                status: transition.status,
+              }
+            : null,
+          pageX:
+            Number.isFinite(primaryTouch?.pageX) && primaryTouch.pageX >= 0
+              ? Math.round(primaryTouch.pageX)
+              : null,
+          pageY:
+            Number.isFinite(primaryTouch?.pageY) && primaryTouch.pageY >= 0
+              ? Math.round(primaryTouch.pageY)
+              : null,
+          locationX:
+            Number.isFinite(primaryTouch?.locationX) &&
+            primaryTouch.locationX >= 0
+              ? Math.round(primaryTouch.locationX)
+              : null,
+          locationY:
+            Number.isFinite(primaryTouch?.locationY) &&
+            primaryTouch.locationY >= 0
+              ? Math.round(primaryTouch.locationY)
+              : null,
+          touches: touches.length,
+          changedTouches: changedTouches.length,
+        }),
+      );
+    },
+    [],
+  );
+
+  const logEdgeBackSwipeDecision = useCallback(
+    (stage: string, gestureState: PanResponderGestureState) => {
+      console.info(
+        '[OrderEdgeSwipe]',
+        JSON.stringify({
+          stage,
+          activeSlot: activeSlotRef.current,
+          pageKey: webViewSlotsRef.current[activeSlotRef.current].pageKey,
+          dx: Math.round(gestureState.dx || 0),
+          dy: Math.round(gestureState.dy || 0),
+          vx: Number.isFinite(gestureState.vx)
+            ? Number(gestureState.vx.toFixed(3))
+            : null,
+          x0: Math.round(gestureState.x0 || 0),
+          y0: Math.round(gestureState.y0 || 0),
+          excluded: isEdgeBackSwipeStartExcluded(gestureState.x0, gestureState.y0),
+        }),
+      );
+    },
+    [],
+  );
 
   const updateShellLanguage = useCallback((value: unknown): UiLanguage => {
     const normalizedLanguage = normalizeUiLanguage(value);
@@ -2128,18 +2367,30 @@ function App({
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_event, gestureState) =>
-        shouldCaptureEdgeBackSwipe(gestureState),
-      onMoveShouldSetPanResponderCapture: (_event, gestureState) =>
-        shouldCaptureEdgeBackSwipe(gestureState),
+      onMoveShouldSetPanResponder: (_event, gestureState) => {
+        const shouldCapture = shouldCaptureEdgeBackSwipe(gestureState);
+        if (shouldCapture) {
+          logEdgeBackSwipeDecision('move-should-set', gestureState);
+        }
+        return shouldCapture;
+      },
+      onMoveShouldSetPanResponderCapture: (_event, gestureState) => {
+        const shouldCapture = shouldCaptureEdgeBackSwipe(gestureState);
+        if (shouldCapture) {
+          logEdgeBackSwipeDecision('move-should-set-capture', gestureState);
+        }
+        return shouldCapture;
+      },
       onPanResponderTerminationRequest: () => true,
       onShouldBlockNativeResponder: () => true,
       onPanResponderRelease: (_event, gestureState) => {
+        logEdgeBackSwipeDecision('release', gestureState);
         if (shouldFinishEdgeBackSwipe(gestureState)) {
           handleShellBackNavigation(true);
         }
       },
       onPanResponderTerminate: (_event, gestureState) => {
+        logEdgeBackSwipeDecision('terminate', gestureState);
         if (shouldFinishEdgeBackSwipe(gestureState)) {
           handleShellBackNavigation(true);
         }
@@ -4385,6 +4636,18 @@ function App({
     if (message.type === 'bridge-event') {
       const eventName =
         typeof message.payload?.name === 'string' ? message.payload.name : '';
+      if (eventName.startsWith('ui.debug-')) {
+        console.info(
+          '[OrderWebState]',
+          JSON.stringify({
+            slot,
+            payload: {
+              ...(message.payload || {}),
+              name: eventName,
+            },
+          }),
+        );
+      }
       if (eventName === 'ui.language-changed') {
         persistShellLanguage(message.payload?.language).catch(
           () => undefined,
@@ -4910,6 +5173,7 @@ function App({
         ? currentTransition.toSlot
         : activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
+    const androidHiddenOffset = Math.max(Math.round(panelWidth * 1.35), 96);
     let wrapperStyle: Array<object> = [
       styles.webviewLayer,
       {backgroundColor: shellBootTheme.screenBg},
@@ -4925,6 +5189,17 @@ function App({
           }
         : null,
     });
+    const androidHiddenLayerStyle = IS_ANDROID
+      ? {
+          zIndex: 0,
+          elevation: 0,
+          opacity: 0,
+          // Android WebView surfaces can keep intercepting touches while fully
+          // transparent. Move inactive layers off-screen so only the presented
+          // layer remains touchable.
+          transform: [{translateX: androidHiddenOffset}],
+        }
+      : styles.webviewLayerHidden;
 
     if (!currentTransition) {
       wrapperStyle = [
@@ -4932,7 +5207,7 @@ function App({
         {backgroundColor: shellBootTheme.screenBg},
         slot === activeSlot
           ? styles.webviewLayerVisible
-          : styles.webviewLayerHidden,
+          : androidHiddenLayerStyle,
       ];
     } else if (currentTransition.status === 'loading') {
       if (slot === currentTransition.fromSlot) {
@@ -4945,7 +5220,7 @@ function App({
         wrapperStyle = [
           styles.webviewLayer,
           {backgroundColor: shellBootTheme.screenBg},
-          styles.webviewLayerHidden,
+          androidHiddenLayerStyle,
         ];
       }
     } else {
@@ -5020,7 +5295,7 @@ function App({
         wrapperStyle = [
           styles.webviewLayer,
           {backgroundColor: shellBootTheme.screenBg},
-          styles.webviewLayerHidden,
+          androidHiddenLayerStyle,
         ];
       }
     }
@@ -5028,7 +5303,7 @@ function App({
     return (
       <Animated.View
         key={`${slot}-${slotState.revision}`}
-        pointerEvents={interactiveLayer ? 'auto' : 'none'}
+        pointerEvents={interactiveLayer ? 'box-none' : 'none'}
         style={wrapperStyle}>
         <WebView
           ref={getWebViewRef(slot)}
@@ -5128,53 +5403,15 @@ function App({
   }
 
   const activeUri = webViewSlots[activeSlot].uri;
-  const loadingTargetPageKey =
-    transitionState?.status === 'loading'
-      ? webViewSlots[transitionState.toSlot].pageKey
-      : '';
-  const loadingTargetPageLabel = getPageDisplayLabel(
-    loadingTargetPageKey,
-    shellLanguage,
-  );
   const activeBusyOverlay = busyOverlayBySlotRef.current[activeSlot];
-  const shellBlockingOverlay =
-    transitionState?.status === 'loading'
-      ? {
-          title: selectShellText(
-            shellLanguage,
-            '正在加载数据中',
-            'Loading data',
-          ),
-          message: loadingTargetPageKey
-            ? shellLanguage === 'en-US'
-              ? `Preparing ${loadingTargetPageLabel} page resources and local data.`
-              : `正在准备${loadingTargetPageLabel}页面资源与本地数据，请稍候`
-            : selectShellText(
-                shellLanguage,
-                '页面资源与本地数据正在就绪',
-                'Page resources and local data are getting ready.',
-              ),
-        }
-      : activeBusyOverlay.active &&
-          activeBusyOverlay.presentation === 'native-fullscreen'
-        ? {
-            title:
-              activeBusyOverlay.title ||
-              selectShellText(
-                shellLanguage,
-                '正在处理数据',
-                'Working on your data',
-              ),
-            message:
-              activeBusyOverlay.message ||
-              selectShellText(
-                shellLanguage,
-                '正在准备当前页面，请稍候。',
-                'Preparing the current page.',
-              ),
-          }
-        : null;
-  const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
+  const shellBlockingOverlay = resolveShellBlockingOverlayPayload({
+    transitionState,
+    webViewSlots,
+    activeSlot,
+    activeBusyOverlay,
+    shellLanguage,
+  });
+  const shouldShowBootOverlay = !IS_ANDROID && !isPageReady && !shellBlockingOverlay;
   const shellBlockingOverlayView = shellBlockingOverlay ? (
     <View
       accessible={false}
@@ -5232,14 +5469,15 @@ function App({
   ) : null;
   if (!activeUri) {
     return (
-      <ScreenContainer style={styles.screen}>
+      <ScreenContainer
+        style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
         <StatusBar
           barStyle="light-content"
           backgroundColor="transparent"
           translucent={Platform.OS === 'android'}
           hidden={Platform.OS === 'android'}
         />
-        <View style={styles.center}>{bootCard}</View>
+        {!IS_ANDROID ? <View style={styles.center}>{bootCard}</View> : null}
       </ScreenContainer>
     );
   }
@@ -5254,6 +5492,7 @@ function App({
         hidden={Platform.OS === 'android'}
       />
       <View
+        pointerEvents="box-none"
         style={[styles.webviewHost, {backgroundColor: shellBootTheme.screenBg}]}
         onLayout={event => {
           const nextWidth = Math.max(
