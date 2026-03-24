@@ -625,8 +625,17 @@
         min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
-        padding-right: 4px;
-        scrollbar-gutter: stable;
+        padding-right: 0;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+      }
+
+      .widget-goal-card-list::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+        display: none;
       }
 
       .widget-goal-card-item {
@@ -925,6 +934,41 @@
         gap: 8px;
       }
 
+      .widget-state-shell--loading {
+        gap: 10px;
+      }
+
+      .widget-state-shell--loading::before {
+        content: "";
+        width: 44px;
+        height: 44px;
+        margin-bottom: 4px;
+        border-radius: 999px;
+        border: 3px solid
+          var(
+            --controler-loading-spinner-track,
+            color-mix(
+              in srgb,
+              rgba(var(--accent-color-rgb, 142, 214, 164), 0.24) 84%,
+              transparent
+            )
+          );
+        border-top-color: var(--accent-color, #8ed6a4);
+        border-right-color: color-mix(
+          in srgb,
+          var(--accent-color, #8ed6a4) 42%,
+          transparent
+        );
+        box-shadow:
+          var(
+            --controler-loading-spinner-shadow,
+            0 0 0 1px rgba(var(--accent-color-rgb, 142, 214, 164), 0.08),
+            0 12px 24px rgba(0, 0, 0, 0.12)
+          );
+        animation: controler-page-loading-spin 0.9s linear infinite !important;
+        will-change: transform;
+      }
+
       .widget-empty-title,
       .widget-state-title {
         font-size: 14px;
@@ -986,7 +1030,7 @@
       </div>
       <div id="widget-root">
         <div class="widget-card">
-          <div class="widget-state-shell">
+          <div class="widget-state-shell widget-state-shell--loading">
             <div class="widget-state-title" id="widget-loading-title">桌面小组件</div>
             <div class="widget-state-detail">正在准备当前小组件内容...</div>
           </div>
@@ -1009,7 +1053,7 @@
     </script>
     <script
       src="widget.js"
-      onerror="(function(){var title=document.getElementById('widget-loading-title');var detail=document.querySelector('.widget-state-detail');if(title){title.textContent='加载失败';}if(detail){detail.textContent='小组件脚本加载失败，请重启应用后重试。';}})()"
+      onerror="(function(){var shell=document.querySelector('.widget-state-shell');var title=document.getElementById('widget-loading-title');var detail=document.querySelector('.widget-state-detail');if(shell){shell.classList.remove('widget-state-shell--loading');shell.classList.add('widget-state-shell--error');}if(title){title.textContent='加载失败';}if(detail){detail.textContent='小组件脚本加载失败，请重启应用后重试。';}})()"
     ></script>
   </body>
 </html>

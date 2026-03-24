@@ -52,7 +52,6 @@ public final class ControlerWidgetRenderer {
     private static final int SIZE_MEDIUM = 1;
     private static final int SIZE_LARGE = 2;
     private static final int MAX_WIDGET_ITEM_CARD_COUNT = 5;
-    private static final int MAX_YEAR_GOAL_VISIBLE_ROWS = 8;
     private static final Pattern RGB_PATTERN = Pattern.compile(
         "rgba?\\(\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})(?:\\s*,\\s*([\\d.]+))?\\s*\\)"
     );
@@ -1231,23 +1230,61 @@ public final class ControlerWidgetRenderer {
             );
             views.setTextColor(R.id.widget_year_annual_empty, emptyTextColor);
             views.setTextColor(R.id.widget_year_month_empty, emptyTextColor);
-            bindStaticYearGoalRows(
+            ControlerWidgetCollectionStore.saveRows(
                 context,
-                views,
-                R.id.widget_year_annual_items,
-                R.id.widget_year_annual_empty,
-                buildYearGoalRowData(content.yearAnnualGoalCards, palette, true),
-                inertListIntent,
-                metrics
+                appWidgetId,
+                kind,
+                COLLECTION_SLOT_YEAR_ANNUAL,
+                buildYearGoalCollectionRowsPayload(
+                    content.yearAnnualGoalCards,
+                    palette,
+                    true
+                )
             );
-            bindStaticYearGoalRows(
+            ControlerWidgetCollectionStore.saveRows(
                 context,
-                views,
+                appWidgetId,
+                kind,
+                COLLECTION_SLOT_YEAR_MONTH,
+                buildYearGoalCollectionRowsPayload(
+                    content.yearMonthGoalCards,
+                    palette,
+                    false
+                )
+            );
+            views.setRemoteAdapter(
+                R.id.widget_year_annual_items,
+                buildCollectionServiceIntent(
+                    context,
+                    appWidgetId,
+                    kind,
+                    COLLECTION_SLOT_YEAR_ANNUAL
+                )
+            );
+            views.setRemoteAdapter(
                 R.id.widget_year_month_items,
-                R.id.widget_year_month_empty,
-                buildYearGoalRowData(content.yearMonthGoalCards, palette, false),
-                inertListIntent,
-                metrics
+                buildCollectionServiceIntent(
+                    context,
+                    appWidgetId,
+                    kind,
+                    COLLECTION_SLOT_YEAR_MONTH
+                )
+            );
+            views.setPendingIntentTemplate(
+                R.id.widget_year_annual_items,
+                collectionTemplateIntent
+            );
+            views.setPendingIntentTemplate(
+                R.id.widget_year_month_items,
+                collectionTemplateIntent
+            );
+            views.setEmptyView(
+                R.id.widget_year_annual_items,
+                R.id.widget_year_annual_empty
+            );
+            views.setEmptyView(
+                R.id.widget_year_month_items,
+                R.id.widget_year_month_empty
             );
         }
         int visibleCardCount = useCollectionList || useYearGoalLayout
@@ -2510,107 +2547,13 @@ public final class ControlerWidgetRenderer {
         if (usesCollectionList(kind)) {
             return new int[] {R.id.widget_collection_list};
         }
+        if (usesYearGoalLayout(kind)) {
+            return new int[] {
+                R.id.widget_year_annual_items,
+                R.id.widget_year_month_items,
+            };
+        }
         return new int[0];
-    }
-
-    private static void bindStaticYearGoalRows(
-        Context context,
-        RemoteViews parentViews,
-        int containerId,
-        int emptyViewId,
-        List<ControlerWidgetCollectionStore.RowData> rows,
-        PendingIntent rowIntent,
-        WidgetMetrics metrics
-    ) {
-        parentViews.removeAllViews(containerId);
-        int visibleCount = resolveYearGoalVisibleRowCount(rows, metrics);
-        boolean hasRows = visibleCount > 0;
-        parentViews.setViewVisibility(containerId, hasRows ? View.VISIBLE : View.GONE);
-        parentViews.setViewVisibility(emptyViewId, hasRows ? View.GONE : View.VISIBLE);
-        if (!hasRows) {
-            return;
-        }
-        for (int index = 0; index < visibleCount; index++) {
-            ControlerWidgetCollectionStore.RowData row = rows.get(index);
-            RemoteViews rowViews = new RemoteViews(
-                context.getPackageName(),
-                R.layout.controler_widget_goal_collection_item
-            );
-            bindStaticYearGoalRow(context, rowViews, row, rowIntent);
-            parentViews.addView(containerId, rowViews);
-        }
-    }
-
-    private static void bindStaticYearGoalRow(
-        Context context,
-        RemoteViews views,
-        ControlerWidgetCollectionStore.RowData row,
-        PendingIntent rowIntent
-    ) {
-        if (views == null || row == null) {
-            return;
-        }
-        views.setTextViewText(
-            R.id.widget_collection_item_title,
-            buildYearGoalTitleText(row)
-        );
-        views.setTextColor(R.id.widget_collection_item_title, row.titleColor);
-        views.setViewVisibility(R.id.widget_collection_item_meta, View.GONE);
-        views.setViewVisibility(R.id.widget_collection_item_action, View.GONE);
-        views.setViewVisibility(R.id.widget_collection_item_accent, View.GONE);
-        views.setTextViewText(R.id.widget_collection_item_goal_badge_text, row.badgeText);
-        views.setTextColor(
-            R.id.widget_collection_item_goal_badge_text,
-            row.badgeTextColor
-        );
-        views.setViewVisibility(
-            R.id.widget_collection_item_goal_badge,
-            TextUtils.isEmpty(row.badgeText) ? View.GONE : View.VISIBLE
-        );
-        views.setTextViewText(
-            R.id.widget_collection_item_goal_toggle_text,
-            row.completed ? "✓" : ""
-        );
-        views.setTextColor(
-            R.id.widget_collection_item_goal_toggle_text,
-            row.completionTextColor
-        );
-        ControlerWidgetGoalBitmapHelper.applyCompactGoalStyle(context, views, row);
-        if (rowIntent != null) {
-            views.setOnClickPendingIntent(R.id.widget_collection_item_root, rowIntent);
-            views.setOnClickPendingIntent(R.id.widget_collection_item_goal_toggle, rowIntent);
-        }
-    }
-
-    private static CharSequence buildYearGoalTitleText(
-        ControlerWidgetCollectionStore.RowData row
-    ) {
-        return row == null ? "" : safeText(row.title);
-    }
-
-    private static int resolveYearGoalVisibleRowCount(
-        List<ControlerWidgetCollectionStore.RowData> rows,
-        WidgetMetrics metrics
-    ) {
-        if (rows == null || rows.isEmpty()) {
-            return 0;
-        }
-        if (metrics == null) {
-            return Math.min(rows.size(), 4);
-        }
-        int estimatedCardContentHeightDp = Math.max(
-            92,
-            Math.round(metrics.minHeightDp * 0.52f) - 34
-        );
-        int estimatedRowHeightDp =
-            metrics.sizeClass == SIZE_COMPACT ? 34 : metrics.sizeClass == SIZE_MEDIUM ? 38 : 40;
-        int estimatedRowGapDp = 4;
-        int count = Math.max(
-            1,
-            (estimatedCardContentHeightDp + estimatedRowGapDp)
-                / (estimatedRowHeightDp + estimatedRowGapDp)
-        );
-        return Math.min(rows.size(), Math.min(count, MAX_YEAR_GOAL_VISIBLE_ROWS));
     }
 
     private static String resolveListItemDirectCommand(String kind) {

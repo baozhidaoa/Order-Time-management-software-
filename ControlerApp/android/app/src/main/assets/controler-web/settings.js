@@ -29,7 +29,10 @@ const DEFAULT_THEME_COLORS = {
 const SETTINGS_LANGUAGE_EVENT = "controler:language-changed";
 let settingsInitialReadyReported = false;
 let settingsDeferredRuntimePromise = null;
-const SETTINGS_BUSY_OVERLAY_DELAY_MS = 180;
+const SETTINGS_BUSY_OVERLAY_DELAY_MS = Math.max(
+  0,
+  Math.round(Number(window.ControlerUI?.pageLoadingOverlayDelayMs) || 120),
+);
 const AUTO_BACKUP_STATUS_CACHE_KEY = "controler.settings.autoBackupStatus";
 let settingsBusyOverlayTimer = 0;
 let settingsInitialLoadOverlayTimer = 0;
@@ -3942,6 +3945,42 @@ async function getCurrentProjectsForImport() {
   }
 }
 
+async function loadAllRecordsForImportRepair(fallbackRecords = []) {
+  if (typeof window.ControlerStorage?.loadSectionRange === "function") {
+    try {
+      const range = await window.ControlerStorage.loadSectionRange("records", {
+        all: true,
+      });
+      if (Array.isArray(range?.items)) {
+        return range.items;
+      }
+    } catch (error) {
+      console.error("读取全量记录以修复导入后的项目时长缓存失败:", error);
+    }
+  }
+  try {
+    const storedRecords = JSON.parse(localStorage.getItem("records") || "[]");
+    if (Array.isArray(storedRecords)) {
+      return storedRecords;
+    }
+  } catch (error) {
+    console.error("读取本地记录缓存失败，回退导入记录快照:", error);
+  }
+  return Array.isArray(fallbackRecords) ? fallbackRecords.slice() : [];
+}
+
+function rebuildImportedProjectDurationCaches(projectList = [], recordList = []) {
+  const bundleHelper = getSettingsStorageBundle();
+  if (typeof bundleHelper?.rebuildProjectDurationCaches !== "function") {
+    return Array.isArray(projectList) ? projectList.slice() : [];
+  }
+  const rebuiltProjects = bundleHelper.rebuildProjectDurationCaches(
+    Array.isArray(projectList) ? projectList : [],
+    Array.isArray(recordList) ? recordList : [],
+  );
+  return Array.isArray(rebuiltProjects) ? rebuiltProjects : [];
+}
+
 function formatImportDatesPreview(dateKeys = [], limit = 6) {
   const normalized = Array.isArray(dateKeys)
     ? dateKeys.filter((item) => typeof item === "string" && item.trim())
@@ -5402,20 +5441,6 @@ async function importExternalJsonDescriptor(descriptor, choice = {}) {
   }
 
   if (
-    preview.createdProjects > 0 &&
-    typeof window.ControlerStorage?.replaceCoreState === "function"
-  ) {
-    await window.ControlerStorage.replaceCoreState({
-      projects: preview.projectReconciliation.projects,
-    });
-  } else if (preview.createdProjects > 0) {
-    localStorage.setItem(
-      "projects",
-      JSON.stringify(preview.projectReconciliation.projects),
-    );
-  }
-
-  if (
     typeof window.ControlerStorage?.loadSectionRange === "function" &&
     typeof window.ControlerStorage?.saveSectionRange === "function"
   ) {
@@ -5438,7 +5463,6 @@ async function importExternalJsonDescriptor(descriptor, choice = {}) {
         mode: "replace",
       });
     }
-    await flushStorageWrites();
   } else {
     const existingRecords = JSON.parse(localStorage.getItem("records") || "[]");
     const merged = externalImportHelper.mergeRecordsByReplacingDays(
@@ -5446,14 +5470,25 @@ async function importExternalJsonDescriptor(descriptor, choice = {}) {
       preview.records,
     );
     localStorage.setItem("records", JSON.stringify(merged.records));
-    if (preview.createdProjects > 0) {
-      localStorage.setItem(
-        "projects",
-        JSON.stringify(preview.projectReconciliation.projects),
-      );
-    }
-    await flushStorageWrites();
   }
+
+  await flushStorageWrites();
+
+  const authoritativeRecords = await loadAllRecordsForImportRepair(preview.records);
+  const repairedProjects = rebuildImportedProjectDurationCaches(
+    preview.projectReconciliation.projects,
+    authoritativeRecords,
+  );
+
+  if (typeof window.ControlerStorage?.replaceCoreState === "function") {
+    await window.ControlerStorage.replaceCoreState({
+      projects: repairedProjects,
+    });
+  } else {
+    localStorage.setItem("projects", JSON.stringify(repairedProjects));
+  }
+
+  await flushStorageWrites();
 
   return {
     ok: true,

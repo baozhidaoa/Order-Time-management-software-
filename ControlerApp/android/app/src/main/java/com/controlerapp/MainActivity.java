@@ -30,8 +30,11 @@ public class MainActivity extends ReactActivity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    // Keep Android's bottom home-gesture reserved area outside app content.
+    // The app can safely own the visible canvas, while the system continues to
+    // own only the real gesture strip instead of our bottom action controls.
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
     super.onCreate(savedInstanceState);
-    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
     getWindow()
         .setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE

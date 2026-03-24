@@ -23,6 +23,10 @@ const MOBILE_GENERATED_ITEM_SHRINK_RATIO = 2 / 3;
 const MOBILE_TODO_DROPDOWN_WIDTH_FACTOR = 0.5;
 const TODO_WIDGET_VIEW_EVENT = "controler:todo-widget-view";
 const TODO_SEARCH_DEBOUNCE_MS = 160;
+const TODO_LOADING_OVERLAY_DELAY_MS = Math.max(
+  0,
+  Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
+);
 const TODO_DRAFT_SAVE_DELAY_MS = 300;
 const TODO_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const MOBILE_SWIPE_DELETE_ACTION_WIDTH = 92;
@@ -51,6 +55,11 @@ let todoSwipeDeleteConfirmationShell = null;
 let todoBeforePageLeaveGuardBound = false;
 let todoInitialRevealQueued = false;
 let todoInitialReadyReported = false;
+let todoInitialDataLoaded = false;
+let todoInitialDataValidated = false;
+let todoDeferredFreshSyncQueued = false;
+let todoInitialFreshSyncPromise = null;
+let todoLoadingOverlayController = null;
 const TODO_TOGGLE_PERSIST_DEBOUNCE_MS = 180;
 const todoDeferredToggleCommits = {
   checkin: new Map(),
@@ -205,11 +214,25 @@ function mergeTodoWorkspaceSnapshot(
   };
 }
 
-function hasTodoWorkspaceCoreItems(snapshot = {}) {
-  return (
-    (Array.isArray(snapshot?.todos) && snapshot.todos.length > 0) ||
-    (Array.isArray(snapshot?.checkinItems) && snapshot.checkinItems.length > 0)
-  );
+function normalizeTodoCoreUpdate(partialCore = {}) {
+  const source =
+    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+      ? cloneTodoValue(partialCore)
+      : {};
+  if (Object.prototype.hasOwnProperty.call(source, "todos")) {
+    source.todos = Array.isArray(source.todos) ? cloneTodoValue(source.todos) : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "checkinItems")) {
+    source.checkinItems = Array.isArray(source.checkinItems)
+      ? cloneTodoValue(source.checkinItems)
+      : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(source, TODO_SORT_PREFERENCE_KEY)) {
+    source[TODO_SORT_PREFERENCE_KEY] = normalizeTodoSortPreference(
+      source[TODO_SORT_PREFERENCE_KEY],
+    );
+  }
+  return source;
 }
 
 function getLocalDateText(dateValue = new Date()) {
@@ -417,6 +440,59 @@ function applyTodoWorkspaceSnapshot(snapshot = {}) {
   invalidateTodoDerivedCaches();
 }
 
+function isTodoSerializableEqual(left, right) {
+  if (typeof uiTools?.isSerializableEqual === "function") {
+    return uiTools.isSerializableEqual(left, right);
+  }
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch (error) {
+    return false;
+  }
+}
+
+function buildTodoWorkspacePerfDetail(snapshot = captureTodoWorkspaceSnapshot()) {
+  const source =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? snapshot
+      : captureTodoWorkspaceSnapshot();
+  return {
+    todoCount: Array.isArray(source.todos) ? source.todos.length : 0,
+    checkinItemCount: Array.isArray(source.checkinItems)
+      ? source.checkinItems.length
+      : 0,
+    dailyCheckinCount: Array.isArray(source.dailyCheckins)
+      ? source.dailyCheckins.length
+      : 0,
+    recentCheckinCount: Array.isArray(source.checkins)
+      ? source.checkins.length
+      : 0,
+  };
+}
+
+function hasTodoWorkspaceSnapshotChanged(nextSnapshot = {}) {
+  const currentSnapshot = captureTodoWorkspaceSnapshot();
+  const normalizedNextSnapshot = mergeTodoWorkspaceSnapshot(
+    nextSnapshot,
+    currentSnapshot,
+  );
+  return !isTodoSerializableEqual(normalizedNextSnapshot, currentSnapshot);
+}
+
+function markTodoInitialDataReady(snapshot = captureTodoWorkspaceSnapshot()) {
+  const perfDetail = buildTodoWorkspacePerfDetail(snapshot);
+  uiTools?.markPerfStage?.("first-data-ready", perfDetail);
+  uiTools?.markPerfStage?.("todo-snapshot-data-ready", perfDetail);
+}
+
+function bootstrapTodoFromCachedSnapshot() {
+  const snapshot = readTodoWorkspaceSnapshot();
+  applyTodoWorkspaceSnapshot(snapshot);
+  todoInitialDataLoaded = true;
+  todoInitialDataValidated = false;
+  return snapshot;
+}
+
 function clearTodoPersistenceError() {
   todoLastPersistenceError = null;
 }
@@ -466,7 +542,7 @@ function readTodoWorkspaceSnapshotFromManagedStorage() {
   }
 }
 
-function readTodoWorkspaceSnapshotFromPageBootstrap(preferredFallbackSnapshot = null) {
+function readTodoWorkspaceSnapshotFromPageBootstrap() {
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
       return null;
@@ -477,189 +553,39 @@ function readTodoWorkspaceSnapshotFromPageBootstrap(preferredFallbackSnapshot = 
     if (!data) {
       return null;
     }
-    const fallbackSnapshot =
-      getTodoWorkspaceFallbackSnapshot(preferredFallbackSnapshot);
-    return (
-      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-        {
-          todos: Array.isArray(data.todos) ? data.todos : [],
-          checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
-          dailyCheckins: Array.isArray(data.todayDailyCheckins)
-            ? data.todayDailyCheckins
-            : [],
-          checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
-        },
-        fallbackSnapshot,
-        {
-          reason: "todo-read-fresh",
-        },
-      ) || fallbackSnapshot
-    );
+    return mergeTodoWorkspaceSnapshot({
+      todos: Array.isArray(data.todos) ? data.todos : [],
+      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+      dailyCheckins: Array.isArray(data.todayDailyCheckins)
+        ? data.todayDailyCheckins
+        : [],
+      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+    });
   } catch (error) {
     console.error("读取待办页引导快照失败，回退旧快照:", error);
     return null;
   }
 }
 
-function getTodoWorkspaceFallbackSnapshot(preferredSnapshot = null) {
-  const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
-  if (localSnapshot?.__hasMirror) {
-    return localSnapshot;
-  }
-  if (
-    preferredSnapshot &&
-    typeof preferredSnapshot === "object" &&
-    !Array.isArray(preferredSnapshot)
-  ) {
-    return mergeTodoWorkspaceSnapshot(preferredSnapshot);
-  }
-  return captureTodoWorkspaceSnapshot();
-}
-
-function protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-  snapshot = null,
-  fallbackSnapshot = null,
-  options = {},
-) {
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return null;
-  }
-  const fallback = getTodoWorkspaceFallbackSnapshot(fallbackSnapshot);
-  const normalizedSnapshot = mergeTodoWorkspaceSnapshot(snapshot, fallback);
-  if (!hasTodoWorkspaceCoreItems(fallback)) {
-    return normalizedSnapshot;
-  }
-  const shouldRestoreTodos =
-    Array.isArray(snapshot?.todos) &&
-    snapshot.todos.length === 0 &&
-    Array.isArray(fallback.todos) &&
-    fallback.todos.length > 0;
-  const shouldRestoreCheckinItems =
-    Array.isArray(snapshot?.checkinItems) &&
-    snapshot.checkinItems.length === 0 &&
-    Array.isArray(fallback.checkinItems) &&
-    fallback.checkinItems.length > 0;
-  if (!shouldRestoreTodos && !shouldRestoreCheckinItems) {
-    return normalizedSnapshot;
-  }
-  console.warn(
-    "检测到待办核心快照异常清空，已保留最近有效镜像。",
-    options?.reason || "",
-  );
-  return {
-    ...normalizedSnapshot,
-    todos: shouldRestoreTodos
-      ? cloneTodoValue(fallback.todos || [])
-      : normalizedSnapshot.todos,
-    checkinItems: shouldRestoreCheckinItems
-      ? cloneTodoValue(fallback.checkinItems || [])
-      : normalizedSnapshot.checkinItems,
-  };
-}
-
-function protectTodoCoreStateForPersist(partialCore = {}, options = {}) {
-  const source =
-    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
-      ? cloneTodoValue(partialCore)
-      : {};
-  const hasTodos = Object.prototype.hasOwnProperty.call(source, "todos");
-  const hasCheckinItems = Object.prototype.hasOwnProperty.call(source, "checkinItems");
-  if (!hasTodos && !hasCheckinItems) {
-    return source;
-  }
-
-  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot(
-    options?.fallbackSnapshot || readTodoWorkspaceSnapshotFromLocalStorage(),
-  );
-  const protectedCore =
-    protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-      {
-        todos: hasTodos ? source.todos : fallbackSnapshot.todos,
-        checkinItems: hasCheckinItems
-          ? source.checkinItems
-          : fallbackSnapshot.checkinItems,
-      },
-      fallbackSnapshot,
-      {
-        reason: options?.reason || "todo-persist-core",
-      },
-    ) || fallbackSnapshot;
-
-  if (hasTodos) {
-    source.todos = cloneTodoValue(protectedCore.todos || []);
-  }
-  if (hasCheckinItems) {
-    source.checkinItems = cloneTodoValue(protectedCore.checkinItems || []);
-  }
-  return source;
-}
-
-function protectTodoWorkspaceSnapshotForPersist(snapshot = null, options = {}) {
-  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot(
-    options?.fallbackSnapshot || readTodoWorkspaceSnapshotFromLocalStorage(),
-  );
-  return (
-    protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-      snapshot,
-      fallbackSnapshot,
-      {
-        reason: options?.reason || "todo-persist-workspace",
-      },
-    ) || mergeTodoWorkspaceSnapshot(snapshot, fallbackSnapshot)
-  );
-}
-
 function readTodoWorkspaceSnapshot() {
-  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot();
-  const bootstrapSnapshot = protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-    readTodoWorkspaceSnapshotFromPageBootstrap(fallbackSnapshot),
-    fallbackSnapshot,
-    {
-      reason: "todo-bootstrap",
-    },
-  );
+  const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
   if (bootstrapSnapshot) {
     return bootstrapSnapshot;
   }
   const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
-  const managedSnapshot = protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-    readTodoWorkspaceSnapshotFromManagedStorage(),
-    fallbackSnapshot,
-    {
-      reason: "todo-managed-dump",
-    },
-  );
+  const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
   if (window.ControlerStorage?.isNativeApp) {
-    return (
-      managedSnapshot ||
-      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-        localSnapshot,
-        fallbackSnapshot,
-        {
-          reason: "todo-local-mirror",
-        },
-      ) ||
-      fallbackSnapshot
-    );
+    return managedSnapshot || mergeTodoWorkspaceSnapshot(localSnapshot);
   }
   if (localSnapshot?.__hasMirror) {
-    return localSnapshot;
+    return mergeTodoWorkspaceSnapshot(localSnapshot);
   }
-  return managedSnapshot || localSnapshot || fallbackSnapshot;
+  return managedSnapshot || mergeTodoWorkspaceSnapshot(localSnapshot);
 }
 
 async function readFreshTodoWorkspaceSnapshot() {
-  const fallbackSnapshot = getTodoWorkspaceFallbackSnapshot();
   if (typeof window.ControlerStorage?.getPageBootstrapState !== "function") {
-    return (
-      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-        readTodoWorkspaceSnapshot(),
-        fallbackSnapshot,
-        {
-          reason: "todo-read-fresh-unsupported",
-        },
-      ) || fallbackSnapshot
-    );
+    return readTodoWorkspaceSnapshot();
   }
   try {
     const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
@@ -675,33 +601,17 @@ async function readFreshTodoWorkspaceSnapshot() {
     if (!data) {
       throw new Error("missing todo bootstrap data");
     }
-    return (
-      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-        {
-          todos: Array.isArray(data.todos) ? data.todos : [],
-          checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
-          dailyCheckins: Array.isArray(data.todayDailyCheckins)
-            ? data.todayDailyCheckins
-            : [],
-          checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
-        },
-        fallbackSnapshot,
-        {
-          reason: "todo-read-fresh-native",
-        },
-      ) || fallbackSnapshot
-    );
+    return mergeTodoWorkspaceSnapshot({
+      todos: Array.isArray(data.todos) ? data.todos : [],
+      checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+      dailyCheckins: Array.isArray(data.todayDailyCheckins)
+        ? data.todayDailyCheckins
+        : [],
+      checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
+    });
   } catch (error) {
     console.error("读取待办页最新引导数据失败，回退当前快照:", error);
-    return (
-      protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-        readTodoWorkspaceSnapshot(),
-        fallbackSnapshot,
-        {
-          reason: "todo-read-fresh-fallback",
-        },
-      ) || fallbackSnapshot
-    );
+    return readTodoWorkspaceSnapshot();
   }
 }
 
@@ -731,6 +641,72 @@ function waitForTodoStorageReady() {
     return false;
   });
 }
+
+function getTodoLoadingOverlayElement() {
+  return document.getElementById("todo-loading-overlay");
+}
+
+function getTodoLoadingOverlayController() {
+  if (todoLoadingOverlayController) {
+    return todoLoadingOverlayController;
+  }
+  const overlay = getTodoLoadingOverlayElement();
+  if (!(overlay instanceof HTMLElement)) {
+    return null;
+  }
+  todoLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
+    overlay,
+    inlineHost: ".todo-main",
+    scopeFullscreenToInlineHost: false,
+    promoteInlineToFullscreenOnMobile: false,
+  }) || null;
+  return todoLoadingOverlayController;
+}
+
+function setTodoLoadingState(options = {}) {
+  const overlay = getTodoLoadingOverlayElement();
+  if (!(overlay instanceof HTMLElement)) {
+    return;
+  }
+
+  const {
+    active = false,
+    mode = "inline",
+    title = "正在加载数据中",
+    delayMs = 0,
+    message =
+      mode === "fullscreen"
+        ? "正在读取待办、打卡与今日进度，请稍候"
+        : "正在同步待办与打卡数据，请稍候",
+  } = options;
+  const loadingController = getTodoLoadingOverlayController();
+  if (!loadingController) {
+    return;
+  }
+
+  loadingController.setState({
+    active,
+    mode,
+    title,
+    message,
+    delayMs,
+  });
+}
+
+const todoRefreshController = uiTools?.createAtomicRefreshController?.({
+  defaultDelayMs: TODO_LOADING_OVERLAY_DELAY_MS,
+  showLoading: (loadingOptions = {}) => {
+    setTodoLoadingState({
+      active: true,
+      ...loadingOptions,
+    });
+  },
+  hideLoading: () => {
+    setTodoLoadingState({
+      active: false,
+    });
+  },
+});
 
 function isTodoWidgetTargetVisible(action = "") {
   if (action === "open-create-todo") {
@@ -1164,9 +1140,7 @@ function queueTodoCoreSave(partialCore = {}, options = {}) {
   if (!changedSections.length) {
     return Promise.resolve(true);
   }
-  const protectedSource = protectTodoCoreStateForPersist(source, {
-    reason: options?.reason || "todo-core-save",
-  });
+  const protectedSource = normalizeTodoCoreUpdate(source);
   persistTodoLocalMirrorCore(protectedSource);
   markTodoSelfRefreshIgnored(changedSections);
   return queueTodoPersistenceTask(
@@ -1435,9 +1409,7 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
           dailyCheckins,
           checkins,
         };
-  const protectedSnapshot = protectTodoWorkspaceSnapshotForPersist(nextSnapshot, {
-    reason: "todo-workspace",
-  });
+  const protectedSnapshot = mergeTodoWorkspaceSnapshot(nextSnapshot);
   const bundleStorage = window.ControlerStorage;
   if (
     typeof bundleStorage?.appendJournal === "function"
@@ -1544,13 +1516,11 @@ async function persistTodoWorkspaceSnapshot(snapshot) {
 }
 
 function queueTodoPersist() {
-  const snapshot = protectTodoWorkspaceSnapshotForPersist({
+  const snapshot = mergeTodoWorkspaceSnapshot({
     todos: cloneTodoValue(todos),
     checkinItems: cloneTodoValue(checkinItems),
     dailyCheckins: cloneTodoValue(dailyCheckins),
     checkins: cloneTodoValue(checkins),
-  }, {
-    reason: "todo-workspace-queue",
   });
   persistTodoLocalMirrorCore(snapshot);
   return queueTodoPersistenceTask(
@@ -2626,18 +2596,38 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     typeof bundleStorage?.loadSectionRange === "function";
 
   if (!canUsePreciseRefresh) {
-    const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
-    if (hasTodoPendingLocalMutations()) {
-      todoPendingExternalStorageRefresh = true;
-      window.__controlerTodoRuntimePendingExternalRefresh = true;
-      todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
-        todoQueuedExternalStorageRefreshDetail,
-        refreshDetail,
-      );
+    const applyFreshSnapshot = async (freshSnapshot) => {
+      if (hasTodoPendingLocalMutations()) {
+        todoPendingExternalStorageRefresh = true;
+        window.__controlerTodoRuntimePendingExternalRefresh = true;
+        todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+          todoQueuedExternalStorageRefreshDetail,
+          refreshDetail,
+        );
+        return false;
+      }
+      applyTodoWorkspaceSnapshot(freshSnapshot);
+      refreshTodoInterface();
+      todoInitialDataLoaded = true;
+      return true;
+    };
+    if (!todoRefreshController) {
+      await applyFreshSnapshot(await readFreshTodoWorkspaceSnapshot());
       return;
     }
-    applyTodoWorkspaceSnapshot(freshSnapshot);
-    refreshTodoInterface();
+    await todoRefreshController.run(
+      () => readFreshTodoWorkspaceSnapshot(),
+      {
+        delayMs: todoInitialDataLoaded ? TODO_LOADING_OVERLAY_DELAY_MS : 0,
+        loadingOptions: {
+          mode: todoInitialDataLoaded ? "inline" : "fullscreen",
+          message: "正在同步待办与打卡数据，请稍候",
+        },
+        commit: async (freshSnapshot) => {
+          await applyFreshSnapshot(freshSnapshot);
+        },
+      },
+    );
     return;
   }
 
@@ -2648,19 +2638,15 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     let nextCheckins = null;
     if (changedSections.includes("todos") || changedSections.includes("checkinItems")) {
       const coreSnapshot = await bundleStorage.getCoreState();
-      const protectedCoreSnapshot =
-        protectTodoWorkspaceSnapshotFromUnexpectedCoreClear(
-          {
-            todos: Array.isArray(coreSnapshot?.todos) ? coreSnapshot.todos : [],
-            checkinItems: Array.isArray(coreSnapshot?.checkinItems)
-              ? coreSnapshot.checkinItems
-              : [],
-          },
-          captureTodoWorkspaceSnapshot(),
-          {
-            reason: "todo-precise-core-refresh",
-          },
-        ) || {};
+      const protectedCoreSnapshot = mergeTodoWorkspaceSnapshot(
+        {
+          todos: Array.isArray(coreSnapshot?.todos) ? coreSnapshot.todos : [],
+          checkinItems: Array.isArray(coreSnapshot?.checkinItems)
+            ? coreSnapshot.checkinItems
+            : [],
+        },
+        captureTodoWorkspaceSnapshot(),
+      );
       if (changedSections.includes("todos")) {
         nextTodos = hydrateTodoCollection("todos", protectedCoreSnapshot?.todos);
       }
@@ -2724,9 +2710,11 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
       getTodoSectionPeriodIds("checkins", checkins),
     );
     invalidateTodoDerivedCaches();
+    todoInitialDataLoaded = true;
   } catch (error) {
     console.error("精确刷新待办数据失败，回退全量加载:", error);
-    loadData();
+    applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());
+    todoInitialDataLoaded = true;
   }
   refreshTodoInterface();
 }
@@ -3793,6 +3781,7 @@ function loadData() {
   const retainedSnapshot = captureTodoWorkspaceSnapshot();
   try {
     applyTodoWorkspaceSnapshot(readTodoWorkspaceSnapshot());
+    todoInitialDataLoaded = true;
   } catch (e) {
     console.error("加载数据失败:", e);
     applyTodoWorkspaceSnapshot(retainedSnapshot);
@@ -6563,6 +6552,145 @@ function ensureTodoBaseBindings(options = {}) {
   applyPendingTodoRefreshIfNeeded();
 }
 
+async function applyTodoFreshSnapshot(
+  freshSnapshot,
+  options = {},
+) {
+  const normalizedSnapshot = mergeTodoWorkspaceSnapshot(
+    freshSnapshot,
+    captureTodoWorkspaceSnapshot(),
+  );
+  uiTools?.markPerfStage?.(
+    options.perfStageReady || "todo-fresh-sync-ready",
+    buildTodoWorkspacePerfDetail(normalizedSnapshot),
+  );
+
+  if (!hasTodoWorkspaceSnapshotChanged(normalizedSnapshot)) {
+    todoInitialDataValidated = true;
+    uiTools?.markPerfStage?.("todo-fresh-sync-skipped", {
+      reason: options.reason || "unchanged",
+      ...buildTodoWorkspacePerfDetail(normalizedSnapshot),
+    });
+    return false;
+  }
+
+  if (hasTodoPendingLocalMutations()) {
+    scheduleTodoExternalStorageRefresh({
+      reason: "todo-initial-fresh-sync",
+    });
+    uiTools?.markPerfStage?.("todo-fresh-sync-deferred", {
+      reason: "pending-local-mutations",
+      ...buildTodoWorkspacePerfDetail(normalizedSnapshot),
+    });
+    return false;
+  }
+
+  applyTodoWorkspaceSnapshot(normalizedSnapshot);
+  refreshTodoInterface();
+  todoInitialDataLoaded = true;
+  todoInitialDataValidated = true;
+  uiTools?.markPerfStage?.(
+    options.perfStageApplied || "todo-fresh-sync-applied",
+    buildTodoWorkspacePerfDetail(normalizedSnapshot),
+  );
+  return true;
+}
+
+async function syncTodoFreshSnapshotInBackground() {
+  if (todoInitialDataValidated) {
+    return false;
+  }
+  if (todoInitialFreshSyncPromise) {
+    return todoInitialFreshSyncPromise;
+  }
+
+  const runFreshSync = async () => {
+    uiTools?.markPerfStage?.("todo-fresh-sync-start");
+
+    if (!todoRefreshController) {
+      await waitForTodoStorageReady();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
+      return applyTodoFreshSnapshot(freshSnapshot);
+    }
+
+    let applied = false;
+    const refreshResult = await todoRefreshController.run(
+      async () => {
+        await waitForTodoStorageReady();
+        return readFreshTodoWorkspaceSnapshot();
+      },
+      {
+        delayMs: TODO_LOADING_OVERLAY_DELAY_MS,
+        loadingOptions: {
+          mode: "inline",
+          message: "正在同步待办与打卡数据，请稍候",
+        },
+        commit: async (freshSnapshot) => {
+          applied = await applyTodoFreshSnapshot(freshSnapshot);
+        },
+      },
+    );
+
+    if (refreshResult?.stale) {
+      uiTools?.markPerfStage?.("todo-fresh-sync-skipped", {
+        reason: "stale",
+      });
+      return false;
+    }
+
+    return applied;
+  };
+
+  todoInitialFreshSyncPromise = runFreshSync()
+    .catch((error) => {
+      console.error("待办页后台 fresh 同步失败:", error);
+      uiTools?.markPerfStage?.("todo-fresh-sync-failed", {
+        message:
+          error instanceof Error ? error.message : String(error || "unknown-error"),
+      });
+      return false;
+    })
+    .finally(() => {
+      todoInitialFreshSyncPromise = null;
+    });
+
+  return todoInitialFreshSyncPromise;
+}
+
+function scheduleTodoDeferredFreshSync() {
+  if (
+    todoInitialDataValidated ||
+    todoDeferredFreshSyncQueued ||
+    todoInitialFreshSyncPromise
+  ) {
+    return;
+  }
+
+  todoDeferredFreshSyncQueued = true;
+  const run = () => {
+    todoDeferredFreshSyncQueued = false;
+    void syncTodoFreshSnapshotInBackground();
+  };
+  const scheduleAfterPaint = () => {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, {
+        timeout: 320,
+      });
+      return;
+    }
+    window.setTimeout(run, 48);
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scheduleAfterPaint);
+    });
+    return;
+  }
+
+  window.setTimeout(scheduleAfterPaint, 32);
+}
+
 function scheduleTodoWidgetLaunchHandled(
   payload = {},
   isHandled = () => true,
@@ -6771,21 +6899,26 @@ async function init() {
   initTodoWidgetLaunchAction();
   registerTodoBeforePageLeaveGuard();
   bindTodoExternalStorageRefresh();
-  await waitForTodoStorageReady();
-  applyTodoWorkspaceSnapshot(await readFreshTodoWorkspaceSnapshot());
-  ensureTodoBaseBindings({
-    skipInitialDataLoad: true,
+  setTodoLoadingState({
+    active: true,
+    mode: "fullscreen",
   });
-  applyTodoWidgetMode();
-  renderTodoWorkspace();
-  todoPlanSidebarInitialized = true;
-  uiTools?.markPerfStage?.("first-data-ready", {
-    todoCount: todos.length,
-    checkinItemCount: checkinItems.length,
-    dailyCheckinCount: dailyCheckins.length,
-    recentCheckinCount: checkins.length,
-  });
-  queueTodoInitialReveal();
+  try {
+    const snapshot = bootstrapTodoFromCachedSnapshot();
+    ensureTodoBaseBindings({
+      skipInitialDataLoad: true,
+    });
+    applyTodoWidgetMode();
+    renderTodoWorkspace();
+    todoPlanSidebarInitialized = true;
+    markTodoInitialDataReady(snapshot);
+    queueTodoInitialReveal();
+    scheduleTodoDeferredFreshSync();
+  } finally {
+    setTodoLoadingState({
+      active: false,
+    });
+  }
 }
 
 // 页面加载完成后初始化

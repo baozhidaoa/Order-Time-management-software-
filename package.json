@@ -87,6 +87,7 @@
       "!out{,/**}",
       "!android{,/**}",
       "!ios{,/**}",
+      "!pages/embedded-assets{,/**}",
       "!pages/runtime-assets{,/**}",
       "!pages/vendor{,/**}",
       "!TmpPackageBuild_*{,/**}",

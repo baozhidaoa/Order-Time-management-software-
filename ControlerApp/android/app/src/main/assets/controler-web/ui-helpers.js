@@ -21,6 +21,7 @@
   const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
+  const PAGE_LOADING_OVERLAY_DELAY_MS = 120;
 
   function clonePlatformContractValue(value) {
     try {
@@ -500,44 +501,8 @@
     }
   }
 
-  function rewriteLegacyEmbeddedAssetUrl(assetUrl) {
-    const rawUrl = String(assetUrl || "").trim();
-    if (!rawUrl) {
-      return "";
-    }
-
-    const rewritePathname = (pathname) => {
-      const normalizedPathname = String(pathname || "");
-      if (!normalizedPathname) {
-        return normalizedPathname;
-      }
-      if (normalizedPathname.includes("/embedded-assets/")) {
-        return normalizedPathname.replace(
-          "/embedded-assets/",
-          "/offline-assets/",
-        );
-      }
-      if (normalizedPathname.startsWith("embedded-assets/")) {
-        return `offline-assets/${normalizedPathname.slice("embedded-assets/".length)}`;
-      }
-      return normalizedPathname;
-    };
-
-    try {
-      const parsed = new URL(rawUrl, window.location.href);
-      const rewrittenPathname = rewritePathname(parsed.pathname);
-      if (rewrittenPathname !== parsed.pathname) {
-        parsed.pathname = rewrittenPathname;
-        return parsed.toString();
-      }
-      return rawUrl;
-    } catch (error) {
-      return rewritePathname(rawUrl);
-    }
-  }
-
   function normalizeAssetUrl(assetUrl) {
-    const rawUrl = rewriteLegacyEmbeddedAssetUrl(assetUrl);
+    const rawUrl = String(assetUrl || "").trim();
     if (!rawUrl) {
       return "";
     }
@@ -548,11 +513,27 @@
     }
   }
 
+  function evaluateAssetReadyCheck(readyCheck) {
+    if (typeof readyCheck !== "function") {
+      return false;
+    }
+    try {
+      return readyCheck() === true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   function loadScriptOnce(assetUrl, options = {}) {
     const normalizedUrl = normalizeAssetUrl(assetUrl);
     if (!normalizedUrl) {
       return Promise.reject(new Error("脚本地址为空"));
     }
+    const readyCheck = typeof options.ready === "function" ? options.ready : null;
+    const readyTimeoutMs = Math.max(
+      250,
+      Math.round(Number(options.readyTimeoutMs) || 5000),
+    );
 
     const cacheKey = `script:${normalizedUrl}`;
     if (pendingAssetLoads.has(cacheKey)) {
@@ -562,12 +543,21 @@
     const existing = Array.from(document.scripts).find(
       (script) => normalizeAssetUrl(script.getAttribute("src")) === normalizedUrl,
     );
-    if (existing?.dataset?.controlerLoaded === "true") {
+    if (
+      existing?.dataset?.controlerLoaded === "true" ||
+      (existing && evaluateAssetReadyCheck(readyCheck))
+    ) {
+      if (existing) {
+        existing.dataset.controlerLoaded = "true";
+      }
       return Promise.resolve(existing);
     }
 
     const loader = new Promise((resolve, reject) => {
       const script = existing || document.createElement("script");
+      let readyPollTimer = 0;
+      let readyTimeoutTimer = 0;
+      let settled = false;
       if (!existing) {
         script.src = normalizedUrl;
         script.async = true;
@@ -580,18 +570,79 @@
       const cleanup = () => {
         script.removeEventListener("load", handleLoad);
         script.removeEventListener("error", handleError);
+        if (readyPollTimer) {
+          window.clearTimeout(readyPollTimer);
+          readyPollTimer = 0;
+        }
+        if (readyTimeoutTimer) {
+          window.clearTimeout(readyTimeoutTimer);
+          readyTimeoutTimer = 0;
+        }
       };
 
-      const handleLoad = () => {
+      const resolveLoad = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         cleanup();
         script.dataset.controlerLoaded = "true";
         resolve(script);
       };
 
-      const handleError = () => {
+      const rejectLoad = (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         cleanup();
         pendingAssetLoads.delete(cacheKey);
-        reject(new Error(`脚本加载失败: ${normalizedUrl}`));
+        reject(error);
+      };
+
+      const pollReadyState = () => {
+        if (settled || !readyCheck) {
+          return;
+        }
+        if (evaluateAssetReadyCheck(readyCheck)) {
+          resolveLoad();
+          return;
+        }
+        readyPollTimer = window.setTimeout(pollReadyState, 16);
+      };
+
+      const startReadyWatch = () => {
+        if (!readyCheck || settled) {
+          return;
+        }
+        if (evaluateAssetReadyCheck(readyCheck)) {
+          resolveLoad();
+          return;
+        }
+        if (!readyTimeoutTimer) {
+          readyTimeoutTimer = window.setTimeout(() => {
+            if (evaluateAssetReadyCheck(readyCheck)) {
+              resolveLoad();
+              return;
+            }
+            rejectLoad(new Error(`脚本已加载但未就绪: ${normalizedUrl}`));
+          }, readyTimeoutMs);
+        }
+        if (!readyPollTimer) {
+          readyPollTimer = window.setTimeout(pollReadyState, 16);
+        }
+      };
+
+      const handleLoad = () => {
+        if (!readyCheck) {
+          resolveLoad();
+          return;
+        }
+        startReadyWatch();
+      };
+
+      const handleError = () => {
+        rejectLoad(new Error(`脚本加载失败: ${normalizedUrl}`));
       };
 
       script.addEventListener("load", handleLoad, { once: true });
@@ -599,6 +650,9 @@
 
       if (!existing) {
         document.head.appendChild(script);
+      }
+      if (readyCheck) {
+        startReadyWatch();
       }
     });
 
@@ -3802,6 +3856,8 @@
       resolveLoadingOverlayElement(options.inlineHost) || overlay?.parentElement || null;
     const scopeFullscreenToInlineHost =
       options.scopeFullscreenToInlineHost !== false;
+    const promoteInlineToFullscreenOnMobile =
+      options.promoteInlineToFullscreenOnMobile !== false;
 
     if (!(overlay instanceof HTMLElement)) {
       return {
@@ -3861,6 +3917,9 @@
       return navComputedStyle.display === "grid";
     };
     const shouldForceFullscreenMode = (mode, visible) => {
+      if (!promoteInlineToFullscreenOnMobile) {
+        return false;
+      }
       if (!visible || mode !== "inline") {
         return false;
       }
@@ -6638,6 +6697,7 @@
     normalizeChangedSections,
     hasPeriodOverlap,
     isSerializableEqual,
+    pageLoadingOverlayDelayMs: PAGE_LOADING_OVERLAY_DELAY_MS,
     createFrameScheduler,
     createDeferredRefreshController,
     createAtomicRefreshController,
