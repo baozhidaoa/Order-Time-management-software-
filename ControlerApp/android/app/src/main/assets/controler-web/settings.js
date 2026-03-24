@@ -2113,6 +2113,14 @@ function applyTheme(themeId) {
       },
     }),
   );
+  window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
+    href: window.location.href,
+    themeId: theme.id,
+    selectedTheme: theme.id,
+    customThemes: loadCustomThemes(),
+    builtInThemeOverrides: loadBuiltInThemeOverrides(),
+    colors: { ...resolvedColors },
+  });
 }
 
 // 更新主题选择器UI
@@ -6648,6 +6656,10 @@ let settingsExternalStorageRefreshQueued = false;
 
 function refreshSettingsFromStorage() {
   settingsExternalStorageRefreshQueued = false;
+  syncThemeCatalog();
+  const currentThemeId = localStorage.getItem("selectedTheme") || "default";
+  updateThemeSelector(currentThemeId);
+  ensureThemeSelectorVisible(currentThemeId);
   updateStorageStatus();
   updateStoragePathInfo();
   void refreshAutoBackupPanel();
