@@ -214,6 +214,54 @@ function mergeTodoWorkspaceSnapshot(
   };
 }
 
+function hasTodoWorkspaceCoreItems(snapshot = {}) {
+  return (
+    (Array.isArray(snapshot?.todos) && snapshot.todos.length > 0) ||
+    (Array.isArray(snapshot?.checkinItems) && snapshot.checkinItems.length > 0)
+  );
+}
+
+function restoreTodoCoreFromFallbackSnapshot(
+  snapshot = null,
+  fallbackSnapshot = null,
+) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  const fallback =
+    fallbackSnapshot &&
+    typeof fallbackSnapshot === "object" &&
+    !Array.isArray(fallbackSnapshot)
+      ? mergeTodoWorkspaceSnapshot(fallbackSnapshot)
+      : mergeTodoWorkspaceSnapshot();
+  const normalizedSnapshot = mergeTodoWorkspaceSnapshot(snapshot, fallback);
+  if (!hasTodoWorkspaceCoreItems(fallback)) {
+    return normalizedSnapshot;
+  }
+  const shouldRestoreTodos =
+    Array.isArray(snapshot?.todos) &&
+    snapshot.todos.length === 0 &&
+    Array.isArray(fallback.todos) &&
+    fallback.todos.length > 0;
+  const shouldRestoreCheckinItems =
+    Array.isArray(snapshot?.checkinItems) &&
+    snapshot.checkinItems.length === 0 &&
+    Array.isArray(fallback.checkinItems) &&
+    fallback.checkinItems.length > 0;
+  if (!shouldRestoreTodos && !shouldRestoreCheckinItems) {
+    return normalizedSnapshot;
+  }
+  return {
+    ...normalizedSnapshot,
+    todos: shouldRestoreTodos
+      ? cloneTodoValue(fallback.todos)
+      : normalizedSnapshot.todos,
+    checkinItems: shouldRestoreCheckinItems
+      ? cloneTodoValue(fallback.checkinItems)
+      : normalizedSnapshot.checkinItems,
+  };
+}
+
 function normalizeTodoCoreUpdate(partialCore = {}) {
   const source =
     partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
@@ -568,19 +616,39 @@ function readTodoWorkspaceSnapshotFromPageBootstrap() {
 }
 
 function readTodoWorkspaceSnapshot() {
+  const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
+  const localMirrorSnapshot = localSnapshot?.__hasMirror
+    ? mergeTodoWorkspaceSnapshot(localSnapshot)
+    : null;
+  const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
   const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
   if (bootstrapSnapshot) {
-    return bootstrapSnapshot;
+    return (
+      restoreTodoCoreFromFallbackSnapshot(
+        bootstrapSnapshot,
+        localMirrorSnapshot || managedSnapshot || localSnapshot,
+      ) || mergeTodoWorkspaceSnapshot(bootstrapSnapshot)
+    );
   }
-  const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
-  const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
   if (window.ControlerStorage?.isNativeApp) {
-    return managedSnapshot || mergeTodoWorkspaceSnapshot(localSnapshot);
+    return (
+      restoreTodoCoreFromFallbackSnapshot(
+        managedSnapshot,
+        localMirrorSnapshot || localSnapshot,
+      ) ||
+      localMirrorSnapshot ||
+      mergeTodoWorkspaceSnapshot(localSnapshot)
+    );
   }
-  if (localSnapshot?.__hasMirror) {
-    return mergeTodoWorkspaceSnapshot(localSnapshot);
+  if (localMirrorSnapshot) {
+    return localMirrorSnapshot;
   }
-  return managedSnapshot || mergeTodoWorkspaceSnapshot(localSnapshot);
+  return (
+    restoreTodoCoreFromFallbackSnapshot(
+      managedSnapshot,
+      mergeTodoWorkspaceSnapshot(localSnapshot),
+    ) || mergeTodoWorkspaceSnapshot(localSnapshot)
+  );
 }
 
 async function readFreshTodoWorkspaceSnapshot() {

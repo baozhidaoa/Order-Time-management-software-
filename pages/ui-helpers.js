@@ -22,6 +22,14 @@
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
   const PAGE_LOADING_OVERLAY_DELAY_MS = 120;
+  const OFFLINE_ASSET_MANIFEST_GLOBAL =
+    "__CONTROLER_OFFLINE_ASSET_MANIFEST__";
+  const OFFLINE_ASSET_KEYS = new Set([
+    "chart",
+    "d3",
+    "calHeatmapJs",
+    "calHeatmapCss",
+  ]);
 
   function clonePlatformContractValue(value) {
     try {
@@ -511,6 +519,36 @@
     } catch (error) {
       return rawUrl;
     }
+  }
+
+  function getOfflineAssetManifest() {
+    const manifest =
+      window[OFFLINE_ASSET_MANIFEST_GLOBAL] ||
+      globalThis?.[OFFLINE_ASSET_MANIFEST_GLOBAL] ||
+      null;
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      return null;
+    }
+    return manifest;
+  }
+
+  function resolveOfflineAssetUrl(assetKey) {
+    const normalizedKey = String(assetKey || "").trim();
+    if (!OFFLINE_ASSET_KEYS.has(normalizedKey)) {
+      throw new Error(`未知离线资源键: ${normalizedKey || "(empty)"}`);
+    }
+
+    const manifest = getOfflineAssetManifest();
+    if (!manifest) {
+      throw new Error("离线资源 manifest 未加载");
+    }
+
+    const fileName = String(manifest[normalizedKey] || "").trim();
+    if (!fileName) {
+      throw new Error(`离线资源 manifest 缺少条目: ${normalizedKey}`);
+    }
+
+    return normalizeAssetUrl(`offline-assets/${fileName}`);
   }
 
   function evaluateAssetReadyCheck(readyCheck) {
@@ -6702,6 +6740,7 @@
     createDeferredRefreshController,
     createAtomicRefreshController,
     createPageLoadingOverlayController,
+    resolveOfflineAssetUrl,
     positionFloatingMenu,
     measureExpandSurfaceWidth,
     normalizeExpandSurfaceWidthFactor,

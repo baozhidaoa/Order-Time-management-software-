@@ -1,7 +1,16 @@
 import fs from "fs-extra";
 import path from "path";
 import { createRequire } from "module";
+import { execFileSync } from "child_process";
 import { fileURLToPath } from "url";
+import vm from "vm";
+import {
+  OFFLINE_ASSET_KEYS,
+  OFFLINE_ASSET_MANIFEST_FILE_NAME,
+  OFFLINE_ASSET_MANIFEST_GLOBAL,
+  createOfflineAssetDefinitions,
+  isOfflineAssetManifest,
+} from "./offline-assets-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +22,29 @@ const platformContract = require(path.join(
   "platform-contract.js",
 ));
 const guideBundle = require(path.join(repoRoot, "pages", "guide-bundle.js"));
+const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
+const offlineAssetDefinitionMap = new Map(
+  offlineAssetDefinitions.map((definition) => [definition.key, definition]),
+);
+const pagesOfflineAssetsDir = path.join(repoRoot, "pages", "offline-assets");
+const androidOfflineAssetsDir = path.join(
+  repoRoot,
+  "ControlerApp",
+  "android",
+  "app",
+  "src",
+  "main",
+  "assets",
+  "controler-web",
+  "offline-assets",
+);
+const iosOfflineAssetsDir = path.join(
+  repoRoot,
+  "ControlerApp",
+  "ios",
+  "controler-web",
+  "offline-assets",
+);
 
 const failures = [];
 const mobileGeneratedBootFiles = new Set([
@@ -30,76 +62,116 @@ const mobileBootstrapHtmlPages = new Set([
   "todo.html",
   "stats.html",
 ]);
-const unreadableOfflineAssetFallbacks = new Map([
-  [
-    "pages/offline-assets/chart.runtime.js",
-    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
-  ],
-  [
-    "pages/offline-assets/chart.runtime.v2.js",
-    path.join(repoRoot, "node_modules", "chart.js", "dist", "chart.umd.js"),
-  ],
-  [
-    "pages/offline-assets/d3.runtime.js",
-    path.join(repoRoot, "node_modules", "d3", "dist", "d3.min.js"),
-  ],
-  [
-    "pages/offline-assets/cal-heatmap.runtime.js",
-    path.join(
-      repoRoot,
-      "node_modules",
-      "cal-heatmap",
-      "dist",
-      "cal-heatmap.min.js",
-    ),
-  ],
-]);
 
 function recordFailure(message) {
   failures.push(message);
 }
 
-function resolveUnreadableOfflineAssetFallback(targetPath) {
-  const relativePath = path.relative(repoRoot, targetPath).replace(/\\/g, "/");
-  return unreadableOfflineAssetFallbacks.get(relativePath) || null;
+function toRelativeRepoPath(targetPath) {
+  return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
 }
 
-async function readFileWithFallback(targetPath, encoding = null) {
-  try {
-    if (encoding) {
-      return await fs.readFile(targetPath, encoding);
-    }
-    return await fs.readFile(targetPath);
-  } catch (error) {
-    if (error?.code !== "EPERM") {
-      throw error;
-    }
-    const fallbackPath = resolveUnreadableOfflineAssetFallback(targetPath);
-    if (!fallbackPath) {
-      throw error;
-    }
-    if (encoding) {
-      return fs.readFile(fallbackPath, encoding);
-    }
-    return fs.readFile(fallbackPath);
-  }
+function createManifestVmContext() {
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+  };
+  context.window = context;
+  context.self = context;
+  context.globalThis = context;
+  vm.createContext(context);
+  return context;
 }
 
 async function readUtf8(targetPath) {
-  return readFileWithFallback(targetPath, "utf8");
+  return fs.readFile(targetPath, "utf8");
+}
+
+async function readOfflineAssetBuffer(targetPath, fallbackSourcePath) {
+  try {
+    return await fs.readFile(targetPath);
+  } catch (error) {
+    if (error?.code !== "EPERM" || !fallbackSourcePath) {
+      throw error;
+    }
+    return fs.readFile(fallbackSourcePath);
+  }
+}
+
+async function loadOfflineAssetManifest(manifestPath, label) {
+  let manifestSource = "";
+  try {
+    manifestSource = await readUtf8(manifestPath);
+  } catch (error) {
+    recordFailure(`${label} manifest 读取失败: ${toRelativeRepoPath(manifestPath)}`);
+    return null;
+  }
+
+  const context = createManifestVmContext();
+  try {
+    vm.runInContext(manifestSource, context, {
+      filename: manifestPath,
+    });
+  } catch (error) {
+    recordFailure(
+      `${label} manifest 执行失败: ${toRelativeRepoPath(manifestPath)} (${error?.message || error})`,
+    );
+    return null;
+  }
+
+  const manifest = context[OFFLINE_ASSET_MANIFEST_GLOBAL];
+  if (!isOfflineAssetManifest(manifest)) {
+    recordFailure(`${label} manifest 无效: ${toRelativeRepoPath(manifestPath)}`);
+    return null;
+  }
+  return manifest;
+}
+
+function ensureGitTracked(relativePath, label) {
+  try {
+    execFileSync("git", ["ls-files", "--error-unmatch", "--", relativePath], {
+      cwd: repoRoot,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  } catch (error) {
+    recordFailure(`${label} 未纳入 Git 管理: ${relativePath}`);
+  }
 }
 
 async function assertFilesEqual(sourcePath, targetPath, label) {
-  const [sourceText, targetText] = await Promise.all([
-    readUtf8(sourcePath),
-    readUtf8(targetPath),
-  ]);
+  let sourceText = "";
+  let targetText = "";
+  try {
+    [sourceText, targetText] = await Promise.all([
+      readUtf8(sourcePath),
+      readUtf8(targetPath),
+    ]);
+  } catch (error) {
+    recordFailure(
+      `${label} 读取失败: ${toRelativeRepoPath(targetPath)} (${error?.message || error})`,
+    );
+    return;
+  }
   if (sourceText !== targetText) {
     recordFailure(`${label} 不一致: ${path.relative(repoRoot, targetPath)}`);
   }
 }
 
-async function listRelativeFiles(rootDir) {
+function shouldExcludeRelativePath(relativePath, excludedRelativePrefixes = []) {
+  return excludedRelativePrefixes.some((prefix) => {
+    const normalizedPrefix = String(prefix || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!normalizedPrefix) {
+      return false;
+    }
+    return (
+      relativePath === normalizedPrefix ||
+      relativePath.startsWith(`${normalizedPrefix}/`)
+    );
+  });
+}
+
+async function listRelativeFiles(rootDir, excludedRelativePrefixes = []) {
   const output = [];
 
   async function walk(currentDir) {
@@ -107,6 +179,9 @@ async function listRelativeFiles(rootDir) {
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
+      if (shouldExcludeRelativePath(relativePath, excludedRelativePrefixes)) {
+        continue;
+      }
       if (entry.isDirectory()) {
         await walk(fullPath);
         continue;
@@ -143,6 +218,7 @@ function rewriteMobileBootstrapHtml(sourceText, relativePath) {
   }
 
   const bootstrapScripts =
+    `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="mobile-common-boot.js"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
   const pageScriptPattern = new RegExp(
@@ -157,12 +233,15 @@ function rewriteMobileBootstrapHtml(sourceText, relativePath) {
   ).replace(pageScriptPattern, "\n");
 }
 
-async function compareDirectories(sourceDir, targetDir, label) {
+async function compareDirectories(sourceDir, targetDir, label, options = {}) {
   const isGeneratedMobileWeb =
     label === "pages 与 Android Web 资源" || label === "pages 与 iOS Web 资源";
+  const excludedRelativePrefixes = Array.isArray(options.excludedRelativePrefixes)
+    ? options.excludedRelativePrefixes
+    : [];
   const [sourceFiles, targetFiles] = await Promise.all([
-    listRelativeFiles(sourceDir),
-    listRelativeFiles(targetDir),
+    listRelativeFiles(sourceDir, excludedRelativePrefixes),
+    listRelativeFiles(targetDir, excludedRelativePrefixes),
   ]);
   const comparableTargetFiles = isGeneratedMobileWeb
     ? targetFiles.filter((relativePath) => !mobileGeneratedBootFiles.has(relativePath))
@@ -200,11 +279,66 @@ async function compareDirectories(sourceDir, targetDir, label) {
       continue;
     }
     const [sourceBuffer, targetBuffer] = await Promise.all([
-      readFileWithFallback(sourcePath),
-      readFileWithFallback(targetPath),
+      fs.readFile(sourcePath),
+      fs.readFile(targetPath),
     ]);
     if (!sourceBuffer.equals(targetBuffer)) {
       recordFailure(`${label} 文件内容不一致: ${relativePath}`);
+    }
+  }
+}
+
+async function assertOfflineAssetTargets(
+  label,
+  offlineAssetDir,
+  manifest,
+  options = {},
+) {
+  if (!manifest) {
+    return;
+  }
+  const requireGitManaged = options.requireGitManaged === true;
+  const manifestPath = path.join(offlineAssetDir, OFFLINE_ASSET_MANIFEST_FILE_NAME);
+  if (!(await fs.pathExists(manifestPath))) {
+    recordFailure(`${label} manifest 缺失: ${toRelativeRepoPath(manifestPath)}`);
+    return;
+  }
+  if (requireGitManaged) {
+    ensureGitTracked(toRelativeRepoPath(manifestPath), `${label} manifest`);
+  }
+
+  for (const assetKey of OFFLINE_ASSET_KEYS) {
+    const fileName = String(manifest[assetKey] || "").trim();
+    if (!fileName) {
+      recordFailure(`${label} manifest 缺少资源键: ${assetKey}`);
+      continue;
+    }
+    if (fileName.includes("/") || fileName.includes("\\")) {
+      recordFailure(`${label} manifest 条目必须是文件名: ${assetKey}`);
+      continue;
+    }
+
+    const definition = offlineAssetDefinitionMap.get(assetKey);
+    if (!definition) {
+      recordFailure(`${label} 离线资源定义缺失: ${assetKey}`);
+      continue;
+    }
+
+    const targetPath = path.join(offlineAssetDir, fileName);
+    if (!(await fs.pathExists(targetPath))) {
+      recordFailure(`${label} 缺少当前离线资源: ${toRelativeRepoPath(targetPath)}`);
+      continue;
+    }
+    if (requireGitManaged) {
+      ensureGitTracked(toRelativeRepoPath(targetPath), `${label} 离线资源`);
+    }
+
+    const [sourceBuffer, targetBuffer] = await Promise.all([
+      fs.readFile(definition.sourcePath),
+      readOfflineAssetBuffer(targetPath, definition.sourcePath),
+    ]);
+    if (!sourceBuffer.equals(targetBuffer)) {
+      recordFailure(`${label} 离线资源内容不一致: ${toRelativeRepoPath(targetPath)}`);
     }
   }
 }
@@ -425,6 +559,81 @@ async function main() {
     await assertFilesEqual(sharedContractPath, mirroredPath, "共享平台契约");
   }
 
+  const pagesManifestPath = path.join(
+    pagesOfflineAssetsDir,
+    OFFLINE_ASSET_MANIFEST_FILE_NAME,
+  );
+  const androidManifestPath = path.join(
+    androidOfflineAssetsDir,
+    OFFLINE_ASSET_MANIFEST_FILE_NAME,
+  );
+  const iosManifestPath = path.join(
+    iosOfflineAssetsDir,
+    OFFLINE_ASSET_MANIFEST_FILE_NAME,
+  );
+  const [pagesOfflineAssetManifest, androidOfflineAssetManifest, iosOfflineAssetManifest] =
+    await Promise.all([
+      loadOfflineAssetManifest(pagesManifestPath, "pages 离线资源"),
+      loadOfflineAssetManifest(androidManifestPath, "Android 离线资源"),
+      loadOfflineAssetManifest(iosManifestPath, "iOS 离线资源"),
+    ]);
+
+  if (pagesOfflineAssetManifest && androidOfflineAssetManifest) {
+    if (
+      JSON.stringify(pagesOfflineAssetManifest) !==
+      JSON.stringify(androidOfflineAssetManifest)
+    ) {
+      recordFailure("Android 离线资源 manifest 与 pages 不一致。");
+    }
+  }
+  if (pagesOfflineAssetManifest && iosOfflineAssetManifest) {
+    if (
+      JSON.stringify(pagesOfflineAssetManifest) !==
+      JSON.stringify(iosOfflineAssetManifest)
+    ) {
+      recordFailure("iOS 离线资源 manifest 与 pages 不一致。");
+    }
+  }
+
+  await assertFilesEqual(
+    pagesManifestPath,
+    androidManifestPath,
+    "离线资源 manifest",
+  );
+  await assertFilesEqual(
+    pagesManifestPath,
+    iosManifestPath,
+    "离线资源 manifest",
+  );
+
+  const requireGitManagedOfflineAssets = await fs.pathExists(
+    path.join(repoRoot, ".git"),
+  );
+  await assertOfflineAssetTargets(
+    "pages 离线资源",
+    pagesOfflineAssetsDir,
+    pagesOfflineAssetManifest,
+    {
+      requireGitManaged: requireGitManagedOfflineAssets,
+    },
+  );
+  await assertOfflineAssetTargets(
+    "Android 离线资源",
+    androidOfflineAssetsDir,
+    androidOfflineAssetManifest,
+    {
+      requireGitManaged: requireGitManagedOfflineAssets,
+    },
+  );
+  await assertOfflineAssetTargets(
+    "iOS 离线资源",
+    iosOfflineAssetsDir,
+    iosOfflineAssetManifest,
+    {
+      requireGitManaged: requireGitManagedOfflineAssets,
+    },
+  );
+
   await compareDirectories(
     path.join(repoRoot, "pages"),
     path.join(
@@ -438,11 +647,17 @@ async function main() {
       "controler-web",
     ),
     "pages 与 Android Web 资源",
+    {
+      excludedRelativePrefixes: ["offline-assets"],
+    },
   );
   await compareDirectories(
     path.join(repoRoot, "pages"),
     path.join(repoRoot, "ControlerApp", "ios", "controler-web"),
     "pages 与 iOS Web 资源",
+    {
+      excludedRelativePrefixes: ["offline-assets"],
+    },
   );
 
   const [
@@ -459,6 +674,8 @@ async function main() {
     guideUiSource,
     diarySource,
     todoSource,
+    indexSource,
+    statsSource,
   ] =
     await Promise.all([
       readUtf8(
@@ -539,7 +756,27 @@ async function main() {
       readUtf8(path.join(repoRoot, "pages", "guide-ui.js")),
       readUtf8(path.join(repoRoot, "pages", "diary.js")),
       readUtf8(path.join(repoRoot, "pages", "todo.js")),
+      readUtf8(path.join(repoRoot, "pages", "index.js")),
+      readUtf8(path.join(repoRoot, "pages", "stats.js")),
     ]);
+
+  assertRegexMatch(
+    indexSource,
+    /resolveOfflineAssetUrl\(/,
+    "记录页图表资源未通过 resolveOfflineAssetUrl 解析。",
+  );
+  if (/offline-assets\//.test(indexSource)) {
+    recordFailure("记录页仍硬编码 offline-assets 资源路径。");
+  }
+
+  assertRegexMatch(
+    statsSource,
+    /resolveOfflineAssetUrl\(/,
+    "统计页图表资源未通过 resolveOfflineAssetUrl 解析。",
+  );
+  if (/offline-assets\//.test(statsSource)) {
+    recordFailure("统计页仍硬编码 offline-assets 资源路径。");
+  }
 
   const requiredBridgeMethods = platformContract.getReactNativeBridgeMethodNames();
   assertMethodSet(

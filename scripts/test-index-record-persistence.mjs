@@ -149,6 +149,16 @@ function createStorageHarness(initialPeriods = {}) {
   };
 }
 
+function summarizeLoadResult(result = {}) {
+  return {
+    mode: result?.mode || null,
+    loadedPeriodIds: Array.isArray(result?.loadedPeriodIds)
+      ? result.loadedPeriodIds.slice()
+      : [],
+    items: summarizeRecords(result?.items || []),
+  };
+}
+
 async function runPatchPreservesHiddenRecordsTest() {
   const periodId = "2026-03";
   const hiddenOlderRecord = createRecord({
@@ -267,7 +277,95 @@ async function runFallbackReplaceUsesAuthoritativePartitionTest() {
   ]);
 }
 
+function runRecentRangeLoadUsesWindowItemsOnlyTest() {
+  const historicalRecord = createRecord({
+    id: "historical-record",
+    name: "历史记录",
+    projectId: "project-history",
+    startTime: "2026-03-05T01:00:00.000Z",
+    endTime: "2026-03-05T02:00:00.000Z",
+  });
+  const visibleRecentRecord = createRecord({
+    id: "recent-record",
+    name: "最近记录",
+    projectId: "project-recent",
+    startTime: "2026-03-24T01:00:00.000Z",
+    endTime: "2026-03-24T02:00:00.000Z",
+  });
+
+  const resolved = indexRecordPersistence.resolveRecordLoadResult({
+    mode: "recent-range",
+    existingItems: [historicalRecord, visibleRecentRecord],
+    fallbackItems: [historicalRecord, visibleRecentRecord],
+    rangeItems: [visibleRecentRecord],
+    rangePeriodIds: ["2026-03"],
+    getPeriodId,
+    mergeByPeriods: (existingItems, incomingItems, periodIds) =>
+      indexRecordPersistence.mergeRecordItemsByPeriods(
+        existingItems,
+        incomingItems,
+        periodIds,
+        { getPeriodId },
+      ),
+  });
+
+  assert.deepEqual(summarizeLoadResult(resolved), {
+    mode: "recent-range",
+    loadedPeriodIds: ["2026-03"],
+    items: [summarizeRecords([visibleRecentRecord])[0]],
+  });
+}
+
+function runFullHistoryLoadStillMergesByPeriodsTest() {
+  const februaryRecord = createRecord({
+    id: "feb-record",
+    name: "二月记录",
+    projectId: "project-feb",
+    startTime: "2026-02-20T01:00:00.000Z",
+    endTime: "2026-02-20T02:00:00.000Z",
+  });
+  const marchBefore = createRecord({
+    id: "march-before",
+    name: "三月旧记录",
+    projectId: "project-march-old",
+    startTime: "2026-03-21T01:00:00.000Z",
+    endTime: "2026-03-21T02:00:00.000Z",
+  });
+  const marchAfter = {
+    ...marchBefore,
+    name: "三月新记录",
+    projectId: "project-march-new",
+  };
+
+  const resolved = indexRecordPersistence.resolveRecordLoadResult({
+    mode: "full-history",
+    existingItems: [februaryRecord, marchBefore],
+    fallbackItems: [februaryRecord, marchBefore],
+    rangeItems: [marchAfter],
+    rangePeriodIds: ["2026-03"],
+    getPeriodId,
+    mergeByPeriods: (existingItems, incomingItems, periodIds) =>
+      indexRecordPersistence.mergeRecordItemsByPeriods(
+        existingItems,
+        incomingItems,
+        periodIds,
+        { getPeriodId },
+      ),
+  });
+
+  assert.deepEqual(summarizeLoadResult(resolved), {
+    mode: "full-history",
+    loadedPeriodIds: ["2026-02", "2026-03"],
+    items: [
+      summarizeRecords([februaryRecord])[0],
+      summarizeRecords([marchAfter])[0],
+    ],
+  });
+}
+
 await runPatchPreservesHiddenRecordsTest();
 await runFallbackReplaceUsesAuthoritativePartitionTest();
+runRecentRangeLoadUsesWindowItemsOnlyTest();
+runFullHistoryLoadStillMergesByPeriodsTest();
 
 console.log("index record persistence regression checks passed");
