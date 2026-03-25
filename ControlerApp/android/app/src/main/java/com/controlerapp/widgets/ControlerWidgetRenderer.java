@@ -337,7 +337,8 @@ public final class ControlerWidgetRenderer {
                 || !TextUtils.isEmpty(normalizedHint)
         ) {
             RefreshBatch immediateBatch = new RefreshBatch();
-            immediateBatch.reason = "immediate";
+            immediateBatch.reason =
+                isDirectActionRefreshSource(request.source) ? "direct-action" : "immediate";
             if (!TextUtils.isEmpty(normalizedHint)) {
                 immediateBatch.kinds.add(normalizedHint);
             }
@@ -350,6 +351,10 @@ public final class ControlerWidgetRenderer {
                 0L,
                 "full"
             );
+        }
+
+        if (isDirectActionRefreshSource(request.source)) {
+            return;
         }
 
         if (!TextUtils.isEmpty(normalizedHint) && affectedKinds.contains(normalizedHint)) {
@@ -441,6 +446,62 @@ public final class ControlerWidgetRenderer {
         updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
     }
 
+    public static void updateWidgetsUsingLastRenderSource(
+        Context context,
+        String kind,
+        int[] appWidgetIds
+    ) {
+        if (context == null || appWidgetIds == null || appWidgetIds.length == 0) {
+            return;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return;
+        }
+
+        Context appContext = context.getApplicationContext();
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
+        RenderSource renderSource = peekLastRenderSource();
+        if (renderSource == null) {
+            renderSource = loadRenderSource(appContext);
+        }
+        updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
+    }
+
+    public static void refreshKindUsingLastRenderSource(Context context, String kind) {
+        if (context == null) {
+            return;
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return;
+        }
+
+        Context appContext = context.getApplicationContext();
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
+        if (appWidgetManager == null) {
+            return;
+        }
+
+        ComponentName componentName =
+            ControlerWidgetKinds.componentNameForKind(appContext, normalizedKind);
+        if (componentName == null) {
+            return;
+        }
+
+        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+        if (appWidgetIds == null || appWidgetIds.length == 0) {
+            return;
+        }
+
+        RenderSource renderSource = peekLastRenderSource();
+        if (renderSource == null) {
+            renderSource = loadRenderSource(appContext);
+        }
+        updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
+    }
+
     public static void scheduleUpdateWidgets(Context context, String kind, int[] appWidgetIds) {
         if (context == null || appWidgetIds == null || appWidgetIds.length == 0) {
             return;
@@ -501,6 +562,12 @@ public final class ControlerWidgetRenderer {
                 && TextUtils.isEmpty(request.widgetKindHint)
                 && request.appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID;
         return request;
+    }
+
+    private static boolean isDirectActionRefreshSource(String source) {
+        String normalizedSource =
+            source == null ? "" : source.trim().toLowerCase(Locale.US);
+        return normalizedSource.contains("widget-direct-action");
     }
 
     private static Set<String> resolveKindsForSections(Set<String> changedSections) {
@@ -834,6 +901,52 @@ public final class ControlerWidgetRenderer {
         synchronized (RENDER_STATE_LOCK) {
             lastRenderSourceLoadedAtMs = 0L;
             lastRenderSource = null;
+        }
+    }
+
+    private static RenderSource peekLastRenderSource() {
+        synchronized (RENDER_STATE_LOCK) {
+            return lastRenderSource;
+        }
+    }
+
+    public static Boolean peekTodoCompleted(String targetId, int appWidgetId) {
+        if (TextUtils.isEmpty(targetId)) {
+            return null;
+        }
+        synchronized (RENDER_STATE_LOCK) {
+            if (lastRenderSource == null || lastRenderSource.state == null) {
+                return null;
+            }
+            for (ControlerWidgetDataStore.TodoInfo todo : lastRenderSource.state.todos) {
+                if (todo == null || !TextUtils.equals(targetId, safeText(todo.id))) {
+                    continue;
+                }
+                return resolveTodoCompletedForWidget(todo, appWidgetId);
+            }
+        }
+        return null;
+    }
+
+    public static Boolean peekCheckinDone(String targetId, String today, int appWidgetId) {
+        if (TextUtils.isEmpty(targetId) || TextUtils.isEmpty(today)) {
+            return null;
+        }
+        synchronized (RENDER_STATE_LOCK) {
+            if (lastRenderSource == null || lastRenderSource.state == null) {
+                return null;
+            }
+            boolean itemFound = false;
+            for (ControlerWidgetDataStore.CheckinItemInfo item : lastRenderSource.state.checkinItems) {
+                if (item != null && TextUtils.equals(targetId, safeText(item.id))) {
+                    itemFound = true;
+                    break;
+                }
+            }
+            if (!itemFound) {
+                return null;
+            }
+            return resolveCheckinDoneForWidget(lastRenderSource.state, targetId, today, appWidgetId);
         }
     }
 

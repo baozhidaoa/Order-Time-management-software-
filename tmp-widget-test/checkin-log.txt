@@ -1,0 +1,5 @@
+--------- beginning of main
+03-25 19:51:44.075  6141  6759 D ControlerWidget: checkin start elapsedMs=0 appWidgetId=80 targetId=177400741898455soa75u3
+03-25 19:51:44.101  6141  6759 D ControlerWidget: checkin optimistic-ui-ready elapsedMs=27 appWidgetId=80 targetId=177400741898455soa75u3 nextChecked=true refreshCostMs=26
+03-25 19:51:45.571  6141  6759 D ControlerWidget: checkin storage-saved elapsedMs=1496 appWidgetId=80 targetId=177400741898455soa75u3 nextChecked=true
+

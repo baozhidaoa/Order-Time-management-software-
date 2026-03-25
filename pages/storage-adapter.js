@@ -20,6 +20,16 @@
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
   const SAVE_COORDINATOR_RETRY_DELAY_MS = 240;
+  function createRuntimeInstanceId(prefix = "controler-page") {
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    return `${prefix}-${Date.now().toString(36)}-${randomSuffix}`;
+  }
+  const STORAGE_PAGE_INSTANCE_ID =
+    typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string" &&
+    window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+      ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+      : createRuntimeInstanceId();
+  window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ = STORAGE_PAGE_INSTANCE_ID;
 
   const electronAPI = window.electronAPI;
   const hasElectronStorageBridge =
@@ -2299,6 +2309,10 @@
               : {},
           source:
             typeof metadata.source === "string" ? metadata.source : "",
+          originPageInstanceId:
+            typeof metadata.originPageInstanceId === "string"
+              ? metadata.originPageInstanceId
+              : "",
           snapshotFingerprint:
             typeof metadata.snapshotFingerprint === "string"
               ? metadata.snapshotFingerprint
@@ -3994,6 +4008,11 @@
           typeof metadata.source === "string" && metadata.source.trim()
             ? metadata.source.trim()
             : "renderer",
+        originPageInstanceId:
+          typeof metadata.originPageInstanceId === "string" &&
+          metadata.originPageInstanceId.trim()
+            ? metadata.originPageInstanceId.trim()
+            : STORAGE_PAGE_INSTANCE_ID,
       });
     }
 
@@ -5003,6 +5022,7 @@
         changedSections = [],
         changedPeriods = {},
         source = "",
+        originPageInstanceId = "",
       } = options;
       if (hasPendingStateChanges) {
         await writeNativeState();
@@ -5043,6 +5063,8 @@
           changedSections: normalizeChangedSectionsList(changedSections),
           changedPeriods: normalizeChangedPeriodsMap(changedPeriods),
           source,
+          originPageInstanceId:
+            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
         });
       }
       return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
@@ -6772,6 +6794,10 @@
                 changedPeriods: detail.changedPeriods || {},
                 source:
                   typeof detail.source === "string" ? detail.source.trim() : "",
+                originPageInstanceId:
+                  typeof detail.originPageInstanceId === "string"
+                    ? detail.originPageInstanceId.trim()
+                    : "",
               },
             );
           })

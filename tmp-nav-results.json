@@ -1,0 +1,57 @@
+﻿[
+    {
+        "page":  "stats",
+        "transition_to_ready_ms":  4562,
+        "transition_to_data_ms":  4558,
+        "page_ready_elapsed_ms":  2993,
+        "first_data_elapsed_ms":  2844,
+        "first_render_elapsed_ms":  2993,
+        "bootstrap_bridge_ms":  2079,
+        "core_bridge_ms":  1765,
+        "bridge_calls":  "storage.getCoreState:1765; storage.getPageBootstrapState:2079; storage.flushJournal:2896; storage.getStatus:1034; storage.getStatus:1000; storage.probeStateVersion:943"
+    },
+    {
+        "page":  "plan",
+        "transition_to_ready_ms":  1400,
+        "transition_to_data_ms":  null,
+        "page_ready_elapsed_ms":  34,
+        "first_data_elapsed_ms":  null,
+        "first_render_elapsed_ms":  null,
+        "bootstrap_bridge_ms":  null,
+        "core_bridge_ms":  null,
+        "bridge_calls":  ""
+    },
+    {
+        "page":  "todo",
+        "transition_to_ready_ms":  745,
+        "transition_to_data_ms":  725,
+        "page_ready_elapsed_ms":  323,
+        "first_data_elapsed_ms":  311,
+        "first_render_elapsed_ms":  322,
+        "bootstrap_bridge_ms":  null,
+        "core_bridge_ms":  3432,
+        "bridge_calls":  "storage.getCoreState:3432"
+    },
+    {
+        "page":  "diary",
+        "transition_to_ready_ms":  2978,
+        "transition_to_data_ms":  null,
+        "page_ready_elapsed_ms":  1859,
+        "first_data_elapsed_ms":  null,
+        "first_render_elapsed_ms":  1858,
+        "bootstrap_bridge_ms":  null,
+        "core_bridge_ms":  1367,
+        "bridge_calls":  "storage.getCoreState:1367; storage.flushJournal:1213; storage.getStatus:1907; storage.getStatus:1978; storage.probeStateVersion:1946; storage.readState:3168"
+    },
+    {
+        "page":  "settings",
+        "transition_to_ready_ms":  2004,
+        "transition_to_data_ms":  1619,
+        "page_ready_elapsed_ms":  294,
+        "first_data_elapsed_ms":  168,
+        "first_render_elapsed_ms":  293,
+        "bootstrap_bridge_ms":  null,
+        "core_bridge_ms":  1251,
+        "bridge_calls":  "storage.getCoreState:1251; storage.getAutoBackupStatus:1460; storage.getManifest:1391; storage.getAutoBackupStatus:1390; storage.flushJournal:1273; storage.getStatus:1827; storage.getStatus:1976; storage.probeStateVersion:1861; storage.readState:3364"
+    }
+]

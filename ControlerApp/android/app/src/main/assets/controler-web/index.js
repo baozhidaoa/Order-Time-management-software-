@@ -157,6 +157,7 @@ let indexHistoricalRecordHydrationRequestId = 0;
 let indexAllHistoricalRecordsLoaded = false;
 let indexLoadedRecordWindowMode = INDEX_RECORD_LOAD_MODE_RECENT_RANGE;
 let indexLoadedRecordWindowScope = null;
+let indexRecentSuccessfulSaveGuard = null;
 let indexSaveTransactionCounter = 0;
 let indexActiveSaveTransactionId = 0;
 const TIMER_STATE_STORAGE_KEY = "timerSessionState";
@@ -174,6 +175,7 @@ const INDEX_LOADING_OVERLAY_DELAY_MS = Math.max(
 const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
 const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
+const INDEX_RECENT_SAVE_EMPTY_GUARD_MS = 8000;
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
 const INITIAL_RECORD_GROUP_RENDER_LIMIT = 24;
@@ -337,6 +339,9 @@ let indexWidgetLaunchActionInitialized = false;
 let indexPendingDurationCachePersist = false;
 let indexExternalStorageRefreshBound = false;
 let indexExternalStorageRefreshChangedSections = new Set();
+let indexExternalStorageRefreshChangedRecordPeriods = new Set();
+let indexExternalStorageRefreshLastReason = "";
+let indexExternalStorageRefreshLastSource = "";
 let indexExternalStorageRefreshRequested = false;
 let indexDeferredWorkspaceHydrationPromise = null;
 let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
@@ -471,6 +476,20 @@ function isIndexSerializableEqual(left, right) {
   }
 }
 
+function getIndexStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function isIndexOwnStorageChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  return !!originPageInstanceId && originPageInstanceId === getIndexStoragePageInstanceId();
+}
+
 function shouldRefreshIndexCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -479,6 +498,9 @@ function shouldRefreshIndexCoreData(nextData = null) {
 }
 
 function shouldRefreshIndexForExternalChange(detail = {}) {
+  if (isIndexOwnStorageChange(detail)) {
+    return false;
+  }
   const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
@@ -825,6 +847,14 @@ function reportIndexDebugInteractivityState(reason = "manual", interaction = nul
     '#record-hierarchy-section .record-section-toggle',
   );
   const recordList = document.getElementById("output");
+  const modalOverlay = document.getElementById("modal-overlay");
+  const modalConfirmButton = document.getElementById("modal-confirm");
+  const projectNameInput = document.getElementById("project-name-input");
+  const firstProjectOption = document.querySelector("#existing-projects .project-option");
+  const renderedRecordCardCount =
+    recordList instanceof Element
+      ? recordList.querySelectorAll(".record-item").length
+      : 0;
   const overlays = Array.from(
     document.querySelectorAll(".page-loading-overlay, .modal-overlay"),
   ).map((node) => {
@@ -851,12 +881,18 @@ function reportIndexDebugInteractivityState(reason = "manual", interaction = nul
         : null,
     activeElement: describeDebugDomNode(document.activeElement),
     interaction,
+    recordCount: Array.isArray(records) ? records.length : 0,
+    renderedRecordCardCount,
     spendButton: buildDebugHitState(spendButton),
     statsButton: buildDebugHitState(statsButton),
     hierarchyToggle: buildDebugHitState(hierarchyToggle),
     recordList: buildDebugHitState(recordList),
     recordListScroll: buildIndexDebugScrollState(recordList),
     documentScroll: buildIndexDebugScrollState(document.scrollingElement),
+    modalOverlay: buildDebugHitState(modalOverlay),
+    projectNameInput: buildDebugHitState(projectNameInput),
+    modalConfirmButton: buildDebugHitState(modalConfirmButton),
+    firstProjectOption: buildDebugHitState(firstProjectOption),
     overlays,
   });
 }
@@ -1037,6 +1073,20 @@ function normalizeIndexRecordLoadMode(mode) {
     : INDEX_RECORD_LOAD_MODE_RECENT_RANGE;
 }
 
+function normalizePeriodId(value) {
+  if (typeof storageBundleApi?.normalizePeriodId === "function") {
+    return storageBundleApi.normalizePeriodId(value);
+  }
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "undated") {
+    return normalized;
+  }
+  return /^\d{4}-\d{2}$/.test(normalized) ? normalized : "";
+}
+
 function cloneIndexRecordLoadScope(scope = null) {
   if (!scope || typeof scope !== "object") {
     return null;
@@ -1081,6 +1131,167 @@ function rememberIndexRecordLoadWindow(mode, scope = null) {
     indexLoadedRecordWindowMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE
       ? cloneIndexRecordLoadScope(scope) || getIndexDefaultRecordScope()
       : null;
+}
+
+function normalizeIndexRecordPeriodIdList(periodIds = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(periodIds) ? periodIds : [])
+        .map((periodId) => normalizePeriodId(periodId))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getIndexRecordLoadScopeKey(scope = null) {
+  const normalizedScope = cloneIndexRecordLoadScope(scope);
+  if (!normalizedScope) {
+    return "";
+  }
+  return JSON.stringify({
+    startDate: String(normalizedScope.startDate || "").trim(),
+    endDate: String(normalizedScope.endDate || "").trim(),
+    periodIds: normalizeIndexRecordPeriodIdList(normalizedScope.periodIds).sort(),
+  });
+}
+
+function getIndexActiveRecentSaveGuard(loadMode, recordScope = null) {
+  if (!indexRecentSuccessfulSaveGuard) {
+    return null;
+  }
+  const ageMs = Date.now() - Number(indexRecentSuccessfulSaveGuard.armedAtMs || 0);
+  if (
+    !Number.isFinite(ageMs) ||
+    ageMs < 0 ||
+    ageMs > INDEX_RECENT_SAVE_EMPTY_GUARD_MS
+  ) {
+    indexRecentSuccessfulSaveGuard = null;
+    return null;
+  }
+  if (normalizeIndexRecordLoadMode(loadMode) !== INDEX_RECORD_LOAD_MODE_RECENT_RANGE) {
+    return null;
+  }
+  const nextScopeKey = getIndexRecordLoadScopeKey(recordScope);
+  if (
+    indexRecentSuccessfulSaveGuard.recordScopeKey &&
+    nextScopeKey !== indexRecentSuccessfulSaveGuard.recordScopeKey
+  ) {
+    return null;
+  }
+  return {
+    ...indexRecentSuccessfulSaveGuard,
+    ageMs,
+  };
+}
+
+function clearIndexRecentSaveGuard(reason = "") {
+  if (!indexRecentSuccessfulSaveGuard) {
+    return;
+  }
+  if (reason) {
+    emitIndexDebugPerf("record-save-guard-cleared", {
+      reason,
+      ageMs: Math.max(
+        0,
+        Date.now() - Number(indexRecentSuccessfulSaveGuard.armedAtMs || 0),
+      ),
+    });
+  }
+  indexRecentSuccessfulSaveGuard = null;
+}
+
+function armIndexRecentSaveGuard(options = {}) {
+  const savedRecordIds = Array.from(
+    new Set(
+      (Array.isArray(options.savedRecordIds) ? options.savedRecordIds : [])
+        .map((recordId) => String(recordId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const recordScope = cloneIndexRecordLoadScope(options.recordScope);
+  indexRecentSuccessfulSaveGuard = {
+    armedAtMs: Date.now(),
+    recordScopeKey: getIndexRecordLoadScopeKey(recordScope),
+    recordScope,
+    loadedPeriodIds: normalizeIndexRecordPeriodIdList(options.loadedPeriodIds),
+    savedRecordIds,
+    recordCount: Math.max(0, Math.round(Number(options.recordCount) || 0)),
+  };
+  emitIndexDebugPerf("record-save-guard-armed", {
+    recordCount: indexRecentSuccessfulSaveGuard.recordCount,
+    loadedPeriodCount: indexRecentSuccessfulSaveGuard.loadedPeriodIds.length,
+    savedRecordCount: savedRecordIds.length,
+    startDate: recordScope?.startDate || "",
+    endDate: recordScope?.endDate || "",
+  });
+}
+
+function protectIndexRecentRecordWindowFromEmptyResult(options = {}) {
+  const currentRecordsSnapshot = Array.isArray(options.currentRecordsSnapshot)
+    ? options.currentRecordsSnapshot.slice()
+    : [];
+  if (!currentRecordsSnapshot.length) {
+    return null;
+  }
+  const incomingRecords = Array.isArray(options.nextRecords)
+    ? options.nextRecords
+    : [];
+  if (incomingRecords.length > 0) {
+    return null;
+  }
+  const activeGuard = getIndexActiveRecentSaveGuard(
+    options.loadMode,
+    options.recordScope,
+  );
+  if (!activeGuard) {
+    return null;
+  }
+  if (
+    activeGuard.savedRecordIds.length > 0 &&
+    !currentRecordsSnapshot.some((record) =>
+      activeGuard.savedRecordIds.includes(String(record?.id || "").trim()),
+    )
+  ) {
+    return null;
+  }
+  const preservedPeriodIds = normalizeIndexRecordPeriodIdList(
+    Array.isArray(options.currentLoadedPeriodIds)
+      ? options.currentLoadedPeriodIds
+      : getIndexRecordPeriodIds(currentRecordsSnapshot),
+  );
+  emitIndexDebugPerf("record-empty-refresh-blocked", {
+    source: String(options.source || "").trim() || "unknown",
+    guardAgeMs: activeGuard.ageMs,
+    currentRecordCount: currentRecordsSnapshot.length,
+    preservedPeriodCount: preservedPeriodIds.length,
+    incomingPeriodCount: normalizeIndexRecordPeriodIdList(
+      options.nextLoadedPeriodIds,
+    ).length,
+    startDate: activeGuard.recordScope?.startDate || "",
+    endDate: activeGuard.recordScope?.endDate || "",
+  });
+  return {
+    records: currentRecordsSnapshot,
+    loadedPeriodIds: preservedPeriodIds,
+    guardAgeMs: activeGuard.ageMs,
+  };
+}
+
+function settleIndexRecentSaveGuardAfterRecordLoad(
+  loadMode,
+  recordScope,
+  nextRecords = [],
+  source = "",
+) {
+  const activeGuard = getIndexActiveRecentSaveGuard(loadMode, recordScope);
+  if (!activeGuard) {
+    return;
+  }
+  if ((Array.isArray(nextRecords) ? nextRecords.length : 0) > 0) {
+    clearIndexRecentSaveGuard(
+      String(source || "").trim() || "recent-record-window-confirmed",
+    );
+  }
 }
 
 function beginIndexSaveTransaction() {
@@ -1148,6 +1359,20 @@ async function hydrateIndexWorkspace(options = {}) {
     recordLoadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE
       ? cloneIndexRecordLoadScope(options.recordScope) || getIndexDefaultRecordScope()
       : null;
+  const currentRecordsSnapshot = Array.isArray(records) ? records.slice() : [];
+  const currentLoadedPeriodIdsSnapshot = Array.isArray(indexLoadedRecordPeriodIds)
+    ? indexLoadedRecordPeriodIds.slice()
+    : [];
+  emitIndexDebugPerf("hydrate-workspace-start", {
+    includeProjects,
+    includeRecords,
+    recordLoadMode,
+    startDate: recordScope?.startDate || "",
+    endDate: recordScope?.endDate || "",
+    freshBootstrap: options.freshBootstrap === true,
+    protectRecentRecordWindowFromEmpty:
+      options.protectRecentRecordWindowFromEmpty === true,
+  });
   if (
     includeProjects &&
     includeRecords &&
@@ -1167,20 +1392,53 @@ async function hydrateIndexWorkspace(options = {}) {
       persistNormalizedProjectsRepairIfNeeded(sourceProjects, projects, {
         reason: "project-hierarchy-repair:index-bootstrap",
       });
-      records = normalizeIndexLoadedRecords(
+      const nextRecords = normalizeIndexLoadedRecords(
         Array.isArray(data.recentRecords) ? data.recentRecords : [],
+      );
+      const nextLoadedPeriodIds = normalizeIndexRecordPeriodIdList(
+        Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
+          ? bootstrap.loadedPeriodIds
+          : getIndexRecordPeriodIds(nextRecords),
+      );
+      const protectedRecentWindow =
+        options.protectRecentRecordWindowFromEmpty === true
+          ? protectIndexRecentRecordWindowFromEmptyResult({
+              source: "page-bootstrap",
+              loadMode: recordLoadMode,
+              recordScope,
+              nextRecords,
+              nextLoadedPeriodIds,
+              currentRecordsSnapshot,
+              currentLoadedPeriodIds: currentLoadedPeriodIdsSnapshot,
+            })
+          : null;
+      records = normalizeIndexLoadedRecords(
+        protectedRecentWindow ? protectedRecentWindow.records : nextRecords,
       );
       indexAllHistoricalRecordsLoaded = false;
       rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_RECENT_RANGE, recordScope);
-      indexLoadedRecordPeriodIds =
-        Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
-          ? bootstrap.loadedPeriodIds.slice()
-          : getIndexRecordPeriodIds(records);
+      indexLoadedRecordPeriodIds = protectedRecentWindow
+        ? protectedRecentWindow.loadedPeriodIds.slice()
+        : nextLoadedPeriodIds.slice();
+      if (!protectedRecentWindow) {
+        settleIndexRecentSaveGuardAfterRecordLoad(
+          recordLoadMode,
+          recordScope,
+          records,
+          "page-bootstrap",
+        );
+      }
       loadProjectHierarchyExpansionStateFromStorage();
       projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
         projectTotalsExpansionState,
         projects,
       );
+      emitIndexDebugPerf("hydrate-workspace-bootstrap", {
+        projectCount: Array.isArray(projects) ? projects.length : 0,
+        recordCount: Array.isArray(records) ? records.length : 0,
+        loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+        protectedRecentWindow: !!protectedRecentWindow,
+      });
       return {
         includeProjects,
         includeRecords,
@@ -1190,6 +1448,13 @@ async function hydrateIndexWorkspace(options = {}) {
       };
     }
   }
+  emitIndexDebugPerf("hydrate-workspace-fallback", {
+    includeProjects,
+    includeRecords,
+    recordLoadMode,
+    startDate: recordScope?.startDate || "",
+    endDate: recordScope?.endDate || "",
+  });
   await Promise.all([
     includeProjects
       ? loadProjectsFromStorage({
@@ -1285,16 +1550,40 @@ async function refreshIndexFromExternalStorageChange() {
   }
   const forceTimerSessionSync = indexExternalStorageRefreshForceTimerSessionSync;
   const changedSections = Array.from(indexExternalStorageRefreshChangedSections);
+  const changedRecordPeriods = Array.from(indexExternalStorageRefreshChangedRecordPeriods);
+  const refreshReason = indexExternalStorageRefreshLastReason;
+  const refreshSource = indexExternalStorageRefreshLastSource;
   const recordLoadOptions = getIndexCurrentRecordLoadOptions();
+  const activeRecentSaveGuard = getIndexActiveRecentSaveGuard(
+    recordLoadOptions.recordLoadMode,
+    recordLoadOptions.recordScope,
+  );
   indexExternalStorageRefreshQueued = false;
   indexExternalStorageRefreshForceTimerSessionSync = false;
   indexExternalStorageRefreshChangedSections = new Set();
+  indexExternalStorageRefreshChangedRecordPeriods = new Set();
+  indexExternalStorageRefreshLastReason = "";
+  indexExternalStorageRefreshLastSource = "";
   indexExternalStorageRefreshRequested = false;
   hideAllProjectSuggestions();
   const includeProjects =
     changedSections.length === 0 || changedSections.includes("core");
   const includeRecords =
     changedSections.length === 0 || changedSections.includes("records");
+
+  emitIndexDebugPerf("external-refresh-run", {
+    reason: refreshReason,
+    source: refreshSource,
+    changedSections,
+    changedRecordPeriods,
+    includeProjects,
+    includeRecords,
+    recordLoadMode: recordLoadOptions.recordLoadMode,
+    startDate: recordLoadOptions.recordScope?.startDate || "",
+    endDate: recordLoadOptions.recordScope?.endDate || "",
+    recentSaveGuard: !!activeRecentSaveGuard,
+    recentSaveGuardAgeMs: activeRecentSaveGuard?.ageMs || 0,
+  });
 
   try {
     if (!indexRefreshController) {
@@ -1303,6 +1592,10 @@ async function refreshIndexFromExternalStorageChange() {
         includeRecords,
         recordLoadMode: recordLoadOptions.recordLoadMode,
         recordScope: recordLoadOptions.recordScope,
+        freshBootstrap: !!activeRecentSaveGuard,
+        protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
+        refreshReason,
+        refreshSource,
       });
       await commitIndexWorkspaceSnapshot({
         forceTimerSessionSync,
@@ -1317,6 +1610,10 @@ async function refreshIndexFromExternalStorageChange() {
           includeRecords,
           recordLoadMode: recordLoadOptions.recordLoadMode,
           recordScope: recordLoadOptions.recordScope,
+          freshBootstrap: !!activeRecentSaveGuard,
+          protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
+          refreshReason,
+          refreshSource,
         }),
       {
         delayMs: INDEX_LOADING_OVERLAY_DELAY_MS,
@@ -1368,11 +1665,36 @@ function bindIndexExternalStorageRefresh() {
     if (shouldForceTimerSessionSync) {
       indexExternalStorageRefreshForceTimerSessionSync = true;
     }
+    const changedRecordPeriods = normalizeIndexRecordPeriodIdList(
+      detail?.changedPeriods?.records,
+    );
     changedSections.forEach((section) => {
       const normalizedSection = String(section || "").trim();
       if (normalizedSection) {
         indexExternalStorageRefreshChangedSections.add(normalizedSection);
       }
+    });
+    changedRecordPeriods.forEach((periodId) => {
+      indexExternalStorageRefreshChangedRecordPeriods.add(periodId);
+    });
+    indexExternalStorageRefreshLastReason =
+      typeof detail.reason === "string" ? detail.reason.trim() : "";
+    indexExternalStorageRefreshLastSource =
+      typeof detail.source === "string" ? detail.source.trim() : "";
+    const recordLoadOptions = getIndexCurrentRecordLoadOptions();
+    const activeRecentSaveGuard = getIndexActiveRecentSaveGuard(
+      recordLoadOptions.recordLoadMode,
+      recordLoadOptions.recordScope,
+    );
+    emitIndexDebugPerf("external-refresh-requested", {
+      reason: indexExternalStorageRefreshLastReason,
+      source: indexExternalStorageRefreshLastSource,
+      changedSections,
+      changedRecordPeriods,
+      saveTransactionActive: isIndexSaveTransactionActive(),
+      pendingTaskCount: indexPendingPersistenceTasks.size,
+      recentSaveGuard: !!activeRecentSaveGuard,
+      recentSaveGuardAgeMs: activeRecentSaveGuard?.ageMs || 0,
     });
     indexExternalStorageRefreshRequested = true;
     if (indexPendingPersistenceTasks.size > 0 || isIndexSaveTransactionActive()) {
@@ -5055,6 +5377,16 @@ function hideProjectSuggestions(inputId) {
   popover?.classList.remove("visible");
 }
 
+function hideTimerModalProjectSuggestionsExcept(activeInputId = "") {
+  TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
+    if (inputId === activeInputId) {
+      return;
+    }
+    clearModalProjectSuggestionHideTimer(inputId);
+    hideProjectSuggestions(inputId);
+  });
+}
+
 function hideAllProjectSuggestions() {
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
@@ -5126,14 +5458,7 @@ function applyTimerModalProjectSelection(
     setModalProjectInputKeyboardSuppressed(targetInputId, true);
   }
   clearModalProjectSuggestionHideTimer(targetInputId);
-
-  TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
-    if (inputId === targetInputId) {
-      return;
-    }
-    clearModalProjectSuggestionHideTimer(inputId);
-    hideProjectSuggestions(inputId);
-  });
+  hideTimerModalProjectSuggestionsExcept(targetInputId);
 
   input.value = selectedPath;
   input.dispatchEvent(new Event("change"));
@@ -5149,6 +5474,9 @@ function applyTimerModalProjectSelection(
     renderProjectSuggestionsForInput(targetInputId, input.value, true);
   } else {
     hideProjectSuggestions(targetInputId);
+  }
+  if (targetInputId === "next-project-input") {
+    syncTimerModalExistingProjectQuickPickSelection();
   }
 
   persistTimerSessionState();
@@ -5268,6 +5596,7 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
 
   modalProjectInputTarget = targetInputId;
   modalProjectInputTargetManual = !!manual;
+  hideTimerModalProjectSuggestionsExcept(targetInputId);
   const targetInput = document.getElementById(targetInputId);
   if (!targetInput) return;
 
@@ -5290,6 +5619,50 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
   if (showSuggestions) {
     renderProjectSuggestionsForInput(targetInputId, targetInput.value, true);
   }
+}
+
+function getTimerModalExistingProjectQuickPickSelectionId() {
+  const nextProjectInput = document.getElementById("next-project-input");
+  const rawValue =
+    nextProjectInput instanceof HTMLInputElement
+      ? nextProjectInput.value.trim()
+      : "";
+  const resolvedName = resolveProjectNameFromInput(rawValue);
+  if (!resolvedName) {
+    return "";
+  }
+
+  const matchedProject =
+    projects.find((project) => project.name === resolvedName) || null;
+  if (!matchedProject) {
+    return "";
+  }
+
+  if (normalizeProjectLevel(matchedProject.level) === 1) {
+    return String(matchedProject.id || "").trim();
+  }
+
+  const rootProject = getProjectRootAncestorFromContext(matchedProject.level, {
+    parentId: matchedProject.parentId,
+    projectId: matchedProject.id,
+  });
+  return String(rootProject?.id || "").trim();
+}
+
+function syncTimerModalExistingProjectQuickPickSelection() {
+  const selectedProjectId = getTimerModalExistingProjectQuickPickSelectionId();
+  document
+    .querySelectorAll("#existing-projects .project-option")
+    .forEach((element) => {
+      if (!(element instanceof HTMLElement)) {
+        return;
+      }
+      element.classList.toggle(
+        "selected",
+        !!selectedProjectId &&
+          String(element.dataset.projectId || "").trim() === selectedProjectId,
+      );
+    });
 }
 
 function scheduleTimerSessionFieldReveal(target, options = {}) {
@@ -6424,6 +6797,7 @@ function openModal(options = {}) {
           : "";
     setProjectInputValue("next-project-input", nextToPrefill);
     renderNextProjectSuggestions(nextProjectInput.value, false);
+    syncTimerModalExistingProjectQuickPickSelection();
   }
   const defaultTarget = "project-name-input";
   setModalProjectInputTarget(defaultTarget);
@@ -6542,37 +6916,33 @@ function updateExistingProjectsList() {
   )
     .map((node) => node?.raw || node)
     .filter(Boolean);
+  const selectedQuickPickProjectId =
+    getTimerModalExistingProjectQuickPickSelectionId();
 
   level1Projects.forEach((project) => {
     const option = document.createElement("div");
-    option.className = `project-option ${project.name === selectedProject ? "selected" : ""}`;
+    option.className = `project-option ${
+      String(project.id || "").trim() === selectedQuickPickProjectId
+        ? "selected"
+        : ""
+    }`;
     option.dataset.project = project.name;
     option.dataset.projectId = project.id;
     option.textContent = project.name;
 
     option.addEventListener("click", function () {
-      selectedProject = this.dataset.project;
-
-      // 更新选中状态
-      document.querySelectorAll(".project-option").forEach((el) => {
-        el.classList.remove("selected");
-      });
-      this.classList.add("selected");
-
-      const targetInputId = modalProjectInputTargetManual
-        ? getDefaultModalProjectInputTarget()
-        : "project-name-input";
       applyTimerModalProjectSelection(
-        targetInputId,
+        "next-project-input",
         {
           id: this.dataset.projectId,
           name: this.dataset.project,
           path: getProjectPath(project),
         },
         {
-          manual: modalProjectInputTargetManual,
+          manual: true,
         },
       );
+      syncTimerModalExistingProjectQuickPickSelection();
     });
 
     container.appendChild(option);
@@ -6586,6 +6956,7 @@ function updateExistingProjectsList() {
   renderNextProjectSuggestions(
     document.getElementById("next-project-input")?.value || "",
   );
+  syncTimerModalExistingProjectQuickPickSelection();
 }
 
 // 应用缩短时间
@@ -6723,6 +7094,9 @@ function requestSpendModalOpen(requestedClickTime = new Date(), options = {}) {
   capturePendingSpendModalState(clickTime);
 
   if (openModal(options)) {
+    requestAnimationFrame(() => {
+      reportIndexDebugInteractivityState("modal-opened");
+    });
     return true;
   }
 
@@ -6801,6 +7175,9 @@ function initIndexModalBindings() {
     input.addEventListener("input", () => {
       setModalProjectInputTarget(inputId, { manual: true });
       renderProjectSuggestionsForInput(inputId, input.value, true);
+      if (inputId === "next-project-input") {
+        syncTimerModalExistingProjectQuickPickSelection();
+      }
       persistTimerSessionState();
     });
     input.addEventListener("change", () => {
@@ -6811,6 +7188,7 @@ function initIndexModalBindings() {
         });
         return;
       }
+      syncTimerModalExistingProjectQuickPickSelection();
       persistTimerSessionState();
     });
     input.addEventListener("blur", () => {
@@ -6820,6 +7198,7 @@ function initIndexModalBindings() {
           canonicalizeEmpty: true,
         });
       } else {
+        syncTimerModalExistingProjectQuickPickSelection();
         persistTimerSessionState();
       }
       scheduleModalProjectSuggestionHide(inputId, 120);
@@ -7035,11 +7414,29 @@ async function handleIndexModalConfirmClick() {
       force: true,
     });
 
+    if (savedRecord) {
+      const currentRecordLoadOptions = getIndexCurrentRecordLoadOptions();
+      armIndexRecentSaveGuard({
+        savedRecordIds: [savedRecord.id],
+        recordScope: currentRecordLoadOptions.recordScope,
+        loadedPeriodIds: indexLoadedRecordPeriodIds,
+        recordCount: Array.isArray(records) ? records.length : 0,
+      });
+    }
+
     lastSpendButtonAcceptedAt = Date.now();
     updateRemainingTimeDisplay();
     updateProjectsList();
     updateExistingProjectsList();
     refreshIndexWorkspace({ immediate: true });
+    emitIndexDebugPerf("record-save-success", {
+      recordCount: Array.isArray(records) ? records.length : 0,
+      pendingSaveCount: indexPendingRecordSaveIds.size,
+      loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+    });
+    requestAnimationFrame(() => {
+      reportIndexDebugInteractivityState("record-saved");
+    });
   } catch (error) {
     console.error("保存记录失败:", error);
     setIndexLoadingState({
@@ -9996,6 +10393,7 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
           ? ui.nextProjectInputValue
           : "";
     }
+    syncTimerModalExistingProjectQuickPickSelection();
     const shortenHoursInput = document.getElementById("shorten-hours");
     if (shortenHoursInput instanceof HTMLInputElement) {
       shortenHoursInput.value =
@@ -10949,16 +11347,39 @@ async function loadRecordsFromStorage(options = {}) {
     ) {
       return records;
     }
-    records = normalizeIndexLoadedRecords(fallbackRecords);
+    const nextRecords = normalizeIndexLoadedRecords(fallbackRecords);
+    const nextLoadedPeriodIds = normalizeIndexRecordPeriodIdList(
+      loadedPeriodIds.length > 0 ? loadedPeriodIds : getIndexRecordPeriodIds(nextRecords),
+    );
+    const protectedRecentWindow =
+      options.protectRecentRecordWindowFromEmpty === true
+        ? protectIndexRecentRecordWindowFromEmptyResult({
+            source: "section-range",
+            loadMode: loadMode,
+            recordScope,
+            nextRecords,
+            nextLoadedPeriodIds,
+            currentRecordsSnapshot: existingRecordsSnapshot,
+            currentLoadedPeriodIds: indexLoadedRecordPeriodIds,
+          })
+        : null;
+    records = normalizeIndexLoadedRecords(
+      protectedRecentWindow ? protectedRecentWindow.records : nextRecords,
+    );
     indexAllHistoricalRecordsLoaded =
       loadMode === INDEX_RECORD_LOAD_MODE_FULL_HISTORY;
     rememberIndexRecordLoadWindow(loadMode, recordScope);
-    indexLoadedRecordPeriodIds =
-      loadedPeriodIds.length > 0
-        ? loadedPeriodIds
-            .map((periodId) => normalizePeriodId(periodId))
-            .filter(Boolean)
-        : getIndexRecordPeriodIds(records);
+    indexLoadedRecordPeriodIds = protectedRecentWindow
+      ? protectedRecentWindow.loadedPeriodIds.slice()
+      : nextLoadedPeriodIds.slice();
+    if (!protectedRecentWindow) {
+      settleIndexRecentSaveGuardAfterRecordLoad(
+        loadMode,
+        recordScope,
+        records,
+        "section-range",
+      );
+    }
     if (loadRevision === indexRecordMutationRevision) {
       indexDirtyRecordPeriodIds = new Set();
       indexPendingRecordPatchByPeriod.clear();
@@ -11176,20 +11597,52 @@ async function hydrateIndexInitialForegroundWorkspace() {
     mode: indexInitialDataLoaded ? "inline" : "fullscreen",
   });
   try {
+    emitIndexDebugPerf("hydrate-index-start", {
+      markFirstCommit: true,
+      initialDataLoaded: indexInitialDataLoaded,
+    });
     await hydrateIndexWorkspace({
       includeProjects: true,
       includeRecords: true,
       freshBootstrap: true,
+    });
+    emitIndexDebugPerf("hydrate-index-workspace-ready", {
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      recordCount: Array.isArray(records) ? records.length : 0,
+      loadedPeriodCount: indexLoadedRecordPeriodIds.length,
     });
     uiTools?.markPerfStage?.("first-data-ready", {
       projectCount: projects.length,
       recordCount: records.length,
       periodIds: indexLoadedRecordPeriodIds.slice(),
     });
+    emitIndexDebugPerf("hydrate-index-before-commit", {
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      recordCount: Array.isArray(records) ? records.length : 0,
+      loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+    });
     await commitIndexWorkspaceSnapshot({
       markFirstCommit: true,
     });
+    emitIndexDebugPerf("hydrate-index-after-commit", {
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      recordCount: Array.isArray(records) ? records.length : 0,
+      loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+    });
     finalizeIndexInitialHydration();
+  } catch (error) {
+    emitIndexDebugPerf("hydrate-index-error", {
+      stage: "hydrateIndexInitialForegroundWorkspace",
+      errorName:
+        error instanceof Error ? error.name : typeof error,
+      errorMessage:
+        error instanceof Error ? error.message : String(error || "未知错误"),
+      errorStackTop:
+        error instanceof Error && typeof error.stack === "string"
+          ? error.stack.split("\n").slice(0, 3).join(" | ")
+          : "",
+    });
+    throw error;
   } finally {
     setIndexLoadingState({
       active: false,
@@ -11258,6 +11711,14 @@ function renderIndexBootstrapError(error, stage = "init") {
       ? `${error.name}: ${error.message}`
       : String(error || "未知错误");
   const normalizedMessage = message.trim() || "未知错误";
+  emitIndexDebugPerf("bootstrap-error", {
+    stage,
+    message: normalizedMessage,
+    stackTop:
+      error instanceof Error && typeof error.stack === "string"
+        ? error.stack.split("\n").slice(0, 3).join(" | ")
+        : "",
+  });
   console.error(`记录页加载失败[${stage}]:`, error);
 
   setIndexLoadingState({
