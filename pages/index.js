@@ -133,6 +133,10 @@ let modalProjectSuggestionHideTimerIds = {
   "project-name-input": 0,
   "next-project-input": 0,
 };
+let modalProjectOptionInteractionStartedAt = {
+  "project-name-input": 0,
+  "next-project-input": 0,
+};
 let pendingSpendModalState = null;
 let pendingRecordRollbackState = null;
 let pendingDurationCarryoverState = null;
@@ -5363,11 +5367,121 @@ function resetTimerModalProjectInputTransientState() {
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
     setModalProjectInputKeyboardSuppressed(inputId, false);
+    modalProjectOptionInteractionStartedAt[inputId] = 0;
     const input = document.getElementById(inputId);
     if (input instanceof HTMLInputElement) {
       input.__controlerRestoreTimerModalSoftInput = false;
     }
   });
+}
+
+function markTimerModalProjectOptionInteraction(inputId) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return 0;
+  }
+  const startedAt = Date.now();
+  modalProjectOptionInteractionStartedAt[inputId] = startedAt;
+  return startedAt;
+}
+
+function hasRecentTimerModalProjectOptionInteraction(
+  inputId,
+  windowMs = 420,
+) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return false;
+  }
+  const startedAt = Number(modalProjectOptionInteractionStartedAt[inputId]) || 0;
+  if (!startedAt) {
+    return false;
+  }
+  return Date.now() - startedAt <= Math.max(0, Number(windowMs) || 0);
+}
+
+function prepareTimerModalProjectOptionInteraction(inputId) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return false;
+  }
+  markTimerModalProjectOptionInteraction(inputId);
+  clearModalProjectSuggestionHideTimer(inputId);
+  if (isAndroidNativeTimerModalKeyboardRuntime()) {
+    setModalProjectInputKeyboardSuppressed(inputId, true);
+    uiTools?.releaseAndroidInteractiveTextControlFocus?.();
+  }
+  return true;
+}
+
+function bindTimerModalProjectSelectionTarget(
+  target,
+  inputId,
+  resolveSelection,
+  options = {},
+) {
+  if (
+    !(target instanceof HTMLElement) ||
+    !isTimerModalProjectInputId(inputId) ||
+    typeof resolveSelection !== "function"
+  ) {
+    return;
+  }
+
+  const prepareInteraction = (event) => {
+    clearModalProjectSuggestionHideTimer(inputId);
+    const shouldPreventDefault =
+      options.preventDefaultOnPress === true &&
+      event?.type !== "touchstart" &&
+      event?.pointerType !== "touch";
+    if (shouldPreventDefault) {
+      event?.preventDefault?.();
+    }
+    prepareTimerModalProjectOptionInteraction(inputId);
+  };
+
+  target.addEventListener("pointerdown", prepareInteraction);
+  target.addEventListener("mousedown", prepareInteraction);
+  target.addEventListener("touchstart", prepareInteraction, {
+    passive: options.preventDefaultOnPress !== true,
+  });
+  target.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    prepareTimerModalProjectOptionInteraction(inputId);
+    const selection = resolveSelection();
+    if (!selection || typeof selection !== "object") {
+      return;
+    }
+    applyTimerModalProjectSelection(inputId, selection, {
+      manual: true,
+    });
+  });
+}
+
+function refreshTimerModalProjectSuggestionsAfterSelection(
+  inputId,
+  expectedValue = "",
+) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return;
+  }
+
+  const render = () => {
+    const input = document.getElementById(inputId);
+    if (!(input instanceof HTMLInputElement) || !isModalOpen) {
+      return;
+    }
+    if (
+      typeof expectedValue === "string" &&
+      expectedValue &&
+      input.value !== expectedValue
+    ) {
+      return;
+    }
+    clearModalProjectSuggestionHideTimer(inputId);
+    renderProjectSuggestionsForInput(inputId, input.value, true);
+  };
+
+  render();
+  window.setTimeout(render, 96);
 }
 
 function hideProjectSuggestions(inputId) {
@@ -5471,7 +5585,10 @@ function applyTimerModalProjectSelection(
   });
 
   if (timerModalSelectionKeepsSuggestionsVisible(selectedProject)) {
-    renderProjectSuggestionsForInput(targetInputId, input.value, true);
+    refreshTimerModalProjectSuggestionsAfterSelection(
+      targetInputId,
+      selectedPath,
+    );
   } else {
     hideProjectSuggestions(targetInputId);
   }
@@ -5521,20 +5638,18 @@ function renderProjectSuggestionsForInput(
     option.dataset.projectId = entry.id;
     option.dataset.projectName = entry.name;
     option.dataset.path = entry.path;
-    option.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-      applyTimerModalProjectSelection(
-        inputId,
-        {
-          id: entry.id,
-          name: entry.name,
-          path: entry.path,
-        },
-        {
-          manual: true,
-        },
-      );
-    });
+    bindTimerModalProjectSelectionTarget(
+      option,
+      inputId,
+      () => ({
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+      }),
+      {
+        preventDefaultOnPress: true,
+      },
+    );
     popover.appendChild(option);
   });
 
@@ -6930,20 +7045,15 @@ function updateExistingProjectsList() {
     option.dataset.projectId = project.id;
     option.textContent = project.name;
 
-    option.addEventListener("click", function () {
-      applyTimerModalProjectSelection(
-        "next-project-input",
-        {
-          id: this.dataset.projectId,
-          name: this.dataset.project,
-          path: getProjectPath(project),
-        },
-        {
-          manual: true,
-        },
-      );
-      syncTimerModalExistingProjectQuickPickSelection();
-    });
+    bindTimerModalProjectSelectionTarget(
+      option,
+      "next-project-input",
+      () => ({
+        id: option.dataset.projectId,
+        name: option.dataset.project,
+        path: getProjectPath(project),
+      }),
+    );
 
     container.appendChild(option);
   });
@@ -7201,7 +7311,10 @@ function initIndexModalBindings() {
         syncTimerModalExistingProjectQuickPickSelection();
         persistTimerSessionState();
       }
-      scheduleModalProjectSuggestionHide(inputId, 120);
+      scheduleModalProjectSuggestionHide(
+        inputId,
+        hasRecentTimerModalProjectOptionInteraction(inputId) ? 360 : 120,
+      );
     });
   };
 
