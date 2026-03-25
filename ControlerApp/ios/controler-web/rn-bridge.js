@@ -36,6 +36,33 @@
     return platform === "android" || platform === "ios" ? platform : "web";
   }
 
+  function resolveCurrentPageKey() {
+    try {
+      const pathSegments = String(window.location.pathname || "").split("/");
+      const tail = String(pathSegments[pathSegments.length - 1] || "").trim();
+      return tail.replace(/\.html$/i, "") || "unknown";
+    } catch (error) {
+      return "unknown";
+    }
+  }
+
+  function shouldTrackBridgePerf(method) {
+    return String(method || "").trim().startsWith("storage.");
+  }
+
+  function emitBridgePerfMetric(method, durationMs, detail = {}) {
+    if (!shouldTrackBridgePerf(method)) {
+      return;
+    }
+    emitEvent("perf.metric", {
+      stage: "native-bridge-call",
+      bridgeMethod: String(method || "").trim(),
+      page: resolveCurrentPageKey(),
+      durationMs: Math.max(0, Math.round(Number(durationMs) || 0)),
+      ...normalizePayload(detail),
+    });
+  }
+
   function resolveMessageTimeout(method) {
     const normalizedMethod = String(method || "").trim();
     return (
@@ -119,6 +146,11 @@
     }
 
     const id = `rn_${Date.now()}_${requestCounter += 1}`;
+    const normalizedMethod = String(method || "").trim();
+    const startedAt =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
     const timeoutMs = resolveMessageTimeout(method);
     let timeoutId = null;
 
@@ -129,6 +161,19 @@
           return;
         }
         pendingRequests.delete(id);
+        emitBridgePerfMetric(
+          pending.method,
+          (
+            (typeof performance !== "undefined" &&
+            typeof performance.now === "function"
+              ? performance.now()
+              : Date.now()) - pending.startedAt
+          ),
+          {
+          ok: false,
+          timedOut: true,
+          },
+        );
         pending.reject(new Error(`Native bridge timeout: ${method}`));
       }, timeoutMs);
     }
@@ -138,10 +183,12 @@
         resolve,
         reject,
         timeoutId,
+        method: normalizedMethod,
+        startedAt,
       });
       const posted = postMessage("bridge-request", {
         id,
-        method: String(method || ""),
+        method: normalizedMethod,
         payload: normalizePayload(payload),
       });
       if (posted) {
@@ -152,6 +199,14 @@
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
       }
+      emitBridgePerfMetric(normalizedMethod, (
+        (typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now()) - startedAt
+      ), {
+        ok: false,
+        unavailable: true,
+      });
       reject(new Error(`Native bridge unavailable: ${method}`));
     });
   }
@@ -171,6 +226,14 @@
       if (pending.timeoutId !== null) {
         window.clearTimeout(pending.timeoutId);
       }
+      const finishedAt =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      emitBridgePerfMetric(pending.method, finishedAt - pending.startedAt, {
+        ok: !error,
+        error: error ? String(error) : "",
+      });
       if (error) {
         pending.reject(new Error(String(error)));
         return;

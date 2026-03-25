@@ -410,6 +410,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return platform === "android" || platform === "ios" ? platform : "web";
   }
 
+  function resolveCurrentPageKey() {
+    try {
+      const pathSegments = String(window.location.pathname || "").split("/");
+      const tail = String(pathSegments[pathSegments.length - 1] || "").trim();
+      return tail.replace(/\.html$/i, "") || "unknown";
+    } catch (error) {
+      return "unknown";
+    }
+  }
+
+  function shouldTrackBridgePerf(method) {
+    return String(method || "").trim().startsWith("storage.");
+  }
+
+  function emitBridgePerfMetric(method, durationMs, detail = {}) {
+    if (!shouldTrackBridgePerf(method)) {
+      return;
+    }
+    emitEvent("perf.metric", {
+      stage: "native-bridge-call",
+      bridgeMethod: String(method || "").trim(),
+      page: resolveCurrentPageKey(),
+      durationMs: Math.max(0, Math.round(Number(durationMs) || 0)),
+      ...normalizePayload(detail),
+    });
+  }
+
   function resolveMessageTimeout(method) {
     const normalizedMethod = String(method || "").trim();
     return (
@@ -493,6 +520,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const id = `rn_${Date.now()}_${requestCounter += 1}`;
+    const normalizedMethod = String(method || "").trim();
+    const startedAt =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
     const timeoutMs = resolveMessageTimeout(method);
     let timeoutId = null;
 
@@ -503,6 +535,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return;
         }
         pendingRequests.delete(id);
+        emitBridgePerfMetric(
+          pending.method,
+          (
+            (typeof performance !== "undefined" &&
+            typeof performance.now === "function"
+              ? performance.now()
+              : Date.now()) - pending.startedAt
+          ),
+          {
+          ok: false,
+          timedOut: true,
+          },
+        );
         pending.reject(new Error(`Native bridge timeout: ${method}`));
       }, timeoutMs);
     }
@@ -512,10 +557,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         resolve,
         reject,
         timeoutId,
+        method: normalizedMethod,
+        startedAt,
       });
       const posted = postMessage("bridge-request", {
         id,
-        method: String(method || ""),
+        method: normalizedMethod,
         payload: normalizePayload(payload),
       });
       if (posted) {
@@ -526,6 +573,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
       }
+      emitBridgePerfMetric(normalizedMethod, (
+        (typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now()) - startedAt
+      ), {
+        ok: false,
+        unavailable: true,
+      });
       reject(new Error(`Native bridge unavailable: ${method}`));
     });
   }
@@ -545,6 +600,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (pending.timeoutId !== null) {
         window.clearTimeout(pending.timeoutId);
       }
+      const finishedAt =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      emitBridgePerfMetric(pending.method, finishedAt - pending.startedAt, {
+        ok: !error,
+        error: error ? String(error) : "",
+      });
       if (error) {
         pending.reject(new Error(String(error)));
         return;
@@ -2786,6 +2849,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
   const SAVE_COORDINATOR_RETRY_DELAY_MS = 240;
+  function createRuntimeInstanceId(prefix = "controler-page") {
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    return `${prefix}-${Date.now().toString(36)}-${randomSuffix}`;
+  }
+  const STORAGE_PAGE_INSTANCE_ID =
+    typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string" &&
+    window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+      ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+      : createRuntimeInstanceId();
+  window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ = STORAGE_PAGE_INSTANCE_ID;
 
   const electronAPI = window.electronAPI;
   const hasElectronStorageBridge =
@@ -5065,6 +5138,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : {},
           source:
             typeof metadata.source === "string" ? metadata.source : "",
+          originPageInstanceId:
+            typeof metadata.originPageInstanceId === "string"
+              ? metadata.originPageInstanceId
+              : "",
           snapshotFingerprint:
             typeof metadata.snapshotFingerprint === "string"
               ? metadata.snapshotFingerprint
@@ -6760,6 +6837,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           typeof metadata.source === "string" && metadata.source.trim()
             ? metadata.source.trim()
             : "renderer",
+        originPageInstanceId:
+          typeof metadata.originPageInstanceId === "string" &&
+          metadata.originPageInstanceId.trim()
+            ? metadata.originPageInstanceId.trim()
+            : STORAGE_PAGE_INSTANCE_ID,
       });
     }
 
@@ -7769,6 +7851,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         changedSections = [],
         changedPeriods = {},
         source = "",
+        originPageInstanceId = "",
       } = options;
       if (hasPendingStateChanges) {
         await writeNativeState();
@@ -7809,6 +7892,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           changedSections: normalizeChangedSectionsList(changedSections),
           changedPeriods: normalizeChangedPeriodsMap(changedPeriods),
           source,
+          originPageInstanceId:
+            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
         });
       }
       return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
@@ -9538,6 +9623,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 changedPeriods: detail.changedPeriods || {},
                 source:
                   typeof detail.source === "string" ? detail.source.trim() : "",
+                originPageInstanceId:
+                  typeof detail.originPageInstanceId === "string"
+                    ? detail.originPageInstanceId.trim()
+                    : "",
               },
             );
           })

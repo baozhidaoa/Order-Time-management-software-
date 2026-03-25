@@ -117,6 +117,7 @@ type BridgeEnvelopePayload = {
   order?: unknown;
   changedSections?: unknown;
   changedPeriods?: unknown;
+  originPageInstanceId?: unknown;
   createdAt?: unknown;
   retryAfterMs?: unknown;
   rects?: unknown;
@@ -494,6 +495,46 @@ const SHELL_THEME_SECTION_KEYS = new Set([
   'selectedTheme',
 ]);
 const IS_ANDROID = Platform.OS === 'android';
+const RELEASE_PERF_CONSOLE_EVENTS = new Set([
+  'page-ready',
+  'transition-start',
+  'transition-complete',
+  'navigation-queued',
+  'navigation-replayed',
+  'launch-action-consumed',
+  'launch-action-acknowledged',
+  'launch-action-redispatched',
+  'launch-action-rejected',
+  'launch-action-ack-timeout',
+]);
+
+function shouldLogPerfMetricToConsole(
+  name: string,
+  payload: Record<string, unknown> = {},
+) {
+  if (typeof payload.stage === 'string' && payload.stage.trim()) {
+    return true;
+  }
+  return RELEASE_PERF_CONSOLE_EVENTS.has(String(name || '').trim());
+}
+
+function serializePerfMetricLog(
+  name: string,
+  payload: Record<string, unknown> = {},
+) {
+  try {
+    return JSON.stringify({
+      name,
+      ...payload,
+    });
+  } catch (error) {
+    return JSON.stringify({
+      name,
+      serializationError:
+        error instanceof Error ? error.message : 'unknown-error',
+    });
+  }
+}
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
@@ -2059,12 +2100,11 @@ function App({
 
   const logPerfMetric = useCallback(
     (name: string, payload: Record<string, unknown> = {}) => {
-      if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.info('[controler-perf]', {
-          name,
-          ...payload,
-        });
+      const isDevBuild = typeof __DEV__ !== 'undefined' && __DEV__;
+      if (!isDevBuild && !shouldLogPerfMetricToConsole(name, payload)) {
+        return;
       }
+      console.info('[controler-perf]', serializePerfMetricLog(name, payload));
     },
     [],
   );
@@ -2994,6 +3034,11 @@ function App({
         typeof payload?.source === 'string' && payload.source.trim()
           ? payload.source.trim()
           : 'webview';
+      const originPageInstanceId =
+        typeof payload?.originPageInstanceId === 'string' &&
+        payload.originPageInstanceId.trim()
+          ? payload.originPageInstanceId.trim()
+          : '';
       const sourceSlot = options.sourceSlot || null;
 
       WEBVIEW_SLOTS.forEach(targetSlot => {
@@ -3008,6 +3053,7 @@ function App({
           source,
           changedSections,
           changedPeriods,
+          originPageInstanceId,
         });
       });
     },
@@ -5449,7 +5495,7 @@ function App({
     activeBusyOverlay,
     shellLanguage,
   });
-  const shouldShowBootOverlay = !IS_ANDROID && !isPageReady && !shellBlockingOverlay;
+  const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
   const shellBlockingOverlayView = shellBlockingOverlay ? (
     <View
       accessible={false}
@@ -5515,7 +5561,7 @@ function App({
           translucent={Platform.OS === 'android'}
           hidden={Platform.OS === 'android'}
         />
-        {!IS_ANDROID ? <View style={styles.center}>{bootCard}</View> : null}
+        <View style={styles.center}>{bootCard}</View>
       </ScreenContainer>
     );
   }
