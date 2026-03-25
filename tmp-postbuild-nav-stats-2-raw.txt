@@ -1,0 +1,723 @@
+--------- beginning of main
+03-26 01:08:32.999  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:32.999  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 90.455124/0.000000/0.000000/164.296722, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988825559070120, cnt 4629
+03-26 01:08:33.065  3133  3867 W OPLUS_LOG_LOAD: ==LOGS PROG INFO, prog(system_server) ==
+--------- beginning of system
+03-26 01:08:33.065  3133  3867 V AlarmManager: sending alarm Alarm{5b9400a type 1 origWhen 1774458513064 whenElapsed 988825634 android} uid 1000 whenElapsed 988825634 windowLength 0 maxWhenElapsed 988825634 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-26 01:08:33.068  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-26 01:08:33.070  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 2.99 MB/s, Write: 0.00 MB/s
+03-26 01:08:33.071  3133  1893 E OplusStorageUFSBandwidth: Task time: 3ms
+03-26 01:08:33.077  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-26 01:08:33.087  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.087  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:33.087  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 74.859413/0.000000/0.000000/151.215897, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988825647906682, cnt 4630
+03-26 01:08:33.176  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.176  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 74.859421/0.000000/0.000000/159.774353, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988825736752047, cnt 4631
+03-26 01:08:33.182  1829  2913 D VRR [OTI]: handleIdle from 1 to 0
+03-26 01:08:33.183  1829  2913 D VRR [OTI-HW]: isStateReady 0
+03-26 01:08:33.183  1829  2913 D VRR [OTI-HW]: keep rate.
+03-26 01:08:33.183  3133  4129 D GestureLog_OplusMultiPointerDetector: onTouchEvent------>start, mCurNumPointers=1, mCurrStatus=0 mIsDownIntervalTimeout=true, action=0 downTime=595526201 deviceId=-1
+03-26 01:08:33.184  3133  4408 I [UAH_CLIENT]: UahEventAcquire, cmdid:37, pkg:none, identity:OplusUAwareInputHelper
+03-26 01:08:33.184  3133  3291 D PowerManagerService: userActivityNoUpdateLocked: groupId=0, eventTime=595526201, event=touch, flags=0x0, uid=1000
+03-26 01:08:33.186  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 0 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-26 01:08:33.186  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:0
+03-26 01:08:33.194  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 1 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-26 01:08:33.194  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:1
+03-26 01:08:33.196  3133  3881 D OplusPanoramaWorkBranchController: notifyMotionUpOrCancel
+03-26 01:08:33.198  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:33.198  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17126, identity:qcom-perfd
+03-26 01:08:33.202  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:33.205 20390 20390 D OplusViewDragTouchViewHelper: dispatchTouchView action = 1
+03-26 01:08:33.206 20390 20390 D ViewRootImplExtImpl: the up motion event handled by client, just return
+03-26 01:08:33.207  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-26 01:08:33.212  4945  5310 D RadioProxyJ[0]: startChannelMonitoring update mLatestRequestId:-1
+03-26 01:08:33.212  4945  5350 D RadioProxyJ[1]: startChannelMonitoring update mLatestRequestId:-1
+03-26 01:08:33.213 20390 20390 W MainActivitySearchManager: exitSearch already close
+03-26 01:08:33.221  1697 20930 I [UAH_CLIENT]: UahRelease, handle:517494
+03-26 01:08:33.265  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.265  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 62.382843/0.000000/0.000000/170.267609, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988825825441162, cnt 4632
+03-26 01:08:33.268  1714 17654 V Codec2-DumpInput: [processLoop:L668][c2.qti.hevc.decoder_378]QueueRead[0] empty, waiting buffer.
+03-26 01:08:33.268  1714 19311 V Codec2-DumpInput: [processLoop:L668][c2.qti.avc.decoder_380]QueueRead[0] empty, waiting buffer.
+03-26 01:08:33.268  1714 19309 I QC2Comp : [avcD_432] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-26 01:08:33.268  1714 17605 I QC2Comp : [hevcD_430] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-26 01:08:33.268  1714 19309 I QC2Comp : [avcD_432] Mem-usage:  | Total: 0.000 MB
+03-26 01:08:33.268  1714 17605 I QC2Comp : [hevcD_430] Mem-usage:  | Total: 0.000 MB
+03-26 01:08:33.275 21079 23075 D TapHttp.CallTrackHelper 124: callStart:https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0 connectMode:TCP reUseMode:ALL isZeroRtt:true
+03-26 01:08:33.280 21079 23075 V TapHttp.StatRateHelper: ignore record by sample ratio is 1
+03-26 01:08:33.281 21079 23075 D TapHttp.CallTrackHelper 124: newSteam:https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.282 21079 23075 D TapHttp.Event Dispatcher: dns start
+03-26 01:08:33.282 21079 23075 D TapHttp.CallTrackHelper 124: dnsStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.283 21079 23075 D TapHttp.RealDnsInterceptor: start use default local dns lookup dc-dragate-cn.heytapmobi.com
+03-26 01:08:33.301  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:33.324 21079 23075 D TapHttp.RealDnsInterceptor: use default local dns lookup dc-dragate-cn.heytapmobi.com:IpInfo(host='dc-dragate-cn.heytapmobi.com', dnsType=0, ttl=0, carrier=, ip='', port=0, weight=0, dnUnitSet=, failCount=0, failTime=0, failMsg=, expire=1774458513324)
+03-26 01:08:33.325 21079 23075 D TapHttp.WrapperInterceptor: result ip list is [IpInfo(host='dc-dragate-cn.heytapmobi.com', dnsType=0, ttl=0, carrier=, ip='', port=0, weight=0, dnUnitSet=, failCount=0, failTime=0, failMsg=, expire=1774458513324)]
+03-26 01:08:33.325 21079 23075 D TapHttp.CallTrackHelper 124: dnsEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.325 21079 23075 D TapHttp.CallTrackHelper 124: connect_protocol =tcp_tcp connectTimeout=10000 retryCount=0  route=Route{dc-dragate-cn.heytapmobi.com/39.156.118.44:443}
+03-26 01:08:33.326 21079 23075 D TapHttp.Event Dispatcher: connect start: 39.156.118.44
+03-26 01:08:33.326 21079 23075 D TapHttp.CallTrackHelper 124: connectStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.330  4945  7070 D NetworkService[0]: getIfIndexByNetid netId:174,ifName:rmnet_data1,ifIndex:21
+03-26 01:08:33.354  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.354  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 74.859421/0.000000/0.000000/163.246078, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988825914492359, cnt 4633
+03-26 01:08:33.378 21079 23075 D TapHttp.CallTrackHelper 124: connectSocketEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.378 21079 23075 D TapHttp.CallTrackHelper 124: secureConnectStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.443  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.443  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.501984/0.000000/0.000000/158.679489, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826003362412, cnt 4634
+03-26 01:08:33.450 21079 23075 I ConscryptEngineSocket: dc-dragate-cn.heytapmobi.com:443,tls_reused:true
+03-26 01:08:33.451 21079 23075 D RealConnection:: Platform.getOplatform().getSelectedProtocol(sslSocket):h2
+03-26 01:08:33.451 21079 23075 D RealConnection:: supportsTlsExtensions:true
+03-26 01:08:33.451 21079 23075 D RealConnection:: maybeProtocol:h2
+03-26 01:08:33.451 21079 23075 D RealConnection:: protocol:h2
+03-26 01:08:33.451 21079 23075 D TapHttp.CallTrackHelper 124: secureConnectEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.453 21079 23075 D TapHttp.CallTrackHelper 124: connectEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.453 21079 23075 D TapHttp.Event Dispatcher: connect acquired 39.156.118.44
+03-26 01:08:33.453 21079 23075 D TapHttp.CallTrackHelper 124: connectionAcquired https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.454 21079 23075 D TapHttp.CallTrackHelper 124: request_protocol =tcp readTimeout=10000 writeTimeout=10000 retryCount=0  route=Route{dc-dragate-cn.heytapmobi.com/39.156.118.44:443}
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: request online : url:https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0,
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub:  
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: request online:hostdc-dragate-cn.heytapmobi.com 
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub:  headers Content-Encoding: gzip
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: Content-Type: text/json; charset=UTF-8
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: TAP-APP-CONF-VER: dcc_fe_cursor_cn:13
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: Content-Length: 720
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: Host: dc-dragate-cn.heytapmobi.com
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: Connection: Keep-Alive
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: Accept-Encoding: gzip
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: User-Agent: okhttp/3.12.12.342
+03-26 01:08:33.454 21079 23075 I TapHttp.SpecialCallServerStub: 
+03-26 01:08:33.454 21079 23075 D TapHttp.CallTrackHelper 124: requestHeadersStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.455 21079 23075 D TapHttp.CallTrackHelper 124: requestHeadersEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.455 21079 23075 D TapHttp.CallTrackHelper 124: requestBodyStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.455 21079 23075 D TapHttp.CallTrackHelper 124: requestBodyEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.456 21079 23075 D TapHttp.CallTrackHelper 124: requestEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.456 21079 23075 D TapHttp.CallTrackHelper 124: responseHeadersStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.519  3133  4025 D WifiNl80211Manager: Scan result ready event
+03-26 01:08:33.520  3133  4025 D WifiNative: Scan result ready event
+03-26 01:08:33.532  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.532  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:33.532  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 56.144550/0.000000/0.000000/144.105942, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826092224755, cnt 4635
+03-26 01:08:33.556 21079 23075 D TapHttp.CallTrackHelper 124: responseHeadersEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.556 21079 23075 D TapHttp.CallTrackHelper 124: responseBodyStart https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.556 21079 23075 D TapHttp.CallTrackHelper 124: responseEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.556 21079 23075 I TapHttp.SpecialCallServerStub: response online : protocol: h2, code:200 ,url:https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: response online: host:dc-dragate-cn.heytapmobi.com,headers:server: nginx
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: date: Wed, 25 Mar 2026 17:08:34 GMT
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: content-type: application/json;charset=UTF-8
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: content-length: 23
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-allow-credentials: true
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-allow-origin: *
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-allow-methods: GET, POST, OPTIONS
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-allow-headers: content-type, Origin, X-Requested-With
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-expose-headers: Content-Length
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: access-control-max-age: 86400
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: tap-app-conf-dim: dcc_fe_cursor_cn:0
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: x-backend-host: 0327:8081
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: x-gateway-host: 9ab7a5b2ad9a028d48bf1d07de7502283f49ef0cb03627023ff6a5beac0b0590c10ed4378769d18815a4310590e1be25
+03-26 01:08:33.557 21079 23075 I TapHttp.SpecialCallServerStub: 
+03-26 01:08:33.558 21079 23075 D TapHttp.CallTrackHelper 124: responseBodyEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.559 21079 23075 D TapHttp.CallTrackHelper 124: connectionReleased https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.559 21079 23075 D TapHttp.CallTrackHelper 124: callEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.559 21079 23075 D TapHttp.CallTrackHelper 124: call_time : 284
+03-26 01:08:33.559 21079 23075 D TapHttp.CallTrackHelper 124: callEnd https://dc-dragate-cn.heytapmobi.com/v3_1/dcs/20013?ak=1487123111&brand=OnePlus&iv=bee264b1cdc8ddf6f95d0f81dbb672f7&nonce=2194&sdk_version=5.9.3.01&timestamp=1774458513&sign=d478d241eabe00e5393719a60fdde681c6475468e21e79bc5bffbd4822e351c0
+03-26 01:08:33.559 21079 23075 V TapHttp.StatRateHelper: ignore record by sample ratio is 1
+03-26 01:08:33.562  3133  4105 D OplusWifiScanStatistics: fewApNum:5
+03-26 01:08:33.572  1565  1589 I statsd  : An anomaly (103940000001) (39)0x2018001->10200[I] (39)0x20000->0[I]  has occurred! Informing subscribers.
+03-26 01:08:33.579  3133  3133 D OplusWifiBroadCastDispatcher: mBroadcastReceiver: onReceiver  action=android.net.wifi.SCAN_RESULTS
+03-26 01:08:33.580  4945 18345 D SubsysEventListenerManager: onScanResultsAvailable
+03-26 01:08:33.580  4945 18345 D WifiService: onScanResultsAvailable
+03-26 01:08:33.586  4945  4945 D SubsysBroadcastManager: onReceive action:android.net.wifi.SCAN_RESULTS
+03-26 01:08:33.586  4945  4945 D ExpectedSsidEvent: onScanResultsAvailable
+03-26 01:08:33.591 22969 20936 I metis_v2_WifiDataCollector: onScanResultsAvailable [base|com.oplus.metis|2.0.20-aa39d14]
+03-26 01:08:33.596  3133  4105 D OplusWifiResidenceRecognition: onScanResultsAvailable
+03-26 01:08:33.600  4782  5267 D WifiScanResultEvent: None scanResults or savedConfigList.
+03-26 01:08:33.601  3133  4105 D WiFiHardWareMonitor ScanresultsCollector: rssiFailCheckAndNotify  diff = 3465821 now=1774458513601 latestSendTime=1774455047780 statisticsInterval=7200000
+03-26 01:08:33.611  4945  4945 D RadioMessenger: handleMessage Request msgid 2311
+03-26 01:08:33.611  4945  4945 D RadioProxyJ[0]: [41662]> getAllCellularCellInfo
+03-26 01:08:33.612  2188  2501 D QmiVsClient: getAllCellularCellInfo - enter
+03-26 01:08:33.612  2188  2501 E QmiVsClient: sendAsyncRequest QMI_VS_GET_ALL_CELLULAR_CELL_INFO_REQ_MSG_V01 ret 0
+03-26 01:08:33.613  2188  3348 D QmiVsClient: operator() callback - enter
+03-26 01:08:33.613  2188  2501 D VsProxy : handleMessage msg is 4001
+03-26 01:08:33.613  2188  2501 D RadioProxy: getAllCellularCellInfo : response cb for instance 0
+03-26 01:08:33.615  4945  5000 D SubsysRadioResponse: getAllCellularCellInfoResponse
+03-26 01:08:33.615  4945  5000 D SubsysRadioResponse: responseAllCellularCellInfo len:2
+03-26 01:08:33.615  4945  5000 D RadioProxyJ[0]: [41662]< getAllCellularCellInfoResponse ******
+03-26 01:08:33.616  4945  4945 D MessengerResponseHandler: handleMessage Response msgid 281
+03-26 01:08:33.620  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.620  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 68.621117/0.000000/0.000000/141.120514, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826181086266, cnt 4636
+03-26 01:08:33.709  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.710  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 76.418976/0.000000/0.000000/168.819061, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826269931318, cnt 4637
+03-26 01:08:33.798  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.798  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 99.812553/0.000000/0.000000/144.194366, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826358791839, cnt 4638
+03-26 01:08:33.799  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4638)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 99, 0, 0, 144]
+03-26 01:08:33.887  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.887  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 88.895546/0.000000/0.000000/143.055328, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826447668297, cnt 4639
+03-26 01:08:33.956  1770  1770 D ChargerInfo: getInfo: type: 0x1, update: 1
+03-26 01:08:33.956  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update start
+03-26 01:08:33.959  1770  1845 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-26 01:08:33.961  1770  1845 D ChargerInfo: get_ui_charge_icon_type: 0 0 0 0
+03-26 01:08:33.962  1770  1845 D ChargerInfo: cpaPower:2500 isChargeOnline:1 isSupportRetentionTopic:0
+03-26 01:08:33.962  1770  1845 E ChargerInfo: SingleHyperPath not found
+03-26 01:08:33.962  1770  1845 D ChargerInfo: CarC: path(/sys/class/oplus_chg/battery/gauge_car_c): not exist
+03-26 01:08:33.963  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update end
+03-26 01:08:33.963  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update wait
+03-26 01:08:33.963  1770  1770 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-26 01:08:33.963  1770  1770 D ChargerInfo: getInfo: {"Update":{"batteryFcc":4514,"batteryRm":2944,"bddLeakCurr":0,"bmsStatus":0,"bypassChgStatus":0,"chargeTimeRemaining":0,"cpaPower":2,"enableTx":true,"fastCharge":0,"isSupportSpeedCharge":0,"notifyCode":0,"otgOnline":1,"ppsChargePower":0,"ppsCharging":0,"shortCHwStatus":0,"shortIcOtpStatus":0,"uiIconType":0,"uiPower":0,"usbStatus":0,"wlsAdapterPower":0}}
+03-26 01:08:33.976  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:33.976  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:33.976  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372124/0.000000/0.000000/145.996552, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826536467828, cnt 4640
+03-26 01:08:34.065  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.065  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 90.455124/0.000000/0.000000/153.062271, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826625118505, cnt 4641
+03-26 01:08:34.075  7954  7954 V DeepThinker: BroadcastReceiverWrapper: onReceive, start dispatch android.net.wifi.SCAN_RESULTS
+03-26 01:08:34.076  7954  7954 V DeepThinker: BroadcastReceiverWrapper: onReceive, finish dispatch android.net.wifi.SCAN_RESULTS  category : null  Time consuming : 1 ms
+03-26 01:08:34.099  7954 20045 D LocationManagerExtImpl: getLastLocation provider: passive, uid: 10170, com.oplus.deepthinker
+03-26 01:08:34.099  7954 20045 D LocationManagerExtImpl: getLastLocation don't containsKey
+03-26 01:08:34.101  7954 20045 D LocationManagerExtImpl: saveLastLocation provider: passive don't contains
+03-26 01:08:34.127  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onCellInfoChanged
+03-26 01:08:34.127  4945  4945 D CellChangeEvent: update event
+03-26 01:08:34.127  4945  4945 D PolicyHandler: updateEventContext trigger event Event{mEventName=CellChangeEvent,mNickName=cellchange,mEventVal=true,mDefaultVal=false,mId=-1,mDefaultId=-1,mInstanceId=0,mUseNameId=false}
+03-26 01:08:34.128  4945  4945 D TimerEvent: TimerEvent reset to false
+03-26 01:08:34.128  4945  6136 D CellMap/CellMonitor: handleCellChange: [CellInfoNr:{ mRegistered=YES mTimeStamp=988826693351619ns mCellConnectionStatus=0 CellIdentityNr:{ mPci = 770 mTac = 3145876 mNrArfcn = 504990 mBands = [41] mMcc = 460 mMnc = 00 mNci = 34399400150 mAlphaLong = 中国移动 mAlphaShort = 中国移动 mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -80 ssRsrq = -12 ssSinr = 8 level = 3 parametersUseForLevel = 0 timingAdvance = 2147483647 } }]
+03-26 01:08:34.128  4945  6136 D CellMap/CellMonitor: handleAllSubCellChange slotId: 0, cellInfo: [CellInfoNr:{ mRegistered=YES mTimeStamp=988826693351619ns mCellConnectionStatus=0 CellIdentityNr:{ mPci = 770 mTac = 3145876 mNrArfcn = 504990 mBands = [41] mMcc = 460 mMnc = 00 mNci = 34399400150 mAlphaLong = 中国移动 mAlphaShort = 中国移动 mAdditionalPlmns = {} } CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = -80 ssRsrq = -12 ssSinr = 8 level = 3 parametersUseForLevel = 0 timingAdvance = 2147483647 } }]
+03-26 01:08:34.128  4945  6136 D CellMap/RatPingPangMapService: handleCellChange slotId:0, compoundId: 460_0_3145876_34399400150
+03-26 01:08:34.129  4945  4945 D AtomAction: startAction
+03-26 01:08:34.129  4945  4945 E MetricsAction: startMetricsCollect no metrics data id 54502
+03-26 01:08:34.129  4945  4945 D AtomMetricsApp: doAction mPrimaryRuleExpireTime <= 0
+03-26 01:08:34.129  4945  4945 D PolicyHandler: updateEventContext mEventList Event{mEventName=TimerEvent,mNickName=timer,mEventVal=false,mDefaultVal=false,mId=-1,mDefaultId=-1,mInstanceId=0,mUseNameId=false}
+03-26 01:08:34.130  4730  4730 W Settings: Setting airplane_mode_on has moved from android.provider.Settings.System to android.provider.Settings.Global, returning read-only value.
+03-26 01:08:34.140 22801 22931 D LocationTransport: get the LocationTransport Instance
+03-26 01:08:34.140  4782  5663 I PCDR-pcdr_lte_nr_pingpong_opt[0]: handleCellInfoChange compoundIdStr:460_00_3145876_34399400150
+03-26 01:08:34.141 22801 22931 D LocationTransport: get the LocationTransport Instance
+03-26 01:08:34.144  3133  3725 I OplusLocationStatistics: NLP update locatin successed.
+03-26 01:08:34.144  3133  3725 I OplusLocationStatistics: setNlpRequestDuration: 1492
+03-26 01:08:34.145  3133  3725 I LocationManagerService: incoming location [Location[network 27.86****,115.00**** hAcc=90.0 et=+11d10h40m26s710ms]]
+03-26 01:08:34.146  3133  3725 E AppOps  : attributionTag OplusLBS not declared in manifest of android
+03-26 01:08:34.148  3133  3725 I LocationManagerService: incoming location [Location[network 27.86****,115.00**** hAcc=90.0 et=+11d10h40m26s710ms]]
+03-26 01:08:34.150  3133  3725 V LocationManagerService: passive provider registration 10154/com.coloros.weather.service/C2107532 dropped delivery - too close
+03-26 01:08:34.150  3133  3725 E AppOps  : attributionTag OplusLBS not declared in manifest of android
+03-26 01:08:34.151  3133  3725 V LocationManagerService: passive provider registration 1000/android[SensorNotificationService]/A4FB30B3 dropped delivery - too close
+03-26 01:08:34.151  3133  3725 E AppOps  : attributionTag OplusLBS not declared in manifest of android
+03-26 01:08:34.153  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.153  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372124/0.000000/0.000000/174.789948, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826714121422, cnt 4642
+03-26 01:08:34.153 31801 31882 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: onLocationChanged: 
+03-26 01:08:34.154 31801 31882 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: , mock = false, provider = network, time = 2026-03-26 01:08:34
+03-26 01:08:34.154  1652  1652 I LocSvc_GnssInterface: ===> injectLocation line 335 
+03-26 01:08:34.154 31801 31819 I 31801PAS[16002114][f26f602].ScheduleTaskManager_Travel: doRemoveAlarmTaskLock: timestamp = ****-03-26 01:**:**
+03-26 01:08:34.155  3133  3725 V LocationManagerService: passive provider registration 10089/com.oplus.metis/9ACC12AB dropped delivery - too close
+03-26 01:08:34.157  1652  1719 I LocSvc_api_v02: ---> locClientSendReq line 2428 QMI_LOC_INJECT_POSITION_REQ_V02
+03-26 01:08:34.158 31801 31819 I 31801PAS[16002114][f26f602].ScheduleTaskManager_Travel: doAddAlarmTaskLock: timestamp = ****-03-26 01:**:**
+03-26 01:08:34.159  1652  3443 I LocSvc_ApiV02: <--- globalRespCb line 258 QMI_LOC_INJECT_POSITION_REQ_V02
+03-26 01:08:34.160  3133  3247 I LocationRequestStatistics: deliverLocation, PackageProviderKey = PackageProviderKey: network: android: OplusLBS
+03-26 01:08:34.162  3133  4124 W LocationFreezeProc: removeLocationRequest [android.location.LocationManager$LocationListenerTransport@e3301fe]
+03-26 01:08:34.162  3133  4125 I LocationFreezeProc: Remove: Don't find the app's name, do nothing! [android.location.LocationManager$LocationListenerTransport@e3301fe]
+03-26 01:08:34.163  3133  4124 E AppOps  : attributionTag OplusLBS not declared in manifest of android
+03-26 01:08:34.163  4945  4945 D SubsysLocationManager: onLocationChanged(passive)
+03-26 01:08:34.163  3133  4124 I OplusLocationStatistics: stopRequesting
+03-26 01:08:34.163  3133  4124 I LocationRequestStatistics: stopRequesting, PackageProviderKey = PackageProviderKey: network: android: OplusLBS
+03-26 01:08:34.163  3133  4124 D LocationManagerService: network provider removed registration from 1000/android[OplusLBS]/E6598372
+03-26 01:08:34.163  3133  4124 W LocationFreezeProc: remove [network]'s Location Request[android.location.LocationManager$LocationListenerTransport@e3301fe] Done from 1000/android[OplusLBS]/E6598372
+03-26 01:08:34.163  3133  4124 D LocationManagerService: network provider request changed to ProviderRequest[OFF]
+03-26 01:08:34.163  3133  4126 I OplusLocationStatistics: recordNlpNavigatingStopped
+03-26 01:08:34.163  3133  4126 I OplusLocationStatistics: Nlp locaiton has update or Error has recored! Do nothing
+03-26 01:08:34.165 31801 31819 I 31801PAS[16002114][f26f602].ScheduleTaskManager_Travel: addAlarmTask task = ScheduleTask{mTaskId=2, mPolicyId=20000, mTimeStampMillis=****-03-26 01:**:**}, isNeedAlign = true
+03-26 01:08:34.165  4945  4945 D BorderPortEvent: onLocationChanged location.
+03-26 01:08:34.165 31801 31819 I 31801PAS[16002114][f26f602].ScheduleTaskManager: addAlarmTask alarm size=9
+03-26 01:08:34.165  4945  6136 D CellMap/GridLocationManager: handleLocationChange location provider is: network
+03-26 01:08:34.165  4945  4945 D BorderPortEvent: checkIsBorderPort cloub policy:false
+03-26 01:08:34.165  4945  4945 D SubsysThreadPool: execute task
+03-26 01:08:34.166 31801 31819 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: updateLocationData: 
+03-26 01:08:34.166 31801 31819 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: updateLocationData -> updateLocationCache
+03-26 01:08:34.166  4945  4945 D AtomPassiveLocationInfo: handleMessage what:1
+03-26 01:08:34.166  4945  4945 D ExitGarageFilterEventImpl: handleMessage what:1
+03-26 01:08:34.166  4945  4945 D ExitGarageFilterEventImpl: onLocationChanged
+03-26 01:08:34.166  4945  4945 D ExitGarageFilterEventImpl: handleMessage what:1
+03-26 01:08:34.166  4945  4945 D ExitGarageFilterEventImpl: onLocationChanged
+03-26 01:08:34.166  4945  4945 D GeoFenceDetectionService-AttractionSyncService: handleMessage what:2004
+03-26 01:08:34.166  4945  4945 D GeoFenceDetectionService-AttractionSyncService: Loaction Changed too samll, distance:0.0
+03-26 01:08:34.166  4945  4945 D GeoFenceDetectionService-AirportSyncService: handleMessage what:2004
+03-26 01:08:34.166  4945  4945 D GeoFenceDetectionService-AirportSyncService: Loaction Changed too samll, distance:0.0
+03-26 01:08:34.166  4945  4945 D GpsService: onLocationChanged
+03-26 01:08:34.168  3133  4125 W ActivityManager: pid 3133 system sent binder code 17 with flags 0 to frozen apps and got error -74
+03-26 01:08:34.168  3133  4125 E OplusLocationAidlClient: inject loc: android.os.RemoteException: Method injectLocation is unimplemented.
+03-26 01:08:34.169  3133  3861 W ActivityManager: pid 3767 received async transactions while frozen
+03-26 01:08:34.169  3133  3861 W ActivityManager: pid 7430 received async transactions while frozen
+03-26 01:08:34.169  3133  3861 W ActivityManager: pid 18937 received async transactions while frozen
+03-26 01:08:34.169  3133  3861 W ActivityManager: pid 29339 received async transactions while frozen
+03-26 01:08:34.169  3133  3861 W ActivityManager: pid 30712 received async transactions while frozen
+03-26 01:08:34.176  8215 26066 W OPLUS_LOG_LOAD: ==LOGS PROG INFO, prog(com.coloros.assistantscreen) ==
+03-26 01:08:34.176  8215 26066 D SceneLocationProvider: location has update
+03-26 01:08:34.179  4945  4945 D BorderPortEvent: check cloud border port result false
+03-26 01:08:34.180 31801 31819 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: reportLocation, earthquake_warning status = 0
+03-26 01:08:34.180 31801 31819 I 31801PAS[16002114][f26f602].PhoneStateInfoCollector_Travel: reportLocation, earthquake_warning is not open, return
+03-26 01:08:34.180 31801 31819 I 31801PAS[16002114][f26f602].BaseResourceCollectManger_Travel: notifyResourceChange:10009
+03-26 01:08:34.180 31801 20843 I 31801PAS[16002114][f26f602].ResourceTrigger: resourceOnChange, resourceId is 10009
+03-26 01:08:34.180 31801 20843 I 31801PAS[16002114][f26f602].ResourceTrigger: startAlign
+03-26 01:08:34.181 31801 31819 I 31801PAS[16002114][f26f602].BaseResourceCollectManger_Travel: notifyResourceChange:10002
+03-26 01:08:34.181 31801 20843 E 31801PAS[16002114][f26f602].ResourceTrigger: checkResourceValid, can not find policy for this resourceId 10002 is not exist
+03-26 01:08:34.201  7229  8002 D gaia-GaiaConnectChecker: start connect check++
+03-26 01:08:34.222  7229  5989 D gaia-GaiaConnectChecker: start connect check++
+03-26 01:08:34.242  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.242  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 88.895546/0.000000/0.000000/180.407150, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826802935432, cnt 4643
+03-26 01:08:34.304  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:34.331  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.331  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 76.418968/0.000000/0.000000/162.892395, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826891764391, cnt 4644
+03-26 01:08:34.335  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-26 01:08:34.420  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.420  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:34.420  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 54.584965/0.000000/0.000000/148.318863, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988826980587516, cnt 4645
+03-26 01:08:34.510  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.510  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 124.765732/0.000000/0.000000/139.671997, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827069423557, cnt 4646
+03-26 01:08:34.598  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.598  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 88.895576/0.000000/0.000000/126.193314, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827158250432, cnt 4647
+03-26 01:08:34.687  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.687  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 53.025429/0.000000/0.000000/132.164200, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827247078766, cnt 4648
+03-26 01:08:34.687  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4648)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 53, 0, 0, 132]
+03-26 01:08:34.775  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.776  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 57.704151/0.000000/0.000000/120.531883, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827335869443, cnt 4649
+03-26 01:08:34.864  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:34.865  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.865  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 67.061577/0.000000/0.000000/141.032089, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827424714755, cnt 4650
+03-26 01:08:34.879  3133  4397 I Osense-BaseDecisionMaker: notifySceneToAthenaPolicy: SCENE_IDLE_RECOVER, bundle: Bundle[{scene=SCENE_IDLE_RECOVER}]
+03-26 01:08:34.883  3133  4397 I Osense-BaseDecisionMaker: scene: SCENE_IDLE_RECOVER, excutingPolicy: respreload
+03-26 01:08:34.883  3133  4397 D Osense-BaseDecisionMaker: invoke process preload policy
+03-26 01:08:34.883  3133  4397 I Osense-BaseDecisionMaker: scene: SCENE_IDLE_RECOVER, excutingPolicy: clear
+03-26 01:08:34.884  3133  4397 D Osense-BaseDecisionMaker: invoke clear policy,type: unforbid
+03-26 01:08:34.884  3133  4397 I OsenseKillAction: KillAction: skip reason: non-low-mem-req, req_id=45242, enable=true, scene=SCENE_IDLE_RECOVER, type=unforbid, cchOnly=false, appcare=0, bloM=false, bloP=false
+03-26 01:08:34.953  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:34.954  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 76.418999/0.000000/0.000000/173.164597, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827513541682, cnt 4651
+03-26 01:08:35.042  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.042  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 88.895576/0.000000/0.000000/160.216415, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827602352672, cnt 4652
+03-26 01:08:35.072  3133  3867 V AlarmManager: sending alarm Alarm{cf91d1 type 1 origWhen 1774458515071 whenElapsed 988827641 android} uid 1000 whenElapsed 988827641 windowLength 0 maxWhenElapsed 988827641 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-26 01:08:35.074  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-26 01:08:35.076  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 5.98 MB/s, Write: 0.50 MB/s
+03-26 01:08:35.076  3133  1893 E OplusStorageUFSBandwidth: Task time: 2ms
+03-26 01:08:35.083  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-26 01:08:35.103  7954  7954 D LocationManagerExtImpl: handleMessage: remove location cache
+03-26 01:08:35.131  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.131  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.501991/0.000000/0.000000/161.753342, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827691191422, cnt 4653
+03-26 01:08:35.171  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->updateNetworkSpeed: isConnected:true,isSwitchOn:true,isSuspend:false,isPause:false
+03-26 01:08:35.177  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->getTotalByte: totalRxBytes:88274769172,totalTxBytes:15999290129,loopbackTxBytes:4251606653,loopbackRxBytes:4251606653 ,totalBytes:95770845995
+03-26 01:08:35.194  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:35.194  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17123, identity:qcom-perfd
+03-26 01:08:35.196  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:35.215  1697 20938 I [UAH_CLIENT]: UahRelease, handle:517495
+03-26 01:08:35.219  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.220  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942425/0.000000/0.000000/170.223373, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827780017776, cnt 4654
+03-26 01:08:35.307  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:35.308  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:35.308  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.308  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/169.128540, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827868869755, cnt 4655
+03-26 01:08:35.397  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.397  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 102.931717/0.000000/0.000000/172.202408, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988827957696266, cnt 4656
+03-26 01:08:35.452 20390 20390 D OplusViewDragTouchViewHelper: dispatchTouchView action = 1
+03-26 01:08:35.452 20390 20390 D ViewRootImplExtImpl: the up motion event handled by client, just return
+03-26 01:08:35.449  3133  4129 D GestureLog_OplusMultiPointerDetector: onTouchEvent------>start, mCurNumPointers=1, mCurrStatus=0 mIsDownIntervalTimeout=true, action=0 downTime=595528468 deviceId=-1
+03-26 01:08:35.453  3133  4408 I [UAH_CLIENT]: UahEventAcquire, cmdid:37, pkg:none, identity:OplusUAwareInputHelper
+03-26 01:08:35.454  3133  3291 D PowerManagerService: userActivityNoUpdateLocked: groupId=0, eventTime=595528468, event=touch, flags=0x0, uid=1000
+03-26 01:08:35.454  3133  3881 D OplusPanoramaWorkBranchController: notifyMotionUpOrCancel
+03-26 01:08:35.455  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 0 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-26 01:08:35.455  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:0
+03-26 01:08:35.455  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 1 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-26 01:08:35.455  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:1
+03-26 01:08:35.456  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-26 01:08:35.466 20390 20390 W MainActivitySearchManager: exitSearch already close
+03-26 01:08:35.471  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:35.472  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17124, identity:qcom-perfd
+03-26 01:08:35.473  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:35.486  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.486  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 88.895561/0.000000/0.000000/171.892929, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828046526370, cnt 4657
+03-26 01:08:35.493  1697 20946 I [UAH_CLIENT]: UahRelease, handle:517497
+03-26 01:08:35.575  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.575  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 53.025410/0.000000/0.000000/161.443909, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828135381057, cnt 4658
+03-26 01:08:35.576  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4658)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 53, 0, 0, 161]
+03-26 01:08:35.663  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.664  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 112.289162/0.000000/0.000000/180.451401, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828224202412, cnt 4659
+03-26 01:08:35.752  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.752  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:35.752  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372147/0.000000/0.000000/168.863281, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828313057984, cnt 4660
+03-26 01:08:35.841  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.842  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 70.180725/0.000000/0.000000/176.326874, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828401890068, cnt 4661
+03-26 01:08:35.930  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:35.930  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 56.144581/0.000000/0.000000/164.606140, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828490745537, cnt 4662
+03-26 01:08:35.946  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:35.946  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17125, identity:qcom-perfd
+03-26 01:08:35.949  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:35.967  1697 20948 I [UAH_CLIENT]: UahRelease, handle:517498
+03-26 01:08:35.983  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:778] ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+03-26 01:08:35.983  1649  5736 D vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:372] SerialClockVote: vote for UART CLK ON
+03-26 01:08:35.984  1649  5736 D vendor.qti.bluetooth@1.0-wake_lock: [wake_lock.cpp:135] Acquire wakelock is acquired 
+03-26 01:08:35.985  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:795] ProcessIbsCmd: Writing IBS_WAKE_ACK
+03-26 01:08:35.988  4951  5391 I bluetooth: [btif_bqr.cc:1267] vendor_specific_event_callback: Unhandled BQR subevent 0x01
+03-26 01:08:35.988  4951  5391 D bluetooth: [btif_bqr.cc:752] CategorizeBqrEvent: length: 55 quality_report_id: 0x01
+03-26 01:08:35.988  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=20 is not found
+03-26 01:08:35.988  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=20 is not found
+03-26 01:08:35.989  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=20 is not found
+03-26 01:08:35.989  4951  5755 I BluetoothInCallService: BluetoothInCallService = com.android.bluetooth.telephony.BluetoothInCallService@bad5ed6
+03-26 01:08:35.989  4951  5391 D btm_acl : [btm_acl.cc:376] btm_bda_to_acl: bda=xx:xx:xx:xx:b8:5d transport=1 not found in acl_db
+03-26 01:08:35.989  4951  5391 I bluetooth: [btif_bqr.cc:1204] bqr_delivery_event: len: 55, bqr_id: 1, addr: xx:xx:xx:xx:b8:5d, lmp_ver: 10, manufacturer_id: 2476, lmp_subver: 277
+03-26 01:08:35.989  4951  5755 I BluetoothQualityReportJni: [com_android_bluetooth_BluetoothQualityReport.cpp:48] bqr_delivery_callback: 
+03-26 01:08:35.990  4951  5755 I BluetoothQualityReportNativeInterface: rawData Length = 85
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface: BQR: {
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:   mAddr: XX:XX:XX:XX:B8:5D, mLmpVer: 0x0A, mLmpSubVer: 0x0115, mManufacturerId: 0x09AC, mName: Xiaomi Smart Band 8 B85D, mBluetoothClass: 1f00,
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:   BqrCommon: {
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:     mQualityReportId: Quality monitor(0x01), mPacketType: INVALID(0x00), mConnectionHandle: 0x0014, mConnectionRole: 0(0), mTxPowerLevel: 8, mRssi: -54, mSnr: 0, mUnusedAfhChannelCount: 0,
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:     mAfhSelectUnidealChannelCount: 0, mLsto: 0, mPiconetClock: 0x00000000, mRetransmissionCount: 0, mNoRxCount: 0, mNakCount: 0, mLastTxAckTimestamp: 0x00000000, mFlowOffCount: 0,
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:     mLastFlowOnTimestamp: 0x00000000, mOverflowCount: 0, mUnderflowCount: 0, mAddr: XX:XX:XX:XX:00:00, mCalFailedItemCount: 0,
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:     mTxTotalPackets: 0, mTxUnackPackets: 0, mTxFlushPackets: 0, mTxLastSubeventPackets: 0, mCrcErrorPackets: 0, mRxDupPackets: 0, mRxUnRecvPackets: 0, mCoexInfoMask: 0
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface:   }
+03-26 01:08:35.995  4951  5755 I BluetoothQualityReportNativeInterface: }
+03-26 01:08:35.996  4951  4951 I oplus_bt_dual_sync: [oplus_bt_dual_sync.cc:151] stack_down_sync_action: type=18, len=17
+03-26 01:08:35.997  4951  4951 I oplus_bt_qos_monitor: [oplus_bt_qos_monitor.cc:118] get_oplus_qos_data: getting qos data
+03-26 01:08:36.019  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.019  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 40.548862/0.000000/0.000000/158.193176, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828579547099, cnt 4663
+03-26 01:08:36.026  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:825] ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+03-26 01:08:36.026  1649  5736 D vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:391] SerialClockVote: vote for UART CLK OFF
+03-26 01:08:36.109  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.109  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.502007/0.000000/0.000000/156.700455, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828668381995, cnt 4664
+03-26 01:08:36.177  1649  5505 D vendor.qti.bluetooth@1.0-wake_lock: [wake_lock.cpp:158] Release wakelock is released 
+03-26 01:08:36.196  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:36.197  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.197  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 56.144573/0.000000/0.000000/156.788879, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828757222464, cnt 4665
+03-26 01:08:36.286  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.286  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 68.621147/0.000000/0.000000/151.260071, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828846047880, cnt 4666
+03-26 01:08:36.311  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:36.374  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.374  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978584/0.000000/0.000000/148.274643, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988828934860849, cnt 4667
+03-26 01:08:36.463  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4668)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 77, 0, 0, 164]
+03-26 01:08:36.463  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.463  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978584/0.000000/0.000000/164.429337, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829023709182, cnt 4668
+03-26 01:08:36.486  3133  3867 V AlarmManager: sending alarm Alarm{f941dc2 type 3 origWhen 988800428 whenElapsed 988800428 android} uid 1000 whenElapsed 988800428 windowLength 28625 maxWhenElapsed 988829053 repeatInterval 0 action null component null tag *job.delay* flags 0x0 procName system_server
+03-26 01:08:36.491  3133  3867 V AlarmManager: sending alarm Alarm{92df7d3 type 3 origWhen 988801846 whenElapsed 988801846 com.oplus.nhs} uid 1001 whenElapsed 988801846 windowLength 225000 maxWhenElapsed 989026846 repeatInterval 300000 action oplus.intent.action.INTERNAL_LOOP_UPDATE_ACTIVITYINFO_ALARM component ComponentInfo{com.oplus.nhs/com.oplus.nhs.pwr.ModemAci.ModemAciAlarmReceiver} flags 0x8 procName com.oplus.nhs
+03-26 01:08:36.495  3133  3867 V AlarmManager: sending alarm Alarm{851aa09 type 3 origWhen 988805107 whenElapsed 988805107 com.oplus.metis} uid 10089 whenElapsed 988805107 windowLength 45000 maxWhenElapsed 988850107 repeatInterval 0 action com.oplus.action.PID_TIMER_CHECK component null flags 0x8 procName com.oplus.metis
+03-26 01:08:36.504  4804  4804 I ModemAci: [Main] loop update aci alarm is triggered!
+03-26 01:08:36.506  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: Calling uid is 1000.
+03-26 01:08:36.506  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: vendor.oplus.rpmh.support: true
+03-26 01:08:36.506  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList()
+03-26 01:08:36.506  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: last update:595378039 , 595529529
+03-26 01:08:36.508  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: ADSP 1039290 952742684
+03-26 01:08:36.508  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:ADSP  val:ADSP | 1039290 | 952742684
+03-26 01:08:36.509  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.509  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: ADSP_ISLAND 1039112 952514401
+03-26 01:08:36.510  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:ADSP_ISLAND  val:ADSP_ISLAND | 1039112 | 952514401
+03-26 01:08:36.510  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.511  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: APSS 150856 394749011
+03-26 01:08:36.511  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:APSS  val:APSS | 150856 | 394749011
+03-26 01:08:36.511  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.512  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: CDSP 25665 977309787
+03-26 01:08:36.512  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:CDSP  val:CDSP | 25665 | 977309787
+03-26 01:08:36.512  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.513  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: MPSS 3950537 571808938
+03-26 01:08:36.513  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:MPSS  val:MPSS | 3950537 | 571808938
+03-26 01:08:36.514  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.514  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: SLPI 7519812 966927891
+03-26 01:08:36.515  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:SLPI  val:SLPI | 7519812 | 966927891
+03-26 01:08:36.515  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.515  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: SLPI_ISLAND 6775376 966696187
+03-26 01:08:36.515  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:SLPI_ISLAND  val:SLPI_ISLAND | 6775376 | 966696187
+03-26 01:08:36.515  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: VLOW 26696287 208610098
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:VLOW  val:VLOW | 26696287 | 208610098
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: VMIN 1374512 311110943
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState key:VMIN  val:VMIN | 1374512 | 311110943
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: putSubsystemSleepState update
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: getPowerStateSubsystemSleepStateList tmpSubsystemState: VMIN 1374512 311110943
+03-26 01:08:36.516  2353  2353 E vendor.oplus.hardware.rpmh-V1-service: get data from /sys/module/soc_sleep_stats/rpmh_stats/oplus_rpmh_master_stats failed! res=-1
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: dumpSubsystemSleepState-->
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:ADSP  val:ADSP | 1039290 | 952742684 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:ADSP_ISLAND  val:ADSP_ISLAND | 1039112 | 952514401 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:APSS  val:APSS | 150856 | 394749011 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:CDSP  val:CDSP | 25665 | 977309787 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:MPSS  val:MPSS | 3950537 | 571808938 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:SLPI  val:SLPI | 7519812 | 966927891 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:SLPI_ISLAND  val:SLPI_ISLAND | 6775376 | 966696187 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:VLOW  val:VLOW | 26696287 | 208610098 
+03-26 01:08:36.516  2353  2353 D vendor.oplus.hardware.rpmh-V1-service: key:VMIN  val:VMIN | 1374512 | 311110943 
+03-26 01:08:36.519  4804  5168 I ModemAci: [RpmInfo] [LO, DA]:{ stamp=988829087 duration=294 apssState=[150856, 394749011] mpssState=[3950537, 571808938] vminState=[1374512, 311110943] vlowState=[26696287, 208610098]}
+03-26 01:08:36.519  4782  5743 E AMC     : [P-lowpower_vowifi/0] execute failed in triggers[0]:[mpsleept:165][bcc:5, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.520  4782  5743 E AMC     : [P-lowpower_vowifi/1] execute failed in triggers[0]:[mpsleept:165][bcc:5, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.520  4782  5743 E AMC     : [P-lowpower_vowifi/0] execute failed in triggers[0]:[apsleept:0][bcc:5, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.520  4782  5743 E AMC     : [P-lowpower_vowifi/1] execute failed in triggers[0]:[apsleept:0][bcc:5, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.527  4730  6190 D PhoneInterfaceManager: QueryTelephonyChecker-getDataNetworkTypeForSubscriber: packageName = com.oplus.nhs, isGrant = true
+03-26 01:08:36.533  4804  5168 I ModemAci: [CommonInfo] [LO, DA]:{ stamp=988829088 duration=294 screenOnT=386380 wifiConnectT=101637 power=68 dataNetworkType=20 signalStrength=-78 batteryCapacity=2944 thermal[]=31.656 softAp=false charge=false simCount=1 defaultPhone=0 networkType=MOBILE sim1Type=cm sim2Type=unknown}
+03-26 01:08:36.534  4782  5743 E AMC     : [P-lowpower_vowifi/0] execute failed in triggers[0]:[bcc:0][bcc:4, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.534  4782  5743 E AMC     : [P-lowpower_vowifi/1] execute failed in triggers[0]:[bcc:0][bcc:4, deepsleep:false, mpsleept:1051]
+03-26 01:08:36.538  3133  5397 W ProcessStats: Tracking association SourceState{f17da9e com.mi.health:device/10392 Fgs #1148130} whose proc state 3 is better than process ProcessState{2fae5f2 com.mi.health/10392 pkg=com.mi.health} proc state 14 (1 skipped)
+03-26 01:08:36.538  4945  4945 D RadioMessenger: handleMessage Request msgid 2220
+03-26 01:08:36.538  4945  4945 D RadioMessenger: handleSetSyncWithAp: -1, syncFlag: 1
+03-26 01:08:36.538  4945  4945 D QtiRadioService: setSyncWithAp
+03-26 01:08:36.538  4945  4945 D RadioProxyJ[0]: [41663]> setSyncWithAp syncFlag:1
+03-26 01:08:36.539  4434  4434 I Wearable.KeepAlive_4434_4434: KeepAliveJobSchedulerService.onStartJob
+03-26 01:08:36.539  2188 24782 D RadioService: setSyncWithAp with instance 0
+03-26 01:08:36.539  2188 24782 D VendorService: VendorService::setSyncWithAp
+03-26 01:08:36.539  4434  4434 I KeepAliveHelper_4434_4434: startConnect() called 
+03-26 01:08:36.539  2188  2501 D QmiVsClient: setSyncWithAp - enter
+03-26 01:08:36.539  2188  2501 E QmiVsClient: sendAsyncRequest QMI_VS_SET_SYNC_WITH_AP_REQ_MSG_V01 ret 0
+03-26 01:08:36.539  4434  4434 I DeviceManagerImpl_4434_4434: needKeepAliveDeviceModel = [DeviceModelClient(mRemote=com.xiaomi.fitness.device.manager.remote.DeviceManagerRemoteImpl@8099b2e, did='689570041')]
+03-26 01:08:36.540  4434  4434 I Wearable.KeepAlive_4434_4434: KeepAliveHelper.startService
+03-26 01:08:36.540  2188  2501 D VsProxy : handleMessage msg is 4001
+03-26 01:08:36.540  4434  4434 I Wearable.KeepAlive_4434_4434: KeepAliveHelper.startService  KeepAliveService
+03-26 01:08:36.540  2188  2501 D RadioProxy: setSyncWithAp : response cb for instance 0
+03-26 01:08:36.540  4434  4434 I DeviceManagerImpl_4434_4434: needKeepAliveDeviceModel = [DeviceModelClient(mRemote=com.xiaomi.fitness.device.manager.remote.DeviceManagerRemoteImpl@8099b2e, did='689570041')]
+03-26 01:08:36.540  2188  2188 D RadioServiceResponse: RadioServiceResponse::setSyncWithApResponse
+03-26 01:08:36.540  4434  4434 I Wearable.KeepAlive_4434_4434: KeepAliveHelper.startService  containsShowNotificationDevice = true
+03-26 01:08:36.540  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1085
+03-26 01:08:36.540  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1085
+03-26 01:08:36.540  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1085
+03-26 01:08:36.540  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyNecEvent - RADIO_EVENT_NEC_IND
+03-26 01:08:36.540  2188  2501 D VsProxy : handleMessage msg is 2403
+03-26 01:08:36.540  4945  5000 D SubsysRadioResponse: setSyncWithApResponse info.error = 0
+03-26 01:08:36.540  2188  2501 D VsProxy : handleNecInd for instance 0
+03-26 01:08:36.540  4945  5000 D RadioProxyJ[0]: [41663]< setSyncWithApResponse 
+03-26 01:08:36.540  4945  4945 D MessengerResponseHandler: handleMessage Response msgid 210
+03-26 01:08:36.541  4434  4434 I KeepAliveHelper_4434_4434: 689570041 isConnected = true
+03-26 01:08:36.541  4434  4434 I KeepAliveService_4434_4434: needStart: showConnectionNotification true, 
+03-26 01:08:36.541  4434  4434 I Wearable.KeepAlive_4434_4434: KeepAliveHelper.startService the service has started
+03-26 01:08:36.541  4945  6520 D SubsysRadioIndication[0]: radioNecInd 
+03-26 01:08:36.542  4945  4945 D ModemChannel: handleMessage what:102
+03-26 01:08:36.542  4945  4945 D ModemChannel: handleNecEvent
+03-26 01:08:36.543  4804  5168 I ModemAci: [ModemActivityInfo] [LO, DA]:{ stamp=988829113 duration=12 sleepTMs=5692 idleTMs=178 rxTMs=6623 5gRxTMs=0 txTMs=[0, 0, 0, 0, 0, 0, 0, 0] 5gTxTMs=[6, 6, 0, 1, 150166, 46892, 16141, 9163] rrc10sC[]=[0, 0] rrc20sC[]=[0, 0] rrcMore20sC[]=[0, 0] rrcC[]=[0, 0] rrcT[]=[0, 0] saRrc10sC[]=[0, 0] saRrc20sC[]=[0, 0] saRrcMore20sC[]=[0, 0] saRrcC[]=[0, 0] saRrcT[]=[13, 0] endcActT[]=[0, 0] wifiRrcT[]=[0, 0] csChgC[]=[0, 0] psChgC[]=[0, 0] iRatC[]=[0, 0] cellUpdC[]=[0, 0] handOverC[]=[0, 0] nwSrchC[]=[0, 0] nwSrchT[]=[0, 0] psRegT[]=[13, 0] csRegT[]=[13, 0] psNoRegT[]=[0, 13] csNoRegT[]=[0, 13] sigGrid0T[]=[0, 0] gpsTMs=11 wlanTMs=0 sim15gTxTMs[]=[6, 6, 0, 1, 150166, 46892, 16141, 9163] sim25gTxTMs[]=[0, 0, 0, 0, 0, 0, 0, 0] techTMs[]=[0, 0, 0, 0, 0, 0, 0, 0, 0] saActT[]=[13, 0] lteHoC[]=[0, 0] saHoC[]=[0, 0]}
+03-26 01:08:36.545  4782  5635 D SubsysCallManager: handleMessage what:102
+03-26 01:08:36.545  4782  5635 D SubsysCallManager: parseMdmInfoData len:392
+03-26 01:08:36.545  4782  5635 D SubsysCallManager: onMdmEvent moduleId:6,eventId:4
+03-26 01:08:36.546  4782  5635 D ModemDataAnalysis: phoneId = 0, moduleId = 6, onEvent...4, version = 0, size:380
+03-26 01:08:36.546  6166 23777 I midasd  : OplusObrainService::notifyEventString eventId:11 strParam:{"5gRxTimeMs":0,"5gTxTimeMs":[],"idleTimeMs":178,"lteRrcC":[0,0],"lteRrcT":[0,0],"nrRrcC":[0,0],"nrRrcT":[13,0],"rxTimeMs":6623,"sleepTimeMs":5692,"timestamp":1774458516543,"txTimeMs":[0,0,0,0,0,0,0,0]}
+03-26 01:08:36.547  4782  5743 E AMC     : [P-ooslimited_deep/0] execute failed in triggers[0]:[nwsrcht:0][nwsrcht:0]
+03-26 01:08:36.547  9592 16141 I OplusObrain: OplusObrainClientInvoke.nativeGetTelephonyInfo
+03-26 01:08:36.547  4782  5743 E AMC     : [P-ooslimited_deep/1] execute failed in triggers[0]:[nwsrcht:0][nwsrcht:0]
+03-26 01:08:36.547  4782  5743 E AMC     : [P-mpss_reset/0] execute failed in triggers[0]:[sleept:5][sleept:1047]
+03-26 01:08:36.547  4782  5743 E AMC     : [P-mpss_reset/1] execute failed in triggers[0]:[sleept:5][sleept:1047]
+03-26 01:08:36.547  4782  5743 E AMC     : [P-pidnetdisable_recovery] execute failed in triggers[0]:[sleept:5][sleept:1047, pidnetdisable:false]
+03-26 01:08:36.547  4782  5743 E AMC     : [P-standby_5gbackoff/0] execute failed in triggers[0]:[sleept:5][inactive:false, sleept:536]
+03-26 01:08:36.547  4782  5743 E AMC     : [P-standby_5gbackoff/1] execute failed in triggers[0]:[sleept:5][inactive:false, sleept:536]
+03-26 01:08:36.547  9592 14928 I OplusObrain: OplusObrainClientInvoke.nativeGetTrafficTypeInfoForNetworkType networkType 0
+03-26 01:08:36.549  3133  3725 D KernelStatsHelper: getKernelStats start!
+03-26 01:08:36.551  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{3004}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.551  3133  4085 D KernelStatsHelper: get magic :[-1, -1, -1, 77, 65, 71, 73, 67]
+03-26 01:08:36.552  3133  4085 D KernelStatsHelper: magic matched count:479 data_len:24908
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 82.657295/0.000000/0.000000/133.745316, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829112560016, cnt 4669
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{2988}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D OplusNetlinkSocket: handleNetlinkRecvKernelMessage:nlmsghdr:StructNlMsgHdr{ nlmsg_len{1220}, nlmsg_type{39()}, nlmsg_flags{0()}, nlmsg_seq{0}, nlmsg_pid{205328373} }
+03-26 01:08:36.552  3133  4085 D KernelStatsHelper: data over! check: true
+03-26 01:08:36.641  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.641  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:36.641  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 54.585003/0.000000/0.000000/120.178215, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829201410328, cnt 4670
+03-26 01:08:36.729  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.729  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.502007/0.000000/0.000000/149.678940, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829290212464, cnt 4671
+03-26 01:08:36.818  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.818  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 67.061584/0.000000/0.000000/166.319931, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829379126474, cnt 4672
+03-26 01:08:36.822 32161 32218 I APS_ALOG: flushRoutine g_immediateFlush=0 g_pendingCount=0 g_oobCount=0 asan-debug7
+03-26 01:08:36.822 32161 32218 E APS_ALOG: CAM_ALOG_LIMIT,Fatal Err! mFd -1
+03-26 01:08:36.822 32161 32218 E APS_ALOG: CAM_ALOG_LIMIT,Fatal Err! FilePath nullptr!
+03-26 01:08:36.822 32161 32218 I APS_ALOG: CAM_ALOG_LIMIT, re-create file!
+03-26 01:08:36.822 32161 32218 E APS_ALOG: Failed to open directory
+03-26 01:08:36.822 32161 32218 I APS_ALOG: spaceCheck: freeSpace(41477) totalSpace(225615)
+03-26 01:08:36.822 32161 32218 I APS_ALOG: spaceCheck: threshold(5120) isEnough(1)
+03-26 01:08:36.822 32161 32218 I APS_ALOG: open sUseALog(0) sEnable(0) sSpaceOK(1) sFlushThreadRunning(1) sEncryptEnable(0)
+03-26 01:08:36.823 32161 32218 E APS_ALOG: FileALogWriter: file open failed /data/vendor/cam_alog_2026_0326_010836_32161_01.txt
+03-26 01:08:36.823 32161 32218 E APS_ALOG: Unable to open file. Please disable SELinux and restart camerahalserver. !!!
+03-26 01:08:36.907  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.907  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 92.014732/0.000000/0.000000/156.224564, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829467979495, cnt 4673
+03-26 01:08:36.997  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:36.997  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372154/0.000000/0.000000/157.230988, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829556829755, cnt 4674
+03-26 01:08:37.076  3133  3867 V AlarmManager: sending alarm Alarm{8fb007d type 1 origWhen 1774458517076 whenElapsed 988829645 android} uid 1000 whenElapsed 988829645 windowLength 0 maxWhenElapsed 988829645 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-26 01:08:37.077  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-26 01:08:37.080  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 1.00 MB/s, Write: 0.00 MB/s
+03-26 01:08:37.080  3133  1893 E OplusStorageUFSBandwidth: Task time: 3ms
+03-26 01:08:37.085  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.086  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:37.086  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 99.812584/0.000000/0.000000/162.848190, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829645697776, cnt 4675
+03-26 01:08:37.086  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-26 01:08:37.174  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.175  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978584/0.000000/0.000000/170.356018, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829734536109, cnt 4676
+03-26 01:08:37.263  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.263  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 79.538155/0.000000/0.000000/154.289764, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829823379495, cnt 4677
+03-26 01:08:37.315  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:37.352  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.352  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 68.621147/0.000000/0.000000/161.753342, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988829912199287, cnt 4678
+03-26 01:08:37.352  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4678)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 68, 0, 0, 161]
+03-26 01:08:37.440  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.440  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 68.621147/0.000000/0.000000/160.393265, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830000867307, cnt 4679
+03-26 01:08:37.486  4434 10942 I TimeTracker_4434_10942: trackProcessAlive() called duration 545, miill 1774458517485, start 1774425790494
+03-26 01:08:37.530  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.530  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:37.530  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 56.144569/0.000000/0.000000/158.812103, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830089746474, cnt 4680
+03-26 01:08:37.618  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.618  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978577/0.000000/0.000000/181.811447, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830178751370, cnt 4681
+03-26 01:08:37.708  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.708  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 90.455147/0.000000/0.000000/177.244873, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830267575328, cnt 4682
+03-26 01:08:37.796  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.797  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 79.538132/0.000000/0.000000/168.376968, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830356425328, cnt 4683
+03-26 01:08:37.886  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.886  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/175.928986, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830445267932, cnt 4684
+03-26 01:08:37.974  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:37.975  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:37.975  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 92.014717/0.000000/0.000000/189.363495, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830534125432, cnt 4685
+03-26 01:08:38.062  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.062  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 79.538139/0.000000/0.000000/183.790482, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830622931109, cnt 4686
+03-26 01:08:38.151  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.151  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978577/0.000000/0.000000/171.804520, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830711785380, cnt 4687
+03-26 01:08:38.240  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.240  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942429/0.000000/0.000000/155.738251, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830800430068, cnt 4688
+03-26 01:08:38.240  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4688)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 63, 0, 0, 155]
+03-26 01:08:38.269  1714 17654 V Codec2-DumpInput: [processLoop:L668][c2.qti.hevc.decoder_378]QueueRead[0] empty, waiting buffer.
+03-26 01:08:38.269  1714 19311 V Codec2-DumpInput: [processLoop:L668][c2.qti.avc.decoder_380]QueueRead[0] empty, waiting buffer.
+03-26 01:08:38.269  1714 19309 I QC2Comp : [avcD_432] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-26 01:08:38.269  1714 19309 I QC2Comp : [avcD_432] Mem-usage:  | Total: 0.000 MB
+03-26 01:08:38.269  1714 17605 I QC2Comp : [hevcD_430] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-26 01:08:38.269  1714 17605 I QC2Comp : [hevcD_430] Mem-usage:  | Total: 0.000 MB
+03-26 01:08:38.317  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:38.329  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.329  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 62.382866/0.000000/0.000000/141.164719, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830889293609, cnt 4689
+03-26 01:08:38.418  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:38.419  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.419  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942436/0.000000/0.000000/128.083908, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988830978302307, cnt 4690
+03-26 01:08:38.458  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:38.458  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17126, identity:qcom-perfd
+03-26 01:08:38.459  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:38.478  1697 20952 I [UAH_CLIENT]: UahRelease, handle:517499
+03-26 01:08:38.485  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onDataActivity
+03-26 01:08:38.486  4945  4945 D DataService[0]: onDataActivity direction:0
+03-26 01:08:38.488  4951  6677 I OplusBluetoothSarManager: sar backoff not supported
+03-26 01:08:38.488  4545  4545 W OPLUS_LOG_LOAD: ==LOGS PROG INFO, prog(com.android.systemui) ==
+03-26 01:08:38.488  4545  4545 D Tile.OplusCellularTile: refreshState: tile not listening, ignore
+03-26 01:08:38.490  4545  4723 I SystemUi--Statusbar: MobileConnectionRepositoryImpl-->subId:3 isSoftSimCard:false slotId:0
+03-26 01:08:38.507  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.507  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.502007/0.000000/0.000000/128.039719, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831067179703, cnt 4691
+03-26 01:08:38.596  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.596  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978577/0.000000/0.000000/160.216431, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831156006578, cnt 4692
+03-26 01:08:38.684  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.684  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.501999/0.000000/0.000000/160.260651, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831244850953, cnt 4693
+03-26 01:08:38.773  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.773  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 74.859436/0.000000/0.000000/174.834198, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831333683609, cnt 4694
+03-26 01:08:38.862  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.862  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:38.862  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 76.418999/0.000000/0.000000/172.899368, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831422535224, cnt 4695
+03-26 01:08:38.952  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:38.952  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 76.418999/0.000000/0.000000/159.774353, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831511346839, cnt 4696
+03-26 01:08:38.952  1829  2913 D VRR [OTI]: handleIdle from 0 to 1
+03-26 01:08:38.952  1829  2913 D VRR [OTI-HW]: isStateReady 0
+03-26 01:08:38.953  1829  2913 D VRR [OTI-HW]: keep rate.
+03-26 01:08:39.040  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.041  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942429/0.000000/0.000000/155.605652, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831600014703, cnt 4697
+03-26 01:08:39.078  1770  1770 D ChargerInfo: getInfo: type: 0x1, update: 1
+03-26 01:08:39.078  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update start
+03-26 01:08:39.080  3133  3867 V AlarmManager: sending alarm Alarm{739dcbe type 1 origWhen 1774458519080 whenElapsed 988831649 android} uid 1000 whenElapsed 988831649 windowLength 0 maxWhenElapsed 988831649 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-26 01:08:39.081  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-26 01:08:39.082  1770  1845 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-26 01:08:39.083  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 1.00 MB/s, Write: 0.00 MB/s
+03-26 01:08:39.083  3133  1893 E OplusStorageUFSBandwidth: Task time: 2ms
+03-26 01:08:39.086  1770  1845 D ChargerInfo: get_ui_charge_icon_type: 0 0 0 0
+03-26 01:08:39.086  1770  1845 D ChargerInfo: cpaPower:2500 isChargeOnline:1 isSupportRetentionTopic:0
+03-26 01:08:39.086  1770  1845 E ChargerInfo: SingleHyperPath not found
+03-26 01:08:39.086  1770  1845 D ChargerInfo: CarC: path(/sys/class/oplus_chg/battery/gauge_car_c): not exist
+03-26 01:08:39.086  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update end
+03-26 01:08:39.086  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update wait
+03-26 01:08:39.087  1770  1770 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-26 01:08:39.087  1770  1770 D ChargerInfo: getInfo: {"Update":{"batteryFcc":4514,"batteryRm":2944,"bddLeakCurr":0,"bmsStatus":0,"bypassChgStatus":0,"chargeTimeRemaining":0,"cpaPower":2,"enableTx":true,"fastCharge":0,"isSupportSpeedCharge":0,"notifyCode":0,"otgOnline":1,"ppsChargePower":0,"ppsCharging":0,"shortCHwStatus":0,"shortIcOtpStatus":0,"uiIconType":0,"uiPower":0,"usbStatus":0,"wlsAdapterPower":0}}
+03-26 01:08:39.087  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-26 01:08:39.129  4945  4945 D TimerEvent: TimerEvent update to true
+03-26 01:08:39.129  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.129  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 56.144569/0.000000/0.000000/157.452042, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831688810745, cnt 4698
+03-26 01:08:39.129  4945  4945 D PolicyHandler: updateEventContext trigger event Event{mEventName=TimerEvent,mNickName=timer,mEventVal=true,mDefaultVal=false,mId=-1,mDefaultId=-1,mInstanceId=0,mUseNameId=false}
+03-26 01:08:39.129  4945  4945 D AtomAction: doAction for 54502 with [2, 3, 21004, 21031, 21033]
+03-26 01:08:39.129  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4698)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 56, 0, 0, 157]
+03-26 01:08:39.129  4945  4945 D AtomAction: fetchData reach max report count
+03-26 01:08:39.130  4945  4945 D AtomAction: stopAction
+03-26 01:08:39.130  4945  4945 E MetricsAction: stopMetricsCollect no metrics data id 54502
+03-26 01:08:39.130  4945  4945 D TimerEvent: TimerEvent reset to false
+03-26 01:08:39.177  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->updateNetworkSpeed: isConnected:true,isSwitchOn:true,isSuspend:false,isPause:false
+03-26 01:08:39.183  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->getTotalByte: totalRxBytes:88274769694,totalTxBytes:15999291577,loopbackTxBytes:4251606653,loopbackRxBytes:4251606653 ,totalBytes:95770847965
+03-26 01:08:39.211  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:39.211  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17123, identity:qcom-perfd
+03-26 01:08:39.213  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:39.218  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.218  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 45.227562/0.000000/0.000000/150.386322, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831777804182, cnt 4699
+03-26 01:08:39.232  1697 20973 I [UAH_CLIENT]: UahRelease, handle:517500
+03-26 01:08:39.306  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.306  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:39.306  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 57.704132/0.000000/0.000000/136.951843, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831866640693, cnt 4700
+03-26 01:08:39.321  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:39.395  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.396  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/141.120544, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988831955470224, cnt 4701
+03-26 01:08:39.485  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.485  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372131/0.000000/0.000000/175.929047, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832044293974, cnt 4702
+03-26 01:08:39.572  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.572  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.501984/0.000000/0.000000/151.260147, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832133140484, cnt 4703
+03-26 01:08:39.662  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.662  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 54.584980/0.000000/0.000000/160.216461, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832221977047, cnt 4704
+03-26 01:08:39.750  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.750  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:39.751  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.501984/0.000000/0.000000/181.811523, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832310777984, cnt 4705
+03-26 01:08:39.840  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.840  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942417/0.000000/0.000000/190.812042, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832399617776, cnt 4706
+03-26 01:08:39.927  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:39.928  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 99.812561/0.000000/0.000000/196.738708, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832488255120, cnt 4707
+03-26 01:08:39.948  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:39.948  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17124, identity:qcom-perfd
+03-26 01:08:39.950  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:39.969  1697 20974 I [UAH_CLIENT]: UahRelease, handle:517501
+03-26 01:08:39.995  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onDataActivity
+03-26 01:08:39.995  4945  4945 D DataService[0]: onDataActivity direction:3
+03-26 01:08:39.996  4951  6677 I OplusBluetoothSarManager: sar backoff not supported
+03-26 01:08:39.997  4545  4545 D Tile.OplusCellularTile: refreshState: tile not listening, ignore
+03-26 01:08:39.998  4545  4723 I SystemUi--Statusbar: MobileConnectionRepositoryImpl-->subId:3 isSoftSimCard:false slotId:0
+03-26 01:08:40.017  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.017  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372131/0.000000/0.000000/184.796936, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832577234807, cnt 4708
+03-26 01:08:40.017  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4708)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 101, 0, 0, 184]
+03-26 01:08:40.106  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.106  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 102.931702/0.000000/0.000000/192.304749, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832666072464, cnt 4709
+03-26 01:08:40.194  1659  9983 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:40.195  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.196  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978561/0.000000/0.000000/188.224457, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832754873922, cnt 4710
+03-26 01:08:40.283  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.284  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 62.382847/0.000000/0.000000/179.268143, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832843678141, cnt 4711
+03-26 01:08:40.325  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:40.372  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.373  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 62.382847/0.000000/0.000000/175.973236, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988832932502307, cnt 4712
+03-26 01:08:40.461  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.461  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 49.906273/0.000000/0.000000/164.208313, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833021322359, cnt 4713
+03-26 01:08:40.485  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-26 01:08:40.550  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.550  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 63.942436/0.000000/0.000000/146.958786, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833110113349, cnt 4714
+03-26 01:08:40.639  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.639  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:40.639  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 65.502007/0.000000/0.000000/120.929771, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833198918818, cnt 4715
+03-26 01:08:40.727  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.727  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978577/0.000000/0.000000/142.834305, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833287577099, cnt 4716
+03-26 01:08:40.761  1697  1697 I [UAH_CLIENT]: UahPlatformResAcquire
+03-26 01:08:40.761  1697  1697 I [UAH_CLIENT]: UahEventAcquire, cmdid:-3, pkg:1829 17125, identity:qcom-perfd
+03-26 01:08:40.763  1697  1815 E ANDR-PERF-RESOURCEQS: Resource with major=16, minor=0 not supported
+03-26 01:08:40.782  1697 20976 I [UAH_CLIENT]: UahRelease, handle:517502
+03-26 01:08:40.816  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.816  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/147.666122, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833376576005, cnt 4717
+03-26 01:08:40.905  1659  9983 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (4718)(cct, lux, ir_ratio, r, g, b, c)[5300, 0, 0, 77, 0, 0, 154]
+03-26 01:08:40.905  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.906  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/154.599213, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833465387359, cnt 4718
+03-26 01:08:40.994  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:40.994  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 53.025417/0.000000/0.000000/166.187317, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833554234859, cnt 4719
+03-26 01:08:41.082  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.083  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:41.083  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 51.465847/0.000000/0.000000/140.766846, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833643085276, cnt 4720
+03-26 01:08:41.083  3133  3867 V AlarmManager: sending alarm Alarm{59dec6c type 1 origWhen 1774458521083 whenElapsed 988833652 android} uid 1000 whenElapsed 988833652 windowLength 0 maxWhenElapsed 988833652 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-26 01:08:41.085  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-26 01:08:41.088  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 1.00 MB/s, Write: 0.00 MB/s
+03-26 01:08:41.088  3133  1893 E OplusStorageUFSBandwidth: Task time: 3ms
+03-26 01:08:41.092  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-26 01:08:41.171  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.172  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 53.025417/0.000000/0.000000/153.891891, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833731902776, cnt 4721
+03-26 01:08:41.260  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.260  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978569/0.000000/0.000000/155.694061, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833820719547, cnt 4722
+03-26 01:08:41.328  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-26 01:08:41.349  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.349  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 101.372131/0.000000/0.000000/141.562607, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833909540224, cnt 4723
+03-26 01:08:41.438  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.438  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 90.455124/0.000000/0.000000/131.113571, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988833998297724, cnt 4724
+03-26 01:08:41.527  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-26 01:08:41.527  1659  9947 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1204, pwm_turbo_on 0/0, hbm_dc 0
+03-26 01:08:41.527  1659  9947 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 0.000000, raw_cct 5300.000000, r/g/b/c: 77.978561/0.000000/0.000000/133.303253, R/G/B: 0.000000/0.000000/0.000000, brl 1204.000000, lux: 0.000000, cct: 5300.000000, ts 988834087090797, cnt 4725

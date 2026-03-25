@@ -4897,6 +4897,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function isEquivalentVersionProbeTransition(previousProbe = null, nextProbe = null) {
+    const previous = normalizeVersionProbe(previousProbe, cachedStatus);
+    const next = normalizeVersionProbe(nextProbe, cachedStatus);
+    if (!previous || !next) {
+      return false;
+    }
+    if (previous.fingerprint === next.fingerprint) {
+      return true;
+    }
+    const previousBundleStorage =
+      typeof previous.storageMode === "string" &&
+      previous.storageMode.includes("bundle");
+    const nextBundleStorage =
+      typeof next.storageMode === "string" && next.storageMode.includes("bundle");
+    if (!previousBundleStorage && !nextBundleStorage) {
+      return false;
+    }
+    if (!previous.actualUri || previous.actualUri !== next.actualUri) {
+      return false;
+    }
+    if (previous.modifiedAt <= 0 || previous.modifiedAt !== next.modifiedAt) {
+      return false;
+    }
+    return true;
+  }
+
   function createSourceSyncResult(state, status) {
     return {
       state: cloneValue(state),
@@ -5363,6 +5389,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       const state = readState();
+      const currentValue = Object.prototype.hasOwnProperty.call(state, normalizedKey)
+        ? state[normalizedKey]
+        : null;
+      const currentSnapshot = safeSerialize(currentValue);
+      const nextSnapshot = safeSerialize(nextValue);
+      if (currentSnapshot === nextSnapshot) {
+        if (SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)) {
+          const mirroredValue = readRawLocalOnlyValue(normalizedKey);
+          if (safeSerialize(mirroredValue) !== nextSnapshot) {
+            writeRawLocalOnlyValue(normalizedKey, nextValue);
+          }
+        }
+        return;
+      }
       state[normalizedKey] = nextValue;
       if (SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)) {
         writeRawLocalOnlyValue(normalizedKey, nextValue);
@@ -5377,6 +5417,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       const state = readState();
+      const hasCurrentValue = Object.prototype.hasOwnProperty.call(state, normalizedKey);
+      const mirroredValue = SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)
+        ? readRawLocalOnlyValue(normalizedKey)
+        : undefined;
+      if (
+        !hasCurrentValue &&
+        (!SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey) ||
+          typeof mirroredValue === "undefined")
+      ) {
+        return;
+      }
       delete state[normalizedKey];
       if (SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)) {
         writeRawLocalOnlyValue(normalizedKey, undefined);
@@ -6733,8 +6784,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const nativeSyncBootstrapStartedAt = Date.now();
     let nativeInitializationSettled = false;
     let pendingForegroundSyncRequest = null;
-    let shellPageActive =
-      window.__CONTROLER_SHELL_VISIBILITY__?.active !== false;
+    const initialShellVisibilityState =
+      window.__CONTROLER_SHELL_VISIBILITY__ &&
+      typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
+        ? window.__CONTROLER_SHELL_VISIBILITY__
+        : null;
+    let shellPageActive = initialShellVisibilityState?.active !== false;
     const MANAGED_RANGE_SECTIONS = [
       "records",
       "dailyCheckins",
@@ -6744,6 +6799,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ];
     let hasManagedCoreSnapshot =
       !!initialMirrorStateRaw.trim() || shouldAdoptLegacyBrowserBootstrap;
+    let preferProbeOnlyOnFirstShellResume =
+      initialShellVisibilityState?.active === false &&
+      initialShellVisibilityState?.transitionLoading === true &&
+      hasManagedCoreSnapshot;
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
     let pendingNativeSharedKeyWrites = new Set(initialPendingSharedKeys);
@@ -7320,6 +7379,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     }
 
+    function isManagedShellInactive() {
+      return shellPageActive === false;
+    }
+
+    function queueNativeForegroundSyncOnShellResume(reason = "shell-resume", options = {}) {
+      pendingForegroundSyncRequest = {
+        reason:
+          typeof reason === "string" && reason.trim()
+            ? reason.trim()
+            : pendingForegroundSyncRequest?.reason || "shell-resume",
+        resetWindow:
+          options.resetWindow === true ||
+          pendingForegroundSyncRequest?.resetWindow === true,
+      };
+    }
+
     rebuildManagedSectionCoverage(cachedState);
 
     function readState() {
@@ -7396,12 +7471,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     async function settleManagedNativeDirectWrite(checkpoint = null) {
       touchRecentNativeLocalWriteWindow();
-      const nextStatus = await getNativeStatusSnapshot({
-        suppressError: true,
-      });
-      if (nextStatus && typeof nextStatus === "object") {
-        cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
-      }
       if (
         checkpoint &&
         checkpoint.revision === managedStateRevision
@@ -7414,6 +7483,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       updateVersionBaseline(cachedStatus);
       clearStorageSyncError();
       touchNativeFastProbeWindow();
+      scheduleNativeStatusRefresh({
+        suppressError: true,
+      });
       scheduleNativeProbeLoop();
     }
 
@@ -7468,6 +7540,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       recentNativeLocalWriteAt = Date.now();
     }
 
+    function shouldPreferProbeOnlyOnShellResume(reason = "") {
+      return (
+        preferProbeOnlyOnFirstShellResume &&
+        hasManagedCoreSnapshot &&
+        !hasPendingStateChanges &&
+        String(reason || "").trim() === "shell-resume"
+      );
+    }
+
     function isFastProbeWindowActive() {
       return useAndroidProbeLoop && Date.now() < nativeFastProbeUntil;
     }
@@ -7488,20 +7569,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function shouldForceNativeSnapshotSync() {
-      const storageMode =
-        typeof cachedStatus?.storageMode === "string"
-          ? cachedStatus.storageMode
-          : typeof lastKnownVersionProbe?.storageMode === "string"
-            ? lastKnownVersionProbe.storageMode
-            : "";
-      return (
-        useAndroidProbeLoop &&
-        (
-          cachedStatus?.isCustomPath === true ||
-          storageMode === "file" ||
-          storageMode === "directory"
-        )
-      );
+      // Version probes plus explicit storage.changed events are enough to detect
+      // foreground updates. Forcing a full snapshot sync on every unchanged probe
+      // was repeatedly triggering multi-second readState calls on active pages.
+      return false;
     }
 
     function stopNativeProbeLoop() {
@@ -7583,6 +7654,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     async function refreshNativeStatusCache(options = {}) {
       const { suppressError = true, force = false } = options;
+      if (isManagedShellInactive() && !force) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        return cachedStatus;
+      }
       if (nativeStatusRefreshPromise && !force) {
         return nativeStatusRefreshPromise;
       }
@@ -7609,6 +7684,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function scheduleNativeStatusRefresh(options = {}) {
+      if (isManagedShellInactive() && options?.force !== true) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        return;
+      }
       void refreshNativeStatusCache(options).catch((error) => {
         console.error("后台刷新 React Native 存储状态失败:", error);
       });
@@ -7657,7 +7736,45 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     }
 
+    async function runProbeOnlyShellResumeSync(reason = "shell-resume") {
+      const normalizedReason =
+        typeof reason === "string" && reason.trim() ? reason.trim() : "shell-resume";
+      if (!shouldPreferProbeOnlyOnShellResume(normalizedReason)) {
+        return false;
+      }
+      preferProbeOnlyOnFirstShellResume = false;
+      touchNativeFastProbeWindow();
+      try {
+        const versionProbe = await probeNativeStateVersion({
+          includeFallbackHash: shouldUseFallbackHashProbe(),
+          suppressError: true,
+        });
+        if (versionProbe) {
+          updateVersionBaseline(versionProbe);
+          clearStorageSyncError();
+        } else {
+          scheduleNativeStatusRefresh({
+            suppressError: true,
+          });
+        }
+      } catch (error) {
+        console.error("壳层恢复时的轻量版本探测失败:", error);
+        scheduleNativeForegroundSync(normalizedReason, {
+          resetWindow: false,
+          allowProbeOnlyBypass: false,
+        });
+        return false;
+      }
+      scheduleNativeProbeLoop();
+      return true;
+    }
+
     async function writeNativeState() {
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        persistMirrorSnapshot(true);
+        return cachedStatus;
+      }
       const pendingSharedKeys = peekPendingNativeSharedKeyChanges();
       let latestSnapshot = null;
       let nextState = normalizeState(readState(), {
@@ -7853,6 +7970,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         source = "",
         originPageInstanceId = "",
       } = options;
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume");
+        return createSourceSyncResult(
+          buildMergedState(cachedState, {
+            includeAliases: true,
+          }),
+          cachedStatus,
+        );
+      }
       if (hasPendingStateChanges) {
         await writeNativeState();
         return createSourceSyncResult(
@@ -7900,6 +8026,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     async function runNativeVersionProbe(reason) {
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume");
+        return createSourceSyncResult(
+          buildMergedState(cachedState, {
+            includeAliases: true,
+          }),
+          cachedStatus,
+        );
+      }
       if (!useAndroidProbeLoop) {
         if (hasPendingStateChanges) {
           await writeNativeState();
@@ -7924,6 +8059,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return null;
         }
 
+        const previousVersionProbe = lastKnownVersionProbe;
         lastKnownVersionProbe = versionProbe;
         if (versionProbe.fallbackHashUsed) {
           lastFallbackHashProbeAt = Date.now();
@@ -7944,6 +8080,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           versionProbe.fingerprint &&
           versionProbe.fingerprint !== nativeBaselineFingerprint
         ) {
+          if (isEquivalentVersionProbeTransition(previousVersionProbe, versionProbe)) {
+            updateVersionBaseline(versionProbe);
+            clearStorageSyncError();
+            return createSourceSyncResult(
+              buildMergedState(cachedState, {
+                includeAliases: true,
+              }),
+              cachedStatus,
+            );
+          }
           const syncResult = await syncStateFromNative(reason || "external-update");
           updateVersionBaseline(syncResult?.status || cachedStatus);
           return syncResult;
@@ -7981,7 +8127,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function scheduleNativeForegroundSync(reason, options = {}) {
-      const { resetWindow = true } = options;
+      const { resetWindow = true, allowProbeOnlyBypass = true } = options;
       if (!shellPageActive) {
         pendingForegroundSyncRequest = {
           reason: reason || "shell-resume",
@@ -8000,8 +8146,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (resetWindow) {
         touchNativeFastProbeWindow();
       }
+      if (allowProbeOnlyBypass && shouldPreferProbeOnlyOnShellResume(reason)) {
+        writeChain = writeChain
+          .then(() => runProbeOnlyShellResumeSync(reason || "shell-resume"))
+          .catch((error) => {
+            console.error("前台恢复轻量同步失败:", error);
+          });
+        return;
+      }
       window.clearTimeout(nativeForegroundSyncTimer);
       nativeForegroundSyncTimer = window.setTimeout(() => {
+        if (!shellPageActive) {
+          pendingForegroundSyncRequest = {
+            reason: reason || "shell-resume",
+            resetWindow: false,
+          };
+          return;
+        }
         writeChain = writeChain
           .then(() => runNativeVersionProbe(reason || "external-update"))
           .catch((error) => {
@@ -8011,8 +8172,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     async function initializeReactNativeStorage() {
+      if (isManagedShellInactive()) {
+        pendingForegroundSyncRequest = {
+          reason: "shell-resume",
+          resetWindow: false,
+        };
+        persistMirrorSnapshot(true);
+        updateVersionBaseline(cachedStatus);
+        return;
+      }
       if (hasPendingStateChanges) {
         persistMirrorSnapshot(true);
+        if (isManagedShellInactive()) {
+          queueNativeForegroundSyncOnShellResume("shell-resume");
+          updateVersionBaseline(cachedStatus);
+          return;
+        }
         const protectedNativeSnapshot = await readNativeSnapshot({
           suppressError: true,
         });
@@ -8068,6 +8243,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const nextCore = await getNativeCoreStateSnapshot({
         suppressError: true,
       });
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        updateVersionBaseline(cachedStatus);
+        persistMirrorSnapshot(true);
+        return;
+      }
       if (nextCore) {
         const currentSnapshot = createComparableSnapshot(readState());
         const nextState = normalizeState(
@@ -8099,6 +8280,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
 
+      if (reactNativeBridge?.platform === "android") {
+        updateVersionBaseline(cachedStatus);
+        persistMirrorSnapshot(true);
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+        });
+        return;
+      }
+
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        updateVersionBaseline(cachedStatus);
+        persistMirrorSnapshot(true);
+        return;
+      }
       const next = await readNativeSnapshot({
         suppressError: true,
       });
@@ -8606,6 +8802,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return readState();
       },
       async getStorageStatus() {
+        if (isManagedShellInactive()) {
+          queueNativeForegroundSyncOnShellResume("shell-resume");
+          return enrichStorageStatusWithRecovery(cachedStatus, cachedState);
+        }
         if (!cachedStatus || cachedStatus?.sizePending === true) {
           await refreshNativeStatusCache({
             suppressError: true,
@@ -8778,6 +8978,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          if (isManagedShellInactive()) {
+            queueNativeForegroundSyncOnShellResume("shell-resume");
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+          }
           const useFreshBootstrap = normalizedOptions.fresh === true;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
@@ -8996,6 +9200,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         async getCoreState() {
           const managedSnapshot = getManagedCoreStateSnapshot();
+          if (isManagedShellInactive()) {
+            queueNativeForegroundSyncOnShellResume("shell-resume");
+            return managedSnapshot;
+          }
           if (hasManagedCoreSnapshot) {
             scheduleManagedFastValidation("core-fast-path");
             return managedSnapshot;
@@ -9119,6 +9327,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         async loadSectionRange(section, scope = {}) {
           const normalizedRange = canServeManagedSectionRange(section, scope);
+          if (isManagedShellInactive()) {
+            queueNativeForegroundSyncOnShellResume("shell-resume");
+            return loadManagedSectionRange(
+              section,
+              normalizedRange || scope,
+            );
+          }
           const canUseManagedRangeFastPath =
             nativeInitializationSettled && !!normalizedRange;
           const preferManagedRange =
@@ -9584,6 +9799,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     const forceFlushNativeStorage = (reason = "forced-persist") => {
       const saveCoordinator = window.ControlerStorage?.saveCoordinator;
+      const hasQueuedSaveWork =
+        typeof saveCoordinator?.hasPending === "function"
+          ? saveCoordinator.hasPending()
+          : false;
+      if (!hasPendingStateChanges && !hasQueuedSaveWork) {
+        persistMirrorSnapshot(true);
+        return;
+      }
       if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
         void saveCoordinator.enqueue(reason, "native-lifecycle").catch((error) => {
           console.error("强制立即保存 React Native 存储失败:", error);
@@ -13369,14 +13592,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
         ? window.__CONTROLER_SHELL_VISIBILITY__
         : null;
+    const hasExplicitInitialState = !!initialState;
+    const defaultActive =
+      hasExplicitInitialState || !isReactNativeNavigationRuntime();
     return {
-      active: initialState?.active !== false,
+      active: hasExplicitInitialState ? initialState?.active !== false : defaultActive,
       slot:
         typeof initialState?.slot === "string" ? initialState.slot.trim() : "",
       reason:
         typeof initialState?.reason === "string"
           ? initialState.reason.trim()
-          : "initial",
+          : hasExplicitInitialState
+            ? "initial"
+            : "bootstrap-pending",
       page:
         typeof initialState?.page === "string" ? initialState.page.trim() : "",
       href:

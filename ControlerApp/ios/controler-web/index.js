@@ -356,6 +356,8 @@ let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
 let indexShellVisibilityBound = false;
 let indexDebugInteractivityProbeBound = false;
+let indexForegroundBootstrapReady = false;
+let indexForegroundBootstrapPromise = null;
 let indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
 let indexRenderedRecordGroupSignature = "";
 let indexRecordListLazyLoadBound = false;
@@ -425,9 +427,11 @@ function bindIndexShellVisibilityGate() {
     if (indexDeferredHydrationPendingResume) {
       indexDeferredHydrationPendingResume = false;
       if (!indexInitialDataLoaded) {
-        void hydrateIndexInitialForegroundWorkspace().catch((error) => {
-          console.error("恢复记录页首屏工作区失败:", error);
-        });
+        void ensureIndexForegroundBootstrapReady()
+          .then(() => hydrateIndexInitialForegroundWorkspace())
+          .catch((error) => {
+            console.error("恢复记录页首屏工作区失败:", error);
+          });
       } else {
         void scheduleIndexDeferredWorkspaceHydration();
       }
@@ -494,6 +498,13 @@ function isIndexOwnStorageChange(detail = {}) {
   return !!originPageInstanceId && originPageInstanceId === getIndexStoragePageInstanceId();
 }
 
+function isIndexInitialStorageBootstrapChange(detail = {}) {
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
+  return reason === "initial-sync" && !changedSections.length;
+}
+
 function shouldRefreshIndexCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -502,7 +513,10 @@ function shouldRefreshIndexCoreData(nextData = null) {
 }
 
 function shouldRefreshIndexForExternalChange(detail = {}) {
-  if (isIndexOwnStorageChange(detail)) {
+  if (
+    isIndexOwnStorageChange(detail) ||
+    isIndexInitialStorageBootstrapChange(detail)
+  ) {
     return false;
   }
   const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
@@ -3510,6 +3524,32 @@ async function restoreTimerSessionDraftFromStorage() {
   }
 }
 
+function ensureIndexForegroundBootstrapReady() {
+  if (indexForegroundBootstrapReady) {
+    return Promise.resolve(true);
+  }
+  if (indexForegroundBootstrapPromise) {
+    return indexForegroundBootstrapPromise;
+  }
+  indexForegroundBootstrapPromise = Promise.resolve()
+    .then(async () => {
+      await waitForIndexStorageReady();
+      await restoreTimerSessionDraftFromStorage();
+      if (!indexForegroundBootstrapReady) {
+        indexForegroundBootstrapReady = true;
+        uiTools?.markPerfStage?.("shell-ready", {
+          widgetMode: INDEX_WIDGET_CONTEXT.enabled,
+        });
+      }
+      return true;
+    })
+    .catch((error) => {
+      indexForegroundBootstrapPromise = null;
+      throw error;
+    });
+  return indexForegroundBootstrapPromise;
+}
+
 function persistTimerSessionState() {
   try {
     const snapshot = buildTimerSessionSnapshotForPersistence();
@@ -5459,11 +5499,14 @@ function bindTimerModalProjectSelectionTarget(
 function refreshTimerModalProjectSuggestionsAfterSelection(
   inputId,
   expectedValue = "",
+  options = {},
 ) {
   if (!isTimerModalProjectInputId(inputId)) {
     return;
   }
 
+  const keyword =
+    typeof options?.keyword === "string" ? options.keyword : expectedValue;
   const render = () => {
     const input = document.getElementById(inputId);
     if (!(input instanceof HTMLInputElement) || !isModalOpen) {
@@ -5477,7 +5520,7 @@ function refreshTimerModalProjectSuggestionsAfterSelection(
       return;
     }
     clearModalProjectSuggestionHideTimer(inputId);
-    renderProjectSuggestionsForInput(inputId, input.value, true);
+    renderProjectSuggestionsForInput(inputId, keyword, true);
   };
 
   render();
@@ -5588,6 +5631,9 @@ function applyTimerModalProjectSelection(
     refreshTimerModalProjectSuggestionsAfterSelection(
       targetInputId,
       selectedPath,
+      {
+        keyword: selectedPath.endsWith("/") ? selectedPath : `${selectedPath}/`,
+      },
     );
   } else {
     hideProjectSuggestions(targetInputId);
@@ -6102,7 +6148,7 @@ async function handleCreateProjectConfirm() {
 }
 
 // 添加项目（普通）
-function addProject(projectName) {
+function addProject(projectName, options = {}) {
   if (!projectName || projectName.trim() === "") {
     alert("请输入项目名称");
     return false;
@@ -6117,19 +6163,23 @@ function addProject(projectName) {
   const newProject = new Project(projectName);
   projects.push(newProject);
 
-  // 更新UI
-  updateProjectsList();
-  updateExistingProjectsList();
-  updateParentProjectSelect(1); // 更新父级项目选择器
+  if (options?.refreshUi !== false) {
+    // 更新UI
+    updateProjectsList();
+    updateExistingProjectsList();
+    updateParentProjectSelect(1); // 更新父级项目选择器
+  }
 
-  // 保存到localStorage
-  saveProjectsToStorage();
+  if (options?.persist !== false) {
+    // 保存到localStorage
+    saveProjectsToStorage();
+  }
 
   return true;
 }
 
 // 确保项目存在（存在则复用，不存在则创建）
-function ensureProjectExists(projectName) {
+function ensureProjectExists(projectName, options = {}) {
   const normalizedName = projectName?.trim();
   if (!normalizedName) return false;
 
@@ -6137,7 +6187,7 @@ function ensureProjectExists(projectName) {
     return true;
   }
 
-  return addProject(normalizedName);
+  return addProject(normalizedName, options);
 }
 
 // 添加项目（高级，带层级）
@@ -7053,6 +7103,9 @@ function updateExistingProjectsList() {
         name: option.dataset.project,
         path: getProjectPath(project),
       }),
+      {
+        preventDefaultOnPress: true,
+      },
     );
 
     container.appendChild(option);
@@ -7443,8 +7496,33 @@ async function handleIndexModalConfirmClick() {
       await waitForIndexUiPaint();
     }
 
-    if (!ensureProjectExists(currentProjectName)) {
-      return;
+    let createdProjectPendingSave = false;
+    for (const requiredProjectName of [
+      currentProjectName,
+      resolvedNextProjectName,
+    ]) {
+      const normalizedRequiredProjectName = String(requiredProjectName || "").trim();
+      if (!normalizedRequiredProjectName) {
+        continue;
+      }
+      const projectAlreadyExists = projects.some(
+        (project) => project.name === normalizedRequiredProjectName,
+      );
+      if (projectAlreadyExists) {
+        continue;
+      }
+      if (
+        !ensureProjectExists(normalizedRequiredProjectName, {
+          persist: false,
+        })
+      ) {
+        return;
+      }
+      createdProjectPendingSave = true;
+    }
+
+    if (createdProjectPendingSave) {
+      saveProjectsToStorage();
     }
 
     selectedProject = currentProjectName;
@@ -7483,17 +7561,8 @@ async function handleIndexModalConfirmClick() {
         )?.id || null,
       });
       pendingDurationCarryoverState = null;
-      await flushIndexPendingPersistenceOrThrow(
-        {
-          allowDeferredBarrier: false,
-        },
-        "新记录写入失败",
-      );
 
       if (shortenResult.shortenMs > 0) {
-        if (!ensureProjectExists(targetProject)) {
-          throw new Error("缩短时间的目标项目创建失败");
-        }
         pendingDurationCarryoverState = normalizeDurationCarryoverState({
           carryoverMs: shortenResult.shortenMs,
           sourceRecordId: savedRecord?.id || "",
@@ -7505,15 +7574,6 @@ async function handleIndexModalConfirmClick() {
       }
     }
 
-    if (nextProjectName && !ensureProjectExists(nextProjectName)) {
-      throw new Error("下个项目创建失败");
-    }
-    await flushIndexPendingPersistenceOrThrow(
-      {
-        allowDeferredBarrier: false,
-      },
-      "记录页数据保存失败",
-    );
     nextProject = resolvedNextProjectName;
 
     selectedProject = nextProject;
@@ -7526,6 +7586,12 @@ async function handleIndexModalConfirmClick() {
       discardUnsavedClick: false,
       force: true,
     });
+    await flushIndexPendingPersistenceOrThrow(
+      {
+        allowDeferredBarrier: false,
+      },
+      "记录页数据保存失败",
+    );
 
     if (savedRecord) {
       const currentRecordLoadOptions = getIndexCurrentRecordLoadOptions();
@@ -11710,6 +11776,7 @@ async function hydrateIndexInitialForegroundWorkspace() {
     mode: indexInitialDataLoaded ? "inline" : "fullscreen",
   });
   try {
+    await ensureIndexForegroundBootstrapReady();
     emitIndexDebugPerf("hydrate-index-start", {
       markFirstCommit: true,
       initialDataLoaded: indexInitialDataLoaded,
@@ -11877,17 +11944,13 @@ async function init() {
     initIndexModalBindings();
     bindIndexDebugInteractivityProbe();
     initIndexWidgetLaunchAction();
-    await waitForIndexStorageReady();
-    await restoreTimerSessionDraftFromStorage();
-    uiTools?.markPerfStage?.("shell-ready", {
-      widgetMode: INDEX_WIDGET_CONTEXT.enabled,
-    });
+    if (!indexShellPageActive) {
+      indexDeferredHydrationPendingResume = true;
+      return;
+    }
+    await ensureIndexForegroundBootstrapReady();
 
     if (isIndexWidgetTimerFastPath()) {
-      if (!indexShellPageActive) {
-        indexDeferredHydrationPendingResume = true;
-        return;
-      }
       await hydrateIndexInitialForegroundWorkspace();
       return;
     }
@@ -11896,10 +11959,6 @@ async function init() {
     window.setTimeout(() => {
       reportIndexDebugInteractivityState("post-init");
     }, 800);
-    if (!indexShellPageActive) {
-      indexDeferredHydrationPendingResume = true;
-      return;
-    }
     await hydrateIndexInitialForegroundWorkspace();
   } finally {
     setIndexLoadingState({

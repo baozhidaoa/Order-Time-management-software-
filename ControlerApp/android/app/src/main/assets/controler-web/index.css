@@ -4397,11 +4397,21 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     display: inline-flex;
     width: 15px;
     height: 15px;
+    min-width: 15px;
+    min-height: 15px;
     flex: 0 0 15px;
     align-items: center;
     justify-content: center;
+    line-height: 0;
     color: currentColor;
     opacity: 1;
+  }
+
+  body.flex.row > div:first-of-type > .app-nav .bts .app-nav-icon-svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    display: block;
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts .app-nav-label {
@@ -5967,6 +5977,11 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::afte
 }
 
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts .app-nav-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-height: 10px;
   line-height: 1;
 }

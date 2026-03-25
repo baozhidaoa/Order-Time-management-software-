@@ -1245,6 +1245,24 @@ public final class ControlerWidgetDataStore {
         return result;
     }
 
+    private static JSONObject buildCoreStateReplaceResult(JSONObject partialCore) throws Exception {
+        JSONObject result = new JSONObject();
+        ArrayList<String> changedSections = inferBootstrapChangedSectionsFromCorePatch(partialCore);
+        result.put("ok", true);
+        result.put("kind", "replaceCoreState");
+        result.put("changedSections", buildJsonArrayFromStrings(changedSections));
+        result.put("changedSectionCount", changedSections.size());
+        return result;
+    }
+
+    private static JSONObject buildRecurringPlansReplaceResult(JSONArray items) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("ok", true);
+        result.put("kind", "replaceRecurringPlans");
+        result.put("count", items == null ? 0 : items.length());
+        return result;
+    }
+
     public static JSONObject replaceStorageCoreState(
         Context context,
         JSONObject partialCore
@@ -1283,7 +1301,7 @@ public final class ControlerWidgetDataStore {
         if (!saveRoot(context, root)) {
             throw new Exception("保存移动端数据失败。");
         }
-        return getStorageCoreState(context);
+        return buildCoreStateReplaceResult(source);
     }
 
     public static JSONArray replaceStorageRecurringPlans(
@@ -1977,7 +1995,7 @@ public final class ControlerWidgetDataStore {
 
         JSONObject manifest = readBundleManifest(context);
         touchBundleMetadata(context, manifest, core);
-        return readBundleCoreState(context);
+        return buildCoreStateReplaceResult(source);
     }
 
     private static JSONArray replaceBundleRecurringPlans(
@@ -2388,6 +2406,13 @@ public final class ControlerWidgetDataStore {
                         }
                         sectionPeriods.put(periodId);
                     }
+                    continue;
+                }
+                if ("replaceRecurringPlans".equals(kind)) {
+                    JSONArray items = operation.optJSONArray("items");
+                    replaceStorageRecurringPlans(context, items);
+                    results.put(buildRecurringPlansReplaceResult(items));
+                    changedSections.add("plansRecurring");
                 }
             }
         }

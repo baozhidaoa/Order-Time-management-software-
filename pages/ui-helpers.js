@@ -439,14 +439,19 @@
       typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
         ? window.__CONTROLER_SHELL_VISIBILITY__
         : null;
+    const hasExplicitInitialState = !!initialState;
+    const defaultActive =
+      hasExplicitInitialState || !isReactNativeNavigationRuntime();
     return {
-      active: initialState?.active !== false,
+      active: hasExplicitInitialState ? initialState?.active !== false : defaultActive,
       slot:
         typeof initialState?.slot === "string" ? initialState.slot.trim() : "",
       reason:
         typeof initialState?.reason === "string"
           ? initialState.reason.trim()
-          : "initial",
+          : hasExplicitInitialState
+            ? "initial"
+            : "bootstrap-pending",
       page:
         typeof initialState?.page === "string" ? initialState.page.trim() : "",
       href:

@@ -2792,6 +2792,9 @@ function App({
 
   const prewarmNavigationPage = useCallback(
     (pageKey: AppPageKey) => {
+      if (IS_ANDROID) {
+        return false;
+      }
       if (
         transitionStateRef.current ||
         !isPageReadyRef.current ||
@@ -2882,10 +2885,7 @@ function App({
 
   const syncShellVisibility = useCallback((reason = 'shell-state') => {
     const loadingTransition = transitionStateRef.current;
-    const shellActiveSlot =
-      loadingTransition?.status === 'loading'
-        ? loadingTransition.toSlot
-        : activeSlotRef.current;
+    const activeSlot = activeSlotRef.current;
 
     WEBVIEW_SLOTS.forEach(slot => {
       const slotState = webViewSlotsRef.current[slot];
@@ -2894,14 +2894,16 @@ function App({
         return;
       }
 
+      const transitionLoading =
+        loadingTransition?.status === 'loading' &&
+        slot === loadingTransition.toSlot;
       const payload = {
-        active: slot === shellActiveSlot,
+        active: loadingTransition?.status === 'loading' ? false : slot === activeSlot,
         slot,
         reason,
         page: slotState.pageKey,
         href: slotState.uri,
-        transitionLoading:
-          loadingTransition?.status === 'loading' && slot === shellActiveSlot,
+        transitionLoading,
       };
       const signature = JSON.stringify(payload);
       if (shellVisibilitySignatureRef.current[slot] === signature) {
@@ -4064,7 +4066,7 @@ function App({
 
   useEffect(() => {
     clearNavigationPrewarmTimer();
-    if (bootError || !isPageReady || transitionState) {
+    if (bootError || !isPageReady || transitionState || IS_ANDROID) {
       return;
     }
 
@@ -5252,10 +5254,10 @@ function App({
     }
 
     const currentTransition = transitionState;
-    const shellActiveSlot =
-      currentTransition?.status === 'loading'
-        ? currentTransition.toSlot
-        : activeSlot;
+    const transitionLoadingSlot =
+      currentTransition?.status === 'loading' ? currentTransition.toSlot : null;
+    const shellSlotActive =
+      currentTransition?.status === 'loading' ? false : slot === activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
     const androidHiddenOffset = Math.max(Math.round(panelWidth * 1.35), 96);
     let wrapperStyle: Array<object> = [
@@ -5409,11 +5411,12 @@ function App({
           bounces={false}
           overScrollMode="never"
           injectedJavaScriptBeforeContentLoaded={buildBridgeBootstrapScript({
-            active: slot === shellActiveSlot,
+            active: shellSlotActive,
             slot,
             reason: 'bootstrap',
             page: slotState.pageKey,
             href: slotState.uri,
+            transitionLoading: slot === transitionLoadingSlot,
           }, launchThemeStateRef.current)}
           onMessage={event => {
             handleWebViewMessage(slot, event).catch(() => undefined);
