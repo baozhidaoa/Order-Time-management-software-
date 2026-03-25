@@ -33,6 +33,11 @@ let diaryLoadingOverlayTimer = 0;
 let diaryLoadingOverlayController = null;
 let diaryInitialRevealQueued = false;
 let diaryPrefetchRequestId = 0;
+let diaryShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let diaryShellVisibilityBound = false;
+let diaryInitialHydrationPendingResume = false;
+let diaryExternalRefreshPendingResume = false;
+let diaryDeferredRuntimePendingResume = false;
 const diaryExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -81,6 +86,30 @@ function isDiarySerializableEqual(left, right) {
   }
 }
 
+function getDiaryStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function isDiaryOwnStorageChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  return (
+    !!originPageInstanceId &&
+    originPageInstanceId === getDiaryStoragePageInstanceId()
+  );
+}
+
+function isDiaryInitialStorageBootstrapChange(detail = {}) {
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
+  return reason === "initial-sync" && !changedSections.length;
+}
+
 function shouldRefreshDiaryCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -92,6 +121,12 @@ function shouldRefreshDiaryCoreData(nextData = null) {
 }
 
 function shouldRefreshDiaryForExternalChange(detail = {}) {
+  if (
+    isDiaryOwnStorageChange(detail) ||
+    isDiaryInitialStorageBootstrapChange(detail)
+  ) {
+    return false;
+  }
   const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
@@ -130,6 +165,10 @@ function waitForDiaryStorageReady() {
 }
 
 function ensureDiaryDeferredRuntimeLoaded() {
+  if (!diaryShellPageActive) {
+    diaryDeferredRuntimePendingResume = true;
+    return Promise.resolve();
+  }
   if (diaryDeferredRuntimePromise) {
     return diaryDeferredRuntimePromise;
   }
@@ -965,6 +1004,8 @@ function hydrateDiaryInitialData(options = {}) {
     return diaryInitialHydrationPromise;
   }
 
+  const shouldManageLoading =
+    options.manageLoading !== false && !diaryInitialDataLoaded;
   diaryInitialHydrationPromise = refreshDiaryVisibleData({
     ...options,
     periodIds:
@@ -973,6 +1014,7 @@ function hydrateDiaryInitialData(options = {}) {
         : [getDiaryCurrentPeriodId(currentDate)],
     mode: options.mode || "fullscreen",
     delayMs: 0,
+    manageLoading: shouldManageLoading,
     message: "正在读取当前月份的日记与分类，请稍候",
     reportFirstData: true,
   }).finally(() => {
@@ -986,6 +1028,7 @@ async function refreshDiaryVisibleData(options = {}) {
   const requestId = ++diaryLoadRequestId;
   const mode =
     options.mode || (diaryInitialDataValidated ? "inline" : "fullscreen");
+  const manageLoading = options.manageLoading !== false;
   const anchorDate = options.anchorDate || currentDate;
   const delayMs =
     Number.isFinite(options.delayMs) && options.delayMs >= 0
@@ -1032,21 +1075,32 @@ async function refreshDiaryVisibleData(options = {}) {
 
   try {
     if (!diaryRefreshController) {
-      setDiaryLoadingState({
-        active: true,
-        mode,
-        delayMs,
-        message,
-      });
-      const loadedState = await loadTask();
-      commitLoadedState(loadedState);
-      return requestId === diaryLoadRequestId;
+      if (manageLoading) {
+        setDiaryLoadingState({
+          active: true,
+          mode,
+          delayMs,
+          message,
+        });
+      }
+      try {
+        const loadedState = await loadTask();
+        commitLoadedState(loadedState);
+        return requestId === diaryLoadRequestId;
+      } finally {
+        if (manageLoading && requestId === diaryLoadRequestId) {
+          setDiaryLoadingState({
+            active: false,
+          });
+        }
+      }
     }
 
     const refreshResult = await diaryRefreshController.run(
       () => loadTask(),
       {
         delayMs,
+        manageLoading,
         loadingOptions: {
           mode,
           message,
@@ -1071,12 +1125,6 @@ async function refreshDiaryVisibleData(options = {}) {
     diaryInitialDataLoaded = true;
     diaryInitialDataValidated = true;
     return false;
-  } finally {
-    if (!diaryRefreshController && requestId === diaryLoadRequestId) {
-      setDiaryLoadingState({
-        active: false,
-      });
-    }
   }
 }
 
@@ -1985,6 +2033,11 @@ function renderDiaryGuideCard() {
 }
 
 function refreshDiaryFromExternalStorageChange() {
+  if (!diaryShellPageActive) {
+    diaryExternalStorageRefreshQueued = false;
+    diaryExternalRefreshPendingResume = true;
+    return;
+  }
   diaryExternalStorageRefreshQueued = false;
   void refreshDiaryVisibleData({
     anchorDate: currentDate,
@@ -2004,6 +2057,49 @@ function refreshDiaryGuideEntriesFromGuideState(nextGuideState = null) {
   syncDiaryDataIndex();
   scheduleDiaryViewRefresh();
   return true;
+}
+
+function bindDiaryShellVisibilityGate() {
+  if (diaryShellVisibilityBound) {
+    return;
+  }
+  diaryShellVisibilityBound = true;
+  const eventName =
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed";
+  window.addEventListener(eventName, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    const nextActive = detail.active !== false;
+    if (diaryShellPageActive === nextActive) {
+      return;
+    }
+
+    diaryShellPageActive = nextActive;
+    if (!diaryShellPageActive) {
+      return;
+    }
+
+    if (diaryInitialHydrationPendingResume) {
+      diaryInitialHydrationPendingResume = false;
+      void hydrateDiaryInitialData({
+        mode: diaryInitialDataValidated ? "inline" : "fullscreen",
+      }).then((hydrated) => {
+        if (hydrated !== false) {
+          flushDiaryPendingWidgetLaunchAction();
+        }
+      });
+    }
+    if (diaryExternalRefreshPendingResume) {
+      diaryExternalRefreshPendingResume = false;
+      refreshDiaryFromExternalStorageChange();
+    }
+    if (diaryDeferredRuntimePendingResume) {
+      diaryDeferredRuntimePendingResume = false;
+      void ensureDiaryDeferredRuntimeLoaded();
+    }
+  });
 }
 
 function bindDiaryExternalStorageRefresh() {
@@ -2920,6 +3016,7 @@ async function init() {
 
   applyDiaryDesktopWidgetMode();
   await waitForDiaryStorageReady();
+  bindDiaryShellVisibilityGate();
   bootstrapDiaryFromCachedSnapshot();
   initDiaryPeriodSelectors();
   initDiaryCategoryFilterSelector();
@@ -2936,12 +3033,16 @@ async function init() {
     }
   });
   try {
-    const hydrationPromise = hydrateDiaryInitialData({
-      mode: diaryInitialDataValidated ? "inline" : "fullscreen",
-    });
-    const hydrated = await hydrationPromise;
-    if (hydrated !== false) {
-      flushDiaryPendingWidgetLaunchAction();
+    if (!diaryShellPageActive) {
+      diaryInitialHydrationPendingResume = true;
+    } else {
+      const hydrationPromise = hydrateDiaryInitialData({
+        mode: diaryInitialDataValidated ? "inline" : "fullscreen",
+      });
+      const hydrated = await hydrationPromise;
+      if (hydrated !== false) {
+        flushDiaryPendingWidgetLaunchAction();
+      }
     }
   } finally {
     queueDiaryInitialReveal();

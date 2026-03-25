@@ -682,6 +682,8 @@ let planPersistChain = Promise.resolve(true);
 let planPendingPersistenceCount = 0;
 let planLastPersistenceError = null;
 let planBeforePageLeaveGuardBound = false;
+let planStorageBootstrapReady = false;
+let planStorageBootstrapPromise = null;
 
 function waitForPlanStorageReady() {
   if (typeof window.ControlerStorage?.whenReady !== "function") {
@@ -691,6 +693,37 @@ function waitForPlanStorageReady() {
     console.error("等待计划页原生存储就绪失败，继续使用当前快照:", error);
     return false;
   });
+}
+
+function primePlanStorageBootstrapReady() {
+  if (planStorageBootstrapReady) {
+    return Promise.resolve(true);
+  }
+  if (planStorageBootstrapPromise) {
+    return planStorageBootstrapPromise;
+  }
+  planStorageBootstrapPromise = Promise.resolve()
+    .then(async () => {
+      await waitForPlanStorageReady();
+      planStorageBootstrapReady = true;
+      return true;
+    })
+    .catch((error) => {
+      planStorageBootstrapPromise = null;
+      throw error;
+    });
+  return planStorageBootstrapPromise;
+}
+
+function ensurePlanStorageBootstrapReady(options = {}) {
+  const allowBridgeBootstrap =
+    options?.allowBridgeBootstrap === true &&
+    planShellPageActive &&
+    typeof window.ControlerStorage?.getPageBootstrapState === "function";
+  if (allowBridgeBootstrap) {
+    return Promise.resolve(true);
+  }
+  return primePlanStorageBootstrapReady();
 }
 
 function clonePlanValue(value) {
@@ -1166,6 +1199,19 @@ function normalizePlanPageBootstrapSnapshot(payload = {}) {
 }
 
 async function readPlanBootstrapState(options = {}) {
+  const includeRecurringPlans = options?.includeRecurringPlans === true;
+  const includeYearlyGoals = options?.includeYearlyGoals !== false;
+  if (
+    includeYearlyGoals &&
+    !includeRecurringPlans &&
+    typeof window.ControlerStorage?.getCoreState === "function"
+  ) {
+    const coreState = await window.ControlerStorage.getCoreState();
+    return {
+      yearlyGoals: coreState?.yearlyGoals || {},
+      recurringPlans: [],
+    };
+  }
   if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
     const payload = await window.ControlerStorage.getPageBootstrapState(
       "plan",
@@ -2102,6 +2148,27 @@ function isPlanSerializableEqual(left, right) {
   }
 }
 
+function getPlanStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function isPlanOwnStorageChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  return !!originPageInstanceId && originPageInstanceId === getPlanStoragePageInstanceId();
+}
+
+function isPlanInitialStorageBootstrapChange(detail = {}) {
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  return reason === "initial-sync" && !changedSections.length;
+}
+
 function shouldRefreshPlanCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -2110,6 +2177,12 @@ function shouldRefreshPlanCoreData(nextData = null) {
 }
 
 function shouldRefreshPlanForExternalChange(detail = {}) {
+  if (
+    isPlanOwnStorageChange(detail) ||
+    isPlanInitialStorageBootstrapChange(detail)
+  ) {
+    return false;
+  }
   const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
@@ -2676,6 +2749,16 @@ async function readPlanWorkspace(options = {}) {
       includeRecurringPlans:
         shouldLoadPlans && options.includeRecurringPlans !== false,
     };
+    if (!shouldLoadPlans) {
+      const bootstrapState = await readPlanBootstrapState(bootstrapOptions);
+      return {
+        plans: retainedPlans.map((rawPlan) => hydratePlan(rawPlan)),
+        yearlyGoals: normalizeYearlyGoalsState(bootstrapState?.yearlyGoals || {}),
+        loadedPeriodIds: Array.isArray(retainedPeriodIds)
+          ? retainedPeriodIds.slice()
+          : [],
+      };
+    }
     if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
       const periodIds = shouldLoadPlans
         ? Array.isArray(options.periodIds) && options.periodIds.length
@@ -2766,19 +2849,6 @@ async function readPlanWorkspace(options = {}) {
       };
     }
 
-    if (!shouldLoadPlans) {
-      const savedGoals = localStorage.getItem("yearlyGoals");
-      return {
-        plans: retainedPlans.map((rawPlan) => hydratePlan(rawPlan)),
-        yearlyGoals: normalizeYearlyGoalsState(
-          savedGoals ? JSON.parse(savedGoals) : yearlyGoals,
-        ),
-        loadedPeriodIds: Array.isArray(retainedPeriodIds)
-          ? retainedPeriodIds.slice()
-          : [],
-      };
-    }
-
     const savedPlans = localStorage.getItem("plans");
     const savedGoals = localStorage.getItem("yearlyGoals");
     const parsedPlans = savedPlans ? JSON.parse(savedPlans) : [];
@@ -2812,8 +2882,81 @@ async function loadPlans(options = {}) {
   return snapshot;
 }
 
+function getPlanPersistencePeriodId(planLike = {}) {
+  const dateText = String(planLike?.date || "").trim();
+  if (!dateText) {
+    return "";
+  }
+  return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "";
+}
+
+function getNormalizedPlanPersistencePeriodIds(periodIds = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(periodIds) ? periodIds : [])
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function resolvePlanPersistencePeriodIds(options = {}, oneTimePlans = []) {
+  const explicitPeriodIds = getNormalizedPlanPersistencePeriodIds(options?.periodIds);
+  if (explicitPeriodIds.length) {
+    return explicitPeriodIds;
+  }
+
+  const mutationPeriodIds = getNormalizedPlanPersistencePeriodIds(
+    [options?.previousPlan, options?.nextPlan]
+      .filter((planLike) => planLike && !isRecurringPlan(planLike))
+      .map((planLike) => getPlanPersistencePeriodId(planLike)),
+  );
+  if (mutationPeriodIds.length) {
+    return mutationPeriodIds;
+  }
+
+  const loadedPeriodIds = getNormalizedPlanPersistencePeriodIds(planLoadedPeriodIds);
+  if (loadedPeriodIds.length) {
+    return loadedPeriodIds;
+  }
+
+  return getNormalizedPlanPersistencePeriodIds(
+    oneTimePlans.map((planLike) => getPlanPersistencePeriodId(planLike)),
+  );
+}
+
+function shouldPersistRecurringPlans(options = {}) {
+  if (options?.persistRecurring === true) {
+    return true;
+  }
+  if (options?.persistRecurring === false) {
+    return false;
+  }
+  if (options?.previousPlan || options?.nextPlan) {
+    return [options?.previousPlan, options?.nextPlan].some((planLike) =>
+      planLike ? isRecurringPlan(planLike) : false,
+    );
+  }
+  return true;
+}
+
+function buildPlanPersistenceMutationOptions(previousPlan = null, nextPlan = null, options = {}) {
+  return {
+    previousPlan: previousPlan ? clonePlanValue(previousPlan) : null,
+    nextPlan: nextPlan ? clonePlanValue(nextPlan) : null,
+    persistRecurring:
+      typeof options?.persistRecurring === "boolean"
+        ? options.persistRecurring
+        : undefined,
+    reason:
+      typeof options?.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "",
+  };
+}
+
 // 保存数据
-function savePlans() {
+function savePlans(options = {}) {
   return queuePlanPersistenceTask(async () => {
     const oneTimePlans = plans.filter(
       (plan) => String(plan?.repeat || "").trim() === "none",
@@ -2821,44 +2964,47 @@ function savePlans() {
     const recurringPlans = plans.filter(
       (plan) => String(plan?.repeat || "").trim() !== "none",
     );
-    const periodIds = planLoadedPeriodIds.length
-      ? planLoadedPeriodIds
-      : [
-          ...new Set(
-            oneTimePlans
-              .map((plan) => String(plan?.date || "").slice(0, 7))
-              .filter(Boolean),
-          ),
-        ];
+    const periodIds = resolvePlanPersistencePeriodIds(options, oneTimePlans);
+    const persistRecurring = shouldPersistRecurringPlans(options);
     if (typeof window.ControlerStorage?.appendJournal === "function") {
-      await window.ControlerStorage.appendJournal(
-        [
-          ...periodIds.map((periodId) => ({
-            kind: "saveSectionRange",
-            section: "plans",
-            payload: {
-              periodId,
-              items: oneTimePlans.filter(
-                (plan) => String(plan?.date || "").slice(0, 7) === periodId,
-              ),
-              mode: "replace",
-            },
-          })),
-          {
-            kind: "replaceRecurringPlans",
-            items: recurringPlans,
+      const operations = [
+        ...periodIds.map((periodId) => ({
+          kind: "saveSectionRange",
+          section: "plans",
+          payload: {
+            periodId,
+            items: oneTimePlans.filter(
+              (plan) => getPlanPersistencePeriodId(plan) === periodId,
+            ),
+            mode: "replace",
           },
-        ],
-        {
-          reason: "plan-save",
-        },
-      );
+        })),
+        ...(persistRecurring
+          ? [{
+              kind: "replaceRecurringPlans",
+              items: recurringPlans,
+            }]
+          : []),
+      ];
+      if (operations.length) {
+        await window.ControlerStorage.appendJournal(
+          operations,
+          {
+            reason:
+              typeof options?.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "plan-save",
+          },
+        );
+      }
       syncPlanDataIndex(["plans"]);
       getReminderTools()?.refresh?.({
         resetWindow: true,
       });
       uiTools?.markPerfStage?.("plan-action-storage-acked", {
         allowRepeat: true,
+        persistedPeriodCount: periodIds.length,
+        persistedRecurring: persistRecurring,
         oneTimeCount: oneTimePlans.length,
         recurringCount: recurringPlans.length,
       });
@@ -2868,18 +3014,22 @@ function savePlans() {
       typeof window.ControlerStorage?.saveSectionRange === "function" &&
       typeof window.ControlerStorage?.replaceRecurringPlans === "function"
     ) {
-      await Promise.all(
-        periodIds.map((periodId) =>
-          window.ControlerStorage.saveSectionRange("plans", {
-            periodId,
-            items: oneTimePlans.filter(
-              (plan) => String(plan?.date || "").slice(0, 7) === periodId,
-            ),
-            mode: "replace",
-          }),
-        ),
-      );
-      await window.ControlerStorage.replaceRecurringPlans(recurringPlans);
+      if (periodIds.length) {
+        await Promise.all(
+          periodIds.map((periodId) =>
+            window.ControlerStorage.saveSectionRange("plans", {
+              periodId,
+              items: oneTimePlans.filter(
+                (plan) => getPlanPersistencePeriodId(plan) === periodId,
+              ),
+              mode: "replace",
+            }),
+          ),
+        );
+      }
+      if (persistRecurring) {
+        await window.ControlerStorage.replaceRecurringPlans(recurringPlans);
+      }
       syncPlanDataIndex(["plans"]);
       getReminderTools()?.refresh?.({
         resetWindow: true,
@@ -5400,12 +5550,17 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
   }
 
   const plan = plans[index];
+  const previousPlanSnapshot = clonePlanValue(plan);
   const isRepeatPlan = plan.repeat && plan.repeat !== "none";
   const normalizedOccurrenceDate = getPlanOccurrenceDateKey(plan, occurrenceDate);
 
   if (!isRepeatPlan) {
     plans.splice(index, 1);
-    const saveResult = await savePlans();
+    const saveResult = await savePlans(
+      buildPlanPersistenceMutationOptions(previousPlanSnapshot, null, {
+        reason: "plan-delete",
+      }),
+    );
     if (saveResult === false) {
       return false;
     }
@@ -5451,7 +5606,18 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
     plans.splice(index, 1);
   }
 
-  const saveResult = await savePlans();
+  const saveResult = await savePlans(
+    buildPlanPersistenceMutationOptions(
+      previousPlanSnapshot,
+      plans[index] && matchesId(plans[index].id, planId) ? plans[index] : null,
+      {
+        reason:
+          plans[index] && matchesId(plans[index].id, planId)
+            ? "plan-delete-occurrence"
+            : "plan-delete-recurring",
+      },
+    ),
+  );
   if (saveResult === false) {
     return false;
   }
@@ -5855,27 +6021,36 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
   }
 
   const isEditMode = !!planData && !!planData.id;
+  let previousPlanSnapshot = null;
+  let nextPlanSnapshot = null;
 
   if (isEditMode) {
     // 更新现有计划
     const index = plans.findIndex((p) => matchesId(p.id, planData.id));
-    if (index !== -1) {
-      const updatedPlan = hydratePlan({
-        ...plans[index],
-        name,
-        date,
-        startTime,
-        endTime,
-        color,
-        repeat,
-        repeatDays: repeat === "weekly" ? weeklyDays : [],
-        notification: reminderConfig,
+    if (index === -1) {
+      await showPlanAlert("保存失败：未找到该计划，请刷新后重试。", {
+        title: "保存失败",
+        danger: true,
       });
-      updatedPlan.id = plans[index].id;
-      updatedPlan.createdAt = plans[index].createdAt;
-      setStoredPlanCompletionState(updatedPlan, plans[index].isCompleted, null);
-      plans[index] = updatedPlan;
+      return false;
     }
+    previousPlanSnapshot = clonePlanValue(plans[index]);
+    const updatedPlan = hydratePlan({
+      ...plans[index],
+      name,
+      date,
+      startTime,
+      endTime,
+      color,
+      repeat,
+      repeatDays: repeat === "weekly" ? weeklyDays : [],
+      notification: reminderConfig,
+    });
+    updatedPlan.id = plans[index].id;
+    updatedPlan.createdAt = plans[index].createdAt;
+    setStoredPlanCompletionState(updatedPlan, plans[index].isCompleted, null);
+    plans[index] = updatedPlan;
+    nextPlanSnapshot = clonePlanValue(updatedPlan);
   } else {
     // 创建新计划
     const newPlan = new Plan(
@@ -5890,11 +6065,16 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
       reminderConfig,
     );
     plans.push(newPlan);
+    nextPlanSnapshot = clonePlanValue(newPlan);
   }
 
   // 保存并更新UI
   syncPlanDataIndex(["plans"]);
-  const saveResult = await savePlans();
+  const saveResult = await savePlans(
+    buildPlanPersistenceMutationOptions(previousPlanSnapshot, nextPlanSnapshot, {
+      reason: isEditMode ? "plan-weekly-edit" : "plan-weekly-create",
+    }),
+  );
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理周视图计划草稿失败:", error);
@@ -6250,6 +6430,8 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
         ? selectedRepeatDays
         : [new Date(date).getDay()]
       : [];
+  let previousPlanSnapshot = null;
+  let nextPlanSnapshot = null;
 
   // 验证输入
   if (!name) {
@@ -6276,30 +6458,37 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
   if (isEditMode && planData) {
     // 更新现有计划
     const index = plans.findIndex((p) => matchesId(p.id, planData.id));
-    if (index !== -1) {
-      const updatedPlan = hydratePlan({
-        ...plans[index],
-        name,
-        date,
-        startTime,
-        endTime,
-        color,
-        repeat,
-        repeatDays,
-        notification: reminderConfig,
-        isCompleted: plans[index].isCompleted,
+    if (index === -1) {
+      await showPlanAlert("保存失败：未找到该计划，请刷新后重试。", {
+        title: "保存失败",
+        danger: true,
       });
-      updatedPlan.id = plans[index].id;
-      updatedPlan.createdAt = plans[index].createdAt;
-      setStoredPlanCompletionState(
-        updatedPlan,
-        isCompleted,
-        isRecurringPlan(updatedPlan) && planData?._occurrenceDate
-          ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
-          : null,
-      );
-      plans[index] = updatedPlan;
+      return false;
     }
+    previousPlanSnapshot = clonePlanValue(plans[index]);
+    const updatedPlan = hydratePlan({
+      ...plans[index],
+      name,
+      date,
+      startTime,
+      endTime,
+      color,
+      repeat,
+      repeatDays,
+      notification: reminderConfig,
+      isCompleted: plans[index].isCompleted,
+    });
+    updatedPlan.id = plans[index].id;
+    updatedPlan.createdAt = plans[index].createdAt;
+    setStoredPlanCompletionState(
+      updatedPlan,
+      isCompleted,
+      isRecurringPlan(updatedPlan) && planData?._occurrenceDate
+        ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
+        : null,
+    );
+    plans[index] = updatedPlan;
+    nextPlanSnapshot = clonePlanValue(updatedPlan);
   } else {
     // 创建新计划
     const newPlan = new Plan(
@@ -6321,11 +6510,16 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
         : null,
     );
     plans.push(newPlan);
+    nextPlanSnapshot = clonePlanValue(newPlan);
   }
 
   // 保存并更新UI
   syncPlanDataIndex(["plans"]);
-  const saveResult = await savePlans();
+  const saveResult = await savePlans(
+    buildPlanPersistenceMutationOptions(previousPlanSnapshot, nextPlanSnapshot, {
+      reason: isEditMode ? "plan-edit" : "plan-create",
+    }),
+  );
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理计划草稿失败:", error);
@@ -6457,9 +6651,14 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   const togglePlanCompleteAction = async () => {
     const index = plans.findIndex((p) => matchesId(p.id, plan.id));
     if (index !== -1) {
+      const previousPlanSnapshot = clonePlanValue(plans[index]);
       const nextCompleted = !getPlanCompletionState(plans[index], detailDate);
       setStoredPlanCompletionState(plans[index], nextCompleted, detailDate);
-      const saveResult = await savePlans();
+      const saveResult = await savePlans(
+        buildPlanPersistenceMutationOptions(previousPlanSnapshot, plans[index], {
+          reason: "plan-toggle-complete",
+        }),
+      );
       if (saveResult !== false) {
         renderCalendarContent();
         updateCurrentDateDisplay();
@@ -6922,47 +7121,66 @@ async function loadInitialPlanWorkspace() {
   const initialView = currentView;
   const requestId = ++planLoadRequestId;
   const runInitialLoad = async () => {
+    await ensurePlanStorageBootstrapReady({
+      allowBridgeBootstrap: true,
+    });
+    const shouldManageInitialLoading = !planInitialDataLoaded;
     if (!planRefreshController) {
-      const snapshot = await readPlanWorkspace({
-        periodIds: initialPeriodIds,
-        view: initialView,
-        basePlans: plans,
-        loadedPeriodIds: planLoadedPeriodIds,
-      });
-      if (requestId !== planLoadRequestId) {
+      if (shouldManageInitialLoading) {
+        setPlanLoadingState({
+          active: true,
+          mode: getPlanLoadingMode(),
+          message: "正在读取当前计划范围，请稍候",
+        });
+      }
+      try {
+        const snapshot = await readPlanWorkspace({
+          periodIds: initialPeriodIds,
+          view: initialView,
+          basePlans: plans,
+          loadedPeriodIds: planLoadedPeriodIds,
+        });
+        if (requestId !== planLoadRequestId) {
+          return;
+        }
+        const dataChanged =
+          !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
+          !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
+          !isPlanSerializableEqual(
+            snapshot?.loadedPeriodIds || [],
+            planLoadedPeriodIds || [],
+          );
+        if (dataChanged) {
+          applyPlanWorkspaceState(snapshot);
+        }
+        uiTools?.markPerfStage?.("first-data-ready", {
+          periodIds: planLoadedPeriodIds.slice(),
+          planCount: plans.length,
+        });
+        uiTools?.markPerfStage?.("plan-first-data-ready", {
+          periodIds: planLoadedPeriodIds.slice(),
+          planCount: plans.length,
+        });
+        const calendarContent = document.getElementById("calendar-content");
+        const shouldRenderCalendar =
+          dataChanged ||
+          !planShellRendered ||
+          !(calendarContent instanceof HTMLElement) ||
+          calendarContent.childElementCount === 0;
+        if (shouldRenderCalendar && !planCalendarMountDeferred) {
+          renderCalendarView();
+        }
+        planInitialDataLoaded = true;
+        planInitialDataValidated = true;
+        schedulePlanDeferredRuntimeIdleBootstrap();
         return;
+      } finally {
+        if (shouldManageInitialLoading && requestId === planLoadRequestId) {
+          setPlanLoadingState({
+            active: false,
+          });
+        }
       }
-      const dataChanged =
-        !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
-        !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
-        !isPlanSerializableEqual(
-          snapshot?.loadedPeriodIds || [],
-          planLoadedPeriodIds || [],
-        );
-      if (dataChanged) {
-        applyPlanWorkspaceState(snapshot);
-      }
-      uiTools?.markPerfStage?.("first-data-ready", {
-        periodIds: planLoadedPeriodIds.slice(),
-        planCount: plans.length,
-      });
-      uiTools?.markPerfStage?.("plan-first-data-ready", {
-        periodIds: planLoadedPeriodIds.slice(),
-        planCount: plans.length,
-      });
-      const calendarContent = document.getElementById("calendar-content");
-      const shouldRenderCalendar =
-        dataChanged ||
-        !planShellRendered ||
-        !(calendarContent instanceof HTMLElement) ||
-        calendarContent.childElementCount === 0;
-      if (shouldRenderCalendar && !planCalendarMountDeferred) {
-        renderCalendarView();
-      }
-      planInitialDataLoaded = true;
-      planInitialDataValidated = true;
-      schedulePlanDeferredRuntimeIdleBootstrap();
-      return;
     }
 
     const refreshResult = await planRefreshController.run(
@@ -6972,6 +7190,7 @@ async function loadInitialPlanWorkspace() {
         }),
       {
         delayMs: 0,
+        manageLoading: shouldManageInitialLoading,
         loadingOptions: {
           mode: getPlanLoadingMode(),
           message: "正在读取当前计划范围，请稍候",
@@ -7030,6 +7249,9 @@ async function loadInitialPlanWorkspace() {
         setPlanLoadingState({
           active: false,
         });
+      }
+      if (requestId === planLoadRequestId && planInitialDataValidated) {
+        queuePlanInitialReveal();
       }
     });
 
@@ -7099,12 +7321,11 @@ async function init() {
     // 加载视图状态
     loadViewState();
     applyPlanDesktopWidgetMode();
-    await waitForPlanStorageReady();
-    registerPlanBeforePageLeaveGuard();
 
     // 尺寸设置实时联动
-    bindTableScaleLiveRefresh();
     bindPlanShellVisibilityGate();
+    registerPlanBeforePageLeaveGuard();
+    bindTableScaleLiveRefresh();
     initPlanWidgetLaunchAction();
     initGridViewButton();
     bindAddPlanInlineButton();
@@ -7129,27 +7350,37 @@ async function init() {
       }
     });
 
-    setPlanLoadingState({
-      active: !planInitialDataValidated,
-      mode: getPlanLoadingMode(),
-      message: "正在读取当前计划范围，请稍候",
-    });
-    queuePlanInitialReveal();
+    const needsManualInitLoading =
+      !planInitialDataValidated && !planRefreshController;
+    if (needsManualInitLoading) {
+      setPlanLoadingState({
+        active: true,
+        mode: getPlanLoadingMode(),
+        message: "正在读取当前计划范围，请稍候",
+      });
+    }
 
     if (!planInitialDataValidated && !planShellPageActive) {
       scheduleDeferredPlanBootstrap();
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
-    } else if (useWidgetLaunchFastPath) {
-      scheduleDeferredPlanBootstrap();
+    } else {
+      queuePlanInitialReveal();
+      if (useWidgetLaunchFastPath) {
+        scheduleDeferredPlanBootstrap();
+      }
     }
   } catch (error) {
     console.error("初始化计划页失败:", error);
   } finally {
-    setPlanLoadingState({
-      active: false,
-    });
-    queuePlanInitialReveal();
+    if (!planInitialDataValidated && !planRefreshController) {
+      setPlanLoadingState({
+        active: false,
+      });
+    }
+    if (planInitialDataValidated) {
+      queuePlanInitialReveal();
+    }
   }
 }
 

@@ -54,6 +54,10 @@ let statsAvailableRecordDateBounds = {
 let statsToolbarRevealQueued = false;
 let statsInitialReadyReported = false;
 let statsInitialDataLoaded = false;
+let statsShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let statsShellVisibilityBound = false;
+let statsInitialLoadPendingResume = false;
+let statsExternalRefreshPendingResume = false;
 let statsLoadingOverlayTimer = 0;
 let statsLoadingOverlayController = null;
 let statsChartRuntimeLoader = null;
@@ -831,6 +835,30 @@ function isStatsSerializableEqual(left, right) {
   }
 }
 
+function getStatsStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function isStatsOwnStorageChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  return (
+    !!originPageInstanceId &&
+    originPageInstanceId === getStatsStoragePageInstanceId()
+  );
+}
+
+function isStatsInitialStorageBootstrapChange(detail = {}) {
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  return reason === "initial-sync" && !changedSections.length;
+}
+
 function shouldRefreshStatsCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -839,6 +867,12 @@ function shouldRefreshStatsCoreData(nextData = null) {
 }
 
 function shouldRefreshStatsForExternalChange(detail = {}) {
+  if (
+    isStatsOwnStorageChange(detail) ||
+    isStatsInitialStorageBootstrapChange(detail)
+  ) {
+    return false;
+  }
   const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
@@ -2844,6 +2878,53 @@ function applyStatsWorkspaceState(snapshot = {}) {
   syncStatsDataIndex(["records", "projects"]);
 }
 
+function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()) {
+  try {
+    if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
+      return null;
+    }
+    const recordScope = getExpandedStatsRecordLoadScope(scope);
+    const pageBootstrap = window.ControlerStorage.peekPageBootstrapState("stats", {
+      recordScope,
+    });
+    const data =
+      pageBootstrap?.data && typeof pageBootstrap.data === "object"
+        ? pageBootstrap.data
+        : null;
+    if (!data) {
+      return null;
+    }
+    const nextRecords = Array.isArray(data.defaultRangeRecordsOrAggregate)
+      ? data.defaultRangeRecordsOrAggregate
+      : [];
+    return {
+      preferences:
+        data.statsPreferences && typeof data.statsPreferences === "object"
+          ? data.statsPreferences
+          : readStatsPreferencesFromStorage(),
+      records: nextRecords,
+      projects: Array.isArray(data.projects) ? data.projects : [],
+      loadedRecordPeriodIds:
+        Array.isArray(pageBootstrap.loadedPeriodIds) &&
+        pageBootstrap.loadedPeriodIds.length
+          ? pageBootstrap.loadedPeriodIds.slice()
+          : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+    };
+  } catch (error) {
+    console.error("读取统计页缓存快照失败:", error);
+    return null;
+  }
+}
+
+function bootstrapStatsFromCachedSnapshot(scope = getStatsLoadScope()) {
+  const snapshot = readStatsWorkspaceSnapshotFromPageBootstrap(scope);
+  if (!snapshot) {
+    return false;
+  }
+  applyStatsWorkspaceState(snapshot);
+  return true;
+}
+
 async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
   const preferences = readStatsPreferencesFromStorage();
   const retainedSnapshot = captureStatsWorkspaceSnapshot({
@@ -2952,6 +3033,7 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
         ? "正在整理统计索引与范围数据，请稍候"
         : "正在更新统计范围与图表数据，请稍候";
   const lockNativeExit = options.lockNativeExit === true;
+  const manageLoading = options.manageLoading !== false;
   const commitLoadedState = (snapshot) => {
     if (requestId !== statsRangeDataRequestId) {
       return;
@@ -2965,14 +3047,16 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
 
   try {
     if (!statsRefreshController) {
-      setStatsLoadingState({
-        active: true,
-        mode,
-        delayMs,
-        title,
-        message,
-        lockNativeExit,
-      });
+      if (manageLoading) {
+        setStatsLoadingState({
+          active: true,
+          mode,
+          delayMs,
+          title,
+          message,
+          lockNativeExit,
+        });
+      }
       const snapshot = await readStatsWorkspace(scope);
       commitLoadedState(snapshot);
       return;
@@ -2982,6 +3066,7 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       () => readStatsWorkspace(scope),
       {
         delayMs,
+        manageLoading,
         loadingOptions: {
           mode,
           title,
@@ -2997,7 +3082,11 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       return;
     }
   } finally {
-    if (!statsRefreshController && requestId === statsRangeDataRequestId) {
+    if (
+      manageLoading &&
+      !statsRefreshController &&
+      requestId === statsRangeDataRequestId
+    ) {
       setStatsLoadingState({
         active: false,
       });
@@ -3396,7 +3485,7 @@ function getStatsRecordLoadScope(scope = {}) {
 }
 
 function getExpandedStatsRecordLoadScope(scope = {}) {
-  if (typeof window.ControlerStorage?.loadSectionRange === "function") {
+  if (scope?.all === true) {
     return {
       all: true,
     };
@@ -7941,8 +8030,50 @@ function bindTableScaleLiveRefresh() {
 let statsExternalStorageRefreshQueued = false;
 
 function refreshStatsFromExternalStorageChange() {
+  if (!statsShellPageActive) {
+    statsExternalStorageRefreshQueued = false;
+    statsExternalRefreshPendingResume = true;
+    return;
+  }
   statsExternalStorageRefreshQueued = false;
   void refreshStatsRangeData(true);
+}
+
+function bindStatsShellVisibilityGate() {
+  if (statsShellVisibilityBound) {
+    return;
+  }
+  statsShellVisibilityBound = true;
+  const eventName =
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed";
+  window.addEventListener(eventName, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    const nextActive = detail.active !== false;
+    if (statsShellPageActive === nextActive) {
+      return;
+    }
+
+    statsShellPageActive = nextActive;
+    if (!statsShellPageActive) {
+      return;
+    }
+
+    if (statsInitialLoadPendingResume) {
+      statsInitialLoadPendingResume = false;
+      void refreshStatsRangeData(true, {
+        mode: "fullscreen",
+        delayMs: 0,
+        message: "正在整理统计索引与范围数据，请稍候",
+      });
+    }
+    if (statsExternalRefreshPendingResume) {
+      statsExternalRefreshPendingResume = false;
+      refreshStatsFromExternalStorageChange();
+    }
+  });
 }
 
 function bindStatsExternalStorageRefresh() {
@@ -8172,6 +8303,7 @@ async function init() {
   const useWidgetLaunchFastPath =
     typeof STATS_WIDGET_CONTEXT.launchAction === "string" &&
     STATS_WIDGET_CONTEXT.launchAction.trim().length > 0;
+  bindStatsShellVisibilityGate();
   setStatsLoadingState({
     active: true,
     mode: useWidgetLaunchFastPath ? "inline" : "fullscreen",
@@ -8185,9 +8317,22 @@ async function init() {
     if (useWidgetLaunchFastPath) {
       queueStatsToolbarReveal();
     }
-    await loadData(getStatsLoadScope(), {
-      fresh: true,
-    });
+    const initialScope = getStatsLoadScope();
+    const bootstrappedFromSnapshot = bootstrapStatsFromCachedSnapshot(initialScope);
+    if (!bootstrappedFromSnapshot) {
+      const initialLoadFresh = statsShellPageActive;
+      await loadData(initialScope, {
+        fresh: initialLoadFresh,
+      });
+      if (!initialLoadFresh) {
+        statsInitialLoadPendingResume = true;
+      }
+    } else if (statsShellPageActive) {
+      statsInitialDataLoaded = true;
+    } else {
+      statsInitialDataLoaded = true;
+      statsInitialLoadPendingResume = true;
+    }
     reconcileStatsRangeStateWithAvailableData();
     uiTools?.markPerfStage?.("first-data-ready", {
       rangeUnit: statsRangeState.unit,
@@ -8206,6 +8351,12 @@ async function init() {
       return false;
     });
     renderCurrentView();
+    if (bootstrappedFromSnapshot && statsShellPageActive) {
+      void refreshStatsRangeData(true, {
+        manageLoading: false,
+        message: "正在更新统计结果，请稍候",
+      });
+    }
     statsInitialDataLoaded = true;
   } finally {
     setStatsLoadingState({

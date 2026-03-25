@@ -59,6 +59,10 @@ let todoInitialDataValidated = false;
 let todoDeferredFreshSyncQueued = false;
 let todoInitialFreshSyncPromise = null;
 let todoLoadingOverlayController = null;
+let todoShellPageActive = uiTools?.isShellPageActive?.() !== false;
+let todoShellVisibilityBound = false;
+let todoDeferredFreshSyncPendingResume = false;
+let todoExternalRefreshPendingResume = false;
 const TODO_TOGGLE_PERSIST_DEBOUNCE_MS = 180;
 const todoDeferredToggleCommits = {
   checkin: new Map(),
@@ -74,7 +78,8 @@ const todoExternalStorageRefreshCoordinator =
       await refreshTodoFromExternalStorageChange(detail);
     },
   }) || null;
-const TODO_SELF_REFRESH_IGNORE_WINDOW_MS = 1200;
+const TODO_SELF_REFRESH_IGNORE_WINDOW_MS = 10000;
+const TODO_SELF_REFRESH_IGNORE_MAX_USES = 4;
 let todoIgnoredRefreshEvents = [];
 let todoQueuedExternalStorageRefreshDetail = null;
 
@@ -152,7 +157,34 @@ function persistTodoSortPreference(nextSort, options = {}) {
   return normalizedSort;
 }
 
+function getTodoStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function isTodoOwnStorageChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  return !!originPageInstanceId && originPageInstanceId === getTodoStoragePageInstanceId();
+}
+
+function isTodoInitialStorageBootstrapChange(detail = {}) {
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
+  return reason === "initial-sync" && !changedSections.length;
+}
+
 function shouldRefreshTodoForExternalChange(detail = {}) {
+  if (
+    isTodoOwnStorageChange(detail) ||
+    isTodoInitialStorageBootstrapChange(detail)
+  ) {
+    return false;
+  }
   const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
@@ -725,7 +757,6 @@ function getTodoLoadingOverlayController() {
     overlay,
     inlineHost: ".todo-main",
     scopeFullscreenToInlineHost: false,
-    promoteInlineToFullscreenOnMobile: false,
   }) || null;
   return todoLoadingOverlayController;
 }
@@ -896,6 +927,7 @@ function markTodoSelfRefreshIgnored(changedSections = [], changedPeriods = {}) {
   todoIgnoredRefreshEvents.push({
     signature,
     expiresAt: now + TODO_SELF_REFRESH_IGNORE_WINDOW_MS,
+    remainingUses: TODO_SELF_REFRESH_IGNORE_MAX_USES,
   });
 }
 
@@ -923,7 +955,16 @@ function shouldIgnoreTodoSelfRefresh(detail = {}) {
   if (matchIndex === -1) {
     return false;
   }
-  todoIgnoredRefreshEvents.splice(matchIndex, 1);
+  const match = todoIgnoredRefreshEvents[matchIndex];
+  if (
+    !match ||
+    !Number.isFinite(match.remainingUses) ||
+    match.remainingUses <= 1
+  ) {
+    todoIgnoredRefreshEvents.splice(matchIndex, 1);
+  } else {
+    match.remainingUses -= 1;
+  }
   return true;
 }
 
@@ -997,6 +1038,10 @@ function scheduleTodoExternalStorageRefresh(detail = {}) {
     todoQueuedExternalStorageRefreshDetail,
     detail,
   );
+  if (!todoShellPageActive) {
+    todoExternalRefreshPendingResume = true;
+    return;
+  }
   if (hasTodoPendingLocalMutations()) {
     todoPendingExternalStorageRefresh = true;
     window.__controlerTodoRuntimePendingExternalRefresh = true;
@@ -1026,6 +1071,42 @@ function flushTodoDeferredExternalRefreshIfNeeded() {
   todoPendingExternalStorageRefresh = false;
   window.__controlerTodoRuntimePendingExternalRefresh = false;
   scheduleTodoExternalStorageRefresh(todoQueuedExternalStorageRefreshDetail || {});
+}
+
+function bindTodoShellVisibilityGate() {
+  if (todoShellVisibilityBound) {
+    return;
+  }
+  todoShellVisibilityBound = true;
+  const eventName =
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed";
+  window.addEventListener(eventName, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    const nextActive = detail.active !== false;
+    if (todoShellPageActive === nextActive) {
+      return;
+    }
+
+    todoShellPageActive = nextActive;
+    if (!todoShellPageActive) {
+      return;
+    }
+
+    if (todoExternalRefreshPendingResume) {
+      todoExternalRefreshPendingResume = false;
+      scheduleTodoExternalStorageRefresh(
+        todoQueuedExternalStorageRefreshDetail || {},
+      );
+    }
+    flushTodoDeferredExternalRefreshIfNeeded();
+    if (todoDeferredFreshSyncPendingResume) {
+      todoDeferredFreshSyncPendingResume = false;
+      scheduleTodoDeferredFreshSync();
+    }
+  });
 }
 
 function getTodoSectionStateSnapshot(section) {
@@ -2629,6 +2710,15 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     detail,
   );
   todoQueuedExternalStorageRefreshDetail = null;
+  if (!todoShellPageActive) {
+    todoExternalStorageRefreshQueued = false;
+    todoExternalRefreshPendingResume = true;
+    todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
+      todoQueuedExternalStorageRefreshDetail,
+      refreshDetail,
+    );
+    return;
+  }
   if (!todoPlanSidebarInitialized) {
     todoExternalStorageRefreshQueued = false;
     todoPendingExternalStorageRefresh = true;
@@ -2899,6 +2989,7 @@ function showTodoFallbackConfirmationDialog(options = {}) {
       confirmText = "确定",
       cancelText = "取消",
       danger = false,
+      allowBackdropClose = false,
     } = options;
 
     const modal = document.createElement("div");
@@ -2927,6 +3018,7 @@ function showTodoFallbackConfirmationDialog(options = {}) {
       '[data-todo-fallback-dialog-action="cancel"]',
     );
     let settled = false;
+    const openedAt = Date.now();
 
     const cleanup = (result) => {
       if (settled) {
@@ -2959,7 +3051,10 @@ function showTodoFallbackConfirmationDialog(options = {}) {
       cleanup(false);
     });
     modal.addEventListener("click", (event) => {
-      if (event.target === modal) {
+      if (allowBackdropClose && event.target === modal) {
+        if (Date.now() - openedAt < TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS) {
+          return;
+        }
         cleanup(false);
       }
     });
@@ -5411,17 +5506,24 @@ function showCheckinModal(todoId, checkinId = null) {
     return true;
   };
 
-  const confirmDeleteAction = () => {
+  const confirmDeleteAction = async () => {
     if (!existingRecord) {
       return false;
     }
-    return requestTodoConfirmation("确定删除这条进度记录吗？", {
+    const confirmed = await requestTodoConfirmation("确定删除这条进度记录吗？", {
       title: "删除进度记录",
       confirmText: "删除",
       cancelText: "取消",
       danger: true,
       forceFallback: true,
     });
+    if (!confirmed) {
+      closeModal({
+        discardDraft: true,
+      });
+      return false;
+    }
+    return true;
   };
 
   const deleteAction = async () => {
@@ -6673,6 +6775,10 @@ async function syncTodoFreshSnapshotInBackground() {
 
   const runFreshSync = async () => {
     uiTools?.markPerfStage?.("todo-fresh-sync-start");
+    if (!todoShellPageActive) {
+      todoDeferredFreshSyncPendingResume = true;
+      return false;
+    }
 
     if (!todoRefreshController) {
       await waitForTodoStorageReady();
@@ -6687,11 +6793,7 @@ async function syncTodoFreshSnapshotInBackground() {
         return readFreshTodoWorkspaceSnapshot();
       },
       {
-        delayMs: TODO_LOADING_OVERLAY_DELAY_MS,
-        loadingOptions: {
-          mode: "inline",
-          message: "正在同步待办与打卡数据，请稍候",
-        },
+        manageLoading: false,
         commit: async (freshSnapshot) => {
           applied = await applyTodoFreshSnapshot(freshSnapshot);
         },
@@ -6730,6 +6832,10 @@ function scheduleTodoDeferredFreshSync() {
     todoDeferredFreshSyncQueued ||
     todoInitialFreshSyncPromise
   ) {
+    return;
+  }
+  if (!todoShellPageActive) {
+    todoDeferredFreshSyncPendingResume = true;
     return;
   }
 
@@ -6965,6 +7071,7 @@ window.ControlerTodoRuntime = {
 async function init() {
   initTodoWidgetLaunchAction();
   registerTodoBeforePageLeaveGuard();
+  bindTodoShellVisibilityGate();
   bindTodoExternalStorageRefresh();
   setTodoLoadingState({
     active: true,
