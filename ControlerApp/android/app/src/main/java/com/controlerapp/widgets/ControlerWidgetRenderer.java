@@ -144,7 +144,7 @@ public final class ControlerWidgetRenderer {
         boolean actionDisabled = false;
     }
 
-    private static final class ThemePalette {
+    static final class ThemePalette {
         int backgroundColor = Color.parseColor("#243B2B");
         int surfaceColor = Color.parseColor("#20362B");
         int borderColor = Color.parseColor("#5F7D6A");
@@ -904,6 +904,19 @@ public final class ControlerWidgetRenderer {
         }
     }
 
+    static ThemePalette loadThemePalette(Context context) {
+        if (context == null) {
+            return new ThemePalette();
+        }
+        Context appContext = context.getApplicationContext();
+        try {
+            return resolveThemePalette(ControlerWidgetDataStore.loadRootForWidgets(appContext));
+        } catch (Exception error) {
+            error.printStackTrace();
+            return new ThemePalette();
+        }
+    }
+
     private static RenderSource peekLastRenderSource() {
         synchronized (RENDER_STATE_LOCK) {
             return lastRenderSource;
@@ -1494,10 +1507,6 @@ public final class ControlerWidgetRenderer {
         views.setViewVisibility(
             R.id.widget_action,
             showPrimaryAction ? View.VISIBLE : View.GONE
-        );
-        views.setViewVisibility(
-            R.id.widget_footer_spacer,
-            !showActionOnlyShell && showPrimaryAction ? View.VISIBLE : View.GONE
         );
 
         views.setOnClickPendingIntent(R.id.widget_root, rootClickIntent);
@@ -2598,13 +2607,19 @@ public final class ControlerWidgetRenderer {
         WidgetContent content,
         WidgetMetrics metrics
     ) {
-        if (isListFirstKind(kind) || isActionOnlyKind(kind) || usesYearGoalLayout(kind)) {
+        if (content == null || TextUtils.isEmpty(content.actionLabel)) {
+            return false;
+        }
+        if (isActionOnlyKind(kind) || usesYearGoalLayout(kind)) {
             return false;
         }
         if (isPreviewPrimaryKind(kind)) {
             return false;
         }
-        return content != null && !TextUtils.isEmpty(content.actionLabel);
+        if (isListFirstKind(kind)) {
+            return !TextUtils.isEmpty(content.directCommand);
+        }
+        return true;
     }
 
     private static boolean shouldShowActionOnlyShell(
@@ -4204,7 +4219,8 @@ public final class ControlerWidgetRenderer {
                 + pendingCount
                 + " · 今到期 "
                 + dueTodayCount;
-        content.actionLabel = "打开待办";
+        content.actionLabel = "+ 新建";
+        content.directCommand = ControlerWidgetActionHandler.COMMAND_QUICK_ADD_TODO;
         content.statPrimary = "待办 " + todayCount + " 项";
         content.statSecondary = "未完 " + pendingCount + " · 今到期 " + dueTodayCount;
         if (visibleTodos.isEmpty()) {
@@ -4280,7 +4296,8 @@ public final class ControlerWidgetRenderer {
             "今日 " + total + " 项 · 未打卡 " + Math.max(0, total - done) + " 项";
         content.statPrimary = "今日 " + total + " 项";
         content.statSecondary = "未打卡 " + Math.max(0, total - done) + " 项";
-        content.actionLabel = "打开打卡";
+        content.actionLabel = "+ 新建";
+        content.directCommand = ControlerWidgetActionHandler.COMMAND_QUICK_ADD_CHECKIN;
         if (scheduled.isEmpty()) {
             content.lines.add("今天暂无打卡任务");
             content.lines.add("打开应用创建新的打卡项目");

@@ -5440,27 +5440,32 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
 
   // 保存并更新UI
   syncPlanDataIndex(["plans"]);
-  const saveResult = await savePlans(
-    buildPlanPersistenceMutationOptions(previousPlanSnapshot, nextPlanSnapshot, {
+  const persistenceOptions = buildPlanPersistenceMutationOptions(
+    previousPlanSnapshot,
+    nextPlanSnapshot,
+    {
       reason: isEditMode ? "plan-weekly-edit" : "plan-weekly-create",
-    }),
+    },
   );
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理周视图计划草稿失败:", error);
     });
   }
-  if (saveResult === false) {
-    return;
-  }
   draftSession?.destroy?.();
   removePlanModalElement(modal);
-  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-    silentWhenDisabled: false,
-  });
   refreshPlanUiAfterMutation({
     includeGuideCard: true,
   });
+  void savePlans(persistenceOptions).then(async (saveResult) => {
+    if (saveResult === false) {
+      return;
+    }
+    await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
+      silentWhenDisabled: false,
+    });
+  });
+  return true;
 }
 
 // 回到今天
@@ -5885,27 +5890,32 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
 
   // 保存并更新UI
   syncPlanDataIndex(["plans"]);
-  const saveResult = await savePlans(
-    buildPlanPersistenceMutationOptions(previousPlanSnapshot, nextPlanSnapshot, {
+  const persistenceOptions = buildPlanPersistenceMutationOptions(
+    previousPlanSnapshot,
+    nextPlanSnapshot,
+    {
       reason: isEditMode ? "plan-edit" : "plan-create",
-    }),
+    },
   );
   if (draftSession && typeof draftSession.clear === "function") {
     await draftSession.clear().catch((error) => {
       console.error("清理计划草稿失败:", error);
     });
   }
-  if (saveResult === false) {
-    return;
-  }
   draftSession?.destroy?.();
   removePlanModalElement(modal);
-  await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-    silentWhenDisabled: false,
-  });
   refreshPlanUiAfterMutation({
     includeGuideCard: true,
   });
+  void savePlans(persistenceOptions).then(async (saveResult) => {
+    if (saveResult === false) {
+      return;
+    }
+    await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
+      silentWhenDisabled: false,
+    });
+  });
+  return true;
 }
 
 // 显示计划详情弹窗

@@ -155,6 +155,113 @@ public final class ControlerWidgetCollectionStore {
         return rows;
     }
 
+    public static Boolean peekTodoCompleted(Context context, int appWidgetId, String targetId) {
+        return peekActionState(
+            context,
+            appWidgetId,
+            ControlerWidgetKinds.TODOS,
+            targetId,
+            "恢复",
+            "完成"
+        );
+    }
+
+    public static Boolean peekCheckinChecked(Context context, int appWidgetId, String targetId) {
+        return peekActionState(
+            context,
+            appWidgetId,
+            ControlerWidgetKinds.CHECKINS,
+            targetId,
+            "取消",
+            "打卡"
+        );
+    }
+
+    public static boolean markRowPending(
+        Context context,
+        int appWidgetId,
+        String kind,
+        String targetId,
+        String nextActionLabel
+    ) {
+        if (context == null || appWidgetId <= 0 || TextUtils.isEmpty(targetId)) {
+            return false;
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return false;
+        }
+
+        SharedPreferences preferences =
+            context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        Map<String, ?> entries = preferences.getAll();
+        if (entries == null || entries.isEmpty()) {
+            return false;
+        }
+
+        SharedPreferences.Editor editor = preferences.edit();
+        String keyPrefix = KEY_PREFIX + appWidgetId + ":" + normalizedKind;
+        boolean updatedAny = false;
+        for (Map.Entry<String, ?> entry : entries.entrySet()) {
+            String key = entry.getKey();
+            Object rawValue = entry.getValue();
+            if (
+                TextUtils.isEmpty(key)
+                    || rawValue == null
+                    || !key.startsWith(keyPrefix)
+                    || !(rawValue instanceof String)
+            ) {
+                continue;
+            }
+
+            try {
+                JSONArray rows = new JSONArray(String.valueOf(rawValue));
+                boolean updated = false;
+                for (int index = 0; index < rows.length(); index++) {
+                    JSONObject row = rows.optJSONObject(index);
+                    if (
+                        row == null
+                            || !TextUtils.equals(
+                                targetId.trim(),
+                                row.optString("targetId", "").trim()
+                            )
+                    ) {
+                        continue;
+                    }
+                    String meta = row.optString("meta", "").trim();
+                    if (TextUtils.isEmpty(meta)) {
+                        row.put("meta", "同步中");
+                    } else if (!meta.contains("同步中")) {
+                        row.put("meta", meta + " · 同步中");
+                    }
+                    String normalizedNextActionLabel =
+                        nextActionLabel == null ? "" : nextActionLabel.trim();
+                    row.put(
+                        "actionLabel",
+                        TextUtils.isEmpty(normalizedNextActionLabel)
+                            ? "处理中"
+                            : normalizedNextActionLabel
+                    );
+                    row.put("actionEnabled", false);
+                    updated = true;
+                }
+                if (!updated) {
+                    continue;
+                }
+                editor.putString(key, rows.toString());
+                updatedAny = true;
+            } catch (Exception ignored) {
+                // Keep the previous launcher cache if this row payload is malformed.
+            }
+        }
+
+        if (!updatedAny) {
+            return false;
+        }
+        return editor.commit();
+    }
+
     public static void clearRows(Context context, int[] appWidgetIds) {
         if (context == null || appWidgetIds == null || appWidgetIds.length == 0) {
             return;
@@ -186,5 +293,70 @@ public final class ControlerWidgetCollectionStore {
             return KEY_PREFIX + appWidgetId + ":" + safeKind;
         }
         return KEY_PREFIX + appWidgetId + ":" + safeKind + ":" + safeSlot;
+    }
+
+    private static Boolean peekActionState(
+        Context context,
+        int appWidgetId,
+        String kind,
+        String targetId,
+        String activeActionLabel,
+        String inactiveActionLabel
+    ) {
+        if (context == null || appWidgetId <= 0 || TextUtils.isEmpty(targetId)) {
+            return null;
+        }
+
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return null;
+        }
+
+        SharedPreferences preferences =
+            context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        Map<String, ?> entries = preferences.getAll();
+        if (entries == null || entries.isEmpty()) {
+            return null;
+        }
+
+        String keyPrefix = KEY_PREFIX + appWidgetId + ":" + normalizedKind;
+        for (Map.Entry<String, ?> entry : entries.entrySet()) {
+            String key = entry.getKey();
+            Object rawValue = entry.getValue();
+            if (
+                TextUtils.isEmpty(key)
+                    || rawValue == null
+                    || !key.startsWith(keyPrefix)
+                    || !(rawValue instanceof String)
+            ) {
+                continue;
+            }
+
+            try {
+                JSONArray rows = new JSONArray(String.valueOf(rawValue));
+                for (int index = 0; index < rows.length(); index++) {
+                    JSONObject row = rows.optJSONObject(index);
+                    if (
+                        row == null
+                            || !TextUtils.equals(
+                                targetId.trim(),
+                                row.optString("targetId", "").trim()
+                            )
+                    ) {
+                        continue;
+                    }
+                    String actionLabel = row.optString("actionLabel", "").trim();
+                    if (TextUtils.equals(activeActionLabel, actionLabel)) {
+                        return true;
+                    }
+                    if (TextUtils.equals(inactiveActionLabel, actionLabel)) {
+                        return false;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Ignore malformed launcher cache rows and fall back to storage probing.
+            }
+        }
+        return null;
     }
 }

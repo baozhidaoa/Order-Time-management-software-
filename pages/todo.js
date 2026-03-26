@@ -58,6 +58,7 @@ let todoInitialDataLoaded = false;
 let todoInitialDataValidated = false;
 let todoDeferredFreshSyncQueued = false;
 let todoInitialFreshSyncPromise = null;
+let todoBootstrappedFromPageBootstrap = false;
 let todoLoadingOverlayController = null;
 let todoShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let todoShellVisibilityBound = false;
@@ -565,10 +566,12 @@ function markTodoInitialDataReady(snapshot = captureTodoWorkspaceSnapshot()) {
 }
 
 function bootstrapTodoFromCachedSnapshot() {
-  const snapshot = readTodoWorkspaceSnapshot();
+  const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
+  const snapshot = bootstrapSnapshot || readTodoWorkspaceSnapshot();
   applyTodoWorkspaceSnapshot(snapshot);
   todoInitialDataLoaded = true;
   todoInitialDataValidated = false;
+  todoBootstrappedFromPageBootstrap = !!bootstrapSnapshot;
   return snapshot;
 }
 
@@ -687,12 +690,10 @@ async function readFreshTodoWorkspaceSnapshot() {
     return readTodoWorkspaceSnapshot();
   }
   try {
-    const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
-      "todo",
-      {
-        fresh: true,
-      },
-    );
+    // Todo already boots from the managed page bootstrap snapshot.
+    // Reusing that fast path keeps background validation lightweight and
+    // avoids forcing a second native bootstrap load on every entry/resume.
+    const pageBootstrap = await window.ControlerStorage.getPageBootstrapState("todo");
     const data =
       pageBootstrap?.data && typeof pageBootstrap.data === "object"
         ? pageBootstrap.data
@@ -2944,6 +2945,118 @@ function appendTodoManagedModal(modal, role = "") {
   });
 }
 
+function scheduleTodoFormModalFieldReveal(modal, target, options = {}) {
+  if (
+    !(modal instanceof HTMLElement) ||
+    !(target instanceof HTMLElement) ||
+    !document.body?.classList.contains("controler-mobile-runtime")
+  ) {
+    return false;
+  }
+
+  const modalBody = modal.querySelector(".controler-form-modal-body");
+  const field =
+    target.closest(".controler-form-modal-body > *") ||
+    target.closest(".form-group") ||
+    target;
+  if (!(modalBody instanceof HTMLElement) || !(field instanceof HTMLElement)) {
+    return false;
+  }
+
+  const delayMs = Math.max(
+    0,
+    Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
+  );
+  const reveal = () => {
+    if (
+      !modal.isConnected ||
+      !modalBody.isConnected ||
+      !field.isConnected ||
+      modalBody.clientHeight <= 0
+    ) {
+      return;
+    }
+
+    const modalBodyRect = modalBody.getBoundingClientRect();
+    const fieldRect = field.getBoundingClientRect();
+    const fieldTop =
+      modalBody.scrollTop + Math.max(fieldRect.top - modalBodyRect.top, 0);
+    const fieldBottom =
+      modalBody.scrollTop + Math.max(fieldRect.bottom - modalBodyRect.top, 0);
+    const desiredBottom = fieldBottom + 20;
+    const maxScrollTop = Math.max(
+      modalBody.scrollHeight - modalBody.clientHeight,
+      0,
+    );
+    const nextScrollTop = Math.min(
+      Math.max(
+        Math.max(fieldTop - 12, 0),
+        Math.max(desiredBottom - modalBody.clientHeight, 0),
+      ),
+      maxScrollTop,
+    );
+    modalBody.scrollTop = nextScrollTop;
+  };
+  const runReveal = () => {
+    window.setTimeout(reveal, delayMs);
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(runReveal);
+  } else {
+    runReveal();
+  }
+
+  return true;
+}
+
+function bindTodoFormModalFieldReveal(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return () => {};
+  }
+
+  const getRevealDelayMs = () =>
+    document.body?.classList.contains("controler-android-native") ? 140 : 0;
+  const handleFocusIn = (event) => {
+    const target = event?.target;
+    if (
+      !(target instanceof HTMLElement) ||
+      !target.matches?.("input, textarea, select")
+    ) {
+      return;
+    }
+    scheduleTodoFormModalFieldReveal(modal, target, {
+      delayMs: getRevealDelayMs(),
+    });
+  };
+  const handleViewportResize = () => {
+    if (!modal.isConnected) {
+      cleanup();
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (
+      !(activeElement instanceof HTMLElement) ||
+      !modal.contains(activeElement)
+    ) {
+      return;
+    }
+    scheduleTodoFormModalFieldReveal(modal, activeElement, {
+      delayMs: document.body?.classList.contains("controler-android-native")
+        ? 48
+        : 0,
+    });
+  };
+  const cleanup = () => {
+    modal.removeEventListener("focusin", handleFocusIn);
+    window.visualViewport?.removeEventListener("resize", handleViewportResize);
+  };
+
+  modal.addEventListener("focusin", handleFocusIn);
+  window.visualViewport?.addEventListener("resize", handleViewportResize);
+  return cleanup;
+}
+
 function getTopVisibleTodoModalOverlayZIndex(fallbackZIndex = 2000) {
   if (typeof document === "undefined") {
     return fallbackZIndex;
@@ -3019,12 +3132,80 @@ function showTodoFallbackConfirmationDialog(options = {}) {
     );
     let settled = false;
     const openedAt = Date.now();
+    const interactionLockUntil =
+      openedAt +
+      Math.min(
+        220,
+        Math.max(
+          120,
+          Math.round(TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS / 2),
+        ),
+      );
+    const initialInteractionEventNames = [
+      "pointerup",
+      "click",
+      "touchend",
+      "mouseup",
+    ];
+
+    const ignoreInitialTouchChain = (event) => {
+      if (Date.now() >= interactionLockUntil) {
+        return false;
+      }
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (typeof event?.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      return true;
+    };
+
+    let releaseInitialInteractionShield = () => {};
+    if (typeof document?.addEventListener === "function") {
+      const shieldInitialInteractionChain = (event) => {
+        if (Date.now() >= interactionLockUntil) {
+          releaseInitialInteractionShield();
+          return;
+        }
+        const target = event?.target;
+        if (
+          target instanceof Node &&
+          (modal.contains(target) ||
+            confirmButton?.contains?.(target) ||
+            cancelButton?.contains?.(target))
+        ) {
+          return;
+        }
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        if (typeof event?.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+      };
+      releaseInitialInteractionShield = () => {
+        initialInteractionEventNames.forEach((eventName) => {
+          document.removeEventListener(
+            eventName,
+            shieldInitialInteractionChain,
+            true,
+          );
+        });
+      };
+      initialInteractionEventNames.forEach((eventName) => {
+        document.addEventListener(
+          eventName,
+          shieldInitialInteractionChain,
+          true,
+        );
+      });
+    }
 
     const cleanup = (result) => {
       if (settled) {
         return;
       }
       settled = true;
+      releaseInitialInteractionShield();
       document.removeEventListener("keydown", handleKeydown, true);
       closeModalElement(modal);
       resolve(result === true);
@@ -3043,14 +3224,23 @@ function showTodoFallbackConfirmationDialog(options = {}) {
     };
 
     confirmButton?.addEventListener("click", (event) => {
+      if (ignoreInitialTouchChain(event)) {
+        return;
+      }
       event.preventDefault();
       cleanup(true);
     });
     cancelButton?.addEventListener("click", (event) => {
+      if (ignoreInitialTouchChain(event)) {
+        return;
+      }
       event.preventDefault();
       cleanup(false);
     });
     modal.addEventListener("click", (event) => {
+      if (ignoreInitialTouchChain(event)) {
+        return;
+      }
       if (allowBackdropClose && event.target === modal) {
         if (Date.now() - openedAt < TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS) {
           return;
@@ -3059,9 +3249,15 @@ function showTodoFallbackConfirmationDialog(options = {}) {
       }
     });
 
+    modal.style.pointerEvents = "none";
     document.body.appendChild(modal);
     uiTools?.stopModalContentPropagation?.(modal);
     document.addEventListener("keydown", handleKeydown, true);
+    window.setTimeout(() => {
+      if (modal.isConnected) {
+        modal.style.pointerEvents = "auto";
+      }
+    }, Math.max(0, interactionLockUntil - Date.now()));
     window.setTimeout(() => {
       (confirmButton || cancelButton)?.focus?.();
     }, 0);
@@ -3305,6 +3501,13 @@ function bindTodoModalActions(modal, handlers = {}) {
     if (typeof handler !== "function") {
       return;
     }
+    const clickOnlyAction =
+      actionName === "delete-progress" ||
+      actionName === "delete-todo" ||
+      actionName === "delete-checkin";
+    if (event.type === "pointerup" && clickOnlyAction) {
+      return;
+    }
 
     event.preventDefault();
     event.stopPropagation();
@@ -3312,6 +3515,8 @@ function bindTodoModalActions(modal, handlers = {}) {
       event.stopImmediatePropagation();
     }
     if (event.type === "pointerup") {
+      handledTouchActions.set(actionButton, Date.now());
+    } else if (event.type === "click" && clickOnlyAction) {
       handledTouchActions.set(actionButton, Date.now());
     }
     actionButton.blur?.();
@@ -5381,7 +5586,7 @@ function showCheckinModal(todoId, checkinId = null) {
     !!existingRecord && matchesId(existingRecord.todoId, todoId);
 
   const modal = document.createElement("div");
-  modal.className = "modal-overlay";
+  modal.className = "modal-overlay controler-form-modal-overlay";
   modal.style.display = "flex";
   modal.style.zIndex = "2000";
   modal.style.position = "fixed";
@@ -5394,12 +5599,12 @@ function showCheckinModal(todoId, checkinId = null) {
   modal.style.justifyContent = "center";
 
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 25px; border-radius: 15px; max-width: 420px; width: 90%;">
+    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 420px; width: 90%; max-height: 90vh;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${isEditMode ? `📝 编辑"${escapeHtml(todo.title)}"的进度` : `📝 为"${escapeHtml(todo.title)}"添加进度`}
       </h2>
       
-      <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
+      <div class="controler-form-modal-body" style="display: flex; flex-direction: column; gap: 15px;">
         <div>
           <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
             进度内容
@@ -5411,20 +5616,20 @@ function showCheckinModal(todoId, checkinId = null) {
             border: 1px solid var(--bg-tertiary);
             background-color: var(--bg-quaternary);
             color: var(--text-color);
-            font-size: 15px;
+            font-size: 16px;
             min-height: 120px;
             resize: vertical;
           ">${escapeHtml(existingRecord?.message || "")}</textarea>
         </div>
       </div>
       
-      <div style="display: flex; justify-content: space-between; gap: 10px;">
+      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? '<button class="bts" type="button" id="delete-checkin-progress-btn" data-todo-modal-action="delete-progress" style="margin:0; background-color: var(--delete-btn);">删除</button>'
             : "<span></span>"
         }
-        <div style="display: flex; gap: 10px;">
+        <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
           <button class="bts" type="button" id="cancel-checkin-btn" data-todo-modal-action="cancel" style="margin:0;">收起</button>
           <button class="bts" type="button" id="save-checkin-btn" data-todo-modal-action="save" style="margin:0;">保存</button>
         </div>
@@ -5436,6 +5641,7 @@ function showCheckinModal(todoId, checkinId = null) {
   uiTools?.stopModalContentPropagation?.(modal);
 
   let unbindModalActions = () => {};
+  const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
   const progressDraftSession = createTodoModalDraftSession(
     modal,
     `draft:todo-progress:${todoId}:${existingRecord?.id || "new"}`,
@@ -5452,6 +5658,7 @@ function showCheckinModal(todoId, checkinId = null) {
   const closeModal = (options = {}) => {
     progressDraftSession.destroy();
     unbindModalActions();
+    unbindViewportReveal();
     closeModalElement(modal);
     if (options?.discardDraft === true) {
       discardProgressDraft();
@@ -7087,7 +7294,11 @@ async function init() {
     todoPlanSidebarInitialized = true;
     markTodoInitialDataReady(snapshot);
     queueTodoInitialReveal();
-    scheduleTodoDeferredFreshSync();
+    if (!(todoBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp)) {
+      scheduleTodoDeferredFreshSync();
+    } else {
+      todoInitialDataValidated = true;
+    }
   } finally {
     setTodoLoadingState({
       active: false,

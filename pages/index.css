@@ -565,9 +565,18 @@ body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
 
 .controler-form-modal-overlay {
   overflow: hidden;
-  min-height: var(--controler-stable-visual-viewport-height, 100dvh);
-  height: var(--controler-stable-visual-viewport-height, 100dvh);
-  max-height: var(--controler-stable-visual-viewport-height, 100dvh);
+  min-height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  );
+  height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  );
+  max-height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  );
 }
 
 html.controler-blocking-overlay-active,
@@ -1146,6 +1155,9 @@ body.page-record #project-totals {
   max-height: min(220px, 36vh);
   align-content: start;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .timer-session-modal {
@@ -1164,6 +1176,9 @@ body.page-record #project-totals {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scroll-padding-bottom: 24px;
   padding-right: 2px;
 }
 
@@ -1209,6 +1224,59 @@ body.page-record #project-totals {
 .timer-session-modal .controler-form-modal-footer {
   flex: 0 0 auto;
   margin-top: 0;
+}
+
+body.controler-mobile-runtime .timer-session-modal .input-with-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.controler-mobile-runtime .timer-session-modal .suggestion-popover {
+  position: static;
+  inset: auto;
+  left: auto;
+  right: auto;
+  top: auto;
+  z-index: auto;
+  margin-top: 0;
+  display: block;
+  max-height: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateY(-6px);
+  transform-origin: top center;
+  will-change: max-height, opacity, transform;
+  transition:
+    max-height 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.16s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    border-width 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s ease;
+}
+
+body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
+  visibility: visible;
+  pointer-events: auto;
+  max-height: min(240px, 30vh);
+  opacity: 1;
+  overflow-y: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-width: 1px;
+  border-color: var(--expand-surface-border);
+  box-shadow: var(--expand-surface-shadow);
+  transform: translateY(0);
+  animation: none;
 }
 
 .existing-projects .project-option {
@@ -2422,6 +2490,16 @@ body.page-stats .weekly-glass-scroller {
   scrollbar-gutter: stable;
 }
 
+body.page-stats .stats-shell,
+body.page-stats .stats-main,
+body.page-stats #stats-container,
+body.page-stats .weekly-glass-shell,
+body.page-stats .weekly-grid-size-shell,
+body.page-stats .weekly-glass-scroller,
+body.page-stats .weekly-glass-table {
+  background-color: color-mix(in srgb, var(--panel-bg) 94%, var(--bg-primary));
+}
+
 .stats-dual-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -2850,10 +2928,20 @@ body.page-stats .weekly-glass-scroller {
   width: min(500px, calc(100vw - 24px)) !important;
   max-width: min(500px, calc(100vw - 24px)) !important;
   max-height: calc(
-    min(100dvh, var(--controler-stable-visual-viewport-height, 100vh)) - 24px
+    min(
+        100dvh,
+        var(
+          --controler-visual-viewport-height,
+          var(--controler-stable-visual-viewport-height, 100vh)
+        )
+      ) - 24px
   ) !important;
-  overflow-x: hidden !important;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden !important;
   overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .controler-form-modal-body,
@@ -2861,6 +2949,19 @@ body.page-stats .weekly-glass-scroller {
 .controler-form-modal-footer-actions,
 .controler-form-modal-split {
   min-width: 0;
+}
+
+.controler-form-modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scroll-padding-bottom: 24px;
+  padding-right: 2px;
 }
 
 .controler-form-modal-time-range > * {
@@ -3020,6 +3121,9 @@ body.page-stats .weekly-glass-scroller {
   z-index: 40;
   max-height: 220px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   border-radius: 18px;
   border: 1px solid var(--expand-surface-border);
   background:
@@ -3380,6 +3484,13 @@ body.page-stats .tree-select.stats-heatmap-filter-mobile .tree-select-option {
   min-width: 0;
   box-sizing: border-box;
   padding: 6px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.028),
+      rgba(255, 255, 255, 0.012)
+    ),
+    color-mix(in srgb, var(--panel-bg) 88%, transparent);
 }
 
 body.page-plan .weekly-glass-scroller {
@@ -3393,6 +3504,7 @@ body.page-plan .weekly-glass-scroller {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  background: color-mix(in srgb, var(--panel-bg) 86%, transparent);
 }
 
 .weekly-glass-table {
@@ -3400,7 +3512,7 @@ body.page-plan .weekly-glass-scroller {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  background: transparent;
+  background: color-mix(in srgb, var(--panel-bg) 84%, transparent);
 }
 
 .weekly-glass-table thead th,
@@ -5139,16 +5251,16 @@ body.flex.row .controler-form-modal-overlay,
 body.controler-mobile-runtime .controler-form-modal-overlay {
   align-items: flex-start !important;
   min-height: var(
-    --controler-stable-visual-viewport-height,
-    100dvh
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
   ) !important;
   height: var(
-    --controler-stable-visual-viewport-height,
-    100dvh
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
   ) !important;
   max-height: var(
-    --controler-stable-visual-viewport-height,
-    100dvh
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
   ) !important;
   padding:
       max(10px, env(safe-area-inset-top, 0px))
@@ -5162,7 +5274,13 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
     width: min(100%, 460px) !important;
     max-width: min(100%, 460px) !important;
     max-height: calc(
-      min(100dvh, var(--controler-stable-visual-viewport-height, 100vh)) - 20px
+      min(
+          100dvh,
+          var(
+            --controler-visual-viewport-height,
+            var(--controler-stable-visual-viewport-height, 100vh)
+          )
+        ) - 20px
     ) !important;
     margin: auto 0;
     padding: 12px !important;

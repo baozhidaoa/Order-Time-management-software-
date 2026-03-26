@@ -1631,6 +1631,36 @@ function buildBridgeBootstrapScript(
         }
       } catch (_error) {}
       try {
+        if (
+          window.ReactNativeWebView &&
+          typeof window.ReactNativeWebView.postMessage === 'function'
+        ) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: 'bridge-event',
+              payload: {
+                name: 'ui.theme-applied',
+                href: window.location.href,
+                selectedTheme:
+                  typeof themeState?.selectedTheme === 'string' &&
+                  themeState.selectedTheme.trim()
+                    ? themeState.selectedTheme.trim()
+                    : 'default',
+                customThemes: Array.isArray(themeState?.customThemes)
+                  ? themeState.customThemes
+                  : [],
+                builtInThemeOverrides:
+                  themeState?.builtInThemeOverrides &&
+                  typeof themeState.builtInThemeOverrides === 'object' &&
+                  !Array.isArray(themeState.builtInThemeOverrides)
+                    ? themeState.builtInThemeOverrides
+                    : {},
+              },
+            }),
+          );
+        }
+      } catch (_error) {}
+      try {
         const storedLanguage =
           window.localStorage &&
           typeof window.localStorage.getItem === 'function'
@@ -1857,6 +1887,21 @@ function App({
     secondary: '',
     tertiary: '',
   });
+  const slotPageReadyRef = useRef<Record<WebViewSlot, boolean>>({
+    primary: false,
+    secondary: false,
+    tertiary: false,
+  });
+  const slotThemeReadyRef = useRef<Record<WebViewSlot, boolean>>({
+    primary: false,
+    secondary: false,
+    tertiary: false,
+  });
+  const transitionThemeFallbackFrameRef = useRef<Record<WebViewSlot, number>>({
+    primary: 0,
+    secondary: 0,
+    tertiary: 0,
+  });
   const queuedNavigationRequestRef = useRef<QueuedNavigationRequest | null>(null);
   const latestBridgeNavigationIntentRef = useRef<NavigationIntentStamp | null>(
     null,
@@ -1931,6 +1976,63 @@ function App({
   const bootPulse = useRef(new Animated.Value(0)).current;
 
   const ScreenContainer = Platform.OS === 'ios' ? SafeAreaView : View;
+
+  function cancelTransitionThemeFallback(slot: WebViewSlot) {
+    const frameId = transitionThemeFallbackFrameRef.current[slot];
+    if (frameId) {
+      cancelAnimationFrame(frameId);
+      transitionThemeFallbackFrameRef.current[slot] = 0;
+    }
+  }
+
+  function resetSlotVisualReadiness(slot: WebViewSlot) {
+    slotPageReadyRef.current[slot] = false;
+    slotThemeReadyRef.current[slot] = false;
+    cancelTransitionThemeFallback(slot);
+  }
+
+  function scheduleTransitionThemeFallback(slot: WebViewSlot) {
+    cancelTransitionThemeFallback(slot);
+    const fallbackStartedAt = Date.now();
+    const finalizeAfterThemePaint = () => {
+      transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(() => {
+        transitionThemeFallbackFrameRef.current[slot] = 0;
+        const pendingTransition = transitionStateRef.current;
+        if (
+          pendingTransition?.status === 'loading' &&
+          pendingTransition.toSlot === slot &&
+          slotPageReadyRef.current[slot]
+        ) {
+          startLoadedTransition(slot);
+        }
+      });
+    };
+    const step = () => {
+      const pendingTransition = transitionStateRef.current;
+      if (
+        pendingTransition?.status !== 'loading' ||
+        pendingTransition.toSlot !== slot
+      ) {
+        transitionThemeFallbackFrameRef.current[slot] = 0;
+        return;
+      }
+      if (!slotPageReadyRef.current[slot]) {
+        transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(step);
+        return;
+      }
+      if (slotThemeReadyRef.current[slot]) {
+        finalizeAfterThemePaint();
+        return;
+      }
+      if (Date.now() - fallbackStartedAt >= 260) {
+        transitionThemeFallbackFrameRef.current[slot] = 0;
+        startLoadedTransition(slot);
+        return;
+      }
+      transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(step);
+    };
+    transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(step);
+  }
 
   useEffect(() => {
     shellLanguageRef.current = shellLanguage;
@@ -2749,6 +2851,33 @@ function App({
         return {
           slot: cachedTargetSlot,
           needsLoad: false,
+        };
+      }
+
+      const loadedInactiveSlots = reusableSlots.filter(
+        slot => slot !== currentSlot && !!webViewSlotsRef.current[slot].uri,
+      );
+      if (IS_ANDROID && loadedInactiveSlots.length > 0) {
+        let reuseLoadedSlot = loadedInactiveSlots[0];
+        let oldestUsedAt = Number.POSITIVE_INFINITY;
+        let fallbackPriority = Number.POSITIVE_INFINITY;
+        loadedInactiveSlots.forEach(slot => {
+          const priority = isPageKeyHidden(webViewSlotsRef.current[slot].pageKey)
+            ? 0
+            : 1;
+          const usedAt = slotLastUsedAtRef.current[slot] || 0;
+          if (
+            priority < fallbackPriority ||
+            (priority === fallbackPriority && usedAt < oldestUsedAt)
+          ) {
+            fallbackPriority = priority;
+            oldestUsedAt = usedAt;
+            reuseLoadedSlot = slot;
+          }
+        });
+        return {
+          slot: reuseLoadedSlot,
+          needsLoad: true,
         };
       }
 
@@ -4783,6 +4912,16 @@ function App({
         return;
       }
       if (eventName === 'ui.theme-applied') {
+        if (isPayloadForCurrentSlot(slot, message.payload)) {
+          slotThemeReadyRef.current[slot] = true;
+          if (
+            transitionStateRef.current?.status === 'loading' &&
+            transitionStateRef.current.toSlot === slot &&
+            slotPageReadyRef.current[slot]
+          ) {
+            scheduleTransitionThemeFallback(slot);
+          }
+        }
         const nextThemeState =
           message.payload && typeof message.payload === 'object'
             ? message.payload
@@ -4859,9 +4998,10 @@ function App({
         if (!isPayloadForCurrentSlot(slot, message.payload)) {
           return;
         }
+        slotPageReadyRef.current[slot] = true;
         dispatchQueuedWidgetLaunchIfReady(slot, 'page-ready');
         if (transitionStateRef.current?.toSlot === slot) {
-          startLoadedTransition(slot);
+          scheduleTransitionThemeFallback(slot);
           return;
         }
         if (slot === activeSlotRef.current) {
@@ -5420,6 +5560,9 @@ function App({
           }, launchThemeStateRef.current)}
           onMessage={event => {
             handleWebViewMessage(slot, event).catch(() => undefined);
+          }}
+          onLoadStart={() => {
+            resetSlotVisualReadiness(slot);
           }}
           onLoadEnd={() => {
             handleSlotLoadEnd(slot);
