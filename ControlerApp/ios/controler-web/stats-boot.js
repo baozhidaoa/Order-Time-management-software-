@@ -1505,6 +1505,7 @@ let statsInitialViewRuntimePromise = null;
 let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
+let statsBootstrappedFromPageBootstrap = false;
 const STATS_CHART_RUNTIME_KEY = "chart";
 const STATS_D3_RUNTIME_KEY = "d3";
 const STATS_HEATMAP_STYLE_KEY = "calHeatmapCss";
@@ -2749,6 +2750,20 @@ function setStatsLoadingState(options = {}) {
     title,
     message,
     delayMs,
+  });
+}
+
+function waitForStatsUiPaint() {
+  return new Promise((resolve) => {
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      schedule(() => {
+        resolve(true);
+      });
+    });
   });
 }
 
@@ -4358,9 +4373,11 @@ function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()
 function bootstrapStatsFromCachedSnapshot(scope = getStatsLoadScope()) {
   const snapshot = readStatsWorkspaceSnapshotFromPageBootstrap(scope);
   if (!snapshot) {
+    statsBootstrappedFromPageBootstrap = false;
     return false;
   }
   applyStatsWorkspaceState(snapshot);
+  statsBootstrappedFromPageBootstrap = true;
   return true;
 }
 
@@ -4473,13 +4490,14 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
         : "正在更新统计范围与图表数据，请稍候";
   const lockNativeExit = options.lockNativeExit === true;
   const manageLoading = options.manageLoading !== false;
-  const commitLoadedState = (snapshot) => {
+  const commitLoadedState = async (snapshot) => {
     if (requestId !== statsRangeDataRequestId) {
       return;
     }
     applyStatsWorkspaceState(snapshot);
     if (shouldRender) {
       renderCurrentView();
+      await waitForStatsUiPaint();
     }
     statsInitialDataLoaded = true;
   };
@@ -4513,7 +4531,7 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
           lockNativeExit,
         },
         commit: async (snapshot) => {
-          commitLoadedState(snapshot);
+          await commitLoadedState(snapshot);
         },
       },
     );
@@ -9790,7 +9808,12 @@ async function init() {
       return false;
     });
     renderCurrentView();
-    if (bootstrappedFromSnapshot && statsShellPageActive) {
+    await waitForStatsUiPaint();
+    if (
+      bootstrappedFromSnapshot &&
+      statsShellPageActive &&
+      !(statsBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp)
+    ) {
       void refreshStatsRangeData(true, {
         manageLoading: false,
         message: "正在更新统计结果，请稍候",

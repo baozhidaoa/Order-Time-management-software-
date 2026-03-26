@@ -26,6 +26,17 @@
         </intent-filter>
       </activity>
 
+      <activity
+        android:name=".widgets.ControlerWidgetQuickAddActivity"
+        android:exported="false"
+        android:launchMode="singleTop"
+        android:excludeFromRecents="true"
+        android:finishOnTaskLaunch="true"
+        android:noHistory="true"
+        android:taskAffinity=""
+        android:theme="@style/ControlerWidgetQuickAddTheme"
+        android:windowSoftInputMode="stateVisible|adjustResize" />
+
       <provider
         android:name="androidx.core.content.FileProvider"
         android:authorities="${applicationId}.fileprovider"

@@ -13,6 +13,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.controlerapp.R;
 import com.controlerapp.MainApplication;
 import com.controlerapp.MainActivity;
 import com.facebook.react.bridge.Arguments;
@@ -42,6 +43,8 @@ public final class ControlerWidgetActionHandler {
     public static final String COMMAND_TOGGLE_TIMER = "toggle-timer";
     public static final String COMMAND_TOGGLE_TODO = "toggle-todo";
     public static final String COMMAND_TOGGLE_CHECKIN = "toggle-checkin";
+    public static final String COMMAND_QUICK_ADD_TODO = "quick-add-todo";
+    public static final String COMMAND_QUICK_ADD_CHECKIN = "quick-add-checkin";
     public static final String COMMAND_NO_OP = "noop";
     public static final String COMMAND_REFRESH_WIDGET = "refresh-widget";
     private static final String LOG_TAG = "ControlerWidget";
@@ -222,6 +225,42 @@ public final class ControlerWidgetActionHandler {
             return;
         }
         ControlerWidgetRenderer.refreshKindUsingLastRenderSource(context, normalizedKind);
+    }
+
+    private static boolean refreshWidgetPendingCollectionState(
+        Context context,
+        String widgetKind,
+        int appWidgetId,
+        String targetId,
+        String nextActionLabel
+    ) {
+        if (
+            context == null
+                || appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID
+                || TextUtils.isEmpty(targetId)
+        ) {
+            return false;
+        }
+        if (
+            !ControlerWidgetCollectionStore.markRowPending(
+                context,
+                appWidgetId,
+                widgetKind,
+                targetId,
+                nextActionLabel
+            )
+        ) {
+            return false;
+        }
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        if (appWidgetManager != null) {
+            appWidgetManager.notifyAppWidgetViewDataChanged(
+                appWidgetId,
+                R.id.widget_collection_list
+            );
+        }
+        refreshWidgetPendingState(context, widgetKind, appWidgetId);
+        return true;
     }
 
     private static void schedulePendingStateExpiryRefresh(
@@ -446,6 +485,9 @@ public final class ControlerWidgetActionHandler {
         if (COMMAND_TOGGLE_CHECKIN.equals(command)) {
             return toggleCheckin(context, targetId, appWidgetId);
         }
+        if (COMMAND_QUICK_ADD_TODO.equals(command) || COMMAND_QUICK_ADD_CHECKIN.equals(command)) {
+            return launchQuickAdd(context, command, widgetKind, appWidgetId);
+        }
         if (COMMAND_REFRESH_WIDGET.equals(command)) {
             return refreshWidget(widgetKind, appWidgetId);
         }
@@ -576,6 +618,58 @@ public final class ControlerWidgetActionHandler {
             );
         }
         return ActionResult.refreshKind(true, true, "已刷新组件", normalizedKind);
+    }
+
+    private static ActionResult launchQuickAdd(
+        Context context,
+        String command,
+        String widgetKind,
+        int appWidgetId
+    ) {
+        if (context == null) {
+            return ActionResult.fullRefresh(false, false, "");
+        }
+
+        String normalizedKind =
+            COMMAND_QUICK_ADD_CHECKIN.equals(command)
+                ? ControlerWidgetKinds.CHECKINS
+                : ControlerWidgetKinds.TODOS;
+        if (!TextUtils.isEmpty(ControlerWidgetKinds.normalize(widgetKind))) {
+            normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
+        }
+
+        Intent launchIntent = new Intent(context, ControlerWidgetQuickAddActivity.class);
+        launchIntent.setAction(
+            "com.controler.timetracker.action.OPEN_WIDGET_QUICK_ADD."
+                + normalizedKind
+                + "."
+                + System.currentTimeMillis()
+        );
+        launchIntent.putExtra(EXTRA_WIDGET_KIND, normalizedKind);
+        launchIntent.putExtra(EXTRA_APP_WIDGET_ID, appWidgetId);
+        launchIntent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+        context.startActivity(launchIntent);
+
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return ActionResult.refreshSingleWidget(true, false, "", normalizedKind, appWidgetId);
+        }
+        return ActionResult.refreshKind(true, false, "", normalizedKind);
+    }
+
+    static void emitStorageChangedToForeground(
+        Context context,
+        String[] changedSections,
+        JSONObject changedPeriods,
+        String reason
+    ) {
+        emitForegroundStorageChanged(context, changedSections, changedPeriods, reason);
     }
 
     private static ActionResult toggleTimer(Context context) {
@@ -711,6 +805,13 @@ public final class ControlerWidgetActionHandler {
         logWidgetAction("todo", "start", targetId, appWidgetId, actionStartedAtMs, "");
         Boolean renderedCompleted =
             ControlerWidgetRenderer.peekTodoCompleted(targetId, appWidgetId);
+        if (renderedCompleted == null) {
+            renderedCompleted = ControlerWidgetCollectionStore.peekTodoCompleted(
+                context,
+                appWidgetId,
+                targetId
+            );
+        }
         boolean optimisticStarted = false;
         if (renderedCompleted != null) {
             optimisticStarted = ControlerWidgetPendingActionStore.beginTodo(
@@ -736,7 +837,17 @@ public final class ControlerWidgetActionHandler {
                 );
             }
             long refreshStartedAtMs = SystemClock.elapsedRealtime();
-            refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
+            if (
+                !refreshWidgetPendingCollectionState(
+                    context,
+                    ControlerWidgetKinds.TODOS,
+                    appWidgetId,
+                    targetId,
+                    renderedCompleted.booleanValue() ? "完成" : "恢复"
+                )
+            ) {
+                refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
+            }
             logWidgetAction(
                 "todo",
                 "optimistic-ui-ready",
@@ -793,7 +904,17 @@ public final class ControlerWidgetActionHandler {
                     }
                     optimisticStarted = true;
                     long refreshStartedAtMs = SystemClock.elapsedRealtime();
-                    refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
+                    if (
+                        !refreshWidgetPendingCollectionState(
+                            context,
+                            ControlerWidgetKinds.TODOS,
+                            appWidgetId,
+                            targetId,
+                            nextCompleted ? "恢复" : "完成"
+                        )
+                    ) {
+                        refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
+                    }
                     logWidgetAction(
                         "todo",
                         "storage-ui-ready",
@@ -928,6 +1049,13 @@ public final class ControlerWidgetActionHandler {
         String today = todayText();
         Boolean renderedChecked =
             ControlerWidgetRenderer.peekCheckinDone(targetId, today, appWidgetId);
+        if (renderedChecked == null) {
+            renderedChecked = ControlerWidgetCollectionStore.peekCheckinChecked(
+                context,
+                appWidgetId,
+                targetId
+            );
+        }
         boolean optimisticStarted = false;
         if (renderedChecked != null) {
             optimisticStarted = ControlerWidgetPendingActionStore.beginCheckin(
@@ -953,7 +1081,17 @@ public final class ControlerWidgetActionHandler {
                 );
             }
             long refreshStartedAtMs = SystemClock.elapsedRealtime();
-            refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
+            if (
+                !refreshWidgetPendingCollectionState(
+                    context,
+                    ControlerWidgetKinds.CHECKINS,
+                    appWidgetId,
+                    targetId,
+                    renderedChecked.booleanValue() ? "打卡" : "取消"
+                )
+            ) {
+                refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
+            }
             logWidgetAction(
                 "checkin",
                 "optimistic-ui-ready",
@@ -1078,7 +1216,17 @@ public final class ControlerWidgetActionHandler {
                         }
                         optimisticStarted = true;
                         long refreshStartedAtMs = SystemClock.elapsedRealtime();
+                        if (
+                        !refreshWidgetPendingCollectionState(
+                            context,
+                            ControlerWidgetKinds.CHECKINS,
+                            appWidgetId,
+                            targetId,
+                            nextChecked ? "取消" : "打卡"
+                        )
+                    ) {
                         refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
+                    }
                         logWidgetAction(
                             "checkin",
                             "storage-ui-ready",
@@ -1192,7 +1340,17 @@ public final class ControlerWidgetActionHandler {
                 }
                 optimisticStarted = true;
                 long refreshStartedAtMs = SystemClock.elapsedRealtime();
-                refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
+                if (
+                    !refreshWidgetPendingCollectionState(
+                        context,
+                        ControlerWidgetKinds.CHECKINS,
+                        appWidgetId,
+                        targetId,
+                        "取消"
+                    )
+                ) {
+                    refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
+                }
                 logWidgetAction(
                     "checkin",
                     "storage-ui-ready",
