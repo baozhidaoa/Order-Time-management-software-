@@ -2282,12 +2282,7 @@ class StorageManager {
       };
     }
     if (!this.shouldRepairBundleArtifacts(root, payload, inspection)) {
-      if (
-        this.storageRecoveryState !== "repaired" ||
-        path.resolve(root) !== this.storageRecoveryTargetPath
-      ) {
-        this.resetStorageRecoveryState(root);
-      }
+      this.resetStorageRecoveryState(root);
       return {
         state: "ok",
         repaired: false,
@@ -4106,7 +4101,9 @@ class StorageManager {
         bundleHelper.ensureArray(currentCore.projects),
       );
     } else {
-      nextCore.projects = bundleHelper.recalculateProjectDurationTotals(
+      // Preserve the existing project cache for non-project core writes so
+      // timer/theme/todo/checkin updates stay on the lightweight path.
+      nextCore.projects = bundleHelper.cloneValue(
         bundleHelper.ensureArray(currentCore.projects),
       );
     }

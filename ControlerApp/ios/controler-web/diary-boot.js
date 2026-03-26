@@ -740,6 +740,21 @@ function isDiaryInitialStorageBootstrapChange(detail = {}) {
   return reason === "initial-sync" && !changedSections.length;
 }
 
+function isDiaryAmbiguousNativeExternalChange(detail = {}) {
+  if (window.ControlerStorage?.isNativeApp !== true) {
+    return false;
+  }
+  const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
+  if (changedSections.length) {
+    return false;
+  }
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
+  return !source && (reason === "external-update" || reason === "shell-resume");
+}
+
 function shouldRefreshDiaryCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -755,6 +770,12 @@ function shouldRefreshDiaryForExternalChange(detail = {}) {
     isDiaryOwnStorageChange(detail) ||
     isDiaryInitialStorageBootstrapChange(detail)
   ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  if (isDiaryAmbiguousNativeExternalChange(detail)) {
     return false;
   }
   const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);

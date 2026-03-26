@@ -180,11 +180,32 @@ function isTodoInitialStorageBootstrapChange(detail = {}) {
   return reason === "initial-sync" && !changedSections.length;
 }
 
+function isTodoAmbiguousNativeExternalChange(detail = {}) {
+  if (window.ControlerStorage?.isNativeApp !== true) {
+    return false;
+  }
+  const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
+  if (changedSections.length) {
+    return false;
+  }
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
+  return !source && (reason === "external-update" || reason === "shell-resume");
+}
+
 function shouldRefreshTodoForExternalChange(detail = {}) {
   if (
     isTodoOwnStorageChange(detail) ||
     isTodoInitialStorageBootstrapChange(detail)
   ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  if (isTodoAmbiguousNativeExternalChange(detail)) {
     return false;
   }
   const changedSections = getTodoNormalizedChangedSections(detail?.changedSections);
@@ -2303,6 +2324,7 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
   let suppressNextClick = false;
   let deletePending = false;
   let previousBodyUserSelect = "";
+  let lastDeleteTriggerAt = 0;
 
   const getOffset = () => Number.parseFloat(shell.dataset.swipeOffset || "0") || 0;
   const releasePointerCapture = () => {
@@ -2459,12 +2481,20 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
     closeTodoSwipeDeleteShell(shell);
   };
 
-  const handleDeleteClick = async (event) => {
+  const triggerDeleteAction = async (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
     if (deletePending) {
       return;
     }
+    const now = Date.now();
+    if (now - lastDeleteTriggerAt < 320) {
+      return;
+    }
+    lastDeleteTriggerAt = now;
     deletePending = true;
     todoSwipeDeleteConfirmationShell = shell;
     deleteButton.disabled = true;
@@ -2490,13 +2520,26 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
     }
   };
 
+  const handleDeletePointerDown = (event) => {
+    event.stopPropagation();
+  };
+
+  const handleDeleteActivate = (event) => {
+    if (event.type === "pointerup" && event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    void triggerDeleteAction(event);
+  };
+
   surface.addEventListener("pointerdown", handlePointerDown);
   surface.addEventListener("pointermove", handlePointerMove);
   surface.addEventListener("pointerup", handlePointerEnd);
   surface.addEventListener("pointercancel", handlePointerEnd);
   surface.addEventListener("lostpointercapture", handlePointerEnd);
   surface.addEventListener("click", handleClickCapture, true);
-  deleteButton.addEventListener("click", handleDeleteClick);
+  deleteButton.addEventListener("pointerdown", handleDeletePointerDown);
+  deleteButton.addEventListener("pointerup", handleDeleteActivate);
+  deleteButton.addEventListener("click", handleDeleteActivate);
 
   const api = {
     open() {
@@ -2513,7 +2556,9 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
       surface.removeEventListener("pointercancel", handlePointerEnd);
       surface.removeEventListener("lostpointercapture", handlePointerEnd);
       surface.removeEventListener("click", handleClickCapture, true);
-      deleteButton.removeEventListener("click", handleDeleteClick);
+      deleteButton.removeEventListener("pointerdown", handleDeletePointerDown);
+      deleteButton.removeEventListener("pointerup", handleDeleteActivate);
+      deleteButton.removeEventListener("click", handleDeleteActivate);
       delete shell.__todoSwipeDeleteApi;
     },
   };

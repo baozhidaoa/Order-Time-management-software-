@@ -992,6 +992,45 @@
     return JSON.stringify(snapshot);
   }
 
+  function isSerializableSectionEqual(left, right) {
+    try {
+      return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function inferChangedSectionsFromStateTransition(previousState = {}, nextState = {}) {
+    const previousSharedState = extractSharedState(previousState);
+    const nextSharedState = extractSharedState(nextState);
+    const changedSections = [];
+
+    SHARED_STATE_KEYS.forEach((section) => {
+      const previousHasSection = Object.prototype.hasOwnProperty.call(
+        previousSharedState,
+        section,
+      );
+      const nextHasSection = Object.prototype.hasOwnProperty.call(
+        nextSharedState,
+        section,
+      );
+      if (!previousHasSection && !nextHasSection) {
+        return;
+      }
+      if (
+        previousHasSection !== nextHasSection ||
+        !isSerializableSectionEqual(
+          previousHasSection ? previousSharedState[section] : undefined,
+          nextHasSection ? nextSharedState[section] : undefined,
+        )
+      ) {
+        changedSections.push(section);
+      }
+    });
+
+    return normalizeChangedSectionEntries(changedSections);
+  }
+
   function normalizeChangedSectionEntries(changedSections = []) {
     return Array.from(
       new Set(
@@ -2128,9 +2167,96 @@
 
   let lastStorageSyncErrorSignature = "";
   let lastStorageRecoveryNoticeSignature = "";
+  const STORAGE_LOCAL_ECHO_IGNORE_WINDOW_MS = 4200;
+  const STORAGE_LOCAL_ECHO_IGNORE_MAX_USES = 6;
+  let recentLocalStorageEchoEvents = [];
 
   function clearStorageSyncError() {
     lastStorageSyncErrorSignature = "";
+  }
+
+  function buildRecentLocalStorageEchoSignature(
+    changedSections = [],
+    changedPeriods = {},
+  ) {
+    const normalizedChangedSections = normalizeChangedSectionEntries(changedSections);
+    const normalizedChangedPeriods = normalizeChangedPeriodEntries(changedPeriods);
+    if (
+      !normalizedChangedSections.length &&
+      !Object.keys(normalizedChangedPeriods).length
+    ) {
+      return "";
+    }
+    return JSON.stringify({
+      changedSections: normalizedChangedSections,
+      changedPeriods: normalizedChangedPeriods,
+    });
+  }
+
+  function pruneRecentLocalStorageEchoEvents(now = Date.now()) {
+    recentLocalStorageEchoEvents = recentLocalStorageEchoEvents.filter(
+      (entry) => Number(entry?.expiresAt) > now,
+    );
+  }
+
+  function rememberRecentLocalStorageEcho(metadata = {}) {
+    const signature = buildRecentLocalStorageEchoSignature(
+      metadata?.changedSections,
+      metadata?.changedPeriods,
+    );
+    if (!signature) {
+      return;
+    }
+    const now = Date.now();
+    pruneRecentLocalStorageEchoEvents(now);
+    recentLocalStorageEchoEvents.push({
+      signature,
+      expiresAt: now + STORAGE_LOCAL_ECHO_IGNORE_WINDOW_MS,
+      remainingUses: STORAGE_LOCAL_ECHO_IGNORE_MAX_USES,
+    });
+  }
+
+  function shouldIgnoreRecentLocalStorageEcho(detail = {}) {
+    const reason =
+      typeof detail?.reason === "string" ? detail.reason.trim().toLowerCase() : "";
+    if (reason === "initial-sync") {
+      return false;
+    }
+    const source =
+      typeof detail?.source === "string" ? detail.source.trim().toLowerCase() : "";
+    if (
+      source &&
+      !source.includes("renderer") &&
+      !source.includes("webview")
+    ) {
+      return false;
+    }
+    const signature = buildRecentLocalStorageEchoSignature(
+      detail?.changedSections,
+      detail?.changedPeriods,
+    );
+    if (!signature) {
+      return false;
+    }
+    const now = Date.now();
+    pruneRecentLocalStorageEchoEvents(now);
+    const matchIndex = recentLocalStorageEchoEvents.findIndex(
+      (entry) => entry.signature === signature,
+    );
+    if (matchIndex === -1) {
+      return false;
+    }
+    const match = recentLocalStorageEchoEvents[matchIndex];
+    if (
+      !match ||
+      !Number.isFinite(match.remainingUses) ||
+      match.remainingUses <= 1
+    ) {
+      recentLocalStorageEchoEvents.splice(matchIndex, 1);
+    } else {
+      match.remainingUses -= 1;
+    }
+    return true;
   }
 
   function maybeNotifyStorageRecoveryStatus(status) {
@@ -2165,6 +2291,10 @@
       return;
     }
     lastStorageRecoveryNoticeSignature = signature;
+
+    if (recoveryState !== "needs-recovery") {
+      return;
+    }
 
     if (document.hidden) {
       return;
@@ -2875,6 +3005,12 @@
       },
       keys() {
         return managedKeys();
+      },
+      shouldIgnoreRecentLocalEcho(detail = {}) {
+        return shouldIgnoreRecentLocalStorageEcho(detail);
+      },
+      markRecentLocalEcho(metadata = {}) {
+        rememberRecentLocalStorageEcho(metadata);
       },
       dump() {
         return buildCurrentMergedState();
@@ -4082,6 +4218,21 @@
       if (!changedSections.length && !Object.keys(changedPeriods).length) {
         return;
       }
+      const source =
+        typeof metadata.source === "string" && metadata.source.trim()
+          ? metadata.source.trim()
+          : "renderer";
+      const originPageInstanceId =
+        typeof metadata.originPageInstanceId === "string" &&
+        metadata.originPageInstanceId.trim()
+          ? metadata.originPageInstanceId.trim()
+          : STORAGE_PAGE_INSTANCE_ID;
+      rememberRecentLocalStorageEcho({
+        changedSections,
+        changedPeriods,
+        source,
+        originPageInstanceId,
+      });
       window.ControlerNativeBridge?.emitEvent?.("storage.changed", {
         reason:
           typeof reason === "string" && reason.trim()
@@ -4089,15 +4240,8 @@
             : "external-update",
         changedSections,
         changedPeriods,
-        source:
-          typeof metadata.source === "string" && metadata.source.trim()
-            ? metadata.source.trim()
-            : "renderer",
-        originPageInstanceId:
-          typeof metadata.originPageInstanceId === "string" &&
-          metadata.originPageInstanceId.trim()
-            ? metadata.originPageInstanceId.trim()
-            : STORAGE_PAGE_INSTANCE_ID,
+        source,
+        originPageInstanceId,
       });
     }
 
@@ -4578,6 +4722,44 @@
 
     function isManagedShellInactive() {
       return shellPageActive === false;
+    }
+
+    function readCurrentShellVisibilityState() {
+      return window.__CONTROLER_SHELL_VISIBILITY__ &&
+        typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
+        ? window.__CONTROLER_SHELL_VISIBILITY__
+        : initialShellVisibilityState;
+    }
+
+    function shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
+      triggerName = "",
+    ) {
+      const normalizedTrigger = String(triggerName || "").trim();
+      if (reactNativeBridge?.platform !== "android") {
+        return false;
+      }
+      if (
+        normalizedTrigger !== "focus" &&
+        normalizedTrigger !== "pageshow" &&
+        normalizedTrigger !== "visibility-visible"
+      ) {
+        return false;
+      }
+      const shellVisibilityState = readCurrentShellVisibilityState();
+      emitStorageDebug("skip-window-foreground-sync-trigger", {
+        trigger: normalizedTrigger,
+        shellPageActive: shellPageActive === true,
+        transitionLoading: shellVisibilityState?.transitionLoading === true,
+        reason:
+          typeof shellVisibilityState?.reason === "string"
+            ? shellVisibilityState.reason
+            : "",
+        page:
+          typeof shellVisibilityState?.page === "string"
+            ? shellVisibilityState.page
+            : "",
+      });
+      return true;
     }
 
     function queueNativeForegroundSyncOnShellResume(reason = "shell-resume", options = {}) {
@@ -5249,8 +5431,21 @@
         return null;
       }
 
-      const currentSnapshot = createComparableSnapshot(readState());
+      const currentState = readState();
+      const currentSnapshot = createComparableSnapshot(currentState);
       const nextSnapshot = createComparableSnapshot(next.state);
+      const snapshotChanged = nextSnapshot !== currentSnapshot;
+      let resolvedChangedSections = normalizeChangedSectionsList(changedSections);
+      const resolvedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
+      if (snapshotChanged && !resolvedChangedSections.length) {
+        resolvedChangedSections = inferChangedSectionsFromStateTransition(
+          currentState,
+          next.state,
+        );
+        if (!resolvedChangedSections.length) {
+          resolvedChangedSections = [...DEFAULT_CHANGED_SECTIONS];
+        }
+      }
 
       cachedState = next.state;
       hasManagedCoreSnapshot = true;
@@ -5267,10 +5462,10 @@
       updateVersionBaseline(cachedStatus);
       clearStorageSyncError();
 
-      if (reason && (forceDispatch || nextSnapshot !== currentSnapshot)) {
+      if (reason && (forceDispatch || snapshotChanged)) {
         dispatchStorageChangedEvent(reason, buildMergedState(cachedState), cachedStatus, {
-          changedSections: normalizeChangedSectionsList(changedSections),
-          changedPeriods: normalizeChangedPeriodsMap(changedPeriods),
+          changedSections: resolvedChangedSections,
+          changedPeriods: resolvedChangedPeriods,
           source,
           originPageInstanceId:
             typeof originPageInstanceId === "string" ? originPageInstanceId : "",
@@ -5279,7 +5474,9 @@
       emitStorageDebug("sync-state-from-native-finished", {
         reason: typeof reason === "string" ? reason : "",
         forceDispatch: forceDispatch === true,
-        changed: nextSnapshot !== currentSnapshot,
+        changed: snapshotChanged,
+        changedSections: resolvedChangedSections,
+        changedPeriods: resolvedChangedPeriods,
       });
       return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
     }
@@ -7247,12 +7444,22 @@
       scheduleNativeProbeLoop();
     });
     window.addEventListener("focus", () => {
+      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("focus")) {
+        return;
+      }
       scheduleNativeForegroundSync("external-update");
     });
     window.addEventListener("pageshow", () => {
+      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("pageshow")) {
+        return;
+      }
       scheduleNativeForegroundSync("external-update");
     });
     window.addEventListener("controler:native-app-resume", () => {
+      if (!shellPageActive) {
+        queueNativeForegroundSyncOnShellResume("shell-resume");
+        return;
+      }
       scheduleNativeForegroundSync("external-update");
     });
     document.addEventListener("visibilitychange", () => {
@@ -7262,6 +7469,13 @@
         return;
       }
       if (!shellPageActive) {
+        return;
+      }
+      if (
+        shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
+          "visibility-visible",
+        )
+      ) {
         return;
       }
       scheduleNativeForegroundSync("external-update");

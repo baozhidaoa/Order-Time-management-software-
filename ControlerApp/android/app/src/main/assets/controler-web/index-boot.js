@@ -2315,6 +2315,21 @@ function isIndexInitialStorageBootstrapChange(detail = {}) {
   return reason === "initial-sync" && !changedSections.length;
 }
 
+function isIndexAmbiguousNativeExternalChange(detail = {}) {
+  if (window.ControlerStorage?.isNativeApp !== true) {
+    return false;
+  }
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
+  if (changedSections.length) {
+    return false;
+  }
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
+  return !source && (reason === "external-update" || reason === "shell-resume");
+}
+
 function shouldRefreshIndexCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -2327,6 +2342,12 @@ function shouldRefreshIndexForExternalChange(detail = {}) {
     isIndexOwnStorageChange(detail) ||
     isIndexInitialStorageBootstrapChange(detail)
   ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  if (isIndexAmbiguousNativeExternalChange(detail)) {
     return false;
   }
   const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
@@ -5356,8 +5377,10 @@ function ensureIndexForegroundBootstrapReady() {
   }
   indexForegroundBootstrapPromise = Promise.resolve()
     .then(async () => {
-      await waitForIndexStorageReady();
-      await restoreTimerSessionDraftFromStorage();
+      await Promise.all([
+        waitForIndexStorageReady(),
+        restoreTimerSessionDraftFromStorage(),
+      ]);
       if (!indexForegroundBootstrapReady) {
         indexForegroundBootstrapReady = true;
         uiTools?.markPerfStage?.("shell-ready", {
@@ -7584,6 +7607,10 @@ function applyTimerModalProjectSelection(
     return false;
   }
 
+  suppressModalProjectSelectionClickFallback(
+    targetInputId,
+    targetInputId === "next-project-input" ? 480 : 320,
+  );
   clearModalProjectSuggestionHideTimer(targetInputId);
   hideAllProjectSuggestions();
 
@@ -7813,6 +7840,35 @@ function syncTimerModalExistingProjectQuickPickSelection() {
     });
 }
 
+function getTimerModalKeyboardInsetPx() {
+  if (!document.body?.classList.contains("controler-keyboard-open")) {
+    return 0;
+  }
+
+  const root =
+    document.documentElement instanceof HTMLElement
+      ? document.documentElement
+      : null;
+  const rootStyle =
+    root && typeof window.getComputedStyle === "function"
+      ? window.getComputedStyle(root)
+      : null;
+  const parseViewportHeight = (value) => {
+    const parsed = Number.parseFloat(String(value || "").trim());
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+  const stableViewportHeight = parseViewportHeight(
+    rootStyle?.getPropertyValue("--controler-stable-visual-viewport-height"),
+  );
+  const visualViewportHeight = parseViewportHeight(
+    rootStyle?.getPropertyValue("--controler-visual-viewport-height"),
+  );
+  if (stableViewportHeight > 0 && visualViewportHeight > 0) {
+    return Math.max(stableViewportHeight - visualViewportHeight, 0);
+  }
+  return 0;
+}
+
 function scheduleTimerSessionFieldReveal(target, options = {}) {
   if (
     !(target instanceof HTMLElement) ||
@@ -7859,6 +7915,13 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
             Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
           )
         : 0;
+    const keyboardInsetPx = isAndroidNativeTimerModalKeyboardRuntime()
+      ? getTimerModalKeyboardInsetPx()
+      : 0;
+    const visibleBodyHeight = Math.max(
+      modalBody.clientHeight - keyboardInsetPx,
+      Math.min(modalBody.clientHeight, 120),
+    );
     const desiredBottom = fieldBottom + visiblePopoverHeight + 20;
     const maxScrollTop = Math.max(
       modalBody.scrollHeight - modalBody.clientHeight,
@@ -7867,7 +7930,7 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
     const nextScrollTop = Math.min(
       Math.max(
         Math.max(fieldTop - 12, 0),
-        Math.max(desiredBottom - modalBody.clientHeight, 0),
+        Math.max(desiredBottom - visibleBodyHeight, 0),
       ),
       maxScrollTop,
     );
@@ -9571,6 +9634,7 @@ async function handleIndexModalConfirmClick() {
         mode: "fullscreen",
         title: "正在保存记录",
         message: "正在写入新记录，请稍候后再切换页面。",
+        delayMs: INDEX_LOADING_OVERLAY_DELAY_MS,
         lockNativeExit: true,
       });
       await waitForIndexUiPaint();
@@ -14038,7 +14102,6 @@ async function init() {
       return;
     }
 
-    queueRecordInitialReveal();
     window.setTimeout(() => {
       reportIndexDebugInteractivityState("post-init");
     }, 800);

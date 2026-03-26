@@ -1224,12 +1224,50 @@ body.page-record #project-totals {
 .timer-session-modal .controler-form-modal-footer {
   flex: 0 0 auto;
   margin-top: 0;
+  position: relative;
+  z-index: 2;
 }
 
 body.controler-mobile-runtime .timer-session-modal .input-with-suggestions {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
+  .timer-session-modal-overlay {
+  min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+}
+
+body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
+  .timer-session-modal {
+  height: calc(
+    var(--controler-stable-visual-viewport-height, 100dvh) - 20px
+  ) !important;
+  max-height: calc(
+    var(--controler-stable-visual-viewport-height, 100dvh) - 20px
+  ) !important;
+}
+
+body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
+  .timer-session-modal
+  .controler-form-modal-body {
+  padding-bottom: calc(
+    24px +
+      (
+        var(--controler-stable-visual-viewport-height, 100dvh) -
+          var(--controler-visual-viewport-height, 100dvh)
+      )
+  );
+  scroll-padding-bottom: calc(
+    24px +
+      (
+        var(--controler-stable-visual-viewport-height, 100dvh) -
+          var(--controler-visual-viewport-height, 100dvh)
+      )
+  );
 }
 
 body.controler-mobile-runtime .timer-session-modal .suggestion-popover {

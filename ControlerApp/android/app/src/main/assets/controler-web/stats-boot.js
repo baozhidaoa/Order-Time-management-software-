@@ -2299,6 +2299,21 @@ function isStatsInitialStorageBootstrapChange(detail = {}) {
   return reason === "initial-sync" && !changedSections.length;
 }
 
+function isStatsAmbiguousNativeExternalChange(detail = {}) {
+  if (window.ControlerStorage?.isNativeApp !== true) {
+    return false;
+  }
+  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  if (changedSections.length) {
+    return false;
+  }
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
+  return !source && (reason === "external-update" || reason === "shell-resume");
+}
+
 function shouldRefreshStatsCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -2311,6 +2326,12 @@ function shouldRefreshStatsForExternalChange(detail = {}) {
     isStatsOwnStorageChange(detail) ||
     isStatsInitialStorageBootstrapChange(detail)
   ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  if (isStatsAmbiguousNativeExternalChange(detail)) {
     return false;
   }
   const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);

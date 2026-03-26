@@ -1,0 +1,3 @@
+video=Record_2026-03-26-22-46-58_3a0fcedf1fef9558475bffaf421e6116.mp4
+fps=27.878 frames=1693 duration=60.73s size=1080x2414
+sample_interval=0.25s samples=242
