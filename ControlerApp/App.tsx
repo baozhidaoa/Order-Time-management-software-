@@ -499,6 +499,7 @@ const RELEASE_PERF_CONSOLE_EVENTS = new Set([
   'page-ready',
   'transition-start',
   'transition-complete',
+  'transition-load-grace',
   'navigation-queued',
   'navigation-replayed',
   'launch-action-consumed',
@@ -536,6 +537,9 @@ function serializePerfMetricLog(
   }
 }
 const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
+const PAGE_SWITCH_THEME_READY_TIMEOUT_MS = IS_ANDROID ? 900 : 420;
+const PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS = IS_ANDROID ? 120 : 80;
+const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 280 : 140;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
 const NAVIGATION_PREWARM_DELAY_MS = 260;
@@ -1011,22 +1015,13 @@ export function resolveShellBlockingOverlayPayload({
   shellLanguage: UiLanguage;
 }): ShellBlockingOverlayPayload {
   if (transitionState?.status === 'loading') {
-    const loadingTargetPageKey = webViewSlots[transitionState.toSlot].pageKey;
-    const loadingTargetPageLabel = getPageDisplayLabel(
-      loadingTargetPageKey,
-      shellLanguage,
-    );
     return {
       title: selectShellText(shellLanguage, '正在加载数据中', 'Loading data'),
-      message: loadingTargetPageKey
-        ? shellLanguage === 'en-US'
-          ? `Preparing ${loadingTargetPageLabel} page resources and local data.`
-          : `正在准备${loadingTargetPageLabel}页面资源与本地数据，请稍候`
-        : selectShellText(
-            shellLanguage,
-            '页面资源与本地数据正在就绪',
-            'Page resources and local data are getting ready.',
-          ),
+      message: selectShellText(
+        shellLanguage,
+        '页面资源与本地数据正在就绪',
+        'Page resources and local data are getting ready.',
+      ),
     };
   }
 
@@ -1819,6 +1814,7 @@ function App({
     toSlot: WebViewSlot;
     targetUri: string;
     comparableUri: string;
+    graceAttempted: boolean;
   } | null>(null);
   const canGoBackBySlotRef = useRef<Record<WebViewSlot, boolean>>({
     primary: false,
@@ -1991,9 +1987,29 @@ function App({
     cancelTransitionThemeFallback(slot);
   }
 
+  function getTransitionThemeReadyFallbackDelayMs(slot: WebViewSlot) {
+    const watchdog = transitionWatchdogRef.current;
+    if (!watchdog || watchdog.toSlot !== slot) {
+      return PAGE_SWITCH_THEME_READY_TIMEOUT_MS;
+    }
+    const elapsedMs = Math.max(0, Date.now() - watchdog.startedAt);
+    const remainingBudgetMs =
+      PAGE_SWITCH_LOAD_TIMEOUT_MS -
+      elapsedMs -
+      PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS;
+    if (!Number.isFinite(remainingBudgetMs)) {
+      return PAGE_SWITCH_THEME_READY_TIMEOUT_MS;
+    }
+    return Math.max(
+      0,
+      Math.min(PAGE_SWITCH_THEME_READY_TIMEOUT_MS, remainingBudgetMs),
+    );
+  }
+
   function scheduleTransitionThemeFallback(slot: WebViewSlot) {
     cancelTransitionThemeFallback(slot);
-    const fallbackStartedAt = Date.now();
+    const fallbackDeadlineAt =
+      Date.now() + getTransitionThemeReadyFallbackDelayMs(slot);
     const finalizeAfterThemePaint = () => {
       transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(() => {
         transitionThemeFallbackFrameRef.current[slot] = 0;
@@ -2024,7 +2040,7 @@ function App({
         finalizeAfterThemePaint();
         return;
       }
-      if (Date.now() - fallbackStartedAt >= 260) {
+      if (Date.now() >= fallbackDeadlineAt) {
         transitionThemeFallbackFrameRef.current[slot] = 0;
         startLoadedTransition(slot);
         return;
@@ -3530,6 +3546,7 @@ function App({
       toSlot: transition.toSlot,
       targetUri,
       comparableUri: comparableTargetUri,
+      graceAttempted: false,
     };
     transitionWatchdogTimerRef.current = setTimeout(() => {
       transitionWatchdogTimerRef.current = null;
@@ -3549,6 +3566,49 @@ function App({
       }
       if (currentTransition.status === 'animating') {
         finalizeTransition(currentTransition);
+        return;
+      }
+      if (slotPageReadyRef.current[transition.toSlot]) {
+        startLoadedTransition(transition.toSlot);
+        return;
+      }
+      if (!watchdog.graceAttempted) {
+        transitionWatchdogRef.current = {
+          ...watchdog,
+          graceAttempted: true,
+        };
+        logPerfMetric('transition-load-grace', {
+          fromSlot: transition.fromSlot,
+          toSlot: transition.toSlot,
+          page: pendingState.pageKey,
+          waitedMs: Date.now() - watchdog.startedAt,
+        });
+        transitionWatchdogTimerRef.current = setTimeout(() => {
+          transitionWatchdogTimerRef.current = null;
+          const graceWatchdog = transitionWatchdogRef.current;
+          const graceTransition = transitionStateRef.current;
+          const gracePendingState = webViewSlotsRef.current[transition.toSlot];
+          if (
+            !graceWatchdog ||
+            !graceTransition ||
+            graceWatchdog.fromSlot !== transition.fromSlot ||
+            graceWatchdog.toSlot !== transition.toSlot ||
+            graceWatchdog.comparableUri !== comparableTargetUri ||
+            graceTransition.toSlot !== transition.toSlot ||
+            getComparableUrl(gracePendingState.uri) !== comparableTargetUri
+          ) {
+            return;
+          }
+          if (graceTransition.status === 'animating') {
+            finalizeTransition(graceTransition);
+            return;
+          }
+          if (slotPageReadyRef.current[transition.toSlot]) {
+            startLoadedTransition(transition.toSlot);
+            return;
+          }
+          fallbackTransitionToDirectNavigation(graceTransition);
+        }, PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS);
         return;
       }
       fallbackTransitionToDirectNavigation(currentTransition);
@@ -3595,8 +3655,7 @@ function App({
       const pendingComparableUrl = getComparableUrl(pendingState.uri);
       if (nextComparableUrl === pendingComparableUrl) {
         if (source === 'webview') {
-          clearPendingTransition(currentTransition.toSlot);
-          return 'allow-default';
+          return 'intercept';
         }
         if (!isTransitionWatchdogExpired()) {
           return 'intercept';
@@ -5067,22 +5126,58 @@ function App({
           latestBridgeNavigationIntentRef.current = incomingIntent;
         }
 
+        const currentTransition = transitionStateRef.current;
+        const currentComparableUrl = getComparableUrl(
+          webViewSlotsRef.current[activeSlot].uri,
+        );
+        const requestedTarget = resolvePageTarget(
+          webViewSlotsRef.current[activeSlot].uri,
+          message.payload || {},
+        );
+        const requestedComparableUrl = getComparableUrl(
+          requestedTarget?.uri || '',
+        );
+        const pendingComparableUrl = currentTransition
+          ? getComparableUrl(webViewSlotsRef.current[currentTransition.toSlot].uri)
+          : '';
+        const queuedComparableUrl = queuedNavigationRequestRef.current
+          ? getComparableUrl(
+              resolvePageTarget(
+                webViewSlotsRef.current[activeSlot].uri,
+                queuedNavigationRequestRef.current.payload,
+              )?.uri || '',
+            )
+          : '';
+        const redundantQueuedTarget =
+          !!requestedComparableUrl &&
+          (requestedComparableUrl === pendingComparableUrl ||
+            requestedComparableUrl === queuedComparableUrl ||
+            (navigationLocked && requestedComparableUrl === currentComparableUrl));
         const shouldQueue = dispatchPolicy.queue || navigationLocked;
         if (ackState !== 'dropped-stale' && shouldQueue) {
-          queueNavigationRequest(message.payload || {}, 'bridge');
-          queued = true;
           accepted = true;
-          ackState = 'queued';
-          ackReason = transitionBusy
-            ? 'transition-busy'
-            : navigationLocked
-              ? 'navigation-locked'
-              : slot !== activeSlot
-                ? 'inactive-slot'
-                : 'queued';
-          requestAnimationFrame(() => {
-            flushQueuedNavigationRequestIfReady('bridge-event-queued');
-          });
+          if (redundantQueuedTarget) {
+            ackState = 'accepted-now';
+            ackReason = transitionBusy
+              ? 'duplicate-target-loading'
+              : navigationLocked
+                ? 'duplicate-target-locked'
+                : 'duplicate-target';
+          } else {
+            queueNavigationRequest(message.payload || {}, 'bridge');
+            queued = true;
+            ackState = 'queued';
+            ackReason = transitionBusy
+              ? 'transition-busy'
+              : navigationLocked
+                ? 'navigation-locked'
+                : slot !== activeSlot
+                  ? 'inactive-slot'
+                  : 'queued';
+            requestAnimationFrame(() => {
+              flushQueuedNavigationRequestIfReady('bridge-event-queued');
+            });
+          }
         } else if (ackState !== 'dropped-stale') {
           navigationResult = requestPageNavigation(message.payload || {}, 'bridge');
           accepted = navigationResult === 'intercept';
@@ -5310,6 +5405,14 @@ function App({
     }
 
     const currentTransition = transitionStateRef.current;
+    if (
+      currentTransition &&
+      slot !== currentTransition.toSlot &&
+      getComparableUrl(requestUrl) ===
+        getComparableUrl(webViewSlotsRef.current[currentTransition.toSlot].uri)
+    ) {
+      return false;
+    }
     if (
       currentTransition?.toSlot === slot &&
       getComparableUrl(requestUrl) ===
@@ -5829,7 +5932,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
   },
   bootCard: {
     width: '100%',

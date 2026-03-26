@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
@@ -74,12 +75,15 @@ public final class ControlerWidgetDataStore {
     private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
         "directory-document-uri-cache.json";
     private static final String BUNDLE_SIZE_CACHE_FILE_NAME = "bundle-size-cache.json";
+    private static final long BUNDLE_STORAGE_READY_CACHE_WINDOW_MS = 2500L;
     private static final int PROJECT_DURATION_CACHE_VERSION = 1;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
     private static final String PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
     private static volatile String storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
     private static volatile String storageRecoveryMessage = "";
+    private static volatile long bundleStorageReadyVerifiedAt = 0L;
+    private static volatile String bundleStorageReadyCacheKey = "";
 
     private ControlerWidgetDataStore() {}
 
@@ -597,12 +601,58 @@ public final class ControlerWidgetDataStore {
     private static void resetStorageRecoveryState() {
         storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
         storageRecoveryMessage = "";
+        clearBundleStorageReadyCache();
     }
 
     private static void setStorageRecoveryState(String state, String message) {
         storageRecoveryState =
             TextUtils.isEmpty(state) ? STORAGE_RECOVERY_STATE_OK : state;
         storageRecoveryMessage = TextUtils.isEmpty(message) ? "" : message;
+        if (!STORAGE_RECOVERY_STATE_OK.equals(storageRecoveryState)) {
+            clearBundleStorageReadyCache();
+        }
+    }
+
+    private static void clearBundleStorageReadyCache() {
+        bundleStorageReadyVerifiedAt = 0L;
+        bundleStorageReadyCacheKey = "";
+    }
+
+    private static String buildBundleStorageReadyCacheKey(Context context) {
+        if (context == null) {
+            return "";
+        }
+        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+            Uri directoryUri = getCustomStorageDirectoryUri(context);
+            return MODE_DIRECTORY + ":" + (directoryUri == null ? "" : directoryUri.toString());
+        }
+        File root = getDefaultBundleRootDirectory(context);
+        return MODE_DEFAULT + ":" + (root == null ? "" : root.getAbsolutePath());
+    }
+
+    private static boolean canUseBundleStorageReadyCache(Context context) {
+        if (
+            context == null
+                || !usesDirectoryBundleStorage(context)
+                || !STORAGE_RECOVERY_STATE_OK.equals(getStorageRecoveryState())
+        ) {
+            return false;
+        }
+        String nextCacheKey = buildBundleStorageReadyCacheKey(context);
+        if (
+            TextUtils.isEmpty(nextCacheKey)
+                || !nextCacheKey.equals(bundleStorageReadyCacheKey)
+                || bundleStorageReadyVerifiedAt <= 0L
+        ) {
+            return false;
+        }
+        return SystemClock.elapsedRealtime() - bundleStorageReadyVerifiedAt
+            <= BUNDLE_STORAGE_READY_CACHE_WINDOW_MS;
+    }
+
+    private static void markBundleStorageReadyVerified(Context context) {
+        bundleStorageReadyCacheKey = buildBundleStorageReadyCacheKey(context);
+        bundleStorageReadyVerifiedAt = SystemClock.elapsedRealtime();
     }
 
     private static void assertStorageWritable() throws Exception {
@@ -1116,6 +1166,9 @@ public final class ControlerWidgetDataStore {
                 }
                 String periodId = getPeriodIdForSectionItem(normalizedSection, item);
                 if (!requestedPeriodIds.isEmpty() && !requestedPeriodIds.contains(periodId)) {
+                    continue;
+                }
+                if (!sectionItemMatchesScope(normalizedSection, item, scope)) {
                     continue;
                 }
                 matchedItems.add(cloneJsonObject(item));
@@ -1787,7 +1840,7 @@ public final class ControlerWidgetDataStore {
         JSONObject scope
     ) throws Exception {
         ensureBundleStorageReady(context);
-        JSONObject manifest = readBundleManifest(context);
+        JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
         Set<String> requestedPeriodIds = resolveRequestedPeriodIds(scope);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         ArrayList<String> matchedPeriodIds = new ArrayList<>();
@@ -1817,7 +1870,7 @@ public final class ControlerWidgetDataStore {
                 }
                 for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
                     JSONObject item = items.optJSONObject(itemIndex);
-                    if (item != null) {
+                    if (item != null && sectionItemMatchesScope(section, item, scope)) {
                         matchedItems.add(cloneJsonObject(item));
                     }
                 }
@@ -1856,6 +1909,105 @@ public final class ControlerWidgetDataStore {
         return result;
     }
 
+    private static boolean sectionItemMatchesScope(
+        String section,
+        JSONObject item,
+        JSONObject scope
+    ) {
+        String normalizedSection = normalizeBundleSection(section);
+        if (item == null || TextUtils.isEmpty(normalizedSection)) {
+            return false;
+        }
+
+        String startDate = normalizeDateText(
+            scope == null
+                ? ""
+                : firstNonEmpty(scope.optString("startDate", ""), scope.optString("start", ""))
+        );
+        String endDate = normalizeDateText(
+            scope == null
+                ? ""
+                : firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
+        );
+        if (TextUtils.isEmpty(startDate) || TextUtils.isEmpty(endDate)) {
+            return true;
+        }
+
+        String lowerDate = startDate.compareTo(endDate) <= 0 ? startDate : endDate;
+        String upperDate = startDate.compareTo(endDate) <= 0 ? endDate : startDate;
+        if ("records".equals(normalizedSection)) {
+            return recordOverlapsDateScope(item, lowerDate, upperDate);
+        }
+
+        String itemDateKey = getSectionItemDateKey(normalizedSection, item);
+        if (TextUtils.isEmpty(itemDateKey)) {
+            return false;
+        }
+        return itemDateKey.compareTo(lowerDate) >= 0 && itemDateKey.compareTo(upperDate) <= 0;
+    }
+
+    private static boolean recordOverlapsDateScope(
+        JSONObject record,
+        String lowerDate,
+        String upperDate
+    ) {
+        if (record == null || TextUtils.isEmpty(lowerDate) || TextUtils.isEmpty(upperDate)) {
+            return record != null;
+        }
+
+        Calendar lowerCalendar = calendarFromDateText(lowerDate);
+        Calendar upperCalendar = calendarFromDateText(upperDate);
+        if (lowerCalendar == null || upperCalendar == null) {
+            return true;
+        }
+        lowerCalendar.set(Calendar.HOUR_OF_DAY, 0);
+        lowerCalendar.set(Calendar.MINUTE, 0);
+        lowerCalendar.set(Calendar.SECOND, 0);
+        lowerCalendar.set(Calendar.MILLISECOND, 0);
+        upperCalendar.set(Calendar.HOUR_OF_DAY, 23);
+        upperCalendar.set(Calendar.MINUTE, 59);
+        upperCalendar.set(Calendar.SECOND, 59);
+        upperCalendar.set(Calendar.MILLISECOND, 999);
+        long lowerTimeMs = lowerCalendar.getTimeInMillis();
+        long upperExclusiveTimeMs = upperCalendar.getTimeInMillis() + 1L;
+
+        long startTimeMs = parseRecordTimestampMs(
+            firstNonEmpty(
+                record.optString("startTime", ""),
+                record.optString("timestamp", ""),
+                record.optString("endTime", "")
+            )
+        );
+        long endTimeMs = parseRecordTimestampMs(
+            firstNonEmpty(
+                record.optString("endTime", ""),
+                record.optString("timestamp", ""),
+                record.optString("startTime", "")
+            )
+        );
+
+        if (startTimeMs < 0L && endTimeMs < 0L) {
+            String anchorDate = getSectionItemDateKey("records", record);
+            if (TextUtils.isEmpty(anchorDate)) {
+                return false;
+            }
+            return anchorDate.compareTo(lowerDate) >= 0 && anchorDate.compareTo(upperDate) <= 0;
+        }
+        if (startTimeMs < 0L) {
+            startTimeMs = endTimeMs;
+        }
+        if (endTimeMs < 0L) {
+            endTimeMs = startTimeMs;
+        }
+        if (endTimeMs < startTimeMs) {
+            long swapped = startTimeMs;
+            startTimeMs = endTimeMs;
+            endTimeMs = swapped;
+        }
+
+        return endTimeMs > lowerTimeMs && startTimeMs < upperExclusiveTimeMs;
+    }
+
     private static JSONObject saveBundleSectionRange(
         Context context,
         String section,
@@ -1868,7 +2020,7 @@ public final class ControlerWidgetDataStore {
             throw new Exception("分区文件中的项目不属于目标月份");
         }
 
-        JSONObject manifest = readBundleManifest(context);
+        JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
         if (manifest == null) {
             manifest = buildStorageManifest(normalizeRoot(context, new JSONObject(), false));
         }
@@ -1983,17 +2135,15 @@ public final class ControlerWidgetDataStore {
                 )
             );
         } else {
+            // Preserve the existing duration cache for non-project core writes so
+            // timer/theme/todo/checkin updates stay on the lightweight path.
             core.put(
                 "projects",
-                buildJsonArrayFromObjects(
-                    recalculateProjectDurationTotals(
-                        jsonArrayToObjectList(core.optJSONArray("projects"))
-                    )
-                )
+                cloneJsonArray(previousCore.optJSONArray("projects"))
             );
         }
 
-        JSONObject manifest = readBundleManifest(context);
+        JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
         touchBundleMetadata(context, manifest, core);
         return buildCoreStateReplaceResult(source);
     }
@@ -2018,7 +2168,7 @@ public final class ControlerWidgetDataStore {
             buildJsonArrayFromObjects(recurringPlans)
         );
 
-        JSONObject manifest = readBundleManifest(context);
+        JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
         if (manifest == null) {
             manifest = buildStorageManifest(normalizeRoot(context, new JSONObject(), false));
         }
@@ -2041,14 +2191,18 @@ public final class ControlerWidgetDataStore {
         if (!usesDirectoryBundleStorage(context)) {
             return;
         }
+        if (canUseBundleStorageReadyCache(context)) {
+            return;
+        }
 
         String previousRecoveryState = getStorageRecoveryState();
         BundleArtifactInspection inspection = inspectBundleArtifacts(context);
         if (inspection.manifestExists || inspection.hasBundleArtifacts()) {
             if (!shouldRepairBundleArtifacts(context, inspection)) {
-                if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+                if (!STORAGE_RECOVERY_STATE_OK.equals(previousRecoveryState)) {
                     setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
                 }
+                markBundleStorageReadyVerified(context);
                 return;
             }
             if (repairBundleArtifactsIfNeeded(context, inspection)) {
@@ -2081,15 +2235,17 @@ public final class ControlerWidgetDataStore {
                     migrateLegacyLocalFileToBundle(context, legacyFile);
                 }
             }
-            if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+            if (!STORAGE_RECOVERY_STATE_OK.equals(previousRecoveryState)) {
                 setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
             }
+            markBundleStorageReadyVerified(context);
             return;
         }
 
-        if (STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(previousRecoveryState)) {
+        if (!STORAGE_RECOVERY_STATE_OK.equals(previousRecoveryState)) {
             setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
         }
+        markBundleStorageReadyVerified(context);
     }
 
     private static boolean shouldRepairBundleArtifacts(

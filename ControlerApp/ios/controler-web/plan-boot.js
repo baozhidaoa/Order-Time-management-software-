@@ -685,6 +685,13 @@ let planBeforePageLeaveGuardBound = false;
 let planStorageBootstrapReady = false;
 let planStorageBootstrapPromise = null;
 
+function isPlanShellTransitionLoading() {
+  if (typeof uiTools?.getShellVisibilityState !== "function") {
+    return false;
+  }
+  return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
 function waitForPlanStorageReady() {
   if (typeof window.ControlerStorage?.whenReady !== "function") {
     return Promise.resolve(true);
@@ -2169,6 +2176,21 @@ function isPlanInitialStorageBootstrapChange(detail = {}) {
   return reason === "initial-sync" && !changedSections.length;
 }
 
+function isPlanAmbiguousNativeExternalChange(detail = {}) {
+  if (window.ControlerStorage?.isNativeApp !== true) {
+    return false;
+  }
+  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  if (changedSections.length) {
+    return false;
+  }
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
+  return !source && (reason === "external-update" || reason === "shell-resume");
+}
+
 function shouldRefreshPlanCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
@@ -2181,6 +2203,12 @@ function shouldRefreshPlanForExternalChange(detail = {}) {
     isPlanOwnStorageChange(detail) ||
     isPlanInitialStorageBootstrapChange(detail)
   ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  if (isPlanAmbiguousNativeExternalChange(detail)) {
     return false;
   }
   const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
@@ -7280,7 +7308,7 @@ function scheduleDeferredPlanBootstrap() {
   ) {
     return;
   }
-  if (!planShellPageActive) {
+  if (!planShellPageActive && !isPlanShellTransitionLoading()) {
     planDeferredBootstrapPendingResume = true;
     return;
   }
@@ -7288,7 +7316,7 @@ function scheduleDeferredPlanBootstrap() {
   planDeferredBootstrapQueued = true;
   const run = () => {
     planDeferredBootstrapQueued = false;
-    if (!planShellPageActive) {
+    if (!planShellPageActive && !isPlanShellTransitionLoading()) {
       planDeferredBootstrapPendingResume = true;
       return;
     }
@@ -7370,7 +7398,11 @@ async function init() {
       });
     }
 
-    if (!planInitialDataValidated && !planShellPageActive) {
+    if (
+      !planInitialDataValidated &&
+      !planShellPageActive &&
+      !isPlanShellTransitionLoading()
+    ) {
       scheduleDeferredPlanBootstrap();
     } else if (!planInitialDataValidated) {
       await hydratePlanData();

@@ -299,7 +299,7 @@
   );
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
-  const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 260;
+  const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
   const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
   const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在跳转";
@@ -870,10 +870,9 @@
   }
 
   function buildAppNavigationOverlayCopy(targetItem) {
-    const pageLabel = getAppNavigationItemLabel(targetItem);
     return {
-      title: "正在保存数据",
-      message: `正在处理当前页面数据，保存完成后立即跳转到${pageLabel}页`,
+      title: "正在加载数据中",
+      message: "页面资源与本地数据正在就绪",
     };
   }
 
@@ -1025,6 +1024,10 @@
         }
         const timedOutRequest = clearPendingNativeNavigationRequest();
         setAndroidReactNativeAppNavLocked(false);
+        if (isAndroidReactNativeNavigationRuntime()) {
+          resetAppPageTransitionRuntimeState();
+          return;
+        }
         if (!timedOutRequest?.targetHref) {
           return;
         }
@@ -1924,6 +1927,8 @@
 
     const isCurrentPage = navItem.key === currentPageKey;
     button.classList.toggle("is-current-page", isCurrentPage);
+    button.toggleAttribute("disabled", isCurrentPage);
+    button.setAttribute("aria-disabled", isCurrentPage ? "true" : "false");
     if (isCurrentPage) {
       button.setAttribute("aria-current", "page");
       button.dataset.navCurrent = "true";
@@ -2629,6 +2634,24 @@
     } else {
       bind();
     }
+
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const navButton = target?.closest?.("[data-nav-page]");
+        if (!(navButton instanceof HTMLButtonElement)) {
+          return;
+        }
+        if (navButton.dataset.navCurrent !== "true" && !navButton.disabled) {
+          return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        clearAndroidNavButtonFocus(navButton, true);
+      },
+      true,
+    );
   }
 
   function getAndroidPressFeedbackTarget(target) {
