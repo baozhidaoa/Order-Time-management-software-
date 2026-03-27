@@ -2631,9 +2631,7 @@
         ...overlayCopy,
         delayMs: appPageLeaveOverlayVisible
           ? 0
-          : isReactNativeNavigationRuntime()
-            ? 0
-            : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
       });
     } else if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
@@ -2787,7 +2785,9 @@
     setAppPageLeaveOverlayState({
       active: true,
       ...overlayCopy,
-      delayMs: 0,
+      delayMs: appPageLeaveOverlayVisible
+        ? 0
+        : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
     });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
@@ -4135,15 +4135,22 @@
       typeof performance.now === "function"
         ? () => performance.now()
         : () => Date.now();
+    const isNativeRuntime = isReactNativeNavigationRuntime();
     const quietWindowMs = Number.isFinite(options.quietWindowMs)
       ? Math.max(0, Math.round(Number(options.quietWindowMs)))
-      : 44;
+      : isNativeRuntime
+        ? 64
+        : 44;
     const maxWaitMs = Number.isFinite(options.maxWaitMs)
       ? Math.max(32, Math.round(Number(options.maxWaitMs)))
-      : 320;
+      : isNativeRuntime
+        ? 480
+        : 320;
     const minQuietFrames = Number.isFinite(options.minQuietFrames)
       ? Math.max(1, Math.round(Number(options.minQuietFrames)))
-      : 2;
+      : isNativeRuntime
+        ? 3
+        : 2;
 
     return new Promise((resolve) => {
       let settled = false;
@@ -4394,6 +4401,7 @@
     let overlayTimerId = 0;
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
+    let currentBlockingVisibility = currentVisibility;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
@@ -4615,6 +4623,7 @@
       overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
       currentVisibility = actualVisible;
+      currentBlockingVisibility = actualVisible || delegatedToNative;
       currentMode = resolvedMode;
 
       syncNativeBusyState({
@@ -4727,7 +4736,8 @@
             return true;
           };
           const shouldWaitForSettledContent =
-            nextState.waitForSettledContent !== false && currentVisibility;
+            nextState.waitForSettledContent !== false &&
+            currentBlockingVisibility;
           if (!shouldWaitForSettledContent) {
             finalizeHide();
             return Promise.resolve(true);

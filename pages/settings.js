@@ -119,9 +119,9 @@ function queueSettingsInitialReady() {
         Promise.resolve(
           window.ControlerUI?.waitForVisualContentStability?.({
             root: ".settings-main",
-            quietWindowMs: 56,
-            maxWaitMs: 520,
-            minQuietFrames: 2,
+            quietWindowMs: 72,
+            maxWaitMs: 680,
+            minQuietFrames: 3,
           }),
         )
           .catch(() => false)
@@ -2563,7 +2563,7 @@ function showThemeEditorModal(theme = null) {
       <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
         <div style="display:flex; flex-direction:column; gap:4px;">
           <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">记录卡片颜色</div>
-          <div style="color: var(--muted-text-color); font-size: 12px;">可保留当前“跟随项目统计色”的多彩卡片，也可统一为主题专属卡片色。</div>
+          <div style="color: var(--muted-text-color); font-size: 12px;">可保留当前“跟随项目颜色”的多彩卡片，也可统一为主题专属卡片色。</div>
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
           <button
@@ -2572,8 +2572,8 @@ function showThemeEditorModal(theme = null) {
             data-record-card-mode="project"
             style="margin:0; text-align:left; padding:14px; border-radius:14px;"
           >
-            <div style="font-size:14px; font-weight:700;">跟随项目统计色</div>
-            <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目显示不同颜色。</div>
+            <div style="font-size:14px; font-weight:700;">跟随项目颜色</div>
+            <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目当前颜色显示不同颜色。</div>
           </button>
           <button
             type="button"
@@ -2602,7 +2602,7 @@ function showThemeEditorModal(theme = null) {
               spellcheck="false"
             />
           </div>
-          <div style="color: var(--muted-text-color); font-size: 12px;">会用于记录卡片标题强调、描边和浅色铺底，切换回“跟随项目统计色”时会保留此默认值。</div>
+          <div style="color: var(--muted-text-color); font-size: 12px;">会用于记录卡片标题强调、描边和浅色铺底，切换回“跟随项目颜色”时会保留此默认值。</div>
         </label>
       </div>
       <div class="theme-editor-grid">${fieldsHtml}</div>

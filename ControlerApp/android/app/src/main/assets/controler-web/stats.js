@@ -626,27 +626,19 @@ function renderStatsRuntimeMessage(container, title, message) {
 
   const body = document.createElement("div");
   body.className = "stats-section-body";
-  const statusShell = document.createElement("div");
-  statusShell.className = "chart-runtime-status";
-  const statusCard = document.createElement("div");
   const isError =
     String(message || "").includes("失败") || String(message || "").includes("错误");
-  statusCard.className = `page-loading-card chart-runtime-status-card${isError ? " chart-runtime-status-card--error chart-runtime-status-card--static" : ""}`;
-  statusCard.setAttribute("role", isError ? "alert" : "status");
-  statusCard.setAttribute("aria-live", "polite");
-
-  const statusTitle = document.createElement("div");
-  statusTitle.className = "page-loading-title";
-  statusTitle.textContent = isError ? "图表资源加载失败" : "正在加载图表中";
-
-  const statusMessage = document.createElement("div");
-  statusMessage.className = "page-loading-message";
-  statusMessage.textContent = String(message || "").trim() || "正在准备图表资源，请稍候";
-
-  statusCard.appendChild(statusTitle);
-  statusCard.appendChild(statusMessage);
-  statusShell.appendChild(statusCard);
-  body.appendChild(statusShell);
+  if (isError) {
+    const statusMessage = document.createElement("div");
+    statusMessage.textContent =
+      String(message || "").trim() || "图表资源加载失败，请稍后重试";
+    statusMessage.style.padding = "18px 0 2px";
+    statusMessage.style.textAlign = "center";
+    statusMessage.style.color = "var(--muted-text-color)";
+    statusMessage.style.fontSize = "13px";
+    statusMessage.style.lineHeight = "1.6";
+    body.appendChild(statusMessage);
+  }
   panel.appendChild(body);
   container.appendChild(panel);
 }
@@ -1288,9 +1280,9 @@ function queueStatsToolbarReveal() {
         Promise.resolve(
           uiTools?.waitForVisualContentStability?.({
             root: ".stats-main",
-            quietWindowMs: 56,
-            maxWaitMs: 520,
-            minQuietFrames: 2,
+            quietWindowMs: 72,
+            maxWaitMs: 680,
+            minQuietFrames: 3,
           }),
         )
           .catch(() => false)

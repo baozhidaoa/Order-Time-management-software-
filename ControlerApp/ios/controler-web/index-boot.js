@@ -2767,9 +2767,9 @@ function queueRecordInitialReveal() {
         Promise.resolve(
           uiTools?.waitForVisualContentStability?.({
             root: ".record-main",
-            quietWindowMs: 56,
-            maxWaitMs: 520,
-            minQuietFrames: 2,
+            quietWindowMs: 72,
+            maxWaitMs: 680,
+            minQuietFrames: 3,
           }),
         )
           .catch(() => false)
@@ -4502,11 +4502,7 @@ function renderProjectTotalTreeNode(
   const expandable = projectLevel < 3 && children.length > 0;
   const expanded = expandable ? isProjectTotalsExpanded(projectNode) : false;
   const compactProjectTotals = isCompactAndroidProjectTotalsLayout();
-  const levelColor =
-    normalizeProjectColorToHex(
-      projectNode.color || projectNode.raw?.color || "",
-      getThemeProjectColor(projectLevel),
-    ) || getThemeProjectColor(projectLevel);
+  const levelColor = getResolvedThemeProjectColor(projectLevel);
 
   if (compactProjectTotals) {
     const gap = Math.max(4, Math.round(5 * summaryScale));
@@ -5425,11 +5421,12 @@ function resolveRecordProject(record, projectList = projects) {
 function resolveRecordProjectColor(record, projectList = projects) {
   const matchedProject = resolveRecordProject(record, projectList);
   const fallbackLevel = normalizeProjectLevel(matchedProject?.level || 1);
+  if (matchedProject) {
+    return getProjectStatsColor(matchedProject, fallbackLevel);
+  }
   return normalizeProjectColorToHex(
     typeof record?.color === "string" ? record.color.trim() : "",
-    matchedProject
-      ? getProjectStatsColor(matchedProject, fallbackLevel)
-      : getDefaultProjectColorByLevel(fallbackLevel),
+    getDefaultProjectColorByLevel(fallbackLevel),
   );
 }
 
@@ -7467,6 +7464,30 @@ function getThemeProjectColor(level = 1) {
   if (projectLevel === 2) return "var(--project-level-2)";
   if (projectLevel === 3) return "var(--project-level-3)";
   return "var(--project-level-1)";
+}
+
+function getResolvedThemeProjectColor(level = 1, fallback = "") {
+  const projectLevel = normalizeProjectLevel(level);
+  const fallbackColor =
+    normalizeProjectColorToHex(fallback, "") ||
+    getDefaultProjectColorByLevel(projectLevel);
+  if (typeof window.getComputedStyle !== "function") {
+    return fallbackColor;
+  }
+  const root = document.documentElement;
+  if (!(root instanceof HTMLElement)) {
+    return fallbackColor;
+  }
+  const variableName =
+    projectLevel === 2
+      ? "--project-level-2"
+      : projectLevel === 3
+        ? "--project-level-3"
+        : "--project-level-1";
+  return normalizeProjectColorToHex(
+    window.getComputedStyle(root).getPropertyValue(variableName),
+    fallbackColor,
+  );
 }
 
 function getProjectStatsColor(project, fallbackLevel = 1) {
@@ -11289,14 +11310,6 @@ function renderPieChart() {
       .catch((error) => {
         console.error("加载记录页图表资源失败:", error);
       });
-    statsContent.innerHTML = `
-      <div class="chart-runtime-status">
-        <div class="page-loading-card chart-runtime-status-card" role="status" aria-live="polite">
-          <div class="page-loading-title">正在加载图表中</div>
-          <div class="page-loading-message">正在准备饼状图资源，请稍候</div>
-        </div>
-      </div>
-    `;
     container.appendChild(statsContent);
     return;
   }
@@ -11634,14 +11647,6 @@ function renderLineChart() {
       .catch((error) => {
         console.error("加载记录页折线图资源失败:", error);
       });
-    statsContent.innerHTML = `
-      <div class="chart-runtime-status">
-        <div class="page-loading-card chart-runtime-status-card" role="status" aria-live="polite">
-          <div class="page-loading-title">正在加载图表中</div>
-          <div class="page-loading-message">正在准备折线图资源，请稍候</div>
-        </div>
-      </div>
-    `;
     container.appendChild(statsContent);
     return;
   }
@@ -12210,7 +12215,7 @@ function showProjectEditModal(project) {
             </div>
           </div>
           <div class="project-color-palette" id="edit-project-color-presets" role="list" aria-label="编辑项目颜色推荐色板"></div>
-          <div class="project-color-note">颜色仅用于统计图表；一级项目改色时，只会联动仍处于自动色模式的子级。</div>
+          <div class="project-color-note">颜色会用于统计图表和记录卡片；一级项目改色时，只会联动仍处于自动色模式的子级。</div>
         </div>
         
         <div style="display: flex; justify-content: space-between; margin-top: 20px">

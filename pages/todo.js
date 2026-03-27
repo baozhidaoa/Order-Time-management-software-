@@ -7499,9 +7499,9 @@ function queueTodoInitialReveal() {
         Promise.resolve(
           uiTools?.waitForVisualContentStability?.({
             root: ".todo-main",
-            quietWindowMs: 56,
-            maxWaitMs: 520,
-            minQuietFrames: 2,
+            quietWindowMs: 72,
+            maxWaitMs: 680,
+            minQuietFrames: 3,
           }),
         )
           .catch(() => false)
@@ -7564,11 +7564,6 @@ async function init() {
     const shouldBlockInitialReveal =
       window.ControlerStorage?.isNativeApp === true &&
       !hasTodoWorkspaceRenderableData(snapshot);
-    const shouldValidateBootstrappedReveal =
-      window.ControlerStorage?.isNativeApp === true &&
-      todoBootstrappedFromPageBootstrap &&
-      !shouldBlockInitialReveal &&
-      !todoInitialDataValidated;
     if (shouldBlockInitialReveal) {
       uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
         reason: todoBootstrappedFromPageBootstrap
@@ -7586,21 +7581,15 @@ async function init() {
         perfStageApplied: "todo-initial-blocking-refresh-applied",
       });
       initialReadySnapshot = captureTodoWorkspaceSnapshot();
-    } else if (shouldValidateBootstrappedReveal) {
+    } else if (
+      window.ControlerStorage?.isNativeApp === true &&
+      todoBootstrappedFromPageBootstrap &&
+      !todoInitialDataValidated
+    ) {
       uiTools?.markPerfStage?.("todo-initial-bootstrap-validation-start", {
         reason: "page-bootstrap-unvalidated",
         ...buildTodoWorkspacePerfDetail(snapshot),
       });
-      await waitForTodoStorageReady();
-      const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
-        fresh: true,
-      });
-      await applyTodoFreshSnapshot(freshSnapshot, {
-        reason: "initial-bootstrap-validation",
-        perfStageReady: "todo-initial-bootstrap-validation-ready",
-        perfStageApplied: "todo-initial-bootstrap-validation-applied",
-      });
-      initialReadySnapshot = captureTodoWorkspaceSnapshot();
     }
     markTodoInitialDataReady(initialReadySnapshot);
     await queueTodoInitialReveal();

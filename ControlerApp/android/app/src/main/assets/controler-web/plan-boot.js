@@ -3350,9 +3350,9 @@ function queuePlanInitialReveal() {
         Promise.resolve(
           uiTools?.waitForVisualContentStability?.({
             root: ".app-main",
-            quietWindowMs: 56,
-            maxWaitMs: 520,
-            minQuietFrames: 2,
+            quietWindowMs: 72,
+            maxWaitMs: 680,
+            minQuietFrames: 3,
           }),
         )
           .catch(() => false)
