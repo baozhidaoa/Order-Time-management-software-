@@ -3464,29 +3464,12 @@ function getStatsAvailableRecordDateBounds(recordList = records) {
 function syncStatsDateInputBounds() {
   const startDateInput = document.getElementById("start-date-select");
   const endDateInput = document.getElementById("end-date-select");
-  const minDate =
-    statsAvailableRecordDateBounds?.min instanceof Date
-      ? formatDateInputValue(statsAvailableRecordDateBounds.min)
-      : "";
-  const maxDate =
-    statsAvailableRecordDateBounds?.max instanceof Date
-      ? formatDateInputValue(statsAvailableRecordDateBounds.max)
-      : "";
-
   [startDateInput, endDateInput].forEach((input) => {
     if (!(input instanceof HTMLInputElement)) {
       return;
     }
-    if (minDate) {
-      input.min = minDate;
-    } else {
-      input.removeAttribute("min");
-    }
-    if (maxDate) {
-      input.max = maxDate;
-    } else {
-      input.removeAttribute("max");
-    }
+    input.removeAttribute("min");
+    input.removeAttribute("max");
   });
 }
 
@@ -3517,17 +3500,9 @@ function getStatsFallbackAnchorDate(preferredDateValue = null) {
 }
 
 function clampStatsDateToAvailableBounds(dateValue, preferredDateValue = null) {
-  const minDate = getDateOnly(statsAvailableRecordDateBounds?.min);
-  const maxDate = getDateOnly(statsAvailableRecordDateBounds?.max);
   const safeDate =
     getDateOnly(dateValue) || getStatsFallbackAnchorDate(preferredDateValue);
 
-  if (minDate && safeDate < minDate) {
-    return new Date(minDate);
-  }
-  if (maxDate && safeDate > maxDate) {
-    return new Date(maxDate);
-  }
   return new Date(safeDate);
 }
 
@@ -7513,17 +7488,105 @@ function assignWeeklyGridSegmentLanes(segments = []) {
   return positionedSegments;
 }
 
+function getWeeklyGridElementWidth(element) {
+  if (!(element instanceof HTMLElement)) {
+    return 0;
+  }
+  const rectWidth = Math.round(element.getBoundingClientRect().width || 0);
+  return Math.max(rectWidth, element.offsetWidth || 0, element.clientWidth || 0);
+}
+
+function getWeeklyGridElementHeight(element) {
+  if (!(element instanceof HTMLElement)) {
+    return 0;
+  }
+  const rectHeight = Math.round(element.getBoundingClientRect().height || 0);
+  return Math.max(
+    rectHeight,
+    element.offsetHeight || 0,
+    element.clientHeight || 0,
+  );
+}
+
+function measureWeeklyGridOverlayLayout(table, cellRefs) {
+  const tableWidth = getWeeklyGridElementWidth(table);
+  const tableHeight = getWeeklyGridElementHeight(table);
+  let sampleCellWidth = 0;
+  let sampleCellHeight = 0;
+
+  if (cellRefs instanceof Map) {
+    for (const cell of cellRefs.values()) {
+      if (!(cell instanceof HTMLElement) || !cell.isConnected) {
+        continue;
+      }
+      sampleCellWidth = getWeeklyGridElementWidth(cell);
+      sampleCellHeight = getWeeklyGridElementHeight(cell);
+      if (sampleCellWidth > 0 && sampleCellHeight > 0) {
+        break;
+      }
+    }
+  }
+
+  return {
+    ready:
+      tableWidth > 0 &&
+      tableHeight > 0 &&
+      sampleCellWidth > 0 &&
+      sampleCellHeight > 0,
+    tableWidth,
+    tableHeight,
+    sampleCellWidth,
+    sampleCellHeight,
+  };
+}
+
+function clearWeeklyGridBlocksOverlayRetryTimer(table) {
+  const retryTimerId = Number(table?.__controlerWeeklyGridOverlayRetryTimer) || 0;
+  if (retryTimerId > 0) {
+    window.clearTimeout(retryTimerId);
+  }
+  if (table && typeof table === "object") {
+    table.__controlerWeeklyGridOverlayRetryTimer = 0;
+  }
+}
+
+function scheduleWeeklyGridBlocksOverlayRetry(
+  renderOptions,
+  retryCount = 0,
+  maxRetryCount = 8,
+) {
+  const table = renderOptions?.table;
+  if (!(table instanceof HTMLElement)) {
+    return false;
+  }
+  if (retryCount >= maxRetryCount) {
+    return false;
+  }
+  clearWeeklyGridBlocksOverlayRetryTimer(table);
+  const nextRetryDelayMs = Math.min(96, 16 * (retryCount + 1));
+  table.__controlerWeeklyGridOverlayRetryTimer = window.setTimeout(() => {
+    table.__controlerWeeklyGridOverlayRetryTimer = 0;
+    renderWeeklyGridBlocksOverlay({
+      ...renderOptions,
+      retryCount: retryCount + 1,
+    });
+  }, nextRetryDelayMs);
+  return true;
+}
+
 function renderWeeklyGridBlocksOverlay({
   scroller,
   table,
   cellRefs,
   segmentsByCell,
   scale = 1,
+  retryCount = 0,
 }) {
   if (!(scroller instanceof HTMLElement) || !(table instanceof HTMLElement)) {
     return;
   }
 
+  clearWeeklyGridBlocksOverlayRetryTimer(table);
   scroller
     .querySelectorAll(".weekly-glass-block-layer")
     .forEach((node) => node.remove());
@@ -7544,6 +7607,30 @@ function renderWeeklyGridBlocksOverlay({
     return;
   }
 
+  const layoutMetrics = measureWeeklyGridOverlayLayout(table, cellRefs);
+  if (!layoutMetrics.ready) {
+    const scheduled = scheduleWeeklyGridBlocksOverlayRetry(
+      {
+        scroller,
+        table,
+        cellRefs,
+        segmentsByCell,
+        scale,
+      },
+      retryCount,
+    );
+    if (!scheduled) {
+      console.warn("周表格时间块布局测量失败，跳过本次渲染:", {
+        retryCount,
+        tableWidth: layoutMetrics.tableWidth,
+        tableHeight: layoutMetrics.tableHeight,
+        sampleCellWidth: layoutMetrics.sampleCellWidth,
+        sampleCellHeight: layoutMetrics.sampleCellHeight,
+      });
+    }
+    return;
+  }
+
   const positionedSegments = assignWeeklyGridSegmentLanes(
     Array.from(uniqueSegments.values()),
   );
@@ -7555,8 +7642,8 @@ function renderWeeklyGridBlocksOverlay({
   overlay.style.position = "absolute";
   overlay.style.top = "0";
   overlay.style.left = "0";
-  overlay.style.width = `${table.offsetWidth}px`;
-  overlay.style.height = `${table.offsetHeight}px`;
+  overlay.style.width = `${layoutMetrics.tableWidth}px`;
+  overlay.style.height = `${layoutMetrics.tableHeight}px`;
   overlay.style.pointerEvents = "none";
   overlay.style.zIndex = "1";
   overlay.style.background = "transparent";
@@ -7571,7 +7658,7 @@ function renderWeeklyGridBlocksOverlay({
   let renderedBlockCount = 0;
 
   positionedSegments.forEach((segment) => {
-    const metrics = resolveWeeklyGridSegmentMetrics(segment, cellRefs);
+    const metrics = resolveWeeklyGridSegmentMetrics(segment, cellRefs, table);
     if (!metrics) {
       skippedSegmentKeys.add(segment.segmentKey);
       return;
@@ -7704,7 +7791,7 @@ function renderWeeklyGridBlocksOverlay({
   }
 }
 
-function resolveWeeklyGridSegmentMetrics(segment, cellRefs) {
+function resolveWeeklyGridSegmentMetrics(segment, cellRefs, table = null) {
   if (!segment || !(cellRefs instanceof Map)) {
     return null;
   }
@@ -7716,14 +7803,27 @@ function resolveWeeklyGridSegmentMetrics(segment, cellRefs) {
     return null;
   }
 
-  const left = startCell.offsetLeft;
-  const width = startCell.offsetWidth;
+  const tableRect =
+    table instanceof HTMLElement ? table.getBoundingClientRect() : null;
+  const startCellRect = startCell.getBoundingClientRect();
+  const width = getWeeklyGridElementWidth(startCell);
+  const startCellHeight = getWeeklyGridElementHeight(startCell);
+  if (width <= 0 || startCellHeight <= 0) {
+    return null;
+  }
+  const left =
+    tableRect && tableRect.width > 0
+      ? Math.round(startCellRect.left - tableRect.left)
+      : startCell.offsetLeft;
+  const startCellTop =
+    tableRect && tableRect.height > 0
+      ? Math.round(startCellRect.top - tableRect.top)
+      : startCell.offsetTop;
   const cellTopOffset =
-    (segment.displayStart.getMinutes() / 60) * startCell.offsetHeight;
-  const top =
-    startCell.offsetTop + cellTopOffset;
+    (segment.displayStart.getMinutes() / 60) * startCellHeight;
+  const top = startCellTop + cellTopOffset;
 
-  let bottom = top + Math.max(4, startCell.offsetHeight * (1 / 60));
+  let bottom = top + Math.max(4, startCellHeight * (1 / 60));
   const endsAtNextMidnight =
     segment.displayEnd.getHours() === 0 &&
     segment.displayEnd.getMinutes() === 0 &&
@@ -7733,16 +7833,28 @@ function resolveWeeklyGridSegmentMetrics(segment, cellRefs) {
   if (endsAtNextMidnight) {
     const lastHourCell = cellRefs.get(`${startDayKey}-23`);
     if (lastHourCell instanceof HTMLElement) {
-      bottom = lastHourCell.offsetTop + lastHourCell.offsetHeight;
+      const lastHourRect = lastHourCell.getBoundingClientRect();
+      const lastHourTop =
+        tableRect && tableRect.height > 0
+          ? Math.round(lastHourRect.top - tableRect.top)
+          : lastHourCell.offsetTop;
+      bottom =
+        lastHourTop + getWeeklyGridElementHeight(lastHourCell);
     }
   } else {
     const endDayKey = formatDateInputValue(segment.displayEnd);
     const endHourKey = `${endDayKey}-${segment.displayEnd.getHours()}`;
     const endCell = cellRefs.get(endHourKey);
     if (endCell instanceof HTMLElement) {
+      const endCellRect = endCell.getBoundingClientRect();
+      const endCellTop =
+        tableRect && tableRect.height > 0
+          ? Math.round(endCellRect.top - tableRect.top)
+          : endCell.offsetTop;
+      const endCellHeight = getWeeklyGridElementHeight(endCell);
       bottom =
-        endCell.offsetTop +
-        (segment.displayEnd.getMinutes() / 60) * endCell.offsetHeight;
+        endCellTop +
+        (segment.displayEnd.getMinutes() / 60) * endCellHeight;
     }
   }
 
