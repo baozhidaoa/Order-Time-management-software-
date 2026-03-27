@@ -6,6 +6,7 @@ let dailyCheckins = []; // 存储每日打卡记录
 let checkins = []; // 待办事项打卡记录
 let currentFilter = "all"; // 当前筛选器
 const TODO_SORT_PREFERENCE_KEY = "todoSortPreference";
+let pendingTodoSortPreferenceCoreBackfill = "";
 let currentSort = readPersistedTodoSortPreference(); // 当前排序方式
 let currentView = "todos"; // 当前视图: "todos" 或 "checkins"
 let todoLayoutMode = "list"; // "list" | "quadrant"
@@ -119,7 +120,20 @@ function normalizeTodoSortPreference(value) {
   }
 }
 
+function readTodoLocalSortPreferenceValue() {
+  try {
+    const localValue = localStorage.getItem(TODO_SORT_PREFERENCE_KEY) || "";
+    if (localValue.trim()) {
+      return normalizeTodoSortPreference(localValue);
+    }
+  } catch (error) {
+    console.error("读取待办本地排序设置失败:", error);
+  }
+  return "";
+}
+
 function readPersistedTodoSortPreference() {
+  const localValue = readTodoLocalSortPreferenceValue();
   try {
     const managedSnapshot =
       typeof window.ControlerStorage?.dump === "function"
@@ -130,22 +144,50 @@ function readPersistedTodoSortPreference() {
         ? managedSnapshot.todoSortPreference
         : "";
     if (typeof managedValue === "string" && managedValue.trim()) {
-      return normalizeTodoSortPreference(managedValue);
+      const normalizedManagedValue = normalizeTodoSortPreference(managedValue);
+      if (normalizedManagedValue !== "dueDate") {
+        pendingTodoSortPreferenceCoreBackfill = "";
+        return normalizedManagedValue;
+      }
+      if (localValue) {
+        if (normalizedManagedValue !== localValue) {
+          pendingTodoSortPreferenceCoreBackfill = localValue;
+        }
+        return localValue;
+      }
+      pendingTodoSortPreferenceCoreBackfill = "";
+      return normalizedManagedValue;
     }
   } catch (error) {
     console.error("读取待办排序设置失败，回退本地设置:", error);
   }
 
-  try {
-    const localValue = localStorage.getItem(TODO_SORT_PREFERENCE_KEY) || "";
-    if (localValue.trim()) {
-      return normalizeTodoSortPreference(localValue);
-    }
-  } catch (error) {
-    console.error("读取待办本地排序设置失败:", error);
+  if (localValue) {
+    pendingTodoSortPreferenceCoreBackfill = localValue;
+    return localValue;
   }
 
+  pendingTodoSortPreferenceCoreBackfill = "";
   return "dueDate";
+}
+
+function flushPendingTodoSortPreferenceCoreBackfill() {
+  const nextSort = normalizeTodoSortPreference(
+    pendingTodoSortPreferenceCoreBackfill,
+  );
+  if (!pendingTodoSortPreferenceCoreBackfill || nextSort === "dueDate") {
+    pendingTodoSortPreferenceCoreBackfill = "";
+    return;
+  }
+  pendingTodoSortPreferenceCoreBackfill = "";
+  void queueTodoCoreSave(
+    {
+      todoSortPreference: nextSort,
+    },
+    {
+      reason: "todo-sort-preference-backfill",
+    },
+  );
 }
 
 function persistTodoSortPreference(nextSort, options = {}) {
@@ -4409,6 +4451,7 @@ function initSort() {
   if (sortSelect) {
     currentSort = readPersistedTodoSortPreference();
     sortSelect.value = currentSort;
+    flushPendingTodoSortPreferenceCoreBackfill();
     uiTools?.enhanceNativeSelect?.(sortSelect, {
       fullWidth: true,
       minWidth: 0,
@@ -7010,15 +7053,11 @@ function initTodoLayoutToggle() {
     }
 
     if (todoLayoutMode === "quadrant") {
-      quadrantBtn.style.backgroundColor = "var(--accent-color)";
-      quadrantBtn.style.color = "var(--button-text)";
-      listBtn.style.backgroundColor = "";
-      listBtn.style.color = "";
+      uiTools?.setAccentButtonState?.(quadrantBtn, true);
+      uiTools?.setAccentButtonState?.(listBtn, false);
     } else {
-      listBtn.style.backgroundColor = "var(--accent-color)";
-      listBtn.style.color = "var(--button-text)";
-      quadrantBtn.style.backgroundColor = "";
-      quadrantBtn.style.color = "";
+      uiTools?.setAccentButtonState?.(listBtn, true);
+      uiTools?.setAccentButtonState?.(quadrantBtn, false);
     }
   };
 

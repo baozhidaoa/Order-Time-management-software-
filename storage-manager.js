@@ -56,6 +56,17 @@ const PRECISE_CORE_SECTION_KEYS = new Set([
   "builtInThemeOverrides",
   "selectedTheme",
 ]);
+function normalizeTodoSortPreference(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (
+    normalized === "priority" ||
+    normalized === "createdAt" ||
+    normalized === "title"
+  ) {
+    return normalized;
+  }
+  return "dueDate";
+}
 const DIFF_IMPORT_CORE_KEYS = Object.freeze([
   "todos",
   "checkinItems",
@@ -563,6 +574,7 @@ class StorageManager {
       customThemes: [],
       builtInThemeOverrides: {},
       selectedTheme: "default",
+      todoSortPreference: "dueDate",
       recovery: createEmptyRecoveryState(),
       protectionMode: PROTECTION_MODE_OFF,
       createdAt: new Date().toISOString(),
@@ -992,6 +1004,9 @@ class StorageManager {
       typeof source.selectedTheme === "string" && source.selectedTheme.trim()
         ? source.selectedTheme.trim()
         : "default";
+    next.todoSortPreference = normalizeTodoSortPreference(
+      source.todoSortPreference,
+    );
     if (shouldSeedGuideBundle) {
       next.diaryEntries = guideBundle.buildGuideDiaryEntries();
       next.diaryCategories = [];

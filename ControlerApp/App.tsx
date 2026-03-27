@@ -2094,6 +2094,7 @@ function App({
   const latestBridgeNavigationIntentRef = useRef<NavigationIntentStamp | null>(
     null,
   );
+  const lastPresentedPageKeyRef = useRef<AppPageKey | ''>('');
   const lastVisiblePagePersistedRef = useRef<AppPageKey | ''>('');
   const postBridgeEventRef = useRef(
     (
@@ -3249,6 +3250,10 @@ function App({
       if (!activePageKey) {
         return '';
       }
+      const recentPageKey = lastPresentedPageKeyRef.current;
+      if (recentPageKey && recentPageKey !== activePageKey) {
+        return recentPageKey;
+      }
       if (IS_ANDROID) {
         switch (activePageKey) {
           case 'index':
@@ -3721,6 +3726,7 @@ function App({
   const finalizeTransition = (completedTransition: TransitionState) => {
     const nextActiveSlot = completedTransition.toSlot;
     const previousSlot = completedTransition.fromSlot;
+    const previousPageKey = webViewSlotsRef.current[previousSlot].pageKey;
 
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
@@ -3734,6 +3740,7 @@ function App({
       page: webViewSlotsRef.current[nextActiveSlot].pageKey,
       reusedCachedSlot: completedTransition.reuseCachedSlot === true,
     });
+    lastPresentedPageKeyRef.current = previousPageKey;
     activeSlotRef.current = nextActiveSlot;
     setActiveSlot(nextActiveSlot);
     transitionStateRef.current = null;

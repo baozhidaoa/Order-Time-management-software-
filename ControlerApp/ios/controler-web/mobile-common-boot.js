@@ -930,6 +930,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
+    "todoSortPreference",
     "createdAt",
     "lastModified",
     "storagePath",
@@ -983,6 +984,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     dailyCheckins: "duplicate-daily-checkin-id",
     checkins: "duplicate-checkin-id",
   });
+
+  function normalizeTodoSortPreference(value) {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (
+      normalized === "priority" ||
+      normalized === "createdAt" ||
+      normalized === "title"
+    ) {
+      return normalized;
+    }
+    return "dueDate";
+  }
 
   function cloneValue(value) {
     if (value === null || value === undefined) {
@@ -1917,6 +1930,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       customThemes: [],
       builtInThemeOverrides: {},
       selectedTheme: "default",
+      todoSortPreference: "dueDate",
       createdAt: now,
       lastModified: now,
       storagePath:
@@ -2401,6 +2415,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         typeof source.selectedTheme === "string" && source.selectedTheme.trim()
           ? source.selectedTheme.trim()
           : "default",
+      todoSortPreference: normalizeTodoSortPreference(source.todoSortPreference),
       createdAt:
         typeof source.createdAt === "string" && source.createdAt
           ? source.createdAt
@@ -2560,6 +2575,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       nextState.selectedTheme.trim()
         ? nextState.selectedTheme.trim()
         : "default";
+    nextState.todoSortPreference = normalizeTodoSortPreference(
+      nextState.todoSortPreference,
+    );
     nextState.recovery = normalizeRecoveryState(nextState.recovery);
     nextState.syncMeta = createBaseSyncMeta(nextState.syncMeta);
     return nextState;
@@ -19354,6 +19372,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function setAccentButtonState(button, active = true) {
     if (!button) return;
+    if (button instanceof HTMLElement) {
+      button.style.backgroundColor = "";
+      button.style.color = "";
+      button.classList.toggle("controler-accent-active", active);
+      if (active) {
+        button.dataset.controlerAccentActive = "true";
+      } else {
+        delete button.dataset.controlerAccentActive;
+      }
+      return;
+    }
     if (active) {
       button.style.backgroundColor = "var(--accent-color)";
       button.style.color = "var(--on-accent-text)";
