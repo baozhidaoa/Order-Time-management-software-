@@ -66,6 +66,33 @@
   const guideBundle = window.ControlerGuideBundle || null;
   const storageBundle = window.ControlerStorageBundle || null;
   const platformContract = window.ControlerPlatformContract || null;
+  function resolveStorageDebugPageKey() {
+    try {
+      const pathSegments = String(window.location.pathname || "").split("/");
+      const tail = String(pathSegments[pathSegments.length - 1] || "").trim();
+      return tail.replace(/\.html$/i, "") || "unknown";
+    } catch (error) {
+      return "unknown";
+    }
+  }
+
+  function emitStoragePerfMetric(stage, payload = {}) {
+    if (
+      !STORAGE_DEBUG_ENABLED ||
+      typeof reactNativeBridge?.emitEvent !== "function"
+    ) {
+      return;
+    }
+    try {
+      reactNativeBridge.emitEvent("perf.metric", {
+        stage: String(stage || "").trim(),
+        page: resolveStorageDebugPageKey(),
+        ...(payload && typeof payload === "object" ? payload : {}),
+      });
+    } catch (error) {
+      console.info("[storage-perf]", String(stage || "").trim());
+    }
+  }
   const resolvedRuntimeCapabilities =
     electronAPI?.runtimeMeta?.capabilities && typeof electronAPI.runtimeMeta.capabilities === "object"
       ? electronAPI.runtimeMeta.capabilities
@@ -2395,6 +2422,19 @@
         await storageReadyPromise;
         return true;
       },
+      getRawLocalItem(key) {
+        return nativeMethods.getItem?.call(window.localStorage, key) ?? null;
+      },
+      setRawLocalItem(key, value) {
+        if (value === undefined) {
+          nativeMethods.removeItem?.call(window.localStorage, key);
+          return;
+        }
+        nativeMethods.setItem?.call(window.localStorage, key, String(value));
+      },
+      removeRawLocalItem(key) {
+        nativeMethods.removeItem?.call(window.localStorage, key);
+      },
       getItem(key) {
         return window.localStorage.getItem(key);
       },
@@ -3204,6 +3244,19 @@
         window.ControlerStorage[key] = extraMethods[key];
       }
     });
+    window.ControlerStorage.getRawLocalItem = function getRawLocalItem(key) {
+      return nativeMethods.getItem?.call(window.localStorage, key) ?? null;
+    };
+    window.ControlerStorage.setRawLocalItem = function setRawLocalItem(key, value) {
+      if (value === undefined) {
+        nativeMethods.removeItem?.call(window.localStorage, key);
+        return;
+      }
+      nativeMethods.setItem?.call(window.localStorage, key, String(value));
+    };
+    window.ControlerStorage.removeRawLocalItem = function removeRawLocalItem(key) {
+      nativeMethods.removeItem?.call(window.localStorage, key);
+    };
   }
 
   if (!nativeStoragePrototype) {
@@ -4134,8 +4187,8 @@
       !!initialMirrorStateRaw.trim() || shouldAdoptLegacyBrowserBootstrap;
     let preferProbeOnlyOnFirstShellResume =
       initialShellVisibilityState?.active === false &&
-      initialShellVisibilityState?.transitionLoading === true &&
-      hasManagedCoreSnapshot;
+      hasManagedCoreSnapshot &&
+      !initialPendingWrite;
     let managedFullyHydratedSections = new Set();
     let managedSectionCoverage = {};
     let pendingNativeSharedKeyWrites = new Set(initialPendingSharedKeys);
@@ -4415,6 +4468,31 @@
       });
 
       return normalizeState(rebasedSharedState, buildMobileMetadata());
+    }
+
+    function buildDirectCorePatchFromSharedKeys(
+      state,
+      pendingSharedKeys = [],
+    ) {
+      const normalizedSharedKeys = normalizeChangedSectionsList(
+        pendingSharedKeys,
+      )
+        .map((key) => resolveLocalStateKey(key))
+        .filter((key) => key && isSharedStateKey(key));
+      if (!normalizedSharedKeys.length) {
+        return null;
+      }
+      if (
+        !normalizedSharedKeys.every((key) => PRECISE_CORE_SECTION_KEYS.has(key))
+      ) {
+        return null;
+      }
+      const partialCore = normalizedSharedKeys.reduce((result, key) => {
+        result[key] = cloneValue(state?.[key]);
+        return result;
+      }, {});
+      partialCore.syncMeta = cloneValue(state?.syncMeta || null);
+      return normalizeCorePayloadProjects(partialCore).payload;
     }
 
     function getManagedStateFootprint(state = {}) {
@@ -4850,6 +4928,7 @@
 
     async function settleManagedNativeDirectWrite(checkpoint = null) {
       touchRecentNativeLocalWriteWindow();
+      markPendingNativeSelfChangeFingerprintAck();
       if (
         checkpoint &&
         checkpoint.revision === managedStateRevision
@@ -4858,13 +4937,18 @@
           checkpoint.comparableSnapshot || createComparableSnapshot(cachedState);
         hasPendingStateChanges = false;
       }
+      const refreshedVersion = await refreshNativeVersionBaselineAfterDirectWrite();
       persistMirrorSnapshot(true);
-      updateVersionBaseline(cachedStatus);
+      if (!refreshedVersion) {
+        updateVersionBaseline(cachedStatus);
+      }
       clearStorageSyncError();
       touchNativeFastProbeWindow();
-      scheduleNativeStatusRefresh({
-        suppressError: true,
-      });
+      if (shouldRefreshNativeStatusAfterSelfWrite()) {
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+        });
+      }
       scheduleNativeProbeLoop();
     }
 
@@ -4908,6 +4992,56 @@
       }
     }
 
+    function mergeVersionProbeIntoCachedStatus(versionProbe) {
+      const normalizedVersion = normalizeVersionProbe(versionProbe, cachedStatus);
+      if (!normalizedVersion) {
+        return null;
+      }
+      cachedStatus = enrichStorageStatusWithRecovery(
+        {
+          ...(cachedStatus && typeof cachedStatus === "object" ? cachedStatus : {}),
+          storagePath:
+            normalizedVersion.storagePath ||
+            (typeof cachedStatus?.storagePath === "string"
+              ? cachedStatus.storagePath
+              : ""),
+          actualUri:
+            normalizedVersion.actualUri ||
+            (typeof cachedStatus?.actualUri === "string"
+              ? cachedStatus.actualUri
+              : ""),
+          storageMode:
+            normalizedVersion.storageMode ||
+            (typeof cachedStatus?.storageMode === "string"
+              ? cachedStatus.storageMode
+              : ""),
+          size: normalizedVersion.size,
+          modifiedAt: normalizedVersion.modifiedAt,
+          fingerprint: normalizedVersion.fingerprint,
+          supportsModifiedAt: normalizedVersion.supportsModifiedAt === true,
+          fallbackHashUsed: normalizedVersion.fallbackHashUsed === true,
+        },
+        cachedState,
+      );
+      updateVersionBaseline(normalizedVersion);
+      return normalizedVersion;
+    }
+
+    async function refreshNativeVersionBaselineAfterDirectWrite() {
+      if (typeof reactNativeBridge?.call !== "function") {
+        return null;
+      }
+      try {
+        const versionProbe = await probeNativeStateVersion({
+          includeFallbackHash: false,
+        });
+        return mergeVersionProbeIntoCachedStatus(versionProbe);
+      } catch (error) {
+        console.error("刷新 React Native 写后版本基线失败:", error);
+        return null;
+      }
+    }
+
     function touchNativeFastProbeWindow() {
       if (!useAndroidProbeLoop) {
         return;
@@ -4936,6 +5070,20 @@
 
     function clearPendingNativeSelfChangeFingerprintAck() {
       pendingNativeSelfChangeFingerprintAckUntil = 0;
+    }
+
+    function shouldRefreshNativeStatusAfterSelfWrite() {
+      if (!cachedStatus || typeof cachedStatus !== "object") {
+        return true;
+      }
+      if (cachedStatus.sizePending === true) {
+        return true;
+      }
+      const recoveryState =
+        typeof cachedStatus.recoveryState === "string"
+          ? cachedStatus.recoveryState.trim()
+          : "";
+      return recoveryState && recoveryState !== "ok";
     }
 
     function shouldPreferProbeOnlyOnShellResume(reason = "") {
@@ -4992,19 +5140,49 @@
 
     async function readNativeSnapshot(options = {}) {
       const { suppressError = false, debugContext = null } = options;
+      const normalizedDebugContext =
+        debugContext && typeof debugContext === "object" ? debugContext : null;
+      const debugCaller =
+        typeof normalizedDebugContext?.caller === "string" &&
+        normalizedDebugContext.caller.trim()
+          ? normalizedDebugContext.caller.trim()
+          : "unknown";
       try {
         emitStorageDebug("read-native-snapshot-start", {
           suppressError: suppressError === true,
-          debugContext:
-            debugContext && typeof debugContext === "object" ? debugContext : null,
+          debugContext: normalizedDebugContext,
+        });
+        emitStoragePerfMetric("storage-sync-read-trigger", {
+          caller: debugCaller,
+          suppressError: suppressError === true,
+          reason:
+            typeof normalizedDebugContext?.reason === "string"
+              ? normalizedDebugContext.reason
+              : "",
+          source:
+            typeof normalizedDebugContext?.source === "string"
+              ? normalizedDebugContext.source
+              : "",
+          originPageInstanceId:
+            typeof normalizedDebugContext?.originPageInstanceId === "string"
+              ? normalizedDebugContext.originPageInstanceId
+              : "",
+          pendingSharedKeys: Number.isFinite(normalizedDebugContext?.pendingSharedKeys)
+            ? Math.max(0, Number(normalizedDebugContext.pendingSharedKeys) || 0)
+            : 0,
+          forceDispatch: normalizedDebugContext?.forceDispatch === true,
         });
         const rawPayload = await reactNativeBridge.call("storage.readState");
         const payload = parseJsonSafely(rawPayload, null);
         if (!payload || typeof payload !== "object") {
           emitStorageDebug("read-native-snapshot-empty", {
             suppressError: suppressError === true,
-            debugContext:
-              debugContext && typeof debugContext === "object" ? debugContext : null,
+            debugContext: normalizedDebugContext,
+          });
+          emitStoragePerfMetric("storage-sync-read-result", {
+            caller: debugCaller,
+            ok: false,
+            empty: true,
           });
           return null;
         }
@@ -5017,6 +5195,16 @@
           payload.state && typeof payload.state === "object" ? payload.state : {};
         adoptLegacyLocalOnlyValues(nextState);
         maybeNotifyStorageRecoveryStatus(nextStatus);
+        emitStoragePerfMetric("storage-sync-read-result", {
+          caller: debugCaller,
+          ok: true,
+          empty: false,
+          recoveryState:
+            typeof nextStatus?.recoveryState === "string"
+              ? nextStatus.recoveryState
+              : "",
+          sizePending: nextStatus?.sizePending === true,
+        });
 
         return {
           state: normalizeState(nextState, buildMobileMetadata(nextStatus || {})),
@@ -5025,9 +5213,14 @@
       } catch (error) {
         emitStorageDebug("read-native-snapshot-error", {
           suppressError: suppressError === true,
-          debugContext:
-            debugContext && typeof debugContext === "object" ? debugContext : null,
+          debugContext: normalizedDebugContext,
           message: error instanceof Error ? error.message : String(error || ""),
+        });
+        emitStoragePerfMetric("storage-sync-read-result", {
+          caller: debugCaller,
+          ok: false,
+          empty: true,
+          error: error instanceof Error ? error.message : String(error || ""),
         });
         if (!suppressError) {
           reportNativeStorageSyncError(
@@ -5154,8 +5347,24 @@
       const normalizedReason =
         typeof reason === "string" && reason.trim() ? reason.trim() : "shell-resume";
       if (!shouldPreferProbeOnlyOnShellResume(normalizedReason)) {
+        emitStoragePerfMetric("storage-sync-shell-resume-probe-path", {
+          reason: normalizedReason,
+          armed: false,
+          hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
+          hasPendingStateChanges: hasPendingStateChanges === true,
+          preferProbeOnlyOnFirstShellResume:
+            preferProbeOnlyOnFirstShellResume === true,
+        });
         return false;
       }
+      emitStoragePerfMetric("storage-sync-shell-resume-probe-path", {
+        reason: normalizedReason,
+        armed: true,
+        hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
+        hasPendingStateChanges: hasPendingStateChanges === true,
+        preferProbeOnlyOnFirstShellResume:
+          preferProbeOnlyOnFirstShellResume === true,
+      });
       preferProbeOnlyOnFirstShellResume = false;
       touchNativeFastProbeWindow();
       try {
@@ -5196,9 +5405,23 @@
         touchModified: true,
         touchSyncSave: true,
       });
-      if (pendingSharedKeys.length && !nativeFullStateRewriteRequested) {
+      emitStoragePerfMetric("storage-sync-write-native-state-start", {
+        pendingSharedKeys: pendingSharedKeys.length,
+        sharedKeys: pendingSharedKeys,
+        nativeFullStateRewriteRequested: nativeFullStateRewriteRequested === true,
+      });
+      const directCorePatch = !nativeFullStateRewriteRequested
+        ? buildDirectCorePatchFromSharedKeys(nextState, pendingSharedKeys)
+        : null;
+      if (directCorePatch) {
+        hasManagedCoreSnapshot = true;
+      } else if (pendingSharedKeys.length && !nativeFullStateRewriteRequested) {
         latestSnapshot = await readNativeSnapshot({
           suppressError: true,
+          debugContext: {
+            caller: "writeNativeState:shared-rebase",
+            pendingSharedKeys: pendingSharedKeys.length,
+          },
         });
         if (latestSnapshot?.state) {
           nextState = normalizeState(
@@ -5268,6 +5491,27 @@
         touchRecentNativeLocalWriteWindow();
         touchNativeFastProbeWindow();
         scheduleNativeProbeLoop();
+        return cachedStatus;
+      }
+
+      if (directCorePatch) {
+        const directWriteCheckpoint = {
+          revision: managedStateRevision,
+          comparableSnapshot: nextComparableSnapshot,
+        };
+        await reactNativeBridge.call("storage.replaceCoreState", {
+          partialCore: directCorePatch,
+          options: {
+            emitChange: false,
+            reason: "shared-core-replace",
+          },
+        });
+        touchRecentNativeLocalWriteWindow();
+        await settleManagedNativeDirectWrite(directWriteCheckpoint);
+        emitNativeStorageChangedBridgeEvent(
+          "storage-write",
+          consumePendingNativeStorageChangeMetadata(),
+        );
         return cachedStatus;
       }
 
@@ -5643,6 +5887,23 @@
 
     function scheduleNativeForegroundSync(reason, options = {}) {
       const { resetWindow = true, allowProbeOnlyBypass = true } = options;
+      const normalizedReason =
+        typeof reason === "string" && reason.trim() ? reason.trim() : "";
+      if (normalizedReason === "shell-resume") {
+        emitStoragePerfMetric("storage-sync-shell-resume-scheduled", {
+          reason: normalizedReason,
+          resetWindow: resetWindow === true,
+          allowProbeOnlyBypass: allowProbeOnlyBypass === true,
+          shellPageActive: shellPageActive === true,
+          nativeInitializationSettled: nativeInitializationSettled === true,
+          hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
+          hasPendingStateChanges: hasPendingStateChanges === true,
+          preferProbeOnlyOnFirstShellResume:
+            preferProbeOnlyOnFirstShellResume === true,
+          transitionLoading:
+            readCurrentShellVisibilityState()?.transitionLoading === true,
+        });
+      }
       emitStorageDebug("schedule-native-foreground-sync", {
         reason: typeof reason === "string" ? reason : "",
         resetWindow: resetWindow === true,
@@ -5712,6 +5973,9 @@
         }
         const protectedNativeSnapshot = await readNativeSnapshot({
           suppressError: true,
+          debugContext: {
+            caller: "initializeReactNativeStorage:pending-state",
+          },
         });
         if (
           protectedNativeSnapshot?.state &&
@@ -5819,6 +6083,9 @@
       }
       const next = await readNativeSnapshot({
         suppressError: true,
+        debugContext: {
+          caller: "initializeReactNativeStorage:full-fallback",
+        },
       });
       if (next?.state) {
         const currentSnapshot = createComparableSnapshot(readState());
@@ -7240,7 +7507,11 @@
       const parsed = parseJsonSafely(result, null);
       if (parsed && typeof parsed === "object") {
         cachedStatus = parsed;
-        const next = await readNativeSnapshot();
+        const next = await readNativeSnapshot({
+          debugContext: {
+            caller: "selectStorageFile",
+          },
+        });
         if (next?.state) {
           cachedState = next.state;
           hasManagedCoreSnapshot = true;
@@ -7263,7 +7534,11 @@
       const parsed = parseJsonSafely(result, null);
       if (parsed && typeof parsed === "object") {
         cachedStatus = parsed;
-        const next = await readNativeSnapshot();
+        const next = await readNativeSnapshot({
+          debugContext: {
+            caller: "selectStorageDirectory",
+          },
+        });
         if (next?.state) {
           cachedState = next.state;
           hasManagedCoreSnapshot = true;
@@ -7286,7 +7561,11 @@
       const parsed = parseJsonSafely(result, null);
       if (parsed && typeof parsed === "object") {
         cachedStatus = parsed;
-        const next = await readNativeSnapshot();
+        const next = await readNativeSnapshot({
+          debugContext: {
+            caller: "resetStorageFile",
+          },
+        });
         if (next?.state) {
           cachedState = next.state;
           hasManagedCoreSnapshot = true;
@@ -7368,6 +7647,17 @@
           changedSections: normalizeChangedSectionsList(detail.changedSections || []),
           changedPeriods: normalizeChangedPeriodsMap(detail.changedPeriods || {}),
         });
+        emitStoragePerfMetric("storage-changed-bridge", {
+          reason: typeof detail.reason === "string" ? detail.reason.trim() : "",
+          source: typeof detail.source === "string" ? detail.source.trim() : "",
+          originPageInstanceId:
+            typeof detail.originPageInstanceId === "string"
+              ? detail.originPageInstanceId.trim()
+              : "",
+          isCurrentPageChange: isCurrentPageNativeStorageChange(detail),
+          hasPendingStateChanges: hasPendingStateChanges === true,
+          changedSections: normalizeChangedSectionsList(detail.changedSections || []),
+        });
         if (!shellPageActive) {
           return;
         }
@@ -7377,9 +7667,11 @@
           !hasPendingStateChanges
         ) {
           markPendingNativeSelfChangeFingerprintAck();
-          scheduleNativeStatusRefresh({
-            suppressError: true,
-          });
+          if (shouldRefreshNativeStatusAfterSelfWrite()) {
+            scheduleNativeStatusRefresh({
+              suppressError: true,
+            });
+          }
           scheduleNativeProbeLoop();
           return;
         }
@@ -7415,12 +7707,30 @@
       }
 
       const nextActive = detail.active !== false;
+      const shouldArmProbeOnlyOnHiddenTransitionLoad =
+        nextActive === false &&
+        detail.transitionLoading === true &&
+        hasManagedCoreSnapshot &&
+        !hasPendingStateChanges;
+      if (
+        shouldArmProbeOnlyOnHiddenTransitionLoad &&
+        !preferProbeOnlyOnFirstShellResume
+      ) {
+        preferProbeOnlyOnFirstShellResume = true;
+        emitStoragePerfMetric("storage-sync-shell-resume-armed", {
+          reason: typeof detail.reason === "string" ? detail.reason : "",
+          page: typeof detail.page === "string" ? detail.page : "",
+          transitionLoading: true,
+          hasManagedCoreSnapshot: true,
+        });
+      }
       window.__CONTROLER_SHELL_VISIBILITY__ = {
         active: nextActive,
         slot: typeof detail.slot === "string" ? detail.slot : "",
         reason: typeof detail.reason === "string" ? detail.reason : "",
         page: typeof detail.page === "string" ? detail.page : "",
         href: typeof detail.href === "string" ? detail.href : "",
+        transitionLoading: detail.transitionLoading === true,
         receivedAt: Date.now(),
       };
       if (shellPageActive === nextActive) {
@@ -7428,6 +7738,16 @@
       }
 
       shellPageActive = nextActive;
+      emitStoragePerfMetric("storage-sync-shell-visibility", {
+        active: shellPageActive === true,
+        reason: typeof detail.reason === "string" ? detail.reason : "",
+        page: typeof detail.page === "string" ? detail.page : "",
+        transitionLoading: detail.transitionLoading === true,
+        preferProbeOnlyOnFirstShellResume:
+          preferProbeOnlyOnFirstShellResume === true,
+        hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
+        hasPendingStateChanges: hasPendingStateChanges === true,
+      });
       if (!shellPageActive) {
         pendingForegroundSyncRequest = {
           reason: "shell-resume",

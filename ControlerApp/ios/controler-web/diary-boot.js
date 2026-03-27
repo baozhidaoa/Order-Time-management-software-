@@ -675,6 +675,13 @@ const diaryExternalStorageRefreshCoordinator =
     },
   }) || null;
 
+function isDiaryShellTransitionLoading() {
+  if (typeof uiTools?.getShellVisibilityState !== "function") {
+    return false;
+  }
+  return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
 function getDiaryNormalizedChangedSections(changedSections = []) {
   if (typeof uiTools?.normalizeChangedSections === "function") {
     return uiTools.normalizeChangedSections(changedSections);
@@ -1325,6 +1332,18 @@ function normalizeDiaryPersistMeta(value = {}) {
   };
 }
 
+function waitForDiaryUiPaint() {
+  return new Promise((resolve) => {
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
+}
+
 async function commitDiaryLocalChange({
   applyChange,
   beforeClose = null,
@@ -1355,24 +1374,57 @@ async function commitDiaryLocalChange({
 
   const persistMeta = normalizeDiaryPersistMeta(applyResult);
   syncDiaryDataIndex();
-  if (typeof beforeClose === "function") {
-    try {
-      await beforeClose();
-    } catch (error) {
-      console.error("清理日记草稿失败:", error);
+  const perfAction = failureTitle === "删除失败" ? "diary-delete" : "diary-save";
+  uiTools?.markPerfStage?.("diary-form-save-start", {
+    allowRepeat: true,
+    action: perfAction,
+  });
+  setDiaryLoadingState({
+    active: true,
+    mode: "fullscreen",
+    title: failureTitle === "删除失败" ? "正在删除日记" : "正在保存日记",
+    message:
+      failureTitle === "删除失败"
+        ? "正在同步删除日记数据，请稍候"
+        : "正在写入日记与分类数据，请稍候",
+    delayMs: 0,
+  });
+  try {
+    await waitForDiaryUiPaint();
+    if (typeof closeModal === "function") {
+      closeModal();
     }
+    scheduleDiaryViewRefresh();
+    uiTools?.markPerfStage?.("diary-form-modal-hidden", {
+      allowRepeat: true,
+      action: perfAction,
+    });
+  } catch (error) {
+    setDiaryLoadingState({
+      active: false,
+    });
+    throw error;
   }
-  if (typeof closeModal === "function") {
-    closeModal();
+  if (typeof beforeClose === "function") {
+    void Promise.resolve(beforeClose()).catch((error) => {
+      console.error("清理日记草稿失败:", error);
+    });
   }
-  scheduleDiaryViewRefresh();
 
   const saved = await saveDiaryData(persistMeta);
+  setDiaryLoadingState({
+    active: false,
+  });
   if (saved) {
+    uiTools?.markPerfStage?.("diary-form-storage-acked", {
+      allowRepeat: true,
+      action: perfAction,
+    });
     return true;
   }
 
   restoreDiaryMutationSnapshot(snapshot);
+  scheduleDiaryViewRefresh();
   await showDiaryAlert(failureMessage, {
     title: failureTitle,
     danger: true,
@@ -1500,7 +1552,32 @@ function applyDiaryLoadedState(payload = {}) {
   return normalized;
 }
 
+function getDiaryLoadedStateWeight(snapshot = {}) {
+  const entryCount = Array.isArray(snapshot?.entries) ? snapshot.entries.length : 0;
+  const categoryCount = Array.isArray(snapshot?.categories)
+    ? snapshot.categories.length
+    : 0;
+  const loadedPeriodCount = Array.isArray(snapshot?.loadedPeriodIds)
+    ? snapshot.loadedPeriodIds.length
+    : 0;
+  return entryCount * 4 + categoryCount * 2 + loadedPeriodCount;
+}
+
+function pickPreferredDiaryLoadedState(primarySnapshot = null, fallbackSnapshot = null) {
+  if (!primarySnapshot) {
+    return fallbackSnapshot;
+  }
+  if (!fallbackSnapshot) {
+    return primarySnapshot;
+  }
+  return getDiaryLoadedStateWeight(fallbackSnapshot) >
+    getDiaryLoadedStateWeight(primarySnapshot)
+    ? fallbackSnapshot
+    : primarySnapshot;
+}
+
 function readDiaryCachedSnapshotState() {
+  let preferredSnapshot = null;
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState === "function") {
       const bootstrap = window.ControlerStorage.peekPageBootstrapState("diary", {
@@ -1509,15 +1586,18 @@ function readDiaryCachedSnapshotState() {
       const data =
         bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
       if (data) {
-        return normalizeDiaryLoadedState({
-          entries: data.currentMonthEntries,
-          categories: data.diaryCategories,
-          loadedPeriodIds:
-            Array.isArray(bootstrap.loadedPeriodIds) &&
-            bootstrap.loadedPeriodIds.length
-              ? bootstrap.loadedPeriodIds
-              : getDiaryPrefetchPeriodIds(currentDate),
-        });
+        preferredSnapshot = pickPreferredDiaryLoadedState(
+          preferredSnapshot,
+          normalizeDiaryLoadedState({
+            entries: data.currentMonthEntries,
+            categories: data.diaryCategories,
+            loadedPeriodIds:
+              Array.isArray(bootstrap.loadedPeriodIds) &&
+              bootstrap.loadedPeriodIds.length
+                ? bootstrap.loadedPeriodIds
+                : getDiaryPrefetchPeriodIds(currentDate),
+          }),
+        );
       }
     }
   } catch (error) {
@@ -1529,25 +1609,31 @@ function readDiaryCachedSnapshotState() {
         ? window.ControlerStorage.dump()
         : null;
     if (storageSnapshot && typeof storageSnapshot === "object") {
-      return normalizeDiaryLoadedState({
-        entries: storageSnapshot.diaryEntries,
-        categories: storageSnapshot.diaryCategories,
-      });
+      preferredSnapshot = pickPreferredDiaryLoadedState(
+        preferredSnapshot,
+        normalizeDiaryLoadedState({
+          entries: storageSnapshot.diaryEntries,
+          categories: storageSnapshot.diaryCategories,
+        }),
+      );
     }
   } catch (error) {
     console.error("读取日记缓存快照失败:", error);
   }
 
   try {
-    return normalizeDiaryLoadedState({
-      entries: JSON.parse(localStorage.getItem("diaryEntries") || "[]"),
-      categories: JSON.parse(localStorage.getItem("diaryCategories") || "[]"),
-    });
+    preferredSnapshot = pickPreferredDiaryLoadedState(
+      preferredSnapshot,
+      normalizeDiaryLoadedState({
+        entries: JSON.parse(localStorage.getItem("diaryEntries") || "[]"),
+        categories: JSON.parse(localStorage.getItem("diaryCategories") || "[]"),
+      }),
+    );
   } catch (error) {
     console.error("读取本地日记兜底快照失败:", error);
   }
 
-  return normalizeDiaryLoadedState();
+  return preferredSnapshot || normalizeDiaryLoadedState();
 }
 
 function bootstrapDiaryFromCachedSnapshot() {
@@ -1558,6 +1644,11 @@ function bootstrapDiaryFromCachedSnapshot() {
     renderCurrentView();
     diaryInitialDataLoaded = true;
     diaryInitialDataValidated = false;
+    uiTools?.markPerfStage?.("first-data-ready", {
+      periodIds: diaryLoadedPeriodIds.slice(),
+      entryCount: diaryEntries.length,
+      fromCache: true,
+    });
     return true;
   } catch (error) {
     console.error("使用日记缓存快照引导首屏失败:", error);
@@ -2684,7 +2775,7 @@ function renderDiaryGuideCard() {
 }
 
 function refreshDiaryFromExternalStorageChange() {
-  if (!diaryShellPageActive) {
+  if (!diaryShellPageActive && !isDiaryShellTransitionLoading()) {
     diaryExternalStorageRefreshQueued = false;
     diaryExternalRefreshPendingResume = true;
     return;
@@ -2692,6 +2783,8 @@ function refreshDiaryFromExternalStorageChange() {
   diaryExternalStorageRefreshQueued = false;
   void refreshDiaryVisibleData({
     anchorDate: currentDate,
+    manageLoading: !diaryInitialDataLoaded,
+    mode: diaryInitialDataLoaded ? "inline" : "fullscreen",
     message: "正在同步最新日记数据，请稍候",
   });
 }
@@ -3668,7 +3761,7 @@ async function init() {
   applyDiaryDesktopWidgetMode();
   await waitForDiaryStorageReady();
   bindDiaryShellVisibilityGate();
-  bootstrapDiaryFromCachedSnapshot();
+  const bootstrappedFromSnapshot = bootstrapDiaryFromCachedSnapshot();
   initDiaryPeriodSelectors();
   initDiaryCategoryFilterSelector();
   initDiarySearchControls();
@@ -3684,15 +3777,24 @@ async function init() {
     }
   });
   try {
-    if (!diaryShellPageActive) {
+    if (!diaryShellPageActive && !isDiaryShellTransitionLoading()) {
       diaryInitialHydrationPendingResume = true;
     } else {
       const hydrationPromise = hydrateDiaryInitialData({
         mode: diaryInitialDataValidated ? "inline" : "fullscreen",
+        manageLoading: !bootstrappedFromSnapshot,
       });
-      const hydrated = await hydrationPromise;
-      if (hydrated !== false) {
-        flushDiaryPendingWidgetLaunchAction();
+      if (bootstrappedFromSnapshot) {
+        void hydrationPromise.then((hydrated) => {
+          if (hydrated !== false) {
+            flushDiaryPendingWidgetLaunchAction();
+          }
+        });
+      } else {
+        const hydrated = await hydrationPromise;
+        if (hydrated !== false) {
+          flushDiaryPendingWidgetLaunchAction();
+        }
       }
     }
   } finally {

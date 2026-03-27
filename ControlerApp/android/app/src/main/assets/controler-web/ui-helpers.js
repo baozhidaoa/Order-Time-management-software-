@@ -2091,18 +2091,43 @@
   }
 
   function getNativeHostPlatform() {
-    const platform = String(
+    const explicitPlatform = String(
       window.ControlerNativeBridge?.platform ||
         window.__CONTROLER_RN_META__?.platform ||
         "",
     )
       .trim()
       .toLowerCase();
-    return platform === "android" || platform === "ios" ? platform : "";
+    if (explicitPlatform === "android" || explicitPlatform === "ios") {
+      return explicitPlatform;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    const hasAndroidClass =
+      root?.classList.contains("controler-android-native") ||
+      body?.classList.contains("controler-android-native");
+    if (hasAndroidClass) {
+      return "android";
+    }
+    const hasIosClass =
+      root?.classList.contains("controler-ios-native") ||
+      body?.classList.contains("controler-ios-native");
+    if (hasIosClass) {
+      return "ios";
+    }
+    return "";
   }
 
   function isReactNativeNavigationRuntime() {
-    return !!getNativeHostPlatform();
+    if (getNativeHostPlatform()) {
+      return true;
+    }
+    return (
+      typeof window.ControlerNativeBridge?.emitEvent === "function" ||
+      typeof window.ControlerNativeBridge?.call === "function" ||
+      typeof window.ReactNativeWebView?.postMessage === "function" ||
+      window.__CONTROLER_RN_META__?.runtime === "react-native"
+    );
   }
 
   function clearAppPageTransitionClasses() {
@@ -2354,7 +2379,9 @@
         ...overlayCopy,
         delayMs: appPageLeaveOverlayVisible
           ? 0
-          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+          : isReactNativeNavigationRuntime()
+            ? 0
+            : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
       });
     } else if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
@@ -4000,6 +4027,7 @@
     let currentVisibility = !overlay.hidden;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
     let currentNativeBusySignature = "";
+    let suppressRevealingAfterShellUnlock = false;
     let requestedOverlayState = {
       visible: currentVisibility,
       mode: currentMode,
@@ -4196,6 +4224,11 @@
         visible,
         resolvedMode,
       );
+      if (visible && resolvedMode === "fullscreen" && suppressedByShell) {
+        suppressRevealingAfterShellUnlock = true;
+      } else if (!visible) {
+        suppressRevealingAfterShellUnlock = false;
+      }
       const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
         visible,
         resolvedMode,
@@ -4257,6 +4290,18 @@
     };
 
     const handleShellVisibilityChange = () => {
+      if (
+        suppressRevealingAfterShellUnlock &&
+        requestedOverlayState.visible &&
+        normalizeMode(requestedOverlayState.mode) === "fullscreen"
+      ) {
+        suppressRevealingAfterShellUnlock = false;
+        applyOverlayState({
+          ...requestedOverlayState,
+          visible: false,
+        });
+        return;
+      }
       applyOverlayState(requestedOverlayState);
     };
 

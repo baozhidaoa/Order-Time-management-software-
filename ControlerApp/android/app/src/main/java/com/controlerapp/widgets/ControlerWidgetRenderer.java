@@ -57,7 +57,7 @@ public final class ControlerWidgetRenderer {
     );
     private static final long DEBOUNCED_REFRESH_DELAY_MS = 120L;
     private static final long SAME_KIND_REFRESH_DELAY_MS = 90L;
-    private static final long AFFECTED_REFRESH_DELAY_MS = 320L;
+    private static final long AFFECTED_REFRESH_DELAY_MS = 180L;
     private static final long THEME_REFRESH_DELAY_MS = 1200L;
     private static final long DEFERRED_PREVIEW_REFRESH_DELAY_MS = 100L;
     private static final String PREVIEW_SIGNATURE_NONE = "preview:none";
@@ -73,6 +73,7 @@ public final class ControlerWidgetRenderer {
     private static final Handler REFRESH_HANDLER = new Handler(REFRESH_THREAD.getLooper());
     private static final Map<Integer, String> LAST_RENDER_KEYS = new HashMap<>();
     private static long lastRenderSourceLoadedAtMs = 0L;
+    private static String lastRenderSourceKindsSignature = "all";
     private static RenderSource lastRenderSource = null;
     private static final LruCache<String, Bitmap> CARD_BACKGROUND_CACHE =
         new LruCache<String, Bitmap>(CARD_BACKGROUND_CACHE_BYTES) {
@@ -358,15 +359,9 @@ public final class ControlerWidgetRenderer {
         }
 
         if (!TextUtils.isEmpty(normalizedHint) && affectedKinds.contains(normalizedHint)) {
-            RefreshBatch sameKindBatch = new RefreshBatch();
-            sameKindBatch.reason = "same-kind";
-            sameKindBatch.kinds.add(normalizedHint);
-            scheduleRefreshBatch(
-                context.getApplicationContext(),
-                sameKindBatch,
-                SAME_KIND_REFRESH_DELAY_MS,
-                "same-kind"
-            );
+            // The immediate batch already refreshes every widget of the hinted kind,
+            // so scheduling the same kind again only adds redundant work and delays
+            // the affected widgets that actually still need follow-up refreshes.
             affectedKinds.remove(normalizedHint);
         }
 
@@ -442,7 +437,10 @@ public final class ControlerWidgetRenderer {
 
         Context appContext = context.getApplicationContext();
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
-        RenderSource renderSource = loadRenderSource(appContext);
+        RenderSource renderSource = loadRenderSource(
+            appContext,
+            Collections.singleton(normalizedKind)
+        );
         updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
     }
 
@@ -463,7 +461,10 @@ public final class ControlerWidgetRenderer {
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
         RenderSource renderSource = peekLastRenderSource();
         if (renderSource == null) {
-            renderSource = loadRenderSource(appContext);
+            renderSource = loadRenderSource(
+                appContext,
+                Collections.singleton(normalizedKind)
+            );
         }
         updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
     }
@@ -497,7 +498,10 @@ public final class ControlerWidgetRenderer {
 
         RenderSource renderSource = peekLastRenderSource();
         if (renderSource == null) {
-            renderSource = loadRenderSource(appContext);
+            renderSource = loadRenderSource(
+                appContext,
+                Collections.singleton(normalizedKind)
+            );
         }
         updateWidgets(appContext, normalizedKind, appWidgetIds, appWidgetManager, renderSource);
     }
@@ -518,7 +522,10 @@ public final class ControlerWidgetRenderer {
             @Override
             public void run() {
                 AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(appContext);
-                RenderSource renderSource = loadRenderSource(appContext);
+                RenderSource renderSource = loadRenderSource(
+                    appContext,
+                    Collections.singleton(normalizedKind)
+                );
                 updateWidgets(
                     appContext,
                     normalizedKind,
@@ -772,7 +779,10 @@ public final class ControlerWidgetRenderer {
                 + countWidgetIds(widgetIdsByKind)
         );
 
-        RenderSource renderSource = loadRenderSource(appContext);
+        RenderSource renderSource = loadRenderSource(
+            appContext,
+            widgetIdsByKind.keySet()
+        );
         for (Map.Entry<String, int[]> entry : widgetIdsByKind.entrySet()) {
             updateWidgets(
                 appContext,
@@ -900,6 +910,7 @@ public final class ControlerWidgetRenderer {
     public static void invalidateRenderSourceCache() {
         synchronized (RENDER_STATE_LOCK) {
             lastRenderSourceLoadedAtMs = 0L;
+            lastRenderSourceKindsSignature = "all";
             lastRenderSource = null;
         }
     }
@@ -910,7 +921,7 @@ public final class ControlerWidgetRenderer {
         }
         Context appContext = context.getApplicationContext();
         try {
-            return resolveThemePalette(ControlerWidgetDataStore.loadRootForWidgets(appContext));
+            return resolveThemePalette(ControlerWidgetDataStore.getStorageCoreState(appContext));
         } catch (Exception error) {
             error.printStackTrace();
             return new ThemePalette();
@@ -963,12 +974,39 @@ public final class ControlerWidgetRenderer {
         }
     }
 
+    private static String buildRenderSourceKindsSignature(Set<String> requestedKinds) {
+        if (requestedKinds == null || requestedKinds.isEmpty()) {
+            return "all";
+        }
+        ArrayList<String> normalizedKinds = new ArrayList<>();
+        for (String kind : requestedKinds) {
+            String normalizedKind = ControlerWidgetKinds.normalize(kind);
+            if (!TextUtils.isEmpty(normalizedKind)) {
+                normalizedKinds.add(normalizedKind);
+            }
+        }
+        if (normalizedKinds.isEmpty()) {
+            return "all";
+        }
+        Collections.sort(normalizedKinds);
+        return TextUtils.join("|", normalizedKinds);
+    }
+
     private static RenderSource loadRenderSource(Context context) {
+        return loadRenderSource(context, null);
+    }
+
+    private static RenderSource loadRenderSource(Context context, Set<String> requestedKinds) {
+        String requestedKindsSignature = buildRenderSourceKindsSignature(requestedKinds);
         long now = System.currentTimeMillis();
         synchronized (RENDER_STATE_LOCK) {
             if (
                 lastRenderSource != null
                     && now - lastRenderSourceLoadedAtMs <= RENDER_SOURCE_CACHE_TTL_MS
+                    && TextUtils.equals(
+                        lastRenderSourceKindsSignature,
+                        requestedKindsSignature
+                    )
             ) {
                 return lastRenderSource;
             }
@@ -980,7 +1018,13 @@ public final class ControlerWidgetRenderer {
         }
 
         try {
-            renderSource.root = ControlerWidgetDataStore.loadRootForWidgets(context);
+            renderSource.root =
+                "all".equals(requestedKindsSignature)
+                    ? ControlerWidgetDataStore.loadRootForWidgets(context)
+                    : ControlerWidgetDataStore.loadRootForWidgetKinds(
+                        context,
+                        requestedKinds
+                    );
             renderSource.palette = resolveThemePalette(renderSource.root);
             renderSource.state = ControlerWidgetDataStore.loadFromRoot(renderSource.root);
         } catch (Exception error) {
@@ -989,6 +1033,7 @@ public final class ControlerWidgetRenderer {
 
         synchronized (RENDER_STATE_LOCK) {
             lastRenderSourceLoadedAtMs = now;
+            lastRenderSourceKindsSignature = requestedKindsSignature;
             lastRenderSource = renderSource;
         }
         return renderSource;
@@ -1142,7 +1187,10 @@ public final class ControlerWidgetRenderer {
                 @Override
                 public void run() {
                     AppWidgetManager nextAppWidgetManager = AppWidgetManager.getInstance(appContext);
-                    RenderSource deferredRenderSource = loadRenderSource(appContext);
+                    RenderSource deferredRenderSource = loadRenderSource(
+                        appContext,
+                        Collections.singleton(normalizedKind)
+                    );
                     updateWidgets(
                         appContext,
                         normalizedKind,

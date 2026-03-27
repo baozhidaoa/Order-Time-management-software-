@@ -536,11 +536,11 @@ function serializePerfMetricLog(
     });
   }
 }
-const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 1400 : 1100;
+const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 2600 : 1100;
 const PAGE_SWITCH_THEME_READY_TIMEOUT_MS = IS_ANDROID ? 900 : 420;
 const PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS = IS_ANDROID ? 120 : 80;
-const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 280 : 140;
-const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 1700 : 1200;
+const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 1000 : 140;
+const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 5200 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
 const NAVIGATION_PREWARM_DELAY_MS = 260;
 const WIDGET_PREWARM_AFTER_READY_MS = 220;
@@ -1135,6 +1135,9 @@ export function isWebViewLayerInteractive({
     return slot === activeSlot;
   }
   if (transitionState.status === 'loading') {
+    if (isAndroid) {
+      return false;
+    }
     return slot === transitionState.fromSlot;
   }
   return slot === activeSlot;
@@ -2731,9 +2734,19 @@ function App({
     if (!activeState.uri) {
       return;
     }
+    const launchContext = launchContextRef.current;
+    const hasLandingPrewarmTarget =
+      launchContext.active &&
+      (!!launchContext.widgetAction ||
+        !!launchContext.widgetKind ||
+        (launchContext.pageKey && launchContext.pageKey !== activeState.pageKey));
+    if (!hasLandingPrewarmTarget) {
+      widgetPrewarmPendingRef.current = false;
+      return;
+    }
 
     const priorityPages: AppPageKey[] = [];
-    const launchPage = launchContextRef.current.pageKey;
+    const launchPage = launchContext.pageKey;
     if (
       launchPage &&
       launchPage !== activeState.pageKey &&
@@ -2848,7 +2861,7 @@ function App({
     (
       currentSlot: WebViewSlot,
       targetUri: string,
-    ): {slot: WebViewSlot; needsLoad: boolean} => {
+    ): {slot: WebViewSlot; needsLoad: boolean; slotReady: boolean} => {
       settleWidgetLaunchWindowIfExpired();
       const reusableSlots = WEBVIEW_SLOTS;
       const comparableTargetUrl = getComparableUrl(targetUri);
@@ -2867,6 +2880,7 @@ function App({
         return {
           slot: cachedTargetSlot,
           needsLoad: false,
+          slotReady: slotPageReadyRef.current[cachedTargetSlot] === true,
         };
       }
 
@@ -2894,6 +2908,7 @@ function App({
         return {
           slot: reuseLoadedSlot,
           needsLoad: true,
+          slotReady: false,
         };
       }
 
@@ -2904,6 +2919,7 @@ function App({
         return {
           slot: freeSlot,
           needsLoad: true,
+          slotReady: false,
         };
       }
 
@@ -2930,6 +2946,7 @@ function App({
       return {
         slot: fallbackSlot,
         needsLoad: true,
+        slotReady: false,
       };
     },
     [isPageKeyHidden, settleWidgetLaunchWindowIfExpired],
@@ -2937,9 +2954,6 @@ function App({
 
   const prewarmNavigationPage = useCallback(
     (pageKey: AppPageKey) => {
-      if (IS_ANDROID) {
-        return false;
-      }
       if (
         transitionStateRef.current ||
         !isPageReadyRef.current ||
@@ -3004,6 +3018,19 @@ function App({
       return true;
     },
     [findReusableSlot, isPageKeyHidden, logPerfMetric, markSlotUsed],
+  );
+
+  const resolveNavigationPrewarmTarget = useCallback(
+    (activePageKey: AppPageKey | ''): AppPageKey | '' => {
+      if (!activePageKey) {
+        return '';
+      }
+      if (IS_ANDROID) {
+        return '';
+      }
+      return activePageKey === 'index' ? '' : 'index';
+    },
+    [],
   );
 
   const clearTransitionWatchdog = useCallback(() => {
@@ -3470,6 +3497,17 @@ function App({
     setTransitionState(null);
     transitionProgress.setValue(0);
     clearHiddenCachedSlots();
+    if (IS_ANDROID) {
+      requestAnimationFrame(() => {
+        if (
+          transitionStateRef.current ||
+          activeSlotRef.current !== nextActiveSlot
+        ) {
+          return;
+        }
+        clearInactiveCachedSlots();
+      });
+    }
     if (queuedNavigationRequestRef.current) {
       requestAnimationFrame(() => {
         flushQueuedNavigationRequestIfReady('transition-complete');
@@ -3627,6 +3665,10 @@ function App({
 
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
+    if (IS_ANDROID) {
+      finalizeTransition(currentTransition);
+      return;
+    }
     finalizeTransition({
       ...currentTransition,
       status: 'animating',
@@ -3687,7 +3729,7 @@ function App({
       toSlot: nextSlot,
       direction,
       status: 'loading',
-      reuseCachedSlot: !nextSlotState.needsLoad,
+      reuseCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
     };
     logPerfMetric('transition-start', {
       fromSlot: currentSlot,
@@ -3696,7 +3738,7 @@ function App({
       toPage: target.pageKey,
       targetUri: target.uri,
       source,
-      reusedCachedSlot: !nextSlotState.needsLoad,
+      reusedCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
     });
     transitionStateRef.current = nextTransition;
     setTransitionState(nextTransition);
@@ -3719,8 +3761,14 @@ function App({
           revision: current[nextSlot].revision + 1,
         },
       }));
-    } else {
+    } else if (nextSlotState.slotReady) {
       startLoadedTransition(nextSlot);
+    } else {
+      armTransitionWatchdog(
+        nextTransition,
+        target.uri,
+        PAGE_SWITCH_LOAD_TIMEOUT_MS,
+      );
     }
     return 'intercept';
   };
@@ -4218,6 +4266,10 @@ function App({
     if (!widgetPrewarmPendingRef.current) {
       return;
     }
+    if (!launchContextRef.current.active) {
+      widgetPrewarmPendingRef.current = false;
+      return;
+    }
     if (busyLockBySlotRef.current[activeSlotRef.current]) {
       return;
     }
@@ -4254,14 +4306,15 @@ function App({
 
   useEffect(() => {
     clearNavigationPrewarmTimer();
-    if (bootError || !isPageReady || transitionState || IS_ANDROID) {
+    if (bootError || !isPageReady || transitionState) {
       return;
     }
 
     const activePageKey = webViewSlotsRef.current[activeSlotRef.current].pageKey;
+    const prewarmTarget = resolveNavigationPrewarmTarget(activePageKey);
     if (
       !activePageKey ||
-      activePageKey === 'index' ||
+      !prewarmTarget ||
       widgetPrewarmPendingRef.current ||
       busyLockBySlotRef.current[activeSlotRef.current]
     ) {
@@ -4276,7 +4329,7 @@ function App({
       ) {
         return;
       }
-      prewarmNavigationPage('index');
+      prewarmNavigationPage(prewarmTarget);
     }, NAVIGATION_PREWARM_DELAY_MS);
 
     return () => {
@@ -4289,6 +4342,7 @@ function App({
     clearNavigationPrewarmTimer,
     isPageReady,
     prewarmNavigationPage,
+    resolveNavigationPrewarmTarget,
     transitionState,
     webViewSlots,
   ]);
@@ -5543,7 +5597,7 @@ function App({
         wrapperStyle = [
           styles.webviewLayer,
           {backgroundColor: shellBootTheme.screenBg},
-          styles.webviewLayerVisible,
+          IS_ANDROID ? androidHiddenLayerStyle : styles.webviewLayerVisible,
         ];
       } else {
         wrapperStyle = [
@@ -5932,16 +5986,16 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
   },
   bootCard: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 388,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 19,
-    borderRadius: 18,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(142, 214, 164, 0.18)',
     backgroundColor: 'rgba(22, 31, 27, 0.88)',
@@ -5964,14 +6018,15 @@ const styles = StyleSheet.create({
     },
   },
   loadingText: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '700',
     color: '#d4f5df',
+    textAlign: 'center',
   },
   loadingSubText: {
     marginTop: 8,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 21,
     color: 'rgba(212, 245, 223, 0.68)',
     textAlign: 'center',
   },

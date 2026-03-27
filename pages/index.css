@@ -6896,6 +6896,26 @@ body.page-diary #diary-search-input {
   --controler-perf-focus-outline: rgba(255, 255, 255, 0.08);
 }
 
+body.controler-mobile-runtime,
+body.controler-android-native,
+body.controler-ios-native {
+  --controler-perf-surface-blur: none;
+  --controler-perf-overlay-bg: var(--bg-primary);
+  --controler-perf-overlay-bg-strong: var(--bg-primary);
+  --controler-loading-overlay-sheen: transparent;
+  --controler-loading-overlay-bg: var(--bg-primary);
+  --controler-loading-overlay-bg-strong: var(--bg-primary);
+  --controler-loading-card-bg: color-mix(
+    in srgb,
+    var(--panel-strong-bg) 96%,
+    var(--bg-primary) 4%
+  );
+  --controler-loading-card-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --controler-loading-spinner-shadow: none;
+}
+
 html {
   scroll-behavior: auto !important;
 }
@@ -7143,18 +7163,56 @@ body :is(
   -webkit-backdrop-filter: none;
 }
 
+body.controler-mobile-runtime .page-loading-overlay,
+body.controler-android-native .page-loading-overlay,
+body.controler-ios-native .page-loading-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  min-height: 100vh !important;
+  height: 100vh !important;
+  max-height: none !important;
+  z-index: 9500 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  overscroll-behavior: contain;
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(10px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(10px, env(safe-area-inset-left)) !important;
+  background: var(--bg-primary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.controler-mobile-runtime .page-loading-overlay[data-mode="inline"],
+body.controler-android-native .page-loading-overlay[data-mode="inline"],
+body.controler-ios-native .page-loading-overlay[data-mode="inline"] {
+  display: none !important;
+}
+
+body.controler-mobile-runtime .page-loading-card,
+body.controler-android-native .page-loading-card,
+body.controler-ios-native .page-loading-card {
+  width: min(388px, calc(100vw - 20px)) !important;
+  padding: 24px 22px 24px !important;
+  border-radius: 24px !important;
+  gap: 12px !important;
+}
+
 .page-loading-overlay[hidden] {
   display: none !important;
 }
 
 .page-loading-card {
-  width: min(420px, calc(100vw - 40px));
+  width: min(436px, calc(100vw - 28px));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 26px 26px 24px;
-  border-radius: 28px;
+  gap: 12px;
+  padding: 28px 28px 26px;
+  border-radius: 30px;
   border: 1px solid var(--controler-loading-card-border);
   background:
     linear-gradient(
@@ -7197,13 +7255,13 @@ body :is(
 
 @media (max-width: 760px) {
   .page-loading-card {
-    width: min(360px, calc(100vw - 28px));
-    padding: 18px 18px 19px;
-    border-radius: 18px;
+    width: min(388px, calc(100vw - 20px));
+    padding: 24px 22px 24px;
+    border-radius: 24px;
   }
 
   .page-loading-title {
-    font-size: 18px;
+    font-size: 19px;
   }
 }
 
@@ -7224,7 +7282,7 @@ body.settings-backup-busy {
 }
 
 .settings-backup-card {
-  gap: 10px;
+  gap: 12px;
 }
 
 .record-item-pending {

@@ -1,0 +1,1064 @@
+--------- beginning of main
+03-27 00:15:43.440  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-27 00:15:43.442  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 0.00 MB/s, Write: 0.00 MB/s
+03-27 00:15:43.443  3133  1893 E OplusStorageUFSBandwidth: Task time: 4ms
+03-27 00:15:43.447  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-27 00:15:43.575  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:43.575  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:43.575  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 45.413803, raw_cct 3656.448975, r/g/b/c: 5081.346191/3351.322021/1437.988281/9023.378906, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 45.413803, cct: 3656.448975, ts 1072056134463343, cnt 39025
+03-27 00:15:43.697  1770  1770 D ChargerInfo: getInfo: type: 0x1, update: 1
+03-27 00:15:43.698  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update start
+03-27 00:15:43.702  1770  1845 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-27 00:15:43.706  1770  1845 D ChargerInfo: get_ui_charge_icon_type: 0 0 0 0
+03-27 00:15:43.707  1770  1845 D ChargerInfo: cpaPower:2500 isChargeOnline:1 isSupportRetentionTopic:0
+03-27 00:15:43.707  1770  1845 E ChargerInfo: SingleHyperPath not found
+03-27 00:15:43.707  1770  1845 D ChargerInfo: CarC: path(/sys/class/oplus_chg/battery/gauge_car_c): not exist
+03-27 00:15:43.707  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update end
+03-27 00:15:43.707  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update wait
+03-27 00:15:43.708  1770  1770 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-27 00:15:43.708  1770  1770 D ChargerInfo: getInfo: {"Update":{"batteryFcc":4496,"batteryRm":2628,"bddLeakCurr":0,"bmsStatus":0,"bypassChgStatus":0,"chargeTimeRemaining":0,"cpaPower":2,"enableTx":true,"fastCharge":0,"isSupportSpeedCharge":0,"notifyCode":0,"otgOnline":1,"ppsChargePower":0,"ppsCharging":0,"shortCHwStatus":0,"shortIcOtpStatus":0,"uiIconType":0,"uiPower":0,"usbStatus":0,"wlsAdapterPower":0}}
+03-27 00:15:43.724  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:43.724  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 44.337593, raw_cct 3580.210938, r/g/b/c: 5056.218262/3288.427979/1403.653198/8923.099609, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 44.337593, cct: 3580.210938, ts 1072056284463864, cnt 39026
+03-27 00:15:43.731  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:43.735  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:43.735  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:43.735  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:43.748  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:43.871  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:43.872  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:43.872  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:43.872  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:43.872  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:43.872  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:43.872  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 191
+03-27 00:15:43.873  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -15, -44, -41, -49, 9, 18, 8, 8, -52, -46, -41, -49, 9, 72, 1, 26, 8, 8, -20, -45, -41, -49, 9, 64, 81, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -31, -46, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 12, 64, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -94, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -83, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -122, -57, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:43.874  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:43.874  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:43.874  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.383957, raw_cct 3695.028809, r/g/b/c: 4956.219727/3306.843262/1448.517700/8964.885742, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.383957, cct: 3695.028809, ts 1072056434451104, cnt 39027
+03-27 00:15:43.875  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=12, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=0, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=81, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:43.876  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:43.876  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:43.876  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:44.024  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.024  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.649940, raw_cct 3719.672607, r/g/b/c: 5072.565918/3324.604492/1484.435425/8964.791992, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.649940, cct: 3719.672607, ts 1072056584435375, cnt 39028
+03-27 00:15:44.125  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onDataActivity
+03-27 00:15:44.125  4945  4945 D DataService[0]: onDataActivity direction:0
+03-27 00:15:44.127  4951  6677 I OplusBluetoothSarManager: sar backoff not supported
+03-27 00:15:44.129  4545  4723 I SystemUi--Statusbar: MobileConnectionRepositoryImpl-->subId:3 isSoftSimCard:false slotId:0
+03-27 00:15:44.130  4545  4545 D Tile.OplusCellularTile: refreshState: tile not listening, ignore
+03-27 00:15:44.173  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.173  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 42.266762, raw_cct 3660.409180, r/g/b/c: 5072.425781/3297.585205/1484.285034/8922.770508, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 42.266762, cct: 3660.409180, ts 1072056734399593, cnt 39029
+03-27 00:15:44.175  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 3842.0073 nearestMaxValue:3719.6726 secondNearestValue: 3718.25
+03-27 00:15:44.175  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 45.06202 nearestMaxValue:43.64994 secondNearestValue: 42.26676
+03-27 00:15:44.176  3133  6496 I AICCTModule: AICurveModel: StablePoints mDragSrcPoints:(2500.0,4981.6274),(3000.0007,4984.305),(3750.0,5011.0737),(3999.9998,5071.018),(4250.001,5138.9106),(4500.0,5189.6353),(4750.0,5253.6626),(5000.0,5422.609),(5250.0015,5536.8276),(5500.0005,5706.224),(5749.9995,5774.0376),(6000.0005,5948.0728),(6499.9995,5960.9907),(6750.0005,6114.5205),(6999.9995,6349.4097),(7249.999,6478.6484),(7500.0,6567.2837),(7750.0005,6682.2983),(8250.001,6703.9707),(9000.0,6919.854),(9500.0,6922.206),(10000.0,6922.206),mDragPoint:4184.687, 3982.0
+03-27 00:15:44.176  3133  6496 I AICCTModule: AICurveModel: StablePoints y1Left:4733.066, y2Left:0.0, leftY:4733.066
+03-27 00:15:44.177  3133  6496 I AICCTModule: AICurveModel: getNextPoint isLargeChange, 3718.25, 5300.0
+03-27 00:15:44.177  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  originY : 5300.0, dragY : 3982.0
+03-27 00:15:44.177  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  resultY : 4733.066
+03-27 00:15:44.178  3133  6496 I AICCTModule: AICurveModel: handleUpdateCCT cct change from:(3842.006836,4733.065918)->(3718.250000,4733.065918),curPoint(3718.250000,5300.000000),stablePoint=LeftLarge(2500.0,4960.0)-RightLarge(2500.0,4960.0),LeftSmall(2500.0,4960.0)-RightSmall(2500.0,4960.0),TLSmall(2500.0,4960.0)-TRSmall(2500.0,4960.0)
+03-27 00:15:44.178  3133  6496 I AICCTModule: AICurveModel: onTargetCCTChange cct change to 4733.066
+03-27 00:15:44.193  8596  8596 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:44.194  8596  8596 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.194  8596  8596 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:44.202  8596  8596 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:44.205  8596  8596 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.205  8596  8596 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.205  8596  8596 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:44.205  8596  8596 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:44.207  8596  8596 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:44.207  8596  8596 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:44.207  8596  8596 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:44.207  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:44.213  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:44.315 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:44.315 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:44.316 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:44.316 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:44.324  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.324  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 45.229439, raw_cct 3591.085938, r/g/b/c: 5022.543457/3216.930908/1380.495605/8931.194336, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 45.229439, cct: 3591.085938, ts 1072056884360375, cnt 39030
+03-27 00:15:44.324  1659 20284 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:44.474  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.474  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.270660, raw_cct 3785.899170, r/g/b/c: 4980.880859/3207.823975/1438.088623/8914.112305, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.270660, cct: 3785.899170, ts 1072057034306520, cnt 39031
+03-27 00:15:44.500  1829  2913 D VRR [OTI]: handleIdle from 1 to 0
+03-27 00:15:44.500  1829  2913 D VRR [OTI-HW]: isStateReady 0
+03-27 00:15:44.500  1829  2913 D VRR [OTI-HW]: keep rate.
+03-27 00:15:44.500  3133  4129 D GestureLog_OplusMultiPointerDetector: onTouchEvent------>start, mCurNumPointers=1, mCurrStatus=0 mIsDownIntervalTimeout=true, action=0 downTime=671999836 deviceId=-1
+--------- beginning of system
+03-27 00:15:44.500  3133  3291 D PowerManagerService: userActivityNoUpdateLocked: groupId=0, eventTime=671999836, event=touch, flags=0x0, uid=1000
+03-27 00:15:44.501  3133  4408 I [UAH_CLIENT]: UahEventAcquire, cmdid:37, pkg:none, identity:OplusUAwareInputHelper
+03-27 00:15:44.502  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 0 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-27 00:15:44.502  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:0
+03-27 00:15:44.503  3133  4408 D UAH-UahAdaptHelper: adaptSetNotification identity = OplusUAwareInputHelpersrc = 1000 , type 1 ,p1 = -1 ,p2 = -1 ,p3 = -1 ,p4 =
+03-27 00:15:44.503  3133  4408 I [UAH_CLIENT]: uahRuleCtl, ruleId:1000, status:1
+03-27 00:15:44.504  2912  2912 D OplusViewDragTouchViewHelper: dispatchTouchView action = 1
+03-27 00:15:44.504  2912  2912 D ViewRootImplExtImpl: the up motion event handled by client, just return
+03-27 00:15:44.506  3133  3881 D OplusPanoramaWorkBranchController: notifyMotionUpOrCancel
+03-27 00:15:44.510  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-27 00:15:44.510  2912  4475 I ReactNativeJS: '[OrderWebState]', '{"slot":"secondary","payload":{"name":"ui.debug-bootstrap-touch","eventName":"pointerdown","x":209,"y":729,"target":{"tag":"BUTTON","id":"","className":"bts app-nav-button"}}}'
+03-27 00:15:44.513  2912  4475 I ReactNativeJS: '[OrderWebState]', '{"slot":"secondary","payload":{"name":"ui.debug-bootstrap-touch","eventName":"touchstart","x":209,"y":729,"target":{"tag":"BUTTON","id":"","className":"bts app-nav-button"}}}'
+03-27 00:15:44.571  2912  4475 I ReactNativeJS: '[OrderWebState]', '{"slot":"secondary","payload":{"name":"ui.debug-bootstrap-touch","eventName":"click","x":209,"y":734,"target":{"tag":"BUTTON","id":"","className":"bts app-nav-button"}}}'
+03-27 00:15:44.590  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"transition-start","fromSlot":"secondary","toSlot":"primary","fromPage":"settings","toPage":"todo","targetUri":"file:///android_asset/controler-web/todo.html","source":"bridge","reusedCachedSlot":false}'
+03-27 00:15:44.598  2912  4475 I ReactNativeJS: '[OrderShellState]', '{"activeSlot":"secondary","isPageReady":true,"transition":{"fromSlot":"secondary","toSlot":"primary","status":"loading"},"interactiveState":[{"slot":"primary","uri":"todo","interactive":false},{"slot":"secondary","uri":"settings","interactive":true},{"slot":"tertiary","uri":"","interactive":false}]}'
+03-27 00:15:44.603  2912  2912 D ViewRootImplExtImpl: wrapConfigInfoIntoFlags rotation=0, smallestScreenWidthDp=354, residentWS=false, scenario=0, bounds=Rect(0, 0 - 1240, 2772), relayoutAsync=true, flags=0, newFlags=1453337664, title=com.controler.timetracker/com.controlerapp.MainActivity
+03-27 00:15:44.603  2912  2912 D VRI[MainActivity]: relayoutWindow result, sizeChanged:false, surfaceControlChanged:false, transformHintChanged:false, mSurfaceSize:Point(1240, 2772), mLastSurfaceSize:Point(1240, 2772), mWidth:1240, mHeight:2772, requestedWidth:1240, requestedHeight:2772, transformHint:0, installOrientation:0, displayRotation:0, isSurfaceValid:true, attr.flag:-2122251008, tmpFrames:ClientWindowFrames{frame=[0,0][1240,2772] display=[0,0][1240,2772] parentFrame=[0,0][1240,2772]}, relayoutAsync:true, mSyncSeqId:0
+03-27 00:15:44.603  2912  2912 W VRI[MainActivity]: updateBlastSurfaceIfNeeded, surfaceSize:Point(1240, 2772), lastSurfaceSize:Point(1240, 2772), format:-1, blastBufferQueue:android.graphics.BLASTBufferQueue@8998e8f
+03-27 00:15:44.604  2912  2912 I SurfaceControl:  setExtendedRangeBrightness sc=Surface(name=com.controler.timetracker/com.controlerapp.MainActivity)/@0xacef53e,currentBufferRatio=1.0,desiredRatio=1.0
+03-27 00:15:44.605  2912  4475 I ReactNativeJS: '[OrderShellState]', '{"activeSlot":"secondary","isPageReady":true,"transition":{"fromSlot":"secondary","toSlot":"primary","status":"loading"},"interactiveState":[{"slot":"primary","uri":"todo","interactive":false},{"slot":"secondary","uri":"settings","interactive":true},{"slot":"tertiary","uri":"","interactive":false}]}'
+03-27 00:15:44.605  3133  7784 V WindowManager: Relayout Window{a378061 u0 com.controler.timetracker/com.controlerapp.MainActivity}: viewVisibility=0, oldvis=0, req=1240x2772 , apr = 0, vsysui=, x=0, y=0
+03-27 00:15:44.616  3133  3251 D CoreBackPreview:  return markWindowHasDrawn mComposed: false  mWaitTransition: false
+03-27 00:15:44.616  3133  3251 D ActivityTaskManager: Clearing startingData for activity=ActivityRecord{127891712 u0 com.android.launcher/.Launcher t5} mStartingData=null mStartingSurface=null
+03-27 00:15:44.623  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.623  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.164955, raw_cct 3901.203613, r/g/b/c: 4922.917480/3161.918701/1466.176025/8948.040039, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.164955, cct: 3901.203613, ts 1072057184268187, cnt 39032
+03-27 00:15:44.664  3133  3250 I AccessibilityWindowsPopulator: getInsensibleFlag flag = 0
+03-27 00:15:44.686  2912  2912 D ViewRootImplExtImpl: wrapConfigInfoIntoFlags rotation=0, smallestScreenWidthDp=354, residentWS=false, scenario=0, bounds=Rect(0, 0 - 1240, 2772), relayoutAsync=true, flags=0, newFlags=1453337664, title=com.controler.timetracker/com.controlerapp.MainActivity
+03-27 00:15:44.687  2912  2912 D VRI[MainActivity]: relayoutWindow result, sizeChanged:false, surfaceControlChanged:false, transformHintChanged:false, mSurfaceSize:Point(1240, 2772), mLastSurfaceSize:Point(1240, 2772), mWidth:1240, mHeight:2772, requestedWidth:1240, requestedHeight:2772, transformHint:0, installOrientation:0, displayRotation:0, isSurfaceValid:true, attr.flag:-2122251008, tmpFrames:ClientWindowFrames{frame=[0,0][1240,2772] display=[0,0][1240,2772] parentFrame=[0,0][1240,2772]}, relayoutAsync:true, mSyncSeqId:0
+03-27 00:15:44.687  2912  2912 W VRI[MainActivity]: updateBlastSurfaceIfNeeded, surfaceSize:Point(1240, 2772), lastSurfaceSize:Point(1240, 2772), format:-1, blastBufferQueue:android.graphics.BLASTBufferQueue@8998e8f
+03-27 00:15:44.688  2912  2912 I SurfaceControl:  setExtendedRangeBrightness sc=Surface(name=com.controler.timetracker/com.controlerapp.MainActivity)/@0xacef53e,currentBufferRatio=1.0,desiredRatio=1.0
+03-27 00:15:44.688  3133  7784 V WindowManager: Relayout Window{a378061 u0 com.controler.timetracker/com.controlerapp.MainActivity}: viewVisibility=0, oldvis=0, req=1240x2772 , apr = 0, vsysui=, x=0, y=0
+03-27 00:15:44.699  3133  3251 D CoreBackPreview:  return markWindowHasDrawn mComposed: false  mWaitTransition: false
+03-27 00:15:44.700  3133  3251 D ActivityTaskManager: Clearing startingData for activity=ActivityRecord{127891712 u0 com.android.launcher/.Launcher t5} mStartingData=null mStartingSurface=null
+03-27 00:15:44.747  3133  3250 I AccessibilityWindowsPopulator: getInsensibleFlag flag = 0
+03-27 00:15:44.747  8623  8623 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:44.748  8623  8623 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.748  8623  8623 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:44.751  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:44.754  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:44.755  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:44.755  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:44.755  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:44.762  8623  8623 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:44.767  8623  8623 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.767  8623  8623 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:44.767  8623  8623 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:44.767  8623  8623 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:44.769  8623  8623 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:44.770  8623  8623 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:44.770  8623  8623 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:44.770  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:44.773  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.773  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:44.773  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.242943, raw_cct 3881.349609, r/g/b/c: 4953.325684/3224.981201/1483.482788/8928.041992, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.242943, cct: 3881.349609, ts 1072057334261000, cnt 39033
+03-27 00:15:44.774  1659 20284 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (39033)(cct, lux, ir_ratio, r, g, b, c)[3881, 46, 41, 4953, 3224, 1483, 8928]
+03-27 00:15:44.871  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:44.871  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:44.871  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:44.871  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:44.871  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:44.871  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:44.871  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 189
+03-27 00:15:44.872  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -39, -36, -41, -49, 9, 18, 8, 8, -76, -38, -41, -49, 9, 72, 1, 26, 6, 8, -87, -37, -41, -49, 9, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -76, -38, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 11, 64, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -81, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -82, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -122, -57, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:44.872  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:44.872  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=11, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=0, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=0, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:44.873  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:44.873  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:44.873  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:44.923  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:44.923  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 45.626099, raw_cct 3943.621582, r/g/b/c: 4948.750977/3152.216064/1509.869507/8813.177734, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 45.626099, cct: 3943.621582, ts 1072057484211989, cnt 39034
+03-27 00:15:45.019  3133  4982 I OplusHansManager : FastFreeze enter, freeze uids: [10443]
+03-27 00:15:45.019  3133  4982 I OplusHansManager : enter FastFreezer, frontApp: 10500, frozen uids: [10443], important uids: {10392=bt, 10460=input}, reason: skip-frame
+03-27 00:15:45.019  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"secondary","stage":"hidden-page-paused","page":"settings","href":"file:///android_asset/controler-web/settings.html","elapsedMs":157862,"allowRepeat":true,"reason":"slot-state-change","active":false}'
+03-27 00:15:45.023  2912  2912 D ViewRootImplExtImpl: wrapConfigInfoIntoFlags rotation=0, smallestScreenWidthDp=354, residentWS=false, scenario=0, bounds=Rect(0, 0 - 1240, 2772), relayoutAsync=true, flags=0, newFlags=1453337664, title=com.controler.timetracker/com.controlerapp.MainActivity
+03-27 00:15:45.023  2912  2912 D VRI[MainActivity]: relayoutWindow result, sizeChanged:false, surfaceControlChanged:false, transformHintChanged:false, mSurfaceSize:Point(1240, 2772), mLastSurfaceSize:Point(1240, 2772), mWidth:1240, mHeight:2772, requestedWidth:1240, requestedHeight:2772, transformHint:0, installOrientation:0, displayRotation:0, isSurfaceValid:true, attr.flag:-2122251008, tmpFrames:ClientWindowFrames{frame=[0,0][1240,2772] display=[0,0][1240,2772] parentFrame=[0,0][1240,2772]}, relayoutAsync:true, mSyncSeqId:0
+03-27 00:15:45.023  2912  2912 W VRI[MainActivity]: updateBlastSurfaceIfNeeded, surfaceSize:Point(1240, 2772), lastSurfaceSize:Point(1240, 2772), format:-1, blastBufferQueue:android.graphics.BLASTBufferQueue@8998e8f
+03-27 00:15:45.024  3133  7784 V WindowManager: Relayout Window{a378061 u0 com.controler.timetracker/com.controlerapp.MainActivity}: viewVisibility=0, oldvis=0, req=1240x2772 , apr = 0, vsysui=, x=0, y=0
+03-27 00:15:45.024  2912  2912 I SurfaceControl:  setExtendedRangeBrightness sc=Surface(name=com.controler.timetracker/com.controlerapp.MainActivity)/@0xacef53e,currentBufferRatio=1.0,desiredRatio=1.0
+03-27 00:15:45.033  3133  3251 D CoreBackPreview:  return markWindowHasDrawn mComposed: false  mWaitTransition: false
+03-27 00:15:45.033  3133  3251 D ActivityTaskManager: Clearing startingData for activity=ActivityRecord{127891712 u0 com.android.launcher/.Launcher t5} mStartingData=null mStartingSurface=null
+03-27 00:15:45.073  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.073  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 41.899986, raw_cct 3830.695801, r/g/b/c: 4944.643066/3159.975586/1500.488892/8740.430664, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 41.899986, cct: 3830.695801, ts 1072057634173083, cnt 39035
+03-27 00:15:45.073  1659 20284 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:45.082  3133  3250 I AccessibilityWindowsPopulator: getInsensibleFlag flag = 0
+03-27 00:15:45.119  3133  3731 D osense.compress: com.coloros.digitalwellbeing do shrink, target ratio = 89, final ratio = 90, cur ratio = 84
+03-27 00:15:45.181  8642  8642 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:45.182  8642  8642 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.182  8642  8642 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:45.196  8642  8642 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:45.200  8642  8642 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.201  8642  8642 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.201  8642  8642 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:45.201  8642  8642 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:45.202  8642  8642 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:45.203  8642  8642 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:45.203  8642  8642 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:45.203  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:45.206  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:45.222  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.223  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 38.856773, raw_cct 3721.720703, r/g/b/c: 4969.257324/3222.416504/1500.338379/8680.808594, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 38.856773, cct: 3721.720703, ts 1072057784068916, cnt 39036
+03-27 00:15:45.304  3133  3861 D ActivityManager: reportOneUidFrozenStateChanged uid 10051 frozen = false
+03-27 00:15:45.305  3133  5483 D ActivityManager: sync unfroze 4367 com.android.externalstorage for 7
+03-27 00:15:45.311  4544  6440 V OsAgent : broadcastSystemEvent - 7
+03-27 00:15:45.315  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"html-parsed","page":"todo","href":"file:///android_asset/controler-web/todo.html","elapsedMs":2}'
+03-27 00:15:45.316 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:45.316 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:45.316 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:45.316 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:45.318  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.319  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.319  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.330  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.330  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.339  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.339  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.347  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.348  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.355  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.356  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.364  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.364  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.372  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.373  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.373  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.373  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 37.655952, raw_cct 3680.525879, r/g/b/c: 4944.035645/3240.378906/1500.388550/8630.599609, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 37.655952, cct: 3680.525879, ts 1072057934007666, cnt 39037
+03-27 00:15:45.380  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.380  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.388  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.388  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.397  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.397  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.405  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.405  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.414  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.414  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.422  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.422  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.430  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.430  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.439  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.439  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.443  3133  3867 W OPLUS_LOG_LOAD: ==LOGS PROG INFO, prog(system_server) ==
+03-27 00:15:45.443  3133  3867 V AlarmManager: sending alarm Alarm{9e6317c type 1 origWhen 1774541745443 whenElapsed 1072058013 android} uid 1000 whenElapsed 1072058013 windowLength 0 maxWhenElapsed 1072058013 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-27 00:15:45.444  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-27 00:15:45.446  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 0.50 MB/s, Write: 0.00 MB/s
+03-27 00:15:45.446  3133  1893 E OplusStorageUFSBandwidth: Task time: 2ms
+03-27 00:15:45.447  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.447  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.451  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-27 00:15:45.455  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.455  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.463  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.464  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.472  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.472  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.474  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099383
+03-27 00:15:45.475  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.475  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.478  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/bundle-manifest.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.480  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.481  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.488  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.488  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.496  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.497  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.505  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.505  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.513  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.514  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.522  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.522  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.522  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.522  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 39.655823, raw_cct 3703.794434, r/g/b/c: 4844.270996/3312.378906/1473.801392/8706.172852, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 39.655823, cct: 3703.794434, ts 1072058083919541, cnt 39038
+03-27 00:15:45.529  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"first-data-ready","page":"todo","href":"file:///android_asset/controler-web/todo.html","elapsedMs":223,"todoCount":3,"checkinItemCount":1,"dailyCheckinCount":6,"recentCheckinCount":0}'
+03-27 00:15:45.530  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.530  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.531  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"todo-snapshot-data-ready","page":"todo","href":"file:///android_asset/controler-web/todo.html","elapsedMs":223,"todoCount":3,"checkinItemCount":1,"dailyCheckinCount":6,"recentCheckinCount":0}'
+03-27 00:15:45.537  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"page-ready-emitted","page":"todo","href":"file:///android_asset/controler-web/todo.html","elapsedMs":231}'
+03-27 00:15:45.538  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"page-ready","slot":"primary","page":"todo","href":"file:///android_asset/controler-web/todo.html"}'
+03-27 00:15:45.538  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.539  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.542  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.542  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.545  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"first-render-done","page":"todo","href":"file:///android_asset/controler-web/todo.html","elapsedMs":239}'
+03-27 00:15:45.546  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.549  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.556  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.556  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.558  7118  7163 E chromium: [ERROR:cc/tiles/tile_manager.cc:998] WARNING: tile memory limits exceeded, some content may not draw
+03-27 00:15:45.578  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099384
+03-27 00:15:45.578  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.579  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.580  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/core.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.590  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099385
+03-27 00:15:45.591  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.591  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.592  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/plans-recurring.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.621  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"transition-complete","fromSlot":"secondary","toSlot":"primary","page":"todo","reusedCachedSlot":false}'
+03-27 00:15:45.634  2912  4475 I ReactNativeJS: '[OrderShellState]', '{"activeSlot":"primary","isPageReady":true,"transition":null,"interactiveState":[{"slot":"primary","uri":"todo","interactive":true},{"slot":"secondary","uri":"settings","interactive":false},{"slot":"tertiary","uri":"","interactive":false}]}'
+03-27 00:15:45.644  2912  4475 I ReactNativeJS: '[OrderShellState]', '{"activeSlot":"primary","isPageReady":true,"transition":null,"interactiveState":[{"slot":"primary","uri":"todo","interactive":true},{"slot":"secondary","uri":"settings","interactive":false},{"slot":"tertiary","uri":"","interactive":false}]}'
+03-27 00:15:45.648  2912  2912 D ViewRootImplExtImpl: wrapConfigInfoIntoFlags rotation=0, smallestScreenWidthDp=354, residentWS=false, scenario=0, bounds=Rect(0, 0 - 1240, 2772), relayoutAsync=true, flags=0, newFlags=1453337664, title=com.controler.timetracker/com.controlerapp.MainActivity
+03-27 00:15:45.648  2912  2912 D VRI[MainActivity]: relayoutWindow result, sizeChanged:false, surfaceControlChanged:false, transformHintChanged:false, mSurfaceSize:Point(1240, 2772), mLastSurfaceSize:Point(1240, 2772), mWidth:1240, mHeight:2772, requestedWidth:1240, requestedHeight:2772, transformHint:0, installOrientation:0, displayRotation:0, isSurfaceValid:true, attr.flag:-2122251008, tmpFrames:ClientWindowFrames{frame=[0,0][1240,2772] display=[0,0][1240,2772] parentFrame=[0,0][1240,2772]}, relayoutAsync:true, mSyncSeqId:0
+03-27 00:15:45.648  2912  2912 W VRI[MainActivity]: updateBlastSurfaceIfNeeded, surfaceSize:Point(1240, 2772), lastSurfaceSize:Point(1240, 2772), format:-1, blastBufferQueue:android.graphics.BLASTBufferQueue@8998e8f
+03-27 00:15:45.649  2912  2912 I SurfaceControl:  setExtendedRangeBrightness sc=Surface(name=com.controler.timetracker/com.controlerapp.MainActivity)/@0xacef53e,currentBufferRatio=1.0,desiredRatio=1.0
+03-27 00:15:45.649  3133  5483 V WindowManager: Relayout Window{a378061 u0 com.controler.timetracker/com.controlerapp.MainActivity}: viewVisibility=0, oldvis=0, req=1240x2772 , apr = 0, vsysui=, x=0, y=0
+03-27 00:15:45.656  8649  8649 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:45.656  8649  8649 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.656  8649  8649 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:45.657  3133  3251 D CoreBackPreview:  return markWindowHasDrawn mComposed: false  mWaitTransition: false
+03-27 00:15:45.657  3133  3251 D ActivityTaskManager: Clearing startingData for activity=ActivityRecord{127891712 u0 com.android.launcher/.Launcher t5} mStartingData=null mStartingSurface=null
+03-27 00:15:45.672  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.672  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.970329, raw_cct 3879.488037, r/g/b/c: 4777.620605/3321.284668/1464.972290/8798.311523, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.970329, cct: 3879.488037, ts 1072058233873864, cnt 39039
+03-27 00:15:45.673  8649  8649 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:45.676  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099383
+03-27 00:15:45.677  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.677  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.678  8649  8649 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.678  8649  8649 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:45.679  8649  8649 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:45.679  8649  8649 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:45.679  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/bundle-manifest.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.681  8649  8649 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:45.681  8649  8649 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:45.681  8649  8649 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:45.681  1829  2255 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:45.684  1829  2255 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:45.704  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099384
+03-27 00:15:45.706  3133  3250 I AccessibilityWindowsPopulator: getInsensibleFlag flag = 0
+03-27 00:15:45.707  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.711  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.716  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/core.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.718  1829  2924 D skia    : findCacheMissInfo vsync 356894657, result 0
+03-27 00:15:45.749  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099391
+03-27 00:15:45.750  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.750  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.752  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-07.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.754  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:45.779  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:45.782  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:45.782  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:45.782  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:45.810  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099392
+03-27 00:15:45.811  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.811  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.813  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-08.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.833  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.833  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:45.833  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.767563, raw_cct 3931.096436, r/g/b/c: 4785.525879/3274.085693/1424.152954/8939.046875, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.767563, cct: 3931.096436, ts 1072058383861677, cnt 39040
+03-27 00:15:45.866  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099393
+03-27 00:15:45.866  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.866  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.868  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-09.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.870  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:45.870  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:45.870  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:45.870  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:45.870  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:45.871  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:45.871  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 191
+03-27 00:15:45.872  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -63, -28, -41, -49, 9, 18, 8, 8, -76, -28, -41, -49, 9, 72, 1, 26, 8, 8, -79, -28, -41, -49, 9, 64, 70, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -76, -28, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 13, 64, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -83, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -2, -34, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:45.872  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:45.872  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=13, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=0, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=70, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:45.872  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:45.872  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:45.872  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:45.911  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099394
+03-27 00:15:45.912  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.913  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.915  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-10.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:45.972  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:45.972  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 54.819824, raw_cct 3928.281738, r/g/b/c: 4865.451172/3188.401123/1355.075317/9042.606445, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 54.819824, cct: 3928.281738, ts 1072058533843604, cnt 39041
+03-27 00:15:45.983  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099395
+03-27 00:15:45.984  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:45.984  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:45.986  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-11.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.039  1020  1020 E lowmemorykiller: device memory 529219 free 10545 file 522702
+03-27 00:15:46.040  3133  4403 I Osense-PsiDetector: 2065,40,1061,6656,85,510,1317,2832,2325,726,1314,0,12,11626
+03-27 00:15:46.041  3133  4397 I Osense-BaseDecisionMaker: notifySceneToAthenaPolicy: SCENE_RES_MEM_PSI_NORMAL, bundle: Bundle[{memLevel=3}]
+03-27 00:15:46.047 18608 22674 I metis_v2_OsenseCallBack: memLevel: 3 [base|com.oplus.metis|2.0.20-aa39d14]
+03-27 00:15:46.049  1020  1020 E lowmemorykiller: device memory 526460 free 8781 file 522489
+03-27 00:15:46.062  1020  1020 E lowmemorykiller: device memory 528897 free 12290 file 521851
+03-27 00:15:46.067  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099396
+03-27 00:15:46.068  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.068  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.070  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-12.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.075  1020  1020 E lowmemorykiller: device memory 548614 free 39759 file 514188
+03-27 00:15:46.086  1020  1020 E lowmemorykiller: device memory 559553 free 53487 file 511277
+03-27 00:15:46.086  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"secondary","stage":"hidden-page-paused","page":"settings","href":"file:///android_asset/controler-web/settings.html","elapsedMs":158867,"allowRepeat":true,"reason":"page-ready","active":false}'
+03-27 00:15:46.088  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"secondary","stage":"hidden-page-paused","page":"settings","href":"file:///android_asset/controler-web/settings.html","elapsedMs":158869,"allowRepeat":true,"reason":"load-end","active":false}'
+03-27 00:15:46.088  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"native-bridge-call","bridgeMethod":"storage.getCoreState","page":"todo","durationMs":520,"ok":true,"error":""}'
+03-27 00:15:46.098  1020  1020 E lowmemorykiller: device memory 562241 free 60710 file 505737
+03-27 00:15:46.111  1020  1020 E lowmemorykiller: device memory 561506 free 61637 file 504125
+03-27 00:15:46.117  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099398
+03-27 00:15:46.118  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.118  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.121  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-01.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.122  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.122  1020  1020 E lowmemorykiller: device memory 561794 free 62449 file 503827
+03-27 00:15:46.122  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 53.497643, raw_cct 3838.726074, r/g/b/c: 4871.406738/3115.190918/1366.296997/8979.236328, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 53.497643, cct: 3838.726074, ts 1072058683828864, cnt 39042
+03-27 00:15:46.135  1020  1020 E lowmemorykiller: device memory 561965 free 63231 file 503642
+03-27 00:15:46.146  1020  1020 E lowmemorykiller: device memory 562794 free 63589 file 503534
+03-27 00:15:46.159  1020  1020 E lowmemorykiller: device memory 563996 free 63909 file 503471
+03-27 00:15:46.164  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099399
+03-27 00:15:46.165  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.165  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.167  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-02.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.171  1020  1020 E lowmemorykiller: device memory 561533 free 62221 file 503301
+03-27 00:15:46.174  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 15MB AllocSpace bytes, 143(30MB) LOS objects, 49% free,49MB(M:33MB,L:16MB)/99MB, paused 1.235ms,1.100ms total 138.564ms
+03-27 00:15:46.182  1020  1020 E lowmemorykiller: device memory 554624 free 56754 file 503237
+03-27 00:15:46.202  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099400
+03-27 00:15:46.202  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.202  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.204  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.224  3133  4982 I OplusHansManager : FastFreeze exit, unfreeze uids: [10443]
+03-27 00:15:46.224  3133  4982 I OplusHansManager : exit FastFreezer, unfreeze uids: [10443] thaw: [], reason: exitFF
+03-27 00:15:46.224  3133  4982 I OplusHansManager : notify state machine event=FF_EXIT to uids=[10392, 10460]
+03-27 00:15:46.246 18608 22674 I metis_v2_OsenseCallBack: memLevel: 1 [base|com.oplus.metis|2.0.20-aa39d14]
+03-27 00:15:46.258  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099401
+03-27 00:15:46.259  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.259  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.262  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-04.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.265  8661  8661 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:46.266  8661  8661 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.266  8661  8661 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:46.272  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.272  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 48.245964, raw_cct 3779.469727, r/g/b/c: 4838.872070/3194.771973/1416.319092/8808.731445, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 48.245964, cct: 3779.469727, ts 1072058833780583, cnt 39043
+03-27 00:15:46.272  1659 20284 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (39043)(cct, lux, ir_ratio, r, g, b, c)[3779, 48, 36, 4838, 3194, 1416, 8808]
+03-27 00:15:46.279  1020  1020 E lowmemorykiller: device memory 546360 free 48412 file 503171
+03-27 00:15:46.282  8661  8661 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:46.287  8661  8661 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.287  8661  8661 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.287  8661  8661 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:46.287  8661  8661 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:46.289  8661  8661 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:46.290  8661  8661 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:46.290  8661  8661 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:46.290  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"secondary","stage":"hidden-page-paused","page":"settings","href":"file:///android_asset/controler-web/settings.html","elapsedMs":159034,"allowRepeat":true,"reason":"slot-state-change","active":false}'
+03-27 00:15:46.290  1829  2255 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:46.292  1020  1020 E lowmemorykiller: device memory 564648 free 66844 file 503171
+03-27 00:15:46.293  1829  2255 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:46.310  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099402
+03-27 00:15:46.311  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.312  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.316 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:46.317 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:46.317 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:46.317 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:46.320  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-05.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.358  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099403
+03-27 00:15:46.358  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.358  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.360  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-06.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.386  3133  4823 I OplusCpuLimitManager: OplusCpuHighLoad: newLoadLevel=1, newMngLevel=1, (nl_load=1, nl_thermal=1, nl_scene=1), curMngLevel=1, CL=0, curWinCL=0, curShortWinCL= 0, latestCL=62, latestThermalLevel=3, expHlScene=false
+03-27 00:15:46.391  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099404
+03-27 00:15:46.391  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.391  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.392  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-07.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.422  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.422  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.799477, raw_cct 4158.284180, r/g/b/c: 4657.142090/3079.442139/1496.919189/8722.543945, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.799477, cct: 4158.284180, ts 1072058983674854, cnt 39044
+03-27 00:15:46.424  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099405
+03-27 00:15:46.424  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.424  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.426  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-08.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.456  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099406
+03-27 00:15:46.456  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.456  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.458  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-09.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.488  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099407
+03-27 00:15:46.489  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.489  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.491  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-10.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.496  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 27MB AllocSpace bytes, 117(39MB) LOS objects, 50% free,60MB(M:39MB,L:20MB)/120MB, paused 314us,942us total 100.764ms
+03-27 00:15:46.520  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099408
+03-27 00:15:46.521  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.521  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.522  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-11.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.554  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099409
+03-27 00:15:46.554  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.555  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.556  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-12.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.572  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.572  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:46.572  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.399925, raw_cct 4120.179199, r/g/b/c: 4667.923340/3102.819824/1474.162842/8712.388672, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.399925, cct: 4120.179199, ts 1072059133624020, cnt 39045
+03-27 00:15:46.587  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099411
+03-27 00:15:46.587  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.587  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.588  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-01.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.603  1020  1020 E lowmemorykiller: device memory 568866 free 68334 file 506005
+03-27 00:15:46.613  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099412
+03-27 00:15:46.614  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.614  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.614  1020  1020 E lowmemorykiller: device memory 573270 free 74816 file 503494
+03-27 00:15:46.615  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-02.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.627  1020  1020 E lowmemorykiller: device memory 568799 free 70372 file 503470
+03-27 00:15:46.644  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099413
+03-27 00:15:46.645  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.645  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.646  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.675  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099388
+03-27 00:15:46.675  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.676  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.677  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/dailyCheckins/2026/2026-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.686  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099385
+03-27 00:15:46.686  1020  1020 E lowmemorykiller: device memory 569336 free 70698 file 503807
+03-27 00:15:46.687  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:46.687  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:46.688  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/plans-recurring.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:46.699  1020  1020 E lowmemorykiller: device memory 568981 free 72021 file 502129
+03-27 00:15:46.723  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.723  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 50.040497, raw_cct 3957.280518, r/g/b/c: 4700.171387/3182.806641/1370.555664/8744.315430, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 50.040497, cct: 3957.280518, ts 1072059283601520, cnt 39046
+03-27 00:15:46.758  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:46.795  8667  8667 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:46.795  8667  8667 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.796  8667  8667 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:46.802  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:46.803  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:46.803  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:46.803  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:46.808  8667  8667 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:46.813  8667  8667 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.813  8667  8667 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:46.813  8667  8667 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:46.813  8667  8667 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:46.815  8667  8667 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:46.815  8667  8667 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:46.815  8667  8667 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:46.816  1829  2255 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:46.818  1829  2255 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:46.872  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:46.872  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.536346, raw_cct 3828.058350, r/g/b/c: 4753.467773/3159.680176/1404.840698/8722.075195, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.536346, cct: 3828.058350, ts 1072059433586312, cnt 39047
+03-27 00:15:46.903  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 24MB AllocSpace bytes, 129(37MB) LOS objects, 43% free,124MB(M:71MB,L:52MB)/220MB, paused 8.163ms,1.257ms total 165.045ms
+03-27 00:15:46.938  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:46.938  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:46.938  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:46.938  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:46.938  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:46.939  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:46.939  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 194
+03-27 00:15:46.939  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -20, -20, -41, -49, 9, 18, 10, 8, -84, -22, -41, -49, 9, 40, 1, 72, 1, 26, 9, 8, -52, -21, -41, -49, 9, 64, -65, 1, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -84, -22, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 14, 64, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -83, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -19, -25, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:46.939  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:46.940  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=14, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=1, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=191, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:46.940  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:46.940  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:46.940  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:47.022  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.022  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 45.558311, raw_cct 3865.910645, r/g/b/c: 4731.906738/3147.916016/1428.048340/8593.146484, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 45.558311, cct: 3865.910645, ts 1072059583555166, cnt 39048
+03-27 00:15:47.052  3133  3265 D ProcessCpuTrackerExtImpl: mContext is already set, return now! 
+03-27 00:15:47.127  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->updateNetworkSpeed: isConnected:true,isSwitchOn:true,isSuspend:false,isPause:false
+03-27 00:15:47.130  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->getTotalByte: totalRxBytes:202467889670,totalTxBytes:57063947169,loopbackTxBytes:4258427804,loopbackRxBytes:4258427804 ,totalBytes:251014981231
+03-27 00:15:47.173  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.173  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.099541, raw_cct 3972.569824, r/g/b/c: 4753.420898/3078.989746/1428.299072/8744.691406, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.099541, cct: 3972.569824, ts 1072059733495062, cnt 39049
+03-27 00:15:47.176  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 3718.25 nearestMaxValue:3779.4697 secondNearestValue: 3828.0583
+03-27 00:15:47.176  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 42.26676 nearestMaxValue:45.55831 secondNearestValue: 47.09954
+03-27 00:15:47.176  3133  6496 I AICCTModule: AICurveModel: StablePoints mDragSrcPoints:(2500.0,4981.6274),(3000.0007,4984.305),(3750.0,5011.0737),(3999.9998,5071.018),(4250.001,5138.9106),(4500.0,5189.6353),(4750.0,5253.6626),(5000.0,5422.609),(5250.0015,5536.8276),(5500.0005,5706.224),(5749.9995,5774.0376),(6000.0005,5948.0728),(6499.9995,5960.9907),(6750.0005,6114.5205),(6999.9995,6349.4097),(7249.999,6478.6484),(7500.0,6567.2837),(7750.0005,6682.2983),(8250.001,6703.9707),(9000.0,6919.854),(9500.0,6922.206),(10000.0,6922.206),mDragPoint:4184.687, 3982.0
+03-27 00:15:47.176  3133  6496 I AICCTModule: AICurveModel: StablePoints y1Left:4733.066, y2Left:0.0, leftY:4733.066
+03-27 00:15:47.176  3133  6496 I AICCTModule: AICurveModel: getNextPoint isLargeChange, 3828.0586, 5300.0
+03-27 00:15:47.177  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  originY : 5300.0, dragY : 3982.0
+03-27 00:15:47.177  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  resultY : 4733.066
+03-27 00:15:47.177  3133  6496 I AICCTModule: AICurveModel: handleUpdateCCT cct change from:(3718.250000,4733.065918)->(3828.058594,4733.065918),curPoint(3828.058594,5300.000000),stablePoint=LeftLarge(2500.0,4960.0)-RightLarge(2500.0,4960.0),LeftSmall(2500.0,4960.0)-RightSmall(2500.0,4960.0),TLSmall(2500.0,4960.0)-TRSmall(2500.0,4960.0)
+03-27 00:15:47.177  3133  6496 I AICCTModule: AICurveModel: onTargetCCTChange cct change to 4733.066
+03-27 00:15:47.270  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099383
+03-27 00:15:47.271  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:47.271  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:47.272  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/bundle-manifest.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:47.317 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:47.318 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:47.318 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:47.318 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:47.322  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.322  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:47.322  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 52.570580, raw_cct 4040.881592, r/g/b/c: 4678.609863/3078.839111/1382.385132/8809.108398, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 52.570580, cct: 4040.881592, ts 1072059883432302, cnt 39050
+03-27 00:15:47.366  8681  8681 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:47.366  8681  8681 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.367  8681  8681 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:47.380  8681  8681 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:47.385  8681  8681 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.385  8681  8681 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.385  8681  8681 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:47.385  8681  8681 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:47.388  8681  8681 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:47.388  8681  8681 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:47.388  8681  8681 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:47.388  1829  2255 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:47.391  1829  2255 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:47.434  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 82MB AllocSpace bytes, 30(46MB) LOS objects, 37% free,158MB(M:101MB,L:57MB)/254MB, paused 243us,961us total 249.650ms
+03-27 00:15:47.446  3133  3867 V AlarmManager: sending alarm Alarm{5501ddc type 1 origWhen 1774541747446 whenElapsed 1072060016 android} uid 1000 whenElapsed 1072060016 windowLength 0 maxWhenElapsed 1072060016 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-27 00:15:47.447  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-27 00:15:47.448  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 1.00 MB/s, Write: 1.50 MB/s
+03-27 00:15:47.448  3133  1893 E OplusStorageUFSBandwidth: Task time: 1ms
+03-27 00:15:47.453  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-27 00:15:47.472  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.472  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 52.641830, raw_cct 3925.113770, r/g/b/c: 4753.280762/3090.301514/1348.050049/8776.758789, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 52.641830, cct: 3925.113770, ts 1072060033397458, cnt 39051
+03-27 00:15:47.473  3133  3297 D VRR [OPlusSAManager]: handleIrChange mIrOK: false
+03-27 00:15:47.473  3133  3297 D VRR [OPlusSAManager]: updateAutoMinfps for 4630946283567114626 with nits: 78.20503, mHistOK true, mAmbientOK true, mCctOK false, mIrOK false, mBrightnessOK true, isPkgOK true, SA min fps: 0
+03-27 00:15:47.622  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.622  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.655952, raw_cct 3761.626221, r/g/b/c: 4881.481445/3078.939453/1359.328003/8679.570312, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.655952, cct: 3761.626221, ts 1072060183319541, cnt 39052
+03-27 00:15:47.699  1714 26727 V Codec2-DumpInput: [processLoop:L668][c2.qti.hevc.decoder_434]QueueRead[0] empty, waiting buffer.
+03-27 00:15:47.699  1714 26875 V Codec2-DumpInput: [processLoop:L668][c2.qti.avc.decoder_435]QueueRead[0] empty, waiting buffer.
+03-27 00:15:47.700  1714 26818 I QC2Comp : [avcD_488] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-27 00:15:47.700  1714 26683 I QC2Comp : [hevcD_487] Stats: Pending(0) i/p-done(0) Works: Q: 0/Done 0|Work-Rate: Q(0.0/s Avg=0.0/s) Done(0.000/s Avg=0.000/s)| Stream: 30.00fps 0.0Kbps
+03-27 00:15:47.700  1714 26818 I QC2Comp : [avcD_488] Mem-usage:  | Total: 0.000 MB
+03-27 00:15:47.700  1714 26683 I QC2Comp : [hevcD_487] Mem-usage:  | Total: 0.000 MB
+03-27 00:15:47.725 25094 25105 W eytap.pictorial: Reducing the number of considered missed Gc histogram windows from 204 to 100
+03-27 00:15:47.760  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:47.772  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.773  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.801529, raw_cct 3622.371582, r/g/b/c: 4892.496094/3056.567383/1359.578613/8722.592773, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.801529, cct: 3622.371582, ts 1072060333248343, cnt 39053
+03-27 00:15:47.773  1659 20284 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (39053)(cct, lux, ir_ratio, r, g, b, c)[3622, 46, 33, 4892, 3056, 1359, 8722]
+03-27 00:15:47.826  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:47.827  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:47.827  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:47.828  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:47.905  8691  8691 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:47.906  8691  8691 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.906  8691  8691 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:47.915  8691  8691 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:47.919  8691  8691 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.919  8691  8691 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:47.919  8691  8691 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:47.919  8691  8691 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:47.921  8691  8691 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:47.921  8691  8691 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:47.921  8691  8691 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:47.921  1829  2255 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:47.921  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:47.922  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.093246, raw_cct 3643.512207, r/g/b/c: 4881.948242/3160.132812/1359.428223/8744.033203, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.093246, cct: 3643.512207, ts 1072060483200427, cnt 39054
+03-27 00:15:47.924  1829  2255 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:47.939  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:47.939  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:47.939  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:47.939  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:47.939  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:47.939  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:47.939  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 191
+03-27 00:15:47.940  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -43, -12, -41, -49, 9, 18, 8, 8, -83, -12, -41, -49, 9, 72, 1, 26, 8, 8, -7, -15, -41, -49, 9, 72, 1, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -84, -12, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -77, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 13, 64, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -80, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -84, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -84, -12, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:47.940  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:47.940  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-77, mRsrq=-10, mSnr=13, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=0, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=0, mDLPdcpNumMissToUppPdu=0, mDLBler=1, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:47.941  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:47.941  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:47.941  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:47.988  1659  9478 I sensors-hal: ssc_conn_event_cb:634, event[0] msg_id=1025, ts=20583684670252 sensor_type = pedometer_minute  Wakeup
+03-27 00:15:47.988  1659  9478 E sensors-hal: handle_sns_client_event:94, pedometer_minute: report_ts=17866,counter=40999.000000 move_status =[SNS_CMC_STATIONARY] time_gap = 0 run_counter=16879.000000 walk_counter=21875.000000
+03-27 00:15:47.992  4214  4214 I StepApp_StepDataPreHandler: (main)onSensorChanged raw data: step=40999.0 state=3.0 minuteDelta=0.0 timestamp=1072060554708083 steprun=16879.0 stepwalk=21875.0 formatted data: step=40999 state=3 timestamp=1072060554708083 time=1774541747985 steprun=16879 stepwalk=21875
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)getNewFixedOffsetStep type is STEP
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)isRebootCountStep:false	 lastRealTimeStamp = 1774541640000	 bootTimestamp = 1773469687430	 mLastModifiedMinuteTime = 2026-03-27-00-14
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)calOffSet:sensorStep = 40999	 lastModifiedStep = 40999	 offSet = 0
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)getNewFixedOffsetStep type is RUN
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)isRebootCountStep:false	 lastRealTimeStamp = 1774541640000	 bootTimestamp = 1773469687430	 mLastModifiedMinuteTime = 2026-03-27-00-14
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)calOffSet:sensorStep = 16879	 lastModifiedStep = 16879	 offSet = 0
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)getNewFixedOffsetStep type is WALK
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)isRebootCountStep:false	 lastRealTimeStamp = 1774541640000	 bootTimestamp = 1773469687430	 mLastModifiedMinuteTime = 2026-03-27-00-14
+03-27 00:15:47.993  4214 14215 I StepApp_StepDataSaver: (O_dfd_414)calOffSet:sensorStep = 21875	 lastModifiedStep = 21875	 offSet = 0
+03-27 00:15:48.003  1829  2913 D VRR [OTI]: handleIdle from 0 to 1
+03-27 00:15:48.003  1829  2913 D VRR [OTI-HW]: isStateReady 0
+03-27 00:15:48.003  1829  2913 D VRR [OTI-HW]: keep rate.
+03-27 00:15:48.072  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.072  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.311478, raw_cct 3831.523926, r/g/b/c: 4785.669922/3148.268066/1451.356201/8755.553711, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.311478, cct: 3831.523926, ts 1072060633163656, cnt 39055
+03-27 00:15:48.072  2912  4475 I ReactNativeJS: '[controler-perf]', '{"name":"perf.metric","slot":"primary","stage":"native-bridge-call","bridgeMethod":"storage.readState","page":"todo","durationMs":2414,"ok":true,"error":""}'
+03-27 00:15:48.073  1659 20284 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:48.222  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.222  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.201736, raw_cct 3885.656250, r/g/b/c: 4753.842285/3090.955078/1359.578369/8766.273438, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.201736, cct: 3885.656250, ts 1072060783112614, cnt 39056
+03-27 00:15:48.318 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:48.318 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:48.318 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:48.319 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:48.371  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.372  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 52.448723, raw_cct 3909.369629, r/g/b/c: 4786.184082/3033.742920/1348.099854/8830.313477, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 52.448723, cct: 3909.369629, ts 1072060933067302, cnt 39057
+03-27 00:15:48.405  8699  8699 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:48.406  8699  8699 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.406  8699  8699 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:48.418  8699  8699 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:48.423  8699  8699 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.423  8699  8699 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.423  8699  8699 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:48.423  8699  8699 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:48.425  8699  8699 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:48.425  8699  8699 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:48.425  8699  8699 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:48.426  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:48.429  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:48.526  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.526  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.859932, raw_cct 3675.691406, r/g/b/c: 4903.837891/3080.296875/1313.664185/8754.894531, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.859932, cct: 3675.691406, ts 1072061083019437, cnt 39058
+03-27 00:15:48.599  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:778] ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+03-27 00:15:48.599  1649  5736 D vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:372] SerialClockVote: vote for UART CLK ON
+03-27 00:15:48.599  1649  5736 D vendor.qti.bluetooth@1.0-wake_lock: [wake_lock.cpp:135] Acquire wakelock is acquired 
+03-27 00:15:48.599  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:795] ProcessIbsCmd: Writing IBS_WAKE_ACK
+03-27 00:15:48.601  4951  5391 I bluetooth: [btif_bqr.cc:1267] vendor_specific_event_callback: Unhandled BQR subevent 0x01
+03-27 00:15:48.601  4951  5391 D bluetooth: [btif_bqr.cc:752] CategorizeBqrEvent: length: 56 quality_report_id: 0x01
+03-27 00:15:48.602  4951  5391 I bluetooth: [btif_bqr.cc:1204] bqr_delivery_event: len: 56, bqr_id: 1, addr: xx:xx:xx:xx:80:4c, lmp_ver: 13, manufacturer_id: 2, lmp_subver: 12421
+03-27 00:15:48.602  4951  5391 I bluetooth: [btif_bqr.cc:1267] vendor_specific_event_callback: Unhandled BQR subevent 0x01
+03-27 00:15:48.602  4951  5391 D bluetooth: [btif_bqr.cc:752] CategorizeBqrEvent: length: 55 quality_report_id: 0x01
+03-27 00:15:48.602  4951  5755 I BluetoothInCallService: BluetoothInCallService = com.android.bluetooth.telephony.BluetoothInCallService@bad5ed6
+03-27 00:15:48.602  4951  5755 I BluetoothQualityReportJni: [com_android_bluetooth_BluetoothQualityReport.cpp:48] bqr_delivery_callback: 
+03-27 00:15:48.602  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=3 is not found
+03-27 00:15:48.602  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=3 is not found
+03-27 00:15:48.602  4951  5391 D btm_dev : [btm_dev.cc:301]  is_handle_equal: handle=3 is not found
+03-27 00:15:48.602  4951  5391 D btm_acl : [btm_acl.cc:376] btm_bda_to_acl: bda=xx:xx:xx:xx:b8:5d transport=1 not found in acl_db
+03-27 00:15:48.602  4951  5391 I bluetooth: [btif_bqr.cc:1204] bqr_delivery_event: len: 55, bqr_id: 1, addr: xx:xx:xx:xx:b8:5d, lmp_ver: 10, manufacturer_id: 2476, lmp_subver: 277
+03-27 00:15:48.602  4951  5755 I BluetoothQualityReportNativeInterface: rawData Length = 86
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface: BQR: {
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:   mAddr: XX:XX:XX:XX:80:4C, mLmpVer: 0x0D, mLmpSubVer: 0x3085, mManufacturerId: 0x0002, mName: DNWKONISC, mBluetoothClass: 2a010c,
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:   BqrCommon: {
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:     mQualityReportId: Quality monitor(0x01), mPacketType: TYPE_DM1(0x10), mConnectionHandle: 0x0002, mConnectionRole: 0(0), mTxPowerLevel: 8, mRssi: -39, mSnr: 0, mUnusedAfhChannelCount: 45,
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:     mAfhSelectUnidealChannelCount: 8, mLsto: 8000, mPiconetClock: 0x0C75ECB2, mRetransmissionCount: 0, mNoRxCount: 0, mNakCount: 0, mLastTxAckTimestamp: 0x0C75BD5D, mFlowOffCount: 0,
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:     mLastFlowOnTimestamp: 0x0FFFFFFF, mOverflowCount: 0, mUnderflowCount: 0, mAddr: XX:XX:XX:XX:00:00, mCalFailedItemCount: 0,
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:     mTxTotalPackets: 0, mTxUnackPackets: 0, mTxFlushPackets: 0, mTxLastSubeventPackets: 0, mCrcErrorPackets: 0, mRxDupPackets: 1275068416, mRxUnRecvPackets: 428777600, mCoexInfoMask: 172
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface:   }
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface: }
+03-27 00:15:48.607  4951  5755 I BluetoothInCallService: BluetoothInCallService = com.android.bluetooth.telephony.BluetoothInCallService@bad5ed6
+03-27 00:15:48.607  4951  4951 I oplus_bt_dual_sync: [oplus_bt_dual_sync.cc:151] stack_down_sync_action: type=18, len=17
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportJni: [com_android_bluetooth_BluetoothQualityReport.cpp:48] bqr_delivery_callback: 
+03-27 00:15:48.607  4951  4951 I oplus_bt_qos_monitor: [oplus_bt_qos_monitor.cc:118] get_oplus_qos_data: getting qos data
+03-27 00:15:48.607  4951  5755 I BluetoothQualityReportNativeInterface: rawData Length = 85
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface: BQR: {
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:   mAddr: XX:XX:XX:XX:B8:5D, mLmpVer: 0x0A, mLmpSubVer: 0x0115, mManufacturerId: 0x09AC, mName: Xiaomi Smart Band 8 B85D, mBluetoothClass: 1f00,
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:   BqrCommon: {
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:     mQualityReportId: Quality monitor(0x01), mPacketType: INVALID(0x00), mConnectionHandle: 0x0003, mConnectionRole: 0(0), mTxPowerLevel: 8, mRssi: -52, mSnr: 0, mUnusedAfhChannelCount: 0,
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:     mAfhSelectUnidealChannelCount: 0, mLsto: 0, mPiconetClock: 0x00000000, mRetransmissionCount: 0, mNoRxCount: 0, mNakCount: 0, mLastTxAckTimestamp: 0x00000000, mFlowOffCount: 0,
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:     mLastFlowOnTimestamp: 0x00000000, mOverflowCount: 0, mUnderflowCount: 0, mAddr: XX:XX:XX:XX:00:00, mCalFailedItemCount: 0,
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:     mTxTotalPackets: 0, mTxUnackPackets: 0, mTxFlushPackets: 0, mTxLastSubeventPackets: 0, mCrcErrorPackets: 0, mRxDupPackets: 0, mRxUnRecvPackets: 0, mCoexInfoMask: 0
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface:   }
+03-27 00:15:48.609  4951  5755 I BluetoothQualityReportNativeInterface: }
+03-27 00:15:48.609  4951  4951 I oplus_bt_dual_sync: [oplus_bt_dual_sync.cc:151] stack_down_sync_action: type=18, len=17
+03-27 00:15:48.610  4951  4951 I oplus_bt_qos_monitor: [oplus_bt_qos_monitor.cc:118] get_oplus_qos_data: getting qos data
+03-27 00:15:48.639  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onDataActivity
+03-27 00:15:48.639  4945  4945 D DataService[0]: onDataActivity direction:3
+03-27 00:15:48.640  1649  5736 I vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:825] ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+03-27 00:15:48.641  1649  5736 D vendor.qti.bluetooth@1.0-ibs_handler: [ibs_handler.cpp:391] SerialClockVote: vote for UART CLK OFF
+03-27 00:15:48.642  4951  6677 I OplusBluetoothSarManager: sar backoff not supported
+03-27 00:15:48.642  4545  4545 D Tile.OplusCellularTile: refreshState: tile not listening, ignore
+03-27 00:15:48.643  4545  4723 I SystemUi--Statusbar: MobileConnectionRepositoryImpl-->subId:3 isSoftSimCard:false slotId:0
+03-27 00:15:48.671  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.672  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 47.520142, raw_cct 3601.315918, r/g/b/c: 4892.729492/3183.359863/1290.557007/8658.833008, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 47.520142, cct: 3601.315918, ts 1072061232942875, cnt 39059
+03-27 00:15:48.763  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:48.791  1649  5505 D vendor.qti.bluetooth@1.0-wake_lock: [wake_lock.cpp:158] Release wakelock is released 
+03-27 00:15:48.821  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.821  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:48.822  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.512627, raw_cct 3566.078125, r/g/b/c: 4775.169922/3263.598145/1313.513916/8691.183594, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.512627, cct: 3566.078125, ts 1072061382903656, cnt 39060
+03-27 00:15:48.850  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:48.851  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:48.851  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:48.851  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:48.918  8717  8717 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:48.918  8717  8717 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.918  8717  8717 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:48.927  8717  8717 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:48.930  8717  8717 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.930  8717  8717 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:48.931  8717  8717 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:48.931  8717  8717 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:48.932  8717  8717 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:48.932  8717  8717 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:48.932  8717  8717 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:48.932  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:48.935  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:48.971  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:48.971  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 48.785233, raw_cct 3599.632324, r/g/b/c: 4881.809082/3263.296387/1324.641357/8787.621094, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 48.785233, cct: 3599.632324, ts 1072061532847823, cnt 39061
+03-27 00:15:48.999  9592 14480 D ShellSubscriberWorkerThread: the first 8 bytes empty, and RestData length > 8 
+03-27 00:15:49.004  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:49.004  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:49.004  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:49.004  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:49.004  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:49.004  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:49.004  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 205
+03-27 00:15:49.005  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -2, -4, -41, -49, 9, 18, 15, 8, -20, -5, -41, -49, 9, 16, 2, 32, -6, 5, 40, 2, 72, 1, 26, 15, 8, -75, -7, -41, -49, 9, 16, 1, 40, 1, 56, -75, 4, 64, 54, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -52, -6, -41, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 12, 64, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -80, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -100, -8, -41, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:49.005  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:49.005  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=12, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=2, mULPDCPNumDropPdu=0, mULPDCPTput=762, mULRLCNumDataPdu=2, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=1, mDLPDCPTput=565, mDLRLCNumDataPdu=1, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=54, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:49.005  4945  4945 D NetworkService[0]: tryReportModemUlTPutGuarantee: clear calculator
+03-27 00:15:49.006  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:49.006  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:49.006  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:49.008  4214  9274 I StepApp_StepProvider: (binder:4214_5)call:package=com.oplus.metis	method=method_call_by_assistantscreen_and_health_from_table_day_step_data	arg=	extras=Bundle[mParcelledData.dataSize=296]	pid=4214
+03-27 00:15:49.009  4214  9274 I StepApp_StepProvider: (binder:4214_5)parserQueryData:queryData=QueryData(uri=content://com.oplus.healthservice.stepprovider/day_statistic, projection=null, selection=day_date=?, selectionArgs=[2026-03-27], sortOrder=null, startPos=null)
+03-27 00:15:49.021  4214  9274 I StepApp_StepProvider: (binder:4214_5)resultListString :[{"date":"2026-03-27","offset":0,"offsetRun":0,"offsetWalk":0,"step":40999,"stepRun":16879,"stepWalk":21875,"timestamp":0}]
+03-27 00:15:49.083  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 83MB AllocSpace bytes, 27(122MB) LOS objects, 50% free,62MB(M:41MB,L:21MB)/124MB, paused 274us,875us total 138.421ms
+03-27 00:15:49.121  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.122  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 53.569466, raw_cct 3823.346191, r/g/b/c: 4849.467285/3113.528320/1324.340454/8938.271484, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 53.569466, cct: 3823.346191, ts 1072061682782458, cnt 39062
+03-27 00:15:49.136  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099383
+03-27 00:15:49.136  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.137  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.138  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/bundle-manifest.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.216  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099383
+03-27 00:15:49.216  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.216  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.217  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/bundle-manifest.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.230  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099384
+03-27 00:15:49.231  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.231  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.232  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/core.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.250  4545  9308 I PluginSeedling--Origin: OSenseManager-->isMEMHighPressure oldState:false newState: false isMEMHighPressure:false
+03-27 00:15:49.260  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099391
+03-27 00:15:49.261  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.262  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.263  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-07.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.272  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.272  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 54.840019, raw_cct 3813.928467, r/g/b/c: 4849.420410/3021.525635/1312.811890/8884.810547, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 54.840019, cct: 3813.928467, ts 1072061832740635, cnt 39063
+03-27 00:15:49.273  1659 20284 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (39063)(cct, lux, ir_ratio, r, g, b, c)[3813, 54, 16, 4849, 3021, 1312, 8884]
+03-27 00:15:49.319 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:49.319 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:49.320 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:49.320 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:49.326  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099392
+03-27 00:15:49.327  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.328  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.329  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-08.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.378  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099393
+03-27 00:15:49.379  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.379  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.380  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-09.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.403  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099394
+03-27 00:15:49.403  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.403  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.404  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-10.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.414  8723  8723 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:49.414  8723  8723 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.414  8723  8723 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:49.421  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.421  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 51.884705, raw_cct 3755.844238, r/g/b/c: 4871.168457/3090.803711/1347.899292/8830.785156, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 51.884705, cct: 3755.844238, ts 1072061982715166, cnt 39064
+03-27 00:15:49.423  8723  8723 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:49.426  8723  8723 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.426  8723  8723 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.426  8723  8723 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:49.426  8723  8723 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:49.427  8723  8723 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:49.427  8723  8723 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:49.427  8723  8723 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:49.428  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:49.429  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099395
+03-27 00:15:49.429  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.429  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.430  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-11.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.431  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:49.448  3133  3867 V AlarmManager: sending alarm Alarm{e6adba type 1 origWhen 1774541749448 whenElapsed 1072062017 android} uid 1000 whenElapsed 1072062017 windowLength 0 maxWhenElapsed 1072062017 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-27 00:15:49.448  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-27 00:15:49.449  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 1.50 MB/s, Write: 6.00 MB/s
+03-27 00:15:49.450  3133  1893 E OplusStorageUFSBandwidth: Task time: 2ms
+03-27 00:15:49.454  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-27 00:15:49.460  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099396
+03-27 00:15:49.460  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.461  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.462  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2024/2024-12.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.494  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099398
+03-27 00:15:49.495  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.495  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.496  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-01.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.520  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099399
+03-27 00:15:49.521  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.521  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.522  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-02.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.548  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099400
+03-27 00:15:49.548  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.548  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.549  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.571  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.571  1659 20232 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:49.571  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.553169, raw_cct 3592.242920, r/g/b/c: 4828.605469/3378.474854/1382.284302/8680.370117, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.553169, cct: 3592.242920, ts 1072062132703656, cnt 39065
+03-27 00:15:49.578  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099401
+03-27 00:15:49.578  6166 14649 E midasd  : getTotalFlipsFromSf mCurFrameCount: 8174556
+03-27 00:15:49.578  6166 14649 I midasd  : DisplayAgent updateDisplayDevInfo getRenderFps mFps:120 mRenderFps:1 mWidth:1240 mHeight:2772
+03-27 00:15:49.579  6166 14649 E midasd  : getTotalFlipsFromSf mCurFrameCount: 8174556
+03-27 00:15:49.579  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.579  6166 14649 I midasd  : DisplayAgent updateDisplayDevInfo getRenderFps mFps:120 mRenderFps:0 mWidth:1240 mHeight:2772
+03-27 00:15:49.579  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.580  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-04.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.582  1770  1770 D ChargerInfo: getInfo: type: 0x1, update: 1
+03-27 00:15:49.583  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update start
+03-27 00:15:49.586  1770  1845 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-27 00:15:49.588  1770  1845 D ChargerInfo: get_ui_charge_icon_type: 0 0 0 0
+03-27 00:15:49.588  1770  1845 D ChargerInfo: cpaPower:2500 isChargeOnline:1 isSupportRetentionTopic:0
+03-27 00:15:49.588  1770  1845 E ChargerInfo: SingleHyperPath not found
+03-27 00:15:49.589  1770  1845 D ChargerInfo: CarC: path(/sys/class/oplus_chg/battery/gauge_car_c): not exist
+03-27 00:15:49.589  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update end
+03-27 00:15:49.589  1770  1845 D ChargerInfo: chargerInfoUpdateThread: update wait
+03-27 00:15:49.589  1770  1770 D ChargerInfo: enableTx: path(/proc/wireless/enable_tx): not exist
+03-27 00:15:49.589  1770  1770 D ChargerInfo: getInfo: {"Update":{"batteryFcc":4496,"batteryRm":2626,"bddLeakCurr":0,"bmsStatus":0,"bypassChgStatus":0,"chargeTimeRemaining":0,"cpaPower":2,"enableTx":true,"fastCharge":0,"isSupportSpeedCharge":0,"notifyCode":0,"otgOnline":1,"ppsChargePower":0,"ppsCharging":0,"shortCHwStatus":0,"shortIcOtpStatus":0,"uiIconType":0,"uiPower":0,"usbStatus":0,"wlsAdapterPower":0}}
+03-27 00:15:49.591  3133  3277 D BatteryStatsImplExtImpl: mActiveProcesses size = 64
+03-27 00:15:49.591  3133  3277 D BatteryStatsImplExtImpl: rpmhStats is null or interval time is too short.
+03-27 00:15:49.620  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099402
+03-27 00:15:49.620  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.621  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.622  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-05.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.641  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 28MB AllocSpace bytes, 214(41MB) LOS objects, 50% free,92MB(M:57MB,L:34MB)/184MB, paused 10.209ms,793us total 115.266ms
+03-27 00:15:49.653  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099403
+03-27 00:15:49.654  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.654  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.655  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-06.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.689  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099404
+03-27 00:15:49.689  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.689  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.690  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-07.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.722  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.722  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.205109, raw_cct 3491.339355, r/g/b/c: 4881.761230/3493.351807/1370.805908/8884.576172, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.205109, cct: 3491.339355, ts 1072062282678031, cnt 39066
+03-27 00:15:49.722  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099405
+03-27 00:15:49.723  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.723  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.724  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-08.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.749  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099406
+03-27 00:15:49.750  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.750  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.751  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-09.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.765  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:49.774  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099407
+03-27 00:15:49.775  7124 16898 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.775  7124 16898 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.777  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-10.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.816  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099408
+03-27 00:15:49.818  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.818  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.821  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-11.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.868  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099409
+03-27 00:15:49.869  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.870  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.871  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:49.871  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 44.817940, raw_cct 3496.787354, r/g/b/c: 4892.215332/3366.659912/1359.126831/8808.637695, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 44.817940, cct: 3496.787354, ts 1072062432688812, cnt 39067
+03-27 00:15:49.872  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2025/2025-12.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.874  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:49.875  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:49.875  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:49.875  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:49.903  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099411
+03-27 00:15:49.903  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.903  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.904  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-01.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.909  8729  8729 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:49.909  8729  8729 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.910  8729  8729 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:49.920  8729  8729 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:49.924  8729  8729 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.924  8729  8729 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:49.924  8729  8729 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:49.924  8729  8729 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:49.925  8729  8729 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:49.925  8729  8729 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:49.926  8729  8729 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:49.926  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:49.928  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099412
+03-27 00:15:49.928  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.928  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:49.928  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.929  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-02.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.959  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099413
+03-27 00:15:49.960  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.960  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.961  7124 13205 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/records/2026/2026-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:49.987  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099388
+03-27 00:15:49.988  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:49.988  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:49.989  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/dailyCheckins/2026/2026-03.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:50.003  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() the caller = com.android.externalstorage,uri = content://media/external_primary/file/1000099385
+03-27 00:15:50.004  7124 13205 W OplusAddVideoThumbnail: isInsertThumbnail2Video() mimeType is not video 
+03-27 00:15:50.004  7124 13205 W OplusThumbnailUtils: checkThumbnailExist() it not a video or image, do not cache thumbnail!
+03-27 00:15:50.005  7124 16898 D MediaProvider: Open with FUSE. FilePath: /storage/emulated/0/Documents/Order/plans-recurring.json. Uid: 10051. Media Capabilities Uid: 0. ShouldRedact: false. ShouldTranscode: false
+03-27 00:15:50.022  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.022  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 45.313271, raw_cct 3622.704590, r/g/b/c: 4775.495605/3309.548340/1393.562378/8658.128906, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 45.313271, cct: 3622.704590, ts 1072062582691416, cnt 39068
+03-27 00:15:50.023  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 3828.0583 nearestMaxValue:3823.3462 secondNearestValue: 3813.9285
+03-27 00:15:50.023  3133  6496 I AICCTModule: SensorFilter: findSecondNearestValue, sensorValue: 47.09954 nearestMaxValue:45.31327 secondNearestValue: 44.81794
+03-27 00:15:50.024  3133  6496 I AICCTModule: AICurveModel: StablePoints mDragSrcPoints:(2500.0,4981.6274),(3000.0007,4984.305),(3750.0,5011.0737),(3999.9998,5071.018),(4250.001,5138.9106),(4500.0,5189.6353),(4750.0,5253.6626),(5000.0,5422.609),(5250.0015,5536.8276),(5500.0005,5706.224),(5749.9995,5774.0376),(6000.0005,5948.0728),(6499.9995,5960.9907),(6750.0005,6114.5205),(6999.9995,6349.4097),(7249.999,6478.6484),(7500.0,6567.2837),(7750.0005,6682.2983),(8250.001,6703.9707),(9000.0,6919.854),(9500.0,6922.206),(10000.0,6922.206),mDragPoint:4184.687, 3982.0
+03-27 00:15:50.024  3133  6496 I AICCTModule: AICurveModel: StablePoints y1Left:4733.066, y2Left:0.0, leftY:4733.066
+03-27 00:15:50.024  3133  6496 I AICCTModule: AICurveModel: getNextPoint isLargeChange, 3813.9275, 5300.0
+03-27 00:15:50.024  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  originY : 5300.0, dragY : 3982.0
+03-27 00:15:50.024  3133  6496 I AICCTModule: CurveOffset: getDraggingMapPoint  resultY : 4733.066
+03-27 00:15:50.025  3133  6496 I AICCTModule: AICurveModel: handleUpdateCCT cct change from:(3828.058594,4733.065918)->(3813.927490,4733.065918),curPoint(3813.927490,5300.000000),stablePoint=LeftLarge(2500.0,4960.0)-RightLarge(2500.0,4960.0),LeftSmall(2500.0,4960.0)-RightSmall(2500.0,4960.0),TLSmall(2500.0,4960.0)-TRSmall(2500.0,4960.0)
+03-27 00:15:50.025  3133  6496 I AICCTModule: AICurveModel: onTargetCCTChange cct change to 4733.066
+03-27 00:15:50.138  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:50.138  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:50.138  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:50.138  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:50.138  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:50.138  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:50.138  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 206
+03-27 00:15:50.139  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -20, -123, -40, -49, 9, 18, 15, 8, -52, -124, -40, -49, 9, 16, 2, 32, -110, 1, 40, 2, 72, 1, 26, 16, 8, -38, -124, -40, -49, 9, 16, 2, 40, 2, 56, -32, 2, 64, -38, 3, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -52, -124, -40, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 11, 64, -78, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -84, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -2, -127, -40, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:50.139  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:50.139  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-78, mRsrq=-10, mSnr=11, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=2, mULPDCPNumDropPdu=0, mULPDCPTput=146, mULRLCNumDataPdu=2, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=2, mDLPDCPTput=352, mDLRLCNumDataPdu=2, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=474, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:50.140  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:50.140  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:50.140  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:50.169  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 39MB AllocSpace bytes, 207(61MB) LOS objects, 41% free,136MB(M:70MB,L:65MB)/232MB, paused 838us,840us total 145.524ms
+03-27 00:15:50.171  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.171  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.123871, raw_cct 3678.283936, r/g/b/c: 4647.388672/3286.723877/1359.026733/8496.898438, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.123871, cct: 3678.283936, ts 1072062732697145, cnt 39069
+03-27 00:15:50.320 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:50.320 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:50.320 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:50.320 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:50.322  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.322  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 44.400604, raw_cct 3782.042969, r/g/b/c: 4657.936035/3228.908447/1416.569458/8561.832031, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 44.400604, cct: 3782.042969, ts 1072062882687250, cnt 39070
+03-27 00:15:50.322  1659 20284 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:50.428  8733  8733 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:50.429  8733  8733 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.429  8733  8733 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:50.441  8733  8733 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:50.446  8733  8733 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.446  8733  8733 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.446  8733  8733 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:50.446  8733  8733 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:50.448  8733  8733 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:50.448  8733  8733 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:50.448  8733  8733 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:50.449  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:50.452  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:50.473  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.473  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.860748, raw_cct 3891.312988, r/g/b/c: 4785.295898/3113.829834/1427.847412/8690.007812, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.860748, cct: 3891.312988, ts 1072063032682927, cnt 39071
+03-27 00:15:50.622  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.622  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.514328, raw_cct 3939.023438, r/g/b/c: 4806.811035/3045.053955/1404.840454/8786.962891, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.514328, cct: 3939.023438, ts 1072063182726885, cnt 39072
+03-27 00:15:50.767  1770  1866 D BatteryChargeControl: bcc get no support from charging protocol
+03-27 00:15:50.771  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.771  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 46.946304, raw_cct 3724.623047, r/g/b/c: 4870.794434/3240.672119/1405.291626/8808.919922, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 46.946304, cct: 3724.623047, ts 1072063332726000, cnt 39073
+03-27 00:15:50.772  1659 20284 I sensors-hal: handle_oplus_wise_rgb_event:301, oplus wise_rgb sample: (39073)(cct, lux, ir_ratio, r, g, b, c)[3724, 46, 40, 4870, 3240, 1405, 8808]
+03-27 00:15:50.800  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 82MB AllocSpace bytes, 20(53MB) LOS objects, 20% free,226MB(M:168MB,L:58MB)/284MB, paused 438us,4.781ms total 354.936ms
+03-27 00:15:50.898  4945  7038 D CommonApp-174-10500: transport layer data is invalid
+03-27 00:15:50.899  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:50.899  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:50.899  4945  7038 D ScorePolicy: handleScoreChanged: []
+03-27 00:15:50.921  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:50.921  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 48.146935, raw_cct 3756.951172, r/g/b/c: 4796.450684/3229.108887/1359.879028/8733.876953, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 48.146935, cct: 3756.951172, ts 1072063482585739, cnt 39074
+03-27 00:15:50.966  8747  8747 E libEGL  : No entry found in platform lookup table for eglSurfaceAttribMTK
+03-27 00:15:50.966  8747  8747 D ExtensionsLoader: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.966  8747  8747 D ExtensionsLoader: Opened libguiextimpl.so
+03-27 00:15:50.979  8747  8747 D OplusUtils: OplusUtils [84]: 
+03-27 00:15:50.984  8747  8747 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.984  8747  8747 E screencap: createInstance(64bit) : createExtendedFactory
+03-27 00:15:50.984  8747  8747 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:50.984  8747  8747 E screencap: Opened libinputextensionsimpl.so
+03-27 00:15:50.986  8747  8747 W screencap: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+03-27 00:15:50.986  8747  8747 W BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+03-27 00:15:50.986  8747  8747 W ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+03-27 00:15:50.986  1829  5762 D SurfaceFlinger: captureDisplayById from pid 0 display 4630946283567114626
+03-27 00:15:50.989  1829  5762 E HWComposer: getLuts: getLuts failed for display 4630946283567114626: UNSUPPORTED (8)
+03-27 00:15:51.071  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:51.071  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 50.765167, raw_cct 3876.839844, r/g/b/c: 4722.059570/3240.571289/1416.970581/8873.618164, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 50.765167, cct: 3876.839844, ts 1072063632772823, cnt 39075
+03-27 00:15:51.071  1659 20284 I sensors-hal: get_brightness:1652, light_iface: get_brightness, brl 1529, pwm_turbo_on 0/0, hbm_dc 0
+03-27 00:15:51.133  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->updateNetworkSpeed: isConnected:true,isSwitchOn:true,isSuspend:false,isPause:false
+03-27 00:15:51.136  4545  4672 I SystemUi--Statusbar: OplusNetworkSpeedControllExImpl-->getTotalByte: totalRxBytes:202467890587,totalTxBytes:57063948073,loopbackTxBytes:4258427804,loopbackRxBytes:4258427804 ,totalBytes:251014983052
+03-27 00:15:51.197  2188  3348 D QmiClient: qmiServiceEventCallback recv msg id 1099
+03-27 00:15:51.197  2188  3348 D QmiClient: enter -mServiceType 4 onQmiServiceEventCallback msgId 1099
+03-27 00:15:51.197  2188  3348 D QmiClient: onQmiServiceEventCallback - enter. msgId=1099
+03-27 00:15:51.197  2188  3348 D QmiVsClientEvent: QosPeriodReportInd MSG IND data_len 2052
+03-27 00:15:51.197  2188  3348 D QmiVsClientEvent: qmiVsClientNotifyQosPeriodReportIndEvent - RADIO_EVENT_QOS_PERIOD_REPORT_NOTIFY_IND
+03-27 00:15:51.197  2188  2501 D VsProxy : handleMessage msg is 2420
+03-27 00:15:51.198  2188  2501 D VsProxy : handleQosPeriodReportInd for instance 0 data_len 192
+03-27 00:15:51.198  4945  7065 D SubsysRadioIndication[0]: radioQosPeriodReportInd result [8, -113, -114, -40, -49, 9, 18, 8, 8, -108, -117, -40, -49, 9, 72, 1, 26, 9, 8, -100, -116, -40, -49, 9, 64, -110, 4, 34, 10, 8, -106, -57, -58, -49, 9, 16, 1, 24, 3, 58, 83, 8, -64, -115, -40, -49, 9, 16, 5, 24, -98, -23, 30, 32, -126, 6, 40, -79, -1, -1, -1, -1, -1, -1, -1, -1, 1, 48, -10, -1, -1, -1, -1, -1, -1, -1, -1, 1, 56, 12, 64, -82, -1, -1, -1, -1, -1, -1, -1, -1, 1, 72, -80, -1, -1, -1, -1, -1, -1, -1, -1, 1, 80, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 88, -85, -1, -1, -1, -1, -1, -1, -1, -1, 1, 66, 30, 8, -36, -128, -55, -49, 9, 16, 5, 34, 20, 8, -98, -23, 30, 16, -126, 6, 24, 41, 32, 13, 40, -42, -31, -12, -110, -128, 1, 48, 2, 90, 0, 98, 10, 8, -83, -68, -58, -49, 9, 16, 3, 24, 5, 122, 20, 8, -84, -120, -40, -49, 9, 16, -1, -1, 1, 24, -1, -1, 1, 32, -1, -1, -1, -1, 15]
+03-27 00:15:51.198  4945  4945 D NetworkService[0]: handleMessage what:1005
+03-27 00:15:51.199  4945  4945 D RadioAtomTracker: parseQosPeriodData ModemQos:CellularQosInfo{mSubId=3, mRat=5, mArfcn=504990, mPci=770, mBand=41, mDLBW=13, mRsrp=-79, mRsrq=-10, mSnr=12, mSvcStatus=3, mULTimeStamp=-1, mULPDCPNumDataPdu=0, mULPDCPNumDropPdu=0, mULPDCPTput=0, mULRLCNumDataPdu=0, mULRLCNumRetxPdu=0, mULGrant=0, mULBSR=0, mULBler=1, mDLTimeStamp=-1, mDLPDCPNumDataPdu=0, mDLPDCPTput=0, mDLRLCNumDataPdu=0, mDLRLCNumRetxPdu=0, mDLRLCNumDropPdu=0, mDLMACPaddingBytes=530, mDLPdcpNumMissToUppPdu=0, mDLBler=0, mRlfCount=0, mRachWithULGrantCount=0, mCellChangeCount=0, mIsRedirectionOccur=0, mIsDualSimConflict=0, mLatency=0, mCellId=34399400150, mNr5GScs=2, mSub1RrcState=3, mSub2RrcState=0, mRachCount=0, mRachAbortCount=0, mCalcPower=32767, mMtpl=32767, mPathLoss=-1, mFbrxCount=0, mCellLoad=0}
+03-27 00:15:51.199  4945  4945 D NetworkService[0]: EVENT_REG_QOS_PERIOD_REPORT_IND_CHANGED ENTER
+03-27 00:15:51.199  4945  4945 D AtomModemKpiInfo: handleMessage what:1001
+03-27 00:15:51.199  4945  4945 D AtomModemKpiInfo: analyseQosInfo success
+03-27 00:15:51.221  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:51.221  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 48.497215, raw_cct 3809.219238, r/g/b/c: 4850.119629/3275.361572/1405.491943/8851.518555, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 48.497215, cct: 3809.219238, ts 1072063782803812, cnt 39076
+03-27 00:15:51.289  2912  2941 I Quality : GCInfo: com.controler.timetracker,50-9.076s-8.547s-3.705ms-348MB-370MB-96MB-0B-230.826s-671777.837s,0,0,49-8.587s-8.117s-3.698ms-364MB-385MB-97MB-0B,1,0,1-489.422ms-430.216ms-4.002ms-69MB-79MB-35MB-0B
+03-27 00:15:51.289  2912  2941 I ler.timetracker: Background concurrent mark compact GC freed 145MB AllocSpace bytes, 16(41MB) LOS objects, 30% free,196MB(M:133MB,L:62MB)/284MB, paused 2.257ms,1.120ms total 323.709ms
+03-27 00:15:51.321 15904 15908 W screenrecord: Waited for hwservicemanager.ready for a second, waiting another...
+03-27 00:15:51.321 15904 15908 W libc    : Access denied finding property "hwservicemanager.disabled"
+03-27 00:15:51.321 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:51.321 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:51.372  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:51.372  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 43.193565, raw_cct 3849.856689, r/g/b/c: 4860.807129/3263.546631/1519.825562/8722.590820, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 43.193565, cct: 3849.856689, ts 1072063932786677, cnt 39077
+03-27 00:15:51.373  6159  6322 E horae   : 0: back:30406,frame:30936,front:32295, 23 3, +(-2995), 1 ,29300,36028,34337,35541,36297, target_temp:32295, algo:0
+03-27 00:15:51.374  4782  5743 D AMC     : [TriggerForeground] handle temp changed:32295
+03-27 00:15:51.378  4782  5743 D AMC     : [TriggerForeground] handle temp changed:32295
+03-27 00:15:51.378  4782  5743 D AMC     : [TriggerForeground] handle temp changed:32295
+03-27 00:15:51.451  3133  3867 V AlarmManager: sending alarm Alarm{aaf3bc8 type 1 origWhen 1774541751450 whenElapsed 1072064020 android} uid 1000 whenElapsed 1072064020 windowLength 0 maxWhenElapsed 1072064020 repeatInterval 0 action null component null tag StorgaeBandInfoAlarmTag flags 0x9 procName system_server
+03-27 00:15:51.451  3133  1893 E OplusStorageUFSBandwidth: storage_io_metrics_path is /proc/oplus_storage/io_metrics/forever/
+03-27 00:15:51.452  3133  1893 E OplusStorageUFSBandwidth: Bandwidth - Read: 0.00 MB/s, Write: 0.00 MB/s
+03-27 00:15:51.452  3133  1893 E OplusStorageUFSBandwidth: Task time: 1ms
+03-27 00:15:51.455  3133  1893 E OplusStorageUFSBandwidth: Alarm set to trigger in 10 seconds
+03-27 00:15:51.468  7229  8002 D gaia-GaiaConnectChecker: start connect check++
+03-27 00:15:51.470  7229  5989 D gaia-GaiaConnectChecker: start connect check++
+03-27 00:15:51.522  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:51.522  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 44.388206, raw_cct 3738.957031, r/g/b/c: 4839.199219/3344.086426/1428.047974/8819.874023, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 44.388206, cct: 3738.957031, ts 1072064082817614, cnt 39078
+03-27 00:15:51.560  3133  4823 I OplusCpuLimitManager: OplusCpuHighLoad: newLoadLevel=1, newMngLevel=1, (nl_load=1, nl_thermal=1, nl_scene=1), curMngLevel=1, CL=0, curWinCL=0, curShortWinCL= 0, latestCL=0, latestThermalLevel=3, expHlScene=false
+03-27 00:15:51.641 15904 15908 W libc    : Access denied finding property "hwservicemanager.ready"
+03-27 00:15:51.650  4945  4945 D SubsysEventListenerManager-SubsysTelephonyCallback[0]: onDataActivity
+03-27 00:15:51.651  4945  4945 D DataService[0]: onDataActivity direction:0
+03-27 00:15:51.651  4951  6677 I OplusBluetoothSarManager: sar backoff not supported
+03-27 00:15:51.652  4545  4545 W OPLUS_LOG_LOAD: ==LOGS PROG INFO, prog(com.android.systemui) ==
+03-27 00:15:51.652  4545  4545 D Tile.OplusCellularTile: refreshState: tile not listening, ignore
+03-27 00:15:51.652  4545  4723 I SystemUi--Statusbar: MobileConnectionRepositoryImpl-->subId:3 isSoftSimCard:false slotId:0
+03-27 00:15:51.671  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:230, wise_rgb:algo_type = 3
+03-27 00:15:51.671  1659 20232 I sensors-hal: handle_oplus_wise_rgb_event:285, wise_rgb: raw_lux 49.057121, raw_cct 3895.876953, r/g/b/c: 4742.780762/3252.134521/1405.291382/8863.555664, R/G/B: 0.000000/0.000000/0.000000, brl 1529.000000, lux: 49.057121, cct: 3895.876953, ts 1072064232812979, cnt 39079

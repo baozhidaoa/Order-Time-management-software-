@@ -255,7 +255,7 @@ public final class ControlerWidgetDataStore {
         public final ArrayList<String> roots = new ArrayList<>();
     }
 
-    public static State load(Context context) {
+    public static synchronized State load(Context context) {
         try {
             JSONObject root = loadRoot(context);
             return loadFromRoot(root);
@@ -289,7 +289,7 @@ public final class ControlerWidgetDataStore {
         return state;
     }
 
-    public static JSONObject loadRoot(Context context) {
+    public static synchronized JSONObject loadRoot(Context context) {
         try {
             if (usesDirectoryBundleStorage(context)) {
                 return loadBundleRoot(context, false);
@@ -306,7 +306,7 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    public static JSONObject loadRootForWidgets(Context context) {
+    public static synchronized JSONObject loadRootForWidgets(Context context) {
         try {
             if (usesDirectoryBundleStorage(context)) {
                 return loadBundleRoot(context, false, false);
@@ -324,7 +324,159 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    public static JSONObject loadRootStrict(Context context) throws Exception {
+    public static synchronized JSONObject loadRootForWidgetKinds(
+        Context context,
+        Set<String> requestedKinds
+    ) {
+        if (context == null) {
+            return new JSONObject();
+        }
+        try {
+            if (!usesDirectoryBundleStorage(context)) {
+                return loadRootForWidgets(context);
+            }
+
+            LinkedHashSet<String> normalizedKinds = new LinkedHashSet<>();
+            if (requestedKinds != null) {
+                for (String kind : requestedKinds) {
+                    String normalizedKind = ControlerWidgetKinds.normalize(kind);
+                    if (!TextUtils.isEmpty(normalizedKind)) {
+                        normalizedKinds.add(normalizedKind);
+                    }
+                }
+            }
+            if (normalizedKinds.isEmpty()) {
+                return loadRootForWidgets(context);
+            }
+
+            JSONObject core = getStorageCoreState(context);
+            JSONObject root = new JSONObject();
+            copyWidgetCoreFields(root, core);
+
+            boolean needsMonthlyRecords =
+                normalizedKinds.contains(ControlerWidgetKinds.DAY_PIE)
+                    || normalizedKinds.contains(ControlerWidgetKinds.WEEK_GRID);
+            boolean needsRecentRecords =
+                normalizedKinds.contains(ControlerWidgetKinds.START_TIMER);
+            if (needsMonthlyRecords || needsRecentRecords) {
+                JSONObject recordScope =
+                    needsMonthlyRecords
+                        ? buildCurrentMonthScope()
+                        : buildDefaultRecordBootstrapScope();
+                JSONObject recordRange = loadStorageSectionRange(
+                    context,
+                    "records",
+                    recordScope
+                );
+                root.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+                root.put("records", cloneJsonArray(recordRange.optJSONArray("items")));
+                root.put(
+                    "timerSessionState",
+                    cloneJsonObject(core.optJSONObject("timerSessionState"))
+                );
+            }
+
+            boolean needsTodoState =
+                normalizedKinds.contains(ControlerWidgetKinds.TODOS)
+                    || normalizedKinds.contains(ControlerWidgetKinds.CHECKINS);
+            if (needsTodoState) {
+                JSONObject dailyCheckinRange = loadStorageSectionRange(
+                    context,
+                    "dailyCheckins",
+                    buildCurrentDayScope()
+                );
+                root.put("todos", cloneJsonArray(core.optJSONArray("todos")));
+                root.put(
+                    "checkinItems",
+                    cloneJsonArray(core.optJSONArray("checkinItems"))
+                );
+                root.put(
+                    "dailyCheckins",
+                    cloneJsonArray(dailyCheckinRange.optJSONArray("items"))
+                );
+            }
+
+            boolean needsPlanState =
+                normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)
+                    || normalizedKinds.contains(ControlerWidgetKinds.YEAR_VIEW);
+            if (needsPlanState) {
+                JSONObject planRange = loadStorageSectionRange(
+                    context,
+                    "plans",
+                    buildCurrentMonthScope()
+                );
+                JSONArray mergedPlans = cloneJsonArray(planRange.optJSONArray("items"));
+                JSONArray recurringPlans = cloneJsonArray(core.optJSONArray("recurringPlans"));
+                for (int index = 0; index < recurringPlans.length(); index++) {
+                    mergedPlans.put(cloneJsonValue(recurringPlans.opt(index)));
+                }
+                root.put("plans", mergedPlans);
+                root.put(
+                    "yearlyGoals",
+                    cloneJsonObject(core.optJSONObject("yearlyGoals"))
+                );
+            }
+
+            if (normalizedKinds.contains(ControlerWidgetKinds.WRITE_DIARY)) {
+                JSONObject diaryRange = loadStorageSectionRange(
+                    context,
+                    "diaryEntries",
+                    buildCurrentMonthScope()
+                );
+                root.put(
+                    "diaryEntries",
+                    cloneJsonArray(diaryRange.optJSONArray("items"))
+                );
+                root.put(
+                    "diaryCategories",
+                    cloneJsonArray(core.optJSONArray("diaryCategories"))
+                );
+            }
+
+            return root;
+        } catch (Exception error) {
+            error.printStackTrace();
+            return loadRootForWidgets(context);
+        }
+    }
+
+    private static void copyWidgetCoreFields(JSONObject target, JSONObject core) throws Exception {
+        if (target == null || core == null) {
+            return;
+        }
+        target.put(
+            "customThemes",
+            cloneJsonArray(core.optJSONArray("customThemes"))
+        );
+        target.put(
+            "builtInThemeOverrides",
+            cloneJsonObject(core.optJSONObject("builtInThemeOverrides"))
+        );
+        target.put(
+            "selectedTheme",
+            sanitizeJsonString(core.optString("selectedTheme", "default"))
+        );
+        target.put(
+            "timerSessionState",
+            cloneJsonObject(core.optJSONObject("timerSessionState"))
+        );
+        target.put("projects", cloneJsonArray(core.optJSONArray("projects")));
+        target.put("todos", cloneJsonArray(core.optJSONArray("todos")));
+        target.put(
+            "checkinItems",
+            cloneJsonArray(core.optJSONArray("checkinItems"))
+        );
+        target.put(
+            "yearlyGoals",
+            cloneJsonObject(core.optJSONObject("yearlyGoals"))
+        );
+        target.put(
+            "diaryCategories",
+            cloneJsonArray(core.optJSONArray("diaryCategories"))
+        );
+    }
+
+    public static synchronized JSONObject loadRootStrict(Context context) throws Exception {
         if (usesDirectoryBundleStorage(context)) {
             return loadBundleRoot(context, true);
         }
@@ -338,7 +490,7 @@ public final class ControlerWidgetDataStore {
         return normalizeRoot(context, parsedRoot, false);
     }
 
-    public static boolean saveRoot(Context context, JSONObject root) {
+    public static synchronized boolean saveRoot(Context context, JSONObject root) {
         try {
             if (usesDirectoryBundleStorage(context)) {
                 ensureBundleStorageReady(context);
@@ -364,7 +516,7 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    public static boolean saveManagedRoot(Context context, JSONObject root) {
+    public static synchronized boolean saveManagedRoot(Context context, JSONObject root) {
         try {
             if (!usesDirectoryBundleStorage(context)) {
                 return saveRoot(context, root);
@@ -665,7 +817,7 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    public static StorageVersion probeStorageVersion(
+    public static synchronized StorageVersion probeStorageVersion(
         Context context,
         boolean includeFallbackHash
     ) {
@@ -705,7 +857,7 @@ public final class ControlerWidgetDataStore {
         return version;
     }
 
-    public static JSONObject getStorageManifest(Context context) {
+    public static synchronized JSONObject getStorageManifest(Context context) {
         if (usesDirectoryBundleStorage(context)) {
             JSONObject manifest = readBundleManifest(context);
             if (manifest != null) {
@@ -715,7 +867,7 @@ public final class ControlerWidgetDataStore {
         return buildStorageManifest(loadRoot(context));
     }
 
-    public static JSONObject getStorageCoreState(Context context) {
+    public static synchronized JSONObject getStorageCoreState(Context context) {
         if (usesDirectoryBundleStorage(context)) {
             JSONObject directCore = readBundleCoreState(context);
             if (directCore != null) {
@@ -758,7 +910,7 @@ public final class ControlerWidgetDataStore {
         return core;
     }
 
-    public static JSONObject getStorageBootstrapState(Context context, JSONObject options) {
+    public static synchronized JSONObject getStorageBootstrapState(Context context, JSONObject options) {
         JSONObject source = options == null ? new JSONObject() : options;
         String page = normalizeBootstrapPage(source.optString("page", ""));
         JSONObject payload = new JSONObject();
@@ -869,7 +1021,7 @@ public final class ControlerWidgetDataStore {
         return payload;
     }
 
-    public static JSONObject getStoragePageBootstrapState(Context context, JSONObject options) {
+    public static synchronized JSONObject getStoragePageBootstrapState(Context context, JSONObject options) {
         JSONObject source = options == null ? new JSONObject() : options;
         JSONObject sourceOptions = source.optJSONObject("options");
         JSONObject pageOptions = sourceOptions == null ? source : sourceOptions;
@@ -1003,7 +1155,7 @@ public final class ControlerWidgetDataStore {
         return payload;
     }
 
-    public static JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
+    public static synchronized JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
         boolean includeYearlyGoals =
             options == null || options.optBoolean("includeYearlyGoals", true);
         boolean includeRecurringPlans =
@@ -1135,7 +1287,7 @@ public final class ControlerWidgetDataStore {
         return true;
     }
 
-    public static JSONObject loadStorageSectionRange(
+    public static synchronized JSONObject loadStorageSectionRange(
         Context context,
         String section,
         JSONObject scope
@@ -1206,7 +1358,7 @@ public final class ControlerWidgetDataStore {
         return result;
     }
 
-    public static JSONObject saveStorageSectionRange(
+    public static synchronized JSONObject saveStorageSectionRange(
         Context context,
         String section,
         JSONObject payload
@@ -1316,7 +1468,7 @@ public final class ControlerWidgetDataStore {
         return result;
     }
 
-    public static JSONObject replaceStorageCoreState(
+    public static synchronized JSONObject replaceStorageCoreState(
         Context context,
         JSONObject partialCore
     ) throws Exception {
@@ -1357,7 +1509,7 @@ public final class ControlerWidgetDataStore {
         return buildCoreStateReplaceResult(source);
     }
 
-    public static JSONArray replaceStorageRecurringPlans(
+    public static synchronized JSONArray replaceStorageRecurringPlans(
         Context context,
         JSONArray items
     ) throws Exception {
@@ -1461,7 +1613,7 @@ public final class ControlerWidgetDataStore {
         return root;
     }
 
-    public static JSONObject readStorageSectionPartitionEnvelope(
+    public static synchronized JSONObject readStorageSectionPartitionEnvelope(
         Context context,
         String section,
         String periodId
@@ -2057,10 +2209,9 @@ public final class ControlerWidgetDataStore {
                     normalizedIncomingItems,
                     "merge".equals(mode)
                 );
+        boolean deletePartitionAfterManifestCommit = mergedItems.isEmpty();
 
-        if (mergedItems.isEmpty()) {
-            deleteBundlePath(context, relativePath);
-        } else {
+        if (!deletePartitionAfterManifestCommit) {
             writeBundleJson(
                 context,
                 relativePath,
@@ -2083,6 +2234,9 @@ public final class ControlerWidgetDataStore {
             touchBundleMetadata(context, manifest, currentCore);
         } else {
             touchBundleMetadata(context, manifest);
+        }
+        if (deletePartitionAfterManifestCommit) {
+            deleteBundlePath(context, relativePath);
         }
 
         JSONObject result = new JSONObject();
@@ -2520,7 +2674,7 @@ public final class ControlerWidgetDataStore {
         return core;
     }
 
-    public static JSONObject appendStorageJournal(Context context, JSONObject payload) throws Exception {
+    public static synchronized JSONObject appendStorageJournal(Context context, JSONObject payload) throws Exception {
         JSONObject source = payload == null ? new JSONObject() : payload;
         JSONArray operations = source.optJSONArray("ops");
         JSONArray results = new JSONArray();

@@ -84,6 +84,13 @@ const TODO_SELF_REFRESH_IGNORE_MAX_USES = 4;
 let todoIgnoredRefreshEvents = [];
 let todoQueuedExternalStorageRefreshDetail = null;
 
+function isTodoShellTransitionLoading() {
+  if (typeof uiTools?.getShellVisibilityState !== "function") {
+    return false;
+  }
+  return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
 function getTodoNormalizedChangedSections(changedSections = []) {
   if (typeof uiTools?.normalizeChangedSections === "function") {
     return uiTools.normalizeChangedSections(changedSections);
@@ -813,6 +820,18 @@ function setTodoLoadingState(options = {}) {
   });
 }
 
+function waitForTodoUiPaint() {
+  return new Promise((resolve) => {
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
+}
+
 const todoRefreshController = uiTools?.createAtomicRefreshController?.({
   defaultDelayMs: TODO_LOADING_OVERLAY_DELAY_MS,
   showLoading: (loadingOptions = {}) => {
@@ -1060,7 +1079,7 @@ function scheduleTodoExternalStorageRefresh(detail = {}) {
     todoQueuedExternalStorageRefreshDetail,
     detail,
   );
-  if (!todoShellPageActive) {
+  if (!todoShellPageActive && !isTodoShellTransitionLoading()) {
     todoExternalRefreshPendingResume = true;
     return;
   }
@@ -1146,7 +1165,14 @@ function getTodoSectionStateSnapshot(section) {
   }
 }
 
+function shouldPersistTodoSharedLocalMirror() {
+  return window.ControlerStorage?.isNativeApp !== true;
+}
+
 function persistTodoLocalSection(section, items = []) {
+  if (!shouldPersistTodoSharedLocalMirror()) {
+    return;
+  }
   localStorage.setItem(section, JSON.stringify(items));
 }
 
@@ -2523,10 +2549,14 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
     event.stopPropagation();
   };
 
-  const handleDeleteActivate = (event) => {
-    if (event.type === "pointerup" && event.pointerType === "mouse" && event.button !== 0) {
+  const handleDeletePointerUp = (event) => {
+    if (event.pointerType === "mouse") {
       return;
     }
+    void triggerDeleteAction(event);
+  };
+
+  const handleDeleteActivate = (event) => {
     void triggerDeleteAction(event);
   };
 
@@ -2537,7 +2567,7 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
   surface.addEventListener("lostpointercapture", handlePointerEnd);
   surface.addEventListener("click", handleClickCapture, true);
   deleteButton.addEventListener("pointerdown", handleDeletePointerDown);
-  deleteButton.addEventListener("pointerup", handleDeleteActivate);
+  deleteButton.addEventListener("pointerup", handleDeletePointerUp);
   deleteButton.addEventListener("click", handleDeleteActivate);
 
   const api = {
@@ -2556,7 +2586,7 @@ function bindTodoSwipeDeleteShell(shell, options = {}) {
       surface.removeEventListener("lostpointercapture", handlePointerEnd);
       surface.removeEventListener("click", handleClickCapture, true);
       deleteButton.removeEventListener("pointerdown", handleDeletePointerDown);
-      deleteButton.removeEventListener("pointerup", handleDeleteActivate);
+      deleteButton.removeEventListener("pointerup", handleDeletePointerUp);
       deleteButton.removeEventListener("click", handleDeleteActivate);
       delete shell.__todoSwipeDeleteApi;
     },
@@ -2756,7 +2786,7 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
     detail,
   );
   todoQueuedExternalStorageRefreshDetail = null;
-  if (!todoShellPageActive) {
+  if (!todoShellPageActive && !isTodoShellTransitionLoading()) {
     todoExternalStorageRefreshQueued = false;
     todoExternalRefreshPendingResume = true;
     todoQueuedExternalStorageRefreshDetail = mergeTodoStorageChangeDetails(
@@ -2822,6 +2852,7 @@ async function refreshTodoFromExternalStorageChange(detail = {}) {
       () => readFreshTodoWorkspaceSnapshot(),
       {
         delayMs: todoInitialDataLoaded ? TODO_LOADING_OVERLAY_DELAY_MS : 0,
+        manageLoading: !todoInitialDataLoaded,
         loadingOptions: {
           mode: todoInitialDataLoaded ? "inline" : "fullscreen",
           message: "正在同步待办与打卡数据，请稍候",
@@ -3397,6 +3428,50 @@ function finalizeTodoModalChange(closeModal, options = {}) {
   }
 
   return true;
+}
+
+async function runTodoBlockingMutation(options = {}, task = null) {
+  const {
+    closeModal = null,
+    refreshView = true,
+    title = "正在保存数据",
+    message = "正在写入待办与打卡数据，请稍候",
+    perfAction = "todo-mutation",
+  } = options;
+  uiTools?.markPerfStage?.("todo-form-save-start", {
+    allowRepeat: true,
+    action: perfAction,
+  });
+  setTodoLoadingState({
+    active: true,
+    mode: "fullscreen",
+    title,
+    message,
+    delayMs: 0,
+  });
+  try {
+    await waitForTodoUiPaint();
+    finalizeTodoModalChange(closeModal, {
+      refreshView,
+    });
+    uiTools?.markPerfStage?.("todo-form-modal-hidden", {
+      allowRepeat: true,
+      action: perfAction,
+    });
+    const result =
+      typeof task === "function" ? await task() : true;
+    if (result !== false) {
+      uiTools?.markPerfStage?.("todo-form-storage-acked", {
+        allowRepeat: true,
+        action: perfAction,
+      });
+    }
+    return result;
+  } finally {
+    setTodoLoadingState({
+      active: false,
+    });
+  }
 }
 
 function setTodoModalSubmissionLock(modal, locked) {
@@ -5582,44 +5657,59 @@ async function saveTodo(modal, isEditMode, todoData, options = {}) {
     todos.push(newTodo);
   }
 
-  if (draftSession && typeof draftSession.clear === "function") {
-    await draftSession.clear().catch((error) => {
+  const saved = await runTodoBlockingMutation(
+    {
+      closeModal,
+      refreshView,
+      title: isEditMode ? "正在保存待办" : "正在创建待办",
+      message: "正在写入待办与同步数据，请稍候",
+      perfAction: isEditMode ? "todo-edit" : "todo-create",
+    },
+    async () => {
+      const persisted = await queueTodoCoreSave(
+        {
+          todos: getTodoSectionStateSnapshot("todos"),
+        },
+        {
+          reason: isEditMode ? "todo-edit" : "todo-create",
+          errorLabel: "保存待办事项失败:",
+          refreshReminders: true,
+        },
+      );
+      if (!persisted) {
+        await rollbackTodoOptimisticChange(
+          {
+            todos: previousTodos,
+          },
+          {
+            message: "保存待办事项失败，本次修改已撤销。",
+            refreshView,
+          },
+        );
+        return false;
+      }
+      return true;
+    },
+  );
+
+  if (saved && draftSession && typeof draftSession.clear === "function") {
+    void draftSession.clear().catch((error) => {
       console.error("清理待办草稿失败:", error);
     });
   }
-  finalizeTodoModalChange(closeModal, { refreshView });
-
-  void queueTodoCoreSave(
-    {
-      todos: getTodoSectionStateSnapshot("todos"),
-    },
-    {
-      reason: isEditMode ? "todo-edit" : "todo-create",
-      errorLabel: "保存待办事项失败:",
-      refreshReminders: true,
-    },
-  ).then(async (saved) => {
-    if (!saved) {
-      await rollbackTodoOptimisticChange(
-        {
-          todos: previousTodos,
-        },
-        {
-          message: "保存待办事项失败，本次修改已撤销。",
-          refreshView,
-        },
-      );
-      return;
-    }
-    try {
-      await reminderTools?.requestPermissionIfNeeded?.("待办", reminderConfig, {
+  if (saved) {
+    const permissionTask = reminderTools?.requestPermissionIfNeeded?.(
+      "待办",
+      reminderConfig,
+      {
         silentWhenDisabled: false,
-      });
-    } catch (error) {
+      },
+    );
+    void permissionTask?.catch?.((error) => {
       console.error("请求待办提醒权限失败:", error);
-    }
-  });
-  return true;
+    });
+  }
+  return saved;
 }
 
 function showCheckinModal(todoId, checkinId = null) {
@@ -5735,27 +5825,39 @@ function showCheckinModal(todoId, checkinId = null) {
     const targetCheckin = existingRecord?.id
       ? getTodoCheckinById(existingRecord.id)
       : checkins[checkins.length - 1] || null;
-    await progressDraftSession.clear().catch((error) => {
-      console.error("清理进度草稿失败:", error);
-    });
-    finalizeTodoModalChange(closeModal);
-    void queueTodoSectionSave("checkins", {
-      periodIds: [getTodoSectionPeriodId("checkins", targetCheckin)],
-      errorLabel: "保存进度记录失败:",
-    }).then(async (persisted) => {
-      if (persisted) {
-        return;
-      }
-      await rollbackTodoOptimisticChange(
-        {
-          checkins: previousCheckins,
-        },
-        {
-          message: "保存进度记录失败，本次修改已撤销。",
-        },
-      );
-    });
-    return true;
+    const persisted = await runTodoBlockingMutation(
+      {
+        closeModal,
+        refreshView: true,
+        title: existingRecord ? "正在保存进度" : "正在创建进度",
+        message: "正在写入进度记录，请稍候",
+        perfAction: existingRecord ? "progress-edit" : "progress-create",
+      },
+      async () => {
+        const savedResult = await queueTodoSectionSave("checkins", {
+          periodIds: [getTodoSectionPeriodId("checkins", targetCheckin)],
+          errorLabel: "保存进度记录失败:",
+        });
+        if (savedResult) {
+          return true;
+        }
+        await rollbackTodoOptimisticChange(
+          {
+            checkins: previousCheckins,
+          },
+          {
+            message: "保存进度记录失败，本次修改已撤销。",
+          },
+        );
+        return false;
+      },
+    );
+    if (persisted) {
+      void progressDraftSession.clear().catch((error) => {
+        console.error("清理进度草稿失败:", error);
+      });
+    }
+    return persisted;
   };
 
   const confirmDeleteAction = async () => {
@@ -5789,29 +5891,41 @@ function showCheckinModal(todoId, checkinId = null) {
       });
       return false;
     }
-    await progressDraftSession.clear().catch((error) => {
-      console.error("清理进度草稿失败:", error);
-    });
-    finalizeTodoModalChange(closeModal);
-    void queueTodoSectionSave("checkins", {
-      previousItems: [existingRecord],
-      periodIds: [getTodoSectionPeriodId("checkins", existingRecord)],
-      errorLabel: "删除进度记录失败:",
-    }).then(async (persisted) => {
-      if (persisted) {
-        return;
-      }
-      await rollbackTodoOptimisticChange(
-        {
-          checkins: previousCheckins,
-        },
-        {
-          title: "删除失败",
-          message: "删除进度记录失败，本次修改已撤销。",
-        },
-      );
-    });
-    return true;
+    const persisted = await runTodoBlockingMutation(
+      {
+        closeModal,
+        refreshView: true,
+        title: "正在删除进度",
+        message: "正在同步删除进度记录，请稍候",
+        perfAction: "progress-delete",
+      },
+      async () => {
+        const savedResult = await queueTodoSectionSave("checkins", {
+          previousItems: [existingRecord],
+          periodIds: [getTodoSectionPeriodId("checkins", existingRecord)],
+          errorLabel: "删除进度记录失败:",
+        });
+        if (savedResult) {
+          return true;
+        }
+        await rollbackTodoOptimisticChange(
+          {
+            checkins: previousCheckins,
+          },
+          {
+            title: "删除失败",
+            message: "删除进度记录失败，本次修改已撤销。",
+          },
+        );
+        return false;
+      },
+    );
+    if (persisted) {
+      void progressDraftSession.clear().catch((error) => {
+        console.error("清理进度草稿失败:", error);
+      });
+    }
+    return persisted;
   };
 
   unbindModalActions = bindTodoModalActions(modal, {
@@ -6495,39 +6609,53 @@ async function saveCheckinItem(modal, isEditMode, itemData, options = {}) {
     checkinItems.push(newItem);
   }
 
-  finalizeTodoModalChange(closeModal, { refreshView });
-
-  void queueTodoCoreSave(
+  const saved = await runTodoBlockingMutation(
     {
-      checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+      closeModal,
+      refreshView,
+      title: isEditMode ? "正在保存打卡" : "正在创建打卡",
+      message: "正在写入打卡项目与同步数据，请稍候",
+      perfAction: isEditMode ? "checkin-item-edit" : "checkin-item-create",
     },
-    {
-      reason: isEditMode ? "checkin-item-edit" : "checkin-item-create",
-      errorLabel: "保存打卡项目失败:",
-      refreshReminders: true,
-    },
-  ).then(async (saved) => {
-    if (!saved) {
-      await rollbackTodoOptimisticChange(
+    async () => {
+      const persisted = await queueTodoCoreSave(
         {
-          checkinItems: previousCheckinItems,
+          checkinItems: getTodoSectionStateSnapshot("checkinItems"),
         },
         {
-          message: "保存打卡项目失败，本次修改已撤销。",
-          refreshView,
+          reason: isEditMode ? "checkin-item-edit" : "checkin-item-create",
+          errorLabel: "保存打卡项目失败:",
+          refreshReminders: true,
         },
       );
-      return;
-    }
-    try {
-      await reminderTools?.requestPermissionIfNeeded?.("打卡", reminderConfig, {
+      if (!persisted) {
+        await rollbackTodoOptimisticChange(
+          {
+            checkinItems: previousCheckinItems,
+          },
+          {
+            message: "保存打卡项目失败，本次修改已撤销。",
+            refreshView,
+          },
+        );
+        return false;
+      }
+      return true;
+    },
+  );
+  if (saved) {
+    const permissionTask = reminderTools?.requestPermissionIfNeeded?.(
+      "打卡",
+      reminderConfig,
+      {
         silentWhenDisabled: false,
-      });
-    } catch (error) {
+      },
+    );
+    void permissionTask?.catch?.((error) => {
       console.error("请求打卡提醒权限失败:", error);
-    }
-  });
-  return true;
+    });
+  }
+  return saved;
 }
 
 // 删除打卡项目
@@ -7027,7 +7155,7 @@ async function syncTodoFreshSnapshotInBackground() {
 
   const runFreshSync = async () => {
     uiTools?.markPerfStage?.("todo-fresh-sync-start");
-    if (!todoShellPageActive) {
+    if (!todoShellPageActive && !isTodoShellTransitionLoading()) {
       todoDeferredFreshSyncPendingResume = true;
       return false;
     }
@@ -7086,7 +7214,7 @@ function scheduleTodoDeferredFreshSync() {
   ) {
     return;
   }
-  if (!todoShellPageActive) {
+  if (!todoShellPageActive && !isTodoShellTransitionLoading()) {
     todoDeferredFreshSyncPendingResume = true;
     return;
   }

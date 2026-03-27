@@ -1107,11 +1107,52 @@ function readPlanBootstrapSnapshotFromState(sourceState = {}, periodIds = []) {
   };
 }
 
+function getPlanWorkspaceSnapshotWeight(snapshot = {}) {
+  const planCount = Array.isArray(snapshot?.plans) ? snapshot.plans.length : 0;
+  const goalCount =
+    snapshot?.yearlyGoals &&
+    typeof snapshot.yearlyGoals === "object" &&
+    !Array.isArray(snapshot.yearlyGoals)
+      ? Object.keys(snapshot.yearlyGoals).length
+      : 0;
+  const loadedPeriodCount = Array.isArray(snapshot?.loadedPeriodIds)
+    ? snapshot.loadedPeriodIds.length
+    : 0;
+  return planCount * 4 + goalCount * 2 + loadedPeriodCount;
+}
+
+function pickPreferredPlanWorkspaceSnapshot(primarySnapshot = null, fallbackSnapshot = null) {
+  if (!primarySnapshot) {
+    return fallbackSnapshot;
+  }
+  if (!fallbackSnapshot) {
+    return primarySnapshot;
+  }
+  return getPlanWorkspaceSnapshotWeight(fallbackSnapshot) >
+    getPlanWorkspaceSnapshotWeight(primarySnapshot)
+    ? fallbackSnapshot
+    : primarySnapshot;
+}
+
+function markPlanInitialDataReady(snapshot = {}) {
+  const detail = {
+    periodIds: Array.isArray(snapshot?.loadedPeriodIds)
+      ? snapshot.loadedPeriodIds.slice()
+      : planLoadedPeriodIds.slice(),
+    planCount: Array.isArray(snapshot?.plans) ? snapshot.plans.length : plans.length,
+    source: typeof snapshot?.source === "string" ? snapshot.source : "",
+    fromCache: true,
+  };
+  uiTools?.markPerfStage?.("first-data-ready", detail);
+  uiTools?.markPerfStage?.("plan-first-data-ready", detail);
+}
+
 function readPlanCachedSnapshotState(options = {}) {
   const periodIds =
     Array.isArray(options.periodIds) && options.periodIds.length
       ? options.periodIds
       : getPlanPeriodIdsForVisibleView();
+  let preferredSnapshot = null;
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState === "function") {
       const bootstrapState = window.ControlerStorage.peekPageBootstrapState(
@@ -1121,7 +1162,19 @@ function readPlanCachedSnapshotState(options = {}) {
         },
       );
       if (bootstrapState && typeof bootstrapState === "object") {
-        return normalizePlanPageBootstrapSnapshot(bootstrapState);
+        const bootstrapSnapshot = normalizePlanPageBootstrapSnapshot(bootstrapState);
+        preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(
+          preferredSnapshot,
+          {
+            ...bootstrapSnapshot,
+            source: "page-bootstrap",
+            loadedPeriodIds:
+              Array.isArray(bootstrapSnapshot.loadedPeriodIds) &&
+              bootstrapSnapshot.loadedPeriodIds.length
+                ? bootstrapSnapshot.loadedPeriodIds.slice()
+                : periodIds.slice(),
+          },
+        );
       }
     }
   } catch (error) {
@@ -1133,7 +1186,13 @@ function readPlanCachedSnapshotState(options = {}) {
         ? window.ControlerStorage.dump()
         : null;
     if (storageSnapshot && typeof storageSnapshot === "object") {
-      return readPlanBootstrapSnapshotFromState(storageSnapshot, periodIds);
+      preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(
+        preferredSnapshot,
+        {
+          ...readPlanBootstrapSnapshotFromState(storageSnapshot, periodIds),
+          source: "managed-snapshot",
+        },
+      );
     }
   } catch (error) {
     console.error("读取计划缓存快照失败:", error);
@@ -1142,18 +1201,29 @@ function readPlanCachedSnapshotState(options = {}) {
   try {
     const rawPlans = JSON.parse(localStorage.getItem("plans") || "[]");
     const rawGoals = JSON.parse(localStorage.getItem("yearlyGoals") || "{}");
-    return readPlanBootstrapSnapshotFromState(
+    preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(
+      preferredSnapshot,
       {
-        plans: Array.isArray(rawPlans) ? rawPlans : [],
-        yearlyGoals: rawGoals,
+        ...readPlanBootstrapSnapshotFromState(
+          {
+            plans: Array.isArray(rawPlans) ? rawPlans : [],
+            yearlyGoals: rawGoals,
+          },
+          periodIds,
+        ),
+        source: "local-mirror",
       },
-      periodIds,
     );
   } catch (error) {
     console.error("读取计划本地兜底快照失败:", error);
   }
 
-  return readPlanBootstrapSnapshotFromState({}, periodIds);
+  return (
+    preferredSnapshot || {
+      ...readPlanBootstrapSnapshotFromState({}, periodIds),
+      source: "",
+    }
+  );
 }
 
 function bootstrapPlanFromCachedSnapshot() {
@@ -1162,9 +1232,11 @@ function bootstrapPlanFromCachedSnapshot() {
     applyPlanWorkspaceState(snapshot);
     planInitialDataLoaded = true;
     planInitialDataValidated = false;
+    markPlanInitialDataReady(snapshot);
     uiTools?.markPerfStage?.("plan-cache-bootstrap-hit", {
       periodIds: planLoadedPeriodIds.slice(),
       planCount: plans.length,
+      source: typeof snapshot?.source === "string" ? snapshot.source : "",
     });
     return true;
   } catch (error) {
@@ -1570,6 +1642,61 @@ function refreshPlanUiAfterMutation(options = {}) {
     });
   } catch (error) {
     console.error("刷新计划界面失败:", error);
+  }
+}
+
+function waitForPlanUiPaint() {
+  return new Promise((resolve) => {
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
+}
+
+async function runPlanBlockingMutation(options = {}, task = null) {
+  const {
+    closeModal = null,
+    title = "正在保存计划",
+    message = "正在写入计划数据，请稍候",
+    perfAction = "plan-mutation",
+  } = options;
+  uiTools?.markPerfStage?.("plan-form-save-start", {
+    allowRepeat: true,
+    action: perfAction,
+  });
+  setPlanLoadingState({
+    active: true,
+    mode: "fullscreen",
+    title,
+    message,
+    delayMs: 0,
+  });
+  try {
+    await waitForPlanUiPaint();
+    if (typeof closeModal === "function") {
+      closeModal();
+    }
+    uiTools?.markPerfStage?.("plan-form-modal-hidden", {
+      allowRepeat: true,
+      action: perfAction,
+    });
+    const result =
+      typeof task === "function" ? await task() : true;
+    if (result !== false) {
+      uiTools?.markPerfStage?.("plan-form-storage-acked", {
+        allowRepeat: true,
+        action: perfAction,
+      });
+    }
+    return result;
+  } finally {
+    setPlanLoadingState({
+      active: false,
+    });
   }
 }
 
@@ -2283,7 +2410,7 @@ function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
 }
 
 function refreshPlanFromExternalStorageChange() {
-  if (!planShellPageActive) {
+  if (!planShellPageActive && !isPlanShellTransitionLoading()) {
     planExternalStorageRefreshPendingResume = true;
     planExternalStorageRefreshQueued = false;
     return;
@@ -2291,17 +2418,20 @@ function refreshPlanFromExternalStorageChange() {
   planExternalStorageRefreshQueued = false;
   const requestId = ++planLoadRequestId;
   const runRefresh = async () => {
+    const shouldManageRefreshLoading = !planInitialDataLoaded;
     if (!planRefreshController) {
-      setPlanLoadingState({
-        active: true,
-        mode: getPlanLoadingMode({
-          blocking: true,
-        }),
-        delayMs: getPlanLoadingDelayMs({
-          blocking: true,
-        }),
-        message: "正在同步最新计划数据，请稍候",
-      });
+      if (shouldManageRefreshLoading) {
+        setPlanLoadingState({
+          active: true,
+          mode: getPlanLoadingMode({
+            blocking: true,
+          }),
+          delayMs: getPlanLoadingDelayMs({
+            blocking: true,
+          }),
+          message: "正在同步最新计划数据，请稍候",
+        });
+      }
       try {
         const snapshot = await readPlanWorkspace();
         if (requestId !== planLoadRequestId) {
@@ -2311,8 +2441,9 @@ function refreshPlanFromExternalStorageChange() {
         renderPlanGuideCard();
         renderCalendarContent();
         planInitialDataLoaded = true;
+        planInitialDataValidated = true;
       } finally {
-        if (requestId === planLoadRequestId) {
+        if (shouldManageRefreshLoading && requestId === planLoadRequestId) {
           setPlanLoadingState({
             active: false,
           });
@@ -2324,13 +2455,16 @@ function refreshPlanFromExternalStorageChange() {
     await planRefreshController.run(
       () => readPlanWorkspace(),
       {
+        manageLoading: shouldManageRefreshLoading,
         delayMs: getPlanLoadingDelayMs({
           blocking: true,
         }),
         loadingOptions: {
-          mode: getPlanLoadingMode({
-            blocking: true,
-          }),
+          mode: shouldManageRefreshLoading
+            ? getPlanLoadingMode({
+                blocking: true,
+              })
+            : "inline",
           message: "正在同步最新计划数据，请稍候",
         },
         commit: async (snapshot) => {
@@ -4020,25 +4154,28 @@ function renderCalendarContent() {
   const contentElement = document.getElementById("calendar-content");
   if (!contentElement) return;
 
-  contentElement.innerHTML = "";
-  contentElement.style.overflow = "visible";
-  contentElement.style.height = "auto";
+  const stagedContent = document.createElement("div");
+  stagedContent.style.display = "contents";
 
   switch (currentView) {
     case "year":
-      renderYearView(contentElement);
+      renderYearView(stagedContent);
       break;
     case "month":
-      renderMonthView(contentElement);
+      renderMonthView(stagedContent);
       break;
     case "weekly-grid":
-      renderWeeklyGridView(contentElement);
+      renderWeeklyGridView(stagedContent);
       break;
     default:
       currentView = "weekly-grid";
-      renderWeeklyGridView(contentElement);
+      renderWeeklyGridView(stagedContent);
       break;
   }
+
+  contentElement.style.overflow = "visible";
+  contentElement.style.height = "auto";
+  contentElement.replaceChildren(...Array.from(stagedContent.childNodes));
 }
 
 function normalizeYearGoalScope(scope) {
@@ -4176,6 +4313,12 @@ function normalizeYearGoal(goal) {
 }
 
 function saveYearGoalEntry(year, scope, goalData, goalId = null) {
+  const normalizedGoal = upsertYearGoalEntryLocal(year, scope, goalData, goalId);
+  void saveYearlyGoals();
+  return normalizedGoal;
+}
+
+function upsertYearGoalEntryLocal(year, scope, goalData, goalId = null) {
   const goals = ensureYearGoalBucket(year, scope);
   const targetIndex = goalId
     ? goals.findIndex((item) => matchesId(item.id, goalId))
@@ -4192,12 +4335,18 @@ function saveYearGoalEntry(year, scope, goalData, goalId = null) {
   } else {
     goals.push(normalizedGoal);
   }
-
-  saveYearlyGoals();
   return normalizedGoal;
 }
 
 function deleteYearGoalEntry(year, scope, goalId) {
+  const deleted = removeYearGoalEntryLocal(year, scope, goalId);
+  if (deleted) {
+    void saveYearlyGoals();
+  }
+  return deleted;
+}
+
+function removeYearGoalEntryLocal(year, scope, goalId) {
   const goals = ensureYearGoalBucket(year, scope);
   const targetIndex = goals.findIndex((item) => matchesId(item.id, goalId));
   if (targetIndex === -1) {
@@ -4205,7 +4354,6 @@ function deleteYearGoalEntry(year, scope, goalId) {
   }
 
   goals.splice(targetIndex, 1);
-  saveYearlyGoals();
   return true;
 }
 
@@ -4221,6 +4369,24 @@ function getGoalPriorityLabel(priority) {
 }
 
 function setYearGoalEntryCompletion(year, scope, goalId, nextCompleted = false) {
+  const changed = setYearGoalEntryCompletionLocal(
+    year,
+    scope,
+    goalId,
+    nextCompleted,
+  );
+  if (changed) {
+    void saveYearlyGoals();
+  }
+  return changed;
+}
+
+function setYearGoalEntryCompletionLocal(
+  year,
+  scope,
+  goalId,
+  nextCompleted = false,
+) {
   const goals = ensureYearGoalBucket(year, scope);
   const targetIndex = goals.findIndex((item) => matchesId(item.id, goalId));
   if (targetIndex === -1) {
@@ -4230,8 +4396,52 @@ function setYearGoalEntryCompletion(year, scope, goalId, nextCompleted = false) 
     ...goals[targetIndex],
     isCompleted: !!nextCompleted,
   });
-  saveYearlyGoals();
   return true;
+}
+
+async function persistYearGoalBlockingMutation(options = {}) {
+  const previousSnapshot = mergePlanWorkspaceSnapshot(
+    options.previousSnapshot,
+    capturePlanWorkspaceSnapshot(),
+  );
+  try {
+    const saved = await runPlanBlockingMutation(
+      {
+        closeModal:
+          typeof options.closeModal === "function" ? options.closeModal : null,
+        title:
+          typeof options.title === "string" && options.title.trim()
+            ? options.title.trim()
+            : "正在保存目标",
+        message:
+          typeof options.message === "string" && options.message.trim()
+            ? options.message.trim()
+            : "正在写入年度目标数据，请稍候",
+        perfAction:
+          typeof options.perfAction === "string" && options.perfAction.trim()
+            ? options.perfAction.trim()
+            : "year-goal-save",
+      },
+      async () => saveYearlyGoals(),
+    );
+    if (saved !== false) {
+      return true;
+    }
+  } catch (error) {
+    console.error("保存年度目标失败:", error);
+  }
+
+  applyPlanWorkspaceState(previousSnapshot);
+  renderPlanGuideCard();
+  renderCalendarContent();
+  await showPlanAlert(
+    options.failureMessage || "年度目标保存失败，请稍后重试。",
+    {
+      title: options.failureTitle || "保存失败",
+      danger: true,
+    },
+  );
+  return false;
 }
 
 function runWithYearGoalModalSuppressed(callback) {
@@ -4432,7 +4642,8 @@ function createYearGoalCard({
       toggleButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const changed = setYearGoalEntryCompletion(
+        const previousSnapshot = capturePlanWorkspaceSnapshot();
+        const changed = setYearGoalEntryCompletionLocal(
           year,
           scope,
           normalizedGoal.id,
@@ -4440,6 +4651,22 @@ function createYearGoalCard({
         );
         if (changed) {
           renderCalendarContent();
+          void Promise.resolve(saveYearlyGoals())
+            .then((result) => {
+              if (result === false) {
+                throw planLastPersistenceError || new Error("保存年度目标状态失败");
+              }
+            })
+            .catch((error) => {
+              console.error("保存年度目标状态失败:", error);
+              applyPlanWorkspaceState(previousSnapshot);
+              renderPlanGuideCard();
+              renderCalendarContent();
+              void showPlanAlert("目标完成状态保存失败，已恢复原状态。", {
+                title: "保存失败",
+                danger: true,
+              }).catch?.(() => {});
+            });
         }
       });
 
@@ -4660,7 +4887,7 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
     yearGoalDescriptionInput.value = editingGoal?.description || "";
   }
 
-  const saveYearGoalAction = () => {
+  const saveYearGoalAction = async () => {
     const title = modal.querySelector("#year-goal-title-input").value.trim();
     const description = modal
       .querySelector("#year-goal-description-input")
@@ -4673,7 +4900,8 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       return;
     }
 
-    saveYearGoalEntry(
+    const previousSnapshot = capturePlanWorkspaceSnapshot();
+    upsertYearGoalEntryLocal(
       year,
       normalizedScope,
       {
@@ -4684,9 +4912,21 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       },
       editingGoal?.id || null,
     );
-    runWithYearGoalModalSuppressed(() => {
-      closeModal();
-      renderCalendarContent();
+    await persistYearGoalBlockingMutation({
+      previousSnapshot,
+      closeModal: () => {
+        runWithYearGoalModalSuppressed(() => {
+          closeModal();
+          renderCalendarContent();
+        });
+      },
+      title: isEditMode ? "正在保存目标" : "正在创建目标",
+      message: "正在写入年度目标数据，请稍候",
+      failureTitle: isEditMode ? "保存失败" : "创建失败",
+      failureMessage: isEditMode
+        ? "年度目标保存失败，请稍后重试。"
+        : "年度目标创建失败，请稍后重试。",
+      perfAction: isEditMode ? "year-goal-edit" : "year-goal-create",
     });
   };
 
@@ -4703,7 +4943,8 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
         },
       );
       if (!confirmed) return;
-      const deleted = deleteYearGoalEntry(
+      const previousSnapshot = capturePlanWorkspaceSnapshot();
+      const deleted = removeYearGoalEntryLocal(
         year,
         normalizedScope,
         editingGoal?.id || goalId,
@@ -4715,9 +4956,19 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
         });
         return;
       }
-      runWithYearGoalModalSuppressed(() => {
-        closeModal();
-        renderCalendarContent();
+      await persistYearGoalBlockingMutation({
+        previousSnapshot,
+        closeModal: () => {
+          runWithYearGoalModalSuppressed(() => {
+            closeModal();
+            renderCalendarContent();
+          });
+        },
+        title: "正在删除目标",
+        message: "正在同步删除年度目标，请稍候",
+        failureTitle: "删除失败",
+        failureMessage: "年度目标删除失败，请稍后重试。",
+        perfAction: "year-goal-delete",
       });
     }
   };
@@ -6105,25 +6356,39 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
       reason: isEditMode ? "plan-weekly-edit" : "plan-weekly-create",
     },
   );
-  if (draftSession && typeof draftSession.clear === "function") {
-    await draftSession.clear().catch((error) => {
+  draftSession?.destroy?.();
+  const saved = await runPlanBlockingMutation(
+    {
+      closeModal: () => {
+        removePlanModalElement(modal);
+        refreshPlanUiAfterMutation({
+          includeGuideCard: true,
+        });
+      },
+      title: isEditMode ? "正在保存计划" : "正在创建计划",
+      message: "正在写入周视图计划数据，请稍候",
+      perfAction: isEditMode ? "plan-weekly-edit" : "plan-weekly-create",
+    },
+    async () => savePlans(persistenceOptions),
+  );
+  if (saved && draftSession && typeof draftSession.clear === "function") {
+    void draftSession.clear().catch((error) => {
       console.error("清理周视图计划草稿失败:", error);
     });
   }
-  draftSession?.destroy?.();
-  removePlanModalElement(modal);
-  refreshPlanUiAfterMutation({
-    includeGuideCard: true,
-  });
-  void savePlans(persistenceOptions).then(async (saveResult) => {
-    if (saveResult === false) {
-      return;
-    }
-    await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-      silentWhenDisabled: false,
+  if (saved) {
+    const permissionTask = getReminderTools()?.requestPermissionIfNeeded?.(
+      "计划",
+      reminderConfig,
+      {
+        silentWhenDisabled: false,
+      },
+    );
+    void permissionTask?.catch?.((error) => {
+      console.error("请求计划提醒权限失败:", error);
     });
-  });
-  return true;
+  }
+  return saved;
 }
 
 // 回到今天
@@ -6555,25 +6820,39 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
       reason: isEditMode ? "plan-edit" : "plan-create",
     },
   );
-  if (draftSession && typeof draftSession.clear === "function") {
-    await draftSession.clear().catch((error) => {
+  draftSession?.destroy?.();
+  const saved = await runPlanBlockingMutation(
+    {
+      closeModal: () => {
+        removePlanModalElement(modal);
+        refreshPlanUiAfterMutation({
+          includeGuideCard: true,
+        });
+      },
+      title: isEditMode ? "正在保存计划" : "正在创建计划",
+      message: "正在写入计划数据，请稍候",
+      perfAction: isEditMode ? "plan-edit" : "plan-create",
+    },
+    async () => savePlans(persistenceOptions),
+  );
+  if (saved && draftSession && typeof draftSession.clear === "function") {
+    void draftSession.clear().catch((error) => {
       console.error("清理计划草稿失败:", error);
     });
   }
-  draftSession?.destroy?.();
-  removePlanModalElement(modal);
-  refreshPlanUiAfterMutation({
-    includeGuideCard: true,
-  });
-  void savePlans(persistenceOptions).then(async (saveResult) => {
-    if (saveResult === false) {
-      return;
-    }
-    await getReminderTools()?.requestPermissionIfNeeded?.("计划", reminderConfig, {
-      silentWhenDisabled: false,
+  if (saved) {
+    const permissionTask = getReminderTools()?.requestPermissionIfNeeded?.(
+      "计划",
+      reminderConfig,
+      {
+        silentWhenDisabled: false,
+      },
+    );
+    void permissionTask?.catch?.((error) => {
+      console.error("请求计划提醒权限失败:", error);
     });
-  });
-  return true;
+  }
+  return saved;
 }
 
 // 显示计划详情弹窗
@@ -7389,7 +7668,7 @@ async function init() {
     });
 
     const needsManualInitLoading =
-      !planInitialDataValidated && !planRefreshController;
+      !planInitialDataValidated && !planRefreshController && !bootstrappedFromSnapshot;
     if (needsManualInitLoading) {
       setPlanLoadingState({
         active: true,
@@ -7403,6 +7682,9 @@ async function init() {
       !planShellPageActive &&
       !isPlanShellTransitionLoading()
     ) {
+      scheduleDeferredPlanBootstrap();
+    } else if (bootstrappedFromSnapshot && !planInitialDataValidated) {
+      queuePlanInitialReveal();
       scheduleDeferredPlanBootstrap();
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
@@ -7420,7 +7702,7 @@ async function init() {
         active: false,
       });
     }
-    if (planInitialDataValidated) {
+    if (planInitialDataValidated || bootstrappedFromSnapshot) {
       queuePlanInitialReveal();
     }
   }

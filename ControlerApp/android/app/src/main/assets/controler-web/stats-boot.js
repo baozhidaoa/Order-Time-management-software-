@@ -1506,6 +1506,14 @@ let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
 let statsBootstrappedFromPageBootstrap = false;
+
+function isStatsShellTransitionLoading() {
+  if (typeof uiTools?.getShellVisibilityState !== "function") {
+    return false;
+  }
+  return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
 const STATS_CHART_RUNTIME_KEY = "chart";
 const STATS_D3_RUNTIME_KEY = "d3";
 const STATS_HEATMAP_STYLE_KEY = "calHeatmapCss";
@@ -2697,15 +2705,26 @@ function queueStatsToolbarReveal() {
   }
 
   statsToolbarRevealQueued = true;
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    schedule(() => {
       statsToolbarRevealQueued = false;
       body.classList.remove("stats-toolbar-bootstrap-pending");
       body.classList.add("stats-toolbar-bootstrap-ready");
       if (!statsInitialReadyReported) {
-        statsInitialReadyReported = true;
-        uiTools?.markPerfStage?.("first-render-done");
-        uiTools?.markNativePageReady?.();
+        schedule(() => {
+          schedule(() => {
+            if (statsInitialReadyReported) {
+              return;
+            }
+            statsInitialReadyReported = true;
+            uiTools?.markPerfStage?.("first-render-done");
+            uiTools?.markNativePageReady?.();
+          });
+        });
       }
     });
   });
@@ -4353,6 +4372,62 @@ function applyStatsWorkspaceState(snapshot = {}) {
   syncStatsDataIndex(["records", "projects"]);
 }
 
+function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStatsLoadScope()) {
+  const recordScope = getExpandedStatsRecordLoadScope(scope);
+  const periodIds =
+    recordScope?.all === true
+      ? []
+      : Array.isArray(recordScope?.periodIds)
+        ? recordScope.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+  const periodSet = new Set(periodIds);
+  const sourceRecords = Array.isArray(sourceState?.records) ? sourceState.records : [];
+  const nextRecords =
+    recordScope?.all === true || !periodSet.size
+      ? sourceRecords.slice()
+      : sourceRecords.filter((record) => periodSet.has(getStatsRecordPeriodId(record)));
+  return {
+    preferences:
+      sourceState?.statsPreferences && typeof sourceState.statsPreferences === "object"
+        ? sourceState.statsPreferences
+        : sourceState?.preferences && typeof sourceState.preferences === "object"
+          ? sourceState.preferences
+          : readStatsPreferencesFromStorage(),
+    records: nextRecords,
+    projects: Array.isArray(sourceState?.projects) ? sourceState.projects : [],
+    loadedRecordPeriodIds:
+      recordScope?.all === true
+        ? [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))]
+        : periodIds.length
+          ? periodIds.slice()
+          : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+  };
+}
+
+function getStatsWorkspaceSnapshotWeight(snapshot = {}) {
+  const recordCount = Array.isArray(snapshot?.records) ? snapshot.records.length : 0;
+  const projectCount = Array.isArray(snapshot?.projects) ? snapshot.projects.length : 0;
+  const loadedPeriodCount = Array.isArray(snapshot?.loadedRecordPeriodIds)
+    ? snapshot.loadedRecordPeriodIds.length
+    : 0;
+  return recordCount * 4 + projectCount * 2 + loadedPeriodCount;
+}
+
+function pickPreferredStatsWorkspaceSnapshot(primarySnapshot = null, fallbackSnapshot = null) {
+  if (!primarySnapshot) {
+    return fallbackSnapshot;
+  }
+  if (!fallbackSnapshot) {
+    return primarySnapshot;
+  }
+  return getStatsWorkspaceSnapshotWeight(fallbackSnapshot) >
+    getStatsWorkspaceSnapshotWeight(primarySnapshot)
+    ? fallbackSnapshot
+    : primarySnapshot;
+}
+
 function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()) {
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
@@ -4391,14 +4466,63 @@ function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()
   }
 }
 
+function readStatsWorkspaceSnapshotFromManagedStorage(scope = getStatsLoadScope()) {
+  try {
+    const snapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return null;
+    }
+    return buildStatsWorkspaceSnapshotFromState(snapshot, scope);
+  } catch (error) {
+    console.error("读取统计页受管快照失败:", error);
+    return null;
+  }
+}
+
+function readStatsWorkspaceSnapshotFromLocalMirror(scope = getStatsLoadScope()) {
+  try {
+    const rawRecords = JSON.parse(localStorage.getItem("records") || "[]");
+    const rawProjects = JSON.parse(localStorage.getItem("projects") || "[]");
+    const rawPreferences = JSON.parse(
+      localStorage.getItem(STATS_PREFERENCES_STORAGE_KEY) || "{}",
+    );
+    return buildStatsWorkspaceSnapshotFromState(
+      {
+        records: Array.isArray(rawRecords) ? rawRecords : [],
+        projects: Array.isArray(rawProjects) ? rawProjects : [],
+        statsPreferences: rawPreferences,
+      },
+      scope,
+    );
+  } catch (error) {
+    console.error("读取统计页本地镜像失败:", error);
+    return null;
+  }
+}
+
 function bootstrapStatsFromCachedSnapshot(scope = getStatsLoadScope()) {
-  const snapshot = readStatsWorkspaceSnapshotFromPageBootstrap(scope);
+  const pageBootstrapSnapshot = readStatsWorkspaceSnapshotFromPageBootstrap(scope);
+  const managedSnapshot = readStatsWorkspaceSnapshotFromManagedStorage(scope);
+  const localSnapshot = readStatsWorkspaceSnapshotFromLocalMirror(scope);
+  const snapshot = pickPreferredStatsWorkspaceSnapshot(
+    pickPreferredStatsWorkspaceSnapshot(pageBootstrapSnapshot, managedSnapshot),
+    localSnapshot,
+  );
   if (!snapshot) {
     statsBootstrappedFromPageBootstrap = false;
     return false;
   }
   applyStatsWorkspaceState(snapshot);
-  statsBootstrappedFromPageBootstrap = true;
+  statsBootstrappedFromPageBootstrap = snapshot === pageBootstrapSnapshot;
+  uiTools?.markPerfStage?.("first-data-ready", {
+    rangeUnit: statsRangeState.unit,
+    recordCount: records.length,
+    projectCount: projects.length,
+    fromCache: true,
+  });
   return true;
 }
 
@@ -6045,15 +6169,17 @@ function renderCurrentView() {
     window.lineChart.destroy();
     window.lineChart = null;
   }
-  container.innerHTML = "";
+  const stagedContainer = document.createElement("div");
+  stagedContainer.style.display = "contents";
 
   const widgetRenderer = getStatsWidgetRendererConfig();
   if (widgetRenderer) {
     renderStatsSectionPanel(
-      container,
+      stagedContainer,
       widgetRenderer.title,
       widgetRenderer.render,
     );
+    container.replaceChildren(...Array.from(stagedContainer.childNodes));
     return;
   }
 
@@ -6071,7 +6197,7 @@ function renderCurrentView() {
     const missingD3 = typeof window.d3 === "undefined";
     if (missingChart || missingD3) {
       renderStatsRuntimeMessage(
-        container,
+        stagedContainer,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6093,13 +6219,14 @@ function renderCurrentView() {
             }`,
           );
         });
+      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   if (safeMode === "day-line") {
     if (typeof window.Chart === "undefined") {
       renderStatsRuntimeMessage(
-        container,
+        stagedContainer,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6118,13 +6245,14 @@ function renderCurrentView() {
             }`,
           );
         });
+      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   if (safeMode === "day-pie") {
     if (typeof window.d3 === "undefined") {
       renderStatsRuntimeMessage(
-        container,
+        stagedContainer,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6143,14 +6271,16 @@ function renderCurrentView() {
             }`,
           );
         });
+      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   renderStatsSectionPanel(
-    container,
+    stagedContainer,
     STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
     renderers[safeMode] || renderers.table,
   );
+  container.replaceChildren(...Array.from(stagedContainer.childNodes));
 }
 
 function renderStatsSectionPanel(container, title, renderContent) {
@@ -9508,13 +9638,16 @@ function bindTableScaleLiveRefresh() {
 let statsExternalStorageRefreshQueued = false;
 
 function refreshStatsFromExternalStorageChange() {
-  if (!statsShellPageActive) {
+  if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
     statsExternalStorageRefreshQueued = false;
     statsExternalRefreshPendingResume = true;
     return;
   }
   statsExternalStorageRefreshQueued = false;
-  void refreshStatsRangeData(true);
+  void refreshStatsRangeData(true, {
+    manageLoading: !statsInitialDataLoaded,
+    mode: statsInitialDataLoaded ? "inline" : "fullscreen",
+  });
 }
 
 function bindStatsShellVisibilityGate() {
@@ -9541,9 +9674,11 @@ function bindStatsShellVisibilityGate() {
 
     if (statsInitialLoadPendingResume) {
       statsInitialLoadPendingResume = false;
+      const needsBlockingResumeLoad = !statsInitialDataLoaded;
       void refreshStatsRangeData(true, {
-        mode: "fullscreen",
-        delayMs: 0,
+        mode: needsBlockingResumeLoad ? "fullscreen" : "inline",
+        delayMs: needsBlockingResumeLoad ? 0 : STATS_LOADING_OVERLAY_DELAY_MS,
+        manageLoading: needsBlockingResumeLoad,
         message: "正在整理统计索引与范围数据，请稍候",
       });
     }
@@ -9796,16 +9931,18 @@ async function init() {
       queueStatsToolbarReveal();
     }
     const initialScope = getStatsLoadScope();
+    const canPrepareInitialData =
+      statsShellPageActive || isStatsShellTransitionLoading();
     const bootstrappedFromSnapshot = bootstrapStatsFromCachedSnapshot(initialScope);
     if (!bootstrappedFromSnapshot) {
-      const initialLoadFresh = statsShellPageActive;
+      const initialLoadFresh = canPrepareInitialData;
       await loadData(initialScope, {
         fresh: initialLoadFresh,
       });
       if (!initialLoadFresh) {
         statsInitialLoadPendingResume = true;
       }
-    } else if (statsShellPageActive) {
+    } else if (canPrepareInitialData) {
       statsInitialDataLoaded = true;
     } else {
       statsInitialDataLoaded = true;
@@ -9832,7 +9969,7 @@ async function init() {
     await waitForStatsUiPaint();
     if (
       bootstrappedFromSnapshot &&
-      statsShellPageActive &&
+      canPrepareInitialData &&
       !(statsBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp)
     ) {
       void refreshStatsRangeData(true, {

@@ -74,6 +74,13 @@ function waitForIndexStorageReady() {
   });
 }
 
+function isIndexShellTransitionLoading() {
+  if (typeof uiTools?.getShellVisibilityState !== "function") {
+    return false;
+  }
+  return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
 async function requestIndexConfirmation(message, options = {}) {
   if (uiTools?.confirmDialog) {
     return uiTools.confirmDialog({
@@ -358,6 +365,8 @@ let indexShellVisibilityBound = false;
 let indexDebugInteractivityProbeBound = false;
 let indexForegroundBootstrapReady = false;
 let indexForegroundBootstrapPromise = null;
+let indexInitialDataValidated = false;
+let indexBootstrappedFromPageBootstrap = false;
 let indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
 let indexRenderedRecordGroupSignature = "";
 let indexRecordListLazyLoadBound = false;
@@ -441,6 +450,251 @@ function bindIndexShellVisibilityGate() {
       void ensureIndexDeferredRuntimeLoaded();
     }
   });
+}
+
+function formatIndexScopeDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function filterIndexRecordsByScope(items = [], scope = null) {
+  const normalizedScope = cloneIndexRecordLoadScope(scope);
+  if (!normalizedScope) {
+    return Array.isArray(items) ? items.slice() : [];
+  }
+  const startDate = String(normalizedScope.startDate || "").trim();
+  const endDate = String(normalizedScope.endDate || "").trim();
+  if (!startDate && !endDate) {
+    return Array.isArray(items) ? items.slice() : [];
+  }
+  return (Array.isArray(items) ? items : []).filter((record) => {
+    const recordDateKey = formatIndexScopeDateKey(resolveRecordTime(record));
+    if (!recordDateKey) {
+      return false;
+    }
+    if (startDate && recordDateKey < startDate) {
+      return false;
+    }
+    if (endDate && recordDateKey > endDate) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildIndexWorkspacePerfDetail(snapshot = {}) {
+  const snapshotProjects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const snapshotRecords = Array.isArray(snapshot.records) ? snapshot.records : [];
+  const snapshotPeriodIds = normalizeIndexRecordPeriodIdList(
+    Array.isArray(snapshot.loadedPeriodIds)
+      ? snapshot.loadedPeriodIds
+      : getIndexRecordPeriodIds(snapshotRecords),
+  );
+  const snapshotScope = cloneIndexRecordLoadScope(snapshot.recordScope);
+  return {
+    projectCount: snapshotProjects.length,
+    recordCount: snapshotRecords.length,
+    periodIds: snapshotPeriodIds.slice(),
+    loadedPeriodCount: snapshotPeriodIds.length,
+    startDate: snapshotScope?.startDate || "",
+    endDate: snapshotScope?.endDate || "",
+    source: typeof snapshot.source === "string" ? snapshot.source : "",
+    fromCache: true,
+  };
+}
+
+function markIndexInitialDataReady(snapshot = {}) {
+  const perfDetail = buildIndexWorkspacePerfDetail(snapshot);
+  uiTools?.markPerfStage?.("first-data-ready", perfDetail);
+  uiTools?.markPerfStage?.("index-snapshot-data-ready", perfDetail);
+}
+
+function buildIndexWorkspaceSnapshotFromRaw(parts = {}, options = {}) {
+  const recordScope =
+    cloneIndexRecordLoadScope(options.recordScope) || getIndexDefaultRecordScope();
+  const rawProjects = Array.isArray(parts.projects) ? parts.projects : [];
+  const rawRecords = filterIndexRecordsByScope(parts.records, recordScope);
+  return {
+    source: typeof options.source === "string" ? options.source : "",
+    recordLoadMode: INDEX_RECORD_LOAD_MODE_RECENT_RANGE,
+    recordScope,
+    projects: normalizeStoredProjects(rawProjects),
+    records: normalizeIndexLoadedRecords(rawRecords),
+    loadedPeriodIds: normalizeIndexRecordPeriodIdList(
+      Array.isArray(options.loadedPeriodIds)
+        ? options.loadedPeriodIds
+        : getIndexRecordPeriodIds(rawRecords),
+    ),
+  };
+}
+
+function readIndexWorkspaceSnapshotFromPageBootstrap(recordScope = null) {
+  try {
+    if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
+      return null;
+    }
+    const bootstrap = window.ControlerStorage.peekPageBootstrapState("index", {
+      recordScope: cloneIndexRecordLoadScope(recordScope) || getIndexDefaultRecordScope(),
+    });
+    const data =
+      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
+    if (!data) {
+      return null;
+    }
+    return buildIndexWorkspaceSnapshotFromRaw(
+      {
+        projects: Array.isArray(data.projects) ? data.projects : [],
+        records: Array.isArray(data.recentRecords) ? data.recentRecords : [],
+      },
+      {
+        source: "page-bootstrap",
+        recordScope,
+        loadedPeriodIds: bootstrap?.loadedPeriodIds,
+      },
+    );
+  } catch (error) {
+    console.error("读取记录页引导快照失败，回退本地快照:", error);
+    return null;
+  }
+}
+
+function readIndexWorkspaceSnapshotFromManagedStorage(recordScope = null) {
+  try {
+    const snapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return null;
+    }
+    const hasProjects = Array.isArray(snapshot.projects);
+    const hasRecords = Array.isArray(snapshot.records);
+    if (!hasProjects && !hasRecords) {
+      return null;
+    }
+    return buildIndexWorkspaceSnapshotFromRaw(
+      {
+        projects: hasProjects ? snapshot.projects : [],
+        records: hasRecords ? snapshot.records : [],
+      },
+      {
+        source: "managed-snapshot",
+        recordScope,
+      },
+    );
+  } catch (error) {
+    console.error("读取记录页受管快照失败，回退本地镜像:", error);
+    return null;
+  }
+}
+
+function readIndexWorkspaceSnapshotFromLocalMirror(recordScope = null) {
+  const localProjectMirror = readIndexProjectMirrorState();
+  const localRecordMirror = readIndexLocalRecordSnapshot();
+  if (!localProjectMirror.hasMirror && !localRecordMirror.hasMirror) {
+    return null;
+  }
+  return buildIndexWorkspaceSnapshotFromRaw(
+    {
+      projects: localProjectMirror.items,
+      records: localRecordMirror.items,
+    },
+    {
+      source: "local-mirror",
+      recordScope,
+    },
+  );
+}
+
+function hasUsableIndexRecordSnapshot(snapshot = null) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+  const snapshotRecords = Array.isArray(snapshot.records) ? snapshot.records : [];
+  const snapshotLoadedPeriodIds = Array.isArray(snapshot.loadedPeriodIds)
+    ? snapshot.loadedPeriodIds
+    : [];
+  return snapshotRecords.length > 0 || snapshotLoadedPeriodIds.length > 0;
+}
+
+function readIndexWorkspaceSnapshot() {
+  const recordLoadOptions = getIndexCurrentRecordLoadOptions();
+  const recordScope =
+    cloneIndexRecordLoadScope(recordLoadOptions.recordScope) || getIndexDefaultRecordScope();
+  const pageBootstrapSnapshot = readIndexWorkspaceSnapshotFromPageBootstrap(recordScope);
+  const managedSnapshot = readIndexWorkspaceSnapshotFromManagedStorage(recordScope);
+  const localMirrorSnapshot = readIndexWorkspaceSnapshotFromLocalMirror(recordScope);
+  const fallbackSnapshot = managedSnapshot || localMirrorSnapshot;
+  if (
+    hasUsableIndexRecordSnapshot(pageBootstrapSnapshot) ||
+    !hasUsableIndexRecordSnapshot(fallbackSnapshot)
+  ) {
+    return pageBootstrapSnapshot || fallbackSnapshot;
+  }
+  return fallbackSnapshot || pageBootstrapSnapshot;
+}
+
+function applyIndexWorkspaceSnapshot(snapshot = {}) {
+  const nextProjects = normalizeStoredProjects(snapshot.projects || []);
+  const nextRecords = normalizeIndexLoadedRecords(snapshot.records || []);
+  projects = nextProjects;
+  records = nextRecords;
+  syncIndexProjectMirrorIfNeeded(nextProjects);
+  indexAllHistoricalRecordsLoaded =
+    normalizeIndexRecordLoadMode(snapshot.recordLoadMode) ===
+    INDEX_RECORD_LOAD_MODE_FULL_HISTORY;
+  rememberIndexRecordLoadWindow(
+    snapshot.recordLoadMode || INDEX_RECORD_LOAD_MODE_RECENT_RANGE,
+    snapshot.recordScope || getIndexDefaultRecordScope(),
+  );
+  indexLoadedRecordPeriodIds = normalizeIndexRecordPeriodIdList(
+    Array.isArray(snapshot.loadedPeriodIds) && snapshot.loadedPeriodIds.length
+      ? snapshot.loadedPeriodIds
+      : getIndexRecordPeriodIds(nextRecords),
+  );
+  if (
+    nextRecords.length > 0 ||
+    indexLoadedRecordPeriodIds.length > 0 ||
+    snapshot.source !== "page-bootstrap"
+  ) {
+    setIndexRawLocalMirrorItem("records", JSON.stringify(nextRecords));
+  }
+  loadProjectHierarchyExpansionStateFromStorage();
+  projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
+    projectTotalsExpansionState,
+    nextProjects,
+  );
+  indexInitialDataLoaded = true;
+  indexBootstrappedFromPageBootstrap = snapshot.source === "page-bootstrap";
+  indexInitialDataValidated =
+    indexBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp === true;
+  emitIndexDebugPerf(
+    "hydrate-workspace-bootstrap-cached",
+    buildIndexWorkspacePerfDetail({
+      ...snapshot,
+      projects: nextProjects,
+      records: nextRecords,
+      loadedPeriodIds: indexLoadedRecordPeriodIds.slice(),
+    }),
+  );
+}
+
+function bootstrapIndexFromCachedSnapshot() {
+  const snapshot = readIndexWorkspaceSnapshot();
+  if (!snapshot) {
+    indexBootstrappedFromPageBootstrap = false;
+    indexInitialDataValidated = false;
+    return null;
+  }
+  applyIndexWorkspaceSnapshot(snapshot);
+  return {
+    ...snapshot,
+    projects: projects.slice(),
+    records: records.slice(),
+    loadedPeriodIds: indexLoadedRecordPeriodIds.slice(),
+  };
 }
 
 function getIndexNormalizedChangedSections(changedSections = []) {
@@ -566,7 +820,7 @@ function shouldRefreshIndexForExternalChange(detail = {}) {
 }
 
 function ensureIndexDeferredRuntimeLoaded() {
-  if (!indexShellPageActive) {
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
     indexDeferredRuntimePendingResume = true;
     return Promise.resolve();
   }
@@ -1554,6 +1808,9 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
         periodIds: indexLoadedRecordPeriodIds.slice(),
         durationMs: Math.round(uiCommitDuration),
       });
+      if (records.length > 0 || indexLoadedRecordPeriodIds.length > 0) {
+        setIndexRawLocalMirrorItem("records", JSON.stringify(records));
+      }
       if (markFirstCommit) {
         uiTools?.markPerfStage?.("first-data-commit", {
           projectCount: projects.length,
@@ -1572,7 +1829,7 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
 }
 
 async function refreshIndexFromExternalStorageChange() {
-  if (!indexShellPageActive) {
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
     indexExternalRefreshPendingResume = true;
     indexExternalStorageRefreshQueued = false;
     return;
@@ -1625,6 +1882,7 @@ async function refreshIndexFromExternalStorageChange() {
   });
 
   try {
+    const shouldManageRefreshLoading = !indexInitialDataLoaded;
     if (!indexRefreshController) {
       await hydrateIndexWorkspace({
         includeProjects,
@@ -1656,8 +1914,9 @@ async function refreshIndexFromExternalStorageChange() {
         }),
       {
         delayMs: INDEX_LOADING_OVERLAY_DELAY_MS,
+        manageLoading: shouldManageRefreshLoading,
         loadingOptions: {
-          mode: indexInitialDataLoaded ? "inline" : "fullscreen",
+          mode: shouldManageRefreshLoading ? "fullscreen" : "inline",
           message: "正在同步最新记录与项目，请稍候",
         },
         commit: async () => {
@@ -4761,11 +5020,11 @@ function syncIndexProjectMirrorIfNeeded(projectList = projects) {
   }
 
   try {
-    const previousSnapshot = localStorage.getItem("projects") || "";
+    const previousSnapshot = getIndexRawLocalMirrorItem("projects");
     if (previousSnapshot === snapshot) {
       return false;
     }
-    localStorage.setItem("projects", snapshot);
+    setIndexRawLocalMirrorItem("projects", snapshot);
     return true;
   } catch (error) {
     console.error("同步项目本地镜像失败:", error);
@@ -6069,8 +6328,18 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
 
   const modal = target.closest(".timer-session-modal");
   const modalBody = modal?.querySelector?.(".controler-form-modal-body");
-  const field = target.closest(".form-group") || target;
-  if (!(modalBody instanceof HTMLElement) || !(field instanceof HTMLElement)) {
+  const revealAnchor =
+    target.closest("input, textarea, select, [contenteditable='true']") ||
+    target;
+  const anchorContainer =
+    target.closest(".input-with-suggestions") ||
+    target.closest(".form-group") ||
+    revealAnchor;
+  if (
+    !(modalBody instanceof HTMLElement) ||
+    !(revealAnchor instanceof HTMLElement) ||
+    !(anchorContainer instanceof HTMLElement)
+  ) {
     return false;
   }
 
@@ -6082,19 +6351,20 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
     if (
       !isModalOpen ||
       !modalBody.isConnected ||
-      !field.isConnected ||
+      !revealAnchor.isConnected ||
       modalBody.clientHeight <= 0
     ) {
       return;
     }
 
-    const visiblePopover = field.querySelector?.(".suggestion-popover.visible");
+    const visiblePopover =
+      anchorContainer.querySelector?.(".suggestion-popover.visible");
     const modalBodyRect = modalBody.getBoundingClientRect();
-    const fieldRect = field.getBoundingClientRect();
-    const fieldTop =
-      modalBody.scrollTop + Math.max(fieldRect.top - modalBodyRect.top, 0);
-    const fieldBottom =
-      modalBody.scrollTop + Math.max(fieldRect.bottom - modalBodyRect.top, 0);
+    const anchorRect = revealAnchor.getBoundingClientRect();
+    const currentScrollTop = modalBody.scrollTop;
+    const anchorTop = currentScrollTop + (anchorRect.top - modalBodyRect.top);
+    const anchorBottom =
+      currentScrollTop + (anchorRect.bottom - modalBodyRect.top);
     const shouldReservePopoverHeight =
       visiblePopover instanceof HTMLElement &&
       window.getComputedStyle(visiblePopover).position === "absolute";
@@ -6112,19 +6382,24 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
       modalBody.clientHeight - keyboardInsetPx,
       Math.min(modalBody.clientHeight, 120),
     );
-    const desiredBottom = fieldBottom + visiblePopoverHeight + 20;
+    const minVisibleTop = currentScrollTop + 12;
+    const maxVisibleBottom = currentScrollTop + visibleBodyHeight;
+    const desiredBottom = anchorBottom + visiblePopoverHeight + 20;
     const maxScrollTop = Math.max(
       modalBody.scrollHeight - modalBody.clientHeight,
       0,
     );
-    const nextScrollTop = Math.min(
-      Math.max(
-        Math.max(fieldTop - 12, 0),
-        Math.max(desiredBottom - visibleBodyHeight, 0),
-      ),
-      maxScrollTop,
-    );
-    modalBody.scrollTop = nextScrollTop;
+
+    let nextScrollTop = currentScrollTop;
+    if (anchorTop < minVisibleTop) {
+      nextScrollTop = Math.max(anchorTop - 12, 0);
+    } else if (desiredBottom > maxVisibleBottom) {
+      nextScrollTop = Math.max(desiredBottom - visibleBodyHeight, 0);
+    }
+
+    if (Math.abs(nextScrollTop - currentScrollTop) > 1) {
+      modalBody.scrollTop = Math.min(nextScrollTop, maxScrollTop);
+    }
   };
   const runReveal = () => {
     window.setTimeout(reveal, delayMs);
@@ -7803,6 +8078,25 @@ async function handleIndexModalConfirmClick() {
     const pendingClickTime = getPendingSpendModalClickTime() || new Date();
     const pendingBaseState =
       getPendingSpendModalBaseState() || captureTimerCoreState();
+    const predictedNextClickCount = Number.isFinite(pendingBaseState?.ptn)
+      ? Math.max(0, Math.floor(Number(pendingBaseState.ptn))) + 1
+      : ptn + 1;
+    const willPersistRecord = predictedNextClickCount >= 2;
+    if (willPersistRecord) {
+      uiTools?.markPerfStage?.("record-save-overlay-armed", {
+        allowRepeat: true,
+      });
+      saveTransactionId = beginIndexSaveTransaction();
+      setIndexLoadingState({
+        active: true,
+        mode: "fullscreen",
+        title: "正在保存记录",
+        message: "正在写入新记录，请稍候后再切换页面。",
+        delayMs: 0,
+        lockNativeExit: true,
+      });
+      await waitForIndexUiPaint();
+    }
     saveAttemptSnapshot = captureIndexModalSaveAttemptSnapshot();
     const spendAccepted = spend({
       clickTime: pendingClickTime,
@@ -7814,20 +8108,6 @@ async function handleIndexModalConfirmClick() {
         danger: true,
       });
       return;
-    }
-
-    const willPersistRecord = ptn >= 2;
-    if (willPersistRecord) {
-      saveTransactionId = beginIndexSaveTransaction();
-      setIndexLoadingState({
-        active: true,
-        mode: "fullscreen",
-        title: "正在保存记录",
-        message: "正在写入新记录，请稍候后再切换页面。",
-        delayMs: INDEX_LOADING_OVERLAY_DELAY_MS,
-        lockNativeExit: true,
-      });
-      await waitForIndexUiPaint();
     }
 
     let createdProjectPendingSave = false;
@@ -7853,6 +8133,17 @@ async function handleIndexModalConfirmClick() {
         return;
       }
       createdProjectPendingSave = true;
+    }
+
+    if (willPersistRecord) {
+      closeModal({
+        discardUnsavedClick: false,
+        force: true,
+      });
+      uiTools?.markPerfStage?.("record-save-modal-hidden", {
+        allowRepeat: true,
+        createdProjectPendingSave,
+      });
     }
 
     if (createdProjectPendingSave) {
@@ -7916,10 +8207,6 @@ async function handleIndexModalConfirmClick() {
     resetShortenTimeInputs(false);
     setModalProjectInputTarget("next-project-input", { manual: false });
     persistTimerSessionState();
-    closeModal({
-      discardUnsavedClick: false,
-      force: true,
-    });
     await flushIndexPendingPersistenceOrThrow(
       {
         allowDeferredBarrier: false,
@@ -11354,9 +11641,48 @@ function mergeIndexRecordsByPeriods(
   return [...preserved, ...(Array.isArray(incomingItems) ? incomingItems : [])];
 }
 
+function getIndexRawLocalMirrorStorage() {
+  const storageApi = window.ControlerStorage;
+  if (
+    storageApi &&
+    typeof storageApi.getRawLocalItem === "function" &&
+    typeof storageApi.setRawLocalItem === "function" &&
+    typeof storageApi.removeRawLocalItem === "function"
+  ) {
+    return storageApi;
+  }
+  return null;
+}
+
+function getIndexRawLocalMirrorItem(key) {
+  const storageApi = getIndexRawLocalMirrorStorage();
+  if (storageApi) {
+    return storageApi.getRawLocalItem(key) || "";
+  }
+  return localStorage.getItem(key) || "";
+}
+
+function setIndexRawLocalMirrorItem(key, value) {
+  const storageApi = getIndexRawLocalMirrorStorage();
+  if (storageApi) {
+    storageApi.setRawLocalItem(key, value);
+    return;
+  }
+  localStorage.setItem(key, value);
+}
+
+function removeIndexRawLocalMirrorItem(key) {
+  const storageApi = getIndexRawLocalMirrorStorage();
+  if (storageApi) {
+    storageApi.removeRawLocalItem(key);
+    return;
+  }
+  localStorage.removeItem(key);
+}
+
 function readIndexLocalRecordSnapshot() {
   try {
-    const raw = localStorage.getItem("records");
+    const raw = getIndexRawLocalMirrorItem("records");
     if (!raw) {
       return {
         items: [],
@@ -11392,7 +11718,7 @@ function readIndexManagedRecordSnapshot() {
 
 function readIndexProjectMirrorState() {
   try {
-    const raw = localStorage.getItem("projects");
+    const raw = getIndexRawLocalMirrorItem("projects");
     if (!raw) {
       return {
         items: [],
@@ -11511,7 +11837,7 @@ function saveRecordsToStorage() {
         indexLoadedRecordPeriodIds = loadedPeriodIdsSnapshot.slice();
         if (!managedStorage) {
           syncIndexProjectMirrorIfNeeded(projectsSnapshot);
-          localStorage.setItem("records", JSON.stringify(recordsSnapshot));
+          setIndexRawLocalMirrorItem("records", JSON.stringify(recordsSnapshot));
           if (saveRevision === indexRecordMutationRevision) {
             indexDirtyRecordPeriodIds = new Set();
             indexPendingRecordPatchByPeriod.clear();
@@ -11567,7 +11893,7 @@ function saveRecordsToStorage() {
               indexPendingRecordSaveIds.delete(normalizedRecordId);
             }
           });
-          localStorage.removeItem("records");
+          setIndexRawLocalMirrorItem("records", JSON.stringify(recordsSnapshot));
         }
         return true;
       }),
@@ -12141,6 +12467,7 @@ async function hydrateIndexInitialForegroundWorkspace() {
     await commitIndexWorkspaceSnapshot({
       markFirstCommit: true,
     });
+    indexInitialDataValidated = true;
     emitIndexDebugPerf("hydrate-index-after-commit", {
       projectCount: Array.isArray(projects) ? projects.length : 0,
       recordCount: Array.isArray(records) ? records.length : 0,
@@ -12168,7 +12495,7 @@ async function hydrateIndexInitialForegroundWorkspace() {
 }
 
 function scheduleIndexDeferredWorkspaceHydration() {
-  if (!indexShellPageActive) {
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
     indexDeferredHydrationPendingResume = true;
     return Promise.resolve();
   }
@@ -12178,7 +12505,7 @@ function scheduleIndexDeferredWorkspaceHydration() {
 
   indexDeferredWorkspaceHydrationPromise = new Promise((resolve, reject) => {
     const startHydration = () => {
-      if (!indexShellPageActive) {
+      if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
         indexDeferredWorkspaceHydrationPromise = null;
         indexDeferredHydrationPendingResume = true;
         resolve();
@@ -12187,7 +12514,7 @@ function scheduleIndexDeferredWorkspaceHydration() {
       Promise.resolve()
         .then(async () => {
           await hydrateIndexWorkspace({
-            includeProjects: false,
+            includeProjects: true,
             includeRecords: true,
           });
           uiTools?.markPerfStage?.("first-data-ready", {
@@ -12199,6 +12526,7 @@ function scheduleIndexDeferredWorkspaceHydration() {
           await commitIndexWorkspaceSnapshot({
             markFirstCommit: true,
           });
+          indexInitialDataValidated = true;
           finalizeIndexInitialHydration();
           resolve();
         })
@@ -12281,7 +12609,26 @@ async function init() {
     initIndexModalBindings();
     bindIndexDebugInteractivityProbe();
     initIndexWidgetLaunchAction();
-    if (!indexShellPageActive) {
+    const bootstrappedSnapshot = bootstrapIndexFromCachedSnapshot();
+    if (bootstrappedSnapshot) {
+      await commitIndexWorkspaceSnapshot({
+        markFirstCommit: true,
+      });
+      markIndexInitialDataReady(bootstrappedSnapshot);
+      finalizeIndexInitialHydration();
+      void ensureIndexForegroundBootstrapReady()
+        .then(() => {
+          if (!indexInitialDataValidated) {
+            return scheduleIndexDeferredWorkspaceHydration();
+          }
+          return null;
+        })
+        .catch((error) => {
+          console.error("记录页后台校验快照失败:", error);
+        });
+      return;
+    }
+    if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
       indexDeferredHydrationPendingResume = true;
       return;
     }

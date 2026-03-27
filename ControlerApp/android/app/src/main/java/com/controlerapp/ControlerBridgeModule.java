@@ -111,6 +111,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final int DEFAULT_AUTO_BACKUP_MAX_BACKUPS = 7;
     private static final long STORAGE_SIDE_EFFECT_DELAY_MS = 560L;
     private static final long STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS = 30_000L;
+    private static final long STORAGE_AUTO_BACKUP_IDLE_DELAY_MS = 15_000L;
 
     private static final class WidgetPinSupportState {
         final String kind;
@@ -243,6 +244,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private boolean pendingStorageAutoBackupCheck = false;
     private boolean pendingPreciseStorageStatusRefresh = false;
     private long lastDeferredAutoBackupQueuedAt = 0L;
+    private long lastPendingStorageAutoBackupRequestedAt = 0L;
     private final Runnable storageSideEffectDrainRunnable = new Runnable() {
         @Override
         public void run() {
@@ -262,16 +264,25 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 pendingStorageWidgetRefresh = false;
 
                 if (pendingStorageAutoBackupCheck) {
+                    long idleRemaining =
+                        STORAGE_AUTO_BACKUP_IDLE_DELAY_MS
+                            - Math.max(
+                                0L,
+                                now - lastPendingStorageAutoBackupRequestedAt
+                            );
                     long remaining =
                         STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS
                             - Math.max(0L, now - lastDeferredAutoBackupQueuedAt);
-                    if (remaining <= 0L) {
+                    if (idleRemaining > 0L || remaining > 0L) {
+                        runAutoBackup = false;
+                        rescheduleAutoBackupAfterMs = Math.max(
+                            rescheduleAutoBackupAfterMs,
+                            Math.max(idleRemaining, remaining)
+                        );
+                    } else {
                         runAutoBackup = true;
                         pendingStorageAutoBackupCheck = false;
                         lastDeferredAutoBackupQueuedAt = now;
-                    } else {
-                        runAutoBackup = false;
-                        rescheduleAutoBackupAfterMs = remaining;
                     }
                 } else {
                     runAutoBackup = false;
@@ -293,7 +304,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 Context context = getReactApplicationContext();
                 if (runNotifications) {
                     try {
-                        ControlerNotificationScheduler.rescheduleAll(context);
+                        ControlerNotificationScheduler.rescheduleSections(
+                            context,
+                            changedSections
+                        );
                     } catch (Exception error) {
                         error.printStackTrace();
                     }
@@ -506,12 +520,39 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 pendingStorageWidgetRefresh || refreshWidgets;
             pendingStorageAutoBackupCheck =
                 pendingStorageAutoBackupCheck || checkAutoBackup;
+            if (checkAutoBackup) {
+                lastPendingStorageAutoBackupRequestedAt = System.currentTimeMillis();
+            }
         }
         MAIN_HANDLER.removeCallbacks(storageSideEffectDrainRunnable);
         MAIN_HANDLER.postDelayed(
             storageSideEffectDrainRunnable,
             STORAGE_SIDE_EFFECT_DELAY_MS
         );
+    }
+
+    private boolean shouldRefreshNotificationsForSections(JSONArray changedSections) {
+        if (changedSections == null || changedSections.length() == 0) {
+            return false;
+        }
+
+        for (int index = 0; index < changedSections.length(); index += 1) {
+            String section = changedSections.optString(index, "").trim();
+            if (TextUtils.isEmpty(section)) {
+                continue;
+            }
+            if (
+                "plans".equals(section)
+                    || "plansRecurring".equals(section)
+                    || "todos".equals(section)
+                    || "checkinItems".equals(section)
+                    || "dailyCheckins".equals(section)
+                    || "checkins".equals(section)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String resolveWidgetKindHint(JSONArray changedSections) {
@@ -1007,9 +1048,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     payload
                 );
+            JSONArray changedSections = result.optJSONArray("changedSections");
             enqueueStorageSideEffects(
-                result.optJSONArray("changedSections"),
-                true,
+                changedSections,
+                shouldRefreshNotificationsForSections(changedSections),
                 true,
                 true
             );
@@ -1365,9 +1407,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     section,
                     payload
                 );
+            JSONArray changedSections = new JSONArray().put(section);
             enqueueStorageSideEffects(
-                new JSONArray().put(section),
-                true,
+                changedSections,
+                shouldRefreshNotificationsForSections(changedSections),
                 true,
                 true
             );
@@ -1389,9 +1432,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     partialCore
                 );
+            JSONArray changedSections = inferChangedSectionsFromCorePatch(partialCore);
             enqueueStorageSideEffects(
-                inferChangedSectionsFromCorePatch(partialCore),
-                true,
+                changedSections,
+                shouldRefreshNotificationsForSections(changedSections),
                 true,
                 true
             );
@@ -1411,9 +1455,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     getReactApplicationContext(),
                     items
                 );
+            JSONArray changedSections = new JSONArray().put("plansRecurring");
             enqueueStorageSideEffects(
-                new JSONArray().put("plansRecurring"),
-                true,
+                changedSections,
+                shouldRefreshNotificationsForSections(changedSections),
                 true,
                 true
             );
