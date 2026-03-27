@@ -65,6 +65,9 @@ let todoShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let todoShellVisibilityBound = false;
 let todoDeferredFreshSyncPendingResume = false;
 let todoExternalRefreshPendingResume = false;
+let todoDeferredFreshSyncGeneration = 0;
+let todoDeferredFreshSyncTimerId = 0;
+let todoDeferredFreshSyncIdleId = 0;
 const TODO_TOGGLE_PERSIST_DEBOUNCE_MS = 180;
 const todoDeferredToggleCommits = {
   checkin: new Map(),
@@ -722,15 +725,14 @@ function readTodoWorkspaceSnapshot() {
   );
 }
 
-async function readFreshTodoWorkspaceSnapshot() {
+async function readFreshTodoWorkspaceSnapshot(options = {}) {
   if (typeof window.ControlerStorage?.getPageBootstrapState !== "function") {
     return readTodoWorkspaceSnapshot();
   }
   try {
-    // Todo already boots from the managed page bootstrap snapshot.
-    // Reusing that fast path keeps background validation lightweight and
-    // avoids forcing a second native bootstrap load on every entry/resume.
-    const pageBootstrap = await window.ControlerStorage.getPageBootstrapState("todo");
+    const pageBootstrap = await window.ControlerStorage.getPageBootstrapState("todo", {
+      fresh: options?.fresh === true,
+    });
     const data =
       pageBootstrap?.data && typeof pageBootstrap.data === "object"
         ? pageBootstrap.data
@@ -1123,6 +1125,31 @@ function flushTodoDeferredExternalRefreshIfNeeded() {
   scheduleTodoExternalStorageRefresh(todoQueuedExternalStorageRefreshDetail || {});
 }
 
+function clearTodoDeferredFreshSyncSchedule() {
+  if (todoDeferredFreshSyncTimerId) {
+    window.clearTimeout(todoDeferredFreshSyncTimerId);
+    todoDeferredFreshSyncTimerId = 0;
+  }
+  if (todoDeferredFreshSyncIdleId) {
+    if (typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(todoDeferredFreshSyncIdleId);
+    } else {
+      window.clearTimeout(todoDeferredFreshSyncIdleId);
+    }
+    todoDeferredFreshSyncIdleId = 0;
+  }
+}
+
+function invalidateTodoDeferredFreshSync(options = {}) {
+  todoDeferredFreshSyncGeneration += 1;
+  todoDeferredFreshSyncQueued = false;
+  clearTodoDeferredFreshSyncSchedule();
+  todoRefreshController?.invalidate?.();
+  if (options.pendingResume === true && !todoInitialDataValidated) {
+    todoDeferredFreshSyncPendingResume = true;
+  }
+}
+
 function bindTodoShellVisibilityGate() {
   if (todoShellVisibilityBound) {
     return;
@@ -1142,6 +1169,16 @@ function bindTodoShellVisibilityGate() {
 
     todoShellPageActive = nextActive;
     if (!todoShellPageActive) {
+      if (
+        todoExternalStorageRefreshQueued ||
+        todoExternalStorageRefreshCoordinator?.hasPending?.()
+      ) {
+        todoExternalRefreshPendingResume = true;
+      }
+      todoExternalStorageRefreshCoordinator?.cancel?.();
+      invalidateTodoDeferredFreshSync({
+        pendingResume: !todoInitialDataValidated,
+      });
       return;
     }
 
@@ -6216,14 +6253,14 @@ function showTodoTypeModal() {
       <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
         <button class="bts" id="create-todo-btn" style="text-align: left; padding: 15px; font-size: 16px;">
           📝 普通待办事项
-          <div style="font-size: 14px; color: var(--muted-text-color); margin-top: 5px;">
+          <div style="font-size: 14px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg))); margin-top: 5px;">
             有截止日期、优先级、标签的待办事项
           </div>
         </button>
         
         <button class="bts" id="create-checkin-btn" style="text-align: left; padding: 15px; font-size: 16px;">
           ✅ 打卡项目
-          <div style="font-size: 14px; color: var(--muted-text-color); margin-top: 5px;">
+          <div style="font-size: 14px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg))); margin-top: 5px;">
             每日打卡，记录连续打卡天数
           </div>
         </button>
@@ -7155,6 +7192,7 @@ async function applyTodoFreshSnapshot(
 }
 
 async function syncTodoFreshSnapshotInBackground() {
+  const deferredGeneration = todoDeferredFreshSyncGeneration;
   if (todoInitialDataValidated) {
     return false;
   }
@@ -7163,6 +7201,9 @@ async function syncTodoFreshSnapshotInBackground() {
   }
 
   const runFreshSync = async () => {
+    if (deferredGeneration !== todoDeferredFreshSyncGeneration) {
+      return false;
+    }
     uiTools?.markPerfStage?.("todo-fresh-sync-start");
     if (!todoShellPageActive && !isTodoShellTransitionLoading()) {
       todoDeferredFreshSyncPendingResume = true;
@@ -7171,7 +7212,9 @@ async function syncTodoFreshSnapshotInBackground() {
 
     if (!todoRefreshController) {
       await waitForTodoStorageReady();
-      const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
+        fresh: true,
+      });
       return applyTodoFreshSnapshot(freshSnapshot);
     }
 
@@ -7179,7 +7222,9 @@ async function syncTodoFreshSnapshotInBackground() {
     const refreshResult = await todoRefreshController.run(
       async () => {
         await waitForTodoStorageReady();
-        return readFreshTodoWorkspaceSnapshot();
+        return readFreshTodoWorkspaceSnapshot({
+          fresh: true,
+        });
       },
       {
         manageLoading: false,
@@ -7192,6 +7237,12 @@ async function syncTodoFreshSnapshotInBackground() {
     if (refreshResult?.stale) {
       uiTools?.markPerfStage?.("todo-fresh-sync-skipped", {
         reason: "stale",
+      });
+      return false;
+    }
+    if (deferredGeneration !== todoDeferredFreshSyncGeneration) {
+      uiTools?.markPerfStage?.("todo-fresh-sync-skipped", {
+        reason: "hidden-invalidated",
       });
       return false;
     }
@@ -7229,18 +7280,34 @@ function scheduleTodoDeferredFreshSync() {
   }
 
   todoDeferredFreshSyncQueued = true;
+  const deferredGeneration = todoDeferredFreshSyncGeneration;
   const run = () => {
+    todoDeferredFreshSyncTimerId = 0;
+    todoDeferredFreshSyncIdleId = 0;
     todoDeferredFreshSyncQueued = false;
+    if (deferredGeneration !== todoDeferredFreshSyncGeneration) {
+      return;
+    }
     void syncTodoFreshSnapshotInBackground();
   };
   const scheduleAfterPaint = () => {
+    if (deferredGeneration !== todoDeferredFreshSyncGeneration) {
+      todoDeferredFreshSyncQueued = false;
+      return;
+    }
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(run, {
+      todoDeferredFreshSyncIdleId = window.requestIdleCallback(() => {
+        todoDeferredFreshSyncIdleId = 0;
+        run();
+      }, {
         timeout: 320,
       });
       return;
     }
-    window.setTimeout(run, 48);
+    todoDeferredFreshSyncTimerId = window.setTimeout(() => {
+      todoDeferredFreshSyncTimerId = 0;
+      run();
+    }, 48);
   };
 
   if (typeof window.requestAnimationFrame === "function") {
@@ -7250,7 +7317,10 @@ function scheduleTodoDeferredFreshSync() {
     return;
   }
 
-  window.setTimeout(scheduleAfterPaint, 32);
+  todoDeferredFreshSyncTimerId = window.setTimeout(() => {
+    todoDeferredFreshSyncTimerId = 0;
+    scheduleAfterPaint();
+  }, 32);
 }
 
 function scheduleTodoWidgetLaunchHandled(
@@ -7494,6 +7564,11 @@ async function init() {
     const shouldBlockInitialReveal =
       window.ControlerStorage?.isNativeApp === true &&
       !hasTodoWorkspaceRenderableData(snapshot);
+    const shouldValidateBootstrappedReveal =
+      window.ControlerStorage?.isNativeApp === true &&
+      todoBootstrappedFromPageBootstrap &&
+      !shouldBlockInitialReveal &&
+      !todoInitialDataValidated;
     if (shouldBlockInitialReveal) {
       uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
         reason: todoBootstrappedFromPageBootstrap
@@ -7502,11 +7577,28 @@ async function init() {
         ...buildTodoWorkspacePerfDetail(snapshot),
       });
       await waitForTodoStorageReady();
-      const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
+        fresh: true,
+      });
       await applyTodoFreshSnapshot(freshSnapshot, {
         reason: "initial-empty-snapshot",
         perfStageReady: "todo-initial-blocking-refresh-ready",
         perfStageApplied: "todo-initial-blocking-refresh-applied",
+      });
+      initialReadySnapshot = captureTodoWorkspaceSnapshot();
+    } else if (shouldValidateBootstrappedReveal) {
+      uiTools?.markPerfStage?.("todo-initial-bootstrap-validation-start", {
+        reason: "page-bootstrap-unvalidated",
+        ...buildTodoWorkspacePerfDetail(snapshot),
+      });
+      await waitForTodoStorageReady();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
+        fresh: true,
+      });
+      await applyTodoFreshSnapshot(freshSnapshot, {
+        reason: "initial-bootstrap-validation",
+        perfStageReady: "todo-initial-bootstrap-validation-ready",
+        perfStageApplied: "todo-initial-bootstrap-validation-applied",
       });
       initialReadySnapshot = captureTodoWorkspaceSnapshot();
     }

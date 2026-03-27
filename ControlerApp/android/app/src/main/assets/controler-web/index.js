@@ -356,6 +356,9 @@ let indexExternalStorageRefreshLastReason = "";
 let indexExternalStorageRefreshLastSource = "";
 let indexExternalStorageRefreshRequested = false;
 let indexDeferredWorkspaceHydrationPromise = null;
+let indexDeferredWorkspaceHydrationGeneration = 0;
+let indexDeferredWorkspaceHydrationTimerId = 0;
+let indexDeferredWorkspaceHydrationIdleId = 0;
 let indexShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let indexWidgetLaunchCoreReady = false;
 let indexPendingWidgetLaunchAction = null;
@@ -363,6 +366,8 @@ let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
 let indexShellVisibilityBound = false;
+let indexThemeRefreshBound = false;
+let indexThemeRefreshPending = false;
 let indexDebugInteractivityProbeBound = false;
 let indexForegroundBootstrapReady = false;
 let indexForegroundBootstrapPromise = null;
@@ -407,6 +412,46 @@ function flushDeferredIndexExternalRefreshIfNeeded() {
   });
 }
 
+function clearIndexDeferredWorkspaceHydrationSchedule() {
+  if (indexDeferredWorkspaceHydrationTimerId) {
+    window.clearTimeout(indexDeferredWorkspaceHydrationTimerId);
+    indexDeferredWorkspaceHydrationTimerId = 0;
+  }
+  if (indexDeferredWorkspaceHydrationIdleId) {
+    if (typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(indexDeferredWorkspaceHydrationIdleId);
+    } else {
+      window.clearTimeout(indexDeferredWorkspaceHydrationIdleId);
+    }
+    indexDeferredWorkspaceHydrationIdleId = 0;
+  }
+}
+
+function invalidateIndexDeferredWorkspaceHydration(options = {}) {
+  indexDeferredWorkspaceHydrationGeneration += 1;
+  clearIndexDeferredWorkspaceHydrationSchedule();
+  indexDeferredWorkspaceHydrationPromise = null;
+  if (options.pendingResume === true && !indexInitialDataValidated) {
+    indexDeferredHydrationPendingResume = true;
+  }
+}
+
+function bindIndexThemeRefresh() {
+  if (indexThemeRefreshBound) {
+    return;
+  }
+  indexThemeRefreshBound = true;
+  const eventName =
+    window.ControlerTheme?.themeAppliedEventName || "controler:theme-applied";
+  window.addEventListener(eventName, () => {
+    if (!indexShellPageActive) {
+      indexThemeRefreshPending = true;
+      return;
+    }
+    updateDisplay();
+  });
+}
+
 function bindIndexShellVisibilityGate() {
   if (indexShellVisibilityBound) {
     return;
@@ -426,6 +471,18 @@ function bindIndexShellVisibilityGate() {
 
     indexShellPageActive = nextActive;
     if (!indexShellPageActive) {
+      if (
+        indexExternalStorageRefreshCoordinator?.hasPending?.() ||
+        indexExternalStorageRefreshQueued ||
+        indexExternalStorageRefreshRequested
+      ) {
+        indexExternalRefreshPendingResume = true;
+      }
+      indexExternalStorageRefreshCoordinator?.cancel?.();
+      indexRefreshController?.invalidate?.();
+      invalidateIndexDeferredWorkspaceHydration({
+        pendingResume: !indexInitialDataValidated,
+      });
       return;
     }
 
@@ -449,6 +506,10 @@ function bindIndexShellVisibilityGate() {
     if (indexDeferredRuntimePendingResume) {
       indexDeferredRuntimePendingResume = false;
       void ensureIndexDeferredRuntimeLoaded();
+    }
+    if (indexThemeRefreshPending) {
+      indexThemeRefreshPending = false;
+      updateDisplay();
     }
   });
 }
@@ -3560,6 +3621,45 @@ function resolveRecordProjectColor(record, projectList = projects) {
       ? getProjectStatsColor(matchedProject, fallbackLevel)
       : getDefaultProjectColorByLevel(fallbackLevel),
   );
+}
+
+function normalizeRecordCardColorMode(mode, fallback = "project") {
+  const normalizedMode = String(mode || "").trim().toLowerCase();
+  if (normalizedMode === "theme" || normalizedMode === "custom") {
+    return "theme";
+  }
+  if (normalizedMode === "project" || normalizedMode === "stats") {
+    return "project";
+  }
+  return fallback === "theme" ? "theme" : "project";
+}
+
+function resolveThemeRecordCardStyle() {
+  const root = document.documentElement;
+  if (!(root instanceof HTMLElement) || typeof window.getComputedStyle !== "function") {
+    return {
+      mode: "project",
+      color: "",
+    };
+  }
+  const rootStyle = window.getComputedStyle(root);
+  return {
+    mode: normalizeRecordCardColorMode(
+      rootStyle.getPropertyValue("--record-card-color-mode"),
+    ),
+    color: normalizeProjectColorToHex(
+      rootStyle.getPropertyValue("--record-card-theme-color"),
+      "",
+    ),
+  };
+}
+
+function resolveRecordCardColor(record, projectList = projects) {
+  const themedRecordCard = resolveThemeRecordCardStyle();
+  if (themedRecordCard.mode === "theme" && themedRecordCard.color) {
+    return themedRecordCard.color;
+  }
+  return resolveRecordProjectColor(record, projectList);
 }
 
 function decorateIndexRecordProjectState(record, projectList = projects) {
@@ -7275,7 +7375,7 @@ function updateDisplay(options = {}) {
     fragment.appendChild(groupHeader);
 
     group.records.forEach((record) => {
-      const recordColor = resolveRecordProjectColor(record, projects);
+      const recordColor = resolveRecordCardColor(record, projects);
       const recordElement = document.createElement("div");
       recordElement.className = "record-item";
       recordElement.dataset.recordId = record.id;
@@ -12610,9 +12710,18 @@ function scheduleIndexDeferredWorkspaceHydration() {
   if (indexDeferredWorkspaceHydrationPromise) {
     return indexDeferredWorkspaceHydrationPromise;
   }
+  const hydrationGeneration = indexDeferredWorkspaceHydrationGeneration;
+  const isHydrationStale = () =>
+    hydrationGeneration !== indexDeferredWorkspaceHydrationGeneration;
 
   indexDeferredWorkspaceHydrationPromise = new Promise((resolve, reject) => {
     const startHydration = () => {
+      indexDeferredWorkspaceHydrationTimerId = 0;
+      indexDeferredWorkspaceHydrationIdleId = 0;
+      if (isHydrationStale()) {
+        resolve();
+        return;
+      }
       if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
         indexDeferredWorkspaceHydrationPromise = null;
         indexDeferredHydrationPendingResume = true;
@@ -12625,6 +12734,15 @@ function scheduleIndexDeferredWorkspaceHydration() {
             includeProjects: true,
             includeRecords: true,
           });
+          if (isHydrationStale()) {
+            resolve();
+            return;
+          }
+          if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+            indexDeferredHydrationPendingResume = true;
+            resolve();
+            return;
+          }
           uiTools?.markPerfStage?.("first-data-ready", {
             projectCount: projects.length,
             recordCount: records.length,
@@ -12639,20 +12757,35 @@ function scheduleIndexDeferredWorkspaceHydration() {
           resolve();
         })
         .catch((error) => {
+          if (isHydrationStale()) {
+            resolve();
+            return;
+          }
           indexDeferredWorkspaceHydrationPromise = null;
           console.error("后台补全记录页工作区失败:", error);
           reject(error);
+        })
+        .finally(() => {
+          if (!isHydrationStale()) {
+            indexDeferredWorkspaceHydrationPromise = null;
+          }
         });
     };
 
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(startHydration, {
+      indexDeferredWorkspaceHydrationIdleId = window.requestIdleCallback(() => {
+        indexDeferredWorkspaceHydrationIdleId = 0;
+        startHydration();
+      }, {
         timeout: 160,
       });
       return;
     }
 
-    window.setTimeout(startHydration, 40);
+    indexDeferredWorkspaceHydrationTimerId = window.setTimeout(() => {
+      indexDeferredWorkspaceHydrationTimerId = 0;
+      startHydration();
+    }, 40);
   });
 
   return indexDeferredWorkspaceHydrationPromise;
@@ -12712,6 +12845,7 @@ async function init() {
     loadRecordSectionCollapseStateFromStorage();
     ensureRecordSectionCollapseUi();
     bindIndexShellVisibilityGate();
+    bindIndexThemeRefresh();
     registerIndexBeforePageLeaveGuard();
     initIndexPrimaryBindings();
     initIndexModalBindings();

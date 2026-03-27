@@ -323,7 +323,7 @@ describe('resolveShellBlockingOverlayPayload', () => {
     },
   } as const;
 
-  it('uses the unified shell overlay while a target page is still loading', () => {
+  it('keeps transition loading from taking over the whole shell overlay', () => {
     expect(
       resolveShellBlockingOverlayPayload({
         transitionState: {
@@ -342,10 +342,7 @@ describe('resolveShellBlockingOverlayPayload', () => {
         },
         shellLanguage: 'zh-CN',
       }),
-    ).toEqual({
-      title: '正在加载数据中',
-      message: '正在准备待办页面资源与本地数据，请稍候',
-    });
+    ).toBeNull();
   });
 
   it('ignores inline page busy states and only surfaces native fullscreen overlays', () => {

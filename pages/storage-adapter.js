@@ -4809,6 +4809,15 @@
         : initialShellVisibilityState;
     }
 
+    function isInternalShellTransitionHide(detail = readCurrentShellVisibilityState()) {
+      return (
+        !!detail &&
+        typeof detail === "object" &&
+        detail.active === false &&
+        detail.transitionLoading === true
+      );
+    }
+
     function shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
       triggerName = "",
     ) {
@@ -6711,7 +6720,7 @@
                 : "",
         });
       },
-      flushJournalImpl: async () => {
+      flushJournalImpl: async (options = {}) => {
         if (hasPendingStateChanges) {
           return writeNativeState();
         }
@@ -6720,16 +6729,38 @@
           typeof reactNativeBridge?.call === "function"
         ) {
           try {
+            const normalizedReason =
+              typeof options?.reason === "string" ? options.reason.trim() : "";
+            const skipStatusRefresh =
+              options?.skipStatusRefresh === true ||
+              (normalizedReason === "shell-hidden" && isInternalShellTransitionHide());
             const rawPayload = await reactNativeBridge.call("storage.flushJournal");
             const parsed = parseJsonSafely(rawPayload, null);
-            const nextStatus = await getNativeStatusSnapshot({
-              suppressError: true,
-            });
+            const nextStatus = skipStatusRefresh
+              ? null
+              : await getNativeStatusSnapshot({
+                  suppressError: true,
+                });
             if (nextStatus && typeof nextStatus === "object") {
               cachedStatus = enrichStorageStatusWithRecovery(
                 nextStatus,
                 cachedState,
               );
+            } else if (
+              skipStatusRefresh &&
+              parsed &&
+              typeof parsed === "object" &&
+              parsed.status &&
+              typeof parsed.status === "object"
+            ) {
+              cachedStatus = enrichStorageStatusWithRecovery(
+                parsed.status,
+                cachedState,
+              );
+            }
+            if (cachedStatus && typeof cachedStatus === "object") {
+              persistMirrorSnapshot(true);
+              updateVersionBaseline(cachedStatus);
             }
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
@@ -7598,7 +7629,17 @@
         scheduleNativeProbeLoop();
       }
     });
-    const forceFlushNativeStorage = (reason = "forced-persist") => {
+    const forceFlushNativeStorage = (reason = "forced-persist", options = {}) => {
+      const normalizedOptions =
+        options && typeof options === "object" ? { ...options } : {};
+      const allowLifecycleDeferral =
+        normalizedOptions.allowLifecycleDeferral === true;
+      const skipStatusRefresh = normalizedOptions.skipStatusRefresh === true;
+      const flushScope =
+        typeof normalizedOptions.scope === "string" &&
+        normalizedOptions.scope.trim()
+          ? normalizedOptions.scope.trim()
+          : "native-lifecycle";
       const saveCoordinator = window.ControlerStorage?.saveCoordinator;
       const hasQueuedSaveWork =
         typeof saveCoordinator?.hasPending === "function"
@@ -7608,15 +7649,35 @@
         persistMirrorSnapshot(true);
         return;
       }
-      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
-        void saveCoordinator.enqueue(reason, "native-lifecycle").catch((error) => {
+      if (!hasPendingStateChanges && allowLifecycleDeferral) {
+        persistMirrorSnapshot(true);
+        emitStoragePerfMetric("storage-sync-shell-hide-flush-deferred", {
+          reason: typeof reason === "string" ? reason : "",
+          hasPendingStateChanges: false,
+          hasQueuedSaveWork,
+        });
+        return;
+      }
+      if (
+        !skipStatusRefresh &&
+        saveCoordinator &&
+        typeof saveCoordinator.enqueue === "function"
+      ) {
+        void saveCoordinator.enqueue(reason, flushScope).catch((error) => {
           console.error("强制立即保存 React Native 存储失败:", error);
         });
         return;
       }
+      const flushOptions = {
+        reason,
+        scope: flushScope,
+      };
+      if (skipStatusRefresh) {
+        flushOptions.skipStatusRefresh = true;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
-          reason,
+          ...flushOptions,
         })
         ?.catch((error) => {
           console.error("强制立即保存 React Native 存储失败:", error);
@@ -7754,7 +7815,11 @@
           resetWindow: false,
         };
         stopNativeProbeLoop();
-        forceFlushNativeStorage("shell-hidden");
+        const deferInternalTransitionHideFlush = document.hidden !== true;
+        forceFlushNativeStorage("shell-hidden", {
+          allowLifecycleDeferral: deferInternalTransitionHideFlush,
+          skipStatusRefresh: deferInternalTransitionHideFlush,
+        });
         return;
       }
 

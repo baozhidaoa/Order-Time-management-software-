@@ -93,10 +93,20 @@ public final class ControlerWidgetCollectionService extends RemoteViewsService {
                 buildCollectionItemTitleText(row)
             );
             views.setTextViewText(R.id.widget_collection_item_meta, row.meta);
-            views.setTextViewText(R.id.widget_collection_item_action, row.actionLabel);
+            views.setTextViewText(R.id.widget_collection_item_action_label, row.actionLabel);
             views.setTextColor(R.id.widget_collection_item_title, row.titleColor);
             views.setTextColor(R.id.widget_collection_item_meta, row.metaColor);
-            views.setTextColor(R.id.widget_collection_item_action, row.actionTextColor);
+            views.setTextColor(R.id.widget_collection_item_action_label, row.actionTextColor);
+            views.setInt(
+                R.id.widget_collection_item_action_fill,
+                "setColorFilter",
+                row.actionFillColor
+            );
+            views.setInt(
+                R.id.widget_collection_item_action_stroke,
+                "setColorFilter",
+                row.actionOutlineColor
+            );
             views.setViewVisibility(
                 R.id.widget_collection_item_accent,
                 row.compactGoalStyle ? android.view.View.GONE : android.view.View.VISIBLE
