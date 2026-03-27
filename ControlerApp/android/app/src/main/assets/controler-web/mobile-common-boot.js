@@ -7756,6 +7756,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : initialShellVisibilityState;
     }
 
+    function isInternalShellTransitionHide(detail = readCurrentShellVisibilityState()) {
+      return (
+        !!detail &&
+        typeof detail === "object" &&
+        detail.active === false &&
+        detail.transitionLoading === true
+      );
+    }
+
     function shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
       triggerName = "",
     ) {
@@ -9658,7 +9667,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 : "",
         });
       },
-      flushJournalImpl: async () => {
+      flushJournalImpl: async (options = {}) => {
         if (hasPendingStateChanges) {
           return writeNativeState();
         }
@@ -9667,16 +9676,38 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           typeof reactNativeBridge?.call === "function"
         ) {
           try {
+            const normalizedReason =
+              typeof options?.reason === "string" ? options.reason.trim() : "";
+            const skipStatusRefresh =
+              options?.skipStatusRefresh === true ||
+              (normalizedReason === "shell-hidden" && isInternalShellTransitionHide());
             const rawPayload = await reactNativeBridge.call("storage.flushJournal");
             const parsed = parseJsonSafely(rawPayload, null);
-            const nextStatus = await getNativeStatusSnapshot({
-              suppressError: true,
-            });
+            const nextStatus = skipStatusRefresh
+              ? null
+              : await getNativeStatusSnapshot({
+                  suppressError: true,
+                });
             if (nextStatus && typeof nextStatus === "object") {
               cachedStatus = enrichStorageStatusWithRecovery(
                 nextStatus,
                 cachedState,
               );
+            } else if (
+              skipStatusRefresh &&
+              parsed &&
+              typeof parsed === "object" &&
+              parsed.status &&
+              typeof parsed.status === "object"
+            ) {
+              cachedStatus = enrichStorageStatusWithRecovery(
+                parsed.status,
+                cachedState,
+              );
+            }
+            if (cachedStatus && typeof cachedStatus === "object") {
+              persistMirrorSnapshot(true);
+              updateVersionBaseline(cachedStatus);
             }
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             return parsed && typeof parsed === "object" ? parsed : cachedStatus;
@@ -10545,7 +10576,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         scheduleNativeProbeLoop();
       }
     });
-    const forceFlushNativeStorage = (reason = "forced-persist") => {
+    const forceFlushNativeStorage = (reason = "forced-persist", options = {}) => {
+      const normalizedOptions =
+        options && typeof options === "object" ? { ...options } : {};
+      const allowLifecycleDeferral =
+        normalizedOptions.allowLifecycleDeferral === true;
+      const skipStatusRefresh = normalizedOptions.skipStatusRefresh === true;
+      const flushScope =
+        typeof normalizedOptions.scope === "string" &&
+        normalizedOptions.scope.trim()
+          ? normalizedOptions.scope.trim()
+          : "native-lifecycle";
       const saveCoordinator = window.ControlerStorage?.saveCoordinator;
       const hasQueuedSaveWork =
         typeof saveCoordinator?.hasPending === "function"
@@ -10555,15 +10596,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         persistMirrorSnapshot(true);
         return;
       }
-      if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
-        void saveCoordinator.enqueue(reason, "native-lifecycle").catch((error) => {
+      if (!hasPendingStateChanges && allowLifecycleDeferral) {
+        persistMirrorSnapshot(true);
+        emitStoragePerfMetric("storage-sync-shell-hide-flush-deferred", {
+          reason: typeof reason === "string" ? reason : "",
+          hasPendingStateChanges: false,
+          hasQueuedSaveWork,
+        });
+        return;
+      }
+      if (
+        !skipStatusRefresh &&
+        saveCoordinator &&
+        typeof saveCoordinator.enqueue === "function"
+      ) {
+        void saveCoordinator.enqueue(reason, flushScope).catch((error) => {
           console.error("强制立即保存 React Native 存储失败:", error);
         });
         return;
       }
+      const flushOptions = {
+        reason,
+        scope: flushScope,
+      };
+      if (skipStatusRefresh) {
+        flushOptions.skipStatusRefresh = true;
+      }
       void window.ControlerStorage
         ?.flushJournal?.({
-          reason,
+          ...flushOptions,
         })
         ?.catch((error) => {
           console.error("强制立即保存 React Native 存储失败:", error);
@@ -10701,7 +10762,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           resetWindow: false,
         };
         stopNativeProbeLoop();
-        forceFlushNativeStorage("shell-hidden");
+        const deferInternalTransitionHideFlush = document.hidden !== true;
+        forceFlushNativeStorage("shell-hidden", {
+          allowLifecycleDeferral: deferInternalTransitionHideFlush,
+          skipStatusRefresh: deferInternalTransitionHideFlush,
+        });
         return;
       }
 
@@ -12861,15 +12926,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     navButtonActiveBg: "rgba(135, 196, 153, 0.86)",
     overlay: "rgba(8, 10, 12, 0.45)",
   };
+  const DEFAULT_THEME_RECORD_CARD = {
+    mode: "project",
+    color: "#79af85",
+  };
 
-  function buildThemeDefinition(id, name, colorOverrides = {}) {
+  function buildThemeDefinition(id, name, colorOverrides = {}, options = {}) {
+    const colors = {
+      ...DEFAULT_THEME_COLORS,
+      ...colorOverrides,
+    };
     return {
       id,
       name,
-      colors: {
-        ...DEFAULT_THEME_COLORS,
-        ...colorOverrides,
-      },
+      colors,
+      recordCard: resolveThemeRecordCard(
+        {
+          recordCard: options?.recordCard,
+        },
+        colors,
+      ),
     };
   }
 
@@ -13461,6 +13537,42 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD.mode) {
+    const normalizedMode = String(mode || "").trim().toLowerCase();
+    if (normalizedMode === "theme" || normalizedMode === "custom") {
+      return "theme";
+    }
+    if (normalizedMode === "project" || normalizedMode === "stats") {
+      return "project";
+    }
+    return fallback === "theme" ? "theme" : "project";
+  }
+
+  function resolveThemeRecordCard(theme = null, resolvedColors = null) {
+    const source =
+      theme?.recordCard && typeof theme.recordCard === "object"
+        ? theme.recordCard
+        : {};
+    const palette =
+      resolvedColors && typeof resolvedColors === "object"
+        ? resolvedColors
+        : resolveThemeColors(theme);
+    const colorCandidates = [
+      source?.color,
+      palette?.projectLevel1,
+      palette?.accent,
+      palette?.buttonBg,
+      DEFAULT_THEME_RECORD_CARD.color,
+    ];
+    const resolvedColor =
+      colorCandidates.find((value) => isValidThemeColorValue(value)) ||
+      DEFAULT_THEME_RECORD_CARD.color;
+    return {
+      mode: normalizeThemeRecordCardMode(source?.mode),
+      color: String(resolvedColor || DEFAULT_THEME_RECORD_CARD.color).trim(),
+    };
+  }
+
   function resolveThemeColors(theme = null) {
     const source = theme?.colors || {};
     const primary = isValidThemeColorValue(source.primary)
@@ -13609,19 +13721,31 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return null;
     }
 
+    const normalizedColors = resolveThemeColors({
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        ...(override?.colors || {}),
+      },
+    });
+    const normalizedRecordCard = resolveThemeRecordCard(
+      {
+        ...baseTheme,
+        recordCard: {
+          ...(baseTheme.recordCard || {}),
+          ...(override?.recordCard || {}),
+        },
+      },
+      normalizedColors,
+    );
     return {
       id: themeId,
       name:
         typeof override?.name === "string" && override.name.trim()
           ? override.name.trim()
           : baseTheme.name,
-      colors: resolveThemeColors({
-        ...baseTheme,
-        colors: {
-          ...baseTheme.colors,
-          ...(override?.colors || {}),
-        },
-      }),
+      colors: normalizedColors,
+      recordCard: normalizedRecordCard,
     };
   }
 
@@ -13651,10 +13775,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return null;
     }
 
+    const normalizedColors = resolveThemeColors(theme);
+
     return {
       id: typeof theme.id === "string" ? theme.id : "",
       name: typeof theme.name === "string" ? theme.name : "",
-      colors: resolveThemeColors(theme),
+      colors: normalizedColors,
+      recordCard: resolveThemeRecordCard(theme, normalizedColors),
     };
   }
 
@@ -13669,6 +13796,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function applyThemeColors(theme) {
     const resolvedColors = resolveThemeColors(theme);
+    const resolvedRecordCard = resolveThemeRecordCard(theme, resolvedColors);
     const widgetColors = resolveWidgetThemeColors(resolvedColors);
     const root = document.documentElement;
     root.style.setProperty("--bg-primary", resolvedColors.primary);
@@ -13704,6 +13832,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       resolvedColors.navButtonActiveText,
     );
     root.style.setProperty("--overlay-bg", resolvedColors.overlay);
+    root.style.setProperty(
+      "--record-card-color-mode",
+      resolvedRecordCard.mode === "theme" ? "theme" : "project",
+    );
+    root.style.setProperty("--record-card-theme-color", resolvedRecordCard.color);
     root.style.setProperty("--widget-surface-reference", widgetColors.surfaceReference);
     root.style.setProperty("--widget-window-glow", widgetColors.windowGlow);
     root.style.setProperty("--widget-control-bg", widgetColors.controlBg);
@@ -13769,11 +13902,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function dispatchThemeApplied(themeId, colors, options = {}) {
     const emitNative = options?.emitNative !== false;
+    const activeTheme =
+      options?.activeTheme && typeof options.activeTheme === "object"
+        ? options.activeTheme
+        : null;
+    const recordCard = resolveThemeRecordCard(activeTheme, colors);
     window.dispatchEvent(
       new CustomEvent(THEME_APPLIED_EVENT_NAME, {
         detail: {
           themeId,
           colors: { ...colors },
+          recordCard: { ...recordCard },
         },
       }),
     );
@@ -13801,10 +13940,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               [themeId]: {
                 name: selectedOverride.name,
                 colors: selectedOverride.colors,
+                recordCard: selectedOverride.recordCard,
               },
             }
           : {},
         colors: { ...colors },
+        recordCard: { ...recordCard },
       });
       const launchThemeState = {
         selectedTheme: themeId || "default",
@@ -13814,6 +13955,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               [themeId]: {
                 name: selectedOverride.name,
                 colors: selectedOverride.colors,
+                recordCard: selectedOverride.recordCard,
               },
             }
           : {},
@@ -13864,6 +14006,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 }
               : baseBuiltInTheme,
           ),
+          recordCard: resolveThemeRecordCard(
+            {
+              ...baseBuiltInTheme,
+              recordCard: {
+                ...(baseBuiltInTheme.recordCard || {}),
+                ...(builtInThemeOverrides[storedTheme]?.recordCard || {}),
+              },
+            },
+          ),
         }
       : null;
 
@@ -13883,7 +14034,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    dispatchThemeApplied(themeId, resolveThemeColors(activeTheme), options);
+    dispatchThemeApplied(themeId, resolveThemeColors(activeTheme), {
+      ...options,
+      activeTheme,
+    });
 
     if (
       (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !== themeId
@@ -13998,6 +14152,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   window.ControlerTheme = {
     themeAppliedEventName: THEME_APPLIED_EVENT_NAME,
     ensureReadableShapeColor,
+    resolveThemeRecordCard,
     getReadableTextColorForBackground(
       backgroundColor,
       preferredTextColor = "",

@@ -64,6 +64,11 @@ public final class ControlerWidgetRenderer {
     private static final String COLLECTION_SLOT_DEFAULT = "";
     private static final String COLLECTION_SLOT_YEAR_ANNUAL = "year-annual";
     private static final String COLLECTION_SLOT_YEAR_MONTH = "year-month";
+    private static final float HEADER_ACTION_BASE_MIN_WIDTH_DP = 88f;
+    private static final float HEADER_ACTION_BASE_MIN_HEIGHT_DP = 44f;
+    private static final float HEADER_ACTION_EXPANDED_MULTIPLIER = 2f;
+    private static final float HEADER_ACTION_TEXT_GAP_DP = 10f;
+    private static final float HEADER_ACTION_TEXT_RESERVE_DP = 56f;
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
     private static final long RENDER_SOURCE_CACHE_TTL_MS = 260L;
@@ -152,6 +157,8 @@ public final class ControlerWidgetRenderer {
         int titleColor = Color.parseColor("#F2FFF5");
         int subtitleColor = Color.parseColor("#D2E4D7");
         int bodyColor = Color.parseColor("#EAF6ED");
+        int actionFillColor = Color.parseColor("#24FFFFFF");
+        int actionOutlineColor = Color.parseColor("#33FFFFFF");
         int actionTextColor = Color.parseColor("#FFFFFF");
         int accentColor = Color.parseColor("#8ED6A4");
         int accentTextColor = Color.parseColor("#173326");
@@ -192,6 +199,10 @@ public final class ControlerWidgetRenderer {
     private static final class PreviewTimeRange {
         long startMs = 0L;
         long endMs = 0L;
+    }
+
+    private interface DayOverlapConsumer {
+        void accept(String dayText, int overlapMinutes);
     }
 
     private static final class RenderSource {
@@ -1263,7 +1274,7 @@ public final class ControlerWidgetRenderer {
         views.setTextViewText(R.id.widget_title, safeText(content.title));
         views.setTextViewText(R.id.widget_subtitle, safeText(content.subtitle));
         views.setTextViewText(R.id.widget_header_summary, safeText(content.headerSummary));
-        views.setTextViewText(R.id.widget_action, safeText(content.actionLabel));
+        views.setTextViewText(R.id.widget_action_label, safeText(content.actionLabel));
         views.setTextViewText(R.id.widget_action_only_button, safeText(content.actionLabel));
         views.setTextViewText(R.id.widget_year_annual_title, safeText(content.yearAnnualTitle));
         views.setTextViewText(R.id.widget_year_month_title, safeText(content.yearMonthTitle));
@@ -1313,8 +1324,18 @@ public final class ControlerWidgetRenderer {
         int statTextColor = resolveStatTextColor(palette);
         views.setTextColor(R.id.widget_stat_primary, statTextColor);
         views.setTextColor(R.id.widget_stat_secondary, statTextColor);
-        views.setTextColor(R.id.widget_action, palette.actionTextColor);
+        views.setTextColor(R.id.widget_action_label, palette.actionTextColor);
         views.setTextColor(R.id.widget_action_only_button, palette.actionTextColor);
+        views.setInt(
+            R.id.widget_action_background_fill,
+            "setColorFilter",
+            palette.actionFillColor
+        );
+        views.setInt(
+            R.id.widget_action_background_stroke,
+            "setColorFilter",
+            palette.actionOutlineColor
+        );
         for (int index = 0; index < itemTitleIds.length; index++) {
             views.setTextColor(itemTitleIds[index], palette.bodyColor);
             views.setTextColor(itemMetaIds[index], palette.subtitleColor);
@@ -1325,7 +1346,7 @@ public final class ControlerWidgetRenderer {
             R.id.widget_card_background,
             resolveCardBackgroundBitmap(context, palette, metrics)
         );
-        applyResponsiveSizing(context, views, metrics, kind);
+        applyResponsiveSizing(context, views, metrics, kind, content);
 
         boolean showPreview =
             shouldShowPreview(kind, content, metrics) && content.previewBitmap != null;
@@ -1646,14 +1667,19 @@ public final class ControlerWidgetRenderer {
             firstNonEmpty(colors.get("buttonText"), colors.get("onAccentText"), colors.get("text")),
             palette.actionTextColor
         );
-        int actionSurfaceColor = blendColors(
+        palette.actionFillColor = blendColors(
             palette.surfaceColor,
             palette.contrastReferenceColor,
-            palette.surfaceIsLight ? 0.08f : 36f / 255f
+            palette.surfaceIsLight ? 0.12f : 36f / 255f
+        );
+        palette.actionOutlineColor = blendColors(
+            palette.surfaceColor,
+            palette.contrastReferenceColor,
+            palette.surfaceIsLight ? 0.18f : 51f / 255f
         );
         palette.actionTextColor = resolveReadableTextColor(
             preferredActionTextColor,
-            actionSurfaceColor,
+            palette.actionFillColor,
             4.1d
         );
         palette.accentTextColor = resolveReadableTextColor(
@@ -2029,7 +2055,8 @@ public final class ControlerWidgetRenderer {
         Context context,
         RemoteViews views,
         WidgetMetrics metrics,
-        String kind
+        String kind,
+        WidgetContent content
     ) {
         float scale = metrics == null ? 1f : metrics.scale;
         boolean flatActionOnly =
@@ -2153,7 +2180,7 @@ public final class ControlerWidgetRenderer {
             clampFloat(11f * scale, 8.5f, 12f)
         );
         views.setTextViewTextSize(
-            R.id.widget_action,
+            R.id.widget_action_label,
             TypedValue.COMPLEX_UNIT_SP,
             clampFloat((compactItemCards ? 12f : 11f) * scale, 9f, 13f)
         );
@@ -2195,28 +2222,41 @@ public final class ControlerWidgetRenderer {
             );
         }
 
-        int cardPadding = dpToPx(
-            context,
-            Math.round(
-                (
-                    flatActionOnly
-                        ? 6f
-                        : denseItemCards
-                        ? (minimalItemCards ? 4f : compactItemCards ? 6f : 8f)
-                        : 14f
-                ) * scale
-            )
-        );
+        float cardPaddingDp =
+            (
+                flatActionOnly
+                    ? 6f
+                    : denseItemCards
+                    ? (minimalItemCards ? 4f : compactItemCards ? 6f : 8f)
+                    : 14f
+            ) * scale;
+        int cardPadding = dpToPx(context, Math.round(cardPaddingDp));
         int statPaddingHorizontal = dpToPx(context, Math.round(10f * scale));
         int statPaddingVertical = dpToPx(context, Math.round(6f * scale));
-        int actionPaddingHorizontal = dpToPx(
-            context,
-            Math.round((compactItemCards ? 16f : 14f) * scale)
-        );
-        int actionPaddingVertical = dpToPx(
-            context,
-            Math.round((compactItemCards ? 11f : 8f) * scale)
-        );
+        float actionPaddingHorizontalDp = (compactItemCards ? 16f : 14f) * scale;
+        float actionPaddingVerticalDp = (compactItemCards ? 11f : 8f) * scale;
+        float actionMinWidthDp = HEADER_ACTION_BASE_MIN_WIDTH_DP;
+        float actionMinHeightDp = HEADER_ACTION_BASE_MIN_HEIGHT_DP;
+        if (shouldUseExpandedHeaderQuickAction(kind, content)) {
+            actionMinWidthDp = Math.min(
+                HEADER_ACTION_BASE_MIN_WIDTH_DP * HEADER_ACTION_EXPANDED_MULTIPLIER,
+                resolveExpandedHeaderActionMaxWidthDp(metrics, cardPaddingDp)
+            );
+            actionMinHeightDp = Math.min(
+                HEADER_ACTION_BASE_MIN_HEIGHT_DP * HEADER_ACTION_EXPANDED_MULTIPLIER,
+                resolveExpandedHeaderActionMaxHeightDp(metrics, cardPaddingDp)
+            );
+            actionPaddingHorizontalDp = Math.max(
+                actionPaddingHorizontalDp,
+                (compactItemCards ? 24f : 22f) * scale
+            );
+            actionPaddingVerticalDp = Math.max(
+                actionPaddingVerticalDp,
+                (compactItemCards ? 17f : 16f) * scale
+            );
+        }
+        int actionPaddingHorizontal = dpToPx(context, Math.round(actionPaddingHorizontalDp));
+        int actionPaddingVertical = dpToPx(context, Math.round(actionPaddingVerticalDp));
         int itemHorizontalPadding = dpToPx(
             context,
             Math.round(
@@ -2273,6 +2313,16 @@ public final class ControlerWidgetRenderer {
             actionPaddingVertical,
             actionPaddingHorizontal,
             actionPaddingVertical
+        );
+        views.setInt(
+            R.id.widget_action,
+            "setMinimumWidth",
+            dpToPx(context, Math.round(actionMinWidthDp))
+        );
+        views.setInt(
+            R.id.widget_action,
+            "setMinimumHeight",
+            dpToPx(context, Math.round(actionMinHeightDp))
         );
         views.setViewPadding(
             R.id.widget_action_only_button,
@@ -2715,6 +2765,45 @@ public final class ControlerWidgetRenderer {
             || ControlerWidgetKinds.WEEK_GRID.equals(normalizedKind);
     }
 
+    private static boolean shouldUseExpandedHeaderQuickAction(
+        String kind,
+        WidgetContent content
+    ) {
+        if (!isListFirstKind(kind) || content == null) {
+            return false;
+        }
+        return ControlerWidgetActionHandler.COMMAND_QUICK_ADD_TODO.equals(content.directCommand)
+            || ControlerWidgetActionHandler.COMMAND_QUICK_ADD_CHECKIN.equals(
+                content.directCommand
+            );
+    }
+
+    private static float resolveExpandedHeaderActionMaxWidthDp(
+        WidgetMetrics metrics,
+        float cardPaddingDp
+    ) {
+        if (metrics == null || metrics.minWidthDp <= 0) {
+            return HEADER_ACTION_BASE_MIN_WIDTH_DP * HEADER_ACTION_EXPANDED_MULTIPLIER;
+        }
+        float availableWidthDp =
+            metrics.minWidthDp
+                - (cardPaddingDp * 2f)
+                - HEADER_ACTION_TEXT_GAP_DP
+                - HEADER_ACTION_TEXT_RESERVE_DP;
+        return Math.max(HEADER_ACTION_BASE_MIN_WIDTH_DP, availableWidthDp);
+    }
+
+    private static float resolveExpandedHeaderActionMaxHeightDp(
+        WidgetMetrics metrics,
+        float cardPaddingDp
+    ) {
+        if (metrics == null || metrics.minHeightDp <= 0) {
+            return HEADER_ACTION_BASE_MIN_HEIGHT_DP * HEADER_ACTION_EXPANDED_MULTIPLIER;
+        }
+        float availableHeightDp = metrics.minHeightDp - (cardPaddingDp * 2f);
+        return Math.max(HEADER_ACTION_BASE_MIN_HEIGHT_DP, availableHeightDp);
+    }
+
     private static boolean usesYearGoalLayout(String kind) {
         return ControlerWidgetKinds.YEAR_VIEW.equals(ControlerWidgetKinds.normalize(kind));
     }
@@ -2852,6 +2941,8 @@ public final class ControlerWidgetRenderer {
         signature.addInt(palette.titleColor);
         signature.addInt(palette.subtitleColor);
         signature.addInt(palette.bodyColor);
+        signature.addInt(palette.actionFillColor);
+        signature.addInt(palette.actionOutlineColor);
         signature.addInt(palette.actionTextColor);
         signature.addInt(palette.accentColor);
         signature.addInt(palette.accentTextColor);
@@ -3078,6 +3169,8 @@ public final class ControlerWidgetRenderer {
                 row.put("backgroundColor", rowSurfaceColor);
                 row.put("titleColor", rowTitleColor);
                 row.put("metaColor", rowMetaColor);
+                row.put("actionFillColor", safePalette.actionFillColor);
+                row.put("actionOutlineColor", safePalette.actionOutlineColor);
                 row.put("actionTextColor", safePalette.actionTextColor);
                 row.put("openEnabled", openEnabled);
                 row.put("actionEnabled", !item.actionDisabled);
@@ -3162,6 +3255,8 @@ public final class ControlerWidgetRenderer {
             row.outlineColor = rowOutlineColor;
             row.titleColor = rowTitleColor;
             row.metaColor = rowTitleColor;
+            row.actionFillColor = safePalette.actionFillColor;
+            row.actionOutlineColor = safePalette.actionOutlineColor;
             row.actionTextColor = safePalette.actionTextColor;
             row.badgeText = safeText(item.badgeText);
             row.badgeColor = badgeColor;
@@ -3202,6 +3297,8 @@ public final class ControlerWidgetRenderer {
                 item.put("outlineColor", row.outlineColor);
                 item.put("titleColor", row.titleColor);
                 item.put("metaColor", row.metaColor);
+                item.put("actionFillColor", row.actionFillColor);
+                item.put("actionOutlineColor", row.actionOutlineColor);
                 item.put("actionTextColor", row.actionTextColor);
                 item.put("badgeText", safeText(row.badgeText));
                 item.put("badgeColor", row.badgeColor);
@@ -3985,19 +4082,40 @@ public final class ControlerWidgetRenderer {
         WidgetContent content,
         ControlerWidgetDataStore.State state
     ) {
-        content.subtitle = "一周时间分布";
+        content.subtitle = "近 7 天时间分布";
         Calendar today = Calendar.getInstance();
         resetToStartOfDay(today);
         Calendar startDay = (Calendar) today.clone();
         startDay.add(Calendar.DAY_OF_MONTH, -6);
-        Map<String, Integer> minutesByDate = new HashMap<>();
+        Calendar endDayExclusive = (Calendar) startDay.clone();
+        endDayExclusive.add(Calendar.DAY_OF_MONTH, 7);
+        final long windowStartMs = startDay.getTimeInMillis();
+        final long windowEndMs = endDayExclusive.getTimeInMillis();
+        final Map<String, Integer> minutesByDate = new HashMap<>();
         for (ControlerWidgetDataStore.RecordInfo record : state.records) {
-            String date = resolveRecordDateText(record);
-            if (!TextUtils.isEmpty(date)) {
-                minutesByDate.put(date, minutesByDate.containsKey(date)
-                    ? minutesByDate.get(date) + Math.max(0, record.minutes)
-                    : Math.max(0, record.minutes));
+            PreviewTimeRange previewRange = resolveRecordPreviewRange(record);
+            if (
+                previewRange == null
+                    || previewRange.endMs <= windowStartMs
+                    || previewRange.startMs >= windowEndMs
+            ) {
+                continue;
             }
+            forEachDayOverlap(
+                previewRange,
+                windowStartMs,
+                windowEndMs,
+                new DayOverlapConsumer() {
+                    @Override
+                    public void accept(String dayText, int overlapMinutes) {
+                        Integer current = minutesByDate.get(dayText);
+                        minutesByDate.put(
+                            dayText,
+                            (current == null ? 0 : current) + overlapMinutes
+                        );
+                    }
+                }
+            );
         }
 
         int weekTotal = 0;
@@ -4428,6 +4546,50 @@ public final class ControlerWidgetRenderer {
         );
     }
 
+    private static void forEachDayOverlap(
+        PreviewTimeRange range,
+        long lowerTimeMs,
+        long upperExclusiveTimeMs,
+        DayOverlapConsumer consumer
+    ) {
+        if (
+            range == null
+                || consumer == null
+                || upperExclusiveTimeMs <= lowerTimeMs
+                || range.endMs <= lowerTimeMs
+                || range.startMs >= upperExclusiveTimeMs
+        ) {
+            return;
+        }
+
+        long overlapStartMs = Math.max(range.startMs, lowerTimeMs);
+        long overlapEndMs = Math.min(range.endMs, upperExclusiveTimeMs);
+        if (overlapEndMs <= overlapStartMs) {
+            return;
+        }
+
+        Calendar cursor = Calendar.getInstance();
+        cursor.setTimeInMillis(overlapStartMs);
+        resetToStartOfDay(cursor);
+        Calendar lastDay = Calendar.getInstance();
+        lastDay.setTimeInMillis(Math.max(overlapStartMs, overlapEndMs - 1L));
+        resetToStartOfDay(lastDay);
+
+        while (!cursor.after(lastDay)) {
+            long dayStartMs = cursor.getTimeInMillis();
+            long dayEndMs = dayStartMs + 86400000L;
+            long dayOverlapStartMs = Math.max(overlapStartMs, dayStartMs);
+            long dayOverlapEndMs = Math.min(overlapEndMs, dayEndMs);
+            if (dayOverlapEndMs > dayOverlapStartMs) {
+                consumer.accept(
+                    dateText(cursor),
+                    Math.max(1, (int) Math.ceil((dayOverlapEndMs - dayOverlapStartMs) / 60000d))
+                );
+            }
+            cursor.add(Calendar.DAY_OF_MONTH, 1);
+        }
+    }
+
     private static List<WidgetItemCard> buildWeekGridSummaryCards(
         ControlerWidgetDataStore.State state,
         Calendar startDay,
@@ -4440,25 +4602,24 @@ public final class ControlerWidgetRenderer {
 
         Calendar cursor = startDay == null ? Calendar.getInstance() : (Calendar) startDay.clone();
         resetToStartOfDay(cursor);
-        Set<String> dateTexts = new HashSet<>();
-        for (int offset = 0; offset < dayCount; offset++) {
-            dateTexts.add(dateText(cursor));
-            cursor.add(Calendar.DAY_OF_MONTH, 1);
-        }
+        final long windowStartMs = cursor.getTimeInMillis();
+        Calendar endDayExclusive = (Calendar) cursor.clone();
+        endDayExclusive.add(Calendar.DAY_OF_MONTH, dayCount);
+        final long windowEndMs = endDayExclusive.getTimeInMillis();
 
         Map<String, ControlerWidgetDataStore.ProjectInfo> projectMap = state.projectMap();
         Map<String, RecordSummaryAccumulator> summaryByKey = new HashMap<>();
         for (ControlerWidgetDataStore.RecordInfo record : state.records) {
-            String recordDateText = resolveRecordDateText(record);
-            if (!dateTexts.contains(recordDateText)) {
-                continue;
-            }
-            int minutes = Math.max(0, record == null ? 0 : record.minutes);
-            if (minutes <= 0) {
+            PreviewTimeRange previewRange = resolveRecordPreviewRange(record);
+            if (
+                previewRange == null
+                    || previewRange.endMs <= windowStartMs
+                    || previewRange.startMs >= windowEndMs
+            ) {
                 continue;
             }
 
-            ControlerWidgetDataStore.ProjectInfo project =
+            final ControlerWidgetDataStore.ProjectInfo project =
                 record == null || TextUtils.isEmpty(record.projectId)
                     ? null
                     : projectMap.get(record.projectId);
@@ -4478,12 +4639,22 @@ public final class ControlerWidgetRenderer {
                     parseColor(project == null ? "" : project.color, Color.parseColor("#8ED6A4"));
                 summaryByKey.put(key, accumulator);
             }
-            accumulator.totalMinutes += minutes;
-            accumulator.dayMinutes.put(
-                recordDateText,
-                (accumulator.dayMinutes.containsKey(recordDateText)
-                    ? accumulator.dayMinutes.get(recordDateText)
-                    : 0) + minutes
+            final RecordSummaryAccumulator target = accumulator;
+            forEachDayOverlap(
+                previewRange,
+                windowStartMs,
+                windowEndMs,
+                new DayOverlapConsumer() {
+                    @Override
+                    public void accept(String dayText, int overlapMinutes) {
+                        target.totalMinutes += overlapMinutes;
+                        Integer current = target.dayMinutes.get(dayText);
+                        target.dayMinutes.put(
+                            dayText,
+                            (current == null ? 0 : current) + overlapMinutes
+                        );
+                    }
+                }
             );
         }
 
@@ -4512,6 +4683,13 @@ public final class ControlerWidgetRenderer {
                     + formatMinutesCompact(summary.totalMinutes)
                     + " · 日均 "
                     + formatMinutesCompact(Math.round(summary.totalMinutes / (float) dayCount))
+                    + " · 实际日均 "
+                    + formatMinutesCompact(
+                        Math.round(
+                            summary.totalMinutes
+                                / (float) Math.max(1, summary.dayMinutes.size())
+                        )
+                    )
                     + " · "
                     + summary.dayMinutes.size()
                     + " 天";

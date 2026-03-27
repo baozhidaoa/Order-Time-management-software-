@@ -34,15 +34,26 @@
     navButtonActiveBg: "rgba(135, 196, 153, 0.86)",
     overlay: "rgba(8, 10, 12, 0.45)",
   };
+  const DEFAULT_THEME_RECORD_CARD = {
+    mode: "project",
+    color: "#79af85",
+  };
 
-  function buildThemeDefinition(id, name, colorOverrides = {}) {
+  function buildThemeDefinition(id, name, colorOverrides = {}, options = {}) {
+    const colors = {
+      ...DEFAULT_THEME_COLORS,
+      ...colorOverrides,
+    };
     return {
       id,
       name,
-      colors: {
-        ...DEFAULT_THEME_COLORS,
-        ...colorOverrides,
-      },
+      colors,
+      recordCard: resolveThemeRecordCard(
+        {
+          recordCard: options?.recordCard,
+        },
+        colors,
+      ),
     };
   }
 
@@ -634,6 +645,42 @@
     };
   }
 
+  function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD.mode) {
+    const normalizedMode = String(mode || "").trim().toLowerCase();
+    if (normalizedMode === "theme" || normalizedMode === "custom") {
+      return "theme";
+    }
+    if (normalizedMode === "project" || normalizedMode === "stats") {
+      return "project";
+    }
+    return fallback === "theme" ? "theme" : "project";
+  }
+
+  function resolveThemeRecordCard(theme = null, resolvedColors = null) {
+    const source =
+      theme?.recordCard && typeof theme.recordCard === "object"
+        ? theme.recordCard
+        : {};
+    const palette =
+      resolvedColors && typeof resolvedColors === "object"
+        ? resolvedColors
+        : resolveThemeColors(theme);
+    const colorCandidates = [
+      source?.color,
+      palette?.projectLevel1,
+      palette?.accent,
+      palette?.buttonBg,
+      DEFAULT_THEME_RECORD_CARD.color,
+    ];
+    const resolvedColor =
+      colorCandidates.find((value) => isValidThemeColorValue(value)) ||
+      DEFAULT_THEME_RECORD_CARD.color;
+    return {
+      mode: normalizeThemeRecordCardMode(source?.mode),
+      color: String(resolvedColor || DEFAULT_THEME_RECORD_CARD.color).trim(),
+    };
+  }
+
   function resolveThemeColors(theme = null) {
     const source = theme?.colors || {};
     const primary = isValidThemeColorValue(source.primary)
@@ -782,19 +829,31 @@
       return null;
     }
 
+    const normalizedColors = resolveThemeColors({
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        ...(override?.colors || {}),
+      },
+    });
+    const normalizedRecordCard = resolveThemeRecordCard(
+      {
+        ...baseTheme,
+        recordCard: {
+          ...(baseTheme.recordCard || {}),
+          ...(override?.recordCard || {}),
+        },
+      },
+      normalizedColors,
+    );
     return {
       id: themeId,
       name:
         typeof override?.name === "string" && override.name.trim()
           ? override.name.trim()
           : baseTheme.name,
-      colors: resolveThemeColors({
-        ...baseTheme,
-        colors: {
-          ...baseTheme.colors,
-          ...(override?.colors || {}),
-        },
-      }),
+      colors: normalizedColors,
+      recordCard: normalizedRecordCard,
     };
   }
 
@@ -824,10 +883,13 @@
       return null;
     }
 
+    const normalizedColors = resolveThemeColors(theme);
+
     return {
       id: typeof theme.id === "string" ? theme.id : "",
       name: typeof theme.name === "string" ? theme.name : "",
-      colors: resolveThemeColors(theme),
+      colors: normalizedColors,
+      recordCard: resolveThemeRecordCard(theme, normalizedColors),
     };
   }
 
@@ -842,6 +904,7 @@
 
   function applyThemeColors(theme) {
     const resolvedColors = resolveThemeColors(theme);
+    const resolvedRecordCard = resolveThemeRecordCard(theme, resolvedColors);
     const widgetColors = resolveWidgetThemeColors(resolvedColors);
     const root = document.documentElement;
     root.style.setProperty("--bg-primary", resolvedColors.primary);
@@ -877,6 +940,11 @@
       resolvedColors.navButtonActiveText,
     );
     root.style.setProperty("--overlay-bg", resolvedColors.overlay);
+    root.style.setProperty(
+      "--record-card-color-mode",
+      resolvedRecordCard.mode === "theme" ? "theme" : "project",
+    );
+    root.style.setProperty("--record-card-theme-color", resolvedRecordCard.color);
     root.style.setProperty("--widget-surface-reference", widgetColors.surfaceReference);
     root.style.setProperty("--widget-window-glow", widgetColors.windowGlow);
     root.style.setProperty("--widget-control-bg", widgetColors.controlBg);
@@ -942,11 +1010,17 @@
 
   function dispatchThemeApplied(themeId, colors, options = {}) {
     const emitNative = options?.emitNative !== false;
+    const activeTheme =
+      options?.activeTheme && typeof options.activeTheme === "object"
+        ? options.activeTheme
+        : null;
+    const recordCard = resolveThemeRecordCard(activeTheme, colors);
     window.dispatchEvent(
       new CustomEvent(THEME_APPLIED_EVENT_NAME, {
         detail: {
           themeId,
           colors: { ...colors },
+          recordCard: { ...recordCard },
         },
       }),
     );
@@ -974,10 +1048,12 @@
               [themeId]: {
                 name: selectedOverride.name,
                 colors: selectedOverride.colors,
+                recordCard: selectedOverride.recordCard,
               },
             }
           : {},
         colors: { ...colors },
+        recordCard: { ...recordCard },
       });
       const launchThemeState = {
         selectedTheme: themeId || "default",
@@ -987,6 +1063,7 @@
               [themeId]: {
                 name: selectedOverride.name,
                 colors: selectedOverride.colors,
+                recordCard: selectedOverride.recordCard,
               },
             }
           : {},
@@ -1037,6 +1114,15 @@
                 }
               : baseBuiltInTheme,
           ),
+          recordCard: resolveThemeRecordCard(
+            {
+              ...baseBuiltInTheme,
+              recordCard: {
+                ...(baseBuiltInTheme.recordCard || {}),
+                ...(builtInThemeOverrides[storedTheme]?.recordCard || {}),
+              },
+            },
+          ),
         }
       : null;
 
@@ -1056,7 +1142,10 @@
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    dispatchThemeApplied(themeId, resolveThemeColors(activeTheme), options);
+    dispatchThemeApplied(themeId, resolveThemeColors(activeTheme), {
+      ...options,
+      activeTheme,
+    });
 
     if (
       (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !== themeId
@@ -1171,6 +1260,7 @@
   window.ControlerTheme = {
     themeAppliedEventName: THEME_APPLIED_EVENT_NAME,
     ensureReadableShapeColor,
+    resolveThemeRecordCard,
     getReadableTextColorForBackground(
       backgroundColor,
       preferredTextColor = "",

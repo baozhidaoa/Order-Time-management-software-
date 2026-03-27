@@ -1,11 +1,20 @@
-const DESKTOP_WIDGET_TYPES =
-  window.ControlerPlatformContract?.getWidgetKinds?.()?.map((item) => ({
-    id: item.id,
-    name: item.name,
-    subtitle: item.subtitle,
-    page: item.page,
-    action: item.action,
-  })) || [];
+const DESKTOP_WIDGET_TYPE_SOURCE =
+  typeof window.ControlerPlatformContract?.getWidgetKinds === "function"
+    ? window.ControlerPlatformContract.getWidgetKinds()
+    : Array.isArray(window.ControlerPlatformContract?.widgetKinds)
+      ? window.ControlerPlatformContract.widgetKinds
+      : [];
+const DESKTOP_WIDGET_TYPES = (
+  Array.isArray(DESKTOP_WIDGET_TYPE_SOURCE)
+    ? DESKTOP_WIDGET_TYPE_SOURCE
+    : []
+).map((item) => ({
+  id: item.id,
+  name: item.name,
+  subtitle: item.subtitle,
+  page: item.page,
+  action: item.action,
+}));
 
 const widgetTypeMap = new Map(
   DESKTOP_WIDGET_TYPES.map((item) => [item.id, item]),

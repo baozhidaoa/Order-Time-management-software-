@@ -29,6 +29,8 @@ public final class ControlerWidgetCollectionStore {
         public int outlineColor = Color.parseColor("#24FFFFFF");
         public int titleColor = Color.parseColor("#EAF6ED");
         public int metaColor = Color.parseColor("#D2E4D7");
+        public int actionFillColor = Color.parseColor("#24FFFFFF");
+        public int actionOutlineColor = Color.parseColor("#33FFFFFF");
         public int actionTextColor = Color.parseColor("#FFFFFF");
         public String badgeText = "";
         public int badgeColor = Color.parseColor("#ED8936");
@@ -117,6 +119,14 @@ public final class ControlerWidgetCollectionStore {
                 row.metaColor = item.optInt(
                     "metaColor",
                     Color.parseColor("#D2E4D7")
+                );
+                row.actionFillColor = item.optInt(
+                    "actionFillColor",
+                    Color.parseColor("#24FFFFFF")
+                );
+                row.actionOutlineColor = item.optInt(
+                    "actionOutlineColor",
+                    Color.parseColor("#33FFFFFF")
                 );
                 row.actionTextColor = item.optInt(
                     "actionTextColor",

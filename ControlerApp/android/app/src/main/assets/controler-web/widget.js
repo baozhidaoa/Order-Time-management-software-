@@ -1,11 +1,20 @@
-const DESKTOP_WIDGET_TYPES =
-  window.ControlerPlatformContract?.getWidgetKinds?.()?.map((item) => ({
-    id: item.id,
-    name: item.name,
-    subtitle: item.subtitle,
-    page: item.page,
-    action: item.action,
-  })) || [];
+const DESKTOP_WIDGET_TYPE_SOURCE =
+  typeof window.ControlerPlatformContract?.getWidgetKinds === "function"
+    ? window.ControlerPlatformContract.getWidgetKinds()
+    : Array.isArray(window.ControlerPlatformContract?.widgetKinds)
+      ? window.ControlerPlatformContract.widgetKinds
+      : [];
+const DESKTOP_WIDGET_TYPES = (
+  Array.isArray(DESKTOP_WIDGET_TYPE_SOURCE)
+    ? DESKTOP_WIDGET_TYPE_SOURCE
+    : []
+).map((item) => ({
+  id: item.id,
+  name: item.name,
+  subtitle: item.subtitle,
+  page: item.page,
+  action: item.action,
+}));
 
 const widgetTypeMap = new Map(
   DESKTOP_WIDGET_TYPES.map((item) => [item.id, item]),
@@ -1674,34 +1683,92 @@ function buildDateTextRange(startDate, dayCount = 7) {
   };
 }
 
+function buildLocalDateTextRange(startDate, dayCount = 7) {
+  const start =
+    parseDate(startDate) ||
+    (() => {
+      const fallback = new Date();
+      fallback.setHours(0, 0, 0, 0);
+      return fallback;
+    })();
+  start.setHours(0, 0, 0, 0);
+
+  const safeDayCount = Math.max(1, dayCount);
+  const dates = [];
+  const dateTexts = [];
+  const dateTextSet = new Set();
+  for (let offset = 0; offset < safeDayCount; offset += 1) {
+    const nextDate = new Date(start);
+    nextDate.setDate(start.getDate() + offset);
+    const dateText = getLocalDateText(nextDate);
+    dates.push(nextDate);
+    dateTexts.push(dateText);
+    dateTextSet.add(dateText);
+  }
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + safeDayCount);
+
+  return {
+    dates,
+    dateTexts,
+    dateTextSet,
+    dayCount: safeDayCount,
+    startMs: start.getTime(),
+    endMs: end.getTime(),
+  };
+}
+
 function buildRecordProjectSummary(state, startDate, dayCount = 7) {
-  const range = buildDateTextRange(startDate, dayCount);
+  const range = buildLocalDateTextRange(startDate, dayCount);
   const projectMap = getProjectMap(state?.projects);
   const summary = new Map();
 
   (Array.isArray(state?.records) ? state.records : []).forEach((record) => {
-    const dateText = getRecordDateText(record);
-    if (!range.dateTextSet.has(dateText)) {
-      return;
-    }
-
-    const minutes = resolveRecordMinutes(record);
-    if (minutes <= 0) {
+    const previewRange = resolveRecordPreviewRange(record);
+    if (
+      !previewRange ||
+      previewRange.endMs <= range.startMs ||
+      previewRange.startMs >= range.endMs
+    ) {
       return;
     }
 
     const project = projectMap.get(record?.projectId);
     const title = project?.name || record?.name || "未分类";
-    const current = summary.get(title) || {
+    const key = record?.projectId ? `project:${record.projectId}` : `name:${title}`;
+    const current = summary.get(key) || {
       title,
       accent: project?.color || "#8ed6a4",
       totalMinutes: 0,
       dayMinutes: new Map(),
     };
 
-    current.totalMinutes += minutes;
-    current.dayMinutes.set(dateText, (current.dayMinutes.get(dateText) || 0) + minutes);
-    summary.set(title, current);
+    const overlapStart = Math.max(previewRange.startMs, range.startMs);
+    const overlapEnd = Math.min(previewRange.endMs, range.endMs);
+    const cursor = new Date(overlapStart);
+    cursor.setHours(0, 0, 0, 0);
+    const lastDay = new Date(Math.max(overlapStart, overlapEnd - 1));
+    lastDay.setHours(0, 0, 0, 0);
+
+    while (cursor.getTime() <= lastDay.getTime()) {
+      const dayStart = cursor.getTime();
+      const dayEnd = dayStart + 86400000;
+      const dayOverlapStart = Math.max(overlapStart, dayStart);
+      const dayOverlapEnd = Math.min(overlapEnd, dayEnd);
+      if (dayOverlapEnd > dayOverlapStart) {
+        const dateText = getLocalDateText(cursor);
+        const minutes = Math.max(1, Math.ceil((dayOverlapEnd - dayOverlapStart) / 60000));
+        current.totalMinutes += minutes;
+        current.dayMinutes.set(
+          dateText,
+          (current.dayMinutes.get(dateText) || 0) + minutes,
+        );
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    summary.set(key, current);
   });
 
   return Array.from(summary.values())
@@ -2012,12 +2079,11 @@ function buildWeekGridRows(state) {
   const startDay = new Date();
   startDay.setHours(0, 0, 0, 0);
   startDay.setDate(startDay.getDate() - 6);
+  const range = buildLocalDateTextRange(startDay, 7);
   const todayText = getLocalDateText(new Date());
 
-  for (let offset = 0; offset < 7; offset += 1) {
-    const day = new Date(startDay);
-    day.setDate(startDay.getDate() + offset);
-    const dateText = getDateText(day);
+  range.dates.forEach((day, offset) => {
+    const dateText = range.dateTexts[offset];
     const row = {
       label: todayText === dateText ? "今天" : WIDGET_WEEKDAY_NAMES_ZH[day.getDay()],
       dateText,
@@ -2027,7 +2093,7 @@ function buildWeekGridRows(state) {
     };
     rows.push(row);
     rowMap.set(dateText, row);
-  }
+  });
 
   const projectMap = getProjectMap(state?.projects);
   (Array.isArray(state?.records) ? state.records : []).forEach((record) => {
@@ -2187,7 +2253,7 @@ function buildRecordSummaryItemCards(summaryItems, actionLabel) {
     title: item.title,
     badge: `${translateWidgetUiText("总计")} ${formatMinutesCompact(item.totalMinutes)}`,
     meta: translateWidgetUiText(
-      `日均 ${formatMinutesCompact(item.averageMinutes)} · 实际日 ${formatMinutesCompact(item.activeAverageMinutes)}`,
+      `日均 ${formatMinutesCompact(item.averageMinutes)} · 实际日均 ${formatMinutesCompact(item.activeAverageMinutes)}`,
     ),
     note: translateWidgetUiText(`有效 ${item.activeDays} 天`),
     accent: item.accent,

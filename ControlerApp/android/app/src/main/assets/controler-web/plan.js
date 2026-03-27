@@ -35,6 +35,9 @@ let planShellReady = false;
 let planInitialDataLoadPromise = null;
 let planInitialRevealPromise = null;
 let planDeferredBootstrapQueued = false;
+let planDeferredBootstrapGeneration = 0;
+let planDeferredBootstrapTimerId = 0;
+let planDeferredBootstrapIdleId = 0;
 let todoSidebarRuntimePromise = null;
 let todoSidebarRuntimeReady = false;
 let todoSidebarIdleBootstrapQueued = false;
@@ -429,6 +432,18 @@ function bindPlanShellVisibilityGate() {
 
     planShellPageActive = nextActive;
     if (!planShellPageActive) {
+      if (
+        planExternalStorageRefreshQueued ||
+        planExternalStorageRefreshCoordinator?.hasPending?.()
+      ) {
+        planExternalStorageRefreshPendingResume = true;
+      }
+      planExternalStorageRefreshCoordinator?.cancel?.();
+      invalidateDeferredPlanBootstrap({
+        pendingResume: !planInitialDataValidated,
+      });
+      planRefreshController?.invalidate?.();
+      planLoadRequestId += 1;
       return;
     }
 
@@ -449,6 +464,30 @@ function bindPlanShellVisibilityGate() {
       scheduleTodoSidebarIdleBootstrap();
     }
   });
+}
+
+function clearDeferredPlanBootstrapSchedule() {
+  if (planDeferredBootstrapTimerId) {
+    window.clearTimeout(planDeferredBootstrapTimerId);
+    planDeferredBootstrapTimerId = 0;
+  }
+  if (planDeferredBootstrapIdleId) {
+    if (typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(planDeferredBootstrapIdleId);
+    } else {
+      window.clearTimeout(planDeferredBootstrapIdleId);
+    }
+    planDeferredBootstrapIdleId = 0;
+  }
+}
+
+function invalidateDeferredPlanBootstrap(options = {}) {
+  planDeferredBootstrapGeneration += 1;
+  planDeferredBootstrapQueued = false;
+  clearDeferredPlanBootstrapSchedule();
+  if (options.pendingResume === true && !planInitialDataValidated) {
+    planDeferredBootstrapPendingResume = true;
+  }
 }
 
 function isRecurringPlanItem(plan) {
@@ -6987,8 +7026,14 @@ function scheduleDeferredPlanBootstrap() {
   }
 
   planDeferredBootstrapQueued = true;
+  const deferredGeneration = planDeferredBootstrapGeneration;
   const run = () => {
+    planDeferredBootstrapTimerId = 0;
+    planDeferredBootstrapIdleId = 0;
     planDeferredBootstrapQueued = false;
+    if (deferredGeneration !== planDeferredBootstrapGeneration) {
+      return;
+    }
     if (!planShellPageActive && !isPlanShellTransitionLoading()) {
       planDeferredBootstrapPendingResume = true;
       return;
@@ -6997,13 +7042,23 @@ function scheduleDeferredPlanBootstrap() {
   };
 
   const scheduleAfterPaint = () => {
+    if (deferredGeneration !== planDeferredBootstrapGeneration) {
+      planDeferredBootstrapQueued = false;
+      return;
+    }
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(run, {
+      planDeferredBootstrapIdleId = window.requestIdleCallback(() => {
+        planDeferredBootstrapIdleId = 0;
+        run();
+      }, {
         timeout: 320,
       });
       return;
     }
-    window.setTimeout(run, 48);
+    planDeferredBootstrapTimerId = window.setTimeout(() => {
+      planDeferredBootstrapTimerId = 0;
+      run();
+    }, 48);
   };
 
   if (typeof window.requestAnimationFrame === "function") {
@@ -7013,7 +7068,10 @@ function scheduleDeferredPlanBootstrap() {
     return;
   }
 
-  window.setTimeout(scheduleAfterPaint, 32);
+  planDeferredBootstrapTimerId = window.setTimeout(() => {
+    planDeferredBootstrapTimerId = 0;
+    scheduleAfterPaint();
+  }, 32);
 }
 
 async function init() {

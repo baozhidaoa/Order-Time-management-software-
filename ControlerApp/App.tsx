@@ -1062,17 +1062,6 @@ export function resolveShellBlockingOverlayPayload({
   activeBusyOverlay: BusyOverlayState;
   shellLanguage: UiLanguage;
 }): ShellBlockingOverlayPayload {
-  if (transitionState?.status === 'loading') {
-    return {
-      title: selectShellText(shellLanguage, '正在加载数据中', 'Loading data'),
-      message: selectShellText(
-        shellLanguage,
-        '页面资源与本地数据正在就绪',
-        'Page resources and local data are getting ready.',
-      ),
-    };
-  }
-
   if (
     activeBusyOverlay.active &&
     activeBusyOverlay.presentation === 'native-fullscreen'
@@ -1183,9 +1172,6 @@ export function isWebViewLayerInteractive({
     return slot === activeSlot;
   }
   if (transitionState.status === 'loading') {
-    if (isAndroid) {
-      return false;
-    }
     return slot === transitionState.fromSlot;
   }
   return slot === activeSlot;
@@ -5693,7 +5679,7 @@ function App({
         wrapperStyle = [
           styles.webviewLayer,
           {backgroundColor: shellBootTheme.screenBg},
-          IS_ANDROID ? androidHiddenLayerStyle : styles.webviewLayerVisible,
+          styles.webviewLayerVisible,
         ];
       } else {
         wrapperStyle = [
@@ -5895,6 +5881,8 @@ function App({
     shellLanguage,
   });
   const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
+  const shouldBlockTouchesDuringTransition =
+    transitionState?.status === 'loading';
   const shellBlockingOverlayView = shellBlockingOverlay ? (
     <View
       accessible={false}
@@ -6025,6 +6013,13 @@ function App({
             <View style={styles.center}>{bootCard}</View>
           </Animated.View>
         ) : null}
+        {shouldBlockTouchesDuringTransition ? (
+          <View
+            accessible={false}
+            pointerEvents="auto"
+            style={styles.transitionTouchBlocker}
+          />
+        ) : null}
       </View>
       {shellBlockingOverlayView}
     </ScreenContainer>
@@ -6048,6 +6043,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: EDGE_BACK_SWIPE_REGION_WIDTH,
     zIndex: 10,
+    backgroundColor: 'transparent',
+  },
+  transitionTouchBlocker: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9,
     backgroundColor: 'transparent',
   },
   webviewLayer: {

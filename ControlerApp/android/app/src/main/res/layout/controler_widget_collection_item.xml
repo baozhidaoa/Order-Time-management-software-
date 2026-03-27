@@ -63,22 +63,47 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
-        <TextView
+        <FrameLayout
             android:id="@+id/widget_collection_item_action"
             android:layout_width="64dp"
             android:layout_height="48dp"
-            android:background="@drawable/controler_widget_action_background"
-            android:gravity="center"
-            android:includeFontPadding="false"
             android:minWidth="64dp"
-            android:minHeight="48dp"
-            android:paddingLeft="12dp"
-            android:paddingTop="10dp"
-            android:paddingRight="12dp"
-            android:paddingBottom="10dp"
-            android:text="完成"
-            android:textColor="#FFFFFF"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+            android:minHeight="48dp">
+
+            <ImageView
+                android:id="@+id/widget_collection_item_action_fill"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="false"
+                android:contentDescription="@null"
+                android:scaleType="fitXY"
+                android:src="@drawable/controler_widget_tintable_pill_fill" />
+
+            <ImageView
+                android:id="@+id/widget_collection_item_action_stroke"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="false"
+                android:contentDescription="@null"
+                android:scaleType="fitXY"
+                android:src="@drawable/controler_widget_tintable_pill_stroke" />
+
+            <TextView
+                android:id="@+id/widget_collection_item_action_label"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:paddingLeft="12dp"
+                android:paddingTop="10dp"
+                android:paddingRight="12dp"
+                android:paddingBottom="10dp"
+                android:text="完成"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>
