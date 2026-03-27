@@ -2442,8 +2442,8 @@ select optgroup {
   position: relative;
   grid-column: 2;
   z-index: 18;
-  width: 38px !important;
-  min-width: 38px !important;
+  width: 54px !important;
+  min-width: 54px !important;
   max-width: 100%;
   justify-self: start;
 }
@@ -2465,8 +2465,8 @@ select optgroup {
   .stats-range-control-strip
   > .native-select-enhancer
   .tree-select-button {
-  width: 38px !important;
-  min-width: 38px !important;
+  width: 54px !important;
+  min-width: 54px !important;
   height: 38px;
   min-height: 38px;
   padding: 0 !important;
@@ -2477,7 +2477,19 @@ select optgroup {
 
 .stats-toolbar-group--range .native-select-enhancer .tree-select-menu {
   min-width: max-content !important;
-  max-width: min(120px, calc(100vw - 32px)) !important;
+  max-width: min(136px, calc(100vw - 32px)) !important;
+}
+
+.stats-toolbar-group--range #stats-range-prev[disabled],
+.stats-toolbar-group--range #stats-range-prev[aria-disabled="true"],
+.stats-toolbar-group--range #stats-range-next[disabled],
+.stats-toolbar-group--range #stats-range-next[aria-disabled="true"] {
+  opacity: 0.46;
+  pointer-events: none;
+  color: var(--muted-text-color);
+  border-color: color-mix(in srgb, var(--panel-border-color) 78%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary) 82%, transparent);
+  box-shadow: none;
 }
 
 body.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-active
@@ -5075,14 +5087,14 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .native-select-enhancer {
-    width: 36px !important;
-    min-width: 36px !important;
+    width: 48px !important;
+    min-width: 48px !important;
   }
 
   body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .tree-select-button,
   body.page-stats .stats-toolbar-group--range .stats-range-control-strip > .native-select-enhancer .tree-select-button {
-    width: 36px !important;
-    min-width: 36px !important;
+    width: 48px !important;
+    min-width: 48px !important;
     height: 36px;
     min-height: 36px;
   }

@@ -28,6 +28,7 @@ const DEFAULT_THEME_COLORS = {
 };
 const SETTINGS_LANGUAGE_EVENT = "controler:language-changed";
 let settingsInitialReadyReported = false;
+let settingsInitialReadyPromise = null;
 let settingsDeferredRuntimePromise = null;
 const SETTINGS_BUSY_OVERLAY_DELAY_MS = Math.max(
   0,
@@ -83,10 +84,10 @@ function finishSettingsSlowLoadingOverlay() {
   window.clearTimeout(settingsInitialLoadOverlayTimer);
   settingsInitialLoadOverlayTimer = 0;
   if (!settingsInitialLoadOverlayVisible) {
-    return;
+    return Promise.resolve(false);
   }
   settingsInitialLoadOverlayVisible = false;
-  setSettingsBusyState({
+  return setSettingsBusyState({
     active: false,
     lockNativeExit: false,
   });
@@ -94,22 +95,41 @@ function finishSettingsSlowLoadingOverlay() {
 
 function queueSettingsInitialReady() {
   if (settingsInitialReadyReported) {
-    return;
+    return settingsInitialReadyPromise || Promise.resolve(true);
   }
-  settingsInitialReadyReported = true;
+  if (settingsInitialReadyPromise) {
+    return settingsInitialReadyPromise;
+  }
   const schedule =
     typeof window.requestAnimationFrame === "function"
       ? window.requestAnimationFrame.bind(window)
       : (callback) => window.setTimeout(callback, 16);
-  schedule(() => {
+  settingsInitialReadyPromise = new Promise((resolve) => {
     schedule(() => {
-      document.body?.classList.remove("settings-bootstrap-pending");
-      document.body?.classList.add("settings-bootstrap-ready");
-      finishSettingsSlowLoadingOverlay();
-      window.ControlerUI?.markPerfStage?.("first-render-done");
-      window.ControlerUI?.markNativePageReady?.();
+      schedule(() => {
+        Promise.resolve(
+          window.ControlerUI?.waitForVisualContentStability?.({
+            root: ".settings-main",
+            quietWindowMs: 56,
+            maxWaitMs: 520,
+            minQuietFrames: 2,
+          }),
+        )
+          .catch(() => false)
+          .finally(async () => {
+            settingsInitialReadyReported = true;
+            document.body?.classList.remove("settings-bootstrap-pending");
+            document.body?.classList.add("settings-bootstrap-ready");
+            await finishSettingsSlowLoadingOverlay();
+            window.ControlerUI?.markPerfStage?.("first-render-done");
+            window.ControlerUI?.markNativePageReady?.();
+            settingsInitialReadyPromise = null;
+            resolve(true);
+          });
+      });
     });
   });
+  return settingsInitialReadyPromise;
 }
 
 function buildThemeDefinition(id, name, colorOverrides = {}) {
@@ -3741,17 +3761,20 @@ function setSettingsBusyState(options = {}) {
   syncSettingsNativeBusyLock(active, active && lockNativeExit);
 
   if (!overlay) {
-    return;
+    return Promise.resolve(false);
   }
 
   const loadingController = getSettingsLoadingOverlayController();
+  let statePromise = Promise.resolve(true);
   if (loadingController) {
-    loadingController.setState({
-      active,
-      mode: "fullscreen",
-      title,
-      message,
-    });
+    statePromise = Promise.resolve(
+      loadingController.setState({
+        active,
+        mode: "fullscreen",
+        title,
+        message,
+      }),
+    );
   } else {
     overlay.hidden = !active;
     overlay.setAttribute("aria-hidden", active ? "false" : "true");
@@ -3769,6 +3792,8 @@ function setSettingsBusyState(options = {}) {
     }
     overlay.focus();
   }
+
+  return statePromise;
 }
 
 function setSettingsBackupBusyState(isBusy) {
@@ -7490,7 +7515,7 @@ async function initSettings() {
   try {
     await renderWidgetSettingsPanel("init");
   } finally {
-    queueSettingsInitialReady();
+    await queueSettingsInitialReady();
   }
 
   // 设置预览模态框按钮事件

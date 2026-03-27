@@ -53,6 +53,11 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
     private TextView titleView = null;
     private TextView detailView = null;
     private View quickAddCard = null;
+    private TextView todoPriorityLabel = null;
+    private TextView todoDueLabel = null;
+    private TextView checkinRepeatLabel = null;
+    private TextView checkinWeekdaysLabel = null;
+    private TextView checkinEndDateLabel = null;
     private View todoPriorityShell = null;
     private Button todoPriorityLowButton = null;
     private Button todoPriorityMediumButton = null;
@@ -127,6 +132,11 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         saveButton = findViewById(R.id.widget_quick_add_save);
         savingIndicator = findViewById(R.id.widget_quick_add_progress);
         quickAddCard = findViewById(R.id.widget_quick_add_card);
+        todoPriorityLabel = findViewById(R.id.widget_quick_add_todo_priority_label);
+        todoDueLabel = findViewById(R.id.widget_quick_add_todo_due_label);
+        checkinRepeatLabel = findViewById(R.id.widget_quick_add_checkin_repeat_label);
+        checkinWeekdaysLabel = findViewById(R.id.widget_quick_add_checkin_weekdays_label);
+        checkinEndDateLabel = findViewById(R.id.widget_quick_add_checkin_end_date_label);
         todoPriorityShell = findViewById(R.id.widget_quick_add_todo_priority_shell);
         todoPriorityLowButton = findViewById(R.id.widget_quick_add_todo_priority_low);
         todoPriorityMediumButton = findViewById(R.id.widget_quick_add_todo_priority_medium);
@@ -410,10 +420,9 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
     private void applyThemePalette() {
         ControlerWidgetRenderer.ThemePalette palette =
             ControlerWidgetRenderer.loadThemePalette(this);
-        themedSurfaceColor = palette.surfaceColor;
+        themedSurfaceColor = palette.cardFillColor;
         themedOutlineColor = resolveWidgetCardBorderColor(palette);
-        themedFieldFillColor =
-            blendColors(palette.surfaceColor, palette.backgroundColor, 0.18f);
+        themedFieldFillColor = resolveWidgetFieldFillColor(palette);
         themedBodyColor = palette.bodyColor;
         themedSubtitleColor = palette.subtitleColor;
         themedAccentColor = palette.accentColor;
@@ -422,7 +431,7 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         if (quickAddCard != null) {
             quickAddCard.setBackground(
                 buildRoundedBackground(
-                    blendColors(palette.surfaceColor, palette.cardFillColor, 0.3f),
+                    palette.cardFillColor,
                     themedOutlineColor,
                     22f
                 )
@@ -435,6 +444,11 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         if (detailView != null) {
             detailView.setTextColor(palette.subtitleColor);
         }
+        applySectionLabelColor(todoPriorityLabel, palette.subtitleColor);
+        applySectionLabelColor(todoDueLabel, palette.subtitleColor);
+        applySectionLabelColor(checkinRepeatLabel, palette.subtitleColor);
+        applySectionLabelColor(checkinWeekdaysLabel, palette.subtitleColor);
+        applySectionLabelColor(checkinEndDateLabel, palette.subtitleColor);
         if (nameInput != null) {
             nameInput.setTextColor(palette.bodyColor);
             nameInput.setHintTextColor(applyAlphaToColor(palette.subtitleColor, 186));
@@ -544,6 +558,8 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
                 calendar.get(Calendar.DAY_OF_MONTH)
             );
         dialog.show();
+        tintDialogWindow(dialog.getWindow());
+        tintDialogButtons(dialog);
     }
 
     private void openWeekdayPickerDialog() {
@@ -551,9 +567,10 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         for (int index = 0; index < WEEKDAY_LABELS.length; index += 1) {
             checkedItems[index] = checkinRepeatWeekdays.contains(Integer.valueOf(index));
         }
-        new AlertDialog.Builder(this)
+        AlertDialog dialog =
+            new AlertDialog.Builder(this)
             .setTitle("选择每周重复日期")
-            .setMultiChoiceItems(WEEKDAY_LABELS, checkedItems, (dialog, which, isChecked) -> {
+            .setMultiChoiceItems(WEEKDAY_LABELS, checkedItems, (pickerDialog, which, isChecked) -> {
                 Integer dayValue = Integer.valueOf(which);
                 if (isChecked) {
                     if (!checkinRepeatWeekdays.contains(dayValue)) {
@@ -564,13 +581,23 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
                 }
             })
             .setNegativeButton("取消", null)
-            .setPositiveButton("确定", (dialog, which) -> {
+            .setPositiveButton("确定", (pickerDialog, which) -> {
                 if (checkinRepeatWeekdays.isEmpty()) {
                     checkinRepeatWeekdays.addAll(buildDefaultWeeklyRepeat(todayText()));
                 }
                 refreshScheduleViews();
             })
-            .show();
+            .create();
+        dialog.show();
+        tintDialogWindow(dialog.getWindow());
+        tintDialogButtons(dialog);
+    }
+
+    private void applySectionLabelColor(TextView labelView, int color) {
+        if (labelView == null) {
+            return;
+        }
+        labelView.setTextColor(color);
     }
 
     private void styleFieldButton(Button button, boolean active) {
@@ -713,8 +740,55 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         return drawable;
     }
 
+    private int resolveWidgetFieldFillColor(ControlerWidgetRenderer.ThemePalette palette) {
+        if (palette == null) {
+            return themedFieldFillColor;
+        }
+        return blendColors(
+            palette.cardFillColor,
+            palette.contrastReferenceColor,
+            palette.surfaceIsLight ? 0.035f : 0.055f
+        );
+    }
+
     private int resolveWidgetCardBorderColor(ControlerWidgetRenderer.ThemePalette palette) {
-        return blendColors(palette.borderColor, palette.contrastReferenceColor, 0.08f);
+        if (palette == null) {
+            return themedOutlineColor;
+        }
+        return blendColors(
+            palette.cardBorderColor,
+            palette.contrastReferenceColor,
+            palette.surfaceIsLight ? 0.04f : 0.08f
+        );
+    }
+
+    private void tintDialogWindow(Window window) {
+        if (window == null) {
+            return;
+        }
+        window.setBackgroundDrawable(
+            buildRoundedBackground(themedSurfaceColor, themedOutlineColor, 20f)
+        );
+    }
+
+    private void tintDialogButtons(android.app.Dialog dialog) {
+        if (dialog == null) {
+            return;
+        }
+        Button positiveButton = dialog.findViewById(android.R.id.button1);
+        Button negativeButton = dialog.findViewById(android.R.id.button2);
+        Button neutralButton = dialog.findViewById(android.R.id.button3);
+        tintDialogActionButton(positiveButton, true);
+        tintDialogActionButton(negativeButton, false);
+        tintDialogActionButton(neutralButton, false);
+    }
+
+    private void tintDialogActionButton(Button button, boolean primary) {
+        if (button == null) {
+            return;
+        }
+        button.setAllCaps(false);
+        button.setTextColor(primary ? themedAccentColor : themedBodyColor);
     }
 
     private static int applyAlphaToColor(int color, int alpha) {

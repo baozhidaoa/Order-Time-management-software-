@@ -161,7 +161,7 @@ public final class ControlerWidgetCollectionStore {
             appWidgetId,
             ControlerWidgetKinds.TODOS,
             targetId,
-            "恢复",
+            "已完成",
             "完成"
         );
     }
@@ -172,7 +172,7 @@ public final class ControlerWidgetCollectionStore {
             appWidgetId,
             ControlerWidgetKinds.CHECKINS,
             targetId,
-            "取消",
+            "已打卡",
             "打卡"
         );
     }
@@ -237,10 +237,11 @@ public final class ControlerWidgetCollectionStore {
                     }
                     String normalizedNextActionLabel =
                         nextActionLabel == null ? "" : nextActionLabel.trim();
+                    String currentActionLabel = row.optString("actionLabel", "").trim();
                     row.put(
                         "actionLabel",
                         TextUtils.isEmpty(normalizedNextActionLabel)
-                            ? "处理中"
+                            ? currentActionLabel
                             : normalizedNextActionLabel
                     );
                     row.put("actionEnabled", false);
