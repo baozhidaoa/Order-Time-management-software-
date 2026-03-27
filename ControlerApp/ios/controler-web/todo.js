@@ -53,6 +53,7 @@ let todoSwipeDeleteDismissBound = false;
 let todoSwipeDeleteConfirmationShell = null;
 let todoBeforePageLeaveGuardBound = false;
 let todoInitialRevealQueued = false;
+let todoInitialRevealPromise = null;
 let todoInitialReadyReported = false;
 let todoInitialDataLoaded = false;
 let todoInitialDataValidated = false;
@@ -278,6 +279,14 @@ function hasTodoWorkspaceCoreItems(snapshot = {}) {
   return (
     (Array.isArray(snapshot?.todos) && snapshot.todos.length > 0) ||
     (Array.isArray(snapshot?.checkinItems) && snapshot.checkinItems.length > 0)
+  );
+}
+
+function hasTodoWorkspaceRenderableData(snapshot = {}) {
+  return (
+    hasTodoWorkspaceCoreItems(snapshot) ||
+    (Array.isArray(snapshot?.checkins) && snapshot.checkins.length > 0) ||
+    (Array.isArray(snapshot?.dailyCheckins) && snapshot.dailyCheckins.length > 0)
   );
 }
 
@@ -7394,19 +7403,19 @@ function initPlanSidebar(options = {}) {
 
 function queueTodoInitialReveal() {
   if (todoInitialReadyReported) {
-    return;
+    return todoInitialRevealPromise || Promise.resolve(true);
   }
   const body = document.body;
   if (!(body instanceof HTMLElement)) {
-    return;
+    return Promise.resolve(false);
   }
   if (!body.classList.contains("todo-bootstrap-pending")) {
     todoInitialReadyReported = true;
     uiTools?.markNativePageReady?.();
-    return;
+    return Promise.resolve(true);
   }
   if (todoInitialRevealQueued) {
-    return;
+    return todoInitialRevealPromise || Promise.resolve(true);
   }
 
   todoInitialRevealQueued = true;
@@ -7415,15 +7424,20 @@ function queueTodoInitialReveal() {
     typeof window.requestAnimationFrame === "function"
       ? window.requestAnimationFrame.bind(window)
       : (callback) => window.setTimeout(callback, 16);
-  schedule(() => {
+  todoInitialRevealPromise = new Promise((resolve) => {
     schedule(() => {
-      todoInitialRevealQueued = false;
-      body.classList.remove("todo-bootstrap-pending");
-      body.classList.add("todo-bootstrap-ready");
-      uiTools?.markPerfStage?.("first-render-done");
-      uiTools?.markNativePageReady?.();
+      schedule(() => {
+        todoInitialRevealQueued = false;
+        body.classList.remove("todo-bootstrap-pending");
+        body.classList.add("todo-bootstrap-ready");
+        uiTools?.markPerfStage?.("first-render-done");
+        uiTools?.markNativePageReady?.();
+        todoInitialRevealPromise = null;
+        resolve(true);
+      });
     });
   });
+  return todoInitialRevealPromise;
 }
 
 window.ControlerTodoRuntime = {
@@ -7465,12 +7479,31 @@ async function init() {
     applyTodoWidgetMode();
     renderTodoWorkspace();
     todoPlanSidebarInitialized = true;
-    markTodoInitialDataReady(snapshot);
-    queueTodoInitialReveal();
-    if (!(todoBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp)) {
+    let initialReadySnapshot = snapshot;
+    const shouldBlockInitialReveal =
+      window.ControlerStorage?.isNativeApp === true &&
+      !hasTodoWorkspaceRenderableData(snapshot);
+    if (shouldBlockInitialReveal) {
+      uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
+        reason: todoBootstrappedFromPageBootstrap
+          ? "empty-bootstrap"
+          : "empty-initial-snapshot",
+        ...buildTodoWorkspacePerfDetail(snapshot),
+      });
+      await waitForTodoStorageReady();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot();
+      await applyTodoFreshSnapshot(freshSnapshot, {
+        reason: "initial-empty-snapshot",
+        perfStageReady: "todo-initial-blocking-refresh-ready",
+        perfStageApplied: "todo-initial-blocking-refresh-applied",
+      });
+      initialReadySnapshot = captureTodoWorkspaceSnapshot();
+    }
+    markTodoInitialDataReady(initialReadySnapshot);
+    await queueTodoInitialReveal();
+    await waitForTodoUiPaint();
+    if (!todoInitialDataValidated) {
       scheduleTodoDeferredFreshSync();
-    } else {
-      todoInitialDataValidated = true;
     }
   } finally {
     setTodoLoadingState({

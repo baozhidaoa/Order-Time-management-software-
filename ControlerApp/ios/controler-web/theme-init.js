@@ -315,6 +315,7 @@
   const builtInThemeMap = new Map(BUILT_IN_THEMES.map((theme) => [theme.id, theme]));
   const lightThemeIds = new Set(["ivory-light"]);
   let lastThemeStorageSignature = null;
+  let lastLaunchThemeSyncSignature = null;
 
   function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -978,6 +979,34 @@
           : {},
         colors: { ...colors },
       });
+      const launchThemeState = {
+        selectedTheme: themeId || "default",
+        customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+        builtInThemeOverrides: selectedOverride
+          ? {
+              [themeId]: {
+                name: selectedOverride.name,
+                colors: selectedOverride.colors,
+              },
+            }
+          : {},
+      };
+      const nextLaunchThemeSyncSignature = JSON.stringify(launchThemeState);
+      window.ControlerNativeBridge?.emitEvent?.("ui.debug-launch-theme-sync", {
+        href: window.location.href,
+        themeId,
+        selectedTheme: themeId || "default",
+        customThemeCount: matchedCustomTheme ? 1 : 0,
+        builtInOverrideCount: selectedOverride ? 1 : 0,
+        signatureChanged:
+          nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature,
+      });
+      if (nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature) {
+        lastLaunchThemeSyncSignature = nextLaunchThemeSyncSignature;
+        void window.ControlerNativeBridge?.call?.("ui.setLaunchThemeState", {
+          themeState: launchThemeState,
+        }).catch?.(() => {});
+      }
     } catch (_error) {}
   }
 
@@ -1083,6 +1112,7 @@
         JSON.stringify(builtInThemeOverrides),
       );
       lastThemeStorageSignature = null;
+      lastLaunchThemeSyncSignature = null;
       applyThemeFromStorage({
         emitNative: false,
       });

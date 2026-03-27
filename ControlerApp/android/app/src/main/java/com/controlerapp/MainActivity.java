@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
+import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableNativeMap;
@@ -20,6 +21,8 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import androidx.core.view.WindowCompat;
 import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends ReactActivity {
   private static final String UI_LANGUAGE_PREFS = "controler_ui_preferences";
@@ -27,9 +30,12 @@ public class MainActivity extends ReactActivity {
   private static final String KEY_UI_LANGUAGE = "language";
   private static final String KEY_LAUNCH_THEME_STATE = "theme_state";
   private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
+  private String pendingLaunchThemeStateJson = "";
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    pendingLaunchThemeStateJson = resolveLaunchThemeStateJson();
+    setTheme(resolveLaunchThemeStyleRes(pendingLaunchThemeStateJson));
     // Keep Android's bottom home-gesture reserved area outside app content.
     // The app can safely own the visible canvas, while the system continues to
     // own only the real gesture strip instead of our bottom action controls.
@@ -165,7 +171,14 @@ public class MainActivity extends ReactActivity {
   private Bundle buildInitialProps() {
     Bundle initialProps = new Bundle();
     initialProps.putString("initialUiLanguage", readStoredUiLanguage());
-    String initialThemeStateJson = readStoredLaunchThemeState();
+    String initialThemeStateJson =
+        pendingLaunchThemeStateJson == null ? "" : pendingLaunchThemeStateJson.trim();
+    if (initialThemeStateJson.isEmpty()) {
+      initialThemeStateJson = resolveLaunchThemeStateJson();
+    }
+    ControlerStartupTrace.mark(
+        "launch_theme_initial_props",
+        describeLaunchThemeStateForTrace(initialThemeStateJson));
     if (initialThemeStateJson != null && !initialThemeStateJson.isEmpty()) {
       initialProps.putString("initialCoreStateJson", initialThemeStateJson);
     }
@@ -189,5 +202,119 @@ public class MainActivity extends ReactActivity {
         getApplicationContext().getSharedPreferences(LAUNCH_THEME_PREFS, Context.MODE_PRIVATE);
     String rawThemeState = preferences.getString(KEY_LAUNCH_THEME_STATE, "");
     return rawThemeState == null ? "" : rawThemeState.trim();
+  }
+
+  private void persistLaunchThemeState(String themeStateJson) {
+    if (themeStateJson == null || themeStateJson.trim().isEmpty()) {
+      return;
+    }
+    getApplicationContext()
+        .getSharedPreferences(LAUNCH_THEME_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_LAUNCH_THEME_STATE, themeStateJson.trim())
+        .apply();
+  }
+
+  private String buildLaunchThemeStateFromCoreStorage() {
+    try {
+      JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(getApplicationContext());
+      if (coreState == null) {
+        return "";
+      }
+      JSONObject normalized = new JSONObject();
+      String selectedTheme = String.valueOf(coreState.optString("selectedTheme", "default")).trim();
+      normalized.put("selectedTheme", selectedTheme.isEmpty() ? "default" : selectedTheme);
+      normalized.put(
+          "customThemes",
+          coreState.optJSONArray("customThemes") == null
+              ? new JSONArray()
+              : new JSONArray(coreState.optJSONArray("customThemes").toString()));
+      normalized.put(
+          "builtInThemeOverrides",
+          coreState.optJSONObject("builtInThemeOverrides") == null
+              ? new JSONObject()
+              : new JSONObject(coreState.optJSONObject("builtInThemeOverrides").toString()));
+      return normalized.toString();
+    } catch (Exception ignored) {
+      return "";
+    }
+  }
+
+  private String describeLaunchThemeStateForTrace(String themeStateJson) {
+    if (themeStateJson == null || themeStateJson.trim().isEmpty()) {
+      return "selectedTheme=empty customThemeCount=0 builtInOverrideCount=0";
+    }
+    try {
+      JSONObject parsed = new JSONObject(themeStateJson);
+      String selectedTheme = trimLaunchValue(parsed.optString("selectedTheme", "default"));
+      JSONArray customThemes = parsed.optJSONArray("customThemes");
+      JSONObject builtInOverrides = parsed.optJSONObject("builtInThemeOverrides");
+      return "selectedTheme="
+          + (selectedTheme.isEmpty() ? "default" : selectedTheme)
+          + " customThemeCount="
+          + (customThemes == null ? 0 : customThemes.length())
+          + " builtInOverrideCount="
+          + (builtInOverrides == null ? 0 : builtInOverrides.length());
+    } catch (Exception ignored) {
+      return "selectedTheme=parse-error customThemeCount=0 builtInOverrideCount=0";
+    }
+  }
+
+  private String resolveLaunchThemeStateJson() {
+    String coreThemeState = buildLaunchThemeStateFromCoreStorage();
+    if (!coreThemeState.isEmpty()) {
+      persistLaunchThemeState(coreThemeState);
+      ControlerStartupTrace.mark(
+          "launch_theme_activity_resolved",
+          "source=core " + describeLaunchThemeStateForTrace(coreThemeState));
+      return coreThemeState;
+    }
+    String storedThemeState = readStoredLaunchThemeState();
+    ControlerStartupTrace.mark(
+        "launch_theme_activity_resolved",
+        "source=prefs " + describeLaunchThemeStateForTrace(storedThemeState));
+    return storedThemeState;
+  }
+
+  private int resolveLaunchThemeStyleRes(String themeStateJson) {
+    String selectedTheme = "default";
+    try {
+      JSONObject parsed =
+          themeStateJson == null || themeStateJson.trim().isEmpty()
+              ? null
+              : new JSONObject(themeStateJson);
+      if (parsed != null) {
+        String parsedTheme = trimLaunchValue(parsed.optString("selectedTheme", "default"));
+        if (!parsedTheme.isEmpty()) {
+          selectedTheme = parsedTheme;
+        }
+      }
+    } catch (Exception ignored) {
+      selectedTheme = "default";
+    }
+    switch (selectedTheme) {
+      case "blue-ocean":
+        return R.style.AppThemeLaunchBlueOcean;
+      case "sunset-orange":
+        return R.style.AppThemeLaunchSunsetOrange;
+      case "minimal-gray":
+        return R.style.AppThemeLaunchMinimalGray;
+      case "obsidian-mono":
+        return R.style.AppThemeLaunchObsidianMono;
+      case "ivory-light":
+        return R.style.AppThemeLaunchIvoryLight;
+      case "graphite-mist":
+        return R.style.AppThemeLaunchGraphiteMist;
+      case "aurora-mist":
+        return R.style.AppThemeLaunchAuroraMist;
+      case "velvet-bordeaux":
+        return R.style.AppThemeLaunchVelvetBordeaux;
+      case "champagne-sandstone":
+        return R.style.AppThemeLaunchChampagneSandstone;
+      case "midnight-indigo":
+        return R.style.AppThemeLaunchMidnightIndigo;
+      default:
+        return R.style.AppThemeLaunchDefault;
+    }
   }
 }

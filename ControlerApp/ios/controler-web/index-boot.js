@@ -15488,8 +15488,7 @@ function handleIndexWidgetLaunchAction(payload = {}, options = {}) {
       : new Date();
   const accepted =
     requestSpendModalOpen(clickTime, {
-      focusInput: true,
-      focusTargetId: "project-name-input",
+      focusInput: false,
     }) ||
     isIndexWidgetTimerModalVisible() ||
     !!pendingSpendModalState;

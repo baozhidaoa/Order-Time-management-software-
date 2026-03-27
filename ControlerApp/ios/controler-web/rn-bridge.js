@@ -347,6 +347,19 @@
     });
   }
 
+  function resyncRuntimeClasses() {
+    runtimeClassSyncAttempts = 0;
+    applyRuntimeClasses();
+    applyKeyboardOpenState();
+    const platform = getNativeHostPlatform();
+    if (
+      platform !== "web" &&
+      (!document.body || !hasAppliedRuntimeClasses(platform))
+    ) {
+      scheduleRuntimeClassSync();
+    }
+  }
+
   const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
   const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
   const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
@@ -356,37 +369,63 @@
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
 
+  function getAndroidLayoutViewportHeight(viewportHeight = 0) {
+    return Math.max(
+      Math.round(window.innerHeight || 0),
+      Math.round(document.documentElement?.clientHeight || 0),
+      Math.round(document.body?.clientHeight || 0),
+      Math.round(viewportHeight || 0),
+    );
+  }
+
   function applyKeyboardOpenState() {
     const platform = getNativeHostPlatform();
     if (platform !== "android") {
       return;
     }
 
+    const visualViewport = window.visualViewport;
     const viewportHeight = Math.round(
-      window.visualViewport?.height || window.innerHeight || 0,
+      visualViewport?.height || window.innerHeight || 0,
     );
     if (!viewportHeight) {
       return;
     }
 
-    if (
-      keyboardViewportBaseHeight &&
-      Math.abs(viewportHeight - lastKeyboardViewportHeight) <
-        ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
-    ) {
-      return;
-    }
-    lastKeyboardViewportHeight = viewportHeight;
+    const viewportWidth = Math.max(
+      Math.round(visualViewport?.width || 0),
+      Math.round(window.innerWidth || 0),
+      Math.round(document.documentElement?.clientWidth || 0),
+    );
+    const viewportOffsetTop = Math.max(
+      0,
+      Math.round(visualViewport?.offsetTop || 0),
+    );
+    const viewportOffsetLeft = Math.max(
+      0,
+      Math.round(visualViewport?.offsetLeft || 0),
+    );
+    const layoutViewportHeight = getAndroidLayoutViewportHeight(viewportHeight);
+    const hadStableBaseline = keyboardViewportBaseHeight > 0;
+    const wasKeyboardOpen = keyboardOpen;
 
-    if (!keyboardViewportBaseHeight || viewportHeight > keyboardViewportBaseHeight) {
-      keyboardViewportBaseHeight = viewportHeight;
+    if (
+      !hadStableBaseline ||
+      (!wasKeyboardOpen && layoutViewportHeight > 0) ||
+      layoutViewportHeight >
+        keyboardViewportBaseHeight + ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+    ) {
+      keyboardViewportBaseHeight = Math.max(layoutViewportHeight, viewportHeight);
     }
+
+    lastKeyboardViewportHeight = viewportHeight;
 
     const stableViewportHeight = Math.max(
       keyboardViewportBaseHeight || 0,
+      layoutViewportHeight,
       viewportHeight,
     );
-    const keyboardDelta = Math.max(keyboardViewportBaseHeight - viewportHeight, 0);
+    const keyboardDelta = Math.max(stableViewportHeight - viewportHeight, 0);
     const nextKeyboardOpen = keyboardOpen
       ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
       : keyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
@@ -397,36 +436,49 @@
       `${viewportHeight}px`,
     );
     root?.style.setProperty(
+      "--controler-visual-viewport-width",
+      `${viewportWidth}px`,
+    );
+    root?.style.setProperty(
+      "--controler-visual-viewport-offset-top",
+      `${viewportOffsetTop}px`,
+    );
+    root?.style.setProperty(
+      "--controler-visual-viewport-offset-left",
+      `${viewportOffsetLeft}px`,
+    );
+    root?.style.setProperty(
       "--controler-stable-visual-viewport-height",
       `${stableViewportHeight}px`,
     );
+    root?.style.setProperty("--controler-keyboard-inset", `${keyboardDelta}px`);
     keyboardOpen = nextKeyboardOpen;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
 
     if (
       !keyboardOpen &&
-      viewportHeight >=
-        keyboardViewportBaseHeight - ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+      Math.abs(layoutViewportHeight - viewportHeight) <
+        ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
     ) {
-      keyboardViewportBaseHeight = Math.max(keyboardViewportBaseHeight, viewportHeight);
+      keyboardViewportBaseHeight = Math.max(layoutViewportHeight, viewportHeight);
     }
   }
 
   function syncKeyboardOpenState() {
-    if (keyboardStateFrameId) {
-      return;
+    applyKeyboardOpenState();
+
+    if (!keyboardStateFrameId) {
+      const schedule =
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (callback) => window.setTimeout(callback, 16);
+
+      keyboardStateFrameId = schedule(() => {
+        keyboardStateFrameId = 0;
+        applyKeyboardOpenState();
+      });
     }
-
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-
-    keyboardStateFrameId = schedule(() => {
-      keyboardStateFrameId = 0;
-      applyKeyboardOpenState();
-    });
   }
 
   applyRuntimeClasses();
@@ -451,7 +503,15 @@
     emitCurrentLanguage();
   }
 
+  window.addEventListener(BRIDGE_EVENT_NAME, resyncRuntimeClasses);
+  window.addEventListener("pageshow", resyncRuntimeClasses);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      resyncRuntimeClasses();
+    }
+  });
   window.visualViewport?.addEventListener("resize", syncKeyboardOpenState);
+  window.visualViewport?.addEventListener("scroll", syncKeyboardOpenState);
   window.addEventListener("resize", syncKeyboardOpenState);
   window.addEventListener("orientationchange", syncKeyboardOpenState);
   window.addEventListener(LANGUAGE_EVENT_NAME, (event) => {

@@ -422,6 +422,80 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         );
     }
 
+    private void persistLaunchThemeState(String themeStateJson) {
+        if (TextUtils.isEmpty(themeStateJson)) {
+            return;
+        }
+        getLaunchThemePreferences()
+            .edit()
+            .putString(KEY_LAUNCH_THEME_STATE, themeStateJson.trim())
+            .apply();
+    }
+
+    private String buildLaunchThemeStateFromCoreStorage() {
+        try {
+            JSONObject coreState =
+                ControlerWidgetDataStore.getStorageCoreState(getReactApplicationContext());
+            if (coreState == null) {
+                return "";
+            }
+            JSONObject normalized = new JSONObject();
+            String selectedTheme =
+                String.valueOf(coreState.optString("selectedTheme", "default")).trim();
+            normalized.put(
+                "selectedTheme",
+                TextUtils.isEmpty(selectedTheme) ? "default" : selectedTheme
+            );
+            normalized.put(
+                "customThemes",
+                coreState.optJSONArray("customThemes") == null
+                    ? new JSONArray()
+                    : new JSONArray(coreState.optJSONArray("customThemes").toString())
+            );
+            normalized.put(
+                "builtInThemeOverrides",
+                coreState.optJSONObject("builtInThemeOverrides") == null
+                    ? new JSONObject()
+                    : new JSONObject(coreState.optJSONObject("builtInThemeOverrides").toString())
+            );
+            return normalized.toString();
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
+    private String resolveLaunchThemeStateJson() {
+        String coreThemeState = buildLaunchThemeStateFromCoreStorage();
+        if (!TextUtils.isEmpty(coreThemeState)) {
+            persistLaunchThemeState(coreThemeState);
+            return coreThemeState;
+        }
+        return String.valueOf(
+            getLaunchThemePreferences().getString(KEY_LAUNCH_THEME_STATE, "")
+        ).trim();
+    }
+
+    private String describeLaunchThemeStateForTrace(String themeStateJson) {
+        if (TextUtils.isEmpty(themeStateJson)) {
+            return "selectedTheme=empty customThemeCount=0 builtInOverrideCount=0";
+        }
+        try {
+            JSONObject parsed = new JSONObject(themeStateJson);
+            String selectedTheme =
+                String.valueOf(parsed.optString("selectedTheme", "default")).trim();
+            JSONArray customThemes = parsed.optJSONArray("customThemes");
+            JSONObject builtInThemeOverrides = parsed.optJSONObject("builtInThemeOverrides");
+            return "selectedTheme="
+                + (TextUtils.isEmpty(selectedTheme) ? "default" : selectedTheme)
+                + " customThemeCount="
+                + (customThemes == null ? 0 : customThemes.length())
+                + " builtInOverrideCount="
+                + (builtInThemeOverrides == null ? 0 : builtInThemeOverrides.length());
+        } catch (Exception error) {
+            return "selectedTheme=parse-error customThemeCount=0 builtInOverrideCount=0";
+        }
+    }
+
     private String normalizeLaunchThemeState(String themeStateJson) {
         try {
             JSONObject parsed =
@@ -702,11 +776,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void getLaunchThemeState(Promise promise) {
         try {
-            promise.resolve(
-                String.valueOf(
-                    getLaunchThemePreferences().getString(KEY_LAUNCH_THEME_STATE, "")
-                )
+            String resolvedThemeState = resolveLaunchThemeStateJson();
+            ControlerStartupTrace.mark(
+                "launch_theme_bridge_get",
+                describeLaunchThemeStateForTrace(resolvedThemeState)
             );
+            promise.resolve(resolvedThemeState);
         } catch (Exception error) {
             promise.resolve("");
         }
@@ -716,6 +791,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     public void setLaunchThemeState(String themeStateJson, Promise promise) {
         try {
             String normalizedThemeState = normalizeLaunchThemeState(themeStateJson);
+            ControlerStartupTrace.mark(
+                "launch_theme_bridge_set",
+                describeLaunchThemeStateForTrace(normalizedThemeState)
+            );
             getLaunchThemePreferences()
                 .edit()
                 .putString(KEY_LAUNCH_THEME_STATE, normalizedThemeState)
