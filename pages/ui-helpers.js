@@ -1560,10 +1560,61 @@
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
-    void window.ControlerNativeBridge.call("ui.showSoftInput").catch(
-      () => undefined,
-    );
+    const restoreFocusIfNeeded = () => {
+      if (
+        !shouldRestoreAndroidInteractiveTextControlFocus(target) ||
+        isFocusedInteractiveTextControl(target)
+      ) {
+        return;
+      }
+      try {
+        target.focus({
+          preventScroll: true,
+        });
+      } catch (error) {
+        target.focus?.();
+      }
+    };
+    void window.ControlerNativeBridge
+      .call("ui.showSoftInput")
+      .catch(() => undefined)
+      .finally(() => {
+        [0, 72, 168].forEach((delayMs) => {
+          window.setTimeout(restoreFocusIfNeeded, delayMs);
+        });
+      });
     return true;
+  }
+
+  function shouldRestoreAndroidInteractiveTextControlFocus(target) {
+    if (
+      !(target instanceof HTMLElement) ||
+      !target.isConnected ||
+      !isVisibleInteractiveTextControl(target)
+    ) {
+      return false;
+    }
+    const activeElement = document.activeElement;
+    if (
+      !(activeElement instanceof HTMLElement) ||
+      activeElement === document.body ||
+      activeElement === document.documentElement
+    ) {
+      return true;
+    }
+    const activeInteractiveTarget =
+      resolveInteractiveTextControlTarget(activeElement) ||
+      (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+      activeElement.isContentEditable === true
+        ? activeElement
+        : null);
+    if (
+      activeInteractiveTarget instanceof HTMLElement &&
+      activeInteractiveTarget !== target
+    ) {
+      return false;
+    }
+    return !activeElement.closest?.(".app-nav");
   }
 
   function focusAndroidInteractiveTextControl(target, options = {}) {
@@ -2084,10 +2135,7 @@
   }
 
   function isAndroidNativeRuntime() {
-    return (
-      document.documentElement.classList.contains("controler-android-native") ||
-      document.body?.classList.contains("controler-android-native")
-    );
+    return getNativeHostPlatform() === "android";
   }
 
   function getNativeHostPlatform() {
@@ -4903,6 +4951,7 @@
 
       document.body.appendChild(modal);
       stopModalContentPropagation(modal);
+      activateModalInteractionShield(180);
       document.addEventListener("keydown", handleKeydown, true);
       setTimeout(() => {
         (confirmButton || cancelButton)?.focus?.();

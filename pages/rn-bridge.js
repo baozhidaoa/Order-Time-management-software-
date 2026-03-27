@@ -295,10 +295,35 @@
 
   let runtimeClassSyncFrameId = 0;
   let runtimeClassSyncAttempts = 0;
-  const MAX_RUNTIME_CLASS_SYNC_ATTEMPTS = 24;
+  const MAX_RUNTIME_CLASS_SYNC_ATTEMPTS = 120;
+
+  function hasAppliedRuntimeClasses(platform = getNativeHostPlatform()) {
+    const root = document.documentElement;
+    const body = document.body;
+    if (!root || !body) {
+      return false;
+    }
+
+    const isNative = platform !== "web";
+    return (
+      root.classList.contains("controler-mobile-runtime") === isNative &&
+      body.classList.contains("controler-mobile-runtime") === isNative &&
+      root.classList.contains("controler-android-native") ===
+        (isNative && platform === "android") &&
+      body.classList.contains("controler-android-native") ===
+        (isNative && platform === "android") &&
+      root.classList.contains("controler-ios-native") ===
+        (isNative && platform === "ios") &&
+      body.classList.contains("controler-ios-native") ===
+        (isNative && platform === "ios")
+    );
+  }
 
   function scheduleRuntimeClassSync() {
-    if (runtimeClassSyncFrameId || document.body || runtimeClassSyncAttempts >= MAX_RUNTIME_CLASS_SYNC_ATTEMPTS) {
+    if (
+      runtimeClassSyncFrameId ||
+      runtimeClassSyncAttempts >= MAX_RUNTIME_CLASS_SYNC_ATTEMPTS
+    ) {
       return;
     }
     const schedule =
@@ -309,7 +334,12 @@
       runtimeClassSyncFrameId = 0;
       runtimeClassSyncAttempts += 1;
       applyRuntimeClasses();
-      if (document.body) {
+      const platform = getNativeHostPlatform();
+      if (
+        document.body &&
+        platform !== "web" &&
+        hasAppliedRuntimeClasses(platform)
+      ) {
         runtimeClassSyncAttempts = 0;
         return;
       }
