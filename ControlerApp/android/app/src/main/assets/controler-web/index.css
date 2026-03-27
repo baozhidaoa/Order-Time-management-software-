@@ -639,6 +639,24 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
 }
 
 body.controler-mobile-runtime .modal-overlay {
+  top: var(--controler-visual-viewport-offset-top, 0px) !important;
+  left: var(--controler-visual-viewport-offset-left, 0px) !important;
+  right: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  width: var(--controler-visual-viewport-width, 100vw) !important;
+  min-height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
+  height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
+  max-height: var(
+    --controler-visual-viewport-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
   padding:
     max(12px, env(safe-area-inset-top, 0px))
     12px
@@ -4460,9 +4478,11 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.controler-keyboard-open.flex.row > div:first-of-type > .app-nav {
-    transform: none;
-    opacity: 1;
-    pointer-events: auto;
+    transform: translateY(
+      calc(var(--controler-keyboard-inset, 0px) + 18px)
+    );
+    opacity: 0;
+    pointer-events: none;
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts {

@@ -711,6 +711,25 @@ function buildShellBootTheme(
   };
 }
 
+function buildShellBootThemeFromPalette(
+  palette: Partial<ShellBootTheme> | null | undefined,
+  fallback: ShellBootTheme = DEFAULT_SHELL_BOOT_THEME,
+): ShellBootTheme {
+  return {
+    screenBg: normalizeBootThemeColor(palette?.screenBg, fallback.screenBg),
+    cardBg: normalizeBootThemeColor(palette?.cardBg, fallback.cardBg),
+    cardBorder: normalizeBootThemeColor(palette?.cardBorder, fallback.cardBorder),
+    accent: normalizeBootThemeColor(palette?.accent, fallback.accent),
+    text: normalizeBootThemeColor(palette?.text, fallback.text),
+    mutedText: normalizeBootThemeColor(palette?.mutedText, fallback.mutedText),
+    indicatorBg: normalizeBootThemeColor(palette?.indicatorBg, fallback.indicatorBg),
+    transitionOverlay: normalizeBootThemeColor(
+      palette?.transitionOverlay,
+      fallback.transitionOverlay,
+    ),
+  };
+}
+
 function buildLaunchThemeBootstrapState(
   themeState: Record<string, unknown> | null = null,
 ): Record<string, unknown> {
@@ -790,7 +809,7 @@ function resolveShellBootTheme(coreState: Record<string, unknown> | null): Shell
   const builtInOverrides = isPlainObject(coreState.builtInThemeOverrides)
     ? coreState.builtInThemeOverrides
     : {};
-  const builtInBase = buildShellBootTheme(
+  const builtInBase = buildShellBootThemeFromPalette(
     BUILT_IN_SHELL_BOOT_THEME_MAP[selectedTheme] || null,
   );
   const customTheme = customThemes.find(theme => {
@@ -855,6 +874,35 @@ function buildLaunchThemeStatePayload(
             [selectedTheme]: builtInOverrides[selectedTheme],
           }
         : {},
+  };
+}
+
+function buildLaunchThemeTracePayload(
+  coreState: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const normalizedThemeState = buildLaunchThemeStatePayload(coreState);
+  const selectedTheme =
+    typeof normalizedThemeState.selectedTheme === 'string' &&
+    normalizedThemeState.selectedTheme.trim()
+      ? normalizedThemeState.selectedTheme.trim()
+      : 'default';
+  const customThemes = Array.isArray(normalizedThemeState.customThemes)
+    ? normalizedThemeState.customThemes
+    : [];
+  const builtInThemeOverrides = isPlainObject(
+    normalizedThemeState.builtInThemeOverrides,
+  )
+    ? normalizedThemeState.builtInThemeOverrides
+    : {};
+  const resolvedBootTheme = resolveShellBootTheme(normalizedThemeState);
+
+  return {
+    selectedTheme,
+    customThemeCount: customThemes.length,
+    builtInOverrideCount: Object.keys(builtInThemeOverrides).length,
+    screenBg: resolvedBootTheme.screenBg,
+    cardBg: resolvedBootTheme.cardBg,
+    accent: resolvedBootTheme.accent,
   };
 }
 
@@ -1546,9 +1594,9 @@ function buildBridgeBootstrapScript(
       window.__CONTROLER_RN_META__ = ${JSON.stringify(
         platformContract.getReactNativeRuntimeProfile(Platform.OS),
       )};
+      const themeState = ${serializedThemeState};
+      const themeBootstrapState = ${serializedThemeBootstrapState};
       try {
-        const themeState = ${serializedThemeState};
-        const themeBootstrapState = ${serializedThemeBootstrapState};
         const root = document.documentElement;
         if (window.localStorage && typeof window.localStorage.setItem === 'function') {
           window.localStorage.setItem(
@@ -2058,6 +2106,16 @@ function App({
   }, [shellLanguage]);
 
   useEffect(() => {
+    console.info(
+      '[OrderBootTheme]',
+      JSON.stringify({
+        stage: 'initial-props',
+        ...buildLaunchThemeTracePayload(initialCoreStateRef.current),
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
     const slotState = webViewSlotsRef.current;
     const transition = transitionStateRef.current;
     const interactiveState = WEBVIEW_SLOTS.map(slot => ({
@@ -2301,6 +2359,13 @@ function App({
       return null;
     }
     const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
+    console.info(
+      '[OrderBootTheme]',
+      JSON.stringify({
+        stage: 'native-core-state',
+        ...buildLaunchThemeTracePayload(coreState),
+      }),
+    );
     launchThemeStateRef.current = buildLaunchThemeStatePayload(coreState);
     applyShellBootThemeFromCoreState(coreState);
     persistLaunchThemeState(coreState).catch(() => undefined);
@@ -2368,6 +2433,13 @@ function App({
             await nativeBridge.getLaunchThemeState(),
           );
           if (storedThemeState) {
+            console.info(
+              '[OrderBootTheme]',
+              JSON.stringify({
+                stage: 'native-launch-theme',
+                ...buildLaunchThemeTracePayload(storedThemeState),
+              }),
+            );
             launchThemeStateRef.current =
               buildLaunchThemeStatePayload(storedThemeState);
             applyShellBootThemeFromCoreState(storedThemeState);
@@ -4858,6 +4930,22 @@ function App({
             String(payload.pageKey || ''),
           ),
         };
+      case 'ui.setLaunchThemeState':
+        if (typeof nativeBridge.setLaunchThemeState !== 'function') {
+          throw createUnsupportedBridgeError(
+            '同步启动主题',
+            'persisting the launch theme state',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.setLaunchThemeState(
+            JSON.stringify(
+              payload.themeState && typeof payload.themeState === 'object'
+                ? payload.themeState
+                : {},
+            ),
+          ),
+        );
       case 'ui.showToast':
         if (typeof nativeBridge.showToast !== 'function') {
           throw createUnsupportedBridgeError(
@@ -5041,6 +5129,14 @@ function App({
             : {};
         const normalizedThemeState =
           buildLaunchThemeStatePayload(nextThemeState);
+        console.info(
+          '[OrderBootTheme]',
+          JSON.stringify({
+            stage: 'webview-theme-applied',
+            slot,
+            ...buildLaunchThemeTracePayload(normalizedThemeState),
+          }),
+        );
         launchThemeStateRef.current = normalizedThemeState;
         initialCoreStateRef.current = {
           ...(initialCoreStateRef.current || {}),

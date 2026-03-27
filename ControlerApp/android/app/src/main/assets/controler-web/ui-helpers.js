@@ -383,11 +383,30 @@
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
   let androidInteractiveTextAssistInitialized = false;
+  let androidInteractiveActionFocusBypassInitialized = false;
   let androidModalAutofocusQueued = false;
   let androidReactNativeAppNavLocked = false;
   let lastAndroidSoftInputRequestAt = 0;
   const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
+  const ANDROID_INTERACTIVE_ACTION_SELECTOR = [
+    "button:not(:disabled)",
+    "input[type='button']:not(:disabled)",
+    "input[type='submit']:not(:disabled)",
+    "input[type='reset']:not(:disabled)",
+    "a[href]",
+    "[role='button']",
+    ".bts",
+    ".todo-action-btn",
+    ".record-action-btn",
+    ".widget-action-card-button",
+    ".widget-action-card",
+    ".tree-select-button",
+    ".tree-select-option",
+    ".app-nav-button",
+    "[data-controler-pressable='true']",
+  ].join(", ");
+  const ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS = 420;
   function resetAndroidModalAutofocusState(target) {
     if (!(target instanceof HTMLElement)) {
       return;
@@ -440,10 +459,12 @@
         ? window.__CONTROLER_SHELL_VISIBILITY__
         : null;
     const hasExplicitInitialState = !!initialState;
-    const defaultActive =
-      hasExplicitInitialState || !isReactNativeNavigationRuntime();
+    const defaultActive = hasExplicitInitialState
+      ? initialState?.active !== false
+      : !isReactNativeNavigationRuntime() ||
+        document.visibilityState !== "hidden";
     return {
-      active: hasExplicitInitialState ? initialState?.active !== false : defaultActive,
+      active: defaultActive,
       slot:
         typeof initialState?.slot === "string" ? initialState.slot.trim() : "",
       reason:
@@ -451,7 +472,9 @@
           ? initialState.reason.trim()
           : hasExplicitInitialState
             ? "initial"
-            : "bootstrap-pending",
+            : defaultActive
+              ? "initial-visible"
+              : "bootstrap-pending",
       page:
         typeof initialState?.page === "string" ? initialState.page.trim() : "",
       href:
@@ -1784,16 +1807,82 @@
     target.__controlerAndroidFocusRetryToken = "";
   }
 
-  function releaseAndroidInteractiveTextControlFocus() {
+  function getActiveAndroidInteractiveTextControl() {
     const activeElement = document.activeElement;
-    const focusTarget =
-      activeElement instanceof HTMLElement
-        ? resolveInteractiveTextControlTarget(activeElement) ||
+    return activeElement instanceof HTMLElement
+      ? resolveInteractiveTextControlTarget(activeElement) ||
           (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
           activeElement.isContentEditable === true
             ? activeElement
             : null)
-        : null;
+      : null;
+  }
+
+  function resolveAndroidInteractiveActionTarget(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+    const actionTarget = target.closest(ANDROID_INTERACTIVE_ACTION_SELECTOR);
+    return actionTarget instanceof HTMLElement ? actionTarget : null;
+  }
+
+  function isDisabledAndroidInteractiveActionTarget(target) {
+    return (
+      !(target instanceof HTMLElement) ||
+      target.hasAttribute("disabled") ||
+      target.getAttribute("aria-disabled") === "true"
+    );
+  }
+
+  function suppressAndroidInteractiveActionFocusTarget(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const suppressUntil =
+      Date.now() + ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS;
+    target.__controlerAndroidInteractiveActionSuppressUntil = suppressUntil;
+  }
+
+  function shouldSuppressAndroidInteractiveActionClick(event) {
+    if (!event?.isTrusted) {
+      return false;
+    }
+    const actionTarget = resolveAndroidInteractiveActionTarget(event.target);
+    if (!(actionTarget instanceof HTMLElement)) {
+      return false;
+    }
+    return (
+      Number(actionTarget.__controlerAndroidInteractiveActionSuppressUntil) >
+      Date.now()
+    );
+  }
+
+  function dispatchAndroidInteractiveActionAfterKeyboardRelease(target) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    suppressAndroidInteractiveActionFocusTarget(target);
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? (callback) =>
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(callback);
+            })
+        : (callback) => window.setTimeout(callback, 34);
+
+    schedule(() => {
+      if (!target.isConnected || isDisabledAndroidInteractiveActionTarget(target)) {
+        return;
+      }
+      clearAndroidNavButtonFocus(target, true);
+      target.click?.();
+    });
+    return true;
+  }
+
+  function releaseAndroidInteractiveTextControlFocus() {
+    const focusTarget = getActiveAndroidInteractiveTextControl();
     if (!(focusTarget instanceof HTMLElement)) {
       return false;
     }
@@ -1836,7 +1925,61 @@
   }
 
   function scheduleAndroidModalAutofocus() {
-    return false;
+    if (androidModalAutofocusQueued || !isAndroidNativeRuntime()) {
+      return false;
+    }
+
+    androidModalAutofocusQueued = true;
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+
+    schedule(() => {
+      androidModalAutofocusQueued = false;
+      const modal = getTopVisibleModal();
+      if (!(modal instanceof HTMLElement) || !isVisibleModalOverlay(modal)) {
+        return;
+      }
+      if (modal.dataset.controlerDisableAutofocus === "true") {
+        return;
+      }
+
+      const activeControl = getActiveAndroidInteractiveTextControl();
+      if (
+        activeControl instanceof HTMLElement &&
+        !modal.contains(activeControl)
+      ) {
+        clearAndroidInteractiveTextControlPendingRetries(activeControl);
+        try {
+          activeControl.blur?.();
+        } catch (error) {}
+      }
+
+      const focusedModalControl = getActiveAndroidInteractiveTextControl();
+      if (
+        focusedModalControl instanceof HTMLElement &&
+        modal.contains(focusedModalControl)
+      ) {
+        androidAutofocusedModalRoots.add(modal);
+        return;
+      }
+
+      if (androidAutofocusedModalRoots.has(modal)) {
+        return;
+      }
+
+      const didScheduleFocus = autofocusInteractiveTextControl(modal, {
+        delayMs: 28,
+        retrySequence: [90, 180, 320],
+        selectText: true,
+      });
+      if (didScheduleFocus) {
+        androidAutofocusedModalRoots.add(modal);
+      }
+    });
+
+    return true;
   }
 
   function initAndroidInteractiveTextAssist() {
@@ -1844,6 +1987,67 @@
       return;
     }
     androidInteractiveTextAssistInitialized = true;
+    if (!androidInteractiveActionFocusBypassInitialized) {
+      androidInteractiveActionFocusBypassInitialized = true;
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          if (
+            !isAndroidNativeRuntime() ||
+            event.defaultPrevented ||
+            (typeof event.button === "number" && event.button !== 0)
+          ) {
+            return;
+          }
+
+          const activeControl = getActiveAndroidInteractiveTextControl();
+          const actionTarget = resolveAndroidInteractiveActionTarget(event.target);
+          if (
+            !(activeControl instanceof HTMLElement) ||
+            !(actionTarget instanceof HTMLElement) ||
+            isDisabledAndroidInteractiveActionTarget(actionTarget)
+          ) {
+            return;
+          }
+
+          const targetTextControl = resolveInteractiveTextControlTarget(event.target);
+          if (
+            targetTextControl instanceof HTMLElement ||
+            actionTarget.contains(activeControl) ||
+            activeControl.contains(actionTarget)
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof event.stopImmediatePropagation === "function") {
+            event.stopImmediatePropagation();
+          }
+
+          clearAndroidInteractiveTextControlPendingRetries(activeControl);
+          try {
+            activeControl.blur?.();
+          } catch (error) {}
+          dispatchAndroidInteractiveActionAfterKeyboardRelease(actionTarget);
+        },
+        true,
+      );
+      document.addEventListener(
+        "click",
+        (event) => {
+          if (!shouldSuppressAndroidInteractiveActionClick(event)) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof event.stopImmediatePropagation === "function") {
+            event.stopImmediatePropagation();
+          }
+        },
+        true,
+      );
+    }
     document.addEventListener(
       "focusout",
       (event) => {
@@ -3068,6 +3272,9 @@
     );
     root?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
     body?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
+    if (hasOpenModal) {
+      scheduleAndroidModalAutofocus();
+    }
     const nextSignature = JSON.stringify({
       active,
       hasOpenModal,

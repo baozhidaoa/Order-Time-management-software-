@@ -6,6 +6,50 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <style name="AppThemeLaunchDefault" parent="@style/AppTheme">
+        <item name="android:windowBackground">#1F2F28</item>
+    </style>
+
+    <style name="AppThemeLaunchBlueOcean" parent="@style/AppTheme">
+        <item name="android:windowBackground">#12263F</item>
+    </style>
+
+    <style name="AppThemeLaunchSunsetOrange" parent="@style/AppTheme">
+        <item name="android:windowBackground">#4B261B</item>
+    </style>
+
+    <style name="AppThemeLaunchMinimalGray" parent="@style/AppTheme">
+        <item name="android:windowBackground">#1F252E</item>
+    </style>
+
+    <style name="AppThemeLaunchObsidianMono" parent="@style/AppTheme">
+        <item name="android:windowBackground">#0D0F12</item>
+    </style>
+
+    <style name="AppThemeLaunchIvoryLight" parent="@style/AppTheme">
+        <item name="android:windowBackground">#ECEFF3</item>
+    </style>
+
+    <style name="AppThemeLaunchGraphiteMist" parent="@style/AppTheme">
+        <item name="android:windowBackground">#2A2D32</item>
+    </style>
+
+    <style name="AppThemeLaunchAuroraMist" parent="@style/AppTheme">
+        <item name="android:windowBackground">#162A2D</item>
+    </style>
+
+    <style name="AppThemeLaunchVelvetBordeaux" parent="@style/AppTheme">
+        <item name="android:windowBackground">#2F141D</item>
+    </style>
+
+    <style name="AppThemeLaunchChampagneSandstone" parent="@style/AppTheme">
+        <item name="android:windowBackground">#F1EBE2</item>
+    </style>
+
+    <style name="AppThemeLaunchMidnightIndigo" parent="@style/AppTheme">
+        <item name="android:windowBackground">#111A35</item>
+    </style>
+
     <style name="ControlerWidgetQuickAddTheme" parent="Theme.AppCompat.DayNight.Dialog">
         <item name="android:windowNoTitle">true</item>
         <item name="windowActionBar">false</item>
