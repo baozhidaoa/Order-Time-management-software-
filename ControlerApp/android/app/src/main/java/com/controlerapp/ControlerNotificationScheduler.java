@@ -67,7 +67,25 @@ public final class ControlerNotificationScheduler {
         }
 
         try {
-            rescheduleAll(context, ControlerWidgetDataStore.loadRoot(context));
+            rescheduleAll(
+                context,
+                buildSchedulingRoot(context, System.currentTimeMillis())
+            );
+        } catch (Exception error) {
+            error.printStackTrace();
+        }
+    }
+
+    public static void rescheduleSections(Context context, JSONArray changedSections) {
+        if (context == null || !shouldRescheduleForChangedSections(changedSections)) {
+            return;
+        }
+
+        try {
+            rescheduleAll(
+                context,
+                buildSchedulingRoot(context, System.currentTimeMillis())
+            );
         } catch (Exception error) {
             error.printStackTrace();
         }
@@ -136,6 +154,61 @@ public final class ControlerNotificationScheduler {
         }
 
         persistScheduledCodes(context, scheduledCodes);
+    }
+
+    private static boolean shouldRescheduleForChangedSections(JSONArray changedSections) {
+        if (changedSections == null || changedSections.length() == 0) {
+            return false;
+        }
+
+        for (int index = 0; index < changedSections.length(); index += 1) {
+            String section = changedSections.optString(index, "").trim();
+            if (TextUtils.isEmpty(section)) {
+                continue;
+            }
+            if (
+                "plans".equals(section)
+                    || "plansRecurring".equals(section)
+                    || "todos".equals(section)
+                    || "checkinItems".equals(section)
+                    || "dailyCheckins".equals(section)
+                    || "checkins".equals(section)
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static JSONObject buildSchedulingRoot(Context context, long nowMillis) throws Exception {
+        JSONObject core = ControlerWidgetDataStore.getStorageCoreState(context);
+        JSONObject root = new JSONObject();
+        String scanStartDateText = toDateText(nowMillis, -MAX_CUSTOM_OFFSET_DAYS);
+        String scanEndDateText = toDateText(nowMillis, HORIZON_DAYS + MAX_CUSTOM_OFFSET_DAYS);
+        JSONObject scope = new JSONObject()
+            .put("startDate", scanStartDateText)
+            .put("endDate", scanEndDateText);
+
+        root.put("todos", cloneJsonArray(core.optJSONArray("todos")));
+        root.put("checkinItems", cloneJsonArray(core.optJSONArray("checkinItems")));
+
+        JSONObject dailyCheckinRange =
+            ControlerWidgetDataStore.loadStorageSectionRange(context, "dailyCheckins", scope);
+        root.put(
+            "dailyCheckins",
+            cloneJsonArray(dailyCheckinRange.optJSONArray("items"))
+        );
+
+        JSONObject planRange =
+            ControlerWidgetDataStore.loadStorageSectionRange(context, "plans", scope);
+        JSONArray mergedPlans = cloneJsonArray(planRange.optJSONArray("items"));
+        JSONArray recurringPlans = cloneJsonArray(core.optJSONArray("recurringPlans"));
+        for (int index = 0; index < recurringPlans.length(); index += 1) {
+            mergedPlans.put(cloneJsonValue(recurringPlans.opt(index)));
+        }
+        root.put("plans", mergedPlans);
+
+        return root;
     }
 
     public static void cancelAllScheduled(Context context) {
@@ -218,6 +291,41 @@ public final class ControlerNotificationScheduler {
             return !"false".equalsIgnoreCase(((String) value).trim());
         }
         return true;
+    }
+
+    private static JSONArray cloneJsonArray(JSONArray source) {
+        if (source == null) {
+            return new JSONArray();
+        }
+        try {
+            return new JSONArray(source.toString());
+        } catch (Exception error) {
+            error.printStackTrace();
+            return new JSONArray();
+        }
+    }
+
+    private static Object cloneJsonValue(Object value) {
+        if (value == null || value == JSONObject.NULL) {
+            return JSONObject.NULL;
+        }
+        if (value instanceof JSONObject) {
+            try {
+                return new JSONObject(value.toString());
+            } catch (Exception error) {
+                error.printStackTrace();
+                return value;
+            }
+        }
+        if (value instanceof JSONArray) {
+            try {
+                return new JSONArray(value.toString());
+            } catch (Exception error) {
+                error.printStackTrace();
+                return value;
+            }
+        }
+        return value;
     }
 
     public static boolean shouldDeliverReminder(

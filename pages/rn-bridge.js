@@ -293,6 +293,30 @@
     body.classList.toggle("controler-ios-native", isNative && platform === "ios");
   }
 
+  let runtimeClassSyncFrameId = 0;
+  let runtimeClassSyncAttempts = 0;
+  const MAX_RUNTIME_CLASS_SYNC_ATTEMPTS = 24;
+
+  function scheduleRuntimeClassSync() {
+    if (runtimeClassSyncFrameId || document.body || runtimeClassSyncAttempts >= MAX_RUNTIME_CLASS_SYNC_ATTEMPTS) {
+      return;
+    }
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    runtimeClassSyncFrameId = schedule(() => {
+      runtimeClassSyncFrameId = 0;
+      runtimeClassSyncAttempts += 1;
+      applyRuntimeClasses();
+      if (document.body) {
+        runtimeClassSyncAttempts = 0;
+        return;
+      }
+      scheduleRuntimeClassSync();
+    });
+  }
+
   const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
   const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
   const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
@@ -375,10 +399,13 @@
     });
   }
 
+  applyRuntimeClasses();
   if (document.readyState === "loading") {
+    scheduleRuntimeClassSync();
     document.addEventListener(
       "DOMContentLoaded",
       () => {
+        runtimeClassSyncAttempts = 0;
         applyRuntimeClasses();
         applyKeyboardOpenState();
         emitCurrentLanguage();
@@ -388,6 +415,7 @@
       },
     );
   } else {
+    runtimeClassSyncAttempts = 0;
     applyRuntimeClasses();
     applyKeyboardOpenState();
     emitCurrentLanguage();
