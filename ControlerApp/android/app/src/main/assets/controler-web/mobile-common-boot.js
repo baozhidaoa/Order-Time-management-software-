@@ -18119,6 +18119,118 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return controller;
   }
 
+  function waitForVisualContentStability(options = {}) {
+    const resolveRoot = (target) => {
+      if (target instanceof HTMLElement) {
+        return target;
+      }
+      if (
+        typeof document !== "undefined" &&
+        typeof target === "string" &&
+        target.trim()
+      ) {
+        const matched = document.querySelector(target.trim());
+        return matched instanceof HTMLElement ? matched : null;
+      }
+      return null;
+    };
+
+    const root =
+      resolveRoot(options.root) ||
+      document.body ||
+      document.documentElement ||
+      null;
+    if (!(root instanceof HTMLElement)) {
+      return Promise.resolve(false);
+    }
+
+    const scheduleFrame =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    const now =
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+        ? () => performance.now()
+        : () => Date.now();
+    const quietWindowMs = Number.isFinite(options.quietWindowMs)
+      ? Math.max(0, Math.round(Number(options.quietWindowMs)))
+      : 44;
+    const maxWaitMs = Number.isFinite(options.maxWaitMs)
+      ? Math.max(32, Math.round(Number(options.maxWaitMs)))
+      : 320;
+    const minQuietFrames = Number.isFinite(options.minQuietFrames)
+      ? Math.max(1, Math.round(Number(options.minQuietFrames)))
+      : 2;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let quietFrames = 0;
+      let maxTimerId = 0;
+      let observer = null;
+      let lastMutationAt = now();
+
+      const cleanup = () => {
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
+        if (maxTimerId) {
+          window.clearTimeout(maxTimerId);
+          maxTimerId = 0;
+        }
+      };
+
+      const finish = (stable) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(stable === true);
+      };
+
+      try {
+        observer = new MutationObserver(() => {
+          lastMutationAt = now();
+          quietFrames = 0;
+        });
+        observer.observe(root, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+        });
+      } catch (error) {
+        finish(false);
+        return;
+      }
+
+      const poll = () => {
+        if (settled) {
+          return;
+        }
+        if (now() - lastMutationAt < quietWindowMs) {
+          quietFrames = 0;
+          scheduleFrame(poll);
+          return;
+        }
+        quietFrames += 1;
+        if (quietFrames >= minQuietFrames) {
+          finish(true);
+          return;
+        }
+        scheduleFrame(poll);
+      };
+
+      maxTimerId = window.setTimeout(() => {
+        finish(false);
+      }, maxWaitMs);
+      scheduleFrame(poll);
+    });
+  }
+
   function createAtomicRefreshController(options = {}) {
     const defaultDelayMs = Number.isFinite(options.defaultDelayMs)
       ? Math.max(0, Math.round(Number(options.defaultDelayMs)))
@@ -18195,7 +18307,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         } finally {
           window.clearTimeout(loadingTimerId);
           if (requestId === activeRequestId && shouldManageLoading) {
-            hideLoading(runOptions.hideLoadingOptions || {});
+            await Promise.resolve(
+              hideLoading(runOptions.hideLoadingOptions || {}),
+            );
           }
         }
       },
@@ -18302,6 +18416,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
+    let stateRequestVersion = 0;
     let requestedOverlayState = {
       visible: currentVisibility,
       mode: currentMode,
@@ -18588,8 +18703,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return {
       setState(nextState = {}) {
         if (destroyed) {
-          return;
+          return Promise.resolve(false);
         }
+        const requestVersion = ++stateRequestVersion;
 
         const active = nextState.active === true;
         const mode = normalizeMode(nextState.mode || overlay.dataset.mode || "inline");
@@ -18616,14 +18732,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         overlayTimerId = 0;
 
         if (!active) {
-          applyOverlayState({
-            visible: false,
-            mode,
-            title,
-            message,
-            lockNavigation,
-          });
-          return;
+          const finalizeHide = () => {
+            if (destroyed || requestVersion !== stateRequestVersion) {
+              return false;
+            }
+            applyOverlayState({
+              visible: false,
+              mode,
+              title,
+              message,
+              lockNavigation,
+            });
+            return true;
+          };
+          const shouldWaitForSettledContent =
+            nextState.waitForSettledContent !== false && currentVisibility;
+          if (!shouldWaitForSettledContent) {
+            finalizeHide();
+            return Promise.resolve(true);
+          }
+          const settledRoot =
+            resolveLoadingOverlayElement(nextState.settledRoot) ||
+            resolveLoadingOverlayElement(options.settledRoot) ||
+            inlineHost ||
+            overlay.parentElement ||
+            document.body;
+          return waitForVisualContentStability({
+            root: settledRoot,
+            quietWindowMs: nextState.settleQuietWindowMs,
+            maxWaitMs: nextState.settleMaxWaitMs,
+            minQuietFrames: nextState.settleMinQuietFrames,
+          })
+            .catch(() => false)
+            .then(() => finalizeHide());
         }
 
         if (delayMs > 0) {
@@ -18644,7 +18785,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               lockNavigation,
             });
           }, delayMs);
-          return;
+          return Promise.resolve(true);
         }
 
         applyOverlayState({
@@ -18654,6 +18795,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           message,
           lockNavigation,
         });
+        return Promise.resolve(true);
       },
       destroy() {
         if (destroyed) {
@@ -21088,6 +21230,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     createDeferredRefreshController,
     createAtomicRefreshController,
     createPageLoadingOverlayController,
+    waitForVisualContentStability,
     resolveOfflineAssetUrl,
     positionFloatingMenu,
     measureExpandSurfaceWidth,

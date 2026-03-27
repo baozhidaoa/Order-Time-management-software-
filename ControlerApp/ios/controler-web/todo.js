@@ -802,7 +802,7 @@ function getTodoLoadingOverlayController() {
 function setTodoLoadingState(options = {}) {
   const overlay = getTodoLoadingOverlayElement();
   if (!(overlay instanceof HTMLElement)) {
-    return;
+    return Promise.resolve(false);
   }
 
   const {
@@ -817,10 +817,10 @@ function setTodoLoadingState(options = {}) {
   } = options;
   const loadingController = getTodoLoadingOverlayController();
   if (!loadingController) {
-    return;
+    return Promise.resolve(false);
   }
 
-  loadingController.setState({
+  return loadingController.setState({
     active,
     mode,
     title,
@@ -844,13 +844,13 @@ function waitForTodoUiPaint() {
 const todoRefreshController = uiTools?.createAtomicRefreshController?.({
   defaultDelayMs: TODO_LOADING_OVERLAY_DELAY_MS,
   showLoading: (loadingOptions = {}) => {
-    setTodoLoadingState({
+    return setTodoLoadingState({
       active: true,
       ...loadingOptions,
     });
   },
   hideLoading: () => {
-    setTodoLoadingState({
+    return setTodoLoadingState({
       active: false,
     });
   },
@@ -3477,7 +3477,7 @@ async function runTodoBlockingMutation(options = {}, task = null) {
     }
     return result;
   } finally {
-    setTodoLoadingState({
+    await setTodoLoadingState({
       active: false,
     });
   }
@@ -7419,7 +7419,6 @@ function queueTodoInitialReveal() {
   }
 
   todoInitialRevealQueued = true;
-  todoInitialReadyReported = true;
   const schedule =
     typeof window.requestAnimationFrame === "function"
       ? window.requestAnimationFrame.bind(window)
@@ -7427,13 +7426,25 @@ function queueTodoInitialReveal() {
   todoInitialRevealPromise = new Promise((resolve) => {
     schedule(() => {
       schedule(() => {
-        todoInitialRevealQueued = false;
-        body.classList.remove("todo-bootstrap-pending");
-        body.classList.add("todo-bootstrap-ready");
-        uiTools?.markPerfStage?.("first-render-done");
-        uiTools?.markNativePageReady?.();
-        todoInitialRevealPromise = null;
-        resolve(true);
+        Promise.resolve(
+          uiTools?.waitForVisualContentStability?.({
+            root: ".todo-main",
+            quietWindowMs: 56,
+            maxWaitMs: 520,
+            minQuietFrames: 2,
+          }),
+        )
+          .catch(() => false)
+          .finally(() => {
+            todoInitialRevealQueued = false;
+            todoInitialReadyReported = true;
+            body.classList.remove("todo-bootstrap-pending");
+            body.classList.add("todo-bootstrap-ready");
+            uiTools?.markPerfStage?.("first-render-done");
+            uiTools?.markNativePageReady?.();
+            todoInitialRevealPromise = null;
+            resolve(true);
+          });
       });
     });
   });

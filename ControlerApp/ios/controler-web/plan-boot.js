@@ -663,6 +663,7 @@ let planLoadingOverlayController = null;
 let planShellRendered = false;
 let planShellReady = false;
 let planInitialDataLoadPromise = null;
+let planInitialRevealPromise = null;
 let planDeferredBootstrapQueued = false;
 let todoSidebarRuntimePromise = null;
 let todoSidebarRuntimeReady = false;
@@ -3279,32 +3280,58 @@ function getRequestedPlannerPanel() {
 let planInitialRevealQueued = false;
 
 function queuePlanInitialReveal() {
+  if (planInitialRevealPromise) {
+    return planInitialRevealPromise;
+  }
   const body = document.body;
-  if (!(body instanceof HTMLElement) || planInitialRevealQueued) {
-    return;
+  if (!(body instanceof HTMLElement)) {
+    return Promise.resolve(false);
   }
   if (!planShellRendered) {
-    return;
+    return Promise.resolve(false);
   }
   if (!body.classList.contains("plan-bootstrap-pending")) {
     planShellReady = true;
     uiTools?.markNativePageReady?.();
-    return;
+    return Promise.resolve(true);
+  }
+  if (planInitialRevealQueued) {
+    return planInitialRevealPromise || Promise.resolve(true);
   }
 
   planInitialRevealQueued = true;
-  window.requestAnimationFrame(() => {
-    syncPlannerPanelFromHash("auto");
-    window.requestAnimationFrame(() => {
-      planInitialRevealQueued = false;
-      planShellReady = true;
-      document.body?.classList.remove("plan-bootstrap-pending");
-      document.body?.classList.add("plan-bootstrap-ready");
-      window.dispatchEvent(new CustomEvent("controler:plan-initial-ready"));
-      uiTools?.markPerfStage?.("first-render-done");
-      uiTools?.markNativePageReady?.();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  planInitialRevealPromise = new Promise((resolve) => {
+    schedule(() => {
+      syncPlannerPanelFromHash("auto");
+      schedule(() => {
+        Promise.resolve(
+          uiTools?.waitForVisualContentStability?.({
+            root: ".app-main",
+            quietWindowMs: 56,
+            maxWaitMs: 520,
+            minQuietFrames: 2,
+          }),
+        )
+          .catch(() => false)
+          .finally(() => {
+            planInitialRevealQueued = false;
+            planShellReady = true;
+            document.body?.classList.remove("plan-bootstrap-pending");
+            document.body?.classList.add("plan-bootstrap-ready");
+            window.dispatchEvent(new CustomEvent("controler:plan-initial-ready"));
+            uiTools?.markPerfStage?.("first-render-done");
+            uiTools?.markNativePageReady?.();
+            planInitialRevealPromise = null;
+            resolve(true);
+          });
+      });
     });
   });
+  return planInitialRevealPromise;
 }
 
 function getPlanLoadingOverlayElement() {
@@ -3344,7 +3371,7 @@ function getPlanLoadingDelayMs(options = {}) {
 function setPlanLoadingState(options = {}) {
   const overlay = getPlanLoadingOverlayElement();
   if (!(overlay instanceof HTMLElement)) {
-    return;
+    return Promise.resolve(false);
   }
 
   const {
@@ -3359,10 +3386,10 @@ function setPlanLoadingState(options = {}) {
   } = options;
   const loadingController = getPlanLoadingOverlayController();
   if (!loadingController) {
-    return;
+    return Promise.resolve(false);
   }
 
-  loadingController.setState({
+  return loadingController.setState({
     active,
     mode,
     title,
@@ -3374,13 +3401,13 @@ function setPlanLoadingState(options = {}) {
 const planRefreshController = uiTools?.createAtomicRefreshController?.({
   defaultDelayMs: PLAN_LOADING_OVERLAY_DELAY_MS,
   showLoading: (loadingOptions = {}) => {
-    setPlanLoadingState({
+    return setPlanLoadingState({
       active: true,
       ...loadingOptions,
     });
   },
   hideLoading: () => {
-    setPlanLoadingState({
+    return setPlanLoadingState({
       active: false,
     });
   },
@@ -7484,16 +7511,17 @@ async function loadInitialPlanWorkspace() {
           !planShellRendered ||
           !(calendarContent instanceof HTMLElement) ||
           calendarContent.childElementCount === 0;
-        if (shouldRenderCalendar && !planCalendarMountDeferred) {
-          renderCalendarView();
-        }
-        planInitialDataLoaded = true;
-        planInitialDataValidated = true;
-        schedulePlanDeferredRuntimeIdleBootstrap();
-        return;
+          if (shouldRenderCalendar && !planCalendarMountDeferred) {
+            renderCalendarView();
+          }
+          planInitialDataLoaded = true;
+          planInitialDataValidated = true;
+          schedulePlanDeferredRuntimeIdleBootstrap();
+          await queuePlanInitialReveal();
+          return;
       } finally {
         if (shouldManageInitialLoading && requestId === planLoadRequestId) {
-          setPlanLoadingState({
+          await setPlanLoadingState({
             active: false,
           });
         }
@@ -7546,6 +7574,7 @@ async function loadInitialPlanWorkspace() {
           planInitialDataLoaded = true;
           planInitialDataValidated = true;
           schedulePlanDeferredRuntimeIdleBootstrap();
+          await queuePlanInitialReveal();
         },
       },
     );
@@ -7562,13 +7591,8 @@ async function loadInitialPlanWorkspace() {
     })
     .finally(() => {
       planInitialDataLoadPromise = null;
-      if (!planRefreshController && requestId === planLoadRequestId) {
-        setPlanLoadingState({
-          active: false,
-        });
-      }
       if (requestId === planLoadRequestId && planInitialDataValidated) {
-        queuePlanInitialReveal();
+        void queuePlanInitialReveal();
       }
     });
 
@@ -7684,12 +7708,12 @@ async function init() {
     ) {
       scheduleDeferredPlanBootstrap();
     } else if (bootstrappedFromSnapshot && !planInitialDataValidated) {
-      queuePlanInitialReveal();
+      await queuePlanInitialReveal();
       scheduleDeferredPlanBootstrap();
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
     } else {
-      queuePlanInitialReveal();
+      await queuePlanInitialReveal();
       if (useWidgetLaunchFastPath) {
         scheduleDeferredPlanBootstrap();
       }
@@ -7698,12 +7722,12 @@ async function init() {
     console.error("初始化计划页失败:", error);
   } finally {
     if (!planInitialDataValidated && !planRefreshController) {
-      setPlanLoadingState({
+      await setPlanLoadingState({
         active: false,
       });
     }
     if (planInitialDataValidated || bootstrappedFromSnapshot) {
-      queuePlanInitialReveal();
+      await queuePlanInitialReveal();
     }
   }
 }

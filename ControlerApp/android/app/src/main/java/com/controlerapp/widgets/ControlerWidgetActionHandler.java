@@ -843,7 +843,7 @@ public final class ControlerWidgetActionHandler {
                     ControlerWidgetKinds.TODOS,
                     appWidgetId,
                     targetId,
-                    renderedCompleted.booleanValue() ? "完成" : "恢复"
+                    renderedCompleted.booleanValue() ? "完成" : "已完成"
                 )
             ) {
                 refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
@@ -910,7 +910,7 @@ public final class ControlerWidgetActionHandler {
                             ControlerWidgetKinds.TODOS,
                             appWidgetId,
                             targetId,
-                            nextCompleted ? "恢复" : "完成"
+                            nextCompleted ? "已完成" : "完成"
                         )
                     ) {
                         refreshWidgetPendingState(context, ControlerWidgetKinds.TODOS, appWidgetId);
@@ -1087,7 +1087,7 @@ public final class ControlerWidgetActionHandler {
                     ControlerWidgetKinds.CHECKINS,
                     appWidgetId,
                     targetId,
-                    renderedChecked.booleanValue() ? "打卡" : "取消"
+                    renderedChecked.booleanValue() ? "打卡" : "已打卡"
                 )
             ) {
                 refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
@@ -1222,7 +1222,7 @@ public final class ControlerWidgetActionHandler {
                             ControlerWidgetKinds.CHECKINS,
                             appWidgetId,
                             targetId,
-                            nextChecked ? "取消" : "打卡"
+                            nextChecked ? "已打卡" : "打卡"
                         )
                     ) {
                         refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);
@@ -1346,7 +1346,7 @@ public final class ControlerWidgetActionHandler {
                         ControlerWidgetKinds.CHECKINS,
                         appWidgetId,
                         targetId,
-                        "取消"
+                        "已打卡"
                     )
                 ) {
                     refreshWidgetPendingState(context, ControlerWidgetKinds.CHECKINS, appWidgetId);

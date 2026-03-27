@@ -2211,11 +2211,11 @@ public final class ControlerWidgetRenderer {
         int statPaddingVertical = dpToPx(context, Math.round(6f * scale));
         int actionPaddingHorizontal = dpToPx(
             context,
-            Math.round((compactItemCards ? 14f : 12f) * scale)
+            Math.round((compactItemCards ? 16f : 14f) * scale)
         );
         int actionPaddingVertical = dpToPx(
             context,
-            Math.round((compactItemCards ? 10f : 6f) * scale)
+            Math.round((compactItemCards ? 11f : 8f) * scale)
         );
         int itemHorizontalPadding = dpToPx(
             context,
@@ -3068,18 +3068,12 @@ public final class ControlerWidgetRenderer {
             try {
                 row.put("title", safeText(item.title));
                 row.put("meta", safeText(item.meta));
-                row.put(
-                    "actionLabel",
-                    safeText(
-                        item.pending && item.actionDisabled
-                            ? "处理中"
-                            : item.actionLabel
-                    )
-                );
+                row.put("actionLabel", safeText(item.actionLabel));
                 row.put("page", safeText(content.page));
                 row.put("action", safeText(content.action));
                 row.put("command", safeText(item.command));
                 row.put("targetId", safeText(item.targetId));
+                row.put("completed", item.completed);
                 row.put("accentColor", item.accentColor);
                 row.put("backgroundColor", rowSurfaceColor);
                 row.put("titleColor", rowTitleColor);
@@ -4284,10 +4278,11 @@ public final class ControlerWidgetRenderer {
             card.meta = pending
                 ? appendPendingMeta(describeTodoCardMeta(todo, today, completed))
                 : describeTodoCardMeta(todo, today, completed);
-            card.actionLabel = completed ? "恢复" : "完成";
+            card.actionLabel = completed ? "已完成" : "完成";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_TODO;
             card.targetId = safeText(todo.id);
             card.accentColor = parseColor(todo.color, Color.parseColor("#ED8936"));
+            card.completed = completed;
             card.pending = pending;
             card.actionDisabled = pending;
             content.itemCards.add(card);
@@ -4374,10 +4369,11 @@ public final class ControlerWidgetRenderer {
                     checked,
                     countCheckinStreak(state, item, today)
                 );
-            card.actionLabel = checked ? "取消" : "打卡";
+            card.actionLabel = checked ? "已打卡" : "打卡";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
             card.targetId = safeText(item.id);
             card.accentColor = parseColor(item.color, Color.parseColor("#4299E1"));
+            card.completed = checked;
             card.pending = pending;
             card.actionDisabled = pending;
             content.itemCards.add(card);

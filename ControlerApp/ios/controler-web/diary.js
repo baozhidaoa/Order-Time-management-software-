@@ -32,6 +32,7 @@ let diaryLoadRequestId = 0;
 let diaryLoadingOverlayTimer = 0;
 let diaryLoadingOverlayController = null;
 let diaryInitialRevealQueued = false;
+let diaryInitialRevealPromise = null;
 let diaryPrefetchRequestId = 0;
 let diaryShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let diaryShellVisibilityBound = false;
@@ -804,32 +805,52 @@ async function commitDiaryLocalChange({
 
 function queueDiaryInitialReveal() {
   if (diaryInitialReadyReported) {
-    return;
+    return diaryInitialRevealPromise || Promise.resolve(true);
   }
   const body = document.body;
-  if (
-    !(body instanceof HTMLElement) ||
-    !body.classList.contains("diary-bootstrap-pending") ||
-    diaryInitialRevealQueued
-  ) {
-    return;
+  if (!(body instanceof HTMLElement)) {
+    return Promise.resolve(false);
+  }
+  if (!body.classList.contains("diary-bootstrap-pending")) {
+    diaryInitialReadyReported = true;
+    uiTools?.markNativePageReady?.();
+    return Promise.resolve(true);
+  }
+  if (diaryInitialRevealQueued) {
+    return diaryInitialRevealPromise || Promise.resolve(true);
   }
 
   diaryInitialRevealQueued = true;
-  diaryInitialReadyReported = true;
   const schedule =
     typeof window.requestAnimationFrame === "function"
       ? window.requestAnimationFrame.bind(window)
       : (callback) => window.setTimeout(callback, 16);
-  schedule(() => {
+  diaryInitialRevealPromise = new Promise((resolve) => {
     schedule(() => {
-      diaryInitialRevealQueued = false;
-      body.classList.remove("diary-bootstrap-pending");
-      body.classList.add("diary-bootstrap-ready");
-      uiTools?.markPerfStage?.("first-render-done");
-      uiTools?.markNativePageReady?.();
+      schedule(() => {
+        Promise.resolve(
+          uiTools?.waitForVisualContentStability?.({
+            root: ".diary-main",
+            quietWindowMs: 56,
+            maxWaitMs: 520,
+            minQuietFrames: 2,
+          }),
+        )
+          .catch(() => false)
+          .finally(() => {
+            diaryInitialRevealQueued = false;
+            diaryInitialReadyReported = true;
+            body.classList.remove("diary-bootstrap-pending");
+            body.classList.add("diary-bootstrap-ready");
+            uiTools?.markPerfStage?.("first-render-done");
+            uiTools?.markNativePageReady?.();
+            diaryInitialRevealPromise = null;
+            resolve(true);
+          });
+      });
     });
   });
+  return diaryInitialRevealPromise;
 }
 
 function getDiaryLoadingOverlayElement() {
@@ -1029,7 +1050,7 @@ function bootstrapDiaryFromCachedSnapshot() {
 function setDiaryLoadingState(options = {}) {
   const overlay = getDiaryLoadingOverlayElement();
   if (!(overlay instanceof HTMLElement)) {
-    return;
+    return Promise.resolve(false);
   }
 
   const {
@@ -1044,10 +1065,10 @@ function setDiaryLoadingState(options = {}) {
   } = options;
   const loadingController = getDiaryLoadingOverlayController();
   if (!loadingController) {
-    return;
+    return Promise.resolve(false);
   }
 
-  loadingController.setState({
+  return loadingController.setState({
     active,
     mode,
     title,
@@ -1059,13 +1080,13 @@ function setDiaryLoadingState(options = {}) {
 const diaryRefreshController = uiTools?.createAtomicRefreshController?.({
   defaultDelayMs: DIARY_LOADING_OVERLAY_DELAY_MS,
   showLoading: (loadingOptions = {}) => {
-    setDiaryLoadingState({
+    return setDiaryLoadingState({
       active: true,
       ...loadingOptions,
     });
   },
   hideLoading: () => {
-    setDiaryLoadingState({
+    return setDiaryLoadingState({
       active: false,
     });
   },
@@ -1162,7 +1183,7 @@ async function refreshDiaryVisibleData(options = {}) {
           ? options.periodIds
           : undefined,
     });
-  const commitLoadedState = (loadedState) => {
+  const commitLoadedState = async (loadedState) => {
     if (requestId !== diaryLoadRequestId) {
       return;
     }
@@ -1183,6 +1204,9 @@ async function refreshDiaryVisibleData(options = {}) {
     if (options.includeAdjacentPrefetch !== false) {
       scheduleDiaryAdjacentPrefetch(anchorDate);
     }
+    if (!diaryInitialReadyReported) {
+      await queueDiaryInitialReveal();
+    }
   };
 
   try {
@@ -1197,11 +1221,11 @@ async function refreshDiaryVisibleData(options = {}) {
       }
       try {
         const loadedState = await loadTask();
-        commitLoadedState(loadedState);
+        await commitLoadedState(loadedState);
         return requestId === diaryLoadRequestId;
       } finally {
         if (manageLoading && requestId === diaryLoadRequestId) {
-          setDiaryLoadingState({
+          await setDiaryLoadingState({
             active: false,
           });
         }
@@ -1218,7 +1242,7 @@ async function refreshDiaryVisibleData(options = {}) {
           message,
         },
         commit: async (loadedState) => {
-          commitLoadedState(loadedState);
+          await commitLoadedState(loadedState);
         },
       },
     );
@@ -3168,7 +3192,7 @@ async function init() {
       }
     }
   } finally {
-    queueDiaryInitialReveal();
+    await queueDiaryInitialReveal();
   }
   void ensureDiaryDeferredRuntimeLoaded();
 }
