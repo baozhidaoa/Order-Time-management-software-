@@ -224,8 +224,15 @@ type ShellBootTheme = {
   cardBg: string;
   cardBorder: string;
   accent: string;
+  projectLevel1: string;
+  projectLevel2: string;
+  projectLevel3: string;
   text: string;
   mutedText: string;
+  navBarBg: string;
+  navButtonBg: string;
+  navButtonActiveBg: string;
+  navButtonActiveText: string;
   indicatorBg: string;
   transitionOverlay: string;
 };
@@ -370,8 +377,15 @@ const DEFAULT_SHELL_BOOT_THEME: ShellBootTheme = {
   cardBg: 'rgba(22, 31, 27, 0.88)',
   cardBorder: 'rgba(142, 214, 164, 0.14)',
   accent: ACCENT_COLOR,
+  projectLevel1: '#79af85',
+  projectLevel2: '#5a7f68',
+  projectLevel3: '#3a5d48',
   text: '#d4f5df',
   mutedText: 'rgba(212, 245, 223, 0.68)',
+  navBarBg: 'rgba(17, 29, 23, 0.84)',
+  navButtonBg: 'rgba(142, 214, 164, 0.12)',
+  navButtonActiveBg: 'rgba(135, 196, 153, 0.86)',
+  navButtonActiveText: '#17261d',
   indicatorBg: 'rgba(47, 111, 84, 0.14)',
   transitionOverlay: 'rgba(15, 21, 18, 0.26)',
 };
@@ -381,8 +395,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(31, 53, 42, 0.74)',
     cardBorder: 'rgba(142, 214, 164, 0.28)',
     accent: '#8ed6a4',
+    projectLevel1: '#79af85',
+    projectLevel2: '#5a7f68',
+    projectLevel3: '#3a5d48',
     text: '#f5fff8',
     mutedText: 'rgba(245, 255, 248, 0.72)',
+    navBarBg: 'rgba(17, 29, 23, 0.84)',
+    navButtonBg: 'rgba(142, 214, 164, 0.12)',
+    navButtonActiveBg: 'rgba(135, 196, 153, 0.86)',
+    navButtonActiveText: '#17261d',
     indicatorBg: 'rgba(142, 214, 164, 0.14)',
     transitionOverlay: 'rgba(8, 10, 12, 0.26)',
   },
@@ -391,8 +412,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(22, 45, 73, 0.76)',
     cardBorder: 'rgba(126, 198, 255, 0.28)',
     accent: '#7ec6ff',
+    projectLevel1: '#63b3ed',
+    projectLevel2: '#4299e1',
+    projectLevel3: '#2c5282',
     text: '#eef6ff',
     mutedText: 'rgba(238, 246, 255, 0.72)',
+    navBarBg: 'rgba(12, 28, 47, 0.86)',
+    navButtonBg: 'rgba(126, 198, 255, 0.12)',
+    navButtonActiveBg: 'rgba(119, 182, 235, 0.84)',
+    navButtonActiveText: '#123052',
     indicatorBg: 'rgba(126, 198, 255, 0.16)',
     transitionOverlay: 'rgba(10, 22, 39, 0.24)',
   },
@@ -401,8 +429,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(88, 46, 31, 0.76)',
     cardBorder: 'rgba(255, 191, 120, 0.3)',
     accent: '#ffbf78',
+    projectLevel1: '#f6ad55',
+    projectLevel2: '#ed8936',
+    projectLevel3: '#c05621',
     text: '#fff5ea',
     mutedText: 'rgba(255, 245, 234, 0.74)',
+    navBarBg: 'rgba(55, 29, 21, 0.86)',
+    navButtonBg: 'rgba(255, 191, 120, 0.14)',
+    navButtonActiveBg: 'rgba(243, 181, 112, 0.88)',
+    navButtonActiveText: '#522a1c',
     indicatorBg: 'rgba(255, 191, 120, 0.16)',
     transitionOverlay: 'rgba(42, 21, 15, 0.24)',
   },
@@ -411,8 +446,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(40, 47, 58, 0.78)',
     cardBorder: 'rgba(209, 217, 227, 0.3)',
     accent: '#d1d9e3',
+    projectLevel1: '#d4dce7',
+    projectLevel2: '#a0aec0',
+    projectLevel3: '#718096',
     text: '#f6f8fb',
     mutedText: 'rgba(246, 248, 251, 0.72)',
+    navBarBg: 'rgba(28, 33, 41, 0.86)',
+    navButtonBg: 'rgba(209, 217, 227, 0.12)',
+    navButtonActiveBg: 'rgba(186, 197, 210, 0.84)',
+    navButtonActiveText: '#262f3d',
     indicatorBg: 'rgba(209, 217, 227, 0.16)',
     transitionOverlay: 'rgba(20, 24, 31, 0.24)',
   },
@@ -421,8 +463,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(20, 23, 28, 0.82)',
     cardBorder: 'rgba(215, 221, 232, 0.22)',
     accent: '#f1f4fa',
+    projectLevel1: '#d6dde8',
+    projectLevel2: '#a2adbd',
+    projectLevel3: '#667084',
     text: '#f4f6fb',
     mutedText: 'rgba(244, 246, 251, 0.76)',
+    navBarBg: 'rgba(10, 12, 16, 0.9)',
+    navButtonBg: 'rgba(129, 140, 155, 0.14)',
+    navButtonActiveBg: 'rgba(72, 79, 92, 0.92)',
+    navButtonActiveText: '#f4f7ff',
     indicatorBg: 'rgba(241, 244, 250, 0.14)',
     transitionOverlay: 'rgba(7, 8, 10, 0.3)',
   },
@@ -431,8 +480,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(249, 252, 255, 0.86)',
     cardBorder: 'rgba(110, 122, 143, 0.24)',
     accent: '#3f495f',
+    projectLevel1: '#8b94a5',
+    projectLevel2: '#a2abbb',
+    projectLevel3: '#c0c7d3',
     text: '#202633',
     mutedText: 'rgba(32, 38, 51, 0.7)',
+    navBarBg: 'rgba(244, 247, 251, 0.9)',
+    navButtonBg: 'rgba(63, 73, 95, 0.08)',
+    navButtonActiveBg: 'rgba(74, 85, 109, 0.88)',
+    navButtonActiveText: '#f4f7ff',
     indicatorBg: 'rgba(63, 73, 95, 0.12)',
     transitionOverlay: 'rgba(27, 31, 38, 0.18)',
   },
@@ -441,8 +497,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(53, 57, 64, 0.78)',
     cardBorder: 'rgba(224, 227, 234, 0.26)',
     accent: '#f0f3fa',
+    projectLevel1: '#d8dde7',
+    projectLevel2: '#aeb5c2',
+    projectLevel3: '#808897',
     text: '#f8f9fc',
     mutedText: 'rgba(248, 249, 252, 0.74)',
+    navBarBg: 'rgba(35, 39, 45, 0.88)',
+    navButtonBg: 'rgba(240, 243, 250, 0.12)',
+    navButtonActiveBg: 'rgba(124, 134, 149, 0.82)',
+    navButtonActiveText: '#f8f9fc',
     indicatorBg: 'rgba(240, 243, 250, 0.14)',
     transitionOverlay: 'rgba(20, 22, 26, 0.24)',
   },
@@ -451,8 +514,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(26, 49, 52, 0.78)',
     cardBorder: 'rgba(143, 211, 209, 0.26)',
     accent: '#8fd3d1',
+    projectLevel1: '#7fc6c3',
+    projectLevel2: '#5ea6a4',
+    projectLevel3: '#356c70',
     text: '#effcfb',
     mutedText: 'rgba(239, 252, 251, 0.74)',
+    navBarBg: 'rgba(15, 32, 35, 0.88)',
+    navButtonBg: 'rgba(143, 211, 209, 0.12)',
+    navButtonActiveBg: 'rgba(112, 174, 173, 0.88)',
+    navButtonActiveText: '#133235',
     indicatorBg: 'rgba(143, 211, 209, 0.14)',
     transitionOverlay: 'rgba(11, 22, 24, 0.24)',
   },
@@ -461,8 +531,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(57, 26, 37, 0.8)',
     cardBorder: 'rgba(216, 166, 184, 0.26)',
     accent: '#d8a6b8',
+    projectLevel1: '#c58da2',
+    projectLevel2: '#a6607a',
+    projectLevel3: '#6c3348',
     text: '#fff3f6',
     mutedText: 'rgba(255, 243, 246, 0.74)',
+    navBarBg: 'rgba(38, 16, 25, 0.9)',
+    navButtonBg: 'rgba(216, 166, 184, 0.12)',
+    navButtonActiveBg: 'rgba(142, 77, 99, 0.88)',
+    navButtonActiveText: '#fff3f6',
     indicatorBg: 'rgba(216, 166, 184, 0.14)',
     transitionOverlay: 'rgba(22, 10, 14, 0.26)',
   },
@@ -471,8 +548,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(250, 245, 239, 0.9)',
     cardBorder: 'rgba(143, 119, 95, 0.22)',
     accent: '#8b6f57',
+    projectLevel1: '#bca087',
+    projectLevel2: '#cfb59a',
+    projectLevel3: '#e0d0bf',
     text: '#2f261f',
     mutedText: 'rgba(47, 38, 31, 0.68)',
+    navBarBg: 'rgba(248, 241, 232, 0.92)',
+    navButtonBg: 'rgba(139, 111, 87, 0.08)',
+    navButtonActiveBg: 'rgba(145, 118, 92, 0.88)',
+    navButtonActiveText: '#f8f3ec',
     indicatorBg: 'rgba(139, 111, 87, 0.12)',
     transitionOverlay: 'rgba(40, 34, 28, 0.18)',
   },
@@ -481,8 +565,15 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(21, 33, 64, 0.8)',
     cardBorder: 'rgba(156, 184, 255, 0.28)',
     accent: '#9cb8ff',
+    projectLevel1: '#86a2eb',
+    projectLevel2: '#617bc5',
+    projectLevel3: '#334678',
     text: '#eef3ff',
     mutedText: 'rgba(238, 243, 255, 0.74)',
+    navBarBg: 'rgba(12, 20, 43, 0.88)',
+    navButtonBg: 'rgba(156, 184, 255, 0.12)',
+    navButtonActiveBg: 'rgba(91, 114, 186, 0.9)',
+    navButtonActiveText: '#eef3ff',
     indicatorBg: 'rgba(156, 184, 255, 0.14)',
     transitionOverlay: 'rgba(10, 16, 31, 0.26)',
   },
@@ -540,6 +631,7 @@ const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 2600 : 1100;
 const PAGE_SWITCH_THEME_READY_TIMEOUT_MS = IS_ANDROID ? 900 : 420;
 const PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS = IS_ANDROID ? 120 : 80;
 const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 1000 : 140;
+const ANDROID_READY_TO_PRESENT_SETTLE_MS = 220;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 5200 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
 const NAVIGATION_PREWARM_DELAY_MS = 260;
@@ -698,8 +790,36 @@ function buildShellBootTheme(
       fallback.cardBorder,
     ),
     accent: normalizeBootThemeColor(colors?.accent, fallback.accent),
+    projectLevel1: normalizeBootThemeColor(
+      colors?.projectLevel1,
+      fallback.projectLevel1,
+    ),
+    projectLevel2: normalizeBootThemeColor(
+      colors?.projectLevel2,
+      fallback.projectLevel2,
+    ),
+    projectLevel3: normalizeBootThemeColor(
+      colors?.projectLevel3,
+      fallback.projectLevel3,
+    ),
     text: normalizeBootThemeColor(colors?.text, fallback.text),
     mutedText: normalizeBootThemeColor(colors?.mutedText, fallback.mutedText),
+    navBarBg: normalizeBootThemeColor(
+      colors?.navBarBg ?? colors?.panelStrong ?? colors?.panel,
+      fallback.navBarBg,
+    ),
+    navButtonBg: normalizeBootThemeColor(
+      colors?.navButtonBg ?? colors?.panelBorder,
+      fallback.navButtonBg,
+    ),
+    navButtonActiveBg: normalizeBootThemeColor(
+      colors?.navButtonActiveBg ?? colors?.accent,
+      fallback.navButtonActiveBg,
+    ),
+    navButtonActiveText: normalizeBootThemeColor(
+      colors?.navButtonActiveText ?? colors?.onAccentText ?? colors?.buttonText,
+      fallback.navButtonActiveText,
+    ),
     indicatorBg: normalizeBootThemeColor(
       colors?.navButtonBg ?? colors?.panelBorder,
       fallback.indicatorBg,
@@ -720,8 +840,33 @@ function buildShellBootThemeFromPalette(
     cardBg: normalizeBootThemeColor(palette?.cardBg, fallback.cardBg),
     cardBorder: normalizeBootThemeColor(palette?.cardBorder, fallback.cardBorder),
     accent: normalizeBootThemeColor(palette?.accent, fallback.accent),
+    projectLevel1: normalizeBootThemeColor(
+      palette?.projectLevel1,
+      fallback.projectLevel1,
+    ),
+    projectLevel2: normalizeBootThemeColor(
+      palette?.projectLevel2,
+      fallback.projectLevel2,
+    ),
+    projectLevel3: normalizeBootThemeColor(
+      palette?.projectLevel3,
+      fallback.projectLevel3,
+    ),
     text: normalizeBootThemeColor(palette?.text, fallback.text),
     mutedText: normalizeBootThemeColor(palette?.mutedText, fallback.mutedText),
+    navBarBg: normalizeBootThemeColor(palette?.navBarBg, fallback.navBarBg),
+    navButtonBg: normalizeBootThemeColor(
+      palette?.navButtonBg,
+      fallback.navButtonBg,
+    ),
+    navButtonActiveBg: normalizeBootThemeColor(
+      palette?.navButtonActiveBg,
+      fallback.navButtonActiveBg,
+    ),
+    navButtonActiveText: normalizeBootThemeColor(
+      palette?.navButtonActiveText,
+      fallback.navButtonActiveText,
+    ),
     indicatorBg: normalizeBootThemeColor(palette?.indicatorBg, fallback.indicatorBg),
     transitionOverlay: normalizeBootThemeColor(
       palette?.transitionOverlay,
@@ -740,7 +885,6 @@ function buildLaunchThemeBootstrapState(
       ? normalizedThemeState.selectedTheme.trim()
       : 'default';
   const resolvedTheme = resolveShellBootTheme(themeState);
-  const accentText = getBootThemeContrastText(resolvedTheme.accent);
 
   return {
     themeId: selectedTheme,
@@ -759,21 +903,21 @@ function buildLaunchThemeBootstrapState(
       '--border-color': resolvedTheme.cardBorder,
       '--delete-btn': '#ff7e7e',
       '--delete-hover': '#ff6464',
-      '--project-level-1': resolvedTheme.accent,
-      '--project-level-2': resolvedTheme.accent,
-      '--project-level-3': resolvedTheme.accent,
+      '--project-level-1': resolvedTheme.projectLevel1,
+      '--project-level-2': resolvedTheme.projectLevel2,
+      '--project-level-3': resolvedTheme.projectLevel3,
       '--panel-bg': resolvedTheme.cardBg,
       '--panel-strong-bg': resolvedTheme.cardBg,
       '--panel-border-color': resolvedTheme.cardBorder,
       '--button-bg': resolvedTheme.accent,
       '--button-bg-hover': resolvedTheme.accent,
-      '--button-text': accentText,
+      '--button-text': resolvedTheme.navButtonActiveText,
       '--button-border': resolvedTheme.cardBorder,
-      '--on-accent-text': accentText,
-      '--bottom-nav-bg': resolvedTheme.cardBg,
-      '--bottom-nav-button-bg': resolvedTheme.indicatorBg,
-      '--bottom-nav-button-active-bg': resolvedTheme.accent,
-      '--bottom-nav-active-text': accentText,
+      '--on-accent-text': resolvedTheme.navButtonActiveText,
+      '--bottom-nav-bg': resolvedTheme.navBarBg,
+      '--bottom-nav-button-bg': resolvedTheme.navButtonBg,
+      '--bottom-nav-button-active-bg': resolvedTheme.navButtonActiveBg,
+      '--bottom-nav-active-text': resolvedTheme.navButtonActiveText,
       '--overlay-bg': resolvedTheme.transitionOverlay,
     },
   };
@@ -788,8 +932,15 @@ function areShellBootThemesEqual(
     left.cardBg === right.cardBg &&
     left.cardBorder === right.cardBorder &&
     left.accent === right.accent &&
+    left.projectLevel1 === right.projectLevel1 &&
+    left.projectLevel2 === right.projectLevel2 &&
+    left.projectLevel3 === right.projectLevel3 &&
     left.text === right.text &&
     left.mutedText === right.mutedText &&
+    left.navBarBg === right.navBarBg &&
+    left.navButtonBg === right.navButtonBg &&
+    left.navButtonActiveBg === right.navButtonActiveBg &&
+    left.navButtonActiveText === right.navButtonActiveText &&
     left.indicatorBg === right.indicatorBg &&
     left.transitionOverlay === right.transitionOverlay
   );
@@ -1845,6 +1996,9 @@ function App({
   const transitionWatchdogTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const androidLoadedTransitionTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const transitionWatchdogRef = useRef<{
     startedAt: number;
     fromSlot: WebViewSlot;
@@ -1935,6 +2089,7 @@ function App({
     secondary: 0,
     tertiary: 0,
   });
+  const androidLoadedTransitionFrameRef = useRef(0);
   const queuedNavigationRequestRef = useRef<QueuedNavigationRequest | null>(null);
   const latestBridgeNavigationIntentRef = useRef<NavigationIntentStamp | null>(
     null,
@@ -2017,6 +2172,17 @@ function App({
       transitionThemeFallbackFrameRef.current[slot] = 0;
     }
   }
+
+  const clearAndroidLoadedTransitionDelay = useCallback(() => {
+    if (androidLoadedTransitionTimerRef.current !== null) {
+      clearTimeout(androidLoadedTransitionTimerRef.current);
+      androidLoadedTransitionTimerRef.current = null;
+    }
+    if (androidLoadedTransitionFrameRef.current) {
+      cancelAnimationFrame(androidLoadedTransitionFrameRef.current);
+      androidLoadedTransitionFrameRef.current = 0;
+    }
+  }, []);
 
   function resetSlotVisualReadiness(slot: WebViewSlot) {
     slotPageReadyRef.current[slot] = false;
@@ -3084,7 +3250,18 @@ function App({
         return '';
       }
       if (IS_ANDROID) {
-        return '';
+        switch (activePageKey) {
+          case 'index':
+            return 'stats';
+          case 'stats':
+            return 'index';
+          case 'plan':
+            return 'todo';
+          case 'todo':
+            return 'plan';
+          default:
+            return '';
+        }
       }
       return activePageKey === 'index' ? '' : 'index';
     },
@@ -3116,6 +3293,10 @@ function App({
   const syncShellVisibility = useCallback((reason = 'shell-state') => {
     const loadingTransition = transitionStateRef.current;
     const activeSlot = activeSlotRef.current;
+    const presentedSlot =
+      loadingTransition?.status === 'loading'
+        ? loadingTransition.fromSlot
+        : activeSlot;
 
     WEBVIEW_SLOTS.forEach(slot => {
       const slotState = webViewSlotsRef.current[slot];
@@ -3128,7 +3309,7 @@ function App({
         loadingTransition?.status === 'loading' &&
         slot === loadingTransition.toSlot;
       const payload = {
-        active: loadingTransition?.status === 'loading' ? false : slot === activeSlot,
+        active: slot === presentedSlot,
         slot,
         reason,
         page: slotState.pageKey,
@@ -3319,6 +3500,7 @@ function App({
     isPageReadyRef.current = false;
     setIsPageReady(false);
     clearTransitionWatchdog();
+    clearAndroidLoadedTransitionDelay();
     bootOverlayOpacity.stopAnimation();
     bootCardScale.stopAnimation();
     transitionProgress.stopAnimation();
@@ -3352,6 +3534,7 @@ function App({
   }, [
     bootCardScale,
     bootOverlayOpacity,
+    clearAndroidLoadedTransitionDelay,
     clearTransitionWatchdog,
     transitionProgress,
   ]);
@@ -3493,6 +3676,7 @@ function App({
 
     transitionTokenRef.current += 1;
     clearTransitionWatchdog();
+    clearAndroidLoadedTransitionDelay();
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     transitionStateRef.current = null;
@@ -3539,6 +3723,7 @@ function App({
     const previousSlot = completedTransition.fromSlot;
 
     clearTransitionWatchdog();
+    clearAndroidLoadedTransitionDelay();
     canGoBackBySlotRef.current[previousSlot] = false;
     modalOpenBySlotRef.current[previousSlot] = false;
     busyLockBySlotRef.current[previousSlot] = false;
@@ -3724,7 +3909,28 @@ function App({
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     if (IS_ANDROID) {
-      finalizeTransition(currentTransition);
+      clearAndroidLoadedTransitionDelay();
+      const settleTransition = () => {
+        androidLoadedTransitionFrameRef.current = 0;
+        androidLoadedTransitionTimerRef.current = setTimeout(() => {
+          androidLoadedTransitionTimerRef.current = null;
+          const pendingTransition = transitionStateRef.current;
+          if (
+            !pendingTransition ||
+            pendingTransition.toSlot !== slot ||
+            pendingTransition.status === 'animating' ||
+            !slotPageReadyRef.current[slot]
+          ) {
+            return;
+          }
+          finalizeTransition(pendingTransition);
+        }, ANDROID_READY_TO_PRESENT_SETTLE_MS);
+      };
+      androidLoadedTransitionFrameRef.current = requestAnimationFrame(() => {
+        androidLoadedTransitionFrameRef.current = requestAnimationFrame(
+          settleTransition,
+        );
+      });
       return;
     }
     finalizeTransition({
@@ -4259,6 +4465,7 @@ function App({
   useEffect(() => {
     return () => {
       transitionTokenRef.current += 1;
+      clearAndroidLoadedTransitionDelay();
       clearPendingWidgetLaunchAck();
       clearNavigationPrewarmTimer();
       clearTransitionWatchdog();
@@ -4266,6 +4473,7 @@ function App({
       transitionProgress.stopAnimation();
     };
   }, [
+    clearAndroidLoadedTransitionDelay,
     clearPendingWidgetLaunchAck,
     clearNavigationPrewarmTimer,
     clearTransitionWatchdog,
@@ -5639,6 +5847,22 @@ function App({
       currentTransition?.status === 'loading' ? false : slot === activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
     const androidHiddenOffset = Math.max(Math.round(panelWidth * 1.35), 96);
+    const enterDistance =
+      currentTransition && IS_ANDROID
+        ? Math.max(Math.round(panelWidth * 0.12), 24)
+        : panelWidth;
+    const leaveDistance =
+      currentTransition && IS_ANDROID
+        ? Math.max(Math.round(panelWidth * 0.08), 18)
+        : panelWidth;
+    const enteringOffset =
+      currentTransition?.direction === 'forward' ? enterDistance : -enterDistance;
+    const leavingOffset =
+      currentTransition?.direction === 'forward' ? -leaveDistance : leaveDistance;
+    const leavingOpacityEnd = IS_ANDROID ? 0.96 : 0.92;
+    const leavingScaleEnd = IS_ANDROID ? 0.998 : 0.992;
+    const enteringOpacityRange = IS_ANDROID ? [0.88, 0.95, 1] : [0.78, 0.92, 1];
+    const enteringScaleStart = IS_ANDROID ? 0.998 : 0.992;
     let wrapperStyle: Array<object> = [
       styles.webviewLayer,
       {backgroundColor: shellBootTheme.screenBg},
@@ -5665,6 +5889,23 @@ function App({
           transform: [{translateX: androidHiddenOffset}],
         }
       : styles.webviewLayerHidden;
+    const androidPreparedLoadingLayerStyle =
+      currentTransition?.status === 'loading' &&
+      IS_ANDROID &&
+      slotPageReadyRef.current[slot]
+        ? {
+            zIndex: 0,
+            elevation: 0,
+            // Keep the incoming WebView close to its entering transform while the
+            // current page still fully covers it. This gives Android a chance to
+            // finish compositing the first real frame before transition-complete.
+            opacity: 1,
+            transform: [
+              {translateX: enteringOffset},
+              {scale: enteringScaleStart},
+            ],
+          }
+        : null;
 
     if (!currentTransition) {
       wrapperStyle = [
@@ -5681,6 +5922,15 @@ function App({
           {backgroundColor: shellBootTheme.screenBg},
           styles.webviewLayerVisible,
         ];
+      } else if (
+        slot === currentTransition.toSlot &&
+        androidPreparedLoadingLayerStyle
+      ) {
+        wrapperStyle = [
+          styles.webviewLayer,
+          {backgroundColor: shellBootTheme.screenBg},
+          androidPreparedLoadingLayerStyle,
+        ];
       } else {
         wrapperStyle = [
           styles.webviewLayer,
@@ -5689,21 +5939,6 @@ function App({
         ];
       }
     } else {
-      const enterDistance = IS_ANDROID
-        ? Math.max(Math.round(panelWidth * 0.12), 24)
-        : panelWidth;
-      const leaveDistance = IS_ANDROID
-        ? Math.max(Math.round(panelWidth * 0.08), 18)
-        : panelWidth;
-      const enteringOffset =
-        currentTransition.direction === 'forward' ? enterDistance : -enterDistance;
-      const leavingOffset =
-        currentTransition.direction === 'forward' ? -leaveDistance : leaveDistance;
-      const leavingOpacityEnd = IS_ANDROID ? 0.96 : 0.92;
-      const leavingScaleEnd = IS_ANDROID ? 0.998 : 0.992;
-      const enteringOpacityRange = IS_ANDROID ? [0.88, 0.95, 1] : [0.78, 0.92, 1];
-      const enteringScaleStart = IS_ANDROID ? 0.998 : 0.992;
-
       if (slot === currentTransition.fromSlot) {
         wrapperStyle = [
           styles.webviewLayer,

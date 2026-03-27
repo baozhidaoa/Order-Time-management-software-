@@ -6203,6 +6203,30 @@ body.controler-android-native.controler-android-nav-locked.flex.row > div:first-
   pointer-events: none !important;
 }
 
+body.controler-mobile-runtime.flex.row > div:first-of-type > .app-nav [data-nav-page] {
+  color: var(--bottom-nav-active-text) !important;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.01)
+    ),
+    color-mix(in srgb, var(--bottom-nav-button-active-bg) 90%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--bottom-nav-button-active-bg) 58%,
+    var(--panel-border-color)
+  ) !important;
+}
+
+body.controler-mobile-runtime.flex.row
+  > div:first-of-type
+  > .app-nav
+  [data-nav-page]
+  :is(.app-nav-label, .app-nav-icon, .app-nav-icon-svg, span, svg) {
+  color: inherit !important;
+}
+
 body.controler-android-native
   :is(
     .bts,

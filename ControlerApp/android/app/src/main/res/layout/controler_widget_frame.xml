@@ -78,42 +78,51 @@
                 android:layout_height="wrap_content"
                 android:minWidth="88dp"
                 android:minHeight="44dp"
-                android:paddingLeft="14dp"
-                android:paddingTop="8dp"
-                android:paddingRight="14dp"
-                android:paddingBottom="8dp"
                 android:visibility="gone">
 
-                <ImageView
-                    android:id="@+id/widget_action_background_fill"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:adjustViewBounds="false"
-                    android:contentDescription="@null"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/controler_widget_tintable_pill_fill" />
+                <FrameLayout
+                    android:id="@+id/widget_action_visual"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:minWidth="88dp"
+                    android:minHeight="44dp"
+                    android:paddingLeft="14dp"
+                    android:paddingTop="8dp"
+                    android:paddingRight="14dp"
+                    android:paddingBottom="8dp">
 
-                <ImageView
-                    android:id="@+id/widget_action_background_stroke"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:adjustViewBounds="false"
-                    android:contentDescription="@null"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/controler_widget_tintable_pill_stroke" />
+                    <ImageView
+                        android:id="@+id/widget_action_background_fill"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:adjustViewBounds="false"
+                        android:contentDescription="@null"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/controler_widget_tintable_pill_fill" />
 
-                <TextView
-                    android:id="@+id/widget_action_label"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:ellipsize="end"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
-                    android:text="打开"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
+                    <ImageView
+                        android:id="@+id/widget_action_background_stroke"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:adjustViewBounds="false"
+                        android:contentDescription="@null"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/controler_widget_tintable_pill_stroke" />
+
+                    <TextView
+                        android:id="@+id/widget_action_label"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="打开"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
             </FrameLayout>
         </LinearLayout>
 

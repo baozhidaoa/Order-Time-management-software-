@@ -1136,6 +1136,50 @@
     };
   }
 
+  function resolveThemeStateFromBridgeDetail(detail = {}) {
+    const selectedTheme =
+      typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
+        ? detail.selectedTheme.trim()
+        : "default";
+    const customThemes = Array.isArray(detail.customThemes)
+      ? detail.customThemes
+          .map((theme) => normalizeCustomTheme(theme))
+          .filter(Boolean)
+      : [];
+    const builtInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
+      ? detail.builtInThemeOverrides
+      : {};
+
+    const matchedCustomTheme =
+      customThemes.find((theme) => theme?.id === selectedTheme) || null;
+    const normalizedBuiltInOverride = normalizeBuiltInThemeOverride(
+      selectedTheme,
+      builtInThemeOverrides[selectedTheme],
+    );
+    const fallbackTheme = builtInThemeMap.get("default");
+    const activeTheme =
+      matchedCustomTheme ||
+      normalizedBuiltInOverride ||
+      builtInThemeMap.get(selectedTheme) ||
+      fallbackTheme;
+    const themeId = activeTheme?.id || "default";
+
+    return {
+      themeId,
+      activeTheme,
+      customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+      builtInThemeOverrides: normalizedBuiltInOverride
+        ? {
+            [themeId]: {
+              name: normalizedBuiltInOverride.name,
+              colors: normalizedBuiltInOverride.colors,
+              recordCard: normalizedBuiltInOverride.recordCard,
+            },
+          }
+        : {},
+    };
+  }
+
   function applyThemeState(themeId, activeTheme, options = {}) {
     document.documentElement.setAttribute("data-theme", themeId);
     applyThemeColors(activeTheme);
@@ -1182,16 +1226,10 @@
     if (!isPlainObject(detail)) {
       return;
     }
-    const selectedTheme =
-      typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
-        ? detail.selectedTheme.trim()
-        : "default";
-    const customThemes = Array.isArray(detail.customThemes)
-      ? detail.customThemes
-      : [];
-    const builtInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
-      ? detail.builtInThemeOverrides
-      : {};
+    const resolvedThemeState = resolveThemeStateFromBridgeDetail(detail);
+    const selectedTheme = resolvedThemeState.themeId || "default";
+    const customThemes = resolvedThemeState.customThemes;
+    const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
 
     try {
       localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
@@ -1200,9 +1238,13 @@
         BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
         JSON.stringify(builtInThemeOverrides),
       );
-      lastThemeStorageSignature = null;
+      lastThemeStorageSignature = [
+        selectedTheme,
+        JSON.stringify(customThemes),
+        JSON.stringify(builtInThemeOverrides),
+      ].join("\u0001");
       lastLaunchThemeSyncSignature = null;
-      applyThemeFromStorage({
+      applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,
       });
     } catch (_error) {}

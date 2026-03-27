@@ -14028,6 +14028,50 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function resolveThemeStateFromBridgeDetail(detail = {}) {
+    const selectedTheme =
+      typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
+        ? detail.selectedTheme.trim()
+        : "default";
+    const customThemes = Array.isArray(detail.customThemes)
+      ? detail.customThemes
+          .map((theme) => normalizeCustomTheme(theme))
+          .filter(Boolean)
+      : [];
+    const builtInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
+      ? detail.builtInThemeOverrides
+      : {};
+
+    const matchedCustomTheme =
+      customThemes.find((theme) => theme?.id === selectedTheme) || null;
+    const normalizedBuiltInOverride = normalizeBuiltInThemeOverride(
+      selectedTheme,
+      builtInThemeOverrides[selectedTheme],
+    );
+    const fallbackTheme = builtInThemeMap.get("default");
+    const activeTheme =
+      matchedCustomTheme ||
+      normalizedBuiltInOverride ||
+      builtInThemeMap.get(selectedTheme) ||
+      fallbackTheme;
+    const themeId = activeTheme?.id || "default";
+
+    return {
+      themeId,
+      activeTheme,
+      customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
+      builtInThemeOverrides: normalizedBuiltInOverride
+        ? {
+            [themeId]: {
+              name: normalizedBuiltInOverride.name,
+              colors: normalizedBuiltInOverride.colors,
+              recordCard: normalizedBuiltInOverride.recordCard,
+            },
+          }
+        : {},
+    };
+  }
+
   function applyThemeState(themeId, activeTheme, options = {}) {
     document.documentElement.setAttribute("data-theme", themeId);
     applyThemeColors(activeTheme);
@@ -14074,16 +14118,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!isPlainObject(detail)) {
       return;
     }
-    const selectedTheme =
-      typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
-        ? detail.selectedTheme.trim()
-        : "default";
-    const customThemes = Array.isArray(detail.customThemes)
-      ? detail.customThemes
-      : [];
-    const builtInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
-      ? detail.builtInThemeOverrides
-      : {};
+    const resolvedThemeState = resolveThemeStateFromBridgeDetail(detail);
+    const selectedTheme = resolvedThemeState.themeId || "default";
+    const customThemes = resolvedThemeState.customThemes;
+    const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
 
     try {
       localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
@@ -14092,9 +14130,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
         JSON.stringify(builtInThemeOverrides),
       );
-      lastThemeStorageSignature = null;
+      lastThemeStorageSignature = [
+        selectedTheme,
+        JSON.stringify(customThemes),
+        JSON.stringify(builtInThemeOverrides),
+      ].join("\u0001");
       lastLaunchThemeSyncSignature = null;
-      applyThemeFromStorage({
+      applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,
       });
     } catch (_error) {}
@@ -16805,9 +16847,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ...overlayCopy,
         delayMs: appPageLeaveOverlayVisible
           ? 0
-          : isReactNativeNavigationRuntime()
-            ? 0
-            : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
       });
     } else if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
@@ -16961,7 +17001,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     setAppPageLeaveOverlayState({
       active: true,
       ...overlayCopy,
-      delayMs: 0,
+      delayMs: appPageLeaveOverlayVisible
+        ? 0
+        : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
     });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
@@ -18309,15 +18351,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof performance.now === "function"
         ? () => performance.now()
         : () => Date.now();
+    const isNativeRuntime = isReactNativeNavigationRuntime();
     const quietWindowMs = Number.isFinite(options.quietWindowMs)
       ? Math.max(0, Math.round(Number(options.quietWindowMs)))
-      : 44;
+      : isNativeRuntime
+        ? 64
+        : 44;
     const maxWaitMs = Number.isFinite(options.maxWaitMs)
       ? Math.max(32, Math.round(Number(options.maxWaitMs)))
-      : 320;
+      : isNativeRuntime
+        ? 480
+        : 320;
     const minQuietFrames = Number.isFinite(options.minQuietFrames)
       ? Math.max(1, Math.round(Number(options.minQuietFrames)))
-      : 2;
+      : isNativeRuntime
+        ? 3
+        : 2;
 
     return new Promise((resolve) => {
       let settled = false;
@@ -18568,6 +18617,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let overlayTimerId = 0;
     let destroyed = false;
     let currentVisibility = !overlay.hidden;
+    let currentBlockingVisibility = currentVisibility;
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
@@ -18789,6 +18839,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
       currentVisibility = actualVisible;
+      currentBlockingVisibility = actualVisible || delegatedToNative;
       currentMode = resolvedMode;
 
       syncNativeBusyState({
@@ -18901,7 +18952,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return true;
           };
           const shouldWaitForSettledContent =
-            nextState.waitForSettledContent !== false && currentVisibility;
+            nextState.waitForSettledContent !== false &&
+            currentBlockingVisibility;
           if (!shouldWaitForSettledContent) {
             finalizeHide();
             return Promise.resolve(true);

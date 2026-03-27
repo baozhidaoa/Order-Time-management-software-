@@ -66,9 +66,11 @@ public final class ControlerWidgetRenderer {
     private static final String COLLECTION_SLOT_YEAR_MONTH = "year-month";
     private static final float HEADER_ACTION_BASE_MIN_WIDTH_DP = 88f;
     private static final float HEADER_ACTION_BASE_MIN_HEIGHT_DP = 44f;
-    private static final float HEADER_ACTION_EXPANDED_MULTIPLIER = 2f;
+    private static final float HEADER_ACTION_TOUCH_COMPACT_MIN_WIDTH_DP = 92f;
+    private static final float HEADER_ACTION_TOUCH_MIN_WIDTH_DP = 96f;
+    private static final float HEADER_ACTION_TOUCH_MIN_HEIGHT_DP = 50f;
     private static final float HEADER_ACTION_TEXT_GAP_DP = 10f;
-    private static final float HEADER_ACTION_TEXT_RESERVE_DP = 56f;
+    private static final float HEADER_ACTION_TEXT_RESERVE_DP = 72f;
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
     private static final long RENDER_SOURCE_CACHE_TTL_MS = 260L;
@@ -2235,24 +2237,22 @@ public final class ControlerWidgetRenderer {
         int statPaddingVertical = dpToPx(context, Math.round(6f * scale));
         float actionPaddingHorizontalDp = (compactItemCards ? 16f : 14f) * scale;
         float actionPaddingVerticalDp = (compactItemCards ? 11f : 8f) * scale;
-        float actionMinWidthDp = HEADER_ACTION_BASE_MIN_WIDTH_DP;
-        float actionMinHeightDp = HEADER_ACTION_BASE_MIN_HEIGHT_DP;
+        float actionVisualMinWidthDp = HEADER_ACTION_BASE_MIN_WIDTH_DP;
+        float actionVisualMinHeightDp = HEADER_ACTION_BASE_MIN_HEIGHT_DP;
+        float actionTouchMinWidthDp = actionVisualMinWidthDp;
+        float actionTouchMinHeightDp = actionVisualMinHeightDp;
         if (shouldUseExpandedHeaderQuickAction(kind, content)) {
-            actionMinWidthDp = Math.min(
-                HEADER_ACTION_BASE_MIN_WIDTH_DP * HEADER_ACTION_EXPANDED_MULTIPLIER,
+            float desiredTouchWidthDp =
+                metrics != null && metrics.minWidthDp < 210
+                    ? HEADER_ACTION_TOUCH_COMPACT_MIN_WIDTH_DP
+                    : HEADER_ACTION_TOUCH_MIN_WIDTH_DP;
+            actionTouchMinWidthDp = Math.min(
+                desiredTouchWidthDp,
                 resolveExpandedHeaderActionMaxWidthDp(metrics, cardPaddingDp)
             );
-            actionMinHeightDp = Math.min(
-                HEADER_ACTION_BASE_MIN_HEIGHT_DP * HEADER_ACTION_EXPANDED_MULTIPLIER,
+            actionTouchMinHeightDp = Math.min(
+                HEADER_ACTION_TOUCH_MIN_HEIGHT_DP,
                 resolveExpandedHeaderActionMaxHeightDp(metrics, cardPaddingDp)
-            );
-            actionPaddingHorizontalDp = Math.max(
-                actionPaddingHorizontalDp,
-                (compactItemCards ? 24f : 22f) * scale
-            );
-            actionPaddingVerticalDp = Math.max(
-                actionPaddingVerticalDp,
-                (compactItemCards ? 17f : 16f) * scale
             );
         }
         int actionPaddingHorizontal = dpToPx(context, Math.round(actionPaddingHorizontalDp));
@@ -2308,21 +2308,31 @@ public final class ControlerWidgetRenderer {
             statPaddingVertical
         );
         views.setViewPadding(
-            R.id.widget_action,
+            R.id.widget_action_visual,
             actionPaddingHorizontal,
             actionPaddingVertical,
             actionPaddingHorizontal,
             actionPaddingVertical
         );
         views.setInt(
+            R.id.widget_action_visual,
+            "setMinimumWidth",
+            dpToPx(context, Math.round(actionVisualMinWidthDp))
+        );
+        views.setInt(
+            R.id.widget_action_visual,
+            "setMinimumHeight",
+            dpToPx(context, Math.round(actionVisualMinHeightDp))
+        );
+        views.setInt(
             R.id.widget_action,
             "setMinimumWidth",
-            dpToPx(context, Math.round(actionMinWidthDp))
+            dpToPx(context, Math.round(actionTouchMinWidthDp))
         );
         views.setInt(
             R.id.widget_action,
             "setMinimumHeight",
-            dpToPx(context, Math.round(actionMinHeightDp))
+            dpToPx(context, Math.round(actionTouchMinHeightDp))
         );
         views.setViewPadding(
             R.id.widget_action_only_button,
@@ -2783,7 +2793,7 @@ public final class ControlerWidgetRenderer {
         float cardPaddingDp
     ) {
         if (metrics == null || metrics.minWidthDp <= 0) {
-            return HEADER_ACTION_BASE_MIN_WIDTH_DP * HEADER_ACTION_EXPANDED_MULTIPLIER;
+            return HEADER_ACTION_TOUCH_MIN_WIDTH_DP;
         }
         float availableWidthDp =
             metrics.minWidthDp
@@ -2798,7 +2808,7 @@ public final class ControlerWidgetRenderer {
         float cardPaddingDp
     ) {
         if (metrics == null || metrics.minHeightDp <= 0) {
-            return HEADER_ACTION_BASE_MIN_HEIGHT_DP * HEADER_ACTION_EXPANDED_MULTIPLIER;
+            return HEADER_ACTION_TOUCH_MIN_HEIGHT_DP;
         }
         float availableHeightDp = metrics.minHeightDp - (cardPaddingDp * 2f);
         return Math.max(HEADER_ACTION_BASE_MIN_HEIGHT_DP, availableHeightDp);
