@@ -10700,11 +10700,9 @@ function initTimeSelector() {
 
       // 更新按钮激活状态
       quickBtns.forEach((b) => {
-        b.style.backgroundColor = "";
-        b.style.color = "";
+        uiTools?.setAccentButtonState?.(b, false);
       });
-      this.style.backgroundColor = "var(--accent-color)";
-      this.style.color = "var(--on-accent-text)";
+      uiTools?.setAccentButtonState?.(this, true);
 
       updateCurrentTimeRangeDisplay();
 
@@ -11256,13 +11254,11 @@ function updateShowStatistics() {
     btn.addEventListener("click", function () {
       // 移除所有按钮的激活状态
       viewSelector.querySelectorAll("button").forEach((b) => {
-        b.style.backgroundColor = "";
-        b.style.color = "";
+        uiTools?.setAccentButtonState?.(b, false);
       });
 
       // 设置当前按钮激活状态
-      this.style.backgroundColor = "var(--accent-color)";
-      this.style.color = "var(--on-accent-text)";
+      uiTools?.setAccentButtonState?.(this, true);
 
       // 显示对应视图
       switch (option.id) {

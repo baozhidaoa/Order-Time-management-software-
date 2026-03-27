@@ -3177,13 +3177,11 @@ function initTimeSelector() {
   const setButtonActive = (activeButton) => {
     const quickBtns = document.querySelectorAll(".time-quick-btn");
     quickBtns.forEach((b) => {
-      b.style.backgroundColor = "";
-      b.style.color = "";
+      uiTools?.setAccentButtonState?.(b, false);
     });
 
     if (activeButton) {
-      activeButton.style.backgroundColor = "var(--accent-color)";
-      activeButton.style.color = "white";
+      uiTools?.setAccentButtonState?.(activeButton, true);
     }
   };
 

@@ -1507,6 +1507,9 @@ let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
 let statsBootstrappedFromPageBootstrap = false;
+let statsLineChartThemeSyncBound = false;
+const STATS_THEME_APPLIED_EVENT_NAME =
+  window.ControlerTheme?.themeAppliedEventName || "controler:theme-applied";
 
 function isStatsShellTransitionLoading() {
   if (typeof uiTools?.getShellVisibilityState !== "function") {
@@ -8733,6 +8736,194 @@ function getLineChartData(
   return chartData;
 }
 
+function readStatsThemeCssVar(propertyName, fallback = "") {
+  try {
+    return (
+      window.getComputedStyle(document.documentElement)
+        .getPropertyValue(propertyName)
+        ?.trim() || fallback
+    );
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function getCssColorAlpha(colorText) {
+  if (typeof colorText !== "string" || !colorText.trim()) {
+    return 0;
+  }
+
+  const normalizedColor = colorText.trim().toLowerCase();
+  if (normalizedColor === "transparent") {
+    return 0;
+  }
+
+  const rgbaMatch = normalizedColor.match(
+    /^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*([\d.]+)\s*\)$/,
+  );
+  if (rgbaMatch) {
+    const alpha = Number.parseFloat(rgbaMatch[1]);
+    if (Number.isFinite(alpha)) {
+      return Math.max(0, Math.min(1, alpha));
+    }
+  }
+
+  return 1;
+}
+
+function resolveStatsChartSurfaceColor(surfaceElement = null) {
+  let currentElement =
+    typeof Element !== "undefined" && surfaceElement instanceof Element
+      ? surfaceElement
+      : null;
+
+  while (currentElement) {
+    const backgroundColor =
+      window.getComputedStyle(currentElement).backgroundColor?.trim() || "";
+    if (getCssColorAlpha(backgroundColor) > 0.01) {
+      return backgroundColor;
+    }
+    currentElement = currentElement.parentElement;
+  }
+
+  return (
+    readStatsThemeCssVar("--panel-strong-bg") ||
+    readStatsThemeCssVar("--panel-bg") ||
+    readStatsThemeCssVar("--bg-secondary") ||
+    readStatsThemeCssVar("--bg-primary") ||
+    "#20362b"
+  );
+}
+
+function resolveStatsReadableTextColor(backgroundColor, preferredTextColor = "") {
+  const safePreferredTextColor =
+    preferredTextColor ||
+    readStatsThemeCssVar("--text-color") ||
+    readStatsThemeCssVar("--muted-text-color") ||
+    "#f5fff8";
+
+  if (typeof window.ControlerTheme?.getReadableTextColorForBackground === "function") {
+    return window.ControlerTheme.getReadableTextColorForBackground(
+      backgroundColor,
+      safePreferredTextColor,
+      4.1,
+    );
+  }
+
+  return safePreferredTextColor;
+}
+
+function toRgbaCssColor(colorText, alpha = 1, fallback = "") {
+  const rgb = parseCssColor(colorText);
+  if (!rgb) {
+    return fallback;
+  }
+
+  const safeAlpha = Number.isFinite(alpha)
+    ? Math.max(0, Math.min(1, alpha))
+    : 1;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${safeAlpha})`;
+}
+
+function getStatsLineChartPalette(surfaceElement = null) {
+  const surfaceColor = resolveStatsChartSurfaceColor(surfaceElement);
+  const themeTextColor =
+    readStatsThemeCssVar("--text-color") ||
+    readStatsThemeCssVar("--muted-text-color") ||
+    "#f5fff8";
+  const axisTextColor = resolveStatsReadableTextColor(
+    surfaceColor,
+    themeTextColor,
+  );
+  const tooltipBackgroundColor =
+    readStatsThemeCssVar("--panel-strong-bg") || surfaceColor;
+  const tooltipTextColor = resolveStatsReadableTextColor(
+    tooltipBackgroundColor,
+    themeTextColor,
+  );
+  const borderColor =
+    readStatsThemeCssVar("--panel-border-color") ||
+    readStatsThemeCssVar("--bg-tertiary") ||
+    toRgbaCssColor(axisTextColor, 0.22, "rgba(255, 255, 255, 0.18)");
+  const gridColor =
+    readStatsThemeCssVar("--bg-tertiary") ||
+    toRgbaCssColor(axisTextColor, 0.12, "rgba(255, 255, 255, 0.08)");
+
+  return {
+    axisTextColor,
+    borderColor,
+    gridColor,
+    tooltipBackgroundColor,
+    tooltipBorderColor: borderColor,
+    tooltipTextColor,
+  };
+}
+
+function applyStatsLineChartTheme(chart, surfaceElement = null) {
+  if (!chart?.options) {
+    return;
+  }
+
+  const palette = getStatsLineChartPalette(
+    surfaceElement || chart.canvas?.parentElement || chart.canvas || null,
+  );
+  const tooltipOptions = chart.options.plugins?.tooltip;
+  if (tooltipOptions) {
+    tooltipOptions.backgroundColor = palette.tooltipBackgroundColor;
+    tooltipOptions.titleColor = palette.tooltipTextColor;
+    tooltipOptions.bodyColor = palette.tooltipTextColor;
+    tooltipOptions.borderColor = palette.tooltipBorderColor;
+  }
+
+  const xScale = chart.options.scales?.x;
+  if (xScale) {
+    xScale.border = {
+      ...(xScale.border || {}),
+      color: palette.borderColor,
+    };
+    xScale.grid = {
+      ...(xScale.grid || {}),
+      color: palette.gridColor,
+    };
+    xScale.ticks = {
+      ...(xScale.ticks || {}),
+      color: palette.axisTextColor,
+    };
+  }
+
+  const yScale = chart.options.scales?.y;
+  if (yScale) {
+    yScale.border = {
+      ...(yScale.border || {}),
+      color: palette.borderColor,
+    };
+    yScale.grid = {
+      ...(yScale.grid || {}),
+      color: palette.gridColor,
+    };
+    yScale.ticks = {
+      ...(yScale.ticks || {}),
+      color: palette.axisTextColor,
+    };
+  }
+
+  chart.update("none");
+}
+
+function ensureStatsLineChartThemeSyncBound() {
+  if (statsLineChartThemeSyncBound) {
+    return;
+  }
+
+  statsLineChartThemeSyncBound = true;
+  window.addEventListener(STATS_THEME_APPLIED_EVENT_NAME, () => {
+    if (!window.lineChart) {
+      return;
+    }
+    applyStatsLineChartTheme(window.lineChart);
+  });
+}
+
 function renderLineChartWithData(container, dataType) {
   const widgetMode = isStatsDesktopWidgetMode();
   const chartContainer = container.querySelector(
@@ -8812,6 +9003,8 @@ function renderLineChartWithData(container, dataType) {
   ctx.style.width = "100%";
   ctx.style.height = "100%";
   canvasHost.appendChild(ctx);
+  ensureStatsLineChartThemeSyncBound();
+  const lineChartPalette = getStatsLineChartPalette(canvasHost);
 
   window.lineChart = new Chart(ctx, {
     type: "line",
@@ -8841,10 +9034,10 @@ function renderLineChartWithData(container, dataType) {
               return `${label}: ${formatStatsHoursText(value, 2)}`;
             },
           },
-          backgroundColor: "var(--panel-strong-bg)",
-          titleColor: "var(--text-color)",
-          bodyColor: "var(--text-color)",
-          borderColor: "var(--panel-border-color)",
+          backgroundColor: lineChartPalette.tooltipBackgroundColor,
+          titleColor: lineChartPalette.tooltipTextColor,
+          bodyColor: lineChartPalette.tooltipTextColor,
+          borderColor: lineChartPalette.tooltipBorderColor,
           borderWidth: 1,
           padding: 10,
           usePointStyle: true,
@@ -8853,26 +9046,26 @@ function renderLineChartWithData(container, dataType) {
       scales: {
         x: {
           border: {
-            color: "rgba(255, 255, 255, 0.18)",
+            color: lineChartPalette.borderColor,
           },
           grid: {
-            color: "rgba(255, 255, 255, 0.08)",
+            color: lineChartPalette.gridColor,
           },
           ticks: {
-            color: "var(--text-color)",
+            color: lineChartPalette.axisTextColor,
             padding: 6,
           },
         },
         y: {
           beginAtZero: true,
           border: {
-            color: "rgba(255, 255, 255, 0.18)",
+            color: lineChartPalette.borderColor,
           },
           grid: {
-            color: "rgba(255, 255, 255, 0.08)",
+            color: lineChartPalette.gridColor,
           },
           ticks: {
-            color: "var(--text-color)",
+            color: lineChartPalette.axisTextColor,
             padding: 6,
             callback(value) {
               return `${value}h`;
@@ -8887,6 +9080,7 @@ function renderLineChartWithData(container, dataType) {
       animation: false,
     },
   });
+  applyStatsLineChartTheme(window.lineChart, canvasHost);
 }
 
 // 创建测试数据

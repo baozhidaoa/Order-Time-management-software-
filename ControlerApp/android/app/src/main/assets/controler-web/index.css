@@ -507,6 +507,16 @@ body.flex.row > div:nth-of-type(2) {
   color: var(--on-accent-text) !important;
 }
 
+button.controler-accent-active,
+.bts.controler-accent-active,
+.time-quick-btn.controler-accent-active,
+button[data-controler-accent-active="true"],
+.bts[data-controler-accent-active="true"],
+.time-quick-btn[data-controler-accent-active="true"] {
+  background-color: var(--accent-color) !important;
+  color: var(--on-accent-text) !important;
+}
+
 body.page-settings .settings-auto-backup-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4534,12 +4544,11 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     -webkit-touch-callout: none;
     backdrop-filter: blur(14px) saturate(115%);
     -webkit-backdrop-filter: blur(14px) saturate(115%);
-    transition:
+  transition:
       transform 0.18s ease,
       background 0.18s ease,
       border-color 0.18s ease,
       box-shadow 0.18s ease,
-      color 0.18s ease,
       opacity 0.18s ease;
   }
 
@@ -6154,7 +6163,6 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
     background 0.12s ease,
     border-color 0.12s ease,
     box-shadow 0.12s ease,
-    color 0.12s ease,
     opacity 0.12s ease !important;
 }
 

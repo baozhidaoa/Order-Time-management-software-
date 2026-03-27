@@ -5138,6 +5138,17 @@
 
   function setAccentButtonState(button, active = true) {
     if (!button) return;
+    if (button instanceof HTMLElement) {
+      button.style.backgroundColor = "";
+      button.style.color = "";
+      button.classList.toggle("controler-accent-active", active);
+      if (active) {
+        button.dataset.controlerAccentActive = "true";
+      } else {
+        delete button.dataset.controlerAccentActive;
+      }
+      return;
+    }
     if (active) {
       button.style.backgroundColor = "var(--accent-color)";
       button.style.color = "var(--on-accent-text)";
