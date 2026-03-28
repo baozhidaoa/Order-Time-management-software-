@@ -646,6 +646,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             if ("todos".equals(section)) {
                 return ControlerWidgetKinds.TODOS;
             }
+            if ("todoSortPreference".equals(section)) {
+                return ControlerWidgetKinds.TODOS;
+            }
             if (
                 "checkinItems".equals(section)
                     || "dailyCheckins".equals(section)
@@ -733,6 +736,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
         if (partialCore.has("selectedTheme")) {
             sections.add("selectedTheme");
+        }
+        if (partialCore.has("todoSortPreference")) {
+            sections.add("todoSortPreference");
         }
         if (partialCore.has("createdAt")
             || partialCore.has("lastModified")
@@ -828,6 +834,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 && ControlerWidgetKinds.START_TIMER.equals(widgetKind);
         String launchActionParam = suppressLaunchAction ? "" : action;
         String page = normalizeLaunchTargetPage(requestedPage, launchActionParam);
+        if (suppressLaunchAction) {
+            ControlerWidgetLaunchStore.rememberLaunchAction(
+                context,
+                TextUtils.isEmpty(requestedPage) ? page : requestedPage,
+                action,
+                widgetKind,
+                targetId,
+                launchId,
+                createdAt
+            );
+        }
 
         Uri.Builder builder = Uri.parse(
             "file:///android_asset/controler-web/" + page + ".html"

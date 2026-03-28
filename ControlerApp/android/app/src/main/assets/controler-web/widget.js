@@ -61,7 +61,7 @@ const WIDGET_DATA_DEPENDENCIES = Object.freeze({
   "write-diary": Object.freeze([]),
   "day-pie": Object.freeze(["core", "records"]),
   "week-grid": Object.freeze(["core", "records"]),
-  todos: Object.freeze(["core", "checkins"]),
+  todos: Object.freeze(["core", "checkins", "todoSortPreference"]),
   checkins: Object.freeze(["core", "dailyCheckins"]),
   "week-view": Object.freeze(["plans", "plansRecurring"]),
   "year-view": Object.freeze(["core"]),

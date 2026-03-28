@@ -170,6 +170,7 @@
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
+    "todoSortPreference",
   ]);
   const LEGACY_LOCAL_ONLY_SHARED_KEYS = Object.freeze([
     "guideState",
@@ -210,6 +211,7 @@
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
+    "todoSortPreference",
   ]);
   const LOCAL_ONLY_STATE_KEY_ALIASES = Object.freeze({
     tableScaleSettings: "uiTableScaleSettings",

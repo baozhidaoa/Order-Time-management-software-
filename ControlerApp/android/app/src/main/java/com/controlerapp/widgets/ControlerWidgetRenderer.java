@@ -17,6 +17,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.View;
@@ -46,6 +47,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ControlerWidgetRenderer {
+    private static final String LOG_TAG = "ControlerWidget";
     private static final String OPEN_WIDGET_ACTION_PREFIX =
         "com.controler.timetracker.action.OPEN_WIDGET_TARGET";
     private static final int SIZE_COMPACT = 0;
@@ -4381,6 +4383,31 @@ public final class ControlerWidgetRenderer {
                 }
             }
         );
+        if (!visibleTodos.isEmpty()) {
+            StringBuilder debugOrder = new StringBuilder();
+            int debugCount = Math.min(visibleTodos.size(), 5);
+            for (int index = 0; index < debugCount; index += 1) {
+                ControlerWidgetDataStore.TodoInfo todo = visibleTodos.get(index);
+                if (debugOrder.length() > 0) {
+                    debugOrder.append(" | ");
+                }
+                debugOrder
+                    .append(safeText(todo == null ? "" : todo.title))
+                    .append(" @ ")
+                    .append(safeText(todo == null ? "" : todo.createdAt))
+                    .append(" # ")
+                    .append(safeText(todo == null ? "" : todo.dueDate));
+            }
+            Log.d(
+                LOG_TAG,
+                "todos-widget-sort appWidgetId="
+                    + appWidgetId
+                    + " pref="
+                    + todoSortPreference
+                    + " order="
+                    + debugOrder
+            );
+        }
         content.subtitle = todayCount > 0 ? "今日待办" : "待处理待办";
         content.headerSummary =
             "待办 "

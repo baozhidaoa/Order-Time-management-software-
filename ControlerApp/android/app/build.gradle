@@ -97,8 +97,8 @@ android {
         applicationId "com.controler.timetracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 288
-        versionName "1.288"
+        versionCode 297
+        versionName "1.297"
     }
     signingConfigs {
         debug {

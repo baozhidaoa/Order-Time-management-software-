@@ -224,6 +224,10 @@ type ShellBootTheme = {
   cardBg: string;
   cardBorder: string;
   accent: string;
+  buttonBg: string;
+  buttonBgHover: string;
+  buttonText: string;
+  onAccentText: string;
   projectLevel1: string;
   projectLevel2: string;
   projectLevel3: string;
@@ -377,6 +381,10 @@ const DEFAULT_SHELL_BOOT_THEME: ShellBootTheme = {
   cardBg: 'rgba(22, 31, 27, 0.88)',
   cardBorder: 'rgba(142, 214, 164, 0.14)',
   accent: ACCENT_COLOR,
+  buttonBg: '#8ed6a4',
+  buttonBgHover: '#9ee2b3',
+  buttonText: '#173326',
+  onAccentText: '#173326',
   projectLevel1: '#79af85',
   projectLevel2: '#5a7f68',
   projectLevel3: '#3a5d48',
@@ -395,6 +403,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(31, 53, 42, 0.74)',
     cardBorder: 'rgba(142, 214, 164, 0.28)',
     accent: '#8ed6a4',
+    buttonBg: '#8ed6a4',
+    buttonBgHover: '#9ee2b3',
+    buttonText: '#173326',
+    onAccentText: '#173326',
     projectLevel1: '#79af85',
     projectLevel2: '#5a7f68',
     projectLevel3: '#3a5d48',
@@ -412,6 +424,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(22, 45, 73, 0.76)',
     cardBorder: 'rgba(126, 198, 255, 0.28)',
     accent: '#7ec6ff',
+    buttonBg: '#7ec6ff',
+    buttonBgHover: '#95d2ff',
+    buttonText: '#123052',
+    onAccentText: '#123052',
     projectLevel1: '#63b3ed',
     projectLevel2: '#4299e1',
     projectLevel3: '#2c5282',
@@ -429,6 +445,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(88, 46, 31, 0.76)',
     cardBorder: 'rgba(255, 191, 120, 0.3)',
     accent: '#ffbf78',
+    buttonBg: '#ffc78a',
+    buttonBgHover: '#ffd3a5',
+    buttonText: '#522a1c',
+    onAccentText: '#522a1c',
     projectLevel1: '#f6ad55',
     projectLevel2: '#ed8936',
     projectLevel3: '#c05621',
@@ -446,6 +466,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(40, 47, 58, 0.78)',
     cardBorder: 'rgba(209, 217, 227, 0.3)',
     accent: '#d1d9e3',
+    buttonBg: '#d9e1ec',
+    buttonBgHover: '#e7edf6',
+    buttonText: '#262f3d',
+    onAccentText: '#262f3d',
     projectLevel1: '#d4dce7',
     projectLevel2: '#a0aec0',
     projectLevel3: '#718096',
@@ -463,6 +487,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(20, 23, 28, 0.82)',
     cardBorder: 'rgba(215, 221, 232, 0.22)',
     accent: '#f1f4fa',
+    buttonBg: '#f1f4fa',
+    buttonBgHover: '#ffffff',
+    buttonText: '#10141d',
+    onAccentText: '#10141d',
     projectLevel1: '#d6dde8',
     projectLevel2: '#a2adbd',
     projectLevel3: '#667084',
@@ -480,6 +508,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(249, 252, 255, 0.86)',
     cardBorder: 'rgba(110, 122, 143, 0.24)',
     accent: '#3f495f',
+    buttonBg: '#3f495f',
+    buttonBgHover: '#56607a',
+    buttonText: '#f4f7ff',
+    onAccentText: '#f4f7ff',
     projectLevel1: '#8b94a5',
     projectLevel2: '#a2abbb',
     projectLevel3: '#c0c7d3',
@@ -497,6 +529,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(53, 57, 64, 0.78)',
     cardBorder: 'rgba(224, 227, 234, 0.26)',
     accent: '#f0f3fa',
+    buttonBg: '#f0f3fa',
+    buttonBgHover: '#ffffff',
+    buttonText: '#222832',
+    onAccentText: '#222832',
     projectLevel1: '#d8dde7',
     projectLevel2: '#aeb5c2',
     projectLevel3: '#808897',
@@ -514,6 +550,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(26, 49, 52, 0.78)',
     cardBorder: 'rgba(143, 211, 209, 0.26)',
     accent: '#8fd3d1',
+    buttonBg: '#96dcda',
+    buttonBgHover: '#a9e6e4',
+    buttonText: '#133235',
+    onAccentText: '#133235',
     projectLevel1: '#7fc6c3',
     projectLevel2: '#5ea6a4',
     projectLevel3: '#356c70',
@@ -531,6 +571,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(57, 26, 37, 0.8)',
     cardBorder: 'rgba(216, 166, 184, 0.26)',
     accent: '#d8a6b8',
+    buttonBg: '#e2b0c2',
+    buttonBgHover: '#ebc1cf',
+    buttonText: '#421d2a',
+    onAccentText: '#421d2a',
     projectLevel1: '#c58da2',
     projectLevel2: '#a6607a',
     projectLevel3: '#6c3348',
@@ -548,6 +592,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(250, 245, 239, 0.9)',
     cardBorder: 'rgba(143, 119, 95, 0.22)',
     accent: '#8b6f57',
+    buttonBg: '#8b6f57',
+    buttonBgHover: '#a28267',
+    buttonText: '#f8f3ec',
+    onAccentText: '#f8f3ec',
     projectLevel1: '#bca087',
     projectLevel2: '#cfb59a',
     projectLevel3: '#e0d0bf',
@@ -565,6 +613,10 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     cardBg: 'rgba(21, 33, 64, 0.8)',
     cardBorder: 'rgba(156, 184, 255, 0.28)',
     accent: '#9cb8ff',
+    buttonBg: '#9cb8ff',
+    buttonBgHover: '#b0c6ff',
+    buttonText: '#162447',
+    onAccentText: '#162447',
     projectLevel1: '#86a2eb',
     projectLevel2: '#617bc5',
     projectLevel3: '#334678',
@@ -779,6 +831,23 @@ function buildShellBootTheme(
   colors: Record<string, unknown> | null | undefined,
   fallback: ShellBootTheme = DEFAULT_SHELL_BOOT_THEME,
 ): ShellBootTheme {
+  const accent = normalizeBootThemeColor(colors?.accent, fallback.accent);
+  const buttonBg = normalizeBootThemeColor(
+    colors?.buttonBg ?? colors?.accent,
+    fallback.buttonBg,
+  );
+  const buttonBgHover = normalizeBootThemeColor(
+    colors?.buttonBgHover ?? colors?.buttonBg ?? colors?.accent,
+    fallback.buttonBgHover,
+  );
+  const onAccentText = normalizeBootThemeColor(
+    colors?.onAccentText,
+    getBootThemeContrastText(accent),
+  );
+  const buttonText = normalizeBootThemeColor(
+    colors?.buttonText,
+    getBootThemeContrastText(buttonBg),
+  );
   return {
     screenBg: normalizeBootThemeColor(colors?.primary, fallback.screenBg),
     cardBg: normalizeBootThemeColor(
@@ -789,7 +858,11 @@ function buildShellBootTheme(
       colors?.panelBorder ?? colors?.border,
       fallback.cardBorder,
     ),
-    accent: normalizeBootThemeColor(colors?.accent, fallback.accent),
+    accent,
+    buttonBg,
+    buttonBgHover,
+    buttonText,
+    onAccentText,
     projectLevel1: normalizeBootThemeColor(
       colors?.projectLevel1,
       fallback.projectLevel1,
@@ -840,6 +913,16 @@ function buildShellBootThemeFromPalette(
     cardBg: normalizeBootThemeColor(palette?.cardBg, fallback.cardBg),
     cardBorder: normalizeBootThemeColor(palette?.cardBorder, fallback.cardBorder),
     accent: normalizeBootThemeColor(palette?.accent, fallback.accent),
+    buttonBg: normalizeBootThemeColor(palette?.buttonBg, fallback.buttonBg),
+    buttonBgHover: normalizeBootThemeColor(
+      palette?.buttonBgHover,
+      fallback.buttonBgHover,
+    ),
+    buttonText: normalizeBootThemeColor(palette?.buttonText, fallback.buttonText),
+    onAccentText: normalizeBootThemeColor(
+      palette?.onAccentText,
+      fallback.onAccentText,
+    ),
     projectLevel1: normalizeBootThemeColor(
       palette?.projectLevel1,
       fallback.projectLevel1,
@@ -909,11 +992,11 @@ function buildLaunchThemeBootstrapState(
       '--panel-bg': resolvedTheme.cardBg,
       '--panel-strong-bg': resolvedTheme.cardBg,
       '--panel-border-color': resolvedTheme.cardBorder,
-      '--button-bg': resolvedTheme.accent,
-      '--button-bg-hover': resolvedTheme.accent,
-      '--button-text': resolvedTheme.navButtonActiveText,
+      '--button-bg': resolvedTheme.buttonBg,
+      '--button-bg-hover': resolvedTheme.buttonBgHover,
+      '--button-text': resolvedTheme.buttonText,
       '--button-border': resolvedTheme.cardBorder,
-      '--on-accent-text': resolvedTheme.navButtonActiveText,
+      '--on-accent-text': resolvedTheme.onAccentText,
       '--bottom-nav-bg': resolvedTheme.navBarBg,
       '--bottom-nav-button-bg': resolvedTheme.navButtonBg,
       '--bottom-nav-button-active-bg': resolvedTheme.navButtonActiveBg,
@@ -932,6 +1015,10 @@ function areShellBootThemesEqual(
     left.cardBg === right.cardBg &&
     left.cardBorder === right.cardBorder &&
     left.accent === right.accent &&
+    left.buttonBg === right.buttonBg &&
+    left.buttonBgHover === right.buttonBgHover &&
+    left.buttonText === right.buttonText &&
+    left.onAccentText === right.onAccentText &&
     left.projectLevel1 === right.projectLevel1 &&
     left.projectLevel2 === right.projectLevel2 &&
     left.projectLevel3 === right.projectLevel3 &&
@@ -3366,7 +3453,10 @@ function App({
     ) => {
       const widgetAction = String(launchContext.widgetAction || '').trim();
       if (!widgetAction) {
-        pendingWidgetLaunchDispatchRef.current = null;
+        const pendingDispatch = pendingWidgetLaunchDispatchRef.current;
+        if (!pendingDispatch?.launchContext.widgetAction) {
+          pendingWidgetLaunchDispatchRef.current = null;
+        }
         return;
       }
 
@@ -4166,7 +4256,9 @@ function App({
           comparableTargetUri,
           normalizedLaunchContext,
         );
-      } else {
+      } else if (
+        !pendingWidgetLaunchDispatchRef.current?.launchContext.widgetAction
+      ) {
         pendingWidgetLaunchDispatchRef.current = null;
       }
 
@@ -6128,56 +6220,68 @@ function App({
   const shellBlockingOverlayView = shellBlockingOverlay ? (
     <View
       accessible={false}
-      pointerEvents="auto"
+      pointerEvents="box-none"
       renderToHardwareTextureAndroid={Platform.OS === 'android'}
-      style={[
-        styles.shellBlockingOverlay,
-        {
-          backgroundColor: shellBootTheme.screenBg,
-        },
-      ]}>
-      <View style={styles.center}>
+      style={styles.shellBlockingOverlayHost}>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.shellBlockingOverlayVisual,
+          {
+            backgroundColor: shellBootTheme.screenBg,
+          },
+        ]}
+      />
+      <View pointerEvents="none" style={styles.shellBlockingOverlayCardHost}>
         <View
-          style={[
-            styles.bootCard,
-            {
-              backgroundColor: shellBootTheme.cardBg,
-              borderColor: shellBootTheme.cardBorder,
-            },
-          ]}>
-          <Animated.View
+          style={styles.center}>
+          <View
             style={[
-              styles.bootIndicator,
+              styles.bootCard,
               {
-                borderColor: `${shellBootTheme.accent}38`,
-                borderTopColor: shellBootTheme.accent,
-                borderRightColor: `${shellBootTheme.accent}88`,
-              },
-              {
-                transform: [{rotate: bootSpinnerRotate}],
-              },
-            ]}
-          />
-          <Text
-            style={[
-              styles.loadingText,
-              {
-                color: shellBootTheme.text,
+                backgroundColor: shellBootTheme.cardBg,
+                borderColor: shellBootTheme.cardBorder,
               },
             ]}>
-            {shellBlockingOverlay.title}
-          </Text>
-          <Text
-            style={[
-              styles.loadingSubText,
-              {
-                color: shellBootTheme.mutedText,
-              },
-            ]}>
-            {shellBlockingOverlay.message}
-          </Text>
+            <Animated.View
+              style={[
+                styles.bootIndicator,
+                {
+                  borderColor: `${shellBootTheme.accent}38`,
+                  borderTopColor: shellBootTheme.accent,
+                  borderRightColor: `${shellBootTheme.accent}88`,
+                },
+                {
+                  transform: [{rotate: bootSpinnerRotate}],
+                },
+              ]}
+            />
+            <Text
+              style={[
+                styles.loadingText,
+                {
+                  color: shellBootTheme.text,
+                },
+              ]}>
+              {shellBlockingOverlay.title}
+            </Text>
+            <Text
+              style={[
+                styles.loadingSubText,
+                {
+                  color: shellBootTheme.mutedText,
+                },
+              ]}>
+              {shellBlockingOverlay.message}
+            </Text>
+          </View>
         </View>
       </View>
+      <View
+        accessible={false}
+        pointerEvents="auto"
+        style={styles.shellBlockingOverlayTouchBlocker}
+      />
     </View>
   ) : null;
   if (!activeUri) {
@@ -6289,6 +6393,7 @@ const styles = StyleSheet.create({
   },
   transitionTouchBlocker: {
     ...StyleSheet.absoluteFillObject,
+    bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
     zIndex: 9,
     backgroundColor: 'transparent',
   },
@@ -6314,11 +6419,22 @@ const styles = StyleSheet.create({
     zIndex: 5,
     elevation: 5,
   },
-  shellBlockingOverlay: {
+  shellBlockingOverlayHost: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: SCREEN_BG,
     zIndex: 6,
     elevation: 6,
+  },
+  shellBlockingOverlayVisual: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: SCREEN_BG,
+  },
+  shellBlockingOverlayCardHost: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  shellBlockingOverlayTouchBlocker: {
+    ...StyleSheet.absoluteFillObject,
+    bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
+    backgroundColor: 'transparent',
   },
   center: {
     flex: 1,

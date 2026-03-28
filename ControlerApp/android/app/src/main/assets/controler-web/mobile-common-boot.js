@@ -3135,6 +3135,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
+    "todoSortPreference",
   ]);
   const LEGACY_LOCAL_ONLY_SHARED_KEYS = Object.freeze([
     "guideState",
@@ -3175,6 +3176,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "customThemes",
     "builtInThemeOverrides",
     "selectedTheme",
+    "todoSortPreference",
   ]);
   const LOCAL_ONLY_STATE_KEY_ALIASES = Object.freeze({
     tableScaleSettings: "uiTableScaleSettings",
@@ -14606,6 +14608,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let appNavigationIntentCounter = 0;
   let pendingNativeNavigationRequest = null;
   let nativeNavigationRetryTimerId = 0;
+  let deferredAppNavigationReplayInitialized = false;
+  let deferredAppNavigationReplayTimerId = 0;
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
@@ -15118,6 +15122,90 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  function clearDeferredAppNavigationReplayTimer() {
+    if (deferredAppNavigationReplayTimerId) {
+      window.clearTimeout(deferredAppNavigationReplayTimerId);
+      deferredAppNavigationReplayTimerId = 0;
+    }
+  }
+
+  function isDeferredAppNavigationReplayReady() {
+    if (!deferredAppNavigationRequest) {
+      return false;
+    }
+    if (shellVisibilityState.active === false) {
+      return false;
+    }
+    if (hasVisibleBlockingOverlay()) {
+      return false;
+    }
+    if (
+      appPageTransitionLocked ||
+      appPageLeavePreflightLocked ||
+      !!pendingNativeNavigationRequest
+    ) {
+      return false;
+    }
+    if (
+      isAndroidReactNativeNavigationRuntime() &&
+      isAndroidReactNativeAppNavLocked()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function flushDeferredAppNavigationRequestIfReady() {
+    if (!isDeferredAppNavigationReplayReady()) {
+      return false;
+    }
+    const pendingRequest = takeDeferredAppNavigationRequest();
+    if (!pendingRequest?.targetItem) {
+      return false;
+    }
+    const replayed = startAppPageTransition(pendingRequest.targetItem, {
+      ...(pendingRequest.options || {}),
+      targetHref: pendingRequest.targetHref,
+      intent:
+        pendingRequest.intent &&
+        typeof pendingRequest.intent === "object"
+          ? pendingRequest.intent
+          : pendingRequest.options?.intent,
+    });
+    if (!replayed) {
+      deferredAppNavigationRequest = pendingRequest;
+      return false;
+    }
+    return true;
+  }
+
+  function scheduleDeferredAppNavigationReplay() {
+    clearDeferredAppNavigationReplayTimer();
+    deferredAppNavigationReplayTimerId = window.setTimeout(() => {
+      deferredAppNavigationReplayTimerId = 0;
+      flushDeferredAppNavigationRequestIfReady();
+    }, 0);
+  }
+
+  function ensureDeferredAppNavigationReplay() {
+    if (deferredAppNavigationReplayInitialized) {
+      scheduleDeferredAppNavigationReplay();
+      return;
+    }
+    deferredAppNavigationReplayInitialized = true;
+    const handleReplayStateChange = () => {
+      scheduleDeferredAppNavigationReplay();
+    };
+    window.addEventListener(
+      BLOCKING_OVERLAY_STATE_EVENT_NAME,
+      handleReplayStateChange,
+    );
+    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReplayStateChange);
+    window.addEventListener("focus", handleReplayStateChange);
+    document.addEventListener("visibilitychange", handleReplayStateChange);
+    scheduleDeferredAppNavigationReplay();
+  }
+
   function getAppNavigationItemLabel(targetItem) {
     if (!targetItem || typeof targetItem !== "object") {
       return "目标页面";
@@ -15472,6 +15560,116 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     reportHtmlParsed();
+  }
+
+  function normalizeSharedTodoSortPreference(value) {
+    switch (String(value || "").trim()) {
+      case "priority":
+      case "createdAt":
+      case "title":
+        return String(value || "").trim();
+      default:
+        return "dueDate";
+    }
+  }
+
+  let todoSortPreferenceCoreBackfillStarted = false;
+  function scheduleTodoSortPreferenceCoreBackfill() {
+    if (todoSortPreferenceCoreBackfillStarted) {
+      return;
+    }
+    todoSortPreferenceCoreBackfillStarted = true;
+
+    const run = async (attempt = 0) => {
+      const bundleStorage = window.ControlerStorage;
+      if (
+        bundleStorage?.isNativeApp !== true ||
+        (
+          typeof bundleStorage?.appendJournal !== "function" &&
+          typeof bundleStorage?.replaceCoreState !== "function"
+        )
+      ) {
+        if (attempt < 12) {
+          window.setTimeout(() => {
+            void run(attempt + 1);
+          }, 120);
+        }
+        return;
+      }
+
+      let localPreference = "";
+      try {
+        localPreference = normalizeSharedTodoSortPreference(
+          window.localStorage?.getItem?.("todoSortPreference") || "",
+        );
+      } catch (error) {
+        console.error("读取待办排序本地偏好失败:", error);
+        return;
+      }
+      if (localPreference === "dueDate") {
+        return;
+      }
+
+      let managedPreference = "dueDate";
+      try {
+        const managedSnapshot =
+          typeof bundleStorage.dump === "function" ? bundleStorage.dump() : null;
+        managedPreference = normalizeSharedTodoSortPreference(
+          managedSnapshot?.todoSortPreference || "",
+        );
+      } catch (error) {
+        console.error("读取待办排序核心偏好失败:", error);
+      }
+      console.info("[todo-sort-backfill]", {
+        localPreference,
+        managedPreference,
+      });
+      if (managedPreference === localPreference) {
+        return;
+      }
+
+      try {
+        if (typeof bundleStorage.appendJournal === "function") {
+          await bundleStorage.appendJournal(
+            [
+              {
+                kind: "replaceCoreState",
+                partialCore: {
+                  todoSortPreference: localPreference,
+                },
+              },
+            ],
+            {
+              reason: "todo-sort-preference-boot-backfill",
+            },
+          );
+          return;
+        }
+        await bundleStorage.replaceCoreState(
+          {
+            todoSortPreference: localPreference,
+          },
+          {
+            reason: "todo-sort-preference-boot-backfill",
+          },
+        );
+      } catch (error) {
+        console.error("回填待办排序核心偏好失败:", error);
+      }
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          void run();
+        },
+        { once: true },
+      );
+      return;
+    }
+
+    void run();
   }
 
   function normalizeAppNavigationVisibilityState(rawState) {
@@ -17109,6 +17307,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
     if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      stashDeferredAppNavigationRequest(targetItem);
+      setAppPageLeaveOverlayState({
+        active: true,
+        ...buildAppNavigationOverlayCopy(targetItem),
+        delayMs: 0,
+      });
+      ensureDeferredAppNavigationReplay();
       clearAndroidNavButtonFocus(document.activeElement, true);
       return true;
     }
@@ -17122,6 +17327,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
     if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+      stashDeferredAppNavigationRequest(targetItem, {
+        ...options,
+        targetHref,
+      });
+      setAppPageLeaveOverlayState({
+        active: true,
+        ...buildAppNavigationOverlayCopy(targetItem),
+        delayMs: 0,
+      });
+      ensureDeferredAppNavigationReplay();
       clearAndroidNavButtonFocus(document.activeElement, true);
       return true;
     }
@@ -21423,6 +21638,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   initAndroidPressFeedback();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
   scheduleInitialPagePerfReport();
+  scheduleTodoSortPreferenceCoreBackfill();
   scheduleNativePageReadyReport();
 
   window.ControlerUI = {
