@@ -8884,13 +8884,29 @@ async function init() {
       console.error("预加载统计视图资源失败:", error);
       return false;
     });
+    const shouldAwaitFreshStatsBeforeFirstRender =
+      !useWidgetLaunchFastPath &&
+      bootstrappedFromSnapshot &&
+      canPrepareInitialData &&
+      window.ControlerStorage?.isNativeApp === true;
+    if (shouldAwaitFreshStatsBeforeFirstRender) {
+      uiTools?.markPerfStage?.("stats-await-authoritative-range", {
+        fromCache: true,
+        source: statsBootstrappedFromPageBootstrap ? "page-bootstrap" : "cached-snapshot",
+        rangeUnit: statsRangeState.unit,
+      });
+      await refreshStatsRangeData(false, {
+        manageLoading: false,
+        message: "正在校准统计范围，请稍候",
+      });
+    }
     renderCurrentView();
     await waitForStatsUiPaint();
     await queueStatsToolbarReveal();
     if (
       bootstrappedFromSnapshot &&
       canPrepareInitialData &&
-      !(statsBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp)
+      !shouldAwaitFreshStatsBeforeFirstRender
     ) {
       void refreshStatsRangeData(true, {
         manageLoading: false,

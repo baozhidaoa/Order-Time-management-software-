@@ -2548,6 +2548,8 @@ body.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
 
 .stats-section-panel {
   padding: 16px;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .stats-section-title {
@@ -2559,6 +2561,8 @@ body.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
 
 .stats-section-body {
   min-width: 0;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 body.page-stats .stats-main,
@@ -2570,12 +2574,15 @@ body.page-stats .weekly-glass-scroller {
 
 body.page-stats .stats-shell,
 body.page-stats .stats-main,
-body.page-stats #stats-container,
 body.page-stats .weekly-glass-shell,
 body.page-stats .weekly-grid-size-shell,
 body.page-stats .weekly-glass-scroller,
 body.page-stats .weekly-glass-table {
   background-color: color-mix(in srgb, var(--panel-bg) 94%, var(--bg-primary));
+}
+
+body.page-stats #stats-container {
+  background-color: transparent;
 }
 
 .stats-dual-grid {
@@ -4892,6 +4899,10 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     min-height: 112px !important;
     max-height: min(28dvh, 252px) !important;
     flex: 0 1 auto !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    align-self: stretch !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
@@ -4928,10 +4939,16 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.page-record #projects-table-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     margin-bottom: 8px !important;
   }
 
   body.page-record #projects-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
     gap: 6px !important;
     min-height: 132px !important;
@@ -4963,6 +4980,9 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
 
   body.page-record #project-totals {
     display: grid !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)) !important;
     gap: 8px !important;
     min-height: 92px !important;
@@ -4983,6 +5003,9 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     height: auto !important;
     min-height: 0 !important;
     flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
     gap: 8px !important;
@@ -4995,6 +5018,10 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     height: auto !important;
     min-height: 0 !important;
     flex: 1 1 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    align-self: stretch !important;
     padding: 10px !important;
   }
 
@@ -5305,6 +5332,7 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
     min-height: 320px !important;
     gap: 10px !important;
     overflow: visible !important;
+    background-color: transparent !important;
   }
 
   body.flex.row .modal-date-range {
