@@ -148,6 +148,7 @@ vite.config.ts.timestamp-*
 .gradle-user-home/
 .tmp-widget-javac/
 .tmp-capacitor-javac/
+/tmp-*
 
 # Local device data / recovery artifacts
 artifacts/device-live/
