@@ -1389,13 +1389,17 @@ function setIndexLoadingState(options = {}) {
     title = "正在加载数据中",
     delayMs = 0,
     lockNativeExit = false,
+    delegateToNative = true,
     message =
       mode === "fullscreen"
         ? "正在读取记录与项目，请稍候"
         : "正在刷新当前内容，请稍候",
   } = options;
   const loadingController = getIndexLoadingOverlayController();
-  syncIndexNativeBusyLock(active, active && lockNativeExit);
+  syncIndexNativeBusyLock(
+    delegateToNative !== false && active,
+    delegateToNative !== false && active && lockNativeExit,
+  );
 
   if (!loadingController) {
     syncIndexNativeBusyLock(false);
@@ -1408,6 +1412,7 @@ function setIndexLoadingState(options = {}) {
     title,
     message,
     delayMs,
+    delegateToNative,
   });
 }
 
@@ -8314,7 +8319,8 @@ async function handleIndexModalConfirmClick() {
         title: "正在保存记录",
         message: "正在写入新记录，请稍候后再切换页面。",
         delayMs: 0,
-        lockNativeExit: true,
+        lockNativeExit: false,
+        delegateToNative: false,
       });
       await waitForIndexUiPaint();
     }

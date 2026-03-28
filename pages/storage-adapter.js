@@ -4126,18 +4126,17 @@
         initialMirrorPendingWrite ||
         initialMirrorComparableSnapshot === emptyComparableSnapshot
       );
-    const initialPendingSharedKeys =
+    const shouldSeedMirrorFromLegacyBrowserBootstrap =
       shouldAdoptLegacyBrowserBootstrap &&
-      Array.isArray(legacyBrowserBootstrap.sharedKeys)
-        ? legacyBrowserBootstrap.sharedKeys
-            .map((key) => String(key || "").trim())
-            .filter((key) => isSharedStateKey(key))
-        : [];
+      (
+        !initialMirrorStateRaw.trim() ||
+        initialMirrorComparableSnapshot === emptyComparableSnapshot
+      );
+    const initialPendingSharedKeys = [];
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
       : initialMirrorState;
-    const initialPendingWrite =
-      initialMirrorPendingWrite || shouldAdoptLegacyBrowserBootstrap;
+    const initialPendingWrite = initialMirrorPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
     });
@@ -4197,6 +4196,26 @@
     let pendingNativeStorageChangedSections = new Set();
     let pendingNativeStorageChangedPeriods = {};
     let nativeFullStateRewriteRequested = false;
+
+    if (shouldSeedMirrorFromLegacyBrowserBootstrap) {
+      try {
+        const seededMirrorStateJson = JSON.stringify(cachedState);
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_STATE_KEY,
+          seededMirrorStateJson,
+        );
+        lastMirroredStateJson = seededMirrorStateJson;
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_WRITE_KEY,
+          initialPendingWrite ? "1" : "0",
+        );
+        lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+      } catch (error) {
+        console.error("写入移动端 legacy 启动镜像失败:", error);
+      }
+    }
 
     function createManagedSectionCoverage() {
       return MANAGED_RANGE_SECTIONS.reduce((coverage, section) => {
@@ -4884,6 +4903,21 @@
       managedStateRevision += 1;
       hasPendingStateChanges = true;
       scheduleMirrorSnapshot();
+      return cachedState;
+    }
+
+    function applyBridgeState(nextState, options = {}) {
+      cachedState = normalizeState(nextState, buildMobileMetadata());
+      rebuildManagedSectionCoverage(cachedState, {
+        markFull:
+          managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
+      });
+      managedStateRevision += 1;
+      normalizeChangedSectionsList(options?.clearSharedKeys).forEach((key) => {
+        pendingNativeSharedKeyWrites.delete(key);
+      });
+      lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+      hasPendingStateChanges = false;
       return cachedState;
     }
 
@@ -7375,6 +7409,64 @@
             scheduleManagedPendingNativeFlush();
             throw error;
           }
+        },
+        applySharedStateFromBridge(partialState = {}) {
+          const sourceState =
+            partialState && typeof partialState === "object" && !Array.isArray(partialState)
+              ? partialState
+              : {};
+          const currentState = readState();
+          const nextState = {
+            ...currentState,
+          };
+          let changed = false;
+          const clearedSharedKeys = [];
+
+          Object.keys(sourceState).forEach((key) => {
+            const normalizedKey = resolveLocalStateKey(key);
+            if (!normalizedKey || !isSharedStateKey(normalizedKey)) {
+              return;
+            }
+
+            const nextValue = cloneValue(sourceState[key]);
+            const currentValue = Object.prototype.hasOwnProperty.call(
+              nextState,
+              normalizedKey,
+            )
+              ? nextState[normalizedKey]
+              : null;
+            const currentSnapshot = safeSerialize(currentValue);
+            const nextSnapshot = safeSerialize(nextValue);
+
+            if (currentSnapshot !== nextSnapshot) {
+              nextState[normalizedKey] = nextValue;
+              changed = true;
+            }
+            clearedSharedKeys.push(normalizedKey);
+
+            if (SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)) {
+              const mirroredSnapshot = safeSerialize(
+                readRawLocalOnlyValue(normalizedKey),
+              );
+              if (mirroredSnapshot !== nextSnapshot) {
+                writeRawLocalOnlyValue(normalizedKey, nextValue);
+              }
+            }
+          });
+
+          if (changed) {
+            applyBridgeState(nextState, {
+              clearSharedKeys: clearedSharedKeys,
+            });
+            hasManagedCoreSnapshot = true;
+          } else if (clearedSharedKeys.length) {
+            normalizeChangedSectionsList(clearedSharedKeys).forEach((key) => {
+              pendingNativeSharedKeyWrites.delete(key);
+            });
+            hasPendingStateChanges = false;
+          }
+          persistMirrorSnapshot(true);
+          return buildCurrentMergedState();
         },
         async replaceRecurringPlans(items = []) {
           const state = readState();

@@ -7091,18 +7091,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         initialMirrorPendingWrite ||
         initialMirrorComparableSnapshot === emptyComparableSnapshot
       );
-    const initialPendingSharedKeys =
+    const shouldSeedMirrorFromLegacyBrowserBootstrap =
       shouldAdoptLegacyBrowserBootstrap &&
-      Array.isArray(legacyBrowserBootstrap.sharedKeys)
-        ? legacyBrowserBootstrap.sharedKeys
-            .map((key) => String(key || "").trim())
-            .filter((key) => isSharedStateKey(key))
-        : [];
+      (
+        !initialMirrorStateRaw.trim() ||
+        initialMirrorComparableSnapshot === emptyComparableSnapshot
+      );
+    const initialPendingSharedKeys = [];
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
       : initialMirrorState;
-    const initialPendingWrite =
-      initialMirrorPendingWrite || shouldAdoptLegacyBrowserBootstrap;
+    const initialPendingWrite = initialMirrorPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
     });
@@ -7162,6 +7161,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let pendingNativeStorageChangedSections = new Set();
     let pendingNativeStorageChangedPeriods = {};
     let nativeFullStateRewriteRequested = false;
+
+    if (shouldSeedMirrorFromLegacyBrowserBootstrap) {
+      try {
+        const seededMirrorStateJson = JSON.stringify(cachedState);
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_STATE_KEY,
+          seededMirrorStateJson,
+        );
+        lastMirroredStateJson = seededMirrorStateJson;
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_WRITE_KEY,
+          initialPendingWrite ? "1" : "0",
+        );
+        lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+      } catch (error) {
+        console.error("写入移动端 legacy 启动镜像失败:", error);
+      }
+    }
 
     function createManagedSectionCoverage() {
       return MANAGED_RANGE_SECTIONS.reduce((coverage, section) => {
@@ -7849,6 +7868,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       managedStateRevision += 1;
       hasPendingStateChanges = true;
       scheduleMirrorSnapshot();
+      return cachedState;
+    }
+
+    function applyBridgeState(nextState, options = {}) {
+      cachedState = normalizeState(nextState, buildMobileMetadata());
+      rebuildManagedSectionCoverage(cachedState, {
+        markFull:
+          managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
+      });
+      managedStateRevision += 1;
+      normalizeChangedSectionsList(options?.clearSharedKeys).forEach((key) => {
+        pendingNativeSharedKeyWrites.delete(key);
+      });
+      lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+      hasPendingStateChanges = false;
       return cachedState;
     }
 
@@ -10340,6 +10374,64 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             scheduleManagedPendingNativeFlush();
             throw error;
           }
+        },
+        applySharedStateFromBridge(partialState = {}) {
+          const sourceState =
+            partialState && typeof partialState === "object" && !Array.isArray(partialState)
+              ? partialState
+              : {};
+          const currentState = readState();
+          const nextState = {
+            ...currentState,
+          };
+          let changed = false;
+          const clearedSharedKeys = [];
+
+          Object.keys(sourceState).forEach((key) => {
+            const normalizedKey = resolveLocalStateKey(key);
+            if (!normalizedKey || !isSharedStateKey(normalizedKey)) {
+              return;
+            }
+
+            const nextValue = cloneValue(sourceState[key]);
+            const currentValue = Object.prototype.hasOwnProperty.call(
+              nextState,
+              normalizedKey,
+            )
+              ? nextState[normalizedKey]
+              : null;
+            const currentSnapshot = safeSerialize(currentValue);
+            const nextSnapshot = safeSerialize(nextValue);
+
+            if (currentSnapshot !== nextSnapshot) {
+              nextState[normalizedKey] = nextValue;
+              changed = true;
+            }
+            clearedSharedKeys.push(normalizedKey);
+
+            if (SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)) {
+              const mirroredSnapshot = safeSerialize(
+                readRawLocalOnlyValue(normalizedKey),
+              );
+              if (mirroredSnapshot !== nextSnapshot) {
+                writeRawLocalOnlyValue(normalizedKey, nextValue);
+              }
+            }
+          });
+
+          if (changed) {
+            applyBridgeState(nextState, {
+              clearSharedKeys: clearedSharedKeys,
+            });
+            hasManagedCoreSnapshot = true;
+          } else if (clearedSharedKeys.length) {
+            normalizeChangedSectionsList(clearedSharedKeys).forEach((key) => {
+              pendingNativeSharedKeyWrites.delete(key);
+            });
+            hasPendingStateChanges = false;
+          }
+          persistMirrorSnapshot(true);
+          return buildCurrentMergedState();
         },
         async replaceRecurringPlans(items = []) {
           const state = readState();
@@ -14142,14 +14234,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const selectedTheme = resolvedThemeState.themeId || "default";
     const customThemes = resolvedThemeState.customThemes;
     const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
+    const sharedThemeState = {
+      selectedTheme,
+      customThemes,
+      builtInThemeOverrides,
+    };
 
     try {
-      localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
-      localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-      localStorage.setItem(
-        BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
-        JSON.stringify(builtInThemeOverrides),
-      );
+      const managedStorage = window.ControlerStorage;
+      if (
+        managedStorage?.isNativeApp === true &&
+        typeof managedStorage.applySharedStateFromBridge === "function"
+      ) {
+        managedStorage.applySharedStateFromBridge(sharedThemeState);
+      } else {
+        localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
+        localStorage.setItem(
+          CUSTOM_THEMES_STORAGE_KEY,
+          JSON.stringify(customThemes),
+        );
+        localStorage.setItem(
+          BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+          JSON.stringify(builtInThemeOverrides),
+        );
+      }
       lastThemeStorageSignature = [
         selectedTheme,
         JSON.stringify(customThemes),
@@ -18862,10 +18970,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
       message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
       lockNavigation: currentMode === "fullscreen" && currentVisibility,
+      delegateToNative: true,
     };
 
-    const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
+    const shouldDelegateFullscreenOverlayToNative = (
+      visible,
+      mode,
+      delegateToNative = true,
+    ) => {
       if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (delegateToNative === false) {
         return false;
       }
       if (!isReactNativeNavigationRuntime() || !isShellPageActive()) {
@@ -19031,6 +19147,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       title = "",
       message = "",
       lockNavigation = false,
+      delegateToNative = true,
     } = {}) => {
       if (destroyed) {
         return;
@@ -19046,6 +19163,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         title,
         message,
         lockNavigation,
+        delegateToNative,
       };
       const suppressedByShell = shouldSuppressFullscreenOverlay(
         visible,
@@ -19059,6 +19177,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
         visible,
         resolvedMode,
+        delegateToNative,
       ) && !suppressedByShell;
       const actualVisible = visible && !suppressedByShell && !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
@@ -19166,6 +19285,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const lockNavigation =
           nextState.lockNavigation === true ||
           (nextState.lockNavigation !== false && active && mode === "fullscreen");
+        const delegateToNative = nextState.delegateToNative !== false;
 
         window.clearTimeout(overlayTimerId);
         overlayTimerId = 0;
@@ -19181,6 +19301,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               title,
               message,
               lockNavigation,
+              delegateToNative,
             });
             return true;
           };
@@ -19214,6 +19335,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             title,
             message,
             lockNavigation,
+            delegateToNative,
           });
           overlayTimerId = window.setTimeout(() => {
             overlayTimerId = 0;
@@ -19223,6 +19345,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               title,
               message,
               lockNavigation,
+              delegateToNative,
             });
           }, delayMs);
           return Promise.resolve(true);
@@ -19234,6 +19357,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           title,
           message,
           lockNavigation,
+          delegateToNative,
         });
         return Promise.resolve(true);
       },

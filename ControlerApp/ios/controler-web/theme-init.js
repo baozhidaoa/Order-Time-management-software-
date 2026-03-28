@@ -1230,14 +1230,30 @@
     const selectedTheme = resolvedThemeState.themeId || "default";
     const customThemes = resolvedThemeState.customThemes;
     const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
+    const sharedThemeState = {
+      selectedTheme,
+      customThemes,
+      builtInThemeOverrides,
+    };
 
     try {
-      localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
-      localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-      localStorage.setItem(
-        BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
-        JSON.stringify(builtInThemeOverrides),
-      );
+      const managedStorage = window.ControlerStorage;
+      if (
+        managedStorage?.isNativeApp === true &&
+        typeof managedStorage.applySharedStateFromBridge === "function"
+      ) {
+        managedStorage.applySharedStateFromBridge(sharedThemeState);
+      } else {
+        localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
+        localStorage.setItem(
+          CUSTOM_THEMES_STORAGE_KEY,
+          JSON.stringify(customThemes),
+        );
+        localStorage.setItem(
+          BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+          JSON.stringify(builtInThemeOverrides),
+        );
+      }
       lastThemeStorageSignature = [
         selectedTheme,
         JSON.stringify(customThemes),

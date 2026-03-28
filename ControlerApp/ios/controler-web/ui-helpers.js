@@ -4626,10 +4626,18 @@
         titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
       message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
       lockNavigation: currentMode === "fullscreen" && currentVisibility,
+      delegateToNative: true,
     };
 
-    const shouldDelegateFullscreenOverlayToNative = (visible, mode) => {
+    const shouldDelegateFullscreenOverlayToNative = (
+      visible,
+      mode,
+      delegateToNative = true,
+    ) => {
       if (!visible || mode !== "fullscreen") {
+        return false;
+      }
+      if (delegateToNative === false) {
         return false;
       }
       if (!isReactNativeNavigationRuntime() || !isShellPageActive()) {
@@ -4795,6 +4803,7 @@
       title = "",
       message = "",
       lockNavigation = false,
+      delegateToNative = true,
     } = {}) => {
       if (destroyed) {
         return;
@@ -4810,6 +4819,7 @@
         title,
         message,
         lockNavigation,
+        delegateToNative,
       };
       const suppressedByShell = shouldSuppressFullscreenOverlay(
         visible,
@@ -4823,6 +4833,7 @@
       const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
         visible,
         resolvedMode,
+        delegateToNative,
       ) && !suppressedByShell;
       const actualVisible = visible && !suppressedByShell && !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
@@ -4930,6 +4941,7 @@
         const lockNavigation =
           nextState.lockNavigation === true ||
           (nextState.lockNavigation !== false && active && mode === "fullscreen");
+        const delegateToNative = nextState.delegateToNative !== false;
 
         window.clearTimeout(overlayTimerId);
         overlayTimerId = 0;
@@ -4945,6 +4957,7 @@
               title,
               message,
               lockNavigation,
+              delegateToNative,
             });
             return true;
           };
@@ -4978,6 +4991,7 @@
             title,
             message,
             lockNavigation,
+            delegateToNative,
           });
           overlayTimerId = window.setTimeout(() => {
             overlayTimerId = 0;
@@ -4987,6 +5001,7 @@
               title,
               message,
               lockNavigation,
+              delegateToNative,
             });
           }, delayMs);
           return Promise.resolve(true);
@@ -4998,6 +5013,7 @@
           title,
           message,
           lockNavigation,
+          delegateToNative,
         });
         return Promise.resolve(true);
       },
