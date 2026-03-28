@@ -113,6 +113,39 @@ public final class ControlerWidgetLaunchStore {
         intent.putExtra(EXTRA_LAUNCH_ID, snapshot.launchId);
         intent.putExtra(EXTRA_CREATED_AT, snapshot.createdAt);
 
+        persistLaunchSnapshot(context, snapshot);
+    }
+
+    public static void rememberLaunchAction(
+        Context context,
+        String page,
+        String action,
+        String kind,
+        String targetId,
+        String launchId,
+        long createdAt
+    ) {
+        if (context == null) {
+            return;
+        }
+        LaunchSnapshot snapshot = new LaunchSnapshot(
+            page,
+            action,
+            kind,
+            targetId,
+            launchId,
+            createdAt
+        ).ensureIdentifiers();
+        if (!snapshot.hasAction()) {
+            return;
+        }
+        persistLaunchSnapshot(context, snapshot);
+    }
+
+    private static void persistLaunchSnapshot(Context context, LaunchSnapshot snapshot) {
+        if (context == null || snapshot == null || !snapshot.hasAction()) {
+            return;
+        }
         synchronized (MEMORY_LOCK) {
             pendingLaunchSnapshot = snapshot;
         }

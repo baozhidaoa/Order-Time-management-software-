@@ -457,6 +457,10 @@ public final class ControlerWidgetDataStore {
             sanitizeJsonString(core.optString("selectedTheme", "default"))
         );
         target.put(
+            "todoSortPreference",
+            sanitizeJsonString(core.optString("todoSortPreference", "dueDate"))
+        );
+        target.put(
             "timerSessionState",
             cloneJsonObject(core.optJSONObject("timerSessionState"))
         );
@@ -892,6 +896,10 @@ public final class ControlerWidgetDataStore {
             core.put(
                 "selectedTheme",
                 sanitizeJsonString(root.optString("selectedTheme", "default"))
+            );
+            core.put(
+                "todoSortPreference",
+                sanitizeJsonString(root.optString("todoSortPreference", "dueDate"))
             );
             core.put("createdAt", sanitizeJsonString(root.optString("createdAt", isoNow())));
             core.put(
@@ -1488,6 +1496,7 @@ public final class ControlerWidgetDataStore {
             "customThemes",
             "builtInThemeOverrides",
             "selectedTheme",
+            "todoSortPreference",
             "createdAt",
             "storagePath",
             "storageDirectory",
@@ -2265,6 +2274,7 @@ public final class ControlerWidgetDataStore {
             "customThemes",
             "builtInThemeOverrides",
             "selectedTheme",
+            "todoSortPreference",
             "createdAt",
             "storagePath",
             "storageDirectory",
@@ -2658,6 +2668,10 @@ public final class ControlerWidgetDataStore {
                 "selectedTheme",
                 sanitizeJsonString(root.optString("selectedTheme", "default"))
             );
+            core.put(
+                "todoSortPreference",
+                sanitizeJsonString(root.optString("todoSortPreference", "dueDate"))
+            );
             core.put("createdAt", sanitizeJsonString(root.optString("createdAt", isoNow())));
             core.put(
                 "lastModified",
@@ -2785,6 +2799,10 @@ public final class ControlerWidgetDataStore {
         }
         if (TextUtils.isEmpty(core.optString("selectedTheme", ""))) {
             core.put("selectedTheme", "default");
+            changed = true;
+        }
+        if (TextUtils.isEmpty(core.optString("todoSortPreference", ""))) {
+            core.put("todoSortPreference", "dueDate");
             changed = true;
         }
         return changed;
@@ -5776,6 +5794,9 @@ public final class ControlerWidgetDataStore {
         }
         if (partialCore.has("selectedTheme")) {
             sections.add("selectedTheme");
+        }
+        if (partialCore.has("todoSortPreference")) {
+            sections.add("todoSortPreference");
         }
         if (
             partialCore.has("createdAt")

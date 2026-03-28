@@ -654,6 +654,9 @@ function readIndexWorkspaceSnapshotFromManagedStorage(recordScope = null) {
 }
 
 function readIndexWorkspaceSnapshotFromLocalMirror(recordScope = null) {
+  if (window.ControlerStorage?.isNativeApp === true) {
+    return null;
+  }
   const localProjectMirror = readIndexProjectMirrorState();
   const localRecordMirror = readIndexLocalRecordSnapshot();
   if (!localProjectMirror.hasMirror && !localRecordMirror.hasMirror) {
@@ -720,13 +723,12 @@ function applyIndexWorkspaceSnapshot(snapshot = {}) {
       ? snapshot.loadedPeriodIds
       : getIndexRecordPeriodIds(nextRecords),
   );
-  if (
-    nextRecords.length > 0 ||
-    indexLoadedRecordPeriodIds.length > 0 ||
-    snapshot.source !== "page-bootstrap"
-  ) {
-    setIndexRawLocalMirrorItem("records", JSON.stringify(nextRecords));
-  }
+  syncIndexRawRecordMirror(nextRecords, {
+    write:
+      nextRecords.length > 0 ||
+      indexLoadedRecordPeriodIds.length > 0 ||
+      snapshot.source !== "page-bootstrap",
+  });
   loadProjectHierarchyExpansionStateFromStorage();
   projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
     projectTotalsExpansionState,
@@ -1895,9 +1897,10 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
         periodIds: indexLoadedRecordPeriodIds.slice(),
         durationMs: Math.round(uiCommitDuration),
       });
-      if (records.length > 0 || indexLoadedRecordPeriodIds.length > 0) {
-        setIndexRawLocalMirrorItem("records", JSON.stringify(records));
-      }
+      syncIndexRawRecordMirror(records, {
+        write:
+          records.length > 0 || indexLoadedRecordPeriodIds.length > 0,
+      });
       if (markFirstCommit) {
         uiTools?.markPerfStage?.("first-data-commit", {
           projectCount: projects.length,
@@ -11883,6 +11886,22 @@ function removeIndexRawLocalMirrorItem(key) {
   localStorage.removeItem(key);
 }
 
+function syncIndexRawRecordMirror(recordList = [], options = {}) {
+  const shouldWrite = options.write === true;
+  if (window.ControlerStorage?.isNativeApp === true) {
+    removeIndexRawLocalMirrorItem("records");
+    return false;
+  }
+  if (!shouldWrite) {
+    return false;
+  }
+  setIndexRawLocalMirrorItem(
+    "records",
+    JSON.stringify(Array.isArray(recordList) ? recordList : []),
+  );
+  return true;
+}
+
 function readIndexLocalRecordSnapshot() {
   try {
     const raw = getIndexRawLocalMirrorItem("records");
@@ -12040,7 +12059,9 @@ function saveRecordsToStorage() {
         indexLoadedRecordPeriodIds = loadedPeriodIdsSnapshot.slice();
         if (!managedStorage) {
           syncIndexProjectMirrorIfNeeded(projectsSnapshot);
-          setIndexRawLocalMirrorItem("records", JSON.stringify(recordsSnapshot));
+          syncIndexRawRecordMirror(recordsSnapshot, {
+            write: true,
+          });
           if (saveRevision === indexRecordMutationRevision) {
             indexDirtyRecordPeriodIds = new Set();
             indexPendingRecordPatchByPeriod.clear();
@@ -12096,7 +12117,9 @@ function saveRecordsToStorage() {
               indexPendingRecordSaveIds.delete(normalizedRecordId);
             }
           });
-          setIndexRawLocalMirrorItem("records", JSON.stringify(recordsSnapshot));
+          syncIndexRawRecordMirror(recordsSnapshot, {
+            write: true,
+          });
         }
         return true;
       }),
