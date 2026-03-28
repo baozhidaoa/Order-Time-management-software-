@@ -241,6 +241,35 @@ type ShellBootTheme = {
   transitionOverlay: string;
 };
 
+type LaunchThemeColors = {
+  primary: string;
+  secondary: string;
+  tertiary: string;
+  quaternary: string;
+  accent: string;
+  text: string;
+  mutedText: string;
+  border: string;
+  delete: string;
+  deleteHover: string;
+  projectLevel1: string;
+  projectLevel2: string;
+  projectLevel3: string;
+  panel: string;
+  panelStrong: string;
+  panelBorder: string;
+  buttonBg: string;
+  buttonBgHover: string;
+  buttonText: string;
+  buttonBorder: string;
+  onAccentText: string;
+  navBarBg: string;
+  navButtonBg: string;
+  navButtonActiveBg: string;
+  navButtonActiveText: string;
+  overlay: string;
+};
+
 type AppProps = {
   initialCoreStateJson?: string;
   initialUiLanguage?: string;
@@ -630,6 +659,302 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     transitionOverlay: 'rgba(10, 16, 31, 0.26)',
   },
 };
+const DEFAULT_LAUNCH_THEME_COLORS: LaunchThemeColors = {
+  primary: '#1f2f28',
+  secondary: 'rgba(53, 96, 71, 0.42)',
+  tertiary: 'rgba(83, 132, 101, 0.5)',
+  quaternary: 'rgba(121, 175, 133, 0.2)',
+  accent: '#8ed6a4',
+  text: '#f5fff8',
+  mutedText: 'rgba(245, 255, 248, 0.72)',
+  border: '#6ea283',
+  delete: '#ff7e7e',
+  deleteHover: '#ff6464',
+  projectLevel1: '#79af85',
+  projectLevel2: '#5a7f68',
+  projectLevel3: '#3a5d48',
+  panel: 'rgba(24, 41, 33, 0.62)',
+  panelStrong: 'rgba(31, 53, 42, 0.74)',
+  panelBorder: 'rgba(142, 214, 164, 0.28)',
+  buttonBg: '#8ed6a4',
+  buttonBgHover: '#9ee2b3',
+  buttonText: '#173326',
+  buttonBorder: 'rgba(142, 214, 164, 0.42)',
+  onAccentText: '#173326',
+  navBarBg: 'rgba(17, 29, 23, 0.84)',
+  navButtonBg: 'rgba(142, 214, 164, 0.12)',
+  navButtonActiveBg: 'rgba(135, 196, 153, 0.86)',
+  navButtonActiveText: '#f8fafc',
+  overlay: 'rgba(8, 10, 12, 0.45)',
+};
+const BUILT_IN_LAUNCH_THEME_COLOR_MAP: Record<
+  string,
+  Partial<LaunchThemeColors>
+> = {
+  default: {},
+  'blue-ocean': {
+    primary: '#12263f',
+    secondary: 'rgba(33, 63, 96, 0.46)',
+    tertiary: 'rgba(57, 101, 151, 0.52)',
+    quaternary: 'rgba(94, 163, 230, 0.22)',
+    accent: '#7ec6ff',
+    text: '#eef6ff',
+    mutedText: 'rgba(238, 246, 255, 0.72)',
+    border: '#6d7ba4',
+    delete: '#ff8a8a',
+    deleteHover: '#ff6f6f',
+    projectLevel1: '#63b3ed',
+    projectLevel2: '#4299e1',
+    projectLevel3: '#2c5282',
+    panel: 'rgba(17, 37, 61, 0.65)',
+    panelStrong: 'rgba(22, 45, 73, 0.76)',
+    panelBorder: 'rgba(126, 198, 255, 0.28)',
+    buttonBg: '#7ec6ff',
+    buttonBgHover: '#95d2ff',
+    buttonText: '#123052',
+    buttonBorder: 'rgba(126, 198, 255, 0.48)',
+    onAccentText: '#123052',
+    navBarBg: 'rgba(12, 28, 47, 0.86)',
+    navButtonBg: 'rgba(126, 198, 255, 0.12)',
+    navButtonActiveBg: 'rgba(119, 182, 235, 0.84)',
+  },
+  'sunset-orange': {
+    primary: '#4b261b',
+    secondary: 'rgba(122, 61, 38, 0.48)',
+    tertiary: 'rgba(163, 88, 47, 0.52)',
+    quaternary: 'rgba(237, 137, 54, 0.2)',
+    accent: '#ffbf78',
+    text: '#fff5ea',
+    mutedText: 'rgba(255, 245, 234, 0.74)',
+    border: '#bdb38b',
+    delete: '#ff9a9a',
+    deleteHover: '#ff7d7d',
+    projectLevel1: '#f6ad55',
+    projectLevel2: '#ed8936',
+    projectLevel3: '#c05621',
+    panel: 'rgba(70, 37, 26, 0.68)',
+    panelStrong: 'rgba(88, 46, 31, 0.76)',
+    panelBorder: 'rgba(255, 191, 120, 0.3)',
+    buttonBg: '#ffc78a',
+    buttonBgHover: '#ffd3a5',
+    buttonText: '#522a1c',
+    buttonBorder: 'rgba(255, 191, 120, 0.48)',
+    onAccentText: '#522a1c',
+    navBarBg: 'rgba(55, 29, 21, 0.86)',
+    navButtonBg: 'rgba(255, 191, 120, 0.14)',
+    navButtonActiveBg: 'rgba(243, 181, 112, 0.88)',
+  },
+  'minimal-gray': {
+    primary: '#1f252e',
+    secondary: 'rgba(63, 73, 88, 0.45)',
+    tertiary: 'rgba(91, 105, 126, 0.52)',
+    quaternary: 'rgba(160, 174, 192, 0.2)',
+    accent: '#d1d9e3',
+    text: '#f6f8fb',
+    mutedText: 'rgba(246, 248, 251, 0.72)',
+    border: '#bebebe',
+    delete: '#ff8383',
+    deleteHover: '#ff6464',
+    projectLevel1: '#d4dce7',
+    projectLevel2: '#a0aec0',
+    projectLevel3: '#718096',
+    panel: 'rgba(33, 39, 49, 0.66)',
+    panelStrong: 'rgba(40, 47, 58, 0.78)',
+    panelBorder: 'rgba(209, 217, 227, 0.3)',
+    buttonBg: '#d9e1ec',
+    buttonBgHover: '#e7edf6',
+    buttonText: '#262f3d',
+    buttonBorder: 'rgba(209, 217, 227, 0.56)',
+    onAccentText: '#262f3d',
+    navBarBg: 'rgba(28, 33, 41, 0.86)',
+    navButtonBg: 'rgba(209, 217, 227, 0.12)',
+    navButtonActiveBg: 'rgba(186, 197, 210, 0.84)',
+  },
+  'obsidian-mono': {
+    primary: '#0d0f12',
+    secondary: 'rgba(24, 27, 32, 0.6)',
+    tertiary: 'rgba(46, 50, 59, 0.56)',
+    quaternary: 'rgba(106, 113, 128, 0.2)',
+    accent: '#f1f4fa',
+    text: '#f4f6fb',
+    mutedText: 'rgba(244, 246, 251, 0.76)',
+    border: 'rgba(215, 221, 232, 0.32)',
+    delete: '#ff7b7b',
+    deleteHover: '#ff5f5f',
+    projectLevel1: '#d6dde8',
+    projectLevel2: '#a2adbd',
+    projectLevel3: '#667084',
+    panel: 'rgba(16, 18, 22, 0.72)',
+    panelStrong: 'rgba(20, 23, 28, 0.82)',
+    panelBorder: 'rgba(215, 221, 232, 0.22)',
+    buttonBg: '#f1f4fa',
+    buttonBgHover: '#ffffff',
+    buttonText: '#10141d',
+    buttonBorder: 'rgba(241, 244, 250, 0.68)',
+    onAccentText: '#10141d',
+    navBarBg: 'rgba(10, 12, 16, 0.9)',
+    navButtonBg: 'rgba(129, 140, 155, 0.14)',
+    navButtonActiveBg: 'rgba(72, 79, 92, 0.92)',
+  },
+  'ivory-light': {
+    primary: '#eceff3',
+    secondary: 'rgba(255, 255, 255, 0.65)',
+    tertiary: 'rgba(240, 244, 250, 0.78)',
+    quaternary: 'rgba(222, 229, 238, 0.65)',
+    accent: '#3f495f',
+    text: '#202633',
+    mutedText: 'rgba(32, 38, 51, 0.7)',
+    border: '#7b8598',
+    delete: '#cf4d4d',
+    deleteHover: '#b13d3d',
+    projectLevel1: '#8b94a5',
+    projectLevel2: '#a2abbb',
+    projectLevel3: '#c0c7d3',
+    panel: 'rgba(255, 255, 255, 0.74)',
+    panelStrong: 'rgba(249, 252, 255, 0.86)',
+    panelBorder: 'rgba(110, 122, 143, 0.24)',
+    buttonBg: '#3f495f',
+    buttonBgHover: '#56607a',
+    buttonText: '#f4f7ff',
+    buttonBorder: 'rgba(63, 73, 95, 0.58)',
+    onAccentText: '#f4f7ff',
+    navBarBg: 'rgba(244, 247, 251, 0.9)',
+    navButtonBg: 'rgba(63, 73, 95, 0.08)',
+    navButtonActiveBg: 'rgba(74, 85, 109, 0.88)',
+    overlay: 'rgba(27, 31, 38, 0.22)',
+  },
+  'graphite-mist': {
+    primary: '#2a2d32',
+    secondary: 'rgba(63, 66, 72, 0.52)',
+    tertiary: 'rgba(88, 93, 102, 0.56)',
+    quaternary: 'rgba(149, 156, 168, 0.2)',
+    accent: '#f0f3fa',
+    text: '#f8f9fc',
+    mutedText: 'rgba(248, 249, 252, 0.74)',
+    border: 'rgba(224, 227, 234, 0.34)',
+    delete: '#ff8787',
+    deleteHover: '#ff6b6b',
+    projectLevel1: '#d8dde7',
+    projectLevel2: '#aeb5c2',
+    projectLevel3: '#808897',
+    panel: 'rgba(43, 46, 52, 0.66)',
+    panelStrong: 'rgba(53, 57, 64, 0.78)',
+    panelBorder: 'rgba(224, 227, 234, 0.26)',
+    buttonBg: '#f0f3fa',
+    buttonBgHover: '#ffffff',
+    buttonText: '#222832',
+    buttonBorder: 'rgba(240, 243, 250, 0.56)',
+    onAccentText: '#222832',
+    navBarBg: 'rgba(35, 39, 45, 0.88)',
+    navButtonBg: 'rgba(240, 243, 250, 0.12)',
+    navButtonActiveBg: 'rgba(124, 134, 149, 0.82)',
+  },
+  'aurora-mist': {
+    primary: '#162a2d',
+    secondary: 'rgba(31, 63, 68, 0.46)',
+    tertiary: 'rgba(67, 110, 116, 0.52)',
+    quaternary: 'rgba(120, 171, 176, 0.2)',
+    accent: '#8fd3d1',
+    text: '#effcfb',
+    mutedText: 'rgba(239, 252, 251, 0.74)',
+    border: '#7ca8aa',
+    delete: '#ff8d8d',
+    deleteHover: '#ff7070',
+    projectLevel1: '#7fc6c3',
+    projectLevel2: '#5ea6a4',
+    projectLevel3: '#356c70',
+    panel: 'rgba(20, 39, 42, 0.66)',
+    panelStrong: 'rgba(26, 49, 52, 0.78)',
+    panelBorder: 'rgba(143, 211, 209, 0.26)',
+    buttonBg: '#96dcda',
+    buttonBgHover: '#a9e6e4',
+    buttonText: '#133235',
+    buttonBorder: 'rgba(143, 211, 209, 0.46)',
+    onAccentText: '#133235',
+    navBarBg: 'rgba(15, 32, 35, 0.88)',
+    navButtonBg: 'rgba(143, 211, 209, 0.12)',
+    navButtonActiveBg: 'rgba(112, 174, 173, 0.88)',
+  },
+  'velvet-bordeaux': {
+    primary: '#2f141d',
+    secondary: 'rgba(83, 29, 44, 0.48)',
+    tertiary: 'rgba(121, 49, 67, 0.54)',
+    quaternary: 'rgba(183, 92, 111, 0.18)',
+    accent: '#d8a6b8',
+    text: '#fff3f6',
+    mutedText: 'rgba(255, 243, 246, 0.74)',
+    border: '#b78898',
+    delete: '#ff919b',
+    deleteHover: '#ff7784',
+    projectLevel1: '#c58da2',
+    projectLevel2: '#a6607a',
+    projectLevel3: '#6c3348',
+    panel: 'rgba(43, 20, 29, 0.68)',
+    panelStrong: 'rgba(57, 26, 37, 0.8)',
+    panelBorder: 'rgba(216, 166, 184, 0.26)',
+    buttonBg: '#e2b0c2',
+    buttonBgHover: '#ebc1cf',
+    buttonText: '#421d2a',
+    buttonBorder: 'rgba(216, 166, 184, 0.46)',
+    onAccentText: '#421d2a',
+    navBarBg: 'rgba(38, 16, 25, 0.9)',
+    navButtonBg: 'rgba(216, 166, 184, 0.12)',
+    navButtonActiveBg: 'rgba(142, 77, 99, 0.88)',
+  },
+  'champagne-sandstone': {
+    primary: '#f1ebe2',
+    secondary: 'rgba(255, 250, 243, 0.7)',
+    tertiary: 'rgba(234, 222, 205, 0.82)',
+    quaternary: 'rgba(220, 203, 181, 0.62)',
+    accent: '#8b6f57',
+    text: '#2f261f',
+    mutedText: 'rgba(47, 38, 31, 0.68)',
+    border: '#b59f8c',
+    delete: '#c85656',
+    deleteHover: '#ad4343',
+    projectLevel1: '#bca087',
+    projectLevel2: '#cfb59a',
+    projectLevel3: '#e0d0bf',
+    panel: 'rgba(255, 251, 246, 0.78)',
+    panelStrong: 'rgba(250, 245, 239, 0.9)',
+    panelBorder: 'rgba(143, 119, 95, 0.22)',
+    buttonBg: '#8b6f57',
+    buttonBgHover: '#a28267',
+    buttonText: '#f8f3ec',
+    buttonBorder: 'rgba(139, 111, 87, 0.44)',
+    onAccentText: '#f8f3ec',
+    navBarBg: 'rgba(248, 241, 232, 0.92)',
+    navButtonBg: 'rgba(139, 111, 87, 0.08)',
+    navButtonActiveBg: 'rgba(145, 118, 92, 0.88)',
+    overlay: 'rgba(40, 34, 28, 0.18)',
+  },
+  'midnight-indigo': {
+    primary: '#111a35',
+    secondary: 'rgba(26, 39, 76, 0.48)',
+    tertiary: 'rgba(51, 70, 124, 0.54)',
+    quaternary: 'rgba(105, 130, 208, 0.18)',
+    accent: '#9cb8ff',
+    text: '#eef3ff',
+    mutedText: 'rgba(238, 243, 255, 0.74)',
+    border: '#7d91c9',
+    delete: '#ff8d9a',
+    deleteHover: '#ff717f',
+    projectLevel1: '#86a2eb',
+    projectLevel2: '#617bc5',
+    projectLevel3: '#334678',
+    panel: 'rgba(16, 26, 52, 0.68)',
+    panelStrong: 'rgba(21, 33, 64, 0.8)',
+    panelBorder: 'rgba(156, 184, 255, 0.28)',
+    buttonBg: '#9cb8ff',
+    buttonBgHover: '#b0c6ff',
+    buttonText: '#162447',
+    buttonBorder: 'rgba(156, 184, 255, 0.46)',
+    onAccentText: '#162447',
+    navBarBg: 'rgba(12, 20, 43, 0.88)',
+    navButtonBg: 'rgba(156, 184, 255, 0.12)',
+    navButtonActiveBg: 'rgba(91, 114, 186, 0.9)',
+  },
+};
 const DEFAULT_UI_LANGUAGE: UiLanguage = 'zh-CN';
 const UI_LANGUAGE_STORAGE_KEY = 'appLanguage';
 const SHELL_THEME_SECTION_KEYS = new Set([
@@ -968,40 +1293,176 @@ function buildLaunchThemeBootstrapState(
       ? normalizedThemeState.selectedTheme.trim()
       : 'default';
   const resolvedTheme = resolveShellBootTheme(themeState);
+  const customThemes = Array.isArray(normalizedThemeState.customThemes)
+    ? normalizedThemeState.customThemes
+    : [];
+  const builtInThemeOverrides = isPlainObject(
+    normalizedThemeState.builtInThemeOverrides,
+  )
+    ? normalizedThemeState.builtInThemeOverrides
+    : {};
+  const matchedCustomTheme = customThemes.find(theme => {
+    return (
+      isPlainObject(theme) &&
+      typeof theme.id === 'string' &&
+      theme.id.trim() === selectedTheme
+    );
+  });
+  const builtInBaseColors = {
+    ...DEFAULT_LAUNCH_THEME_COLORS,
+    ...(BUILT_IN_LAUNCH_THEME_COLOR_MAP[selectedTheme] || {}),
+  };
+  const selectedBuiltInOverride = builtInThemeOverrides[selectedTheme];
+  const rawResolvedColors =
+    isPlainObject(matchedCustomTheme) && isPlainObject(matchedCustomTheme.colors)
+      ? matchedCustomTheme.colors
+      : isPlainObject(selectedBuiltInOverride) &&
+          isPlainObject(selectedBuiltInOverride.colors)
+        ? {
+            ...builtInBaseColors,
+            ...selectedBuiltInOverride.colors,
+          }
+        : builtInBaseColors;
+  const resolvedColors: LaunchThemeColors = {
+    primary: normalizeBootThemeColor(
+      rawResolvedColors.primary,
+      DEFAULT_LAUNCH_THEME_COLORS.primary,
+    ),
+    secondary: normalizeBootThemeColor(
+      rawResolvedColors.secondary,
+      DEFAULT_LAUNCH_THEME_COLORS.secondary,
+    ),
+    tertiary: normalizeBootThemeColor(
+      rawResolvedColors.tertiary,
+      DEFAULT_LAUNCH_THEME_COLORS.tertiary,
+    ),
+    quaternary: normalizeBootThemeColor(
+      rawResolvedColors.quaternary,
+      DEFAULT_LAUNCH_THEME_COLORS.quaternary,
+    ),
+    accent: normalizeBootThemeColor(
+      rawResolvedColors.accent,
+      DEFAULT_LAUNCH_THEME_COLORS.accent,
+    ),
+    text: normalizeBootThemeColor(
+      rawResolvedColors.text,
+      DEFAULT_LAUNCH_THEME_COLORS.text,
+    ),
+    mutedText: normalizeBootThemeColor(
+      rawResolvedColors.mutedText,
+      DEFAULT_LAUNCH_THEME_COLORS.mutedText,
+    ),
+    border: normalizeBootThemeColor(
+      rawResolvedColors.border,
+      DEFAULT_LAUNCH_THEME_COLORS.border,
+    ),
+    delete: normalizeBootThemeColor(
+      rawResolvedColors.delete,
+      DEFAULT_LAUNCH_THEME_COLORS.delete,
+    ),
+    deleteHover: normalizeBootThemeColor(
+      rawResolvedColors.deleteHover,
+      DEFAULT_LAUNCH_THEME_COLORS.deleteHover,
+    ),
+    projectLevel1: normalizeBootThemeColor(
+      rawResolvedColors.projectLevel1,
+      DEFAULT_LAUNCH_THEME_COLORS.projectLevel1,
+    ),
+    projectLevel2: normalizeBootThemeColor(
+      rawResolvedColors.projectLevel2,
+      DEFAULT_LAUNCH_THEME_COLORS.projectLevel2,
+    ),
+    projectLevel3: normalizeBootThemeColor(
+      rawResolvedColors.projectLevel3,
+      DEFAULT_LAUNCH_THEME_COLORS.projectLevel3,
+    ),
+    panel: normalizeBootThemeColor(
+      rawResolvedColors.panel,
+      DEFAULT_LAUNCH_THEME_COLORS.panel,
+    ),
+    panelStrong: normalizeBootThemeColor(
+      rawResolvedColors.panelStrong,
+      DEFAULT_LAUNCH_THEME_COLORS.panelStrong,
+    ),
+    panelBorder: normalizeBootThemeColor(
+      rawResolvedColors.panelBorder,
+      DEFAULT_LAUNCH_THEME_COLORS.panelBorder,
+    ),
+    buttonBg: normalizeBootThemeColor(
+      rawResolvedColors.buttonBg,
+      DEFAULT_LAUNCH_THEME_COLORS.buttonBg,
+    ),
+    buttonBgHover: normalizeBootThemeColor(
+      rawResolvedColors.buttonBgHover,
+      DEFAULT_LAUNCH_THEME_COLORS.buttonBgHover,
+    ),
+    buttonText: normalizeBootThemeColor(
+      rawResolvedColors.buttonText,
+      DEFAULT_LAUNCH_THEME_COLORS.buttonText,
+    ),
+    buttonBorder: normalizeBootThemeColor(
+      rawResolvedColors.buttonBorder,
+      DEFAULT_LAUNCH_THEME_COLORS.buttonBorder,
+    ),
+    onAccentText: normalizeBootThemeColor(
+      rawResolvedColors.onAccentText,
+      DEFAULT_LAUNCH_THEME_COLORS.onAccentText,
+    ),
+    navBarBg: normalizeBootThemeColor(
+      rawResolvedColors.navBarBg,
+      DEFAULT_LAUNCH_THEME_COLORS.navBarBg,
+    ),
+    navButtonBg: normalizeBootThemeColor(
+      rawResolvedColors.navButtonBg,
+      DEFAULT_LAUNCH_THEME_COLORS.navButtonBg,
+    ),
+    navButtonActiveBg: normalizeBootThemeColor(
+      rawResolvedColors.navButtonActiveBg,
+      DEFAULT_LAUNCH_THEME_COLORS.navButtonActiveBg,
+    ),
+    navButtonActiveText: normalizeBootThemeColor(
+      rawResolvedColors.navButtonActiveText,
+      DEFAULT_LAUNCH_THEME_COLORS.navButtonActiveText,
+    ),
+    overlay: normalizeBootThemeColor(
+      rawResolvedColors.overlay,
+      DEFAULT_LAUNCH_THEME_COLORS.overlay,
+    ),
+  };
 
   return {
     themeId: selectedTheme,
     colorScheme: isLightBootTheme(resolvedTheme) ? 'light' : 'dark',
-    backgroundColor: resolvedTheme.screenBg,
-    textColor: resolvedTheme.text,
+    backgroundColor: resolvedColors.primary,
+    textColor: resolvedColors.text,
     variables: {
-      '--bg-primary': resolvedTheme.screenBg,
-      '--bg-secondary': resolvedTheme.cardBg,
-      '--bg-tertiary': resolvedTheme.indicatorBg,
-      '--bg-quaternary': resolvedTheme.indicatorBg,
-      '--accent-color': resolvedTheme.accent,
-      '--accent-color-rgb': toBootThemeRgbChannels(resolvedTheme.accent),
-      '--text-color': resolvedTheme.text,
-      '--muted-text-color': resolvedTheme.mutedText,
-      '--border-color': resolvedTheme.cardBorder,
-      '--delete-btn': '#ff7e7e',
-      '--delete-hover': '#ff6464',
-      '--project-level-1': resolvedTheme.projectLevel1,
-      '--project-level-2': resolvedTheme.projectLevel2,
-      '--project-level-3': resolvedTheme.projectLevel3,
-      '--panel-bg': resolvedTheme.cardBg,
-      '--panel-strong-bg': resolvedTheme.cardBg,
-      '--panel-border-color': resolvedTheme.cardBorder,
-      '--button-bg': resolvedTheme.buttonBg,
-      '--button-bg-hover': resolvedTheme.buttonBgHover,
-      '--button-text': resolvedTheme.buttonText,
-      '--button-border': resolvedTheme.cardBorder,
-      '--on-accent-text': resolvedTheme.onAccentText,
-      '--bottom-nav-bg': resolvedTheme.navBarBg,
-      '--bottom-nav-button-bg': resolvedTheme.navButtonBg,
-      '--bottom-nav-button-active-bg': resolvedTheme.navButtonActiveBg,
-      '--bottom-nav-active-text': resolvedTheme.navButtonActiveText,
-      '--overlay-bg': resolvedTheme.transitionOverlay,
+      '--bg-primary': resolvedColors.primary,
+      '--bg-secondary': resolvedColors.secondary,
+      '--bg-tertiary': resolvedColors.tertiary,
+      '--bg-quaternary': resolvedColors.quaternary,
+      '--accent-color': resolvedColors.accent,
+      '--accent-color-rgb': toBootThemeRgbChannels(resolvedColors.accent),
+      '--text-color': resolvedColors.text,
+      '--muted-text-color': resolvedColors.mutedText,
+      '--border-color': resolvedColors.border,
+      '--delete-btn': resolvedColors.delete,
+      '--delete-hover': resolvedColors.deleteHover,
+      '--project-level-1': resolvedColors.projectLevel1,
+      '--project-level-2': resolvedColors.projectLevel2,
+      '--project-level-3': resolvedColors.projectLevel3,
+      '--panel-bg': resolvedColors.panel,
+      '--panel-strong-bg': resolvedColors.panelStrong,
+      '--panel-border-color': resolvedColors.panelBorder,
+      '--button-bg': resolvedColors.buttonBg,
+      '--button-bg-hover': resolvedColors.buttonBgHover,
+      '--button-text': resolvedColors.buttonText,
+      '--button-border': resolvedColors.buttonBorder,
+      '--on-accent-text': resolvedColors.onAccentText,
+      '--bottom-nav-bg': resolvedColors.navBarBg,
+      '--bottom-nav-button-bg': resolvedColors.navButtonBg,
+      '--bottom-nav-button-active-bg': resolvedColors.navButtonActiveBg,
+      '--bottom-nav-active-text': resolvedColors.navButtonActiveText,
+      '--overlay-bg': resolvedColors.overlay,
     },
   };
 }
