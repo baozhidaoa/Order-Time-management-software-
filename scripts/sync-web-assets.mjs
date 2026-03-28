@@ -48,6 +48,7 @@ const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
 const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
 const pageMirrorExcludedDirs = new Set(["offline-assets"]);
+const desktopThemePreloadFileName = "desktop-theme-preload.js";
 
 const desktopBootBundleEntries = {
   "desktop-common-boot.js": [
@@ -407,6 +408,7 @@ async function rewriteBootstrapHtml(
   pageKey,
   {
     commonBundleName,
+    preloadScripts = [],
   } = {},
 ) {
   const htmlPath = path.join(targetDir, `${pageKey}.html`);
@@ -434,7 +436,11 @@ async function rewriteBootstrapHtml(
     );
   }
 
+  const preloadScriptMarkup = preloadScripts
+    .map((scriptName) => `    <script src="${scriptName}"></script>`)
+    .join("\n");
   const bootstrapScripts =
+    `${preloadScriptMarkup ? `${preloadScriptMarkup}\n` : ""}` +
     `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="${commonBundleName}"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
@@ -470,6 +476,7 @@ async function validateBootstrapHtml(
   {
     commonBundleName,
     platformLabel,
+    preloadScripts = [],
   } = {},
 ) {
   const htmlPath = path.join(targetDir, `${pageKey}.html`);
@@ -481,6 +488,9 @@ async function validateBootstrapHtml(
     `<script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>`;
   const commonBootScript = `<script defer src="${commonBundleName}"></script>`;
   const pageBootScript = `<script defer src="${pageKey}-boot.js"></script>`;
+  const expectedPreloadScripts = preloadScripts.map(
+    (scriptName) => `<script src="${scriptName}"></script>`,
+  );
   const legacyPageScriptPattern = new RegExp(
     `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
     "i",
@@ -492,6 +502,11 @@ async function validateBootstrapHtml(
   ) {
     throw new Error(
       `${platformLabel} HTML 启动脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
+    );
+  }
+  if (expectedPreloadScripts.some((scriptTag) => !html.includes(scriptTag))) {
+    throw new Error(
+      `${platformLabel} HTML 预加载脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
     );
   }
   if (legacyPageScriptPattern.test(html)) {
@@ -526,10 +541,12 @@ await writeBootBundles(pagesSourceDir, desktopBootBundles);
 for (const pageKey of desktopBootstrapPages) {
   await rewriteBootstrapHtml(pagesSourceDir, pageKey, {
     commonBundleName: "desktop-common-boot.js",
+    preloadScripts: [desktopThemePreloadFileName],
   });
   await validateBootstrapHtml(pagesSourceDir, pageKey, {
     commonBundleName: "desktop-common-boot.js",
     platformLabel: "桌面端",
+    preloadScripts: [desktopThemePreloadFileName],
   });
 }
 await validateBootBundles(pagesSourceDir, desktopBootBundles);

@@ -327,9 +327,41 @@
   const lightThemeIds = new Set(["ivory-light"]);
   let lastThemeStorageSignature = null;
   let lastLaunchThemeSyncSignature = null;
+  let lastDesktopThemeDebugApplySignature = null;
 
   function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function resolveCurrentThemeDebugPageKey() {
+    try {
+      const pathSegments = String(window.location.pathname || "").split("/");
+      const tail = String(pathSegments[pathSegments.length - 1] || "").trim();
+      return tail.replace(/\.html$/i, "") || "unknown";
+    } catch (error) {
+      return "unknown";
+    }
+  }
+
+  function appendDesktopThemeDebugLog(label, detail = {}) {
+    try {
+      if (
+        window.electronAPI?.isElectron !== true ||
+        typeof window.electronAPI?.debugAppendLog !== "function"
+      ) {
+        return;
+      }
+      window.electronAPI.debugAppendLog({
+        label: `theme-init:${String(label || "").trim() || "event"}`,
+        page: resolveCurrentThemeDebugPageKey(),
+        href: window.location.href,
+        ...(detail && typeof detail === "object" && !Array.isArray(detail)
+          ? detail
+          : {}),
+      });
+    } catch (_error) {
+      // Ignore logging failures.
+    }
   }
 
   function parseHexColor(color) {
@@ -1186,10 +1218,32 @@
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    dispatchThemeApplied(themeId, resolveThemeColors(activeTheme), {
+    const resolvedColors = resolveThemeColors(activeTheme);
+    dispatchThemeApplied(themeId, resolvedColors, {
       ...options,
       activeTheme,
     });
+    const preloadedThemeId =
+      typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string"
+        ? window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId
+        : "";
+    const debugSignature = [
+      themeId,
+      resolvedColors.primary,
+      resolvedColors.text,
+      preloadedThemeId,
+    ].join("|");
+    if (debugSignature !== lastDesktopThemeDebugApplySignature) {
+      lastDesktopThemeDebugApplySignature = debugSignature;
+      appendDesktopThemeDebugLog("applied", {
+        themeId,
+        primaryColor: resolvedColors.primary,
+        textColor: resolvedColors.text,
+        preloadedThemeId,
+        matchesPreload: !!preloadedThemeId && preloadedThemeId === themeId,
+        emitNative: options?.emitNative !== false,
+      });
+    }
 
     if (
       (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !== themeId
@@ -1211,10 +1265,23 @@
 
       const { activeTheme, themeId } = resolveActiveThemeState();
       lastThemeStorageSignature = nextSignature;
+      appendDesktopThemeDebugLog("apply-from-storage", {
+        themeId,
+        preloadedThemeId:
+          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string"
+            ? window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId
+            : "",
+        usedPreloadedTheme:
+          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string" &&
+          window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId === themeId,
+      });
       applyThemeState(themeId, activeTheme, options);
     } catch (error) {
       lastThemeStorageSignature = "__fallback__";
       const fallbackTheme = builtInThemeMap.get("default");
+      appendDesktopThemeDebugLog("apply-from-storage-fallback", {
+        message: error instanceof Error ? error.message : String(error || ""),
+      });
       document.documentElement.setAttribute("data-theme", "default");
       applyThemeColors(fallbackTheme);
       document.documentElement.style.colorScheme = "dark";

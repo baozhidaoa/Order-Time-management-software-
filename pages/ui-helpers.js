@@ -301,6 +301,10 @@
     ]),
   );
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
+  const TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY = "selectedTheme";
+  const TRANSITION_THEME_CUSTOM_THEMES_STORAGE_KEY = "customThemes";
+  const TRANSITION_THEME_BUILT_IN_OVERRIDES_STORAGE_KEY =
+    "builtInThemeOverrides";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
@@ -2812,6 +2816,121 @@
     return toIndex >= fromIndex ? "forward" : "back";
   }
 
+  function isDesktopElectronThemeTransitionRuntime() {
+    return (
+      window.electronAPI?.isElectron === true &&
+      !getNativeHostPlatform()
+    );
+  }
+
+  function appendDesktopThemeTransitionLog(label, detail = {}) {
+    if (
+      !isDesktopElectronThemeTransitionRuntime() ||
+      typeof window.electronAPI?.debugAppendLog !== "function"
+    ) {
+      return;
+    }
+    try {
+      window.electronAPI.debugAppendLog({
+        label: `page-transition:${String(label || "").trim() || "event"}`,
+        page: resolveCurrentPagePerfKey(),
+        href: window.location.href,
+        ...(detail && typeof detail === "object" && !Array.isArray(detail)
+          ? detail
+          : {}),
+      });
+    } catch (_error) {
+      // Ignore logging failures.
+    }
+  }
+
+  function parseAppPageTransitionJson(rawValue, fallback) {
+    if (typeof rawValue !== "string" || !rawValue.trim()) {
+      return fallback;
+    }
+    try {
+      const parsed = JSON.parse(rawValue);
+      return parsed === null || typeof parsed === "undefined" ? fallback : parsed;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function readThemeTransitionStorageJson(storageKey, fallback) {
+    try {
+      return parseAppPageTransitionJson(
+        window.localStorage.getItem(storageKey),
+        fallback,
+      );
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function buildCurrentDesktopThemeTransitionSnapshot() {
+    if (!isDesktopElectronThemeTransitionRuntime()) {
+      return null;
+    }
+    let selectedTheme = "default";
+    try {
+      selectedTheme = String(
+        window.localStorage.getItem(TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY) ||
+          document.documentElement.getAttribute("data-theme") ||
+          "default",
+      ).trim() || "default";
+    } catch (_error) {}
+    return {
+      selectedTheme,
+      customThemes: readThemeTransitionStorageJson(
+        TRANSITION_THEME_CUSTOM_THEMES_STORAGE_KEY,
+        [],
+      ),
+      builtInThemeOverrides: readThemeTransitionStorageJson(
+        TRANSITION_THEME_BUILT_IN_OVERRIDES_STORAGE_KEY,
+        {},
+      ),
+      capturedAt: Date.now(),
+      source: "desktop-page-transition",
+    };
+  }
+
+  function persistDesktopAppPageTransitionState(
+    currentItem,
+    targetItem,
+    targetHref,
+  ) {
+    const themeSnapshot = buildCurrentDesktopThemeTransitionSnapshot();
+    if (!themeSnapshot) {
+      return null;
+    }
+    const payload = {
+      fromPage: currentItem?.key || "",
+      toPage: targetItem?.key || "",
+      targetHref: normalizeAppNavigationHref(targetHref),
+      direction: getNavigationDirection(currentItem?.key || "", targetItem?.key || ""),
+      startedAt: Date.now(),
+      themeSnapshot,
+    };
+    writeAppPageTransitionState(payload);
+    appendDesktopThemeTransitionLog("state-written", {
+      fromPage: payload.fromPage,
+      toPage: payload.toPage,
+      targetHref: payload.targetHref,
+      direction: payload.direction,
+      themeId: themeSnapshot.selectedTheme,
+      customThemeCount: Array.isArray(themeSnapshot.customThemes)
+        ? themeSnapshot.customThemes.length
+        : 0,
+      builtInOverrideCount:
+        themeSnapshot.builtInThemeOverrides &&
+        typeof themeSnapshot.builtInThemeOverrides === "object" &&
+        !Array.isArray(themeSnapshot.builtInThemeOverrides)
+          ? Object.keys(themeSnapshot.builtInThemeOverrides).length
+          : 0,
+    });
+    return payload;
+  }
+
   function writeAppPageTransitionState(payload) {
     try {
       sessionStorage.setItem(APP_PAGE_TRANSITION_SESSION_KEY, JSON.stringify(payload));
@@ -3086,6 +3205,27 @@
   }
 
   function applyAppPageEnterTransition() {
+    const transitionState = readAppPageTransitionState();
+    if (transitionState?.themeSnapshot) {
+      appendDesktopThemeTransitionLog("state-read", {
+        fromPage:
+          typeof transitionState.fromPage === "string"
+            ? transitionState.fromPage
+            : "",
+        toPage:
+          typeof transitionState.toPage === "string"
+            ? transitionState.toPage
+            : "",
+        targetHref:
+          typeof transitionState.targetHref === "string"
+            ? transitionState.targetHref
+            : "",
+        themeId:
+          typeof transitionState.themeSnapshot?.selectedTheme === "string"
+            ? transitionState.themeSnapshot.selectedTheme
+            : "",
+      });
+    }
     resetAppPageTransitionRuntimeState({ clearStoredState: false });
     clearAppPageTransitionState();
   }
@@ -3226,6 +3366,11 @@
         appPageTransitionLocked = true;
         appPageLeavePreflightLocked = true;
         shouldUnlock = false;
+        persistDesktopAppPageTransitionState(
+          currentItem,
+          finalTargetItem,
+          finalTargetHref,
+        );
         performAppNavigation(finalTargetHref, finalNavigationOptions);
       } catch (error) {
         console.error("执行页面切换失败:", error);

@@ -526,6 +526,7 @@ class StorageManager {
     this.sidecarSqliteInitError = null;
     this.sidecarDatabaseCache = new Map();
     this.sidecarRebuildStateByNamespace = new Map();
+    this.bundleSourceFingerprintCache = new Map();
     this.cachedStorageSnapshot = null;
     this.pendingSnapshot = null;
     this.pendingWriteReason = "";
@@ -536,6 +537,7 @@ class StorageManager {
     this.changeListener = null;
     this.watchHandle = null;
     this.watchManifestPath = null;
+    this.readyStorageDisplayPath = "";
     this.pendingExternalCheckTimer = null;
     this.lastKnownFileVersion = null;
     this.lastExternalChangeAt = null;
@@ -549,13 +551,6 @@ class StorageManager {
     this.lastPersistError = "";
     this.lastPersistErrorCode = "";
     this.ensureStorageReady();
-    void this.initializeSidecarSqliteRuntime()
-      .then(() =>
-        this.requestSidecarIndexRebuild(this.storagePath, {
-          fullRebuild: true,
-        }),
-      )
-      .catch(() => {});
   }
 
   createEmptyStorageData() {
@@ -2079,6 +2074,42 @@ class StorageManager {
       }),
       {},
     );
+    const manifestSectionPeriods = bundleHelper.PARTITIONED_SECTIONS.reduce(
+      (summary, section) => ({
+        ...summary,
+        [section]: bundleHelper
+          .ensureArray(manifest?.sections?.[section]?.partitions || [])
+          .map((partition) => String(partition?.periodId || "").trim())
+          .filter(Boolean),
+      }),
+      {},
+    );
+    const missingManifestPeriods = {};
+    const extraLivePeriods = {};
+    bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
+      const livePeriods = Array.isArray(sectionPeriods[section])
+        ? sectionPeriods[section]
+        : [];
+      const declaredPeriods = Array.isArray(manifestSectionPeriods[section])
+        ? manifestSectionPeriods[section]
+        : [];
+      const livePeriodSet = new Set(livePeriods);
+      const declaredPeriodSet = new Set(declaredPeriods);
+      const missingPeriods = declaredPeriods.filter(
+        (periodId) => !livePeriodSet.has(periodId),
+      );
+      const extraPeriods = livePeriods.filter(
+        (periodId) => !declaredPeriodSet.has(periodId),
+      );
+      if (missingPeriods.length) {
+        missingManifestPeriods[section] = missingPeriods;
+      }
+      if (extraPeriods.length) {
+        extraLivePeriods[section] = extraPeriods;
+      }
+    });
+    const hasMissingManifestPeriods = Object.keys(missingManifestPeriods).length > 0;
+    const hasExtraLivePeriods = Object.keys(extraLivePeriods).length > 0;
     const livePartitionCount = bundleHelper.PARTITIONED_SECTIONS.reduce(
       (total, section) => total + (sectionPeriods[section] || []).length,
       0,
@@ -2109,6 +2140,11 @@ class StorageManager {
       recurringExists: fs.existsSync(recurringPath),
       legacyExists: fs.existsSync(legacyPath),
       sectionPeriods,
+      manifestSectionPeriods,
+      missingManifestPeriods,
+      extraLivePeriods,
+      hasMissingManifestPeriods,
+      hasExtraLivePeriods,
       livePartitionCount,
       dataArtifactCount,
       auxiliaryArtifactsExist,
@@ -2256,7 +2292,7 @@ class StorageManager {
   }
 
   repairBundleArtifactsIfNeeded(root = this.getBundleRoot()) {
-    const { inspection, payload, recovery } = this.buildRecoveredBundlePayloadFromFilesystem(root);
+    const inspection = this.inspectBundleArtifacts(root);
     if (!inspection.hasAnyArtifacts) {
       this.resetStorageRecoveryState(root);
       return {
@@ -2282,6 +2318,24 @@ class StorageManager {
         message: recoveryMessage,
       };
     }
+    if (
+      inspection.manifestExists &&
+      inspection.coreExists &&
+      inspection.recurringExists &&
+      !inspection.hasMissingManifestPeriods &&
+      !inspection.hasExtraLivePeriods
+    ) {
+      this.resetStorageRecoveryState(root);
+      return {
+        state: "ok",
+        repaired: false,
+        inspection,
+        payload: null,
+      };
+    }
+    const { payload, recovery } = this.buildRecoveredBundlePayloadFromFilesystem(
+      root,
+    );
     if (this.getHardRecoveryIssues(recovery).length) {
       const recoveryMessage = this.buildNeedsRecoveryMessageFromRecovery(
         recovery,
@@ -2862,7 +2916,147 @@ class StorageManager {
     }, 0);
   }
 
-  buildBundleSourceFingerprint(root = this.getBundleRoot(), manifest = this.readManifestSync(root)) {
+  buildBundleSourceFileVersionToken(filePath) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return {
+          token: "missing",
+          modifiedAt: 0,
+        };
+      }
+      const stats = fs.statSync(filePath);
+      const mtimeMs = Math.max(0, Number(stats.mtimeMs || 0));
+      const ctimeMs = Math.max(0, Number(stats.ctimeMs || 0));
+      return {
+        token: `${Math.max(0, Number(stats.size || 0))}:${mtimeMs}:${ctimeMs}`,
+        modifiedAt: Math.max(mtimeMs, ctimeMs),
+      };
+    } catch (error) {
+      return {
+        token: "missing",
+        modifiedAt: 0,
+      };
+    }
+  }
+
+  buildBundleSourceFingerprintState(
+    root = this.getBundleRoot(),
+    manifest = this.readManifestSync(root),
+  ) {
+    const safeManifest =
+      manifest && typeof manifest === "object" && !Array.isArray(manifest)
+        ? manifest
+        : {};
+    const sections =
+      safeManifest.sections &&
+      typeof safeManifest.sections === "object" &&
+      !Array.isArray(safeManifest.sections)
+        ? safeManifest.sections
+        : {};
+    const manifestSummary = {
+      formatVersion: safeManifest.formatVersion || bundleHelper.FORMAT_VERSION,
+      bundleMode: safeManifest.bundleMode || bundleHelper.BUNDLE_MODE,
+      createdAt: safeManifest.createdAt || "",
+      lastModified: safeManifest.lastModified || "",
+      sections: Object.keys(sections)
+        .sort((left, right) => String(left).localeCompare(String(right)))
+        .reduce((summary, sectionKey) => {
+          const section =
+            sections[sectionKey] &&
+            typeof sections[sectionKey] === "object" &&
+            !Array.isArray(sections[sectionKey])
+              ? sections[sectionKey]
+              : {};
+          summary[sectionKey] = {
+            file: typeof section.file === "string" ? section.file : "",
+            count: Math.max(0, Number(section.count || 0)),
+            periodUnit:
+              typeof section.periodUnit === "string" ? section.periodUnit : "",
+            partitions: Array.isArray(section.partitions)
+              ? section.partitions.map((partition) => ({
+                  periodId: String(partition?.periodId || ""),
+                  file: String(partition?.file || ""),
+                  count: Math.max(0, Number(partition?.count || 0)),
+                  minDate: partition?.minDate || "",
+                  maxDate: partition?.maxDate || "",
+                  fingerprint: String(partition?.fingerprint || ""),
+                }))
+              : [],
+          };
+          return summary;
+        }, {}),
+    };
+    const manifestSummarySignature = crypto
+      .createHash("sha1")
+      .update(JSON.stringify(manifestSummary))
+      .digest("hex");
+    const manifestVersion = this.buildBundleSourceFileVersionToken(
+      this.getManifestPath(root),
+    );
+    const coreVersion = this.buildBundleSourceFileVersionToken(
+      this.getCorePath(root),
+    );
+    const recurringVersion = this.buildBundleSourceFileVersionToken(
+      this.getRecurringPlansPath(root),
+    );
+    return {
+      manifestSummarySignature,
+      manifestToken: manifestVersion.token,
+      manifestModifiedAt: manifestVersion.modifiedAt,
+      coreToken: coreVersion.token,
+      coreModifiedAt: coreVersion.modifiedAt,
+      recurringToken: recurringVersion.token,
+      recurringModifiedAt: recurringVersion.modifiedAt,
+    };
+  }
+
+  isSameBundleSourceFingerprintState(left = {}, right = {}) {
+    return (
+      left?.manifestSummarySignature === right?.manifestSummarySignature &&
+      left?.manifestToken === right?.manifestToken &&
+      left?.coreToken === right?.coreToken &&
+      left?.recurringToken === right?.recurringToken
+    );
+  }
+
+  canReuseSidecarSourceFingerprint(meta = {}, fingerprintState = {}) {
+    const sourceFingerprint =
+      typeof meta?.sourceFingerprint === "string" ? meta.sourceFingerprint.trim() : "";
+    if (!sourceFingerprint || meta?.schemaVersion !== this.sidecarSchemaVersion) {
+      return false;
+    }
+    const metaFingerprintState =
+      meta?.sourceFingerprintState &&
+      typeof meta.sourceFingerprintState === "object" &&
+      !Array.isArray(meta.sourceFingerprintState)
+        ? meta.sourceFingerprintState
+        : null;
+    if (
+      metaFingerprintState &&
+      this.isSameBundleSourceFingerprintState(
+        metaFingerprintState,
+        fingerprintState,
+      )
+    ) {
+      return true;
+    }
+    const indexedAtMs = Date.parse(meta?.indexedAt || meta?.updatedAt || "");
+    if (!Number.isFinite(indexedAtMs) || indexedAtMs <= 0) {
+      return false;
+    }
+    const latestSourceModifiedAt = Math.max(
+      0,
+      Number(fingerprintState?.manifestModifiedAt || 0),
+      Number(fingerprintState?.coreModifiedAt || 0),
+      Number(fingerprintState?.recurringModifiedAt || 0),
+    );
+    return latestSourceModifiedAt > 0 && latestSourceModifiedAt <= indexedAtMs;
+  }
+
+  buildBundleSourceFingerprintByFileList(
+    root = this.getBundleRoot(),
+    manifest = this.readManifestSync(root),
+  ) {
     const files = this.listBundleFiles(root, manifest)
       .map((filePath) => path.resolve(filePath))
       .sort((left, right) => String(left).localeCompare(String(right)));
@@ -2875,6 +3069,44 @@ class StorageManager {
       }
     });
     return crypto.createHash("sha1").update(summary.join("|")).digest("hex");
+  }
+
+  buildBundleSourceFingerprint(
+    root = this.getBundleRoot(),
+    manifest = this.readManifestSync(root),
+  ) {
+    const resolvedRoot = path.resolve(root);
+    const fingerprintState = this.buildBundleSourceFingerprintState(
+      resolvedRoot,
+      manifest,
+    );
+    const cachedEntry = this.bundleSourceFingerprintCache.get(resolvedRoot);
+    if (
+      cachedEntry &&
+      this.isSameBundleSourceFingerprintState(cachedEntry.state, fingerprintState)
+    ) {
+      return cachedEntry.fingerprint;
+    }
+    const sidecarMeta = this.readSidecarMetaSync(
+      this.getBundleDisplayPath(resolvedRoot),
+    );
+    if (this.canReuseSidecarSourceFingerprint(sidecarMeta, fingerprintState)) {
+      const reusedFingerprint = String(sidecarMeta.sourceFingerprint || "").trim();
+      this.bundleSourceFingerprintCache.set(resolvedRoot, {
+        state: fingerprintState,
+        fingerprint: reusedFingerprint,
+      });
+      return reusedFingerprint;
+    }
+    const fingerprint = this.buildBundleSourceFingerprintByFileList(
+      resolvedRoot,
+      manifest,
+    );
+    this.bundleSourceFingerprintCache.set(resolvedRoot, {
+      state: fingerprintState,
+      fingerprint,
+    });
+    return fingerprint;
   }
 
   normalizePageBootstrapKey(pageKey) {
@@ -3543,11 +3775,16 @@ class StorageManager {
       entry.db.run("COMMIT");
       entry.dirty = true;
       this.persistSidecarDatabaseSync(storagePath);
+      const sourceFingerprintState = this.buildBundleSourceFingerprintState(
+        root,
+        manifest,
+      );
       this.writeSidecarMetaSync(storagePath, {
         storagePath: this.getBundleDisplayPath(root),
         sourceFingerprint,
         indexedAt,
         sqliteReady: true,
+        sourceFingerprintState,
       });
       return {
         sourceFingerprint,
@@ -3695,9 +3932,15 @@ class StorageManager {
       meta.pages && typeof meta.pages === "object" && !Array.isArray(meta.pages)
         ? meta.pages
         : {};
+    const root = this.getBundleRoot(this.storagePath);
+    const manifest = this.readManifestSync(root);
     this.writeSidecarMetaSync(this.storagePath, {
-      storagePath: this.getBundleDisplayPath(this.getBundleRoot(this.storagePath)),
+      storagePath: this.getBundleDisplayPath(root),
       sourceFingerprint,
+      sourceFingerprintState: this.buildBundleSourceFingerprintState(
+        root,
+        manifest,
+      ),
       pages: {
         ...nextPages,
         [normalizedPage]: {
@@ -4641,6 +4884,13 @@ class StorageManager {
   ensureStorageReady() {
     this.storagePath = this.resolveStoragePathFromConfig();
     const root = this.getBundleRoot(this.storagePath);
+    const displayPath = this.getBundleDisplayPath(root);
+    if (
+      this.readyStorageDisplayPath &&
+      path.resolve(this.readyStorageDisplayPath) === path.resolve(displayPath)
+    ) {
+      return;
+    }
     let migratedLegacyData = false;
     if (path.resolve(root) !== this.storageRecoveryTargetPath) {
       this.resetStorageRecoveryState(root);
@@ -4650,9 +4900,11 @@ class StorageManager {
       const repairResult = this.repairBundleArtifactsIfNeeded(root);
       if (repairResult.state === "needs-recovery") {
         this.startWatching();
+        this.readyStorageDisplayPath = displayPath;
         return;
       }
       this.startWatching();
+      this.readyStorageDisplayPath = displayPath;
       return;
     }
     const legacyFile = this.getLegacyFilePath(this.storagePath);
@@ -4674,14 +4926,16 @@ class StorageManager {
     const repairResult = this.repairBundleArtifactsIfNeeded(root);
     if (repairResult.state === "needs-recovery") {
       this.startWatching();
+      this.readyStorageDisplayPath = displayPath;
       return;
     }
     if (!this.bundleExists(root) && repairResult.state === "empty") {
       this.resetStorageRecoveryState(root);
       this.writeBundleFromState(root, this.createDefaultStorageData(), { touchModified: true, touchSyncSave: true });
     }
-    this.writeConfig({ storagePath: this.getBundleDisplayPath(root) });
+    this.writeConfig({ storagePath: displayPath });
     this.startWatching();
+    this.readyStorageDisplayPath = displayPath;
     if (migratedLegacyData) {
       this.maybeRunAutoBackup({ reason: "legacy-migration" });
     }
@@ -5091,6 +5345,7 @@ class StorageManager {
       clearTimeout(this.pendingExternalCheckTimer);
       this.pendingExternalCheckTimer = null;
     }
+    this.readyStorageDisplayPath = "";
   }
 
   getManifest() {
