@@ -166,3 +166,7 @@ certs/*.cer
 certs/*.p12
 certs/*.spc
 certs/*.pvk
+
+# Local benchmark data
+benchmarks/datasets/
+benchmarks/reports/

@@ -14366,6 +14366,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
   const PAGE_LOADING_OVERLAY_DELAY_MS = 120;
+  const DESKTOP_BOOTSTRAP_PREWARM_DELAY_MS = 420;
+  const DESKTOP_BOOTSTRAP_PREWARM_STEP_DELAY_MS = 40;
+  const DESKTOP_BOOTSTRAP_PREWARM_IDLE_TIMEOUT_MS = 1200;
   const OFFLINE_ASSET_MANIFEST_GLOBAL =
     "__CONTROLER_OFFLINE_ASSET_MANIFEST__";
   const OFFLINE_ASSET_KEYS = new Set([
@@ -14721,6 +14724,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
+  let desktopBootstrapPrewarmScheduled = false;
+  let desktopBootstrapPrewarmRunning = false;
+  let desktopBootstrapPrewarmTimerId = 0;
   let lastReportedAppNavigationStateSignature = "";
   let lastReportedEdgeBackSwipeExclusionSignature = "";
   let lastShellVisibilityStateSignature = "";
@@ -15596,6 +15602,177 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         page: resolveCurrentPagePerfKey(),
       });
     }
+    scheduleDesktopBootstrapPrewarm("page-ready");
+  }
+
+  function clearDesktopBootstrapPrewarmTimer() {
+    if (!desktopBootstrapPrewarmTimerId) {
+      return;
+    }
+    window.clearTimeout(desktopBootstrapPrewarmTimerId);
+    desktopBootstrapPrewarmTimerId = 0;
+  }
+
+  function resolveDesktopBootstrapPrewarmQueue() {
+    const currentPageKey = resolveCurrentPagePerfKey();
+    const navigationState = getAppNavigationState();
+    const hiddenPages = new Set(
+      Array.isArray(navigationState?.hiddenPages)
+        ? navigationState.hiddenPages
+            .map((pageKey) => String(pageKey || "").trim())
+            .filter(Boolean)
+        : [],
+    );
+    const visibleOrder = (
+      Array.isArray(navigationState?.order) &&
+      navigationState.order.length
+        ? navigationState.order
+        : DEFAULT_APP_NAV_ORDER
+    )
+      .map((pageKey) => String(pageKey || "").trim())
+      .filter(
+        (pageKey, index, list) =>
+          APP_NAV_ITEM_KEY_SET.has(pageKey) &&
+          !hiddenPages.has(pageKey) &&
+          list.indexOf(pageKey) === index,
+      );
+    const queue = [];
+    const push = (pageKey) => {
+      const normalizedPageKey = String(pageKey || "").trim();
+      if (
+        !normalizedPageKey ||
+        normalizedPageKey === currentPageKey ||
+        !APP_NAV_ITEM_KEY_SET.has(normalizedPageKey) ||
+        queue.includes(normalizedPageKey)
+      ) {
+        return;
+      }
+      queue.push(normalizedPageKey);
+    };
+
+    if (visibleOrder.length) {
+      const currentIndex = visibleOrder.indexOf(currentPageKey);
+      if (currentIndex >= 0) {
+        visibleOrder.slice(currentIndex + 1).forEach(push);
+        visibleOrder.slice(0, currentIndex).forEach(push);
+      } else {
+        visibleOrder.forEach(push);
+      }
+    }
+    DEFAULT_APP_NAV_ORDER.forEach(push);
+    return queue;
+  }
+
+  function getDesktopBootstrapPrewarmApi() {
+    const electronApi = window.electronAPI;
+    if (
+      electronApi?.isElectron &&
+      typeof electronApi.storagePrewarmPageBootstrap === "function"
+    ) {
+      return electronApi.storagePrewarmPageBootstrap.bind(electronApi);
+    }
+    if (typeof window.ControlerStorage?.prewarmPageBootstrap === "function") {
+      return window.ControlerStorage.prewarmPageBootstrap.bind(
+        window.ControlerStorage,
+      );
+    }
+    if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
+      return async (pageKey, options = {}) => {
+        const payload = await window.ControlerStorage.getPageBootstrapState(
+          pageKey,
+          options,
+        );
+        return {
+          ok: !!payload,
+          page:
+            typeof payload?.page === "string" && payload.page.trim()
+              ? payload.page.trim()
+              : String(pageKey || "").trim(),
+        };
+      };
+    }
+    return null;
+  }
+
+  async function runDesktopBootstrapPrewarm(reason = "page-ready") {
+    if (desktopBootstrapPrewarmRunning) {
+      return false;
+    }
+    const electronApi = window.electronAPI;
+    if (!electronApi?.isElectron) {
+      return false;
+    }
+    const prewarmPageBootstrap = getDesktopBootstrapPrewarmApi();
+    if (typeof prewarmPageBootstrap !== "function") {
+      return false;
+    }
+
+    const queue = resolveDesktopBootstrapPrewarmQueue();
+    if (!queue.length) {
+      return false;
+    }
+
+    desktopBootstrapPrewarmRunning = true;
+    markPagePerfStage("desktop-bootstrap-prewarm-start", {
+      allowRepeat: true,
+      reason,
+      targetCount: queue.length,
+    });
+    let completedCount = 0;
+    try {
+      for (const pageKey of queue) {
+        if (document.hidden || !isShellPageActive()) {
+          break;
+        }
+        try {
+          await prewarmPageBootstrap(pageKey, {});
+          completedCount += 1;
+        } catch (error) {
+          console.error(`预热桌面页面引导缓存失败: ${pageKey}`, error);
+        }
+        if (pageKey !== queue[queue.length - 1]) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, DESKTOP_BOOTSTRAP_PREWARM_STEP_DELAY_MS);
+          });
+        }
+      }
+    } finally {
+      desktopBootstrapPrewarmRunning = false;
+      markPagePerfStage("desktop-bootstrap-prewarm-done", {
+        allowRepeat: true,
+        reason,
+        targetCount: queue.length,
+        completedCount,
+      });
+    }
+    return completedCount > 0;
+  }
+
+  function scheduleDesktopBootstrapPrewarm(reason = "page-ready") {
+    const electronApi = window.electronAPI;
+    if (
+      desktopBootstrapPrewarmScheduled ||
+      desktopBootstrapPrewarmRunning ||
+      !electronApi?.isElectron
+    ) {
+      return false;
+    }
+    desktopBootstrapPrewarmScheduled = true;
+    clearDesktopBootstrapPrewarmTimer();
+    desktopBootstrapPrewarmTimerId = window.setTimeout(() => {
+      desktopBootstrapPrewarmTimerId = 0;
+      const schedule =
+        typeof window.requestIdleCallback === "function"
+          ? (callback) =>
+              window.requestIdleCallback(callback, {
+                timeout: DESKTOP_BOOTSTRAP_PREWARM_IDLE_TIMEOUT_MS,
+              })
+          : (callback) => window.setTimeout(callback, 0);
+      schedule(() => {
+        void runDesktopBootstrapPrewarm(reason);
+      });
+    }, DESKTOP_BOOTSTRAP_PREWARM_DELAY_MS);
+    return true;
   }
 
   function getNativePageReadyMode() {

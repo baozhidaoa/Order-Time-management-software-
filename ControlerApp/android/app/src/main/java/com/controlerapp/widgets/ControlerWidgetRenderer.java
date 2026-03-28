@@ -4408,17 +4408,18 @@ public final class ControlerWidgetRenderer {
                     + debugOrder
             );
         }
+        int primaryCount = todayCount > 0 ? todayCount : pendingCount;
         content.subtitle = todayCount > 0 ? "今日待办" : "待处理待办";
         content.headerSummary =
             "待办 "
-                + todayCount
+                + primaryCount
                 + " 项 · 未完 "
                 + pendingCount
                 + " · 今到期 "
                 + dueTodayCount;
         content.actionLabel = "+ 新建";
         content.directCommand = ControlerWidgetActionHandler.COMMAND_QUICK_ADD_TODO;
-        content.statPrimary = "待办 " + todayCount + " 项";
+        content.statPrimary = "待办 " + primaryCount + " 项";
         content.statSecondary = "未完 " + pendingCount + " · 今到期 " + dueTodayCount;
         if (visibleTodos.isEmpty()) {
             content.lines.add("当前没有待处理的待办");

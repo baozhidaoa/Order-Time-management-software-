@@ -1614,14 +1614,15 @@ function fillDayPieContent(content, state) {
 
 function fillTodosContent(content, state) {
   const stats = getTodayTodoStats(state);
+  const headlineCount = stats.total > 0 ? stats.total : stats.incompleteCount;
   const items = getTodayTodoItems(state, 5).map((item) => ({
     ...item,
     command: TODO_TOGGLE_COMMAND,
     targetId: item.id,
   }));
-  content.subtitle = translateWidgetUiText("今日待办");
+  content.subtitle = translateWidgetUiText(stats.total > 0 ? "今日待办" : "待处理待办");
   content.actionLabel = translateWidgetUiText("打开待办");
-  content.statPrimary = `${translateWidgetUiText("待办")} ${stats.total} ${translateWidgetUiText("项")}`;
+  content.statPrimary = `${translateWidgetUiText("待办")} ${headlineCount} ${translateWidgetUiText("项")}`;
   content.statSecondary = `${translateWidgetUiText("未完")} ${stats.incompleteCount} · ${translateWidgetUiText("今到期")} ${stats.dueTodayCount}`;
   if (items.length === 0) {
     content.lines.push(translateWidgetUiText("今天没有待办任务。"));

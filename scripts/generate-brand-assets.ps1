@@ -125,7 +125,7 @@ function Save-Ico {
 
 Write-Host ("Using icon source: " + $sourcePath)
 
-Save-ScaledPng -Path (Join-Path $repoRoot "images/Order.png") -Size 512 -Transparent:$sourceHasAlpha
+Save-ScaledPng -Path (Join-Path $repoRoot "images/Order.png") -Size 1024 -Transparent:$sourceHasAlpha
 Save-Ico -Path (Join-Path $repoRoot "images/Order.ico") -Size 256 -Transparent:$sourceHasAlpha
 
 $launcherSizes = @{
@@ -138,14 +138,14 @@ $launcherSizes = @{
 
 foreach ($density in $launcherSizes.Keys) {
   $size = $launcherSizes[$density]
-  $baseDirectory = Join-Path $repoRoot ("android/app/src/main/res/mipmap-{0}" -f $density)
+  $baseDirectory = Join-Path $repoRoot ("ControlerApp/android/app/src/main/res/mipmap-{0}" -f $density)
 
   Save-ScaledPng -Path (Join-Path $baseDirectory "ic_launcher.png") -Size $size -Transparent:$sourceHasAlpha
   Save-ScaledPng -Path (Join-Path $baseDirectory "ic_launcher_round.png") -Size $size -Transparent:$sourceHasAlpha
   Save-ScaledPng -Path (Join-Path $baseDirectory "ic_launcher_foreground.png") -Size $size -Scale 0.82 -Transparent $true
 }
 
-$iosIconPath = Join-Path $repoRoot "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"
+$iosIconPath = Join-Path $repoRoot "ControlerApp/ios/ControlerApp/Images.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"
 if (Test-Path (Split-Path $iosIconPath -Parent)) {
   Save-ScaledPng -Path $iosIconPath -Size 1024 -Transparent:$sourceHasAlpha
 }

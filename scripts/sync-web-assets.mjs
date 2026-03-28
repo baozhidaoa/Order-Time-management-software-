@@ -49,6 +49,99 @@ const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
 const pageMirrorExcludedDirs = new Set(["offline-assets"]);
 
+const desktopBootBundleEntries = {
+  "desktop-common-boot.js": [
+    {
+      label: "manual-native-page-ready",
+      inline: 'window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";',
+    },
+    { label: "shared/platform-contract.js", file: sharedContractSourcePath },
+    { label: "pages/rn-bridge.js", file: path.join(pagesSourceDir, "rn-bridge.js") },
+    {
+      label: "pages/storage-bundle.js",
+      file: path.join(pagesSourceDir, "storage-bundle.js"),
+    },
+    {
+      label: "pages/storage-adapter.js",
+      file: path.join(pagesSourceDir, "storage-adapter.js"),
+    },
+    {
+      label: "pages/widget-bridge.js",
+      file: path.join(pagesSourceDir, "widget-bridge.js"),
+    },
+    { label: "pages/i18n.js", file: path.join(pagesSourceDir, "i18n.js") },
+    {
+      label: "pages/i18n-extra.js",
+      file: path.join(pagesSourceDir, "i18n-extra.js"),
+    },
+    {
+      label: "pages/theme-init.js",
+      file: path.join(pagesSourceDir, "theme-init.js"),
+    },
+    {
+      label: "pages/ui-helpers.js",
+      file: path.join(pagesSourceDir, "ui-helpers.js"),
+    },
+  ],
+  "index-boot.js": [
+    {
+      label: "pages/project-stats-utils.js",
+      file: path.join(pagesSourceDir, "project-stats-utils.js"),
+    },
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    {
+      label: "pages/index-record-persistence.js",
+      file: path.join(pagesSourceDir, "index-record-persistence.js"),
+    },
+    { label: "pages/index.js", file: path.join(pagesSourceDir, "index.js") },
+  ],
+  "diary-boot.js": [
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/diary.js", file: path.join(pagesSourceDir, "diary.js") },
+  ],
+  "plan-boot.js": [
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/plan.js", file: path.join(pagesSourceDir, "plan.js") },
+  ],
+  "todo-boot.js": [
+    { label: "pages/todo.js", file: path.join(pagesSourceDir, "todo.js") },
+  ],
+  "stats-boot.js": [
+    {
+      label: "pages/project-stats-utils.js",
+      file: path.join(pagesSourceDir, "project-stats-utils.js"),
+    },
+    {
+      label: "pages/data-index.js",
+      file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    { label: "pages/stats.js", file: path.join(pagesSourceDir, "stats.js") },
+  ],
+  "settings-boot.js": [
+    {
+      label: "pages/guide-bundle.js",
+      file: path.join(pagesSourceDir, "guide-bundle.js"),
+    },
+    {
+      label: "pages/external-import.js",
+      file: path.join(pagesSourceDir, "external-import.js"),
+    },
+    {
+      label: "pages/settings.js",
+      file: path.join(pagesSourceDir, "settings.js"),
+    },
+  ],
+};
+
 const mobileBootBundleEntries = {
   "mobile-common-boot.js": [
     {
@@ -126,9 +219,38 @@ const mobileBootBundleEntries = {
     },
     { label: "pages/stats.js", file: path.join(pagesSourceDir, "stats.js") },
   ],
+  "settings-boot.js": [
+    {
+      label: "pages/guide-bundle.js",
+      file: path.join(pagesSourceDir, "guide-bundle.js"),
+    },
+    {
+      label: "pages/external-import.js",
+      file: path.join(pagesSourceDir, "external-import.js"),
+    },
+    {
+      label: "pages/settings.js",
+      file: path.join(pagesSourceDir, "settings.js"),
+    },
+  ],
 };
 
-const mobileBootstrapPages = ["index", "diary", "plan", "todo", "stats"];
+const desktopBootstrapPages = [
+  "index",
+  "diary",
+  "plan",
+  "todo",
+  "stats",
+  "settings",
+];
+const mobileBootstrapPages = [
+  "index",
+  "diary",
+  "plan",
+  "todo",
+  "stats",
+  "settings",
+];
 
 function formatRelativeRepoPath(targetPath) {
   return path.relative(repoRoot, targetPath).replace(/\\/g, "/");
@@ -250,10 +372,10 @@ async function copyDirectoryTree(sourceDir, targetDir) {
   }
 }
 
-async function buildMobileBootBundles() {
+async function buildBootBundles(bundleEntries = {}) {
   const bundles = new Map();
 
-  for (const [bundleName, entries] of Object.entries(mobileBootBundleEntries)) {
+  for (const [bundleName, entries] of Object.entries(bundleEntries)) {
     const segments = [];
     for (const entry of entries) {
       if (typeof entry.inline === "string") {
@@ -270,7 +392,7 @@ async function buildMobileBootBundles() {
   return bundles;
 }
 
-async function writeMobileBootBundles(targetDir, bundles) {
+async function writeBootBundles(targetDir, bundles) {
   for (const [bundleName, bundleContent] of bundles.entries()) {
     await fs.writeFile(
       path.join(targetDir, bundleName),
@@ -280,7 +402,13 @@ async function writeMobileBootBundles(targetDir, bundles) {
   }
 }
 
-async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
+async function rewriteBootstrapHtml(
+  targetDir,
+  pageKey,
+  {
+    commonBundleName,
+  } = {},
+) {
   const htmlPath = path.join(targetDir, `${pageKey}.html`);
   if (!(await fs.pathExists(htmlPath))) {
     return;
@@ -308,7 +436,7 @@ async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
 
   const bootstrapScripts =
     `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
-    `    <script defer src="mobile-common-boot.js"></script>\n` +
+    `    <script defer src="${commonBundleName}"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
   const pageScriptPattern = new RegExp(
     `\\s*<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>\\s*`,
@@ -323,7 +451,7 @@ async function rewriteMobileBootstrapHtml(targetDir, pageKey) {
   await fs.writeFile(htmlPath, rewrittenHtml, "utf8");
 }
 
-async function validateMobileBootBundles(targetDir, bundles) {
+async function validateBootBundles(targetDir, bundles) {
   for (const [bundleName, bundleContent] of bundles.entries()) {
     const bundlePath = path.join(targetDir, bundleName);
     const actualContent = await fs.readFile(bundlePath, "utf8");
@@ -336,7 +464,14 @@ async function validateMobileBootBundles(targetDir, bundles) {
   }
 }
 
-async function validateMobileBootstrapHtml(targetDir, pageKey) {
+async function validateBootstrapHtml(
+  targetDir,
+  pageKey,
+  {
+    commonBundleName,
+    platformLabel,
+  } = {},
+) {
   const htmlPath = path.join(targetDir, `${pageKey}.html`);
   if (!(await fs.pathExists(htmlPath))) {
     return;
@@ -344,7 +479,7 @@ async function validateMobileBootstrapHtml(targetDir, pageKey) {
   const html = await fs.readFile(htmlPath, "utf8");
   const manifestScript =
     `<script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>`;
-  const commonBootScript = `<script defer src="mobile-common-boot.js"></script>`;
+  const commonBootScript = `<script defer src="${commonBundleName}"></script>`;
   const pageBootScript = `<script defer src="${pageKey}-boot.js"></script>`;
   const legacyPageScriptPattern = new RegExp(
     `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
@@ -356,12 +491,12 @@ async function validateMobileBootstrapHtml(targetDir, pageKey) {
     !html.includes(pageBootScript)
   ) {
     throw new Error(
-      `移动端 HTML 启动脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
+      `${platformLabel} HTML 启动脚本校验失败: ${formatRelativeRepoPath(htmlPath)}`,
     );
   }
   if (legacyPageScriptPattern.test(html)) {
     throw new Error(
-      `移动端 HTML 仍引用旧页面脚本: ${formatRelativeRepoPath(htmlPath)}`,
+      `${platformLabel} HTML 仍引用旧页面脚本: ${formatRelativeRepoPath(htmlPath)}`,
     );
   }
 }
@@ -386,6 +521,18 @@ await syncOfflineAssetsToTargetDir(
   offlineAssetManifest,
   offlineAssetBuffers,
 );
+const desktopBootBundles = await buildBootBundles(desktopBootBundleEntries);
+await writeBootBundles(pagesSourceDir, desktopBootBundles);
+for (const pageKey of desktopBootstrapPages) {
+  await rewriteBootstrapHtml(pagesSourceDir, pageKey, {
+    commonBundleName: "desktop-common-boot.js",
+  });
+  await validateBootstrapHtml(pagesSourceDir, pageKey, {
+    commonBundleName: "desktop-common-boot.js",
+    platformLabel: "桌面端",
+  });
+}
+await validateBootBundles(pagesSourceDir, desktopBootBundles);
 
 if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
   await copyFileWithEpermTolerance(
@@ -396,7 +543,7 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
   await copyDirectoryTree(pagesSourceDir, mobileAndroidWebDir);
   await copyDirectoryTree(pagesSourceDir, mobileIosWebDir);
 
-  const mobileBootBundles = await buildMobileBootBundles();
+  const mobileBootBundles = await buildBootBundles(mobileBootBundleEntries);
   for (const mobileWebDir of mobileWebDirs) {
     await copyFileWithEpermTolerance(
       sharedContractSourcePath,
@@ -407,12 +554,17 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
       offlineAssetManifest,
       offlineAssetBuffers,
     );
-    await writeMobileBootBundles(mobileWebDir, mobileBootBundles);
+    await writeBootBundles(mobileWebDir, mobileBootBundles);
     for (const pageKey of mobileBootstrapPages) {
-      await rewriteMobileBootstrapHtml(mobileWebDir, pageKey);
-      await validateMobileBootstrapHtml(mobileWebDir, pageKey);
+      await rewriteBootstrapHtml(mobileWebDir, pageKey, {
+        commonBundleName: "mobile-common-boot.js",
+      });
+      await validateBootstrapHtml(mobileWebDir, pageKey, {
+        commonBundleName: "mobile-common-boot.js",
+        platformLabel: "移动端",
+      });
     }
-    await validateMobileBootBundles(mobileWebDir, mobileBootBundles);
+    await validateBootBundles(mobileWebDir, mobileBootBundles);
   }
 }
 

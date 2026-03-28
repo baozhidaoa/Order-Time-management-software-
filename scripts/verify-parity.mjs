@@ -47,13 +47,15 @@ const iosOfflineAssetsDir = path.join(
 );
 
 const failures = [];
-const mobileGeneratedBootFiles = new Set([
+const generatedBootstrapFiles = new Set([
+  "desktop-common-boot.js",
   "mobile-common-boot.js",
   "index-boot.js",
   "diary-boot.js",
   "plan-boot.js",
   "todo-boot.js",
   "stats-boot.js",
+  "settings-boot.js",
 ]);
 const mobileBootstrapHtmlPages = new Set([
   "index.html",
@@ -61,6 +63,7 @@ const mobileBootstrapHtmlPages = new Set([
   "plan.html",
   "todo.html",
   "stats.html",
+  "settings.html",
 ]);
 
 function recordFailure(message) {
@@ -243,13 +246,16 @@ async function compareDirectories(sourceDir, targetDir, label, options = {}) {
     listRelativeFiles(sourceDir, excludedRelativePrefixes),
     listRelativeFiles(targetDir, excludedRelativePrefixes),
   ]);
+  const comparableSourceFiles = isGeneratedMobileWeb
+    ? sourceFiles.filter((relativePath) => !generatedBootstrapFiles.has(relativePath))
+    : sourceFiles;
   const comparableTargetFiles = isGeneratedMobileWeb
-    ? targetFiles.filter((relativePath) => !mobileGeneratedBootFiles.has(relativePath))
+    ? targetFiles.filter((relativePath) => !generatedBootstrapFiles.has(relativePath))
     : targetFiles;
-  const sourceSet = new Set(sourceFiles);
+  const sourceSet = new Set(comparableSourceFiles);
   const targetSet = new Set(comparableTargetFiles);
 
-  for (const relativePath of sourceFiles) {
+  for (const relativePath of comparableSourceFiles) {
     if (!targetSet.has(relativePath)) {
       recordFailure(`${label} 缺少文件: ${relativePath}`);
     }
@@ -261,7 +267,7 @@ async function compareDirectories(sourceDir, targetDir, label, options = {}) {
     }
   }
 
-  for (const relativePath of sourceFiles) {
+  for (const relativePath of comparableSourceFiles) {
     if (!targetSet.has(relativePath)) {
       continue;
     }

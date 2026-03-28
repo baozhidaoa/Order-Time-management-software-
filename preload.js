@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("storage:getPageBootstrapState", pageKey, options),
   storageGetPageBootstrapStateSync: (pageKey, options = {}) =>
     ipcRenderer.sendSync("storage:getPageBootstrapStateSync", pageKey, options),
+  storagePrewarmPageBootstrap: (pageKey, options = {}) =>
+    ipcRenderer.invoke("storage:prewarmPageBootstrap", pageKey, options),
   storageGetDraft: (key, options = {}) =>
     ipcRenderer.invoke("storage:getDraft", key, options),
   storageSetDraft: (key, value, options = {}) =>

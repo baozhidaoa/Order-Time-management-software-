@@ -754,6 +754,26 @@ function getStoragePageBootstrapState(pageKey, options = {}) {
   return storageManager.getPageBootstrapState(pageKey, options);
 }
 
+function prewarmStoragePageBootstrap(pageKey, options = {}) {
+  const payload = storageManager.getPageBootstrapState(pageKey, options) || {};
+  return {
+    ok: true,
+    page:
+      typeof payload?.page === "string" && payload.page.trim()
+        ? payload.page.trim()
+        : String(pageKey || "").trim(),
+    builtAt:
+      typeof payload?.builtAt === "string" && payload.builtAt.trim()
+        ? payload.builtAt.trim()
+        : "",
+    sourceFingerprint:
+      typeof payload?.sourceFingerprint === "string" &&
+      payload.sourceFingerprint.trim()
+        ? payload.sourceFingerprint.trim()
+        : "",
+  };
+}
+
 function getStorageDraft(key, options = {}) {
   return storageManager.getDraftValue(key, options);
 }
@@ -1179,8 +1199,6 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
       windowType: "main-window",
       page: targetPageFile.replace(/\.html$/i, ""),
     });
-    rendererPageReady = true;
-    revealWindow();
   });
 
   createdWindow.once("ready-to-show", () => {
@@ -1617,6 +1635,10 @@ function setupIpcHandlers() {
 
   ipcMain.on("storage:getPageBootstrapStateSync", (event, pageKey, options = {}) => {
     event.returnValue = getStoragePageBootstrapState(pageKey, options);
+  });
+
+  ipcMain.handle("storage:prewarmPageBootstrap", async (_event, pageKey, options = {}) => {
+    return prewarmStoragePageBootstrap(pageKey, options);
   });
 
   ipcMain.handle("storage:getDraft", async (event, key, options = {}) => {
