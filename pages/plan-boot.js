@@ -1,4 +1,4 @@
-;/* pages/data-index.js */
+/* pages/data-index.js */
 (() => {
   const projectStatsApi = window.ControlerProjectStats || null;
 
@@ -20,7 +20,11 @@
       const year = Number.parseInt(yearText, 10);
       const month = Number.parseInt(monthText, 10);
       const day = Number.parseInt(dayText, 10);
-      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      if (
+        !Number.isFinite(year) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(day)
+      ) {
         return null;
       }
       return new Date(year, month - 1, day);
@@ -141,7 +145,8 @@
   }
 
   function defaultPlanMatcher(plan, dateText) {
-    const targetDateKey = formatDateKey(dateText) || String(dateText || "").trim();
+    const targetDateKey =
+      formatDateKey(dateText) || String(dateText || "").trim();
     if (!plan || !targetDateKey) {
       return false;
     }
@@ -170,7 +175,9 @@
       return true;
     }
 
-    const repeat = String(plan.repeat || "none").trim().toLowerCase();
+    const repeat = String(plan.repeat || "none")
+      .trim()
+      .toLowerCase();
     if (repeat === "none" || targetDateKey < planDateKey) {
       return false;
     }
@@ -194,21 +201,21 @@
       }
       const planDate = parseFlexibleDate(planDateKey);
       return (
-        plan.dayOfWeek ??
-        (planDate instanceof Date && !Number.isNaN(planDate.getTime())
-          ? planDate.getDay()
-          : -1)
-      ) === targetDate.getDay();
+        (plan.dayOfWeek ??
+          (planDate instanceof Date && !Number.isNaN(planDate.getTime())
+            ? planDate.getDay()
+            : -1)) === targetDate.getDay()
+      );
     }
 
     if (repeat === "monthly") {
       const planDate = parseFlexibleDate(planDateKey);
       return (
-        plan.dayOfMonth ??
-        (planDate instanceof Date && !Number.isNaN(planDate.getTime())
-          ? planDate.getDate()
-          : 0)
-      ) === targetDate.getDate();
+        (plan.dayOfMonth ??
+          (planDate instanceof Date && !Number.isNaN(planDate.getTime())
+            ? planDate.getDate()
+            : 0)) === targetDate.getDate()
+      );
     }
 
     return false;
@@ -457,7 +464,9 @@
           const timeRecord = buildTimeRecord(record, sourceIndex);
           const dateText =
             timeRecord?.dateText ||
-            formatDateKey(record?.timestamp || record?.startTime || record?.endTime);
+            formatDateKey(
+              record?.timestamp || record?.startTime || record?.endTime,
+            );
 
           if (dateText) {
             if (!cache.recordsByDate.has(dateText)) {
@@ -624,10 +633,8 @@
     parseFlexibleDate,
     parseSpendTimeToHours,
   };
-})();
+})(); /* pages/plan.js */
 
-
-;/* pages/plan.js */
 // 计划页面JavaScript
 let plans = []; // 存储计划对象
 let currentDate = new Date(); // 当前显示的日期
@@ -842,7 +849,8 @@ function applyPlanModalDraftFields(modal, fields = {}) {
   Object.keys(source).forEach((key) => {
     const idSelector = `#${escapePlanSelectorValue(key)}`;
     const namedControls = Array.from(
-      modal?.querySelectorAll?.(`[name="${escapePlanSelectorValue(key)}"]`) || [],
+      modal?.querySelectorAll?.(`[name="${escapePlanSelectorValue(key)}"]`) ||
+        [],
     );
     const controlById = modal?.querySelector?.(idSelector) || null;
     if (namedControls.length && namedControls[0]?.type === "radio") {
@@ -880,9 +888,14 @@ function applyPlanModalDraftFields(modal, fields = {}) {
 
 function createPlanModalDraftSession(modal, draftKey) {
   let timer = 0;
-  const initialFieldsSignature = JSON.stringify(capturePlanModalDraftFields(modal));
+  const initialFieldsSignature = JSON.stringify(
+    capturePlanModalDraftFields(modal),
+  );
   const persistDraft = async () => {
-    if (!modal?.isConnected || typeof window.ControlerStorage?.setDraft !== "function") {
+    if (
+      !modal?.isConnected ||
+      typeof window.ControlerStorage?.setDraft !== "function"
+    ) {
       return;
     }
     const fields = capturePlanModalDraftFields(modal);
@@ -957,10 +970,7 @@ function createPlanModalDraftSession(modal, draftKey) {
   };
 }
 
-function queuePlanPersistenceTask(
-  task,
-  errorLabel = "保存计划页数据失败:",
-) {
+function queuePlanPersistenceTask(task, errorLabel = "保存计划页数据失败:") {
   planLastPersistenceError = null;
   planPendingPersistenceCount += 1;
   const queuedTask = planPersistChain
@@ -973,7 +983,10 @@ function queuePlanPersistenceTask(
       return false;
     })
     .finally(() => {
-      planPendingPersistenceCount = Math.max(0, planPendingPersistenceCount - 1);
+      planPendingPersistenceCount = Math.max(
+        0,
+        planPendingPersistenceCount - 1,
+      );
     });
   planPersistChain = queuedTask.then(() => true);
   return queuedTask;
@@ -1123,7 +1136,9 @@ function invalidateDeferredPlanBootstrap(options = {}) {
 function isRecurringPlanItem(plan) {
   return typeof window.ControlerStorageBundle?.isRecurringPlan === "function"
     ? window.ControlerStorageBundle.isRecurringPlan(plan)
-    : String(plan?.repeat || "").trim().toLowerCase() !== "none";
+    : String(plan?.repeat || "")
+        .trim()
+        .toLowerCase() !== "none";
 }
 
 function readPlanBootstrapSnapshotFromState(sourceState = {}, periodIds = []) {
@@ -1141,7 +1156,9 @@ function readPlanBootstrapSnapshotFromState(sourceState = {}, periodIds = []) {
   });
   const recurringPlans = planItems.filter((plan) => isRecurringPlanItem(plan));
   return {
-    plans: [...oneTimePlans, ...recurringPlans].map((rawPlan) => hydratePlan(rawPlan)),
+    plans: [...oneTimePlans, ...recurringPlans].map((rawPlan) =>
+      hydratePlan(rawPlan),
+    ),
     yearlyGoals: normalizeYearlyGoalsState(sourceState?.yearlyGoals || {}),
     loadedPeriodIds: requestedPeriodIds.slice(),
   };
@@ -1161,7 +1178,10 @@ function getPlanWorkspaceSnapshotWeight(snapshot = {}) {
   return planCount * 4 + goalCount * 2 + loadedPeriodCount;
 }
 
-function pickPreferredPlanWorkspaceSnapshot(primarySnapshot = null, fallbackSnapshot = null) {
+function pickPreferredPlanWorkspaceSnapshot(
+  primarySnapshot = null,
+  fallbackSnapshot = null,
+) {
   if (!primarySnapshot) {
     return fallbackSnapshot;
   }
@@ -1179,7 +1199,9 @@ function markPlanInitialDataReady(snapshot = {}) {
     periodIds: Array.isArray(snapshot?.loadedPeriodIds)
       ? snapshot.loadedPeriodIds.slice()
       : planLoadedPeriodIds.slice(),
-    planCount: Array.isArray(snapshot?.plans) ? snapshot.plans.length : plans.length,
+    planCount: Array.isArray(snapshot?.plans)
+      ? snapshot.plans.length
+      : plans.length,
     source: typeof snapshot?.source === "string" ? snapshot.source : "",
     fromCache: true,
   };
@@ -1202,7 +1224,8 @@ function readPlanCachedSnapshotState(options = {}) {
         },
       );
       if (bootstrapState && typeof bootstrapState === "object") {
-        const bootstrapSnapshot = normalizePlanPageBootstrapSnapshot(bootstrapState);
+        const bootstrapSnapshot =
+          normalizePlanPageBootstrapSnapshot(bootstrapState);
         preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(
           preferredSnapshot,
           {
@@ -1241,19 +1264,16 @@ function readPlanCachedSnapshotState(options = {}) {
   try {
     const rawPlans = JSON.parse(localStorage.getItem("plans") || "[]");
     const rawGoals = JSON.parse(localStorage.getItem("yearlyGoals") || "{}");
-    preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(
-      preferredSnapshot,
-      {
-        ...readPlanBootstrapSnapshotFromState(
-          {
-            plans: Array.isArray(rawPlans) ? rawPlans : [],
-            yearlyGoals: rawGoals,
-          },
-          periodIds,
-        ),
-        source: "local-mirror",
-      },
-    );
+    preferredSnapshot = pickPreferredPlanWorkspaceSnapshot(preferredSnapshot, {
+      ...readPlanBootstrapSnapshotFromState(
+        {
+          plans: Array.isArray(rawPlans) ? rawPlans : [],
+          yearlyGoals: rawGoals,
+        },
+        periodIds,
+      ),
+      source: "local-mirror",
+    });
   } catch (error) {
     console.error("读取计划本地兜底快照失败:", error);
   }
@@ -1288,7 +1308,9 @@ function bootstrapPlanFromCachedSnapshot() {
 function normalizeTodoSidebarRuntimeOptions(options = {}) {
   return {
     initialView:
-      String(options?.initialView || "").trim() === "checkins" ? "checkins" : "todos",
+      String(options?.initialView || "").trim() === "checkins"
+        ? "checkins"
+        : "todos",
     openComposer: options?.openComposer === true,
     persistWidgetView: options.persistWidgetView !== false,
     reason:
@@ -1300,15 +1322,21 @@ function normalizeTodoSidebarRuntimeOptions(options = {}) {
 
 function normalizePlanPageBootstrapSnapshot(payload = {}) {
   const data =
-    payload?.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+    payload?.data &&
+    typeof payload.data === "object" &&
+    !Array.isArray(payload.data)
       ? payload.data
       : {};
-  const visiblePlans = Array.isArray(data.visiblePlans) ? data.visiblePlans : [];
+  const visiblePlans = Array.isArray(data.visiblePlans)
+    ? data.visiblePlans
+    : [];
   const recurringPlans = Array.isArray(data.recurringPlans)
     ? data.recurringPlans
     : [];
   return {
-    plans: [...visiblePlans, ...recurringPlans].map((rawPlan) => hydratePlan(rawPlan)),
+    plans: [...visiblePlans, ...recurringPlans].map((rawPlan) =>
+      hydratePlan(rawPlan),
+    ),
     yearlyGoals: normalizeYearlyGoalsState(data.yearlyGoals || {}),
     loadedPeriodIds:
       Array.isArray(payload?.loadedPeriodIds) && payload.loadedPeriodIds.length
@@ -1348,7 +1376,8 @@ async function readPlanBootstrapState(options = {}) {
     }
   }
   if (typeof window.ControlerStorage?.getPlanBootstrapState === "function") {
-    const payload = await window.ControlerStorage.getPlanBootstrapState(options);
+    const payload =
+      await window.ControlerStorage.getPlanBootstrapState(options);
     if (payload && typeof payload === "object") {
       return payload;
     }
@@ -1365,8 +1394,12 @@ function renderTodoSidebarPlaceholder(options = {}) {
   const todoControls = document.getElementById("todo-view-controls");
   const checkinControls = document.getElementById("checkin-view-controls");
   const todoListContainer = document.getElementById("todo-list-container");
-  const todoQuadrantContainer = document.getElementById("todo-quadrant-container");
-  const checkinListContainer = document.getElementById("checkin-list-container");
+  const todoQuadrantContainer = document.getElementById(
+    "todo-quadrant-container",
+  );
+  const checkinListContainer = document.getElementById(
+    "checkin-list-container",
+  );
   const todoStatsPanel = document.getElementById("todo-stats-panel");
   const checkinStatsPanel = document.getElementById("checkin-stats-panel");
   const message = loading
@@ -1456,7 +1489,8 @@ async function ensureTodoSidebarRuntimeLoaded(options = {}) {
 
   todoSidebarRuntimePromise = Promise.resolve(loadRuntime)
     .then(() => {
-      const resolvedOptions = pendingTodoSidebarRuntimeOptions || normalizedOptions;
+      const resolvedOptions =
+        pendingTodoSidebarRuntimeOptions || normalizedOptions;
       pendingTodoSidebarRuntimeOptions = null;
       if (typeof window.ControlerTodoRuntime?.initPlanSidebar !== "function") {
         throw new Error("待办侧栏运行时未正确初始化。");
@@ -1597,7 +1631,11 @@ function getPlanPeriodIdsForVisibleView() {
     endDate = new Date(currentDate.getFullYear(), 11, 31);
   } else if (currentView === "month") {
     startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    endDate = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + 1,
+      0,
+    );
   } else {
     startDate = getWeekStartDate(currentDate);
     endDate = getWeekEndDate(currentDate);
@@ -1630,7 +1668,10 @@ function planOccursOnDateCached(plan, dateText) {
   return hydratePlan(plan).isOnDate(dateText);
 }
 function localizePlanUiText(value) {
-  return window.ControlerI18n?.translateUiText?.(String(value ?? "")) || String(value ?? "");
+  return (
+    window.ControlerI18n?.translateUiText?.(String(value ?? "")) ||
+    String(value ?? "")
+  );
 }
 
 function preparePlanModalOverlay(modal, options = {}) {
@@ -1724,8 +1765,7 @@ async function runPlanBlockingMutation(options = {}, task = null) {
       allowRepeat: true,
       action: perfAction,
     });
-    const result =
-      typeof task === "function" ? await task() : true;
+    const result = typeof task === "function" ? await task() : true;
     if (result !== false) {
       uiTools?.markPerfStage?.("plan-form-storage-acked", {
         allowRepeat: true,
@@ -1741,7 +1781,10 @@ async function runPlanBlockingMutation(options = {}, task = null) {
 }
 
 function bindPlanFormModalEventShield(modal) {
-  if (!(modal instanceof HTMLElement) || modal.dataset.planFormShieldBound === "true") {
+  if (
+    !(modal instanceof HTMLElement) ||
+    modal.dataset.planFormShieldBound === "true"
+  ) {
     return modal;
   }
   modal.dataset.planFormShieldBound = "true";
@@ -1801,7 +1844,10 @@ function applyPlanDesktopWidgetMode() {
     return;
   }
 
-  document.body.classList.add("desktop-widget-page", "desktop-widget-plan-page");
+  document.body.classList.add(
+    "desktop-widget-page",
+    "desktop-widget-plan-page",
+  );
   document.body.dataset.widgetKind = PLAN_WIDGET_CONTEXT.kind || "week-view";
   document.title = localizePlanUiText(
     `${getPlanWidgetTitle(PLAN_WIDGET_CONTEXT.kind)} 小组件`,
@@ -1982,13 +2028,15 @@ function shouldUseCompactPlannerPager() {
 }
 
 function normalizePlanNotificationConfig(rawNotification, planLike = {}) {
-  return getReminderTools()?.normalizePlanReminder?.(rawNotification, planLike) || {
-    enabled: false,
-    mode: "none",
-    minutesBefore: 15,
-    customTime: planLike?.startTime || "09:00",
-    customOffsetDays: 0,
-  };
+  return (
+    getReminderTools()?.normalizePlanReminder?.(rawNotification, planLike) || {
+      enabled: false,
+      mode: "none",
+      minutesBefore: 15,
+      customTime: planLike?.startTime || "09:00",
+      customOffsetDays: 0,
+    }
+  );
 }
 
 function getPlanReminderBaseDate(planLike = null) {
@@ -2001,10 +2049,13 @@ function getPlanReminderBaseDate(planLike = null) {
 
 function getPlanReminderSectionHtml(planLike = null, prefix = "plan") {
   const baseDateText = getPlanReminderBaseDate(planLike);
-  const reminderConfig = normalizePlanNotificationConfig(planLike?.notification, {
-    ...planLike,
-    date: baseDateText,
-  });
+  const reminderConfig = normalizePlanNotificationConfig(
+    planLike?.notification,
+    {
+      ...planLike,
+      date: baseDateText,
+    },
+  );
   const customDateTimeValue =
     getReminderTools()?.buildRelativeCustomDateTimeValue?.(
       baseDateText,
@@ -2094,12 +2145,8 @@ function bindPlanReminderInputs(modal, prefix = "plan") {
   const radios = modal.querySelectorAll(
     `input[name="${prefix}-notification-mode"]`,
   );
-  const beforeWrap = modal.querySelector(
-    `#${prefix}-notification-before-wrap`,
-  );
-  const customWrap = modal.querySelector(
-    `#${prefix}-notification-custom-wrap`,
-  );
+  const beforeWrap = modal.querySelector(`#${prefix}-notification-before-wrap`);
+  const customWrap = modal.querySelector(`#${prefix}-notification-custom-wrap`);
   const syncReminderMode = () => {
     const activeMode =
       modal.querySelector(`input[name="${prefix}-notification-mode"]:checked`)
@@ -2118,12 +2165,10 @@ function bindPlanReminderInputs(modal, prefix = "plan") {
   syncReminderMode();
 }
 
-function bindPlanReminderBaseDateSync(
-  modal,
-  prefix = "plan",
-  options = {},
-) {
-  const customInput = modal.querySelector(`#${prefix}-notification-custom-input`);
+function bindPlanReminderBaseDateSync(modal, prefix = "plan", options = {}) {
+  const customInput = modal.querySelector(
+    `#${prefix}-notification-custom-input`,
+  );
   if (!customInput) {
     return;
   }
@@ -2146,7 +2191,9 @@ function bindPlanReminderBaseDateSync(
     const baseDateText =
       dateInput?.value || currentDate.toISOString().split("T")[0];
     const timeText =
-      (customInput.value.includes("T") ? customInput.value.split("T")[1] : "") ||
+      (customInput.value.includes("T")
+        ? customInput.value.split("T")[1]
+        : "") ||
       startTimeInput?.value ||
       "09:00";
     customInput.value = `${baseDateText}T${timeText}`;
@@ -2294,15 +2341,22 @@ function getPlanNormalizedChangedSections(changedSections = []) {
   );
 }
 
-function hasPlanChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+function hasPlanChangedPeriodOverlap(
+  changedPeriodIds = [],
+  currentPeriodIds = [],
+) {
   if (typeof uiTools?.hasPeriodOverlap === "function") {
     return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
   }
   const normalizedChanged = Array.isArray(changedPeriodIds)
-    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    ? changedPeriodIds
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean)
     : [];
   const normalizedCurrent = Array.isArray(currentPeriodIds)
-    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    ? currentPeriodIds
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean)
     : [];
   if (!normalizedChanged.length || !normalizedCurrent.length) {
     return true;
@@ -2333,13 +2387,17 @@ function isPlanOwnStorageChange(detail = {}) {
     typeof detail?.originPageInstanceId === "string"
       ? detail.originPageInstanceId.trim()
       : "";
-  return !!originPageInstanceId && originPageInstanceId === getPlanStoragePageInstanceId();
+  return (
+    !!originPageInstanceId &&
+    originPageInstanceId === getPlanStoragePageInstanceId()
+  );
 }
 
 function isPlanInitialStorageBootstrapChange(detail = {}) {
-  const reason =
-    typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getPlanNormalizedChangedSections(
+    detail?.changedSections,
+  );
   return reason === "initial-sync" && !changedSections.length;
 }
 
@@ -2347,14 +2405,14 @@ function isPlanAmbiguousNativeExternalChange(detail = {}) {
   if (window.ControlerStorage?.isNativeApp !== true) {
     return false;
   }
-  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getPlanNormalizedChangedSections(
+    detail?.changedSections,
+  );
   if (changedSections.length) {
     return false;
   }
-  const reason =
-    typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const source =
-    typeof detail?.source === "string" ? detail.source.trim() : "";
+  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source = typeof detail?.source === "string" ? detail.source.trim() : "";
   return !source && (reason === "external-update" || reason === "shell-resume");
 }
 
@@ -2362,7 +2420,10 @@ function shouldRefreshPlanCoreData(nextData = null) {
   if (!nextData || typeof nextData !== "object") {
     return true;
   }
-  return !isPlanSerializableEqual(nextData.yearlyGoals || {}, yearlyGoals || {});
+  return !isPlanSerializableEqual(
+    nextData.yearlyGoals || {},
+    yearlyGoals || {},
+  );
 }
 
 function shouldRefreshPlanForExternalChange(detail = {}) {
@@ -2378,7 +2439,9 @@ function shouldRefreshPlanForExternalChange(detail = {}) {
   if (isPlanAmbiguousNativeExternalChange(detail)) {
     return false;
   }
-  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getPlanNormalizedChangedSections(
+    detail?.changedSections,
+  );
   if (!changedSections.length) {
     return true;
   }
@@ -2396,7 +2459,9 @@ function shouldRefreshPlanForExternalChange(detail = {}) {
     planChanged &&
     hasPlanChangedPeriodOverlap(
       detail?.changedPeriods?.plans || [],
-      planLoadedPeriodIds.length ? planLoadedPeriodIds : getPlanPeriodIdsForVisibleView(),
+      planLoadedPeriodIds.length
+        ? planLoadedPeriodIds
+        : getPlanPeriodIdsForVisibleView(),
     )
   ) {
     return true;
@@ -2426,7 +2491,9 @@ function renderPlanGuideCard() {
 }
 
 function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
-  const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getPlanNormalizedChangedSections(
+    detail?.changedSections,
+  );
   const todoRelatedChanged =
     changedSections.includes("todos") ||
     changedSections.includes("checkinItems") ||
@@ -2492,33 +2559,30 @@ function refreshPlanFromExternalStorageChange() {
       return;
     }
 
-    await planRefreshController.run(
-      () => readPlanWorkspace(),
-      {
-        manageLoading: shouldManageRefreshLoading,
-        delayMs: getPlanLoadingDelayMs({
-          blocking: true,
-        }),
-        loadingOptions: {
-          mode: shouldManageRefreshLoading
-            ? getPlanLoadingMode({
-                blocking: true,
-              })
-            : "inline",
-          message: "正在同步最新计划数据，请稍候",
-        },
-        commit: async (snapshot) => {
-          if (requestId !== planLoadRequestId) {
-            return;
-          }
-          applyPlanWorkspaceState(snapshot);
-          renderPlanGuideCard();
-          renderCalendarContent();
-          planInitialDataLoaded = true;
-          planInitialDataValidated = true;
-        },
+    await planRefreshController.run(() => readPlanWorkspace(), {
+      manageLoading: shouldManageRefreshLoading,
+      delayMs: getPlanLoadingDelayMs({
+        blocking: true,
+      }),
+      loadingOptions: {
+        mode: shouldManageRefreshLoading
+          ? getPlanLoadingMode({
+              blocking: true,
+            })
+          : "inline",
+        message: "正在同步最新计划数据，请稍候",
       },
-    );
+      commit: async (snapshot) => {
+        if (requestId !== planLoadRequestId) {
+          return;
+        }
+        applyPlanWorkspaceState(snapshot);
+        renderPlanGuideCard();
+        renderCalendarContent();
+        planInitialDataLoaded = true;
+        planInitialDataValidated = true;
+      },
+    });
   };
   void runRefresh().catch((error) => {
     console.error("刷新计划页外部存储失败:", error);
@@ -2528,7 +2592,9 @@ function refreshPlanFromExternalStorageChange() {
 function bindPlanExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
-    const changedSections = getPlanNormalizedChangedSections(detail?.changedSections);
+    const changedSections = getPlanNormalizedChangedSections(
+      detail?.changedSections,
+    );
     if (changedSections.includes("guideState")) {
       renderPlanGuideCard();
     }
@@ -2558,7 +2624,11 @@ function bindPlanExternalStorageRefresh() {
 function normalizePlanDateKey(value) {
   return (
     window.ControlerDataIndex?.formatDateKey?.(value) ||
-    (typeof value === "string" ? String(value || "").trim().slice(0, 10) : "")
+    (typeof value === "string"
+      ? String(value || "")
+          .trim()
+          .slice(0, 10)
+      : "")
   );
 }
 
@@ -2610,7 +2680,11 @@ function applyPlanDerivedFields(plan) {
 }
 
 function isRecurringPlan(planLike = null) {
-  return String(planLike?.repeat || "none").trim().toLowerCase() !== "none";
+  return (
+    String(planLike?.repeat || "none")
+      .trim()
+      .toLowerCase() !== "none"
+  );
 }
 
 function getPlanOccurrenceDateKey(planLike = null, occurrenceDate = null) {
@@ -2626,17 +2700,27 @@ function getPlanCompletionState(planLike = null, occurrenceDate = null) {
   const plan = applyPlanDerivedFields(planLike);
   const dateKey = getPlanOccurrenceDateKey(plan, occurrenceDate);
   if (isRecurringPlan(plan) && dateKey) {
-    if (plan.uncompletedDateSet instanceof Set && plan.uncompletedDateSet.has(dateKey)) {
+    if (
+      plan.uncompletedDateSet instanceof Set &&
+      plan.uncompletedDateSet.has(dateKey)
+    ) {
       return false;
     }
-    if (plan.completedDateSet instanceof Set && plan.completedDateSet.has(dateKey)) {
+    if (
+      plan.completedDateSet instanceof Set &&
+      plan.completedDateSet.has(dateKey)
+    ) {
       return true;
     }
   }
   return !!plan.isCompleted;
 }
 
-function setStoredPlanCompletionState(planLike = null, nextCompleted = false, occurrenceDate = null) {
+function setStoredPlanCompletionState(
+  planLike = null,
+  nextCompleted = false,
+  occurrenceDate = null,
+) {
   if (!planLike || typeof planLike !== "object") {
     return planLike;
   }
@@ -2731,7 +2815,10 @@ class Plan {
   isOnDate(checkDate) {
     const targetDateKey = normalizePlanDateKey(checkDate);
     if (!targetDateKey) return false;
-    if (this.excludedDateSet instanceof Set && this.excludedDateSet.has(targetDateKey)) {
+    if (
+      this.excludedDateSet instanceof Set &&
+      this.excludedDateSet.has(targetDateKey)
+    ) {
       return false;
     }
     if (!this.dateKey) {
@@ -2899,10 +2986,9 @@ function handlePlanNonBlockingSaveFailure(message, options = {}) {
     capturePlanWorkspaceSnapshot(),
   );
   if (typeof window.ControlerStorage?.syncFromSource === "function") {
-    void window.ControlerStorage
-      .syncFromSource({
-        reason: "plan-save-recovery",
-      })
+    void window.ControlerStorage.syncFromSource({
+      reason: "plan-save-recovery",
+    })
       .then((result) => {
         if (!result?.state || typeof result.state !== "object") {
           return;
@@ -2955,7 +3041,9 @@ async function readPlanWorkspace(options = {}) {
       const bootstrapState = await readPlanBootstrapState(bootstrapOptions);
       return {
         plans: retainedPlans.map((rawPlan) => hydratePlan(rawPlan)),
-        yearlyGoals: normalizeYearlyGoalsState(bootstrapState?.yearlyGoals || {}),
+        yearlyGoals: normalizeYearlyGoalsState(
+          bootstrapState?.yearlyGoals || {},
+        ),
         loadedPeriodIds: Array.isArray(retainedPeriodIds)
           ? retainedPeriodIds.slice()
           : [],
@@ -3002,10 +3090,8 @@ async function readPlanWorkspace(options = {}) {
     }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
-      (
-        typeof window.ControlerStorage?.getPlanBootstrapState === "function" ||
-        typeof window.ControlerStorage?.getCoreState === "function"
-      )
+      (typeof window.ControlerStorage?.getPlanBootstrapState === "function" ||
+        typeof window.ControlerStorage?.getCoreState === "function")
     ) {
       const periodIds = shouldLoadPlans
         ? Array.isArray(options.periodIds) && options.periodIds.length
@@ -3028,21 +3114,22 @@ async function readPlanWorkspace(options = {}) {
       uiTools?.markPerfStage?.("plan-bootstrap-bridge-done", {
         allowRepeat: true,
         periodIds: periodIds.slice(),
-        planCount: Array.isArray(planResult?.items) ? planResult.items.length : 0,
+        planCount: Array.isArray(planResult?.items)
+          ? planResult.items.length
+          : 0,
         view: targetView,
       });
       const recurringPlans = Array.isArray(bootstrapState?.recurringPlans)
         ? bootstrapState.recurringPlans
         : [];
       return {
-        plans: (
-          shouldLoadPlans
-            ? [...(planResult?.items || []), ...recurringPlans]
-            : retainedPlans
-        ).map((rawPlan) =>
-          hydratePlan(rawPlan),
+        plans: (shouldLoadPlans
+          ? [...(planResult?.items || []), ...recurringPlans]
+          : retainedPlans
+        ).map((rawPlan) => hydratePlan(rawPlan)),
+        yearlyGoals: normalizeYearlyGoalsState(
+          bootstrapState?.yearlyGoals || {},
         ),
-        yearlyGoals: normalizeYearlyGoalsState(bootstrapState?.yearlyGoals || {}),
         loadedPeriodIds: shouldLoadPlans
           ? periodIds.slice()
           : Array.isArray(retainedPeriodIds)
@@ -3103,7 +3190,9 @@ function getNormalizedPlanPersistencePeriodIds(periodIds = []) {
 }
 
 function resolvePlanPersistencePeriodIds(options = {}, oneTimePlans = []) {
-  const explicitPeriodIds = getNormalizedPlanPersistencePeriodIds(options?.periodIds);
+  const explicitPeriodIds = getNormalizedPlanPersistencePeriodIds(
+    options?.periodIds,
+  );
   if (explicitPeriodIds.length) {
     return explicitPeriodIds;
   }
@@ -3117,7 +3206,8 @@ function resolvePlanPersistencePeriodIds(options = {}, oneTimePlans = []) {
     return mutationPeriodIds;
   }
 
-  const loadedPeriodIds = getNormalizedPlanPersistencePeriodIds(planLoadedPeriodIds);
+  const loadedPeriodIds =
+    getNormalizedPlanPersistencePeriodIds(planLoadedPeriodIds);
   if (loadedPeriodIds.length) {
     return loadedPeriodIds;
   }
@@ -3142,7 +3232,11 @@ function shouldPersistRecurringPlans(options = {}) {
   return true;
 }
 
-function buildPlanPersistenceMutationOptions(previousPlan = null, nextPlan = null, options = {}) {
+function buildPlanPersistenceMutationOptions(
+  previousPlan = null,
+  nextPlan = null,
+  options = {},
+) {
   return {
     previousPlan: previousPlan ? clonePlanValue(previousPlan) : null,
     nextPlan: nextPlan ? clonePlanValue(nextPlan) : null,
@@ -3182,22 +3276,21 @@ function savePlans(options = {}) {
           },
         })),
         ...(persistRecurring
-          ? [{
-              kind: "replaceRecurringPlans",
-              items: recurringPlans,
-            }]
+          ? [
+              {
+                kind: "replaceRecurringPlans",
+                items: recurringPlans,
+              },
+            ]
           : []),
       ];
       if (operations.length) {
-        await window.ControlerStorage.appendJournal(
-          operations,
-          {
-            reason:
-              typeof options?.reason === "string" && options.reason.trim()
-                ? options.reason.trim()
-                : "plan-save",
-          },
-        );
+        await window.ControlerStorage.appendJournal(operations, {
+          reason:
+            typeof options?.reason === "string" && options.reason.trim()
+              ? options.reason.trim()
+              : "plan-save",
+        });
       }
       syncPlanDataIndex(["plans"]);
       getReminderTools()?.refresh?.({
@@ -3361,7 +3454,9 @@ function queuePlanInitialReveal() {
             planShellReady = true;
             document.body?.classList.remove("plan-bootstrap-pending");
             document.body?.classList.add("plan-bootstrap-ready");
-            window.dispatchEvent(new CustomEvent("controler:plan-initial-ready"));
+            window.dispatchEvent(
+              new CustomEvent("controler:plan-initial-ready"),
+            );
             uiTools?.markPerfStage?.("first-render-done");
             uiTools?.markNativePageReady?.();
             planInitialRevealPromise = null;
@@ -3385,11 +3480,12 @@ function getPlanLoadingOverlayController() {
   if (!(overlay instanceof HTMLElement)) {
     return null;
   }
-  planLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
-    overlay,
-    inlineHost: ".app-main",
-    scopeFullscreenToInlineHost: false,
-  }) || null;
+  planLoadingOverlayController =
+    uiTools?.createPageLoadingOverlayController?.({
+      overlay,
+      inlineHost: ".app-main",
+      scopeFullscreenToInlineHost: false,
+    }) || null;
   return planLoadingOverlayController;
 }
 
@@ -3418,10 +3514,9 @@ function setPlanLoadingState(options = {}) {
     mode = "inline",
     title = "正在加载数据中",
     delayMs = 0,
-    message =
-      mode === "fullscreen"
-        ? "正在读取当前计划范围，请稍候"
-        : "正在刷新当前计划内容，请稍候",
+    message = mode === "fullscreen"
+      ? "正在读取当前计划范围，请稍候"
+      : "正在刷新当前计划内容，请稍候",
   } = options;
   const loadingController = getPlanLoadingOverlayController();
   if (!loadingController) {
@@ -3526,7 +3621,10 @@ function scrollPlannerToPanel(panelName, behavior = "smooth") {
 
 function bindTodoSidebarBootstrapGate() {
   const todoPanel = document.getElementById("todo-panel-anchor");
-  if (!(todoPanel instanceof HTMLElement) || todoPanel.dataset.runtimeGateBound === "true") {
+  if (
+    !(todoPanel instanceof HTMLElement) ||
+    todoPanel.dataset.runtimeGateBound === "true"
+  ) {
     return;
   }
 
@@ -3546,7 +3644,8 @@ function bindTodoSidebarBootstrapGate() {
       event.preventDefault();
       event.stopPropagation();
       void ensureTodoSidebarRuntimeLoaded({
-        initialView: interactiveTarget.id === "checkin-view-btn" ? "checkins" : "todos",
+        initialView:
+          interactiveTarget.id === "checkin-view-btn" ? "checkins" : "todos",
         openComposer:
           interactiveTarget.id === "add-todo-btn" ||
           interactiveTarget.id === "add-first-todo-btn",
@@ -3630,7 +3729,10 @@ function isPlannerPagerInteractiveTarget(target, dashboard) {
 
 function bindPlannerMobileSwipe() {
   const dashboard = document.getElementById("planner-dashboard");
-  if (!(dashboard instanceof HTMLElement) || dashboard.dataset.swipeBound === "true") {
+  if (
+    !(dashboard instanceof HTMLElement) ||
+    dashboard.dataset.swipeBound === "true"
+  ) {
     return;
   }
 
@@ -3785,7 +3887,6 @@ function bindPlannerMobileSwipe() {
 function parseDateInputValue() {
   return null;
 }
-
 
 function initTimeSelector() {
   const applyBtn = document.getElementById("apply-time-range");
@@ -4098,7 +4199,9 @@ function ensurePlanShellStructure() {
   return planShellRefs;
 }
 
-function renderDeferredCalendarPlaceholder(message = "切回计划面板后再加载日历内容") {
+function renderDeferredCalendarPlaceholder(
+  message = "切回计划面板后再加载日历内容",
+) {
   const shell = ensurePlanShellStructure();
   const calendarContent = shell?.calendarContent;
   if (!(calendarContent instanceof HTMLElement)) {
@@ -4256,7 +4359,9 @@ function normalizeYearGoalScope(scope) {
 
 function normalizeYearlyGoalsState(rawYearlyGoals) {
   const source =
-    rawYearlyGoals && typeof rawYearlyGoals === "object" && !Array.isArray(rawYearlyGoals)
+    rawYearlyGoals &&
+    typeof rawYearlyGoals === "object" &&
+    !Array.isArray(rawYearlyGoals)
       ? rawYearlyGoals
       : {};
   const normalized = {};
@@ -4274,7 +4379,9 @@ function normalizeYearlyGoalsState(rawYearlyGoals) {
     const nextBucket = {};
 
     if (Array.isArray(safeBucket.annual)) {
-      nextBucket.annual = safeBucket.annual.map((goal) => normalizeYearGoal(goal));
+      nextBucket.annual = safeBucket.annual.map((goal) =>
+        normalizeYearGoal(goal),
+      );
     }
 
     for (let month = 1; month <= 12; month += 1) {
@@ -4312,7 +4419,9 @@ function ensureYearGoalBucket(year, scope = "annual") {
   if (!Array.isArray(yearBucket[scopeKey])) {
     yearBucket[scopeKey] = [];
   }
-  yearBucket[scopeKey] = yearBucket[scopeKey].map((goal) => normalizeYearGoal(goal));
+  yearBucket[scopeKey] = yearBucket[scopeKey].map((goal) =>
+    normalizeYearGoal(goal),
+  );
   return yearBucket[scopeKey];
 }
 
@@ -4325,9 +4434,7 @@ function getYearGoalScopeDisplayName(scope = "annual") {
 }
 
 function getYearGoalScopeEmptyText(scope = "annual") {
-  return scope === "annual"
-    ? "点击卡片添加年度总目标"
-    : "点击卡片添加本月目标";
+  return scope === "annual" ? "点击卡片添加年度总目标" : "点击卡片添加本月目标";
 }
 
 function getYearGoalScopeDescriptionPlaceholder(scope = "annual") {
@@ -4377,7 +4484,12 @@ function normalizeYearGoal(goal) {
 }
 
 function saveYearGoalEntry(year, scope, goalData, goalId = null) {
-  const normalizedGoal = upsertYearGoalEntryLocal(year, scope, goalData, goalId);
+  const normalizedGoal = upsertYearGoalEntryLocal(
+    year,
+    scope,
+    goalData,
+    goalId,
+  );
   void saveYearlyGoals();
   return normalizedGoal;
 }
@@ -4387,7 +4499,8 @@ function upsertYearGoalEntryLocal(year, scope, goalData, goalId = null) {
   const targetIndex = goalId
     ? goals.findIndex((item) => matchesId(item.id, goalId))
     : -1;
-  const existingGoal = targetIndex !== -1 ? normalizeYearGoal(goals[targetIndex]) : null;
+  const existingGoal =
+    targetIndex !== -1 ? normalizeYearGoal(goals[targetIndex]) : null;
   const normalizedGoal = normalizeYearGoal({
     ...existingGoal,
     ...goalData,
@@ -4432,7 +4545,12 @@ function getGoalPriorityLabel(priority) {
   }
 }
 
-function setYearGoalEntryCompletion(year, scope, goalId, nextCompleted = false) {
+function setYearGoalEntryCompletion(
+  year,
+  scope,
+  goalId,
+  nextCompleted = false,
+) {
   const changed = setYearGoalEntryCompletionLocal(
     year,
     scope,
@@ -4625,10 +4743,9 @@ function createYearGoalCard({
       goalItem.style.backgroundColor = goalCompleted
         ? "color-mix(in srgb, var(--bg-secondary) 90%, rgba(var(--accent-color-rgb), 0.12) 10%)"
         : "color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-quaternary) 12%)";
-      goalItem.style.border =
-        goalCompleted
-          ? "1px solid color-mix(in srgb, rgba(var(--accent-color-rgb), 0.38) 72%, var(--panel-border-color) 28%)"
-          : "1px solid color-mix(in srgb, var(--panel-border-color) 75%, transparent)";
+      goalItem.style.border = goalCompleted
+        ? "1px solid color-mix(in srgb, rgba(var(--accent-color-rgb), 0.38) 72%, var(--panel-border-color) 28%)"
+        : "1px solid color-mix(in srgb, var(--panel-border-color) 75%, transparent)";
       goalItem.style.color = "var(--text-color)";
       goalItem.style.fontSize = `${Math.max(10, Math.round(12 * monthCardScale))}px`;
       goalItem.style.cursor = "pointer";
@@ -4662,8 +4779,9 @@ function createYearGoalCard({
       goalMeta.style.minWidth = "0";
 
       const priorityBadge = document.createElement("span");
-      priorityBadge.textContent =
-        isMobileYearView ? priorityMeta.shortText : priorityMeta.text;
+      priorityBadge.textContent = isMobileYearView
+        ? priorityMeta.shortText
+        : priorityMeta.text;
       priorityBadge.style.fontSize = `${Math.max(
         8,
         badgeFontSize - (isMobileYearView ? 1 : 0),
@@ -4686,7 +4804,10 @@ function createYearGoalCard({
       if (goalCompleted) {
         toggleButton.classList.add("is-completed");
       }
-      const toggleSize = Math.max(22, Math.round((isMobileYearView ? 26 : 28) * monthCardScale));
+      const toggleSize = Math.max(
+        22,
+        Math.round((isMobileYearView ? 26 : 28) * monthCardScale),
+      );
       toggleButton.style.width = `${toggleSize}px`;
       toggleButton.style.height = `${toggleSize}px`;
       toggleButton.style.minWidth = `${toggleSize}px`;
@@ -4694,7 +4815,9 @@ function createYearGoalCard({
       toggleButton.style.backgroundColor = goalCompleted
         ? "color-mix(in srgb, var(--accent-color) 82%, white 18%)"
         : "color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-quaternary) 30%)";
-      toggleButton.style.color = goalCompleted ? "var(--on-accent-text)" : "transparent";
+      toggleButton.style.color = goalCompleted
+        ? "var(--on-accent-text)"
+        : "transparent";
       toggleButton.style.fontSize = `${Math.max(11, Math.round(14 * monthCardScale))}px`;
       toggleButton.style.fontWeight = "700";
       toggleButton.setAttribute(
@@ -4718,7 +4841,9 @@ function createYearGoalCard({
           void Promise.resolve(saveYearlyGoals())
             .then((result) => {
               if (result === false) {
-                throw planLastPersistenceError || new Error("保存年度目标状态失败");
+                throw (
+                  planLastPersistenceError || new Error("保存年度目标状态失败")
+                );
               }
             })
             .catch((error) => {
@@ -4769,7 +4894,10 @@ function renderYearView(container) {
   const minCardWidth = isMobileYearView ? 140 : 156;
   const minCardHeight = isMobileYearView ? 108 : 124;
   const baseCardWidth = isMobileYearView ? 260 : 186;
-  const cardMinWidth = Math.max(minCardWidth, Math.round(baseCardWidth * monthCardScale));
+  const cardMinWidth = Math.max(
+    minCardWidth,
+    Math.round(baseCardWidth * monthCardScale),
+  );
   const cardPadding = Math.max(8, Math.round(14 * monthCardScale));
   const cardGap = Math.max(6, Math.round(10 * monthCardScale));
   const titleFontSize = Math.max(13, Math.round(18 * monthCardScale));
@@ -5337,7 +5465,9 @@ function createDayElement(date, scale = 1) {
         ? "1px dashed rgba(255,255,255,0.45)"
         : "1px solid transparent";
       planIndicator.style.opacity = planCompleted ? "0.84" : "1";
-      planIndicator.style.textDecoration = planCompleted ? "line-through" : "none";
+      planIndicator.style.textDecoration = planCompleted
+        ? "line-through"
+        : "none";
       planIndicator.title = `${plan.name} ${plan.startTime}-${plan.endTime}`;
 
       planIndicator.addEventListener("click", function (e) {
@@ -5551,7 +5681,9 @@ function createPlanTimelineBlock(
   block.addEventListener("click", function () {
     showPlanDetailModal(
       plan,
-      blockOccurrenceDate || plan.date || new Date().toISOString().split("T")[0],
+      blockOccurrenceDate ||
+        plan.date ||
+        new Date().toISOString().split("T")[0],
     );
   });
 
@@ -5593,8 +5725,7 @@ function getPlansForDate(date) {
     window.ControlerDataIndex?.formatDateKey?.(date) ||
     date.toISOString().split("T")[0];
   return (
-    planDataIndex?.getPlansForDate?.(dateStr, planOccursOnDateCached) ||
-    []
+    planDataIndex?.getPlansForDate?.(dateStr, planOccursOnDateCached) || []
   );
 }
 
@@ -5640,10 +5771,7 @@ function renderWeeklyGridView(container) {
   const slotHeight = Math.max(10, Math.round(32 * scale));
   const timeColumnWidth = Math.max(
     30,
-    Math.min(
-      72,
-      Math.round(54 * scale * PLAN_WEEKLY_TIME_COLUMN_SHRINK_RATIO),
-    ),
+    Math.min(72, Math.round(54 * scale * PLAN_WEEKLY_TIME_COLUMN_SHRINK_RATIO)),
   );
   const dateColumnWidth = Math.max(
     34,
@@ -5764,7 +5892,8 @@ function renderWeeklyGridView(container) {
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + i);
-    const dateStr = normalizePlanDateKey(date) || date.toISOString().split("T")[0];
+    const dateStr =
+      normalizePlanDateKey(date) || date.toISOString().split("T")[0];
 
     const dayColumn = document.createElement("div");
     dayColumn.className = "weekly-glass-day-column";
@@ -5895,7 +6024,10 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
   const plan = plans[index];
   const previousPlanSnapshot = clonePlanValue(plan);
   const isRepeatPlan = plan.repeat && plan.repeat !== "none";
-  const normalizedOccurrenceDate = getPlanOccurrenceDateKey(plan, occurrenceDate);
+  const normalizedOccurrenceDate = getPlanOccurrenceDateKey(
+    plan,
+    occurrenceDate,
+  );
 
   if (!isRepeatPlan) {
     plans.splice(index, 1);
@@ -6244,13 +6376,10 @@ function showWeeklyGridPlanModal(planData = null) {
     });
 
   if (uiTools?.bindModalAction) {
-    uiTools.bindModalAction(
-      modal,
-      "#weekly-cancel-plan-btn",
-      () =>
-        closeWeeklyPlanModal({
-          discardDraft: true,
-        }),
+    uiTools.bindModalAction(modal, "#weekly-cancel-plan-btn", () =>
+      closeWeeklyPlanModal({
+        discardDraft: true,
+      }),
     );
     uiTools.bindModalAction(modal, "#weekly-save-plan-btn", () => {
       void saveWeeklyGridPlan(modal, planData, {
@@ -6301,7 +6430,6 @@ function showWeeklyGridPlanModal(planData = null) {
         .addEventListener("click", deleteWeeklyPlanAction);
     }
   }
-
 }
 
 // 保存表格视图的计划
@@ -6638,13 +6766,7 @@ function showPlanEditModal(planData = null) {
           </div>
         </div>
         
-        <!-- 完成状态 -->
-        <div>
-          <label style="display: flex; align-items: center; color: var(--text-color); gap: 10px; font-size: 14px;">
-            <input type="checkbox" id="plan-completed-checkbox" ${completionChecked ? "checked" : ""}>
-            <span>标记为已完成</span>
-          </label>
-        </div>
+        
       </div>
       
       <!-- 按钮区域 -->
@@ -6723,13 +6845,11 @@ function showPlanEditModal(planData = null) {
       });
     });
   } else {
-    modal
-      .querySelector("#cancel-plan-btn")
-      .addEventListener("click", () => {
-        closePlanModal({
-          discardDraft: true,
-        });
+    modal.querySelector("#cancel-plan-btn").addEventListener("click", () => {
+      closePlanModal({
+        discardDraft: true,
       });
+    });
     modal.querySelector("#save-plan-btn").addEventListener("click", () => {
       void savePlan(modal, isEditMode, planData, {
         draftSession: planDraftSession,
@@ -6760,7 +6880,6 @@ function showPlanEditModal(planData = null) {
         .addEventListener("click", deletePlanAction);
     }
   }
-
 }
 
 // 保存计划
@@ -6948,7 +7067,8 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       plan,
       occurrenceDate || plan.date,
     ) || "不通知";
-  const detailDate = getPlanOccurrenceDateKey(plan, occurrenceDate) || plan.date;
+  const detailDate =
+    getPlanOccurrenceDateKey(plan, occurrenceDate) || plan.date;
   const detailCompleted = getPlanCompletionState(plan, detailDate);
 
   // 弹窗内容
@@ -7036,9 +7156,13 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       const nextCompleted = !getPlanCompletionState(plans[index], detailDate);
       setStoredPlanCompletionState(plans[index], nextCompleted, detailDate);
       const saveResult = await savePlans(
-        buildPlanPersistenceMutationOptions(previousPlanSnapshot, plans[index], {
-          reason: "plan-toggle-complete",
-        }),
+        buildPlanPersistenceMutationOptions(
+          previousPlanSnapshot,
+          plans[index],
+          {
+            reason: "plan-toggle-complete",
+          },
+        ),
       );
       if (saveResult !== false) {
         renderCalendarContent();
@@ -7154,7 +7278,6 @@ function loadThemeSettings() {
     console.error("加载主题设置失败:", e);
   }
 }
-
 
 function initGridViewButton() {
   const gridViewBtn = document.getElementById("weekly-grid-btn");
@@ -7280,24 +7403,31 @@ function ensurePlansLoadedForCurrentView() {
 function isPlanWidgetTargetVisible(action = "") {
   switch (action) {
     case "show-week-view":
-      return planInitialDataValidated && planShellReady && currentView === "weekly-grid";
+      return (
+        planInitialDataValidated &&
+        planShellReady &&
+        currentView === "weekly-grid"
+      );
     case "show-month-view":
-      return planInitialDataValidated && planShellReady && currentView === "month";
+      return (
+        planInitialDataValidated && planShellReady && currentView === "month"
+      );
     case "show-year-view":
-      return planInitialDataValidated && planShellReady && currentView === "year";
+      return (
+        planInitialDataValidated && planShellReady && currentView === "year"
+      );
     case "show-todos":
     case "show-checkins": {
       const todoPanel = document.getElementById("todo-panel-anchor");
-      const expectedTodoView = action === "show-checkins" ? "checkins" : "todos";
+      const expectedTodoView =
+        action === "show-checkins" ? "checkins" : "todos";
       return (
         todoPanel instanceof HTMLElement &&
         todoSidebarRuntimeReady &&
         window.__controlerTodoWidgetView === expectedTodoView &&
-        (
-          !syncPlannerPagerMode() ||
+        (!syncPlannerPagerMode() ||
           window.__controlerPlannerMobilePanel === "todos" ||
-          window.location.hash === "#todo-panel-anchor"
-        )
+          window.location.hash === "#todo-panel-anchor")
       );
     }
     default:
@@ -7344,7 +7474,10 @@ function schedulePlanWidgetLaunchHandled(
     if (options.clearQuery === true) {
       clearPlanWidgetLaunchQuery();
     }
-    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    if (
+      !launchId ||
+      typeof window.ControlerNativeBridge?.emitEvent !== "function"
+    ) {
       return true;
     }
     window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
@@ -7447,8 +7580,9 @@ function handlePlanWidgetLaunchAction(payload = {}, options = {}) {
   }
 
   saveViewState();
-  schedulePlanWidgetLaunchHandled(payload, () =>
-    isPlanWidgetTargetVisible(action),
+  schedulePlanWidgetLaunchHandled(
+    payload,
+    () => isPlanWidgetTargetVisible(action),
     options,
   );
   if (!planInitialDataLoaded) {
@@ -7475,13 +7609,16 @@ function initPlanWidgetLaunchAction() {
       return;
     }
     consumedQuery = true;
-    handlePlanWidgetLaunchAction({
-      action,
-      source: params.get("widgetSource") || "query",
-      launchId: params.get("widgetLaunchId") || "",
-    }, {
-      clearQuery: true,
-    });
+    handlePlanWidgetLaunchAction(
+      {
+        action,
+        source: params.get("widgetSource") || "query",
+        launchId: params.get("widgetLaunchId") || "",
+      },
+      {
+        clearQuery: true,
+      },
+    );
   };
 
   window.addEventListener(eventName, (event) => {
@@ -7526,7 +7663,10 @@ async function loadInitialPlanWorkspace() {
         }
         const dataChanged =
           !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
-          !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
+          !isPlanSerializableEqual(
+            snapshot?.yearlyGoals || {},
+            yearlyGoals || {},
+          ) ||
           !isPlanSerializableEqual(
             snapshot?.loadedPeriodIds || [],
             planLoadedPeriodIds || [],
@@ -7548,14 +7688,14 @@ async function loadInitialPlanWorkspace() {
           !planShellRendered ||
           !(calendarContent instanceof HTMLElement) ||
           calendarContent.childElementCount === 0;
-          if (shouldRenderCalendar && !planCalendarMountDeferred) {
-            renderCalendarView();
-          }
-          planInitialDataLoaded = true;
-          planInitialDataValidated = true;
-          schedulePlanDeferredRuntimeIdleBootstrap();
-          await queuePlanInitialReveal();
-          return;
+        if (shouldRenderCalendar && !planCalendarMountDeferred) {
+          renderCalendarView();
+        }
+        planInitialDataLoaded = true;
+        planInitialDataValidated = true;
+        schedulePlanDeferredRuntimeIdleBootstrap();
+        await queuePlanInitialReveal();
+        return;
       } finally {
         if (shouldManageInitialLoading && requestId === planLoadRequestId) {
           await setPlanLoadingState({
@@ -7583,7 +7723,10 @@ async function loadInitialPlanWorkspace() {
           }
           const dataChanged =
             !isPlanSerializableEqual(snapshot?.plans || [], plans || []) ||
-            !isPlanSerializableEqual(snapshot?.yearlyGoals || {}, yearlyGoals || {}) ||
+            !isPlanSerializableEqual(
+              snapshot?.yearlyGoals || {},
+              yearlyGoals || {},
+            ) ||
             !isPlanSerializableEqual(
               snapshot?.loadedPeriodIds || [],
               planLoadedPeriodIds || [],
@@ -7675,12 +7818,15 @@ function scheduleDeferredPlanBootstrap() {
       return;
     }
     if (typeof window.requestIdleCallback === "function") {
-      planDeferredBootstrapIdleId = window.requestIdleCallback(() => {
-        planDeferredBootstrapIdleId = 0;
-        run();
-      }, {
-        timeout: 320,
-      });
+      planDeferredBootstrapIdleId = window.requestIdleCallback(
+        () => {
+          planDeferredBootstrapIdleId = 0;
+          run();
+        },
+        {
+          timeout: 320,
+        },
+      );
       return;
     }
     planDeferredBootstrapTimerId = window.setTimeout(() => {
@@ -7748,7 +7894,9 @@ async function init() {
     });
 
     const needsManualInitLoading =
-      !planInitialDataValidated && !planRefreshController && !bootstrappedFromSnapshot;
+      !planInitialDataValidated &&
+      !planRefreshController &&
+      !bootstrappedFromSnapshot;
     if (needsManualInitLoading) {
       setPlanLoadingState({
         active: true,
@@ -7794,5 +7942,3 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
-
-

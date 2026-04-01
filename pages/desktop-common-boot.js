@@ -1,7 +1,7 @@
-;/* manual-native-page-ready */
-window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
+/* manual-native-page-ready */
+window.__CONTROLER_NATIVE_PAGE_READY_MODE__ =
+  "manual"; /* shared/platform-contract.js */
 
-;/* shared/platform-contract.js */
 (function initControlerPlatformContract(rootFactory) {
   const globalObject =
     typeof globalThis !== "undefined"
@@ -188,11 +188,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function normalizePlatform(platform) {
-    const normalized = String(platform || "").trim().toLowerCase();
+    const normalized = String(platform || "")
+      .trim()
+      .toLowerCase();
     if (!normalized) {
       return "web";
     }
-    if (normalized === "darwin" || normalized === "mac" || normalized === "macos") {
+    if (
+      normalized === "darwin" ||
+      normalized === "mac" ||
+      normalized === "macos"
+    ) {
       return "darwin";
     }
     if (normalized === "windows" || normalized === "win") {
@@ -368,10 +374,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     getReactNativeRuntimeProfile,
     getRuntimeProfile,
   });
-});
+}); /* pages/rn-bridge.js */
 
-
-;/* pages/rn-bridge.js */
 (() => {
   const BRIDGE_EVENT_NAME = "controler:native-bridge-event";
   const LANGUAGE_EVENT_NAME = "controler:language-changed";
@@ -421,7 +425,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function shouldTrackBridgePerf(method) {
-    return String(method || "").trim().startsWith("storage.");
+    return String(method || "")
+      .trim()
+      .startsWith("storage.");
   }
 
   function emitBridgePerfMetric(method, durationMs, detail = {}) {
@@ -485,7 +491,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function normalizeUiLanguage(value) {
-    const normalized = String(value || "").trim().toLowerCase();
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
     return normalized === "en" || normalized === "en-us"
       ? "en-US"
       : DEFAULT_UI_LANGUAGE;
@@ -519,10 +527,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return Promise.resolve(null);
     }
 
-    const id = `rn_${Date.now()}_${requestCounter += 1}`;
+    const id = `rn_${Date.now()}_${(requestCounter += 1)}`;
     const normalizedMethod = String(method || "").trim();
     const startedAt =
-      typeof performance !== "undefined" && typeof performance.now === "function"
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
         ? performance.now()
         : Date.now();
     const timeoutMs = resolveMessageTimeout(method);
@@ -537,15 +546,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         pendingRequests.delete(id);
         emitBridgePerfMetric(
           pending.method,
-          (
-            (typeof performance !== "undefined" &&
-            typeof performance.now === "function"
-              ? performance.now()
-              : Date.now()) - pending.startedAt
-          ),
+          (typeof performance !== "undefined" &&
+          typeof performance.now === "function"
+            ? performance.now()
+            : Date.now()) - pending.startedAt,
           {
-          ok: false,
-          timedOut: true,
+            ok: false,
+            timedOut: true,
           },
         );
         pending.reject(new Error(`Native bridge timeout: ${method}`));
@@ -573,14 +580,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
       }
-      emitBridgePerfMetric(normalizedMethod, (
-        (typeof performance !== "undefined" && typeof performance.now === "function"
+      emitBridgePerfMetric(
+        normalizedMethod,
+        (typeof performance !== "undefined" &&
+        typeof performance.now === "function"
           ? performance.now()
-          : Date.now()) - startedAt
-      ), {
-        ok: false,
-        unavailable: true,
-      });
+          : Date.now()) - startedAt,
+        {
+          ok: false,
+          unavailable: true,
+        },
+      );
       reject(new Error(`Native bridge unavailable: ${method}`));
     });
   }
@@ -601,7 +611,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.clearTimeout(pending.timeoutId);
       }
       const finishedAt =
-        typeof performance !== "undefined" && typeof performance.now === "function"
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
           ? performance.now()
           : Date.now();
       emitBridgePerfMetric(pending.method, finishedAt - pending.startedAt, {
@@ -655,16 +666,28 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     root.classList.toggle("controler-mobile-runtime", isNative);
-    root.classList.toggle("controler-android-native", isNative && platform === "android");
-    root.classList.toggle("controler-ios-native", isNative && platform === "ios");
+    root.classList.toggle(
+      "controler-android-native",
+      isNative && platform === "android",
+    );
+    root.classList.toggle(
+      "controler-ios-native",
+      isNative && platform === "ios",
+    );
 
     if (!body) {
       return;
     }
 
     body.classList.toggle("controler-mobile-runtime", isNative);
-    body.classList.toggle("controler-android-native", isNative && platform === "android");
-    body.classList.toggle("controler-ios-native", isNative && platform === "ios");
+    body.classList.toggle(
+      "controler-android-native",
+      isNative && platform === "android",
+    );
+    body.classList.toggle(
+      "controler-ios-native",
+      isNative && platform === "ios",
+    );
   }
 
   let runtimeClassSyncFrameId = 0;
@@ -787,9 +810,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !hadStableBaseline ||
       (!wasKeyboardOpen && layoutViewportHeight > 0) ||
       layoutViewportHeight >
-        keyboardViewportBaseHeight + ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
+        keyboardViewportBaseHeight +
+          ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX
     ) {
-      keyboardViewportBaseHeight = Math.max(layoutViewportHeight, viewportHeight);
+      keyboardViewportBaseHeight = Math.max(
+        layoutViewportHeight,
+        viewportHeight,
+      );
     }
 
     lastKeyboardViewportHeight = viewportHeight;
@@ -835,7 +862,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       Math.abs(layoutViewportHeight - viewportHeight) <
         ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
     ) {
-      keyboardViewportBaseHeight = Math.max(layoutViewportHeight, viewportHeight);
+      keyboardViewportBaseHeight = Math.max(
+        layoutViewportHeight,
+        viewportHeight,
+      );
     }
   }
 
@@ -891,10 +921,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   window.addEventListener(LANGUAGE_EVENT_NAME, (event) => {
     emitCurrentLanguage(event?.detail?.language);
   });
-})();
+})(); /* pages/storage-bundle.js */
 
-
-;/* pages/storage-bundle.js */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
     module.exports = factory();
@@ -1044,7 +1072,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? source.periodId.trim()
           : "",
       actualPeriodId:
-        typeof source.actualPeriodId === "string" && source.actualPeriodId.trim()
+        typeof source.actualPeriodId === "string" &&
+        source.actualPeriodId.trim()
           ? source.actualPeriodId.trim()
           : "",
       reason:
@@ -1195,7 +1224,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!Number.isFinite(numeric)) {
         return null;
       }
-      const normalizedNumber = normalized.length <= 10 ? numeric * 1000 : numeric;
+      const normalizedNumber =
+        normalized.length <= 10 ? numeric * 1000 : numeric;
       const parsedNumeric = new Date(normalizedNumber);
       return Number.isNaN(parsedNumeric.getTime()) ? null : parsedNumeric;
     }
@@ -1271,29 +1301,40 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const nextItems = ensureArray(items).slice();
     switch (section) {
       case "records":
-        nextItems.sort(
-          (left, right) =>
-            compareDates(left?.endTime || left?.timestamp || left?.startTime, right?.endTime || right?.timestamp || right?.startTime),
+        nextItems.sort((left, right) =>
+          compareDates(
+            left?.endTime || left?.timestamp || left?.startTime,
+            right?.endTime || right?.timestamp || right?.startTime,
+          ),
         );
         break;
       case "plans":
         nextItems.sort(
           (left, right) =>
             compareDates(left?.date, right?.date) ||
-            String(left?.startTime || "").localeCompare(String(right?.startTime || "")),
+            String(left?.startTime || "").localeCompare(
+              String(right?.startTime || ""),
+            ),
         );
         break;
       case "diaryEntries":
-        nextItems.sort(
-          (left, right) =>
-            compareDates(left?.date || left?.updatedAt, right?.date || right?.updatedAt),
+        nextItems.sort((left, right) =>
+          compareDates(
+            left?.date || left?.updatedAt,
+            right?.date || right?.updatedAt,
+          ),
         );
         break;
       case "dailyCheckins":
         nextItems.sort((left, right) => compareDates(left?.date, right?.date));
         break;
       case "checkins":
-        nextItems.sort((left, right) => compareDates(left?.updatedAt || left?.time, right?.updatedAt || right?.time));
+        nextItems.sort((left, right) =>
+          compareDates(
+            left?.updatedAt || left?.time,
+            right?.updatedAt || right?.time,
+          ),
+        );
         break;
       default:
         break;
@@ -1374,11 +1415,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const rawParentId = String(project?.parentId || "").trim();
-      if (
-        !rawParentId ||
-        rawParentId === projectId ||
-        !byId.has(rawParentId)
-      ) {
+      if (!rawParentId || rawParentId === projectId || !byId.has(rawParentId)) {
         requestedParentById.set(projectId, null);
         if (rawParentId) {
           repaired = true;
@@ -1515,7 +1552,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const addMatches = (pattern, multiplier) => {
       let match = pattern.exec(text);
       while (match) {
-        totalMs += normalizeDurationMs(Number.parseInt(match[1], 10) * multiplier);
+        totalMs += normalizeDurationMs(
+          Number.parseInt(match[1], 10) * multiplier,
+        );
         match = pattern.exec(text);
       }
     };
@@ -1566,7 +1605,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function normalizeProjectDurationCache(project = {}) {
     const source =
-      project && typeof project === "object" && !Array.isArray(project) ? project : {};
+      project && typeof project === "object" && !Array.isArray(project)
+        ? project
+        : {};
     return {
       ...source,
       [PROJECT_DURATION_CACHE_VERSION_KEY]: PROJECT_DURATION_CACHE_VERSION,
@@ -1629,7 +1670,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     normalizedProjects.forEach((project) => {
       const projectId = String(project?.id || "").trim();
       const parentId = String(project?.parentId || "").trim();
-      if (projectId && parentId && parentId !== projectId && byId.has(parentId)) {
+      if (
+        projectId &&
+        parentId &&
+        parentId !== projectId &&
+        byId.has(parentId)
+      ) {
         if (!childrenByParent.has(parentId)) {
           childrenByParent.set(parentId, []);
         }
@@ -1730,13 +1776,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       if (visiting.has(normalizedProjectId)) {
-        return normalizeDurationMs(
-          entry.project[PROJECT_DIRECT_DURATION_KEY],
-        );
+        return normalizeDurationMs(entry.project[PROJECT_DIRECT_DURATION_KEY]);
       }
 
       visiting.add(normalizedProjectId);
-      let totalMs = normalizeDurationMs(entry.project[PROJECT_DIRECT_DURATION_KEY]);
+      let totalMs = normalizeDurationMs(
+        entry.project[PROJECT_DIRECT_DURATION_KEY],
+      );
       (context.childrenByParent.get(normalizedProjectId) || []).forEach(
         (childId) => {
           totalMs += computeTotal(childId);
@@ -1797,14 +1843,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       const targetProject = context.projects[projectIndex];
       targetProject[PROJECT_DIRECT_DURATION_KEY] = normalizeDurationMs(
-        targetProject[PROJECT_DIRECT_DURATION_KEY] + getRecordDurationMs(record),
+        targetProject[PROJECT_DIRECT_DURATION_KEY] +
+          getRecordDurationMs(record),
       );
     });
 
     return recalculateProjectDurationTotals(context.projects);
   }
 
-  function reconcileProjectDurationCaches(projects = [], previousProjects = []) {
+  function reconcileProjectDurationCaches(
+    projects = [],
+    previousProjects = [],
+  ) {
     const nextProjects = ensureArray(projects).map((project) =>
       normalizeProjectDurationCache(project),
     );
@@ -1830,7 +1880,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? previousContext.byId.get(projectId)?.project || null
         : null;
       const matchedByName =
-        !matchedById && projectName ? previousByName.get(projectName) || null : null;
+        !matchedById && projectName
+          ? previousByName.get(projectName) || null
+          : null;
       const matchedProject = matchedById || matchedByName;
 
       project[PROJECT_DURATION_CACHE_VERSION_KEY] =
@@ -1864,7 +1916,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const nextDirectMs =
         normalizeDurationMs(targetProject[PROJECT_DIRECT_DURATION_KEY]) +
         factor * getRecordDurationMs(record);
-      targetProject[PROJECT_DIRECT_DURATION_KEY] = normalizeDurationMs(nextDirectMs);
+      targetProject[PROJECT_DIRECT_DURATION_KEY] =
+        normalizeDurationMs(nextDirectMs);
     };
 
     removedRecords.forEach((record) => {
@@ -1896,7 +1949,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? source.lastTriggeredAt
           : null,
       lastFlushStartedAt:
-        typeof source.lastFlushStartedAt === "string" && source.lastFlushStartedAt
+        typeof source.lastFlushStartedAt === "string" &&
+        source.lastFlushStartedAt
           ? source.lastFlushStartedAt
           : null,
       lastFlushCompletedAt:
@@ -1942,13 +1996,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       userDataPath:
         typeof options.userDataPath === "string" ? options.userDataPath : null,
       documentsPath:
-        typeof options.documentsPath === "string" ? options.documentsPath : null,
+        typeof options.documentsPath === "string"
+          ? options.documentsPath
+          : null,
       schemaVersion: Number.isFinite(options.schemaVersion)
         ? Math.max(1, Math.round(Number(options.schemaVersion)))
         : 1,
       recovery,
       protectionMode:
-        typeof options.protectionMode === "string" && options.protectionMode.trim()
+        typeof options.protectionMode === "string" &&
+        options.protectionMode.trim()
           ? options.protectionMode.trim()
           : "off",
       syncMeta: createBaseSyncMeta(options.syncMeta, {
@@ -1966,7 +2023,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isRecurringPlan(item) {
-    const repeatValue = String(item?.repeat || "").trim().toLowerCase();
+    const repeatValue = String(item?.repeat || "")
+      .trim()
+      .toLowerCase();
     return !!repeatValue && repeatValue !== "none";
   }
 
@@ -2043,7 +2102,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!normalizedDate) {
         return "";
       }
-      return mode === "date" ? formatDateOnly(normalizedDate) : formatDateTime(normalizedDate);
+      return mode === "date"
+        ? formatDateOnly(normalizedDate)
+        : formatDateTime(normalizedDate);
     };
     const assignGeneratedId = (prefix) => {
       assignIfChanged("id", buildLegacyItemId(prefix, nextItem, index));
@@ -2059,8 +2120,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           "",
       ).trim();
       const normalizedProjectId =
-        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
-        null;
+        normalizeId(
+          nextItem.projectId || nextItem.projectID || nextItem.project_id,
+        ) || null;
       assignIfChanged("name", normalizedName);
       assignIfChanged("projectId", normalizedProjectId);
       assignIfChanged(
@@ -2084,11 +2146,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const normalizedTimestamp = normalizeDateField(
         nextItem.timestamp || normalizedEndTime || normalizedStartTime,
       );
-      if (
-        !normalizedStartTime &&
-        !normalizedEndTime &&
-        !normalizedTimestamp
-      ) {
+      if (!normalizedStartTime && !normalizedEndTime && !normalizedTimestamp) {
         return {
           item: null,
           repaired,
@@ -2140,12 +2198,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       assignGeneratedId("legacy-plan");
       assignIfChanged(
         "projectId",
-        normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
-          null,
+        normalizeId(
+          nextItem.projectId || nextItem.projectID || nextItem.project_id,
+        ) || null,
       );
       if (!isRecurringPlan(nextItem)) {
         const normalizedDate = normalizeDateField(
-          nextItem.date || nextItem.day || nextItem.targetDate || nextItem.startDate,
+          nextItem.date ||
+            nextItem.day ||
+            nextItem.targetDate ||
+            nextItem.startDate,
           "date",
         );
         if (!normalizedDate) {
@@ -2167,7 +2229,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (section === "diaryEntries") {
       assignGeneratedId("legacy-diary");
       const normalizedDate = normalizeDateField(
-        nextItem.date || nextItem.day || nextItem.createdAt || nextItem.updatedAt,
+        nextItem.date ||
+          nextItem.day ||
+          nextItem.createdAt ||
+          nextItem.updatedAt,
         "date",
       );
       const normalizedUpdatedAt = normalizeDateField(
@@ -2242,7 +2307,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function validateAndRepairForPeriod(section, periodId, items = [], options = {}) {
+  function validateAndRepairForPeriod(
+    section,
+    periodId,
+    items = [],
+    options = {},
+  ) {
     const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
     const repairedItems = [];
     const invalidItems = [];
@@ -2271,7 +2341,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         repaired = true;
       }
       const itemPeriodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+        getPeriodIdForSectionItem(section, canonicalized.item) ||
+        UNDATED_PERIOD_ID;
       if (itemPeriodId !== normalizedPeriodId) {
         repaired = true;
         invalidItems.push({
@@ -2340,7 +2411,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return `${section}:${periodId}:${nextItems.length}:${minDate}:${maxDate}:${JSON.stringify(nextItems).length}`;
   }
 
-  function createPartitionEnvelope(section, periodId, items = [], options = {}) {
+  function createPartitionEnvelope(
+    section,
+    periodId,
+    items = [],
+    options = {},
+  ) {
     const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
     const nextItems = sortPartitionItems(section, items);
     const minDate =
@@ -2415,7 +2491,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         typeof source.selectedTheme === "string" && source.selectedTheme.trim()
           ? source.selectedTheme.trim()
           : "default",
-      todoSortPreference: normalizeTodoSortPreference(source.todoSortPreference),
+      todoSortPreference: normalizeTodoSortPreference(
+        source.todoSortPreference,
+      ),
       createdAt:
         typeof source.createdAt === "string" && source.createdAt
           ? source.createdAt
@@ -2453,7 +2531,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : 1,
       recovery,
       protectionMode:
-        typeof source.protectionMode === "string" && source.protectionMode.trim()
+        typeof source.protectionMode === "string" &&
+        source.protectionMode.trim()
           ? source.protectionMode.trim()
           : "off",
       syncMeta: createBaseSyncMeta(source.syncMeta, {
@@ -2485,7 +2564,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         if (!partitionMap[section].has(periodId)) {
           partitionMap[section].set(periodId, []);
         }
-        partitionMap[section].get(periodId).push(cloneValue(canonicalized.item));
+        partitionMap[section]
+          .get(periodId)
+          .push(cloneValue(canonicalized.item));
       });
     });
     const manifest = {
@@ -2505,7 +2586,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       legacyBackups: ensureArray(options.legacyBackups).slice(),
     };
     PARTITIONED_SECTIONS.forEach((section) => {
-      manifest.sections[section] = createSectionManifest(section, partitionMap[section]);
+      manifest.sections[section] = createSectionManifest(
+        section,
+        partitionMap[section],
+      );
     });
     return {
       manifest,
@@ -2538,7 +2622,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const items = [];
       if (sectionPartitions instanceof Map) {
         Array.from(sectionPartitions.values()).forEach((partitionItems) => {
-          items.push(...ensureArray(partitionItems).map((item) => cloneValue(item)));
+          items.push(
+            ...ensureArray(partitionItems).map((item) => cloneValue(item)),
+          );
         });
       } else if (isPlainObject(sectionPartitions)) {
         Object.keys(sectionPartitions).forEach((periodId) => {
@@ -2625,7 +2711,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function normalizePartitionEnvelope(section, rawEnvelope = {}, fallbackPeriodId = "") {
+  function normalizePartitionEnvelope(
+    section,
+    rawEnvelope = {},
+    fallbackPeriodId = "",
+  ) {
     const source = ensureObject(rawEnvelope, {});
     const periodId =
       normalizePeriodId(source.periodId) ||
@@ -2726,11 +2816,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           source.spendtime || "",
         ].join("|");
       case "diaryEntries":
-        return [source.date || "", source.title || "", source.updatedAt || ""].join("|");
+        return [
+          source.date || "",
+          source.title || "",
+          source.updatedAt || "",
+        ].join("|");
       case "dailyCheckins":
         return [source.itemId || "", source.date || ""].join("|");
       case "checkins":
-        return [source.todoId || "", source.time || "", source.message || ""].join("|");
+        return [
+          source.todoId || "",
+          source.time || "",
+          source.message || "",
+        ].join("|");
       case "plans":
         return [
           source.name || "",
@@ -2744,7 +2842,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
-  function mergePartitionItems(section, existingItems = [], incomingItems = [], mode = "replace") {
+  function mergePartitionItems(
+    section,
+    existingItems = [],
+    incomingItems = [],
+    mode = "replace",
+  ) {
     if (mode !== "merge") {
       return sortPartitionItems(section, incomingItems);
     }
@@ -2761,7 +2864,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function validateItemsForPeriod(section, periodId, items = []) {
     const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
     return ensureArray(items).every((item) => {
-      const itemPeriodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
+      const itemPeriodId =
+        getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
       return itemPeriodId === normalizedPeriodId;
     });
   }
@@ -2769,7 +2873,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function groupItemsByPeriod(section, items = []) {
     const grouped = new Map();
     ensureArray(items).forEach((item) => {
-      const periodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
+      const periodId =
+        getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
       if (!grouped.has(periodId)) {
         grouped.set(periodId, []);
       }
@@ -2807,7 +2912,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function inspectSectionCollectionIntegrity(section, items = [], options = {}) {
+  function inspectSectionCollectionIntegrity(
+    section,
+    items = [],
+    options = {},
+  ) {
     const invalidItems = [];
     const groupedItems = new Map();
     const recurringItems = [];
@@ -2837,7 +2946,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       const periodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
+        getPeriodIdForSectionItem(section, canonicalized.item) ||
+        UNDATED_PERIOD_ID;
       if (!groupedItems.has(periodId)) {
         groupedItems.set(periodId, []);
       }
@@ -2875,7 +2985,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               section,
               periodId: RECURRING_PLAN_VIRTUAL_PERIOD_ID,
               reason:
-                DUPLICATE_ITEM_REASON_BY_SECTION[section] || "duplicate-item-id",
+                DUPLICATE_ITEM_REASON_BY_SECTION[section] ||
+                "duplicate-item-id",
               item: cloneValue(item),
             }),
           );
@@ -2959,10 +3070,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     isRecurringPlan,
     sortPartitionItems,
   };
-});
+}); /* pages/storage-adapter.js */
 
-
-;/* pages/storage-adapter.js */
 (() => {
   const CONTROLER_STORAGE_EVENT = "controler:storage-data-changed";
   const CONTROLER_STORAGE_ERROR_EVENT = "controler:storage-sync-error";
@@ -3059,33 +3168,29 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
   const resolvedRuntimeCapabilities =
-    electronAPI?.runtimeMeta?.capabilities && typeof electronAPI.runtimeMeta.capabilities === "object"
+    electronAPI?.runtimeMeta?.capabilities &&
+    typeof electronAPI.runtimeMeta.capabilities === "object"
       ? electronAPI.runtimeMeta.capabilities
-      : reactNativeBridge?.capabilities && typeof reactNativeBridge.capabilities === "object"
+      : reactNativeBridge?.capabilities &&
+          typeof reactNativeBridge.capabilities === "object"
         ? reactNativeBridge.capabilities
         : typeof platformContract?.getRuntimeProfile === "function"
-          ? (
-              platformContract.getRuntimeProfile({
-                isElectron: !!electronAPI?.isElectron,
-                isReactNativeApp:
-                  reactNativeBridge?.platform === "android" ||
-                  reactNativeBridge?.platform === "ios" ||
-                  typeof window.ReactNativeWebView?.postMessage === "function",
-                platform:
-                  electronAPI?.platform ||
-                  reactNativeBridge?.platform ||
-                  "web",
-              })?.capabilities || {}
-            )
+          ? platformContract.getRuntimeProfile({
+              isElectron: !!electronAPI?.isElectron,
+              isReactNativeApp:
+                reactNativeBridge?.platform === "android" ||
+                reactNativeBridge?.platform === "ios" ||
+                typeof window.ReactNativeWebView?.postMessage === "function",
+              platform:
+                electronAPI?.platform || reactNativeBridge?.platform || "web",
+            })?.capabilities || {}
           : {};
   const hasReactNativeStorageBridge =
     !hasElectronStorageBridge &&
     typeof reactNativeBridge?.call === "function" &&
-    (
-      reactNativeBridge?.platform === "android" ||
+    (reactNativeBridge?.platform === "android" ||
       reactNativeBridge?.platform === "ios" ||
-      typeof window.ReactNativeWebView?.postMessage === "function"
-    );
+      typeof window.ReactNativeWebView?.postMessage === "function");
   let storageReady = !hasReactNativeStorageBridge;
   let storageReadyPromiseResolved = storageReady;
   let resolveStorageReadyPromise = () => {};
@@ -3237,10 +3342,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function getDefaultGuideStateFallback() {
     return (
       guideBundle?.getDefaultGuideState?.() || {
-        bundleVersion:
-          Number.isFinite(guideBundle?.GUIDE_BUNDLE_VERSION)
-            ? guideBundle.GUIDE_BUNDLE_VERSION
-            : 2,
+        bundleVersion: Number.isFinite(guideBundle?.GUIDE_BUNDLE_VERSION)
+          ? guideBundle.GUIDE_BUNDLE_VERSION
+          : 2,
         dismissedCardIds: [],
         dismissedGuideDiaryEntryIds: [],
       }
@@ -3302,7 +3406,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return storageBundle.normalizeRecoveryState(recovery);
     }
     const invalidItems =
-      recovery && typeof recovery === "object" && !Array.isArray(recovery) &&
+      recovery &&
+      typeof recovery === "object" &&
+      !Array.isArray(recovery) &&
       Array.isArray(recovery.invalidItems)
         ? cloneValue(recovery.invalidItems)
         : [];
@@ -3468,7 +3574,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? source.heatmapThresholdsByFilter
         : {};
     const uiState =
-      source.uiState && typeof source.uiState === "object" && !Array.isArray(source.uiState)
+      source.uiState &&
+      typeof source.uiState === "object" &&
+      !Array.isArray(source.uiState)
         ? source.uiState
         : base.uiState;
     return {
@@ -3718,9 +3826,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       (repairResult.repaired || needsDurationRepair) &&
       typeof storageBundle?.recalculateProjectDurationTotals === "function"
     ) {
-      normalizedProjects = storageBundle.recalculateProjectDurationTotals(
-        repairedProjects,
-      );
+      normalizedProjects =
+        storageBundle.recalculateProjectDurationTotals(repairedProjects);
     } else {
       normalizedProjects = cloneValue(repairedProjects) || [];
     }
@@ -3736,7 +3843,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function normalizeCorePayloadProjects(corePayload = {}, options = {}) {
     const source =
-      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
+      corePayload &&
+      typeof corePayload === "object" &&
+      !Array.isArray(corePayload)
         ? corePayload
         : {};
     if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
@@ -3792,7 +3901,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : {};
     const normalizedPage = normalizePageBootstrapKey(source.page);
     const data =
-      source.data && typeof source.data === "object" && !Array.isArray(source.data)
+      source.data &&
+      typeof source.data === "object" &&
+      !Array.isArray(source.data)
         ? source.data
         : {};
     if (normalizedPage !== "index" && normalizedPage !== "stats") {
@@ -3870,21 +3981,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       base.builtInThemeOverrides = {};
     }
-    if (
-      typeof base.selectedTheme !== "string" ||
-      !base.selectedTheme.trim()
-    ) {
+    if (typeof base.selectedTheme !== "string" || !base.selectedTheme.trim()) {
       base.selectedTheme = "default";
     } else {
       base.selectedTheme = base.selectedTheme.trim();
     }
-    base.guideState =
-      normalizedGuideState || getDefaultGuideStateFallback();
+    base.guideState = normalizedGuideState || getDefaultGuideStateFallback();
     if (guideBundle?.shouldSeedGuideBundle?.(guideSource)) {
       base.diaryEntries = guideBundle.buildGuideDiaryEntries();
       base.diaryCategories = [];
       base.guideState = getDefaultGuideStateFallback();
-    } else if (typeof guideBundle?.synchronizeGuideDiaryEntries === "function") {
+    } else if (
+      typeof guideBundle?.synchronizeGuideDiaryEntries === "function"
+    ) {
       base.diaryEntries = guideBundle.synchronizeGuideDiaryEntries(
         base.diaryEntries,
         new Date(),
@@ -3928,14 +4037,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       : Number.isFinite(base.schemaVersion)
         ? Math.max(1, Math.round(Number(base.schemaVersion)))
         : 1;
-    base.recovery =
-      normalizeRecoveryStateForClient(base.recovery);
+    base.recovery = normalizeRecoveryStateForClient(base.recovery);
     base.protectionMode =
-      typeof metadata.protectionMode === "string" && metadata.protectionMode.trim()
+      typeof metadata.protectionMode === "string" &&
+      metadata.protectionMode.trim()
         ? metadata.protectionMode.trim()
-        : typeof sourceState?.protectionMode === "string" && sourceState.protectionMode.trim()
+        : typeof sourceState?.protectionMode === "string" &&
+            sourceState.protectionMode.trim()
           ? sourceState.protectionMode.trim()
-          : typeof base.protectionMode === "string" && base.protectionMode.trim()
+          : typeof base.protectionMode === "string" &&
+              base.protectionMode.trim()
             ? base.protectionMode.trim()
             : "off";
     base.createdAt = base.createdAt || metadata.createdAt || now;
@@ -3994,7 +4105,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
-  function inferChangedSectionsFromStateTransition(previousState = {}, nextState = {}) {
+  function inferChangedSectionsFromStateTransition(
+    previousState = {},
+    nextState = {},
+  ) {
     const previousSharedState = extractSharedState(previousState);
     const nextSharedState = extractSharedState(nextState);
     const changedSections = [];
@@ -4037,7 +4151,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function normalizeChangedPeriodEntries(changedPeriods = {}) {
     const source =
-      changedPeriods && typeof changedPeriods === "object" ? changedPeriods : {};
+      changedPeriods && typeof changedPeriods === "object"
+        ? changedPeriods
+        : {};
     const normalized = {};
     Object.keys(source).forEach((section) => {
       const normalizedSection = String(section || "").trim();
@@ -4073,7 +4189,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function getStorageSectionPeriodId(section, item) {
     if (typeof storageBundle?.getPeriodIdForSectionItem === "function") {
-      return storageBundle.getPeriodIdForSectionItem(section, item) || "undated";
+      return (
+        storageBundle.getPeriodIdForSectionItem(section, item) || "undated"
+      );
     }
     const dateText =
       typeof item?.date === "string" && item.date
@@ -4093,7 +4211,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return planItems.filter((item) =>
       typeof storageBundle?.isRecurringPlan === "function"
         ? storageBundle.isRecurringPlan(item)
-        : String(item?.repeat || "").trim().toLowerCase() !== "none",
+        : String(item?.repeat || "")
+            .trim()
+            .toLowerCase() !== "none",
     );
   }
 
@@ -4107,7 +4227,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   ]);
 
   function normalizePageBootstrapKey(value) {
-    const normalized = String(value || "").trim().toLowerCase();
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
     return PAGE_BOOTSTRAP_KEYS.includes(normalized) ? normalized : "index";
   }
 
@@ -4122,7 +4244,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function formatBootstrapDateKey(value = new Date()) {
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    const date =
+      value instanceof Date ? new Date(value.getTime()) : new Date(value);
     if (Number.isNaN(date.getTime())) {
       return "";
     }
@@ -4130,7 +4253,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function formatBootstrapPeriodId(value = new Date()) {
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    const date =
+      value instanceof Date ? new Date(value.getTime()) : new Date(value);
     if (Number.isNaN(date.getTime())) {
       return "";
     }
@@ -4196,8 +4320,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
 
-    const lower = rangeStart.getTime() <= rangeEnd.getTime() ? rangeStart : rangeEnd;
-    const upper = rangeStart.getTime() <= rangeEnd.getTime() ? rangeEnd : rangeStart;
+    const lower =
+      rangeStart.getTime() <= rangeEnd.getTime() ? rangeStart : rangeEnd;
+    const upper =
+      rangeStart.getTime() <= rangeEnd.getTime() ? rangeEnd : rangeStart;
     lower.setHours(0, 0, 0, 0);
     upper.setHours(23, 59, 59, 999);
     const itemTime = itemDate.getTime();
@@ -4212,12 +4338,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function loadBootstrapSectionRangeFromState(state = {}, section, scope = {}) {
-    const normalizedScope =
-      storageBundle?.normalizeRangeInput?.(scope) || {
-        periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-        startDate: scope?.startDate || scope?.start || null,
-        endDate: scope?.endDate || scope?.end || null,
-      };
+    const normalizedScope = storageBundle?.normalizeRangeInput?.(scope) || {
+      periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
+      startDate: scope?.startDate || scope?.start || null,
+      endDate: scope?.endDate || scope?.end || null,
+    };
     const requestedPeriodIds = new Set(
       normalizeBootstrapPeriodIds(normalizedScope.periodIds),
     );
@@ -4227,7 +4352,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             (item) =>
               !(typeof storageBundle?.isRecurringPlan === "function"
                 ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                : String(item?.repeat || "")
+                    .trim()
+                    .toLowerCase() !== "none"),
           )
         : Array.isArray(state?.[section])
           ? state[section]
@@ -4254,7 +4381,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const projects = normalizeProjectCollection(projectItems).projects;
     const totals = projects.reduce(
       (summary, project) => {
-        const cachedTotalDurationMs = Number.isFinite(project?.cachedTotalDurationMs)
+        const cachedTotalDurationMs = Number.isFinite(
+          project?.cachedTotalDurationMs,
+        )
           ? Number(project.cachedTotalDurationMs)
           : Number.isFinite(project?.totalDurationMs)
             ? Number(project.totalDurationMs)
@@ -4298,12 +4427,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     extra = {},
   ) {
     const state =
-      sourceState && typeof sourceState === "object" && !Array.isArray(sourceState)
+      sourceState &&
+      typeof sourceState === "object" &&
+      !Array.isArray(sourceState)
         ? sourceState
         : {};
     const normalizedPage = normalizePageBootstrapKey(pageKey);
     const sourceFingerprint =
-      typeof extra?.sourceFingerprint === "string" ? extra.sourceFingerprint : "";
+      typeof extra?.sourceFingerprint === "string"
+        ? extra.sourceFingerprint
+        : "";
     const builtAt =
       typeof extra?.builtAt === "string" && extra.builtAt
         ? extra.builtAt
@@ -4319,7 +4452,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         options?.recordScope && typeof options.recordScope === "object"
           ? options.recordScope
           : buildRecentHoursBootstrapScope(48);
-      const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
+      const range = loadBootstrapSectionRangeFromState(
+        state,
+        "records",
+        recordScope,
+      );
       loadedPeriodIds = range.periodIds.slice();
       data = {
         projects: cloneValue(normalizedProjects),
@@ -4334,7 +4471,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : Array.isArray(options?.periodIds) && options.periodIds.length
             ? { periodIds: options.periodIds }
             : buildCurrentMonthBootstrapScope();
-      const range = loadBootstrapSectionRangeFromState(state, "plans", planScope);
+      const range = loadBootstrapSectionRangeFromState(
+        state,
+        "plans",
+        planScope,
+      );
       loadedPeriodIds = range.periodIds.slice();
       data = {
         visiblePlans: cloneValue(range.items),
@@ -4343,7 +4484,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     } else if (normalizedPage === "todo") {
       const dailyCheckinScope =
-        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+        options?.dailyCheckinScope &&
+        typeof options.dailyCheckinScope === "object"
           ? options.dailyCheckinScope
           : buildCurrentDayBootstrapScope();
       const checkinScope =
@@ -4390,14 +4532,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         diaryCategories: cloneValue(
           Array.isArray(state?.diaryCategories) ? state.diaryCategories : [],
         ),
-        guideState: cloneValue(state?.guideState || getDefaultGuideStateFallback()),
+        guideState: cloneValue(
+          state?.guideState || getDefaultGuideStateFallback(),
+        ),
       };
     } else if (normalizedPage === "stats") {
       const recordScope =
         options?.recordScope && typeof options.recordScope === "object"
           ? options.recordScope
           : buildCurrentMonthBootstrapScope();
-      const range = loadBootstrapSectionRangeFromState(state, "records", recordScope);
+      const range = loadBootstrapSectionRangeFromState(
+        state,
+        "records",
+        recordScope,
+      );
       loadedPeriodIds = range.periodIds.slice();
       data = {
         projects: cloneValue(normalizedProjects),
@@ -4412,7 +4560,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           extra?.storageStatus &&
           typeof extra.storageStatus === "object" &&
           !Array.isArray(extra.storageStatus)
-            ? cloneValue(enrichStorageStatusWithRecovery(extra.storageStatus, state))
+            ? cloneValue(
+                enrichStorageStatusWithRecovery(extra.storageStatus, state),
+              )
             : null,
         autoBackupStatus:
           extra?.autoBackupStatus &&
@@ -4423,7 +4573,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         recoverySummary: cloneValue(getRecoverySummaryFromState(state)),
         themeSummary: buildThemeSummary(state),
         navigationVisibility: cloneValue(
-          normalizeNavigationVisibilityState(state?.appNavigationVisibility || {}),
+          normalizeNavigationVisibilityState(
+            state?.appNavigationVisibility || {},
+          ),
         ),
       };
     }
@@ -4444,9 +4596,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     fallbackState = {},
     extra = {},
   ) {
-    const normalizedPage = normalizePageBootstrapKey(
-      payload?.page || pageKey,
-    );
+    const normalizedPage = normalizePageBootstrapKey(payload?.page || pageKey);
     const fallback = buildPageBootstrapStateFromState(
       fallbackState,
       normalizedPage,
@@ -4467,7 +4617,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ...fallback,
         page: normalizedPage,
         sourceFingerprint:
-          typeof source.sourceFingerprint === "string" && source.sourceFingerprint
+          typeof source.sourceFingerprint === "string" &&
+          source.sourceFingerprint
             ? source.sourceFingerprint
             : typeof source.snapshotVersion === "string" &&
                 source.snapshotVersion.trim()
@@ -4505,7 +4656,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         );
         nextData = {
           ...fallback.data,
-          projects: cloneValue(legacyPageData.projects || fallback.data.projects),
+          projects: cloneValue(
+            legacyPageData.projects || fallback.data.projects,
+          ),
           recentRecords: cloneValue(
             legacyPageData.recentRecords ||
               legacyPageData.records ||
@@ -4585,7 +4738,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         );
         nextData = {
           ...fallback.data,
-          projects: cloneValue(legacyPageData.projects || fallback.data.projects),
+          projects: cloneValue(
+            legacyPageData.projects || fallback.data.projects,
+          ),
           defaultRangeRecordsOrAggregate: cloneValue(
             legacyPageData.defaultRangeRecordsOrAggregate ||
               legacyPageData.records ||
@@ -4637,7 +4792,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const coreState = normalizeCorePayloadProjects(rawCoreState).payload;
     const mergedBaseState = {
       ...fallbackState,
-      ...(coreState && typeof coreState === "object" && !Array.isArray(coreState)
+      ...(coreState &&
+      typeof coreState === "object" &&
+      !Array.isArray(coreState)
         ? coreState
         : {}),
     };
@@ -4708,14 +4865,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               ? coreState.recurringPlans
               : fallback.data.recurringPlans,
           ),
-          yearlyGoals: cloneValue(coreState?.yearlyGoals || fallback.data.yearlyGoals || {}),
+          yearlyGoals: cloneValue(
+            coreState?.yearlyGoals || fallback.data.yearlyGoals || {},
+          ),
         },
       }).envelope;
     }
 
     if (normalizedPage === "todo") {
       const dailyCheckinScope =
-        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+        options?.dailyCheckinScope &&
+        typeof options.dailyCheckinScope === "object"
           ? options.dailyCheckinScope
           : buildCurrentDayBootstrapScope();
       const checkinScope =
@@ -4761,7 +4921,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           diaryCategories: cloneValue(
             coreState?.diaryCategories || fallback.data.diaryCategories || [],
           ),
-          guideState: cloneValue(coreState?.guideState || fallback.data.guideState || {}),
+          guideState: cloneValue(
+            coreState?.guideState || fallback.data.guideState || {},
+          ),
         },
       }).envelope;
     }
@@ -4777,7 +4939,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
         data: {
           ...fallback.data,
-          projects: cloneValue(coreState?.projects || fallback.data.projects || []),
+          projects: cloneValue(
+            coreState?.projects || fallback.data.projects || [],
+          ),
           defaultRangeRecordsOrAggregate: cloneValue(range?.items || []),
         },
       }).envelope;
@@ -4879,9 +5043,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       operationsByKey.set(key, nextOperation);
     });
-    return orderedKeys
-      .map((key) => operationsByKey.get(key))
-      .filter(Boolean);
+    return orderedKeys.map((key) => operationsByKey.get(key)).filter(Boolean);
   }
 
   function collectStorageJournalMetadata(operations = []) {
@@ -4916,7 +5078,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function applyStorageJournalOperations(currentState, operations = []) {
     let nextState =
-      currentState && typeof currentState === "object" && !Array.isArray(currentState)
+      currentState &&
+      typeof currentState === "object" &&
+      !Array.isArray(currentState)
         ? cloneValue(currentState)
         : {};
 
@@ -4945,7 +5109,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 (item) =>
                   !(typeof storageBundle?.isRecurringPlan === "function"
                     ? storageBundle.isRecurringPlan(item)
-                    : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                    : String(item?.repeat || "")
+                        .trim()
+                        .toLowerCase() !== "none"),
               )
             : Array.isArray(nextState?.[section])
               ? nextState[section]
@@ -4986,11 +5152,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const recurringPlans = Array.isArray(operation.items)
           ? cloneValue(operation.items)
           : [];
-        const oneTimePlans = (Array.isArray(nextState?.plans) ? nextState.plans : []).filter(
+        const oneTimePlans = (
+          Array.isArray(nextState?.plans) ? nextState.plans : []
+        ).filter(
           (item) =>
             !(typeof storageBundle?.isRecurringPlan === "function"
               ? storageBundle.isRecurringPlan(item)
-              : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+              : String(item?.repeat || "")
+                  .trim()
+                  .toLowerCase() !== "none"),
         );
         nextState = {
           ...nextState,
@@ -5008,16 +5178,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     extra = {},
   ) {
     const normalizedOperations = coalesceStorageJournalOperations(operations);
-    const normalizedMetadata = collectStorageJournalMetadata(normalizedOperations);
+    const normalizedMetadata =
+      collectStorageJournalMetadata(normalizedOperations);
     const changedSections =
       normalizedMetadata.changedSections.length ||
       Object.keys(normalizedMetadata.changedPeriods).length
         ? normalizedMetadata.changedSections
         : normalizeChangedSectionEntries(metadata.changedSections);
-    const changedPeriods =
-      Object.keys(normalizedMetadata.changedPeriods).length
-        ? normalizedMetadata.changedPeriods
-        : normalizeChangedPeriodEntries(metadata.changedPeriods);
+    const changedPeriods = Object.keys(normalizedMetadata.changedPeriods).length
+      ? normalizedMetadata.changedPeriods
+      : normalizeChangedPeriodEntries(metadata.changedPeriods);
     const result = {
       ok: extra?.ok !== false,
       opCount: normalizedOperations.length,
@@ -5051,7 +5221,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function inferChangedSectionsFromCorePatch(partialCore = {}) {
     const source =
-      partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
+      partialCore &&
+      typeof partialCore === "object" &&
+      !Array.isArray(partialCore)
         ? partialCore
         : {};
     const sections = new Set();
@@ -5126,7 +5298,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function isEquivalentVersionProbeTransition(previousProbe = null, nextProbe = null) {
+  function isEquivalentVersionProbeTransition(
+    previousProbe = null,
+    nextProbe = null,
+  ) {
     const previous = normalizeVersionProbe(previousProbe, cachedStatus);
     const next = normalizeVersionProbe(nextProbe, cachedStatus);
     if (!previous || !next) {
@@ -5139,7 +5314,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof previous.storageMode === "string" &&
       previous.storageMode.includes("bundle");
     const nextBundleStorage =
-      typeof next.storageMode === "string" && next.storageMode.includes("bundle");
+      typeof next.storageMode === "string" &&
+      next.storageMode.includes("bundle");
     if (!previousBundleStorage && !nextBundleStorage) {
       return false;
     }
@@ -5173,8 +5349,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     changedSections = [],
     changedPeriods = {},
   ) {
-    const normalizedChangedSections = normalizeChangedSectionEntries(changedSections);
-    const normalizedChangedPeriods = normalizeChangedPeriodEntries(changedPeriods);
+    const normalizedChangedSections =
+      normalizeChangedSectionEntries(changedSections);
+    const normalizedChangedPeriods =
+      normalizeChangedPeriodEntries(changedPeriods);
     if (
       !normalizedChangedSections.length &&
       !Object.keys(normalizedChangedPeriods).length
@@ -5212,17 +5390,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function shouldIgnoreRecentLocalStorageEcho(detail = {}) {
     const reason =
-      typeof detail?.reason === "string" ? detail.reason.trim().toLowerCase() : "";
+      typeof detail?.reason === "string"
+        ? detail.reason.trim().toLowerCase()
+        : "";
     if (reason === "initial-sync") {
       return false;
     }
     const source =
-      typeof detail?.source === "string" ? detail.source.trim().toLowerCase() : "";
-    if (
-      source &&
-      !source.includes("renderer") &&
-      !source.includes("webview")
-    ) {
+      typeof detail?.source === "string"
+        ? detail.source.trim().toLowerCase()
+        : "";
+    if (source && !source.includes("renderer") && !source.includes("webview")) {
       return false;
     }
     const signature = buildRecentLocalStorageEchoSignature(
@@ -5295,15 +5473,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (typeof window.ControlerUI?.alertDialog === "function") {
-      void window.ControlerUI
-        .alertDialog({
-          title:
-            recoveryState === "repaired" ? "存储已修复" : "存储需要恢复",
-          message: noticeMessage,
-          confirmText: "知道了",
-          danger: recoveryState === "needs-recovery",
-        })
-        .catch(() => {});
+      void window.ControlerUI.alertDialog({
+        title: recoveryState === "repaired" ? "存储已修复" : "存储需要恢复",
+        message: noticeMessage,
+        confirmText: "知道了",
+        danger: recoveryState === "needs-recovery",
+      }).catch(() => {});
       return;
     }
 
@@ -5351,14 +5526,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (typeof window.ControlerUI?.alertDialog === "function") {
-      void window.ControlerUI
-        .alertDialog({
-          title: "同步提示",
-          message: safeMessage,
-          confirmText: "知道了",
-          danger: true,
-        })
-        .catch(() => {});
+      void window.ControlerUI.alertDialog({
+        title: "同步提示",
+        message: safeMessage,
+        confirmText: "知道了",
+        danger: true,
+      }).catch(() => {});
       return;
     }
 
@@ -5480,7 +5653,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function dispatchStorageChangedEvent(reason, data, status = null, metadata = {}) {
+  function dispatchStorageChangedEvent(
+    reason,
+    data,
+    status = null,
+    metadata = {},
+  ) {
     window.dispatchEvent(
       new CustomEvent(CONTROLER_STORAGE_EVENT, {
         detail: {
@@ -5495,8 +5673,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             typeof metadata.changedPeriods === "object"
               ? cloneValue(metadata.changedPeriods)
               : {},
-          source:
-            typeof metadata.source === "string" ? metadata.source : "",
+          source: typeof metadata.source === "string" ? metadata.source : "",
           originPageInstanceId:
             typeof metadata.originPageInstanceId === "string"
               ? metadata.originPageInstanceId
@@ -5722,7 +5899,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       const state = readState();
-      const currentValue = Object.prototype.hasOwnProperty.call(state, normalizedKey)
+      const currentValue = Object.prototype.hasOwnProperty.call(
+        state,
+        normalizedKey,
+      )
         ? state[normalizedKey]
         : null;
       const currentSnapshot = safeSerialize(currentValue);
@@ -5750,7 +5930,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       const state = readState();
-      const hasCurrentValue = Object.prototype.hasOwnProperty.call(state, normalizedKey);
+      const hasCurrentValue = Object.prototype.hasOwnProperty.call(
+        state,
+        normalizedKey,
+      );
       const mirroredValue = SHARED_BOOTSTRAP_MIRROR_KEYS.includes(normalizedKey)
         ? readRawLocalOnlyValue(normalizedKey)
         : undefined;
@@ -5934,7 +6117,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!storageKey) {
         return null;
       }
-      const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+      const rawValue = nativeMethods.getItem?.call(
+        window.localStorage,
+        storageKey,
+      );
       if (rawValue === null || rawValue === undefined) {
         return null;
       }
@@ -5990,7 +6176,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return storageReady;
       },
       capabilities:
-        capabilities && typeof capabilities === "object" ? { ...capabilities } : {},
+        capabilities && typeof capabilities === "object"
+          ? { ...capabilities }
+          : {},
       async whenReady() {
         await storageReadyPromise;
         return true;
@@ -6025,7 +6213,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       replaceAll(nextState) {
         const currentState = readState();
         const sourceState =
-          nextState && typeof nextState === "object" && !Array.isArray(nextState)
+          nextState &&
+          typeof nextState === "object" &&
+          !Array.isArray(nextState)
             ? nextState
             : {};
         Object.keys(sourceState).forEach((key) => {
@@ -6162,18 +6352,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
       async getPlanBootstrapState(options = {}) {
         const pageBootstrap = await this.getPageBootstrapState("plan", options);
-        return (
-          pageBootstrap?.data && typeof pageBootstrap.data === "object"
-            ? {
-                yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
-                recurringPlans: cloneValue(
-                  Array.isArray(pageBootstrap.data.recurringPlans)
-                    ? pageBootstrap.data.recurringPlans
-                    : [],
-                ),
-              }
-            : {}
-        );
+        return pageBootstrap?.data && typeof pageBootstrap.data === "object"
+          ? {
+              yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+              recurringPlans: cloneValue(
+                Array.isArray(pageBootstrap.data.recurringPlans)
+                  ? pageBootstrap.data.recurringPlans
+                  : [],
+              ),
+            }
+          : {};
       },
       async syncFromSource(options = {}) {
         if (typeof syncFromSource === "function") {
@@ -6183,7 +6371,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           includeAliases: true,
         });
         const nextStatus =
-          typeof getStorageStatus === "function" ? await getStorageStatus() : null;
+          typeof getStorageStatus === "function"
+            ? await getStorageStatus()
+            : null;
         return {
           state: nextState,
           status: cloneValue(nextStatus),
@@ -6214,14 +6404,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     window.ControlerStorage.getRawLocalItem = function getRawLocalItem(key) {
       return nativeMethods.getItem?.call(window.localStorage, key) ?? null;
     };
-    window.ControlerStorage.setRawLocalItem = function setRawLocalItem(key, value) {
+    window.ControlerStorage.setRawLocalItem = function setRawLocalItem(
+      key,
+      value,
+    ) {
       if (value === undefined) {
         nativeMethods.removeItem?.call(window.localStorage, key);
         return;
       }
       nativeMethods.setItem?.call(window.localStorage, key, String(value));
     };
-    window.ControlerStorage.removeRawLocalItem = function removeRawLocalItem(key) {
+    window.ControlerStorage.removeRawLocalItem = function removeRawLocalItem(
+      key,
+    ) {
       nativeMethods.removeItem?.call(window.localStorage, key);
     };
   }
@@ -6288,9 +6483,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function markPendingElectronStorageChangeMetadata(metadata = {}) {
-      normalizeChangedSectionEntries(metadata.changedSections).forEach((section) => {
-        pendingElectronStorageChangedSections.add(section);
-      });
+      normalizeChangedSectionEntries(metadata.changedSections).forEach(
+        (section) => {
+          pendingElectronStorageChangedSections.add(section);
+        },
+      );
       pendingElectronStorageChangedPeriods = mergeChangedPeriodEntries(
         pendingElectronStorageChangedPeriods,
         metadata.changedPeriods,
@@ -6393,7 +6590,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
       } else if (options?.reason === "core-replace") {
         markPendingElectronStorageChangeMetadata({
-          changedSections: inferChangedSectionsFromCorePatch(options?.partialCore),
+          changedSections: inferChangedSectionsFromCorePatch(
+            options?.partialCore,
+          ),
           changedPeriods: normalizedChangedPeriods,
         });
       } else if (options?.reason === "plans-recurring-replace") {
@@ -6530,7 +6729,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       syncFromSource(options = {}) {
         return syncFromElectronSource(options);
       },
-      appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
+      appendJournalImpl: async (
+        operations = [],
+        metadata = {},
+        options = {},
+      ) => {
         const reason =
           typeof options?.reason === "string" && options.reason.trim()
             ? options.reason.trim()
@@ -6541,7 +6744,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             options,
           );
           const parsedResult =
-            rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
+            rawResult &&
+            typeof rawResult === "object" &&
+            !Array.isArray(rawResult)
               ? rawResult
               : {};
           const changedSections = normalizeChangedSectionEntries(
@@ -6609,7 +6814,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
       extraMethods: {
         peekPageBootstrapState(pageKey, options = {}) {
-          if (typeof electronAPI.storageGetPageBootstrapStateSync === "function") {
+          if (
+            typeof electronAPI.storageGetPageBootstrapStateSync === "function"
+          ) {
             try {
               const payload = electronAPI.storageGetPageBootstrapStateSync(
                 pageKey,
@@ -6625,7 +6832,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 },
               );
             } catch (error) {
-              console.error("同步读取 Electron 页面引导状态失败，回退内存快照:", error);
+              console.error(
+                "同步读取 Electron 页面引导状态失败，回退内存快照:",
+                error,
+              );
             }
           }
           return buildPageBootstrapStateFromState(
@@ -6657,7 +6867,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 },
               );
             } catch (error) {
-              console.error("读取 Electron 页面引导状态失败，回退本地快照:", error);
+              console.error(
+                "读取 Electron 页面引导状态失败，回退本地快照:",
+                error,
+              );
             }
           }
           try {
@@ -6685,7 +6898,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               },
             );
           } catch (error) {
-            console.error("拼装 Electron 页面引导状态失败，回退同步快照:", error);
+            console.error(
+              "拼装 Electron 页面引导状态失败，回退同步快照:",
+              error,
+            );
           }
           return this.peekPageBootstrapState(pageKey, options);
         },
@@ -6698,7 +6914,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             }
           }
           const storageKey = `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`;
-          const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+          const rawValue = nativeMethods.getItem?.call(
+            window.localStorage,
+            storageKey,
+          );
           if (rawValue === null || rawValue === undefined) {
             return null;
           }
@@ -6758,19 +6977,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return normalizeCorePayloadProjects(payload).payload;
         },
         async getPlanBootstrapState(options = {}) {
-          const pageBootstrap = await this.getPageBootstrapState("plan", options);
-          return (
-            pageBootstrap?.data && typeof pageBootstrap.data === "object"
-              ? {
-                  yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
-                  recurringPlans: cloneValue(
-                    Array.isArray(pageBootstrap.data.recurringPlans)
-                      ? pageBootstrap.data.recurringPlans
-                      : [],
-                  ),
-                }
-              : {}
+          const pageBootstrap = await this.getPageBootstrapState(
+            "plan",
+            options,
           );
+          return pageBootstrap?.data && typeof pageBootstrap.data === "object"
+            ? {
+                yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+                recurringPlans: cloneValue(
+                  Array.isArray(pageBootstrap.data.recurringPlans)
+                    ? pageBootstrap.data.recurringPlans
+                    : [],
+                ),
+              }
+            : {};
         },
         async getAutoBackupStatus() {
           if (typeof electronAPI.storageGetAutoBackupStatus !== "function") {
@@ -6779,7 +6999,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return electronAPI.storageGetAutoBackupStatus();
         },
         async updateAutoBackupSettings(settings = {}) {
-          if (typeof electronAPI.storageUpdateAutoBackupSettings !== "function") {
+          if (
+            typeof electronAPI.storageUpdateAutoBackupSettings !== "function"
+          ) {
             return null;
           }
           return electronAPI.storageUpdateAutoBackupSettings(settings);
@@ -6806,7 +7028,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           if (typeof electronAPI.storageSaveSectionRange !== "function") {
             return null;
           }
-          const result = await electronAPI.storageSaveSectionRange(section, payload);
+          const result = await electronAPI.storageSaveSectionRange(
+            section,
+            payload,
+          );
           await syncFromElectronSource({
             reason: "section-save",
             changedSections: [section],
@@ -6824,10 +7049,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           }
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const normalizedCorePatch = normalizeCorePayloadProjects(partialCore).payload;
-          const changedSections = inferChangedSectionsFromCorePatch(
-            normalizedCorePatch,
-          );
+          const normalizedCorePatch =
+            normalizeCorePayloadProjects(partialCore).payload;
+          const changedSections =
+            inferChangedSectionsFromCorePatch(normalizedCorePatch);
           const result = await electronAPI.storageReplaceCoreState(
             normalizedCorePatch,
             normalizedOptions,
@@ -6884,7 +7109,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 ? result.changedSections
                 : DEFAULT_CHANGED_SECTIONS,
               changedPeriods:
-                result?.changedPeriods && typeof result.changedPeriods === "object"
+                result?.changedPeriods &&
+                typeof result.changedPeriods === "object"
                   ? result.changedPeriods
                   : {},
               source: "renderer",
@@ -6936,18 +7162,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const forceFlushElectronStorage = (reason = "forced-persist") => {
       const saveCoordinator = window.ControlerStorage?.saveCoordinator;
       if (saveCoordinator && typeof saveCoordinator.enqueue === "function") {
-        void saveCoordinator.enqueue(reason, "electron-lifecycle").catch((error) => {
-          console.error("强制立即保存 Electron 存储失败:", error);
-        });
+        void saveCoordinator
+          .enqueue(reason, "electron-lifecycle")
+          .catch((error) => {
+            console.error("强制立即保存 Electron 存储失败:", error);
+          });
         return;
       }
-      void window.ControlerStorage
-        ?.flushJournal?.({
-          reason,
-        })
-        ?.catch((error) => {
-          console.error("强制立即保存 Electron 存储失败:", error);
-        });
+      void window.ControlerStorage?.flushJournal?.({
+        reason,
+      })?.catch((error) => {
+        console.error("强制立即保存 Electron 存储失败:", error);
+      });
     };
 
     window.addEventListener("visibilitychange", () => {
@@ -6986,7 +7212,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function readLegacyBrowserBootstrapState() {
       const rawRoot =
-        nativeMethods.getItem?.call(window.localStorage, BROWSER_STATE_KEY) || "";
+        nativeMethods.getItem?.call(window.localStorage, BROWSER_STATE_KEY) ||
+        "";
       const migratedState = normalizeState({}, buildLegacyBrowserMetadata());
       const migratedKeys = [];
       const migratedSharedKeys = new Set();
@@ -7006,7 +7233,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         );
         Object.assign(migratedState, normalizedRootState);
         shouldRewriteRoot =
-          JSON.stringify(normalizedRootState) !== JSON.stringify(parsedRootState);
+          JSON.stringify(normalizedRootState) !==
+          JSON.stringify(parsedRootState);
       }
 
       const rawLength =
@@ -7062,7 +7290,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       normalizeState({}, buildLegacyBrowserMetadata()),
     );
     const initialMirrorStateRaw =
-      nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_STATE_KEY,
+      ) || "";
     const initialMirrorPendingWriteRaw =
       nativeMethods.getItem?.call(
         window.localStorage,
@@ -7071,10 +7302,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialMirrorPendingWrite =
       initialMirrorPendingWriteRaw === "1" ||
       initialMirrorPendingWriteRaw === "true";
-    const initialMirrorState = parseJsonSafely(
-      initialMirrorStateRaw,
-      {},
-    );
+    const initialMirrorState = parseJsonSafely(initialMirrorStateRaw, {});
     adoptLegacyLocalOnlyValues(initialMirrorState);
     const initialMirrorComparableSnapshot = createComparableSnapshot(
       normalizeState(initialMirrorState, {
@@ -7086,17 +7314,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
     const shouldAdoptLegacyBrowserBootstrap =
       legacyBrowserComparableSnapshot !== emptyComparableSnapshot &&
-      (
-        !initialMirrorStateRaw.trim() ||
+      (!initialMirrorStateRaw.trim() ||
         initialMirrorPendingWrite ||
-        initialMirrorComparableSnapshot === emptyComparableSnapshot
-      );
+        initialMirrorComparableSnapshot === emptyComparableSnapshot);
     const shouldSeedMirrorFromLegacyBrowserBootstrap =
       shouldAdoptLegacyBrowserBootstrap &&
-      (
-        !initialMirrorStateRaw.trim() ||
-        initialMirrorComparableSnapshot === emptyComparableSnapshot
-      );
+      (!initialMirrorStateRaw.trim() ||
+        initialMirrorComparableSnapshot === emptyComparableSnapshot);
     const initialPendingSharedKeys = [];
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
@@ -7107,7 +7331,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     let cachedStatus =
       parseJsonSafely(
-        nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY),
+        nativeMethods.getItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_STATUS_KEY,
+        ),
         null,
       ) || null;
     let writeTimer = null;
@@ -7125,13 +7352,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ? ""
       : createComparableSnapshot(cachedState);
     let lastMirroredStateJson =
-      nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_STATE_KEY,
+      ) || "";
     let lastMirroredStatusJson =
-      nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_STATUS_KEY,
+      ) || "";
     let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
     let hasPendingStateChanges = initialPendingWrite;
     let managedStateRevision = initialPendingWrite ? 1 : 0;
-    let lastKnownVersionProbe = normalizeVersionProbe(cachedStatus, cachedStatus);
+    let lastKnownVersionProbe = normalizeVersionProbe(
+      cachedStatus,
+      cachedStatus,
+    );
     let nativeBaselineFingerprint = lastKnownVersionProbe?.fingerprint || "";
     const nativeSyncBootstrapStartedAt = Date.now();
     let nativeInitializationSettled = false;
@@ -7210,9 +7446,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function markPendingNativeStorageChangeMetadata(metadata = {}) {
-      normalizeChangedSectionsList(metadata.changedSections).forEach((section) => {
-        pendingNativeStorageChangedSections.add(section);
-      });
+      normalizeChangedSectionsList(metadata.changedSections).forEach(
+        (section) => {
+          pendingNativeStorageChangedSections.add(section);
+        },
+      );
       pendingNativeStorageChangedPeriods = mergeChangedPeriodEntries(
         pendingNativeStorageChangedPeriods,
         metadata.changedPeriods,
@@ -7252,8 +7490,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function emitNativeStorageChangedBridgeEvent(reason, metadata = {}) {
-      const changedSections = normalizeChangedSectionsList(metadata.changedSections);
-      const changedPeriods = normalizeChangedPeriodsMap(metadata.changedPeriods);
+      const changedSections = normalizeChangedSectionsList(
+        metadata.changedSections,
+      );
+      const changedPeriods = normalizeChangedPeriodsMap(
+        metadata.changedPeriods,
+      );
       if (!changedSections.length && !Object.keys(changedPeriods).length) {
         return;
       }
@@ -7314,7 +7556,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       if (
         !nativeInitializationSettled &&
-        Date.now() - nativeSyncBootstrapStartedAt <= NATIVE_BOOTSTRAP_SYNC_GRACE_MS
+        Date.now() - nativeSyncBootstrapStartedAt <=
+          NATIVE_BOOTSTRAP_SYNC_GRACE_MS
       ) {
         return true;
       }
@@ -7326,12 +7569,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         recentNativeLocalWriteAt > 0 &&
         Date.now() - recentNativeLocalWriteAt <=
           NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS &&
-        (
-          reason === "native-read-state" ||
+        (reason === "native-read-state" ||
           reason === "native-get-status" ||
           reason === "native-get-core-state" ||
-          reason === "native-probe-state"
-        )
+          reason === "native-probe-state")
       ) {
         return true;
       }
@@ -7456,10 +7697,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return normalizeState(rebasedSharedState, buildMobileMetadata());
     }
 
-    function buildDirectCorePatchFromSharedKeys(
-      state,
-      pendingSharedKeys = [],
-    ) {
+    function buildDirectCorePatchFromSharedKeys(state, pendingSharedKeys = []) {
       const normalizedSharedKeys = normalizeChangedSectionsList(
         pendingSharedKeys,
       )
@@ -7483,7 +7721,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function getManagedStateFootprint(state = {}) {
       const safeState =
-        state && typeof state === "object" && !Array.isArray(state) ? state : {};
+        state && typeof state === "object" && !Array.isArray(state)
+          ? state
+          : {};
       const countArrayItems = (key) =>
         Array.isArray(safeState[key]) ? safeState[key].length : 0;
       const rangeItemCount = MANAGED_RANGE_SECTIONS.reduce(
@@ -7509,17 +7749,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     }
 
-    function shouldPreferNativeInitializationSnapshot(
-      localState,
-      nativeState,
-    ) {
+    function shouldPreferNativeInitializationSnapshot(localState, nativeState) {
       const localFootprint = getManagedStateFootprint(localState);
       const nativeFootprint = getManagedStateFootprint(nativeState);
 
       if (nativeFootprint.rangeItemCount > localFootprint.rangeItemCount) {
         return true;
       }
-      if (nativeFootprint.directRecordCount > localFootprint.directRecordCount) {
+      if (
+        nativeFootprint.directRecordCount > localFootprint.directRecordCount
+      ) {
         return true;
       }
       if (nativeFootprint.projectCount > localFootprint.projectCount + 1) {
@@ -7530,7 +7769,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       return (
-        localFootprint.rangeItemCount + localFootprint.directRecordCount === 0 &&
+        localFootprint.rangeItemCount + localFootprint.directRecordCount ===
+          0 &&
         localFootprint.projectCount <= 1 &&
         nativeFootprint.totalItemCount > localFootprint.totalItemCount
       );
@@ -7545,7 +7785,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? (state?.plans || []).filter((item) =>
                 typeof storageBundle?.isRecurringPlan === "function"
                   ? !storageBundle.isRecurringPlan(item)
-                  : String(item?.repeat || "").trim().toLowerCase() === "none",
+                  : String(item?.repeat || "")
+                      .trim()
+                      .toLowerCase() === "none",
               )
             : state?.[section] || [];
         sourceItems.forEach((item) => {
@@ -7706,10 +7948,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     function mergeManagedSectionRange(section, scope = {}, items = []) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
-        ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
-      const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
+      const shouldReplaceWholeSection =
+        isFullManagedSectionRange(normalizedRange);
       const state = readState();
       const nextState = {
         ...state,
@@ -7720,39 +7965,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const recurringPlans = (state?.plans || []).filter((item) =>
           typeof storageBundle?.isRecurringPlan === "function"
             ? storageBundle.isRecurringPlan(item)
-            : String(item?.repeat || "").trim().toLowerCase() !== "none",
+            : String(item?.repeat || "")
+                .trim()
+                .toLowerCase() !== "none",
         );
         const oneTimePlans = shouldReplaceWholeSection
           ? []
           : (state?.plans || []).filter(
               (item) =>
-                !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
-                !(
-                  typeof storageBundle?.isRecurringPlan === "function"
-                    ? storageBundle.isRecurringPlan(item)
-                    : String(item?.repeat || "").trim().toLowerCase() !== "none"
-                ),
+                !requestedPeriodSet.has(
+                  getManagedSectionPeriodId(section, item),
+                ) &&
+                !(typeof storageBundle?.isRecurringPlan === "function"
+                  ? storageBundle.isRecurringPlan(item)
+                  : String(item?.repeat || "")
+                      .trim()
+                      .toLowerCase() !== "none"),
             );
         nextState.plans = [
-          ...(
-            storageBundle?.sortPartitionItems?.(section, [
-              ...oneTimePlans,
-              ...nextItems,
-            ]) || [...oneTimePlans, ...nextItems]
-          ),
+          ...(storageBundle?.sortPartitionItems?.(section, [
+            ...oneTimePlans,
+            ...nextItems,
+          ]) || [...oneTimePlans, ...nextItems]),
           ...cloneValue(recurringPlans),
         ];
       } else {
         const retainedItems = shouldReplaceWholeSection
           ? []
           : (state?.[section] || []).filter(
-              (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
+              (item) =>
+                !requestedPeriodSet.has(
+                  getManagedSectionPeriodId(section, item),
+                ),
             );
-        nextState[section] =
-          storageBundle?.sortPartitionItems?.(section, [
-            ...retainedItems,
-            ...nextItems,
-          ]) || [...retainedItems, ...nextItems];
+        nextState[section] = storageBundle?.sortPartitionItems?.(section, [
+          ...retainedItems,
+          ...nextItems,
+        ]) || [...retainedItems, ...nextItems];
       }
 
       cachedState = normalizeState(nextState, buildMobileMetadata());
@@ -7768,7 +8017,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const coveredPeriodIds = requestedPeriodIds.length
           ? requestedPeriodIds
           : Array.from(
-              new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
+              new Set(
+                nextItems.map((item) =>
+                  getManagedSectionPeriodId(section, item),
+                ),
+              ),
             );
         markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
       }
@@ -7795,7 +8048,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : initialShellVisibilityState;
     }
 
-    function isInternalShellTransitionHide(detail = readCurrentShellVisibilityState()) {
+    function isInternalShellTransitionHide(
+      detail = readCurrentShellVisibilityState(),
+    ) {
       return (
         !!detail &&
         typeof detail === "object" &&
@@ -7835,7 +8090,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
-    function queueNativeForegroundSyncOnShellResume(reason = "shell-resume", options = {}) {
+    function queueNativeForegroundSyncOnShellResume(
+      reason = "shell-resume",
+      options = {},
+    ) {
       pendingForegroundSyncRequest = {
         reason:
           typeof reason === "string" && reason.trim()
@@ -7939,15 +8197,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     async function settleManagedNativeDirectWrite(checkpoint = null) {
       touchRecentNativeLocalWriteWindow();
       markPendingNativeSelfChangeFingerprintAck();
-      if (
-        checkpoint &&
-        checkpoint.revision === managedStateRevision
-      ) {
+      if (checkpoint && checkpoint.revision === managedStateRevision) {
         lastWrittenComparableSnapshot =
-          checkpoint.comparableSnapshot || createComparableSnapshot(cachedState);
+          checkpoint.comparableSnapshot ||
+          createComparableSnapshot(cachedState);
         hasPendingStateChanges = false;
       }
-      const refreshedVersion = await refreshNativeVersionBaselineAfterDirectWrite();
+      const refreshedVersion =
+        await refreshNativeVersionBaselineAfterDirectWrite();
       persistMirrorSnapshot(true);
       if (!refreshedVersion) {
         updateVersionBaseline(cachedStatus);
@@ -7976,20 +8233,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function queueManagedNativeDirectWrite(task, options = {}) {
-      const nextTask = writeChain
-        .catch(() => undefined)
-        .then(() => task());
+      const nextTask = writeChain.catch(() => undefined).then(() => task());
       writeChain = nextTask
         .then(() => cachedStatus)
         .catch((error) => {
-          console.error(options.errorLabel || "写入 React Native 存储失败:", error);
+          console.error(
+            options.errorLabel || "写入 React Native 存储失败:",
+            error,
+          );
           return cachedStatus;
         });
       return nextTask;
     }
 
     function updateVersionBaseline(versionProbe) {
-      const normalizedVersion = normalizeVersionProbe(versionProbe, cachedStatus);
+      const normalizedVersion = normalizeVersionProbe(
+        versionProbe,
+        cachedStatus,
+      );
       if (!normalizedVersion) {
         return;
       }
@@ -8003,13 +8264,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function mergeVersionProbeIntoCachedStatus(versionProbe) {
-      const normalizedVersion = normalizeVersionProbe(versionProbe, cachedStatus);
+      const normalizedVersion = normalizeVersionProbe(
+        versionProbe,
+        cachedStatus,
+      );
       if (!normalizedVersion) {
         return null;
       }
       cachedStatus = enrichStorageStatusWithRecovery(
         {
-          ...(cachedStatus && typeof cachedStatus === "object" ? cachedStatus : {}),
+          ...(cachedStatus && typeof cachedStatus === "object"
+            ? cachedStatus
+            : {}),
           storagePath:
             normalizedVersion.storagePath ||
             (typeof cachedStatus?.storagePath === "string"
@@ -8120,7 +8386,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         useAndroidProbeLoop &&
         lastKnownVersionProbe?.supportsModifiedAt === false &&
         !isFastProbeWindowActive() &&
-        Date.now() - lastFallbackHashProbeAt >= NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS
+        Date.now() - lastFallbackHashProbeAt >=
+          NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS
       );
     }
 
@@ -8177,7 +8444,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             typeof normalizedDebugContext?.originPageInstanceId === "string"
               ? normalizedDebugContext.originPageInstanceId
               : "",
-          pendingSharedKeys: Number.isFinite(normalizedDebugContext?.pendingSharedKeys)
+          pendingSharedKeys: Number.isFinite(
+            normalizedDebugContext?.pendingSharedKeys,
+          )
             ? Math.max(0, Number(normalizedDebugContext.pendingSharedKeys) || 0)
             : 0,
           forceDispatch: normalizedDebugContext?.forceDispatch === true,
@@ -8202,7 +8471,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? payload.status
             : null;
         const nextState =
-          payload.state && typeof payload.state === "object" ? payload.state : {};
+          payload.state && typeof payload.state === "object"
+            ? payload.state
+            : {};
         adoptLegacyLocalOnlyValues(nextState);
         maybeNotifyStorageRecoveryStatus(nextStatus);
         emitStoragePerfMetric("storage-sync-read-result", {
@@ -8217,7 +8488,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
 
         return {
-          state: normalizeState(nextState, buildMobileMetadata(nextStatus || {})),
+          state: normalizeState(
+            nextState,
+            buildMobileMetadata(nextStatus || {}),
+          ),
           status: nextStatus,
         };
       } catch (error) {
@@ -8259,10 +8533,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return parsed;
       } catch (error) {
         if (!suppressError) {
-          reportNativeStorageSyncError("读取同步状态失败，已保留当前页面数据。", {
-            reason: "native-get-status",
-            error,
-          });
+          reportNativeStorageSyncError(
+            "读取同步状态失败，已保留当前页面数据。",
+            {
+              reason: "native-get-status",
+              error,
+            },
+          );
         }
         console.error("读取 React Native 存储状态失败:", error);
         return null;
@@ -8283,7 +8560,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       })
         .then((nextStatus) => {
           if (nextStatus && typeof nextStatus === "object") {
-            cachedStatus = enrichStorageStatusWithRecovery(nextStatus, cachedState);
+            cachedStatus = enrichStorageStatusWithRecovery(
+              nextStatus,
+              cachedState,
+            );
             maybeNotifyStorageRecoveryStatus(cachedStatus);
             persistMirrorSnapshot(true);
             updateVersionBaseline(cachedStatus);
@@ -8319,10 +8599,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return parsed && typeof parsed === "object" ? parsed : null;
       } catch (error) {
         if (!suppressError) {
-          reportNativeStorageSyncError("读取核心数据失败，已保留当前页面数据。", {
-            reason: "native-get-core-state",
-            error,
-          });
+          reportNativeStorageSyncError(
+            "读取核心数据失败，已保留当前页面数据。",
+            {
+              reason: "native-get-core-state",
+              error,
+            },
+          );
         }
         console.error("读取 React Native 核心状态失败:", error);
         return null;
@@ -8338,15 +8621,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             includeFallbackHash,
           },
         );
-        const parsed = normalizeVersionProbe(parseJsonSafely(rawPayload, null), cachedStatus);
+        const parsed = normalizeVersionProbe(
+          parseJsonSafely(rawPayload, null),
+          cachedStatus,
+        );
         clearStorageSyncError();
         return parsed;
       } catch (error) {
         if (!suppressError) {
-          reportNativeStorageSyncError("探测同步文件版本失败，已保留当前页面数据。", {
-            reason: "native-probe-state",
-            error,
-          });
+          reportNativeStorageSyncError(
+            "探测同步文件版本失败，已保留当前页面数据。",
+            {
+              reason: "native-probe-state",
+              error,
+            },
+          );
         }
         console.error("探测 React Native 存储版本失败:", error);
         return null;
@@ -8355,7 +8644,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     async function runProbeOnlyShellResumeSync(reason = "shell-resume") {
       const normalizedReason =
-        typeof reason === "string" && reason.trim() ? reason.trim() : "shell-resume";
+        typeof reason === "string" && reason.trim()
+          ? reason.trim()
+          : "shell-resume";
       if (!shouldPreferProbeOnlyOnShellResume(normalizedReason)) {
         emitStoragePerfMetric("storage-sync-shell-resume-probe-path", {
           reason: normalizedReason,
@@ -8418,7 +8709,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       emitStoragePerfMetric("storage-sync-write-native-state-start", {
         pendingSharedKeys: pendingSharedKeys.length,
         sharedKeys: pendingSharedKeys,
-        nativeFullStateRewriteRequested: nativeFullStateRewriteRequested === true,
+        nativeFullStateRewriteRequested:
+          nativeFullStateRewriteRequested === true,
       });
       const directCorePatch = !nativeFullStateRewriteRequested
         ? buildDirectCorePatchFromSharedKeys(nextState, pendingSharedKeys)
@@ -8452,7 +8744,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         pendingSharedKeys.length > 0 &&
         !nativeFullStateRewriteRequested &&
         !!latestSnapshot?.state;
-      if (!canWriteRebasedSharedSnapshot && !canOverwriteNativeStateFromMirror()) {
+      if (
+        !canWriteRebasedSharedSnapshot &&
+        !canOverwriteNativeStateFromMirror()
+      ) {
         const blockedMessage = pendingSharedKeys.length
           ? "移动端原生快照暂不可用，已阻止共享状态补写，请稍候重试。"
           : "移动端镜像尚未完成全量同步，已阻止整库覆盖，请稍候重试。";
@@ -8465,16 +8760,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             "React Native 原生快照暂不可用，已阻止共享状态补写，避免覆盖整库。",
           );
         } else {
-          reportNativeStorageSyncError(
-            blockedMessage,
-            {
-              reason: "native-write-blocked-incomplete-mirror",
-              suppressUserAlert: true,
-            },
-          );
-          console.warn(
-            "React Native 镜像尚未完成全量同步，已阻止整库覆盖。",
-          );
+          reportNativeStorageSyncError(blockedMessage, {
+            reason: "native-write-blocked-incomplete-mirror",
+            suppressUserAlert: true,
+          });
+          console.warn("React Native 镜像尚未完成全量同步，已阻止整库覆盖。");
         }
         persistMirrorSnapshot(true);
         scheduleNativeStatusRefresh({
@@ -8583,7 +8873,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
       } else if (options?.reason === "core-replace") {
         markPendingNativeStorageChangeMetadata({
-          changedSections: inferChangedSectionsFromCorePatch(options?.partialCore),
+          changedSections: inferChangedSectionsFromCorePatch(
+            options?.partialCore,
+          ),
           changedPeriods: normalizedChangedPeriods,
         });
       } else if (options?.reason === "plans-recurring-replace") {
@@ -8675,7 +8967,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           forceDispatch: forceDispatch === true,
           source: typeof source === "string" ? source : "",
           originPageInstanceId:
-            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
+            typeof originPageInstanceId === "string"
+              ? originPageInstanceId
+              : "",
         },
       });
       if (!next?.state) {
@@ -8689,7 +8983,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const currentSnapshot = createComparableSnapshot(currentState);
       const nextSnapshot = createComparableSnapshot(next.state);
       const snapshotChanged = nextSnapshot !== currentSnapshot;
-      let resolvedChangedSections = normalizeChangedSectionsList(changedSections);
+      let resolvedChangedSections =
+        normalizeChangedSectionsList(changedSections);
       const resolvedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
       if (snapshotChanged && !resolvedChangedSections.length) {
         resolvedChangedSections = inferChangedSectionsFromStateTransition(
@@ -8717,13 +9012,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       clearStorageSyncError();
 
       if (reason && (forceDispatch || snapshotChanged)) {
-        dispatchStorageChangedEvent(reason, buildMergedState(cachedState), cachedStatus, {
-          changedSections: resolvedChangedSections,
-          changedPeriods: resolvedChangedPeriods,
-          source,
-          originPageInstanceId:
-            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
-        });
+        dispatchStorageChangedEvent(
+          reason,
+          buildMergedState(cachedState),
+          cachedStatus,
+          {
+            changedSections: resolvedChangedSections,
+            changedPeriods: resolvedChangedPeriods,
+            source,
+            originPageInstanceId:
+              typeof originPageInstanceId === "string"
+                ? originPageInstanceId
+                : "",
+          },
+        );
       }
       emitStorageDebug("sync-state-from-native-finished", {
         reason: typeof reason === "string" ? reason : "",
@@ -8732,7 +9034,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         changedSections: resolvedChangedSections,
         changedPeriods: resolvedChangedPeriods,
       });
-      return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
+      return createSourceSyncResult(
+        buildMergedState(cachedState),
+        cachedStatus,
+      );
     }
 
     async function runNativeVersionProbe(reason) {
@@ -8808,7 +9113,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             reason: typeof reason === "string" ? reason : "",
             previousFingerprint: nativeBaselineFingerprint,
             nextFingerprint: versionProbe.fingerprint || "",
-            pendingSelfAck: shouldAcknowledgePendingNativeSelfChangeFingerprint(),
+            pendingSelfAck:
+              shouldAcknowledgePendingNativeSelfChangeFingerprint(),
             equivalentTransition: isEquivalentVersionProbeTransition(
               previousVersionProbe,
               versionProbe,
@@ -8821,10 +9127,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             clearPendingNativeSelfChangeFingerprintAck();
             updateVersionBaseline(versionProbe);
             clearStorageSyncError();
-            emitStorageDebug("run-native-version-probe-acknowledged-self-change", {
-              reason: typeof reason === "string" ? reason : "",
-              fingerprint: versionProbe.fingerprint || "",
-            });
+            emitStorageDebug(
+              "run-native-version-probe-acknowledged-self-change",
+              {
+                reason: typeof reason === "string" ? reason : "",
+                fingerprint: versionProbe.fingerprint || "",
+              },
+            );
             return createSourceSyncResult(
               buildMergedState(cachedState, {
                 includeAliases: true,
@@ -8832,7 +9141,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               cachedStatus,
             );
           }
-          if (isEquivalentVersionProbeTransition(previousVersionProbe, versionProbe)) {
+          if (
+            isEquivalentVersionProbeTransition(
+              previousVersionProbe,
+              versionProbe,
+            )
+          ) {
             updateVersionBaseline(versionProbe);
             clearStorageSyncError();
             emitStorageDebug("run-native-version-probe-equivalent-transition", {
@@ -8849,7 +9163,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           emitStorageDebug("run-native-version-probe-syncing-after-mismatch", {
             reason: typeof reason === "string" ? reason : "",
           });
-          const syncResult = await syncStateFromNative(reason || "external-update");
+          const syncResult = await syncStateFromNative(
+            reason || "external-update",
+          );
           updateVersionBaseline(syncResult?.status || cachedStatus);
           return syncResult;
         }
@@ -8861,9 +9177,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           emitStorageDebug("run-native-version-probe-force-sync", {
             reason: typeof reason === "string" ? reason : "",
           });
-          const syncResult = await syncStateFromNative(reason || "external-update", {
-            suppressError: true,
-          });
+          const syncResult = await syncStateFromNative(
+            reason || "external-update",
+            {
+              suppressError: true,
+            },
+          );
           updateVersionBaseline(syncResult?.status || cachedStatus);
           return (
             syncResult ||
@@ -9162,7 +9481,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return planItems.filter((item) =>
         typeof storageBundle?.isRecurringPlan === "function"
           ? storageBundle.isRecurringPlan(item)
-          : String(item?.repeat || "").trim().toLowerCase() !== "none",
+          : String(item?.repeat || "")
+              .trim()
+              .toLowerCase() !== "none",
       );
     }
 
@@ -9215,7 +9536,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         buildMobileMetadata(),
       );
       const currentCoreSnapshot = buildManagedCoreStateSnapshot(currentState);
-      const nextRecurringPlans = Array.isArray(normalizedCorePayload?.recurringPlans)
+      const nextRecurringPlans = Array.isArray(
+        normalizedCorePayload?.recurringPlans,
+      )
         ? normalizedCorePayload.recurringPlans
         : currentCoreSnapshot.recurringPlans;
       return {
@@ -9259,21 +9582,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? normalizedCorePayload.selectedTheme.trim()
             : currentCoreSnapshot.selectedTheme,
         plans: [
-          ...(
-            Array.isArray(currentState?.plans)
-              ? currentState.plans.filter(
-                  (item) =>
-                    !(typeof storageBundle?.isRecurringPlan === "function"
-                      ? storageBundle.isRecurringPlan(item)
-                      : String(item?.repeat || "").trim().toLowerCase() !==
-                          "none"),
-                )
-              : []
-          ),
+          ...(Array.isArray(currentState?.plans)
+            ? currentState.plans.filter(
+                (item) =>
+                  !(typeof storageBundle?.isRecurringPlan === "function"
+                    ? storageBundle.isRecurringPlan(item)
+                    : String(item?.repeat || "")
+                        .trim()
+                        .toLowerCase() !== "none"),
+              )
+            : []),
           ...nextRecurringPlans,
         ],
         createdAt:
-          normalizedCorePayload?.createdAt || currentCoreSnapshot.createdAt || null,
+          normalizedCorePayload?.createdAt ||
+          currentCoreSnapshot.createdAt ||
+          null,
         lastModified:
           normalizedCorePayload?.lastModified ||
           currentCoreSnapshot.lastModified ||
@@ -9322,36 +9646,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? currentState.plans.filter((item) =>
             typeof storageBundle?.isRecurringPlan === "function"
               ? storageBundle.isRecurringPlan(item)
-              : String(item?.repeat || "").trim().toLowerCase() !== "none",
+              : String(item?.repeat || "")
+                  .trim()
+                  .toLowerCase() !== "none",
           )
         : [];
-      cachedState = normalizeState({
-        ...currentState,
-        yearlyGoals:
-          includeYearlyGoals &&
-          payload?.yearlyGoals &&
-          typeof payload.yearlyGoals === "object" &&
-          !Array.isArray(payload.yearlyGoals)
-            ? payload.yearlyGoals
-            : currentState?.yearlyGoals || {},
-        plans: [
-          ...(
-            Array.isArray(currentState?.plans)
+      cachedState = normalizeState(
+        {
+          ...currentState,
+          yearlyGoals:
+            includeYearlyGoals &&
+            payload?.yearlyGoals &&
+            typeof payload.yearlyGoals === "object" &&
+            !Array.isArray(payload.yearlyGoals)
+              ? payload.yearlyGoals
+              : currentState?.yearlyGoals || {},
+          plans: [
+            ...(Array.isArray(currentState?.plans)
               ? currentState.plans.filter(
                   (item) =>
                     !(typeof storageBundle?.isRecurringPlan === "function"
                       ? storageBundle.isRecurringPlan(item)
-                      : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                      : String(item?.repeat || "")
+                          .trim()
+                          .toLowerCase() !== "none"),
                 )
-              : []
-          ),
-          ...(
-            includeRecurringPlans && Array.isArray(payload?.recurringPlans)
+              : []),
+            ...(includeRecurringPlans && Array.isArray(payload?.recurringPlans)
               ? payload.recurringPlans
-              : currentRecurringPlans
-          ),
-        ],
-      }, buildMobileMetadata(payload));
+              : currentRecurringPlans),
+          ],
+        },
+        buildMobileMetadata(payload),
+      );
       hasManagedCoreSnapshot = true;
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -9550,12 +9877,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function loadManagedSectionRange(section, scope = {}) {
-      const normalizedRange =
-        storageBundle?.normalizeRangeInput?.(scope) || {
-          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-          startDate: scope?.startDate || scope?.start || null,
-          endDate: scope?.endDate || scope?.end || null,
-        };
+      const normalizedRange = storageBundle?.normalizeRangeInput?.(scope) || {
+        periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
+        startDate: scope?.startDate || scope?.start || null,
+        endDate: scope?.endDate || scope?.end || null,
+      };
       const requested = new Set(normalizedRange.periodIds || []);
       const state = readState();
       const sourceItems =
@@ -9564,7 +9890,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               (item) =>
                 !(typeof storageBundle?.isRecurringPlan === "function"
                   ? storageBundle.isRecurringPlan(item)
-                  : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                  : String(item?.repeat || "")
+                      .trim()
+                      .toLowerCase() !== "none"),
             )
           : state?.[section] || [];
       const items = storageBundle?.ensureArray?.(sourceItems) || sourceItems;
@@ -9580,7 +9908,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         periodIds:
           requested.size > 0
             ? Array.from(requested)
-            : [...new Set(filteredItems.map((item) => getManagedSectionPeriodId(section, item)))],
+            : [
+                ...new Set(
+                  filteredItems.map((item) =>
+                    getManagedSectionPeriodId(section, item),
+                  ),
+                ),
+              ],
         startDate: normalizedRange.startDate || null,
         endDate: normalizedRange.endDate || null,
         items:
@@ -9638,14 +9972,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
         persistMirrorSnapshot(true);
       },
-      appendJournalImpl: async (operations = [], metadata = {}, options = {}) => {
-        const optimisticResult = buildStorageJournalResult(operations, metadata, {
-          status: cachedStatus,
-          snapshotVersion:
-            typeof cachedStatus?.fingerprint === "string"
-              ? cachedStatus.fingerprint
-              : "",
-        });
+      appendJournalImpl: async (
+        operations = [],
+        metadata = {},
+        options = {},
+      ) => {
+        const optimisticResult = buildStorageJournalResult(
+          operations,
+          metadata,
+          {
+            status: cachedStatus,
+            snapshotVersion:
+              typeof cachedStatus?.fingerprint === "string"
+                ? cachedStatus.fingerprint
+                : "",
+          },
+        );
         const canUseNativeJournal =
           reactNativeBridge?.platform === "android" &&
           typeof reactNativeBridge?.call === "function";
@@ -9694,13 +10036,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               errorLabel: "追加 React Native 存储日志失败:",
             });
           } catch (firstError) {
-            console.error("首次追加 React Native 存储日志失败，准备重试:", firstError);
+            console.error(
+              "首次追加 React Native 存储日志失败，准备重试:",
+              firstError,
+            );
             try {
               return await queueManagedNativeDirectWrite(runJournalAppend, {
                 errorLabel: "重试追加 React Native 存储日志失败:",
               });
             } catch (secondError) {
-              console.error("重试追加 React Native 存储日志失败，回退整包补写:", secondError);
+              console.error(
+                "重试追加 React Native 存储日志失败，回退整包补写:",
+                secondError,
+              );
               markPendingNativeStorageChangeMetadata(metadata);
               scheduleManagedPendingNativeFlush();
               throw secondError;
@@ -9712,7 +10060,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const nextStatus = await persistNow();
         return buildStorageJournalResult(operations, metadata, {
           status:
-            nextStatus && typeof nextStatus === "object" ? nextStatus : cachedStatus,
+            nextStatus && typeof nextStatus === "object"
+              ? nextStatus
+              : cachedStatus,
           snapshotVersion:
             typeof nextStatus?.fingerprint === "string"
               ? nextStatus.fingerprint
@@ -9734,8 +10084,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               typeof options?.reason === "string" ? options.reason.trim() : "";
             const skipStatusRefresh =
               options?.skipStatusRefresh === true ||
-              (normalizedReason === "shell-hidden" && isInternalShellTransitionHide());
-            const rawPayload = await reactNativeBridge.call("storage.flushJournal");
+              (normalizedReason === "shell-hidden" &&
+                isInternalShellTransitionHide());
+            const rawPayload = await reactNativeBridge.call(
+              "storage.flushJournal",
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             const nextStatus = skipStatusRefresh
               ? null
@@ -9775,10 +10128,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       extraMethods: {
         async getManifest() {
           try {
-            const rawPayload = await reactNativeBridge.call("storage.getManifest");
+            const rawPayload = await reactNativeBridge.call(
+              "storage.getManifest",
+            );
             return parseJsonSafely(rawPayload, null);
           } catch (error) {
-            console.error("读取 React Native 存储 manifest 失败，回退本地推导:", error);
+            console.error(
+              "读取 React Native 存储 manifest 失败，回退本地推导:",
+              error,
+            );
             return null;
           }
         },
@@ -9801,7 +10159,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             options && typeof options === "object" ? { ...options } : {};
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
-            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+            return this.peekPageBootstrapState(
+              normalizedPage,
+              normalizedOptions,
+            );
           }
           const useFreshBootstrap = normalizedOptions.fresh === true;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
@@ -9817,28 +10178,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const shouldHydrateManagedMirror =
             useFreshBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
-            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+            return this.peekPageBootstrapState(
+              normalizedPage,
+              normalizedOptions,
+            );
           }
           if (canUseManagedBootstrapFastPath && !useFreshBootstrap) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
-            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+            return this.peekPageBootstrapState(
+              normalizedPage,
+              normalizedOptions,
+            );
           }
           try {
             const rawPayload =
               typeof reactNativeBridge?.call === "function"
-                ? await reactNativeBridge.call("storage.getPageBootstrapState", {
-                    pageKey: normalizedPage,
-                    options: normalizedOptions,
-                  }).catch(async () =>
-                    reactNativeBridge.call("storage.getBootstrapState", {
-                      options: {
-                        ...normalizedOptions,
-                        page: normalizedPage,
-                      },
-                    }),
-                  )
+                ? await reactNativeBridge
+                    .call("storage.getPageBootstrapState", {
+                      pageKey: normalizedPage,
+                      options: normalizedOptions,
+                    })
+                    .catch(async () =>
+                      reactNativeBridge.call("storage.getBootstrapState", {
+                        options: {
+                          ...normalizedOptions,
+                          page: normalizedPage,
+                        },
+                      }),
+                    )
                 : null;
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
@@ -9855,10 +10224,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                   storageStatus: cachedStatus,
                 },
               );
-              const normalizedBootstrapProjects = extractBootstrapProjectsFromPayload(
-                normalizedPage,
-                normalizedBootstrap,
-              );
+              const normalizedBootstrapProjects =
+                extractBootstrapProjectsFromPayload(
+                  normalizedPage,
+                  normalizedBootstrap,
+                );
               if (
                 safeSerialize(rawBootstrapProjects) !==
                 safeSerialize(normalizedBootstrapProjects)
@@ -9886,36 +10256,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             );
           }
           try {
-            const fallbackBootstrap = await buildPageBootstrapStateFromAsyncLoaders(
-              normalizedPage,
-              normalizedOptions,
-              {
-                fallbackState: buildCurrentMergedState(),
-                getCoreState: async () => this.getCoreState(),
-                loadSectionRange: async (section, scope = {}) => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.loadSectionRange",
-                    {
-                      section,
-                      scope,
-                    },
-                  );
-                  return parseJsonSafely(rawPayload, null);
+            const fallbackBootstrap =
+              await buildPageBootstrapStateFromAsyncLoaders(
+                normalizedPage,
+                normalizedOptions,
+                {
+                  fallbackState: buildCurrentMergedState(),
+                  getCoreState: async () => this.getCoreState(),
+                  loadSectionRange: async (section, scope = {}) => {
+                    const rawPayload = await reactNativeBridge.call(
+                      "storage.loadSectionRange",
+                      {
+                        section,
+                        scope,
+                      },
+                    );
+                    return parseJsonSafely(rawPayload, null);
+                  },
+                  getStorageStatus: async () => {
+                    const rawPayload =
+                      await reactNativeBridge.call("storage.getStatus");
+                    return parseJsonSafely(rawPayload, null);
+                  },
+                  getAutoBackupStatus: async () => {
+                    const rawPayload = await reactNativeBridge.call(
+                      "storage.getAutoBackupStatus",
+                    );
+                    return parseJsonSafely(rawPayload, null);
+                  },
                 },
-                getStorageStatus: async () => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.getStatus",
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
-                getAutoBackupStatus: async () => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.getAutoBackupStatus",
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
-              },
-            );
+              );
             if (shouldHydrateManagedMirror) {
               applyNativePageBootstrapToManagedMirror(
                 normalizedPage,
@@ -9935,10 +10305,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         async getDraft(key, options = {}) {
           try {
             if (typeof reactNativeBridge?.call === "function") {
-              const rawPayload = await reactNativeBridge.call("storage.getDraft", {
-                key,
-                options,
-              });
+              const rawPayload = await reactNativeBridge.call(
+                "storage.getDraft",
+                {
+                  key,
+                  options,
+                },
+              );
               const parsed = parseJsonSafely(rawPayload, null);
               return parsed ?? null;
             }
@@ -9946,7 +10319,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             console.error("读取 React Native 草稿失败，回退本地缓存:", error);
           }
           const storageKey = `${LOCAL_ONLY_STORAGE_PREFIX}draft:${String(key || "").trim()}`;
-          const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+          const rawValue = nativeMethods.getItem?.call(
+            window.localStorage,
+            storageKey,
+          );
           if (rawValue === null || rawValue === undefined) {
             return null;
           }
@@ -9961,11 +10337,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         async setDraft(key, value, options = {}) {
           try {
             if (typeof reactNativeBridge?.call === "function") {
-              const rawPayload = await reactNativeBridge.call("storage.setDraft", {
-                key,
-                value,
-                options,
-              });
+              const rawPayload = await reactNativeBridge.call(
+                "storage.setDraft",
+                {
+                  key,
+                  value,
+                  options,
+                },
+              );
               return parseJsonSafely(rawPayload, null);
             }
           } catch (error) {
@@ -10005,19 +10384,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return true;
         },
         async getPlanBootstrapState(options = {}) {
-          const pageBootstrap = await this.getPageBootstrapState("plan", options);
-          return (
-            pageBootstrap?.data && typeof pageBootstrap.data === "object"
-              ? {
-                  yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
-                  recurringPlans: cloneValue(
-                    Array.isArray(pageBootstrap.data.recurringPlans)
-                      ? pageBootstrap.data.recurringPlans
-                      : [],
-                  ),
-                }
-              : {}
+          const pageBootstrap = await this.getPageBootstrapState(
+            "plan",
+            options,
           );
+          return pageBootstrap?.data && typeof pageBootstrap.data === "object"
+            ? {
+                yearlyGoals: cloneValue(pageBootstrap.data.yearlyGoals || {}),
+                recurringPlans: cloneValue(
+                  Array.isArray(pageBootstrap.data.recurringPlans)
+                    ? pageBootstrap.data.recurringPlans
+                    : [],
+                ),
+              }
+            : {};
         },
         async getCoreState() {
           const managedSnapshot = getManagedCoreStateSnapshot();
@@ -10030,7 +10410,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return managedSnapshot;
           }
           try {
-            const rawPayload = await reactNativeBridge.call("storage.getCoreState");
+            const rawPayload = await reactNativeBridge.call(
+              "storage.getCoreState",
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               const normalizedCorePayload =
@@ -10043,9 +10425,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
                 markFull:
-                  managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
+                  managedFullyHydratedSections.size ===
+                  MANAGED_RANGE_SECTIONS.length,
               });
-              lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+              lastWrittenComparableSnapshot =
+                createComparableSnapshot(cachedState);
               hasPendingStateChanges = false;
               persistMirrorSnapshot(true);
               clearStorageSyncError();
@@ -10065,13 +10449,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return getManagedCoreStateSnapshot();
             }
           } catch (error) {
-            console.error("读取 React Native 核心状态失败，回退本地快照:", error);
+            console.error(
+              "读取 React Native 核心状态失败，回退本地快照:",
+              error,
+            );
           }
           return managedSnapshot;
         },
         async getAutoBackupStatus() {
           try {
-            const rawPayload = await reactNativeBridge.call("storage.getAutoBackupStatus");
+            const rawPayload = await reactNativeBridge.call(
+              "storage.getAutoBackupStatus",
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               return parsed;
@@ -10108,7 +10497,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         async runAutoBackupNow() {
           try {
-            const rawPayload = await reactNativeBridge.call("storage.runAutoBackupNow");
+            const rawPayload = await reactNativeBridge.call(
+              "storage.runAutoBackupNow",
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               return parsed;
@@ -10128,7 +10519,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         async shareLatestBackup() {
           try {
-            const rawPayload = await reactNativeBridge.call("storage.shareLatestBackup");
+            const rawPayload = await reactNativeBridge.call(
+              "storage.shareLatestBackup",
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               return parsed;
@@ -10150,10 +10543,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedRange = canServeManagedSectionRange(section, scope);
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
-            return loadManagedSectionRange(
-              section,
-              normalizedRange || scope,
-            );
+            return loadManagedSectionRange(section, normalizedRange || scope);
           }
           const canUseManagedRangeFastPath =
             nativeInitializationSettled && !!normalizedRange;
@@ -10163,16 +10553,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             hasManagedCoreSnapshot;
           if (canUseManagedRangeFastPath || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
-            return loadManagedSectionRange(
-              section,
-              normalizedRange || scope,
-            );
+            return loadManagedSectionRange(section, normalizedRange || scope);
           }
           try {
-            const rawPayload = await reactNativeBridge.call("storage.loadSectionRange", {
-              section,
-              scope,
-            });
+            const rawPayload = await reactNativeBridge.call(
+              "storage.loadSectionRange",
+              {
+                section,
+                scope,
+              },
+            );
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               mergeManagedSectionRange(
@@ -10183,7 +10573,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return parsed;
             }
           } catch (error) {
-            console.error("读取 React Native 分区范围失败，回退本地推导:", error);
+            console.error(
+              "读取 React Native 分区范围失败，回退本地推导:",
+              error,
+            );
           }
           return loadManagedSectionRange(section, scope);
         },
@@ -10196,7 +10589,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                   (item) =>
                     !(typeof storageBundle?.isRecurringPlan === "function"
                       ? storageBundle.isRecurringPlan(item)
-                      : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                      : String(item?.repeat || "")
+                          .trim()
+                          .toLowerCase() !== "none"),
                 )
               : state?.[section] || [];
           const existingItems = sectionItems.filter(
@@ -10207,7 +10602,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               ? (() => {
                   const removeIds = new Set(
                     [
-                      ...(Array.isArray(payload?.removeIds) ? payload.removeIds : []),
+                      ...(Array.isArray(payload?.removeIds)
+                        ? payload.removeIds
+                        : []),
                       ...(Array.isArray(payload?.removedItems)
                         ? payload.removedItems.map((item) => item?.id)
                         : []),
@@ -10220,8 +10617,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                     if (recordId) {
                       return `id:${recordId}`;
                     }
-                    if (typeof storageBundle?.buildPartitionMergeKey === "function") {
-                      return storageBundle.buildPartitionMergeKey("records", item);
+                    if (
+                      typeof storageBundle?.buildPartitionMergeKey ===
+                      "function"
+                    ) {
+                      return storageBundle.buildPartitionMergeKey(
+                        "records",
+                        item,
+                      );
                     }
                     return JSON.stringify({
                       name: item?.name || "",
@@ -10233,15 +10636,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                     });
                   };
                   const merged = new Map();
-                  (Array.isArray(existingItems) ? existingItems : []).forEach((item) => {
-                    merged.set(buildRecordMergeKey(item), cloneValue(item));
-                  });
+                  (Array.isArray(existingItems) ? existingItems : []).forEach(
+                    (item) => {
+                      merged.set(buildRecordMergeKey(item), cloneValue(item));
+                    },
+                  );
                   removeIds.forEach((recordId) => {
                     merged.delete(`id:${recordId}`);
                   });
-                  (Array.isArray(payload?.items) ? payload.items : []).forEach((item) => {
-                    merged.set(buildRecordMergeKey(item), cloneValue(item));
-                  });
+                  (Array.isArray(payload?.items) ? payload.items : []).forEach(
+                    (item) => {
+                      merged.set(buildRecordMergeKey(item), cloneValue(item));
+                    },
+                  );
                   return typeof storageBundle?.sortPartitionItems === "function"
                     ? storageBundle.sortPartitionItems(
                         "records",
@@ -10268,7 +10675,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                     ...(state?.plans || []).filter((item) =>
                       typeof storageBundle?.isRecurringPlan === "function"
                         ? storageBundle.isRecurringPlan(item)
-                        : String(item?.repeat || "").trim().toLowerCase() !== "none",
+                        : String(item?.repeat || "")
+                            .trim()
+                            .toLowerCase() !== "none",
                     ),
                   ],
                 }
@@ -10313,7 +10722,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               },
             );
           } catch (error) {
-            console.error("保存 React Native 分区范围失败，已保留本地镜像:", error);
+            console.error(
+              "保存 React Native 分区范围失败，已保留本地镜像:",
+              error,
+            );
             markPendingNativeStorageChangeMetadata({
               changedSections: [section],
               changedPeriods: {
@@ -10327,10 +10739,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         async replaceCoreState(partialCore = {}, options = {}) {
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const normalizedCorePatch = normalizeCorePayloadProjects(partialCore).payload;
-          const changedSections = inferChangedSectionsFromCorePatch(
-            normalizedCorePatch,
-          );
+          const normalizedCorePatch =
+            normalizeCorePayloadProjects(partialCore).payload;
+          const changedSections =
+            inferChangedSectionsFromCorePatch(normalizedCorePatch);
           assignState({
             ...readState(),
             ...(normalizedCorePatch &&
@@ -10367,7 +10779,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               },
             );
           } catch (error) {
-            console.error("替换 React Native 核心状态失败，已保留本地镜像:", error);
+            console.error(
+              "替换 React Native 核心状态失败，已保留本地镜像:",
+              error,
+            );
             markPendingNativeStorageChangeMetadata({
               changedSections,
             });
@@ -10377,7 +10792,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         },
         applySharedStateFromBridge(partialState = {}) {
           const sourceState =
-            partialState && typeof partialState === "object" && !Array.isArray(partialState)
+            partialState &&
+            typeof partialState === "object" &&
+            !Array.isArray(partialState)
               ? partialState
               : {};
           const currentState = readState();
@@ -10439,7 +10856,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             (item) =>
               !(typeof storageBundle?.isRecurringPlan === "function"
                 ? storageBundle.isRecurringPlan(item)
-                : String(item?.repeat || "").trim().toLowerCase() !== "none"),
+                : String(item?.repeat || "")
+                    .trim()
+                    .toLowerCase() !== "none"),
           );
           const recurringPlans = Array.isArray(items) ? items : [];
           assignState({
@@ -10470,7 +10889,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               },
             );
           } catch (error) {
-            console.error("替换 React Native 重复计划失败，已保留本地镜像:", error);
+            console.error(
+              "替换 React Native 重复计划失败，已保留本地镜像:",
+              error,
+            );
             markPendingNativeStorageChangeMetadata({
               changedSections: ["plansRecurring"],
             });
@@ -10688,7 +11110,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         scheduleNativeProbeLoop();
       }
     });
-    const forceFlushNativeStorage = (reason = "forced-persist", options = {}) => {
+    const forceFlushNativeStorage = (
+      reason = "forced-persist",
+      options = {},
+    ) => {
       const normalizedOptions =
         options && typeof options === "object" ? { ...options } : {};
       const allowLifecycleDeferral =
@@ -10734,20 +11159,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (skipStatusRefresh) {
         flushOptions.skipStatusRefresh = true;
       }
-      void window.ControlerStorage
-        ?.flushJournal?.({
-          ...flushOptions,
-        })
-        ?.catch((error) => {
-          console.error("强制立即保存 React Native 存储失败:", error);
-        });
+      void window.ControlerStorage?.flushJournal?.({
+        ...flushOptions,
+      })?.catch((error) => {
+        console.error("强制立即保存 React Native 存储失败:", error);
+      });
     };
     function isCurrentPageNativeStorageChange(detail = {}) {
       const originPageInstanceId =
         typeof detail?.originPageInstanceId === "string"
           ? detail.originPageInstanceId.trim()
           : "";
-      return !!originPageInstanceId && originPageInstanceId === STORAGE_PAGE_INSTANCE_ID;
+      return (
+        !!originPageInstanceId &&
+        originPageInstanceId === STORAGE_PAGE_INSTANCE_ID
+      );
     }
     window.addEventListener("controler:native-bridge-event", (event) => {
       const detail =
@@ -10764,8 +11190,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : "",
           isCurrentPageChange: isCurrentPageNativeStorageChange(detail),
           hasPendingStateChanges: hasPendingStateChanges === true,
-          changedSections: normalizeChangedSectionsList(detail.changedSections || []),
-          changedPeriods: normalizeChangedPeriodsMap(detail.changedPeriods || {}),
+          changedSections: normalizeChangedSectionsList(
+            detail.changedSections || [],
+          ),
+          changedPeriods: normalizeChangedPeriodsMap(
+            detail.changedPeriods || {},
+          ),
         });
         emitStoragePerfMetric("storage-changed-bridge", {
           reason: typeof detail.reason === "string" ? detail.reason.trim() : "",
@@ -10776,7 +11206,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : "",
           isCurrentPageChange: isCurrentPageNativeStorageChange(detail),
           hasPendingStateChanges: hasPendingStateChanges === true,
-          changedSections: normalizeChangedSectionsList(detail.changedSections || []),
+          changedSections: normalizeChangedSectionsList(
+            detail.changedSections || [],
+          ),
         });
         if (!shellPageActive) {
           return;
@@ -10951,7 +11383,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   });
 
   function readRawBrowserStorageState() {
-    const rawRoot = nativeMethods.getItem?.call(window.localStorage, BROWSER_STATE_KEY);
+    const rawRoot = nativeMethods.getItem?.call(
+      window.localStorage,
+      BROWSER_STATE_KEY,
+    );
     const migratedState = normalizeState({}, buildBrowserMetadata());
     const migratedKeys = [];
     let shouldRewriteRoot = false;
@@ -11055,7 +11490,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       );
     }
 
-    return createSourceSyncResult(buildMergedState(cachedBrowserState), nextStatus);
+    return createSourceSyncResult(
+      buildMergedState(cachedBrowserState),
+      nextStatus,
+    );
   }
 
   installManagedLocalStorage({
@@ -11070,25 +11508,28 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     },
     async getStorageStatus() {
       const serialized = JSON.stringify(buildMergedState(readBrowserState()));
-      return enrichStorageStatusWithRecovery({
-        projects: Array.isArray(cachedBrowserState.projects)
-          ? cachedBrowserState.projects.length
-          : 0,
-        records: Array.isArray(cachedBrowserState.records)
-          ? cachedBrowserState.records.length
-          : 0,
-        size: serialized.length,
-        storagePath: "browser://localStorage/bundle-manifest.json",
-        storageDirectory: "browser://localStorage",
-        actualUri: BROWSER_STATE_KEY,
-        userDataPath: "Browser LocalStorage",
-        documentsPath: "Browser LocalStorage",
-        isCustomPath: false,
-        storageMode: "directory-bundle",
-        bundleMode: "directory-bundle",
-        syncFileName: MOBILE_FILE_NAME,
-        platform: browserPlatform,
-      }, cachedBrowserState);
+      return enrichStorageStatusWithRecovery(
+        {
+          projects: Array.isArray(cachedBrowserState.projects)
+            ? cachedBrowserState.projects.length
+            : 0,
+          records: Array.isArray(cachedBrowserState.records)
+            ? cachedBrowserState.records.length
+            : 0,
+          size: serialized.length,
+          storagePath: "browser://localStorage/bundle-manifest.json",
+          storageDirectory: "browser://localStorage",
+          actualUri: BROWSER_STATE_KEY,
+          userDataPath: "Browser LocalStorage",
+          documentsPath: "Browser LocalStorage",
+          isCustomPath: false,
+          storageMode: "directory-bundle",
+          bundleMode: "directory-bundle",
+          syncFileName: MOBILE_FILE_NAME,
+          platform: browserPlatform,
+        },
+        cachedBrowserState,
+      );
     },
     syncFromSource(options = {}) {
       return syncFromBrowserSource(options);
@@ -11112,7 +11553,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (LOCAL_ONLY_EXACT_KEYS.has(actualKey)) {
       return true;
     }
-    return LOCAL_ONLY_KEY_PREFIXES.some((prefix) => actualKey.startsWith(prefix));
+    return LOCAL_ONLY_KEY_PREFIXES.some((prefix) =>
+      actualKey.startsWith(prefix),
+    );
   }
 
   function getLocalStorageNamespaceKey(key) {
@@ -11127,17 +11570,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       parseJsonSafely(event.newValue, {}),
       buildBrowserMetadata(),
     );
-    dispatchStorageChangedEvent("external-update", buildMergedState(cachedBrowserState), {
-      actualUri: BROWSER_STATE_KEY,
-      storagePath: "browser://localStorage/bundle-manifest.json",
-    });
+    dispatchStorageChangedEvent(
+      "external-update",
+      buildMergedState(cachedBrowserState),
+      {
+        actualUri: BROWSER_STATE_KEY,
+        storagePath: "browser://localStorage/bundle-manifest.json",
+      },
+    );
   });
 
   bindExternalSyncAutoReload();
-})();
+})(); /* pages/widget-bridge.js */
 
-
-;/* pages/widget-bridge.js */
 (() => {
   const LAUNCH_ACTION_EVENT = "controler:launch-action";
   const DEFAULT_ANDROID_PIN_SUPPORT = Object.freeze({
@@ -11227,7 +11672,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? storageBridge.platform.trim()
           : "web";
 
-    if (electronAPI?.runtimeMeta && typeof electronAPI.runtimeMeta === "object") {
+    if (
+      electronAPI?.runtimeMeta &&
+      typeof electronAPI.runtimeMeta === "object"
+    ) {
       return electronAPI.runtimeMeta;
     }
 
@@ -11236,9 +11684,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         runtime: "react-native",
         platform: nativePlatform,
         capabilities:
-          nativeBridge?.capabilities && typeof nativeBridge.capabilities === "object"
+          nativeBridge?.capabilities &&
+          typeof nativeBridge.capabilities === "object"
             ? nativeBridge.capabilities
-            : storageBridge?.capabilities && typeof storageBridge.capabilities === "object"
+            : storageBridge?.capabilities &&
+                typeof storageBridge.capabilities === "object"
               ? storageBridge.capabilities
               : {},
       };
@@ -11270,13 +11720,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         ? runtimeMeta.capabilities
         : {};
 
-    const desktopWidgetBridgeState = resolveDesktopWidgetBridgeState(electronAPI);
+    const desktopWidgetBridgeState =
+      resolveDesktopWidgetBridgeState(electronAPI);
     const isElectron = !!electronAPI?.isElectron;
     const hasNativeCall = typeof nativeBridge?.call === "function";
     const nativePlatform =
       typeof runtimeMeta?.platform === "string" && runtimeMeta.platform.trim()
         ? runtimeMeta.platform.trim()
-        : typeof nativeBridge?.platform === "string" && nativeBridge.platform.trim()
+        : typeof nativeBridge?.platform === "string" &&
+            nativeBridge.platform.trim()
           ? nativeBridge.platform.trim()
           : typeof storageBridge?.platform === "string" &&
               storageBridge.platform.trim()
@@ -11360,7 +11812,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       new CustomEvent(LAUNCH_ACTION_EVENT, {
         detail: {
           page: normalizePageName(payload.page) || getCurrentPageName(),
-          action: typeof payload.action === "string" ? payload.action.trim() : "",
+          action:
+            typeof payload.action === "string" ? payload.action.trim() : "",
           widgetKind:
             typeof payload.widgetKind === "string"
               ? payload.widgetKind.trim()
@@ -11381,7 +11834,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function routeOrDispatchLaunchAction(payload = {}) {
     const currentPage = getCurrentPageName();
     const targetPage = normalizePageName(payload.page) || currentPage;
-    const action = typeof payload.action === "string" ? payload.action.trim() : "";
+    const action =
+      typeof payload.action === "string" ? payload.action.trim() : "";
 
     if (targetPage && targetPage !== currentPage) {
       const nextUrl = buildPageUrl(targetPage, {
@@ -11573,7 +12027,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ...androidPinSupportCache.get(normalizedKind),
         };
       }
-      const result = await safeNativeCall("getPinSupport", { kind: normalizedKind });
+      const result = await safeNativeCall("getPinSupport", {
+        kind: normalizedKind,
+      });
       const normalized = normalizeAndroidPinSupport(normalizedKind, result);
       androidPinSupportCache.set(normalizedKind, normalized);
       return {
@@ -11604,7 +12060,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ...support,
         };
       }
-      const result = await safeNativeCall("requestPinWidget", { kind: normalizedKind });
+      const result = await safeNativeCall("requestPinWidget", {
+        kind: normalizedKind,
+      });
       return (
         result || {
           ok: false,
@@ -11664,7 +12122,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (typeof snapshot.electronAPI?.desktopWidgetsCreate !== "function") {
         return {
           ok: false,
-          message: snapshot.desktopWidgetBridgeMessage || "当前环境不支持桌面小组件。",
+          message:
+            snapshot.desktopWidgetBridgeMessage || "当前环境不支持桌面小组件。",
         };
       }
       try {
@@ -11682,7 +12141,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (typeof snapshot.electronAPI?.desktopWidgetsRemove !== "function") {
         return {
           ok: false,
-          message: snapshot.desktopWidgetBridgeMessage || "当前环境不支持桌面小组件。",
+          message:
+            snapshot.desktopWidgetBridgeMessage || "当前环境不支持桌面小组件。",
         };
       }
       try {
@@ -11724,15 +12184,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     },
     async updateDesktopWidgetSettings(settings = {}) {
       const snapshot = getRuntimeSnapshot();
-      if (typeof snapshot.electronAPI?.desktopWidgetsUpdateSettings !== "function") {
+      if (
+        typeof snapshot.electronAPI?.desktopWidgetsUpdateSettings !== "function"
+      ) {
         return {
           ok: false,
           message:
-            snapshot.desktopWidgetBridgeMessage || "当前环境不支持桌面小组件设置。",
+            snapshot.desktopWidgetBridgeMessage ||
+            "当前环境不支持桌面小组件设置。",
         };
       }
       try {
-        return await snapshot.electronAPI.desktopWidgetsUpdateSettings(settings);
+        return await snapshot.electronAPI.desktopWidgetsUpdateSettings(
+          settings,
+        );
       } catch (error) {
         console.error("更新桌面小组件设置失败:", error);
         return {
@@ -11743,7 +12208,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     },
     async openMainAction(payload = {}) {
       const snapshot = getRuntimeSnapshot();
-      if (typeof snapshot.electronAPI?.desktopWidgetsOpenMainAction === "function") {
+      if (
+        typeof snapshot.electronAPI?.desktopWidgetsOpenMainAction === "function"
+      ) {
         return snapshot.electronAPI.desktopWidgetsOpenMainAction(payload);
       }
       routeOrDispatchLaunchAction(payload);
@@ -11754,17 +12221,592 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   };
 
   window.ControlerWidgetsBridge = bridgeApi;
-})();
+})(); /* pages/i18n.js */
 
+(() => {
+  const K = "appLanguage",
+    D = "zh-CN",
+    E = "controler:language-changed",
+    A = { zh: "zh-CN", "zh-CN": "zh-CN", en: "en-US", "en-US": "en-US" },
+    W = {
+      日: "Sun",
+      一: "Mon",
+      二: "Tue",
+      三: "Wed",
+      四: "Thu",
+      五: "Fri",
+      六: "Sat",
+      周日: "Sun",
+      周一: "Mon",
+      周二: "Tue",
+      周三: "Wed",
+      周四: "Thu",
+      周五: "Fri",
+      周六: "Sat",
+    },
+    M = {
+      时间跟踪器: "Time Tracker",
+      时间记录: "Time Record",
+      时间统计: "Time Stats",
+      时间计划: "Planning",
+      计划待办: "Plans & Todos",
+      日记: "Diary",
+      其他设置: "Settings",
+      记录: "Record",
+      统计: "Stats",
+      计划: "Plan",
+      设置: "Settings",
+      主题配色: "Theme Colors",
+      视图尺寸: "View Size",
+      数据管理: "Data Management",
+      导出数据: "Export Data",
+      导入数据: "Import Data",
+      清除所有数据: "Clear All Data",
+      "当前存储状态:": "Current storage status:",
+      "正在加载...": "Loading...",
+      存储路径管理: "Storage Path",
+      "当前存储路径:": "Current storage path:",
+      "路径类型:": "Path type:",
+      更改存储路径: "Change Storage Path",
+      重置为默认路径: "Reset to Default Path",
+      显示存储数据路径: "Show Storage Data Path",
+      清除数据预览: "Clear Data Preview",
+      "以下数据将被清除:": "The following data will be removed:",
+      "此操作不可撤销！请确认是否继续。":
+        "This action cannot be undone. Please confirm to continue.",
+      取消: "Cancel",
+      保存: "Save",
+      删除: "Delete",
+      编辑: "Edit",
+      确认清除: "Confirm Clear",
+      显示语言: "Display Language",
+      界面语言: "Interface Language",
+      "切换应用界面语言，默认简体中文。":
+        "Switch the app language. The default is Simplified Chinese.",
+      简体中文: "Simplified Chinese",
+      "选择您喜欢的主题配色，设置将自动保存。":
+        "Choose your preferred theme palette. Changes save automatically.",
+      添加自定义主题: "Add Custom Theme",
+      "最小可调到 10%。": "The minimum adjustable size is 10%.",
+      "重置为默认 100%": "Reset to Default 100%",
+      "管理您的项目和时间记录数据。":
+        "Manage your projects and time-tracking data.",
+      选择时间范围并使用上方折叠按钮查看统计:
+        "Select a date range and use the controls above to view stats",
+      "请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":
+        "Please choose a suitable range (table view supports 7 to 14 days)",
+      "月视图需要至少28天的时间范围，请选择更长的时间范围":
+        "The monthly view needs at least 28 days. Please choose a longer range.",
+      "月视图最多支持90天，请选择更短的时间范围":
+        "The monthly view supports up to 90 days. Please choose a shorter range.",
+      "每个色块代表一个时间段，鼠标悬停可查看详情":
+        "Each color block represents a time slot. Hover for details.",
+      "请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":
+        "Please choose a suitable range (table view supports 7 to 14 days)",
+      "月视图需要至少28天的时间范围，请选择更长的时间范围":
+        "The monthly view needs at least 28 days. Please choose a longer range.",
+      "月视图最多支持90天，请选择更短的时间范围":
+        "The monthly view supports up to 90 days. Please choose a shorter range.",
+      "每个色块代表一个时间段，鼠标悬停可查看详情":
+        "Each color block represents a time slot. Hover for details.",
+      统计视图: "Stats View",
+      表格视图: "Table View",
+      饼状图和折线图: "Pie & Line Charts",
+      日历热图: "Calendar Heatmap",
+      开始日期: "Start Date",
+      结束日期: "End Date",
+      显示层级: "Level",
+      全部: "All",
+      时间: "Time",
+      今天: "Today",
+      明天: "Tomorrow",
+      昨天: "Yesterday",
+      "图例：": "Legend:",
+      创建项目: "Create Project",
+      开始计时: "Start Timer",
+      配置计时: "Configure Timer",
+      "当前项目（本次记录）": "Current Project (This Record)",
+      输入或选择本次计时项目: "Type or select a project",
+      高级创建项目: "Advanced Project Creation",
+      项目层级: "Project Level",
+      一级项目: "Level 1 Project",
+      二级项目: "Level 2 Project",
+      三级项目: "Level 3 Project",
+      请选择父级项目: "Select a parent project",
+      项目颜色: "Project Color",
+      待办事项: "Todos",
+      "📝 待办事项": "📝 Todos",
+      "✅ 打卡项目": "✅ Check-in Items",
+      "➕ 添加项目": "➕ Add Item",
+      进行中: "In Progress",
+      已完成: "Completed",
+      未完成: "Incomplete",
+      已过期: "Overdue",
+      今天到期: "Due Today",
+      列表视图: "List View",
+      四象限视图: "Quadrant View",
+      按截止日期排序: "Sort by Due Date",
+      按优先级排序: "Sort by Priority",
+      按创建时间排序: "Sort by Created Time",
+      按标题排序: "Sort by Title",
+      "搜索待办事项...": "Search todos...",
+      "今日打卡统计：": "Today's check-ins:",
+      "连续打卡最长：": "Longest streak:",
+      暂无待办事项: "No todos yet",
+      '点击"添加项目"按钮开始创建': 'Click "Add Item" to start creating',
+      创建第一个待办事项: "Create Your First Todo",
+      待办事项统计: "Todo Stats",
+      打卡统计: "Check-in Stats",
+      总计: "Total",
+      打卡项目数: "Check-in Items",
+      今日应打卡: "Scheduled Today",
+      今日已打卡: "Checked In Today",
+      最长连续天数: "Longest Streak",
+      无描述: "No description",
+      无截止日期: "No due date",
+      每天: "Repeats Daily",
+      不重复: "No Repeat",
+      每周: "Specific Weekdays",
+      编辑待办事项: "Edit Todo",
+      创建待办事项: "Create Todo",
+      "标题 *": "Title *",
+      描述: "Description",
+      截止日期: "Due Date",
+      重复规则: "Repeat Rule",
+      输入待办事项标题: "Enter a todo title",
+      "输入待办事项描述（可选）": "Enter a todo description (optional)",
+      低: "Low",
+      中: "Medium",
+      高: "High",
+      低优先级: "Low Priority",
+      中优先级: "Medium Priority",
+      高优先级: "High Priority",
+      保存更改: "Save Changes",
+      编辑打卡项目: "Edit Check-in Item",
+      创建打卡项目: "Create Check-in Item",
+      输入打卡项目标题: "Enter a check-in title",
+      "输入打卡项目描述（可选）": "Enter a check-in description (optional)",
+      "结束日期（可选）": "End Date (Optional)",
+      蓝色: "Blue",
+      绿色: "Green",
+      橙色: "Orange",
+      紫色: "Purple",
+      删除打卡项目: "Delete Check-in Item",
+      年视图: "Year View",
+      月视图: "Month View",
+      周视图: "Week View",
+      "➕ 添加新计划": "➕ Add Plan",
+      "正在加载计划视图...": "Loading plan view...",
+      请输入计划名称: "Please enter a plan name",
+      请选择日期: "Please choose a date",
+      请选择开始和结束时间: "Please choose start and end times",
+      结束时间必须晚于开始时间: "End time must be later than start time",
+      编辑计划: "Edit Plan",
+      添加新计划: "Add New Plan",
+      创建新计划: "Create New Plan",
+      计划名称: "Plan Name",
+      重复设置: "Repeat Settings",
+      删除计划: "Delete Plan",
+      创建计划: "Create Plan",
+      标记为已完成: "Mark as Completed",
+      标记为未完成: "Mark as Incomplete",
+      重要且紧急: "Important & Urgent",
+      重要不紧急: "Important, Not Urgent",
+      紧急不重要: "Urgent, Not Important",
+      不重要不紧急: "Neither Important nor Urgent",
+      日记视图: "Diary View",
+      点击写日记: "Click to write a diary",
+      未命名日记: "Untitled Diary",
+      删除日记内容: "Delete Diary Content",
+      输入日记标题: "Enter a diary title",
+      "写下今天...": "Write about today...",
+      日记分类管理: "Diary Category Management",
+      请输入分类名称: "Please enter a category name",
+      分类名称已存在: "That category name already exists",
+      未分类: "Uncategorized",
+      默认: "Default",
+      森林磨砂: "Forest Frost",
+      海蓝磨砂: "Ocean Frost",
+      落日暖橙: "Sunset Orange",
+      中性磨砂灰: "Neutral Frost Gray",
+      曜石黑: "Obsidian Black",
+      象牙白: "Ivory Light",
+      主背景: "Primary Background",
+      次背景: "Secondary Background",
+      三级背景: "Tertiary Background",
+      浅层背景: "Surface Background",
+      强调色: "Accent Color",
+      文字颜色: "Text Color",
+      次级文字: "Muted Text",
+      通用描边: "Border Color",
+      主按钮: "Primary Button",
+      按钮悬停: "Button Hover",
+      按钮文字: "Button Text",
+      按钮描边: "Button Border",
+      强调底文字: "Accent Text",
+      删除按钮: "Delete Button",
+      删除悬停: "Delete Hover",
+      面板底色: "Panel Background",
+      强化面板: "Strong Panel",
+      面板描边: "Panel Border",
+      遮罩颜色: "Overlay Color",
+      "时间记录 · 项目表格": "Time Record · Project Table",
+      "时间统计 · 时间表格": "Time Stats · Time Grid",
+      "时间统计 · 日历热图": "Time Stats · Calendar Heatmap",
+      "时间计划 · 年视图": "Planning · Year View",
+      "时间计划 · 月视图": "Planning · Month View",
+      "时间计划 · 周视图": "Planning · Week View",
+      "待办事项 · 列表视图": "Todos · List View",
+      "待办事项 · 四象限视图": "Todos · Quadrant View",
+      "表格与热图尺寸已重置为 100%": "Table and heatmap sizes reset to 100%",
+      请输入项目名称: "Please enter a project name",
+      "项目名称已存在，请使用其他名称":
+        "That project name already exists. Please choose another one.",
+      选择的父级项目不存在: "The selected parent project does not exist",
+      二级项目的父级必须是一级项目:
+        "A level 2 project must use a level 1 parent",
+      三级项目的父级必须是二级项目:
+        "A level 3 project must use a level 2 parent",
+      "项目创建成功！": "Project created successfully!",
+      请先创建一级项目: "Please create a level 1 project first",
+      请先创建二级项目: "Please create a level 2 project first",
+      "暂无一级项目，请先创建一级项目":
+        "No level 1 projects yet. Please create one first.",
+      暂无二级项目: "No level 2 projects",
+      暂无三级项目: "No level 3 projects",
+      表格视图将根据项目层级自动组织:
+        "The table view is organized by project level",
+      请输入待办事项标题: "Please enter a todo title",
+      请选择每周重复的日期: "Please choose weekdays for repetition",
+      结束日期不能早于开始日期: "End date cannot be earlier than start date",
+      请输入进度内容: "Please enter progress details",
+      "保存失败，请刷新后重试": "Save failed. Please refresh and try again.",
+      暂无打卡项目: "No check-in items yet",
+      '点击"添加项目"按钮创建打卡项目':
+        'Click "Add Item" to create a check-in item',
+      "确定要删除这个打卡项目吗？此操作不可撤销！":
+        "Delete this check-in item? This action cannot be undone!",
+      "删除失败：未找到该打卡项目，请刷新后重试。":
+        "Delete failed: the check-in item was not found. Please refresh and try again.",
+      "确定要删除这个待办事项吗？此操作不可撤销！":
+        "Delete this todo item? This action cannot be undone!",
+      "删除失败：未找到该待办事项，请刷新后重试。":
+        "Delete failed: the todo item was not found. Please refresh and try again.",
+      "确定删除这条进度记录吗？": "Delete this progress entry?",
+      删除进度记录: "Delete Progress Entry",
+      "记录你的进度或想法...": "Record your progress or ideas...",
+      请输入打卡项目标题: "Please enter a check-in title",
+      请选择开始日期: "Please choose a start date",
+      今日不在打卡周期: "Not scheduled today",
+      今日未打卡: "Not checked in today",
+      点击写日记: "Click to write a diary",
+      请至少输入标题或正文: "Please enter at least a title or content",
+      "确定删除该日记吗？": "Delete this diary entry?",
+      "确定删除该分类吗？相关日记将转为未分类。":
+        "Delete this category? Related diary entries will become uncategorized.",
+      "数据已导出！": "Data exported successfully!",
+      "导出数据失败，请重试。": "Failed to export data. Please try again.",
+      "数据导入成功！请刷新页面查看变化。":
+        "Data imported successfully! Please refresh to see the changes.",
+      "导入数据失败，请确保文件格式正确。":
+        "Failed to import data. Please make sure the file format is correct.",
+      "所有数据已清除！页面将自动刷新。":
+        "All data has been cleared. The page will refresh automatically.",
+      "清除数据失败，请重试。": "Failed to clear data. Please try again.",
+      "确定要清除所有数据吗？此操作不可撤销！":
+        "Clear all data? This action cannot be undone!",
+      "预览失败，确定要清除所有数据吗？此操作不可撤销！":
+        "Preview failed. Clear all data anyway? This action cannot be undone!",
+      "在浏览器环境中无法更改存储路径，此功能仅在Electron应用中可用。":
+        "This feature is only available in the Electron app.",
+      "选择文件夹失败，请重试。":
+        "Failed to choose a folder. Please try again.",
+      "在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":
+        "This feature is only available in the Electron app.",
+      "确定要重置存储路径为默认值吗？":
+        "Reset the storage path to the default value?",
+      未知: "Unknown",
+      自定义路径: "Custom Path",
+      默认路径: "Default Path",
+      浏览器localStorage: "Browser localStorage",
+      没有可清除的数据: "No data to clear",
+      天: "Day",
+      周: "Week",
+      月: "Month",
+      年: "Year",
+    },
+    P = [
+      [
+        /^显示:\s*(.+?)\s*至\s*(.+?)\s*·\s*(.+?)范围$/,
+        (_, a, b, c) => `Showing: ${a} to ${b} · ${x(c)} range`,
+      ],
+      [
+        /^显示:\s*(.+?)\s*·\s*(.+?)范围$/,
+        (_, a, b) => `Showing: ${a} · ${x(b)} range`,
+      ],
+      [/^(.+?)\s+暂无日记$/, (_, a) => `No diary entries for ${a}`],
+      [/^分类：(.+)$/, (_, a) => `Category: ${a}`],
+      [/^路径:\s+(.+)$/, (_, a) => `Path: ${a}`],
+      [/^记录数量:\s+(.+)$/, (_, a) => `Record count: ${a}`],
+      [/^项目数量:\s+(.+)$/, (_, a) => `Project count: ${a}`],
+      [/^第(\d+)周$/, (_, a) => `Week ${a}`],
+      [/^(\d+(?:\.\d+)?)小时$/, (_, a) => `${a} h`],
+      [/^(\d+)分钟$/, (_, a) => `${a} min`],
+      [/^(\d+)天$/, (_, a) => `${a} days`],
+      [/^(\d+) 项$/, (_, a) => `${a} items`],
+      [/^(\d{4})年(\d{1,2})月$/, (_, a, b) => `${a}-${b}`],
+      [/^(\d{1,2})月(\d{1,2})日$/, (_, a, b) => `${a}/${b}`],
+      [
+        /^(\d{1,2})月(\d{1,2})日\s+(周[日一二三四五六])$/,
+        (_, a, b, c) => `${a}/${b} ${w(c)}`,
+      ],
+      [
+        /^(\d{1,2})月(\d{1,2})日\s*-\s*(\d{1,2})月(\d{1,2})日$/,
+        (_, a, b, c, d) => `${a}/${b} - ${c}/${d}`,
+      ],
+      [/^🔥\s*(\d+)天$/, (_, a) => `🔥 ${a} days`],
+      [/^📝 为"(.+)"添加进度$/, (_, a) => `📝 Add progress for "${a}"`],
+      [/^📝 编辑"(.+)"的进度$/, (_, a) => `📝 Edit progress for "${a}"`],
+      [
+        /^已将 "(.+)" 移动到 (\d+)\/(\d+)\s+(\d+):00$/,
+        (_, a, b, c, d) => `Moved "${a}" to ${b}/${c} ${d}:00`,
+      ],
+      [/^每周\s+(.+)$/, (_, a) => `Weekly ${w(a)}`],
+      [
+        /^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*至\s*(.+)$/,
+        (_, a, b, c) => `🔁 Weekly ${w(a)} · ${b} to ${c}`,
+      ],
+      [
+        /^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*起$/,
+        (_, a, b) => `🔁 Weekly ${w(a)} · from ${b}`,
+      ],
+      [
+        /^🔁\s*每天重复\s*·\s*(.+?)\s*至\s*(.+)$/,
+        (_, a, b) => `🔁 Repeats daily · ${a} to ${b}`,
+      ],
+      [
+        /^🔁\s*每天重复\s*·\s*(.+?)\s*起$/,
+        (_, a) => `🔁 Repeats daily · from ${a}`,
+      ],
+      [/^一次性\s*·\s*截止\s*(.+)$/, (_, a) => `One-time · Due ${a}`],
+      [/^(.+?)（汇总）$/, (_, a) => `${a} (Summary)`],
+    ];
+  let L = r(v()),
+    O,
+    B = !1,
+    U = !1;
+  function r(s) {
+    return A[String(s || "").trim()] || D;
+  }
+  function v() {
+    try {
+      const s = localStorage.getItem(K);
+      if (!s) localStorage.setItem(K, D);
+      return s || D;
+    } catch {
+      return D;
+    }
+  }
+  function e() {
+    return L === "en-US";
+  }
+  function w(s) {
+    return String(s || "")
+      .split("、")
+      .map((t) => W[t.trim()] || t.trim())
+      .join(", ");
+  }
+  function c(s) {
+    if (!e() || !/[\u4e00-\u9fff]/.test(s)) return s;
+    let t = M[s] ?? s;
+    P.forEach(([p, f]) => (t = t.replace(p, f)));
+    return t;
+  }
+  function x(s) {
+    return typeof s === "string" ? c(s) : s;
+  }
+  function t(s) {
+    if (typeof s !== "string" || !e()) return s;
+    return s
+      .split("\n")
+      .map((n) => {
+        const a = n.match(/^\s*/)?.[0] || "",
+          b = n.match(/\s*$/)?.[0] || "",
+          m = n.trim();
+        return m ? `${a}${c(m)}${b}` : n;
+      })
+      .join("\n");
+  }
+  function y() {
+    if (window.__controlerI18nDialogs) return;
+    window.__controlerI18nDialogs = !0;
+    const a = window.alert.bind(window),
+      b = window.confirm.bind(window),
+      m =
+        typeof window.prompt === "function" ? window.prompt.bind(window) : null;
+    window.alert = (s) => a(t(String(s)));
+    window.confirm = (s) => b(t(String(s)));
+    if (m) window.prompt = (s, d) => m(t(String(s)), d);
+  }
+  function z(o = {}) {
+    if (!e()) return o;
+    const n = { ...o };
+    ["title", "message", "confirmText", "cancelText"].forEach((k) => {
+      if (typeof n[k] === "string") n[k] = t(n[k]);
+    });
+    return n;
+  }
+  function C() {
+    if (U || !window.ControlerUI) return;
+    U = !0;
+    if (typeof window.ControlerUI.confirmDialog === "function") {
+      const a = window.ControlerUI.confirmDialog.bind(window.ControlerUI);
+      window.ControlerUI.confirmDialog = (o) => a(z(o));
+    }
+    if (typeof window.ControlerUI.alertDialog === "function") {
+      const a = window.ControlerUI.alertDialog.bind(window.ControlerUI);
+      window.ControlerUI.alertDialog = (o) => a(z(o));
+    }
+  }
+  function G(el) {
+    return (
+      el instanceof HTMLInputElement &&
+      ["button", "submit", "reset"].includes(
+        String(el.type || "").toLowerCase(),
+      )
+    );
+  }
+  function H(el, a) {
+    el.__controlerI18nAttrs ??= {};
+    if (!(a in el.__controlerI18nAttrs))
+      el.__controlerI18nAttrs[a] = el.getAttribute(a);
+    return el.__controlerI18nAttrs[a];
+  }
+  function I(el) {
+    if (!(el instanceof Element)) return;
+    ["placeholder", "title", "aria-label"].forEach((a) => {
+      if (!el.hasAttribute(a)) return;
+      const o = H(el, a);
+      if (o == null) return;
+      const n = e() ? t(o) : o;
+      if (el.getAttribute(a) !== n) el.setAttribute(a, n);
+    });
+    if (G(el) && el.hasAttribute("value")) {
+      const o = H(el, "value");
+      if (o == null) return;
+      const n = e() ? t(o) : o;
+      if (el.value !== n) el.value = n;
+      if (el.getAttribute("value") !== n) el.setAttribute("value", n);
+    }
+  }
+  function J(n) {
+    const p = n?.parentElement;
+    if (!(p instanceof Element)) return !0;
+    return (
+      p.tagName === "SCRIPT" ||
+      p.tagName === "STYLE" ||
+      p.closest("[data-i18n-skip='true']")
+    );
+  }
+  function N(n) {
+    if (!(n instanceof Text) || J(n)) return;
+    if (n.__controlerI18nText === void 0) n.__controlerI18nText = n.nodeValue;
+    const o = n.__controlerI18nText,
+      m = e() ? t(o) : o;
+    if (n.nodeValue !== m) n.nodeValue = m;
+  }
+  function S(root = document.documentElement) {
+    if (!root || B) return;
+    B = !0;
+    try {
+      if (root instanceof Element) I(root);
+      const q = document.createTreeWalker(
+        root,
+        NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+      );
+      for (let n = q.currentNode; n; n = q.nextNode())
+        n.nodeType === Node.TEXT_NODE ? N(n) : I(n);
+      document.documentElement.lang = e() ? "en" : "zh-CN";
+      R();
+      C();
+    } finally {
+      B = !1;
+    }
+  }
+  function F(ms) {
+    if (B) return;
+    ms.forEach((m) => {
+      if (m.type === "characterData") {
+        N(m.target);
+        return;
+      }
+      if (m.type === "attributes") {
+        if (m.target instanceof Element) I(m.target);
+        return;
+      }
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType === Node.TEXT_NODE) N(n);
+        else if (n.nodeType === Node.ELEMENT_NODE) S(n);
+      });
+    });
+  }
+  function T() {
+    if (O || !document.documentElement) return;
+    O = new MutationObserver(F);
+    O.observe(document.documentElement, {
+      childList: !0,
+      subtree: !0,
+      characterData: !0,
+      attributes: !0,
+      attributeFilter: ["placeholder", "title", "aria-label", "value"],
+    });
+  }
+  function R() {
+    document
+      .querySelectorAll("#language-select,[data-language-select='true']")
+      .forEach((el) => {
+        if (el instanceof HTMLSelectElement && el.value !== L) el.value = L;
+      });
+  }
+  function Q() {
+    document
+      .querySelectorAll("#language-select,[data-language-select='true']")
+      .forEach((el) => {
+        if (!(el instanceof HTMLSelectElement) || el.dataset.i18nBound) return;
+        el.dataset.i18nBound = "true";
+        el.value = L;
+        el.addEventListener("change", () => j(el.value));
+      });
+  }
+  function j(lang, { persist = !0, dispatch = !0 } = {}) {
+    L = r(lang);
+    if (persist)
+      try {
+        localStorage.setItem(K, L);
+      } catch {}
+    S();
+    if (dispatch)
+      window.dispatchEvent(new CustomEvent(E, { detail: { language: L } }));
+  }
+  y();
+  window.addEventListener("storage", (e2) => {
+    if (e2.key === K) j(e2.newValue || D, { persist: !1, dispatch: !1 });
+  });
+  document.addEventListener("DOMContentLoaded", () => {
+    Q();
+    T();
+    S();
+  });
+  window.ControlerI18n = {
+    getLanguage: () => L,
+    setLanguage: j,
+    t,
+    translateText: t,
+    apply: S,
+    eventName: E,
+  };
+})(); /* pages/i18n-extra.js */
 
-;/* pages/i18n.js */
-(()=>{const K="appLanguage",D="zh-CN",E="controler:language-changed",A={zh:"zh-CN","zh-CN":"zh-CN",en:"en-US","en-US":"en-US"},W={日:"Sun",一:"Mon",二:"Tue",三:"Wed",四:"Thu",五:"Fri",六:"Sat",周日:"Sun",周一:"Mon",周二:"Tue",周三:"Wed",周四:"Thu",周五:"Fri",周六:"Sat"},M={"时间跟踪器":"Time Tracker","时间记录":"Time Record","时间统计":"Time Stats","时间计划":"Planning","计划待办":"Plans & Todos","日记":"Diary","其他设置":"Settings","记录":"Record","统计":"Stats","计划":"Plan","设置":"Settings","主题配色":"Theme Colors","视图尺寸":"View Size","数据管理":"Data Management","导出数据":"Export Data","导入数据":"Import Data","清除所有数据":"Clear All Data","当前存储状态:":"Current storage status:","正在加载...":"Loading...","存储路径管理":"Storage Path","当前存储路径:":"Current storage path:","路径类型:":"Path type:","更改存储路径":"Change Storage Path","重置为默认路径":"Reset to Default Path","显示存储数据路径":"Show Storage Data Path","清除数据预览":"Clear Data Preview","以下数据将被清除:":"The following data will be removed:","此操作不可撤销！请确认是否继续。":"This action cannot be undone. Please confirm to continue.","取消":"Cancel","保存":"Save","删除":"Delete","编辑":"Edit","确认清除":"Confirm Clear","显示语言":"Display Language","界面语言":"Interface Language","切换应用界面语言，默认简体中文。":"Switch the app language. The default is Simplified Chinese.","简体中文":"Simplified Chinese","选择您喜欢的主题配色，设置将自动保存。":"Choose your preferred theme palette. Changes save automatically.","添加自定义主题":"Add Custom Theme","最小可调到 10%。":"The minimum adjustable size is 10%.","重置为默认 100%":"Reset to Default 100%","管理您的项目和时间记录数据。":"Manage your projects and time-tracking data.","选择时间范围并使用上方折叠按钮查看统计":"Select a date range and use the controls above to view stats","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","统计视图":"Stats View","表格视图":"Table View","饼状图和折线图":"Pie & Line Charts","日历热图":"Calendar Heatmap","开始日期":"Start Date","结束日期":"End Date","显示层级":"Level","全部":"All","时间":"Time","今天":"Today","明天":"Tomorrow","昨天":"Yesterday","图例：":"Legend:","创建项目":"Create Project","开始计时":"Start Timer","配置计时":"Configure Timer","当前项目（本次记录）":"Current Project (This Record)","输入或选择本次计时项目":"Type or select a project","高级创建项目":"Advanced Project Creation","项目层级":"Project Level","一级项目":"Level 1 Project","二级项目":"Level 2 Project","三级项目":"Level 3 Project","请选择父级项目":"Select a parent project","项目颜色":"Project Color","待办事项":"Todos","📝 待办事项":"📝 Todos","✅ 打卡项目":"✅ Check-in Items","➕ 添加项目":"➕ Add Item","进行中":"In Progress","已完成":"Completed","未完成":"Incomplete","已过期":"Overdue","今天到期":"Due Today","列表视图":"List View","四象限视图":"Quadrant View","按截止日期排序":"Sort by Due Date","按优先级排序":"Sort by Priority","按创建时间排序":"Sort by Created Time","按标题排序":"Sort by Title","搜索待办事项...":"Search todos...","今日打卡统计：":"Today's check-ins:","连续打卡最长：":"Longest streak:","暂无待办事项":"No todos yet",'点击"添加项目"按钮开始创建':'Click "Add Item" to start creating',"创建第一个待办事项":"Create Your First Todo","待办事项统计":"Todo Stats","打卡统计":"Check-in Stats","总计":"Total","打卡项目数":"Check-in Items","今日应打卡":"Scheduled Today","今日已打卡":"Checked In Today","最长连续天数":"Longest Streak","无描述":"No description","无截止日期":"No due date","每天重复":"Repeats Daily","不重复":"No Repeat","每周指定天":"Specific Weekdays","编辑待办事项":"Edit Todo","创建待办事项":"Create Todo","标题 *":"Title *","描述":"Description","截止日期":"Due Date","重复规则":"Repeat Rule","输入待办事项标题":"Enter a todo title","输入待办事项描述（可选）":"Enter a todo description (optional)","低":"Low","中":"Medium","高":"High","低优先级":"Low Priority","中优先级":"Medium Priority","高优先级":"High Priority","保存更改":"Save Changes","编辑打卡项目":"Edit Check-in Item","创建打卡项目":"Create Check-in Item","输入打卡项目标题":"Enter a check-in title","输入打卡项目描述（可选）":"Enter a check-in description (optional)","结束日期（可选）":"End Date (Optional)","蓝色":"Blue","绿色":"Green","橙色":"Orange","紫色":"Purple","删除打卡项目":"Delete Check-in Item","年视图":"Year View","月视图":"Month View","周视图":"Week View","➕ 添加新计划":"➕ Add Plan","正在加载计划视图...":"Loading plan view...","请输入计划名称":"Please enter a plan name","请选择日期":"Please choose a date","请选择开始和结束时间":"Please choose start and end times","结束时间必须晚于开始时间":"End time must be later than start time","编辑计划":"Edit Plan","添加新计划":"Add New Plan","创建新计划":"Create New Plan","计划名称":"Plan Name","重复设置":"Repeat Settings","删除计划":"Delete Plan","创建计划":"Create Plan","标记为已完成":"Mark as Completed","标记为未完成":"Mark as Incomplete","重要且紧急":"Important & Urgent","重要不紧急":"Important, Not Urgent","紧急不重要":"Urgent, Not Important","不重要不紧急":"Neither Important nor Urgent","日记视图":"Diary View","点击写日记":"Click to write a diary","未命名日记":"Untitled Diary","删除日记内容":"Delete Diary Content","输入日记标题":"Enter a diary title","写下今天...":"Write about today...","日记分类管理":"Diary Category Management","请输入分类名称":"Please enter a category name","分类名称已存在":"That category name already exists","未分类":"Uncategorized","默认":"Default","森林磨砂":"Forest Frost","海蓝磨砂":"Ocean Frost","落日暖橙":"Sunset Orange","中性磨砂灰":"Neutral Frost Gray","曜石黑":"Obsidian Black","象牙白":"Ivory Light","主背景":"Primary Background","次背景":"Secondary Background","三级背景":"Tertiary Background","浅层背景":"Surface Background","强调色":"Accent Color","文字颜色":"Text Color","次级文字":"Muted Text","通用描边":"Border Color","主按钮":"Primary Button","按钮悬停":"Button Hover","按钮文字":"Button Text","按钮描边":"Button Border","强调底文字":"Accent Text","删除按钮":"Delete Button","删除悬停":"Delete Hover","面板底色":"Panel Background","强化面板":"Strong Panel","面板描边":"Panel Border","遮罩颜色":"Overlay Color","时间记录 · 项目表格":"Time Record · Project Table","时间统计 · 时间表格":"Time Stats · Time Grid","时间统计 · 日历热图":"Time Stats · Calendar Heatmap","时间计划 · 年视图":"Planning · Year View","时间计划 · 月视图":"Planning · Month View","时间计划 · 周视图":"Planning · Week View","待办事项 · 列表视图":"Todos · List View","待办事项 · 四象限视图":"Todos · Quadrant View","表格与热图尺寸已重置为 100%":"Table and heatmap sizes reset to 100%","请输入项目名称":"Please enter a project name","项目名称已存在，请使用其他名称":"That project name already exists. Please choose another one.","选择的父级项目不存在":"The selected parent project does not exist","二级项目的父级必须是一级项目":"A level 2 project must use a level 1 parent","三级项目的父级必须是二级项目":"A level 3 project must use a level 2 parent","项目创建成功！":"Project created successfully!","请先创建一级项目":"Please create a level 1 project first","请先创建二级项目":"Please create a level 2 project first","暂无一级项目，请先创建一级项目":"No level 1 projects yet. Please create one first.","暂无二级项目":"No level 2 projects","暂无三级项目":"No level 3 projects","表格视图将根据项目层级自动组织":"The table view is organized by project level","请输入待办事项标题":"Please enter a todo title","请选择每周重复的日期":"Please choose weekdays for repetition","结束日期不能早于开始日期":"End date cannot be earlier than start date","请输入进度内容":"Please enter progress details","保存失败，请刷新后重试":"Save failed. Please refresh and try again.","暂无打卡项目":"No check-in items yet",'点击"添加项目"按钮创建打卡项目':'Click "Add Item" to create a check-in item','确定要删除这个打卡项目吗？此操作不可撤销！':'Delete this check-in item? This action cannot be undone!','删除失败：未找到该打卡项目，请刷新后重试。':'Delete failed: the check-in item was not found. Please refresh and try again.','确定要删除这个待办事项吗？此操作不可撤销！':'Delete this todo item? This action cannot be undone!','删除失败：未找到该待办事项，请刷新后重试。':'Delete failed: the todo item was not found. Please refresh and try again.',"确定删除这条进度记录吗？":"Delete this progress entry?","删除进度记录":"Delete Progress Entry","记录你的进度或想法...":"Record your progress or ideas...","请输入打卡项目标题":"Please enter a check-in title","请选择开始日期":"Please choose a start date","今日不在打卡周期":"Not scheduled today","今日未打卡":"Not checked in today","点击写日记":"Click to write a diary","请至少输入标题或正文":"Please enter at least a title or content","确定删除该日记吗？":"Delete this diary entry?","确定删除该分类吗？相关日记将转为未分类。":"Delete this category? Related diary entries will become uncategorized.","数据已导出！":"Data exported successfully!","导出数据失败，请重试。":"Failed to export data. Please try again.","数据导入成功！请刷新页面查看变化。":"Data imported successfully! Please refresh to see the changes.","导入数据失败，请确保文件格式正确。":"Failed to import data. Please make sure the file format is correct.","所有数据已清除！页面将自动刷新。":"All data has been cleared. The page will refresh automatically.","清除数据失败，请重试。":"Failed to clear data. Please try again.","确定要清除所有数据吗？此操作不可撤销！":"Clear all data? This action cannot be undone!","预览失败，确定要清除所有数据吗？此操作不可撤销！":"Preview failed. Clear all data anyway? This action cannot be undone!","在浏览器环境中无法更改存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","选择文件夹失败，请重试。":"Failed to choose a folder. Please try again.","在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","确定要重置存储路径为默认值吗？":"Reset the storage path to the default value?","未知":"Unknown","自定义路径":"Custom Path","默认路径":"Default Path","浏览器localStorage":"Browser localStorage","没有可清除的数据":"No data to clear","天":"Day","周":"Week","月":"Month","年":"Year"},P=[[/^显示:\s*(.+?)\s*至\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b,c)=>`Showing: ${a} to ${b} · ${x(c)} range`],[/^显示:\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b)=>`Showing: ${a} · ${x(b)} range`],[/^(.+?)\s+暂无日记$/,(_,a)=>`No diary entries for ${a}`],[/^分类：(.+)$/,(_,a)=>`Category: ${a}`],[/^路径:\s+(.+)$/,(_,a)=>`Path: ${a}`],[/^记录数量:\s+(.+)$/,(_,a)=>`Record count: ${a}`],[/^项目数量:\s+(.+)$/,(_,a)=>`Project count: ${a}`],[/^第(\d+)周$/,(_,a)=>`Week ${a}`],[/^(\d+(?:\.\d+)?)小时$/,(_,a)=>`${a} h`],[/^(\d+)分钟$/,(_,a)=>`${a} min`],[/^(\d+)天$/,(_,a)=>`${a} days`],[/^(\d+) 项$/,(_,a)=>`${a} items`],[/^(\d{4})年(\d{1,2})月$/,(_,a,b)=>`${a}-${b}`],[/^(\d{1,2})月(\d{1,2})日$/,(_,a,b)=>`${a}/${b}`],[/^(\d{1,2})月(\d{1,2})日\s+(周[日一二三四五六])$/,(_,a,b,c)=>`${a}/${b} ${w(c)}`],[/^(\d{1,2})月(\d{1,2})日\s*-\s*(\d{1,2})月(\d{1,2})日$/,(_,a,b,c,d)=>`${a}/${b} - ${c}/${d}`],[/^🔥\s*(\d+)天$/,(_,a)=>`🔥 ${a} days`],[/^📝 为"(.+)"添加进度$/,(_,a)=>`📝 Add progress for "${a}"`],[/^📝 编辑"(.+)"的进度$/,(_,a)=>`📝 Edit progress for "${a}"`],[/^已将 "(.+)" 移动到 (\d+)\/(\d+)\s+(\d+):00$/,(_,a,b,c,d)=>`Moved "${a}" to ${b}/${c} ${d}:00`],[/^每周\s+(.+)$/,(_,a)=>`Weekly ${w(a)}`],[/^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*至\s*(.+)$/,(_,a,b,c)=>`🔁 Weekly ${w(a)} · ${b} to ${c}`],[/^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*起$/,(_,a,b)=>`🔁 Weekly ${w(a)} · from ${b}`],[/^🔁\s*每天重复\s*·\s*(.+?)\s*至\s*(.+)$/,(_,a,b)=>`🔁 Repeats daily · ${a} to ${b}`],[/^🔁\s*每天重复\s*·\s*(.+?)\s*起$/,(_,a)=>`🔁 Repeats daily · from ${a}`],[/^一次性\s*·\s*截止\s*(.+)$/,(_,a)=>`One-time · Due ${a}`],[/^(.+?)（汇总）$/,(_,a)=>`${a} (Summary)`]];let L=r(v()),O,B=!1,U=!1;function r(s){return A[String(s||"").trim()]||D}function v(){try{const s=localStorage.getItem(K);if(!s)localStorage.setItem(K,D);return s||D}catch{return D}}function e(){return L==="en-US"}function w(s){return String(s||"").split("、").map(t=>W[t.trim()]||t.trim()).join(", ")}function c(s){if(!e()||!/[\u4e00-\u9fff]/.test(s))return s;let t=M[s]??s;P.forEach(([p,f])=>t=t.replace(p,f));return t}function x(s){return typeof s==="string"?c(s):s}function t(s){if(typeof s!=="string"||!e())return s;return s.split("\n").map(n=>{const a=n.match(/^\s*/)?.[0]||"",b=n.match(/\s*$/)?.[0]||"",m=n.trim();return m?`${a}${c(m)}${b}`:n}).join("\n")}function y(){if(window.__controlerI18nDialogs)return;window.__controlerI18nDialogs=!0;const a=window.alert.bind(window),b=window.confirm.bind(window),m=typeof window.prompt==="function"?window.prompt.bind(window):null;window.alert=s=>a(t(String(s)));window.confirm=s=>b(t(String(s)));if(m)window.prompt=(s,d)=>m(t(String(s)),d)}function z(o={}){if(!e())return o;const n={...o};["title","message","confirmText","cancelText"].forEach(k=>{if(typeof n[k]==="string")n[k]=t(n[k])});return n}function C(){if(U||!window.ControlerUI)return;U=!0;if(typeof window.ControlerUI.confirmDialog==="function"){const a=window.ControlerUI.confirmDialog.bind(window.ControlerUI);window.ControlerUI.confirmDialog=o=>a(z(o))}if(typeof window.ControlerUI.alertDialog==="function"){const a=window.ControlerUI.alertDialog.bind(window.ControlerUI);window.ControlerUI.alertDialog=o=>a(z(o))}}function G(el){return el instanceof HTMLInputElement&&["button","submit","reset"].includes(String(el.type||"").toLowerCase())}function H(el,a){el.__controlerI18nAttrs??={};if(!(a in el.__controlerI18nAttrs))el.__controlerI18nAttrs[a]=el.getAttribute(a);return el.__controlerI18nAttrs[a]}function I(el){if(!(el instanceof Element))return;["placeholder","title","aria-label"].forEach(a=>{if(!el.hasAttribute(a))return;const o=H(el,a);if(o==null)return;const n=e()?t(o):o;if(el.getAttribute(a)!==n)el.setAttribute(a,n)});if(G(el)&&el.hasAttribute("value")){const o=H(el,"value");if(o==null)return;const n=e()?t(o):o;if(el.value!==n)el.value=n;if(el.getAttribute("value")!==n)el.setAttribute("value",n)}}function J(n){const p=n?.parentElement;if(!(p instanceof Element))return!0;return p.tagName==="SCRIPT"||p.tagName==="STYLE"||p.closest("[data-i18n-skip='true']")}function N(n){if(!(n instanceof Text)||J(n))return;if(n.__controlerI18nText===void 0)n.__controlerI18nText=n.nodeValue;const o=n.__controlerI18nText,m=e()?t(o):o;if(n.nodeValue!==m)n.nodeValue=m}function S(root=document.documentElement){if(!root||B)return;B=!0;try{if(root instanceof Element)I(root);const q=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);for(let n=q.currentNode;n;n=q.nextNode())n.nodeType===Node.TEXT_NODE?N(n):I(n);document.documentElement.lang=e()?"en":"zh-CN";R();C()}finally{B=!1}}function F(ms){if(B)return;ms.forEach(m=>{if(m.type==="characterData"){N(m.target);return}if(m.type==="attributes"){if(m.target instanceof Element)I(m.target);return}m.addedNodes.forEach(n=>{if(n.nodeType===Node.TEXT_NODE)N(n);else if(n.nodeType===Node.ELEMENT_NODE)S(n)})})}function T(){if(O||!document.documentElement)return;O=new MutationObserver(F);O.observe(document.documentElement,{childList:!0,subtree:!0,characterData:!0,attributes:!0,attributeFilter:["placeholder","title","aria-label","value"]})}function R(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(el instanceof HTMLSelectElement&&el.value!==L)el.value=L})}function Q(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(!(el instanceof HTMLSelectElement)||el.dataset.i18nBound)return;el.dataset.i18nBound="true";el.value=L;el.addEventListener("change",()=>j(el.value))})}function j(lang,{persist=!0,dispatch=!0}={}){L=r(lang);if(persist)try{localStorage.setItem(K,L)}catch{}S();if(dispatch)window.dispatchEvent(new CustomEvent(E,{detail:{language:L}}))}y();window.addEventListener("storage",e2=>{if(e2.key===K)j(e2.newValue||D,{persist:!1,dispatch:!1})});document.addEventListener("DOMContentLoaded",()=>{Q();T();S()});window.ControlerI18n={getLanguage:()=>L,setLanguage:j,t,translateText:t,apply:S,eventName:E}})();
-
-
-
-
-
-;/* pages/i18n-extra.js */
 (() => {
   const LANGUAGE_EVENT = "controler:language-changed";
   const USER_LANGUAGE_CHOICE_KEY = "controler:user-language-choice";
@@ -11783,38 +12825,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "Dec",
   ];
   const WEEKDAY_NAMES = {
-    "周日": "Sun",
-    "周一": "Mon",
-    "周二": "Tue",
-    "周三": "Wed",
-    "周四": "Thu",
-    "周五": "Fri",
-    "周六": "Sat",
+    周日: "Sun",
+    周一: "Mon",
+    周二: "Tue",
+    周三: "Wed",
+    周四: "Thu",
+    周五: "Fri",
+    周六: "Sat",
   };
   const EXTRA_MAP = {
-    "桌面小组件": "Desktop Widget",
-    "快速上手": "Quick Start",
-    "删除引导": "Dismiss Guide",
-    "搜索": "Search",
-    "搜索结果": "Search Results",
-    "清空": "Clear",
-    "搜索标题或正文关键词": "Search title or content keywords",
+    桌面小组件: "Desktop Widget",
+    快速上手: "Quick Start",
+    删除引导: "Dismiss Guide",
+    搜索: "Search",
+    搜索结果: "Search Results",
+    清空: "Clear",
+    搜索标题或正文关键词: "Search title or content keywords",
     "先创建项目，再开始或结束计时。":
       "Create a project first, then start or stop the timer.",
     "一次计时结束后会自动形成记录。":
       "When a timer ends, a record is created automatically.",
     "统计页会直接读取这些记录。":
       "The stats page reads these records directly.",
-    "日历计划放时间安排。":
-      "Calendar plans are for scheduling your time.",
-    "待办适合跟踪要做的事。":
-      "Todos are for tracking things you need to do.",
+    "日历计划放时间安排。": "Calendar plans are for scheduling your time.",
+    "待办适合跟踪要做的事。": "Todos are for tracking things you need to do.",
     "打卡适合每天或每周重复的习惯。":
       "Check-ins are for daily or weekly recurring habits.",
     "点日期或已有条目都可以开始写。":
       "Tap a date or an existing entry to start writing.",
-    "标题和正文至少写一项。":
-      "Enter at least a title or the main content.",
+    "标题和正文至少写一项。": "Enter at least a title or the main content.",
     "分类可选，不分也能保存。":
       "Categories are optional. You can save without one.",
     "先选要放到桌面的组件类型。":
@@ -11825,7 +12864,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "If adding from here does not work on Android, use the system widget picker to add it.",
     "若是该处无法添加至桌面（安卓端），则通过手机系统的插件功能添加。":
       "If adding from here does not work on Android, use the system widget picker to add it.",
-    "数据导入与备份": "Data Import and Backup",
+    数据导入与备份: "Data Import and Backup",
     "同步 JSON 文件怎么选": "How to Choose the Sync JSON File",
     "双端同步（需要时再看）": "Dual-Device Sync (Only If You Need It)",
     "导入数据是整包覆盖当前数据，不是合并。":
@@ -11848,75 +12887,74 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "Export a backup first. If you use Syncthing, also enable file versioning.",
     "可选云盘方案，通常是联网后自动回传，不如 Syncthing 稳定实时：Dropbox / Box / pCloud。":
       "Optional cloud drive choices usually upload changes after the network reconnects, so they are less stable and real-time than Syncthing: Dropbox / Box / pCloud.",
-    "数据管理": "Data Management",
-    "导出数据": "Export Data",
-    "导入数据": "Import Data",
+    数据管理: "Data Management",
+    导出数据: "Export Data",
+    导入数据: "Import Data",
     "同步 JSON 文件": "Sync JSON File",
     "选择 JSON 文件": "Choose JSON File",
-    "选择存储目录": "Choose Storage Folder",
-    "重置为默认文件": "Reset to Default File",
-    "显示文件位置": "Show File Location",
+    选择存储目录: "Choose Storage Folder",
+    重置为默认文件: "Reset to Default File",
+    显示文件位置: "Show File Location",
     "当前同步文件:": "Current sync file:",
     "文件类型:": "File type:",
     "选择已有 JSON / 目录时，如果其中已经有有效数据，会直接载入该数据；如果目标为空，则会把当前数据写入该目标。":
       "When you choose an existing JSON file or folder, valid data there is loaded directly; if the target is empty, your current data is written there.",
     "导入会整包覆盖当前数据，不是合并；操作前请先导出备份。":
       "Import replaces your current data as a full package, not a merge. Export a backup first.",
-    "长按后拖动窗口": "Press and drag to move the window",
-    "移动": "Move",
-    "最小化": "Minimize",
-    "打开计时": "Open Timer",
-    "打开日记": "Open Diary",
-    "查看记录": "View Records",
-    "查看周表格": "View Weekly Grid",
-    "查看饼图": "View Pie Chart",
-    "查看热图": "View Heatmap",
-    "查看折线图": "View Line Chart",
-    "打开待办": "Open Todos",
-    "打开打卡": "Open Check-ins",
-    "打开周视图": "Open Week View",
-    "打开月视图": "Open Month View",
-    "打开年视图": "Open Year View",
-    "打开应用": "Open App",
-    "重新渲染": "Retry Render",
+    长按后拖动窗口: "Press and drag to move the window",
+    移动: "Move",
+    最小化: "Minimize",
+    打开计时: "Open Timer",
+    打开日记: "Open Diary",
+    查看记录: "View Records",
+    查看周表格: "View Weekly Grid",
+    查看饼图: "View Pie Chart",
+    查看热图: "View Heatmap",
+    查看折线图: "View Line Chart",
+    打开待办: "Open Todos",
+    打开打卡: "Open Check-ins",
+    打开周视图: "Open Week View",
+    打开月视图: "Open Month View",
+    打开年视图: "Open Year View",
+    打开应用: "Open App",
+    重新渲染: "Retry Render",
     "完整渲染未就绪，先显示可操作的兜底内容。":
       "The full render is not ready yet, so a usable fallback is shown first.",
     "这是兜底模式；你仍然可以在这里打开对应页面或重试完整渲染。":
       "Fallback mode is active. You can still open the related page or retry the full render here.",
     "完整小组件内容尚未就绪，先提供可操作的兜底内容。":
       "The full widget content is not ready yet, so a usable fallback is shown first.",
-    "小组件内容会在后续刷新时自动同步":
+    小组件内容会在后续刷新时自动同步:
       "Widget content will sync automatically on the next refresh.",
-    "点击下方按钮打开对应视图":
-      "Use the button below to open the related view.",
+    点击下方按钮打开对应视图: "Use the button below to open the related view.",
     "当前还没有可显示的数据。": "No data is available yet.",
-    "实时同步": "Live Sync",
-    "打开原页": "Open Original View",
-    "刷新内容": "Refresh",
-    "移除组件": "Remove Widget",
-    "状态": "Status",
-    "空闲": "Idle",
-    "当前项目": "Current Project",
-    "项目": "Project",
-    "快速计时": "Quick Timer",
+    实时同步: "Live Sync",
+    打开原页: "Open Original View",
+    刷新内容: "Refresh",
+    移除组件: "Remove Widget",
+    状态: "Status",
+    空闲: "Idle",
+    当前项目: "Current Project",
+    项目: "Project",
+    快速计时: "Quick Timer",
     "未开始计时，可直接在这里开始或结束一条记录。":
       "No timer is running. You can start or stop a record here.",
     "当前没有进行中的计时。": "No timer is currently running.",
-    "结束并保存": "Stop and Save",
-    "停止但不保存": "Stop Without Saving",
+    结束并保存: "Stop and Save",
+    停止但不保存: "Stop Without Saving",
     "结束后会直接生成一条记录，无需打开主界面。":
       "Stopping will save a record immediately, without opening the main app.",
     "开始后计时会持续显示在这个小组件中。":
       "Once started, the timer will keep updating in this widget.",
-    "今日日记": "Today's Diary",
-    "已存在": "Exists",
-    "未记录": "Not Started",
-    "分类": "Category",
-    "今天想记什么": "What do you want to capture today?",
-    "标题": "Title",
-    "正文": "Content",
-    "更新今天的日记": "Update Today's Diary",
-    "保存今天的日记": "Save Today's Diary",
+    今日日记: "Today's Diary",
+    已存在: "Exists",
+    未记录: "Not Started",
+    分类: "Category",
+    今天想记什么: "What do you want to capture today?",
+    标题: "Title",
+    正文: "Content",
+    更新今天的日记: "Update Today's Diary",
+    保存今天的日记: "Save Today's Diary",
     "保存日记失败。": "Failed to save the diary entry.",
     "请至少填写标题或正文。": "Enter at least a title or content.",
     "保存后会直接写入今天的日记，无需打开主界面。":
@@ -11924,32 +12962,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "内容会直接显示在小组件中，可拖动窗口边缘调整尺寸。":
       "Content is shown directly in the widget, and you can resize it by dragging the window edge.",
     "写下今天的记录...": "Write down today's notes...",
-    "今日记录": "Today's Records",
-    "今日总时长": "Today's Total",
-    "最近更新": "Last Updated",
-    "暂无": "None",
-    "今日待办": "Today's Todos",
-    "进度记录": "Progress Entries",
-    "今日项目": "Today's Check-ins",
-    "已打卡": "Checked In",
-    "最高连击": "Best Streak",
+    今日记录: "Today's Records",
+    今日总时长: "Today's Total",
+    最近更新: "Last Updated",
+    暂无: "None",
+    今日待办: "Today's Todos",
+    进度记录: "Progress Entries",
+    今日项目: "Today's Check-ins",
+    已打卡: "Checked In",
+    最高连击: "Best Streak",
     "未来 7 天": "Next 7 Days",
-    "安排总数": "Total Plans",
-    "最忙一天": "Busiest Day",
-    "计划日": "Days with Plans",
-    "活跃天数": "Active Days",
-    "本月时长": "This Month",
-    "全年时长": "This Year",
-    "活跃月份": "Active Months",
-    "年度目标": "Yearly Goals",
-    "峰值投入": "Peak Time",
-    "峰值日期": "Peak Date",
-    "记录天数": "Recorded Days",
-    "本周累计": "This Week",
-    "项目数": "Projects",
-    "峰值小时": "Peak Hour",
-    "峰值时长": "Peak Duration",
-    "今日投入": "Today's Time",
+    安排总数: "Total Plans",
+    最忙一天: "Busiest Day",
+    计划日: "Days with Plans",
+    活跃天数: "Active Days",
+    本月时长: "This Month",
+    全年时长: "This Year",
+    活跃月份: "Active Months",
+    年度目标: "Yearly Goals",
+    峰值投入: "Peak Time",
+    峰值日期: "Peak Date",
+    记录天数: "Recorded Days",
+    本周累计: "This Week",
+    项目数: "Projects",
+    峰值小时: "Peak Hour",
+    峰值时长: "Peak Duration",
+    今日投入: "Today's Time",
     "还没有时间记录。": "No time records yet.",
     "开始一次计时或手动记录后，这里会立即同步最近记录。":
       "Start a timer or add a record manually to sync recent entries here right away.",
@@ -11964,37 +13002,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "Once you add plans, the most important upcoming items will stay here.",
     "显示最近 20 周的活跃度，颜色越深表示当天投入越多。":
       "Shows activity across the last 20 weeks. Darker color means more time spent that day.",
-    "导航按钮显示": "Navigation Buttons",
-    "导航按钮显示设置": "Navigation button visibility settings",
+    导航按钮显示: "Navigation Buttons",
+    导航按钮显示设置: "Navigation button visibility settings",
     "显示时间记录入口。": "Show the time tracking entry.",
     "显示统计视图入口。": "Show the statistics entry.",
     "显示计划与待办入口。": "Show the planner and todos entry.",
     "显示日记页面入口。": "Show the diary entry.",
     "显示设置页面入口。": "Show the settings entry.",
-    "固定": "Pinned",
-    "显示中": "Visible",
-    "已隐藏": "Hidden",
-    "固定显示": "Always Visible",
-    "隐藏": "Hide",
-    "显示": "Show",
+    固定: "Pinned",
+    显示中: "Visible",
+    已隐藏: "Hidden",
+    固定显示: "Always Visible",
+    隐藏: "Hide",
+    显示: "Show",
     "至少保留一个导航按钮，不能全部隐藏。":
       "Keep at least one navigation button visible.",
-    "无法保存": "Could Not Save",
+    无法保存: "Could Not Save",
     "正在检测当前平台的小组件能力...":
       "Checking widget support on this device...",
-    "开机自启应用": "Launch the app at startup",
-    "启动时恢复已创建小组件": "Restore created widgets on launch",
-    "小组件始终停留在桌面上方": "Keep widgets above the desktop",
-    "创建桌面小组件": "Create Desktop Widget",
-    "添加到桌面": "Pin to Home Screen",
-    "手动添加": "Add Manually",
-    "等待系统确认": "Awaiting System Confirmation",
-    "已添加成功": "Added Successfully",
-    "返回桌面查看": "Back to Home Screen",
-    "长按桌面空白处": "Long-press an empty area on the home screen",
+    开机自启应用: "Launch the app at startup",
+    启动时恢复已创建小组件: "Restore created widgets on launch",
+    小组件始终停留在桌面上方: "Keep widgets above the desktop",
+    创建桌面小组件: "Create Desktop Widget",
+    添加到桌面: "Pin to Home Screen",
+    手动添加: "Add Manually",
+    等待系统确认: "Awaiting System Confirmation",
+    已添加成功: "Added Successfully",
+    返回桌面查看: "Back to Home Screen",
+    长按桌面空白处: "Long-press an empty area on the home screen",
     "打开“小组件”或“插件”": 'Open "Widgets" or "Plugins"',
     "找到 Order 并选择需要的组件": "Find Order and choose the widget you need",
-    "手动添加步骤": "Manual Add Steps",
+    手动添加步骤: "Manual Add Steps",
     "系统可能会要求确认。": "The system may ask you to confirm placement.",
     "如果没有自动出现，请返回此页查看结果或改用手动添加。":
       "If nothing appears automatically, come back here to check the result or switch to manual add.",
@@ -12031,19 +13069,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "Desktop widgets are currently supported only in Electron desktop and Android native builds. Related actions stay hidden in the browser.",
     "当前环境暂不支持桌面小组件。请在 Electron 桌面端或 Android 原生端使用。":
       "Desktop widgets are not supported in the current environment. Use the Electron desktop app or the Android native app.",
-    "当前环境不可用": "Unavailable Here",
-    "创建成功": "Created",
-    "创建失败": "Creation Failed",
-    "已发起添加请求": "Add Request Sent",
-    "请手动添加": "Add Manually",
-    "添加失败": "Add Failed",
-    "选择成功": "Selection Saved",
-    "迁移成功": "Migration Complete",
-    "重置成功": "Reset Complete",
-    "重置失败": "Reset Failed",
-    "选择失败": "Selection Failed",
-    "重置同步文件": "Reset Sync Target",
-    "重置": "Reset",
+    当前环境不可用: "Unavailable Here",
+    创建成功: "Created",
+    创建失败: "Creation Failed",
+    已发起添加请求: "Add Request Sent",
+    请手动添加: "Add Manually",
+    添加失败: "Add Failed",
+    选择成功: "Selection Saved",
+    迁移成功: "Migration Complete",
+    重置成功: "Reset Complete",
+    重置失败: "Reset Failed",
+    选择失败: "Selection Failed",
+    重置同步文件: "Reset Sync Target",
+    重置: "Reset",
     "选择同步 JSON 文件失败，请重试。":
       "Failed to choose the synced JSON file. Please try again.",
     "选择同步目录失败，请重试。":
@@ -12060,95 +13098,95 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "The sync directory cannot be changed in the browser. This feature is available only in the desktop app or native mobile app.",
     "确定要重置为应用默认 JSON 文件吗？":
       "Reset to the app's default JSON file?",
-    "当前环境不可用": "Unavailable Here",
-    "年视图": "Year View",
-    "月视图": "Month View",
-    "周视图": "Week View",
-    "添加目标": "Add Goal",
-    "点击卡片添加本月目标": "Click a card to add this month's goals",
+    当前环境不可用: "Unavailable Here",
+    年视图: "Year View",
+    月视图: "Month View",
+    周视图: "Week View",
+    添加目标: "Add Goal",
+    点击卡片添加本月目标: "Click a card to add this month's goals",
     "➕ 添加新计划": "➕ Add New Plan",
     "正在加载计划视图...": "Loading planning view...",
-    "添加新计划": "Add New Plan",
-    "创建新计划": "Create New Plan",
-    "编辑计划": "Edit Plan",
-    "创建计划": "Create Plan",
-    "删除计划": "Delete Plan",
-    "计划名称": "Plan Name",
-    "日期": "Date",
-    "开始时间": "Start Time",
-    "结束时间": "End Time",
-    "通知": "Notifications",
-    "不通知": "No Notification",
-    "开始前提醒": "Before Start",
-    "自定义时间": "Custom Time",
-    "提前多少分钟提醒": "Minutes Before Start",
-    "自定义提醒时间": "Custom Reminder Time",
+    添加新计划: "Add New Plan",
+    创建新计划: "Create New Plan",
+    编辑计划: "Edit Plan",
+    创建计划: "Create Plan",
+    删除计划: "Delete Plan",
+    计划名称: "Plan Name",
+    日期: "Date",
+    开始时间: "Start Time",
+    结束时间: "End Time",
+    通知: "Notifications",
+    不通知: "No Notification",
+    开始前提醒: "Before Start",
+    自定义时间: "Custom Time",
+    提前多少分钟提醒: "Minutes Before Start",
+    自定义提醒时间: "Custom Reminder Time",
     "若计划开启重复，将按相同的相对提醒时间应用到自动重复的计划上。":
       "Recurring plans reuse the same relative reminder time.",
-    "不重复": "No Repeat",
-    "每天重复": "Repeats Daily",
-    "每周重复": "Repeats Weekly",
-    "每月重复": "Repeats Monthly",
+    不重复: "No Repeat",
+    每天重复: "Repeats Daily",
+    每周重复: "Repeats Weekly",
+    每月重复: "Repeats Monthly",
     "每周重复设置:": "Weekly repeat settings:",
-    "颜色": "Color",
-    "点击选择颜色": "Click to choose a color",
-    "标记为已完成": "Mark as completed",
-    "标记为未完成": "Mark as incomplete",
+    颜色: "Color",
+    点击选择颜色: "Click to choose a color",
+    标记为已完成: "Mark as completed",
+    标记为未完成: "Mark as incomplete",
     "日期:": "Date:",
     "时间:": "Time:",
     "重复:": "Repeat:",
     "状态:": "Status:",
     "创建时间:": "Created:",
-    "关闭": "Close",
-    "今日不在打卡周期": "Not scheduled today",
-    "今日已打卡": "Checked in today",
-    "今日未打卡": "Not checked in today",
-    "无描述": "No description",
+    关闭: "Close",
+    今日不在打卡周期: "Not scheduled today",
+    今日已打卡: "Checked in today",
+    今日未打卡: "Not checked in today",
+    无描述: "No description",
     "暂无进度，点右侧“＋”补一条":
       "No progress yet. Tap “＋” on the right to add one.",
-    "暂无打卡项目": "No check-in items yet",
+    暂无打卡项目: "No check-in items yet",
     '点击"添加项目"按钮创建打卡项目':
       'Click "Add Item" to create a check-in item',
-    "打卡项目": "Check-in Item",
-    "普通待办事项": "Regular Todo",
+    打卡项目: "Check-in Item",
+    普通待办事项: "Regular Todo",
     "有截止日期、优先级、标签的待办事项":
       "A todo with due date, priority, and tags",
-    "主题名称": "Theme Name",
+    主题名称: "Theme Name",
     "选择您喜欢的主题配色，设置将自动保存并同步到底部导航样式。":
       "Choose your preferred theme palette. Changes save automatically and sync to the bottom navigation.",
-    "文字颜色": "Text Color",
-    "遮罩颜色": "Overlay Color",
-    "底栏底色": "Bottom Nav Bar",
-    "底栏按钮": "Bottom Nav Button",
-    "底栏当前按钮": "Bottom Nav Active",
-    "编辑自定义主题": "Edit Custom Theme",
-    "自定义主题": "Custom Theme",
-    "添加自定义主题": "Add Custom Theme",
-    "恢复默认": "Reset",
+    文字颜色: "Text Color",
+    遮罩颜色: "Overlay Color",
+    底栏底色: "Bottom Nav Bar",
+    底栏按钮: "Bottom Nav Button",
+    底栏当前按钮: "Bottom Nav Active",
+    编辑自定义主题: "Edit Custom Theme",
+    自定义主题: "Custom Theme",
+    添加自定义主题: "Add Custom Theme",
+    恢复默认: "Reset",
     "支持输入 #RRGGBB 与 rgba(...)，保存后会立即应用到按钮、底部导航、面板、弹窗、下拉菜单、小组件与浮层边框等主题适配区域。":
       "Supports #RRGGBB and rgba(...). Saving applies the theme to buttons, bottom navigation, panels, dialogs, menus, widgets, and overlay borders immediately.",
-    "支持输入": "Supports",
-    "删除自定义主题": "Delete Custom Theme",
-    "恢复默认主题": "Reset Built-in Theme",
-    "石墨灰": "Graphite Mist",
-    "极光青雾": "Aurora Mist",
-    "酒红夜幕": "Velvet Bordeaux",
-    "香槟砂岩": "Champagne Sandstone",
-    "深海靛影": "Midnight Indigo",
-    "自定义路径": "Custom Path",
-    "浏览器内置存储": "Browser Built-in Storage",
+    支持输入: "Supports",
+    删除自定义主题: "Delete Custom Theme",
+    恢复默认主题: "Reset Built-in Theme",
+    石墨灰: "Graphite Mist",
+    极光青雾: "Aurora Mist",
+    酒红夜幕: "Velvet Bordeaux",
+    香槟砂岩: "Champagne Sandstone",
+    深海靛影: "Midnight Indigo",
+    自定义路径: "Custom Path",
+    浏览器内置存储: "Browser Built-in Storage",
     "在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":
       "The storage path cannot be reset in the browser. This feature is only available in Electron.",
     "确定要重置存储路径为默认值吗？":
       "Reset the storage path to the default value?",
     "存储路径已重置为默认值。\n\n注意：实际数据不会自动迁移，新数据将保存到默认位置。":
       "The storage path has been reset to default.\n\nNote: existing data is not migrated automatically. New data will be stored in the default location.",
-    "颜色选择": "Color Picker",
-    "待办事项统计": "Todo Stats",
-    "打卡统计": "Check-in Stats",
-    "编辑主题": "Edit Theme",
-    "点击卡片应用": "Click a card to apply",
-    "尺寸": "Size",
+    颜色选择: "Color Picker",
+    待办事项统计: "Todo Stats",
+    打卡统计: "Check-in Stats",
+    编辑主题: "Edit Theme",
+    点击卡片应用: "Click a card to apply",
+    尺寸: "Size",
     "已保存缩放:": "Saved scale:",
     "时间记录 · 项目表格": "Time Record · Project Table",
     "一级/二级/三级项目表格整体尺寸":
@@ -12157,13 +13195,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "统计页周/多日时间网格大小":
       "Weekly / multi-day time grid size on the stats page",
     "时间统计 · 日历热图": "Time Stats · Calendar Heatmap",
-    "热图单元格与间距显示尺度": "Heatmap cell and spacing scale",
+    热图单元格与间距显示尺度: "Heatmap cell and spacing scale",
     "时间计划 · 年视图": "Planning · Year View",
-    "年视图月份卡片与目标列表大小":
-      "Month cards and goal list size in year view",
+    年视图月份卡片与目标列表大小: "Month cards and goal list size in year view",
     "时间计划 · 月视图": "Planning · Month View",
-    "月视图日期格与计划标签大小":
-      "Date cells and plan tag size in month view",
+    月视图日期格与计划标签大小: "Date cells and plan tag size in month view",
     "时间计划 · 周视图": "Planning · Week View",
     "周视图时间轴、列宽与事项块大小":
       "Timeline, column width, and block size in week view",
@@ -12171,165 +13207,163 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "待办列表卡片、记录与打卡列表尺寸":
       "Todo cards, progress records, and check-in list size",
     "待办事项 · 四象限视图": "Todos · Quadrant View",
-    "四象限面板与事项卡片尺寸": "Quadrant panels and task card size",
-    "重要且紧急": "Important & Urgent",
-    "重要不紧急": "Important, Not Urgent",
-    "紧急不重要": "Urgent, Not Important",
-    "不紧急不重要": "Neither Urgent nor Important",
-    "优先立即处理": "Handle first",
-    "重点规划推进": "Plan and push forward",
-    "尽量委托或限时处理": "Delegate or time-box when possible",
-    "批量安排低优先级": "Batch low-priority tasks",
-    "暂无事项": "No items",
-    "添加项目": "Add Item",
-    "添加进度记录": "Add Progress Record",
-    "完成": "Complete",
-    "取消完成": "Undo Complete",
-    "合并": "Merge",
-    "合并项目": "Merge Project",
-    "无法合并项目": "Cannot Merge Project",
-    "合并完成": "Merge Complete",
-    "请确认操作": "Please Confirm",
-    "知道了": "Got It",
-    "提示": "Notice",
-    "确定": "OK",
+    四象限面板与事项卡片尺寸: "Quadrant panels and task card size",
+    重要且紧急: "Important & Urgent",
+    重要不紧急: "Important, Not Urgent",
+    紧急不重要: "Urgent, Not Important",
+    不紧急不重要: "Neither Urgent nor Important",
+    优先立即处理: "Handle first",
+    重点规划推进: "Plan and push forward",
+    尽量委托或限时处理: "Delegate or time-box when possible",
+    批量安排低优先级: "Batch low-priority tasks",
+    暂无事项: "No items",
+    添加项目: "Add Item",
+    添加进度记录: "Add Progress Record",
+    完成: "Complete",
+    取消完成: "Undo Complete",
+    合并: "Merge",
+    合并项目: "Merge Project",
+    无法合并项目: "Cannot Merge Project",
+    合并完成: "Merge Complete",
+    请确认操作: "Please Confirm",
+    知道了: "Got It",
+    提示: "Notice",
+    确定: "OK",
     "当前项目下仍有子项目，只有叶子项目才能通过重命名合并。":
       "This project still has child items. Only leaf projects can be merged by renaming.",
     "合并后当前项目会消失，目标项目的层级、父级和颜色保持不变。":
       "The current project will disappear after merging. The target project's level, parent, and color stay unchanged.",
     "原项目已删除。": "The original project has been removed.",
-    "请输入目标名称": "Please enter a goal name",
-    "请选择有效的开始日期和结束日期":
-      "Please select a valid start and end date",
+    请输入目标名称: "Please enter a goal name",
+    请选择有效的开始日期和结束日期: "Please select a valid start and end date",
     "确定删除这个月目标吗？":
       "Are you sure you want to delete this month's goal?",
-    "删除月目标": "Delete Monthly Goal",
-    "删除重复计划": "Delete Recurring Plan",
-    "仅删当天": "Only This Day",
-    "删除全部": "Delete All",
-    "删除待办事项": "Delete Todo",
+    删除月目标: "Delete Monthly Goal",
+    删除重复计划: "Delete Recurring Plan",
+    仅删当天: "Only This Day",
+    删除全部: "Delete All",
+    删除待办事项: "Delete Todo",
     "确定要删除这个待办事项吗？此操作不可撤销！":
       "Delete this todo? This action cannot be undone.",
     "确定要删除这个打卡项目吗？此操作不可撤销！":
       "Delete this check-in item? This action cannot be undone.",
     "全部项目（汇总）": "All Projects (Summary)",
-    "全部打卡项目": "All Check-in Items",
-    "提醒时间": "Reminder Time",
+    全部打卡项目: "All Check-in Items",
+    提醒时间: "Reminder Time",
     "若待办启用了重复或使用“开始日期 - 结束日期”模式，将按相同的相对提醒时间同步到后续重复日期。":
-      'Repeating todos reuse the same relative reminder time across future dates.',
-    "每天提醒时间": "Reminder Time of Day",
+      "Repeating todos reuse the same relative reminder time across future dates.",
+    每天提醒时间: "Reminder Time of Day",
     "若打卡项目设置了每日或每周重复，将在对应重复日期的这个时间提醒。":
       "Check-ins remind at this time on each repeated day.",
-    "计划提醒": "Plan Reminder",
-    "待办提醒": "Todo Reminder",
-    "打卡提醒": "Check-in Reminder",
-    "日期范围": "Date Range",
-    "时间分配": "Time Allocation",
-    "项目分布": "Project Distribution",
-    "平均每日时间": "Average Daily Time",
-    "周数": "Week Count",
-    "星期": "Weekday",
-    "所选项目": "Selected Project",
-    "项目筛选": "Project Filter",
-    "占比": "Share",
-    "总用时": "Total Time",
-    "日均时长": "Average per Day",
-    "实际日时长": "Average per Active Day",
-    "折线图": "Line Chart",
-    "饼状图": "Pie Chart",
-    "进度条": "Progress Bar",
-    "饼状图统计": "Pie Chart",
-    "折线图统计": "Line Chart",
-    "当前筛选周期汇总": "Current Filtered Period Summary",
+    计划提醒: "Plan Reminder",
+    待办提醒: "Todo Reminder",
+    打卡提醒: "Check-in Reminder",
+    日期范围: "Date Range",
+    时间分配: "Time Allocation",
+    项目分布: "Project Distribution",
+    平均每日时间: "Average Daily Time",
+    周数: "Week Count",
+    星期: "Weekday",
+    所选项目: "Selected Project",
+    项目筛选: "Project Filter",
+    占比: "Share",
+    总用时: "Total Time",
+    日均时长: "Average per Day",
+    实际日时长: "Average per Active Day",
+    折线图: "Line Chart",
+    饼状图: "Pie Chart",
+    进度条: "Progress Bar",
+    饼状图统计: "Pie Chart",
+    折线图统计: "Line Chart",
+    当前筛选周期汇总: "Current Filtered Period Summary",
     "Chart.js库未加载，请检查网络连接":
       "Chart.js is not loaded. Please check your connection.",
     "Chart.js 库未加载，请检查本地资源":
       "Chart.js is not loaded. Please check local assets.",
-    "当前时间范围内暂无可绘制的数据":
+    当前时间范围内暂无可绘制的数据:
       "No chart data is available in the selected time range.",
     "数据会在你下一次记录、计划或打卡后自动同步到这里。":
       "Data will sync here automatically after your next record, plan, or check-in.",
     "内容会在这里以主题卡片形式同步更新。":
       "Content will sync here as themed cards.",
-    "当前没有需要处理的项目。":
-      "Nothing needs action right now.",
+    "当前没有需要处理的项目。": "Nothing needs action right now.",
     "这里会保留与你今天最相关的卡片与操作。":
       "The most relevant cards and actions for today stay here.",
-    "操作": "Action",
-    "无计划": "No Plans",
-    "计划": "Plan",
-    "无记录": "No Records",
-    "未打卡": "Not checked in",
-    "未命名项目": "Untitled Project",
-    "未命名待办": "Untitled Todo",
-    "未命名打卡": "Untitled Check-in",
-    "未命名打卡项目": "Untitled Check-in Item",
-    "上一月": "Previous Month",
-    "下一月": "Next Month",
-    "显示月份": "Months Shown",
-    "数据类型": "Data Type",
-    "项目时长": "Project Hours",
+    操作: "Action",
+    无计划: "No Plans",
+    计划: "Plan",
+    无记录: "No Records",
+    未打卡: "Not checked in",
+    未命名项目: "Untitled Project",
+    未命名待办: "Untitled Todo",
+    未命名打卡: "Untitled Check-in",
+    未命名打卡项目: "Untitled Check-in Item",
+    上一月: "Previous Month",
+    下一月: "Next Month",
+    显示月份: "Months Shown",
+    数据类型: "Data Type",
+    项目时长: "Project Hours",
     "浅色 ≤": "Light ≤",
     "中色 ≤": "Medium ≤",
-    "命中天数": "Active Days",
-    "已打卡天数": "Checked-in Days",
-    "当天有打卡记录": "Has check-ins that day",
+    命中天数: "Active Days",
+    已打卡天数: "Checked-in Days",
+    当天有打卡记录: "Has check-ins that day",
     "统计工具未加载，无法渲染层级饼状图":
       "Stats tools are unavailable, so the hierarchy pie chart cannot be rendered.",
     "D3 未加载，无法渲染层级饼状图":
       "D3 is not loaded, so the hierarchy pie chart cannot be rendered.",
-    "当前筛选条件下暂无可展示的项目时长":
+    当前筛选条件下暂无可展示的项目时长:
       "No project hours are available for the current filter.",
     "未找到待办事项。": "Todo not found.",
     "未找到打卡项目。": "Check-in item not found.",
-    "今日可开连击": "Streak starts today",
+    今日可开连击: "Streak starts today",
     "保留核心信息与完成操作，点击按钮即可直接同步状态。":
       "Keep the core context and finish the task directly from the widget.",
-    "可直接在这里完成": "Complete it here",
+    可直接在这里完成: "Complete it here",
     "已完成，可直接撤回": "Completed, tap to undo",
-    "可直接在这里完成打卡": "Check in here",
-    "从今天开始保持连击": "Start your streak today",
-    "撤回": "Undo",
-    "打卡": "Check In",
-    "待安排": "To Be Scheduled",
-    "已逾期": "Overdue",
-    "今日优先": "Priority Today",
-    "即将截止": "Due Soon",
-    "待处理": "Pending",
-    "今日待做": "Due Today",
-    "未设置日期": "No Date",
-    "今天截止": "Due Today",
-    "明天截止": "Due Tomorrow",
-    "已完成": "Completed",
-    "待打卡": "Pending",
-    "今日已完成": "Completed Today",
-    "今日待完成": "Due Today",
-    "每天": "Daily",
-    "未设置": "Not Set",
-    "高优先级": "High Priority",
-    "中优先级": "Medium Priority",
-    "低优先级": "Low Priority",
-    "刚开始": "Just Started",
-    "选择时间范围并使用上方折叠按钮查看统计":
+    可直接在这里完成打卡: "Check in here",
+    从今天开始保持连击: "Start your streak today",
+    撤回: "Undo",
+    打卡: "Check In",
+    待安排: "To Be Scheduled",
+    已逾期: "Overdue",
+    今日优先: "Priority Today",
+    即将截止: "Due Soon",
+    待处理: "Pending",
+    今日待做: "Due Today",
+    未设置日期: "No Date",
+    今天截止: "Due Today",
+    明天截止: "Due Tomorrow",
+    已完成: "Completed",
+    待打卡: "Pending",
+    今日已完成: "Completed Today",
+    今日待完成: "Due Today",
+    每天: "Daily",
+    未设置: "Not Set",
+    高优先级: "High Priority",
+    中优先级: "Medium Priority",
+    低优先级: "Low Priority",
+    刚开始: "Just Started",
+    选择时间范围并使用上方折叠按钮查看统计:
       "Select a date range and use the controls above to view stats",
-    "收起": "Close",
+    收起: "Close",
     "（无正文）": "(No content)",
     "分类：未设置": "Category: Not Set",
-    "新分类名称": "New Category Name",
-    "未找到要删除的内容": "Nothing to delete was found.",
-    "未找到要删除的日记": "Diary entry not found.",
-    "未找到要删除的分类": "Category not found.",
+    新分类名称: "New Category Name",
+    未找到要删除的内容: "Nothing to delete was found.",
+    未找到要删除的日记: "Diary entry not found.",
+    未找到要删除的分类: "Category not found.",
     "保存日记失败，已恢复修改前内容。":
       "Failed to save the diary entry. The previous content has been restored.",
-    "保存失败": "Save Failed",
-    "删除失败": "Delete Failed",
+    保存失败: "Save Failed",
+    删除失败: "Delete Failed",
     "删除后保存失败，已恢复删除前内容。":
       "Failed to save after deletion. The content before deletion has been restored.",
     "删除分类失败，已恢复删除前内容。":
       "Failed to delete the category. The previous content has been restored.",
     "保存分类失败，已恢复修改前内容。":
       "Failed to save the category. The previous content has been restored.",
-    "正在加载数据中": "Loading your data",
+    正在加载数据中: "Loading your data",
     "正在读取当前月份的日记与分类，请稍候":
       "Loading the current month's diary entries and categories. Please wait.",
     "正在更新当前月份的日记数据，请稍候":
@@ -12347,8 +13381,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "No usable bundle data was found in the target directory. The current app data was written there and the page will refresh once.",
     "当前清除目标：": "Current clear target:",
     "当前数据目录：": "Current data directory:",
-    "应用私有目录": "App Private Directory",
-    "已授权外部目录": "Authorized External Directory",
+    应用私有目录: "App Private Directory",
+    已授权外部目录: "Authorized External Directory",
     "位于应用私有目录，系统文件管理器通常不可直接访问。":
       "This location is inside the app's private directory and is usually not directly accessible from the system file manager.",
     "这是系统授权的外部目录入口，路径可能显示为内容 URI。":
@@ -12360,17 +13394,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "固定文件：": "Fixed Files:",
     "按月分片：records / diaryEntries / dailyCheckins / checkins / plans（一次性计划）。":
       "Monthly partitions: records / diaryEntries / dailyCheckins / checkins / plans (one-time plans).",
-    "当前还没有按月分片": "There are no monthly partitions yet.",
-    "旧单文件导入备份": "Legacy Single-File Import Backup",
-    "旧单文件自动迁移备份": "Legacy Single-File Auto-Migration Backup",
-    "未知来源": "Unknown Source",
-    "自动备份状态": "Auto Backup Status",
+    当前还没有按月分片: "There are no monthly partitions yet.",
+    旧单文件导入备份: "Legacy Single-File Import Backup",
+    旧单文件自动迁移备份: "Legacy Single-File Auto-Migration Backup",
+    未知来源: "Unknown Source",
+    自动备份状态: "Auto Backup Status",
     "当前环境暂不支持自动本地 ZIP 备份。":
       "Automatic local ZIP backup is not supported in the current environment.",
     "暂无自动备份 ZIP": "No automatic backup ZIP yet",
-    "最近执行正常": "The latest run completed successfully",
-    "已启用": "Enabled",
-    "未启用": "Disabled",
+    最近执行正常: "The latest run completed successfully",
+    已启用: "Enabled",
+    未启用: "Disabled",
     "当前还没有创建任何桌面小组件，点击下方按钮即可生成。":
       "No desktop widgets have been created yet. Use the button below to create one.",
     "当前环境暂未声明可用的小组件能力。":
@@ -12409,40 +13443,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "The current environment does not support external JSON import.",
     "当前环境缺少外部 JSON 映射能力。":
       "The current environment does not support external JSON mapping.",
-    "分区": "Partition",
-    "记录数组来源": "Record Array Source",
-    "日期字段": "Date Field",
-    "开始时间字段": "Start Time Field",
-    "结束时间字段": "End Time Field",
-    "请选择字段": "Please choose a field",
+    分区: "Partition",
+    记录数组来源: "Record Array Source",
+    日期字段: "Date Field",
+    开始时间字段: "Start Time Field",
+    结束时间字段: "End Time Field",
+    请选择字段: "Please choose a field",
     "请选择要导出的分区和月份。":
       "Please choose the partition and month to export.",
     "读取 bundle manifest 失败，回退本地推导:":
       "Failed to read the bundle manifest. Falling back to local inference:",
     "读取桌面小组件状态失败:": "Failed to read desktop widget state:",
     "更新桌面小组件设置失败:": "Failed to update desktop widget settings:",
-    "当前还没有按月分片": "There are no monthly partitions yet.",
-    "开始导入": "Start Import",
-    "获取失败": "Fetch Failed",
-    "清除完成": "Clear Complete",
-    "清除失败": "Clear Failed",
-    "查看添加方式": "How to Add",
-    "该组件": "This Widget",
-    "手动添加步骤": "Manual Add Steps",
+    当前还没有按月分片: "There are no monthly partitions yet.",
+    开始导入: "Start Import",
+    获取失败: "Fetch Failed",
+    清除完成: "Clear Complete",
+    清除失败: "Clear Failed",
+    查看添加方式: "How to Add",
+    该组件: "This Widget",
+    手动添加步骤: "Manual Add Steps",
     "导入现在有“整包替换”和“差异导入”两种模式；高风险操作前先导出备份。":
       "Import now has two modes: full replacement and differential import. Export a backup before high-risk operations.",
-    "导入和导出到底怎么选": "How to Choose Between Import and Export",
-    "为什么现在是一个目录里的多份 JSON": "Why Storage Is Now Multiple JSON Files in One Directory",
+    导入和导出到底怎么选: "How to Choose Between Import and Export",
+    "为什么现在是一个目录里的多份 JSON":
+      "Why Storage Is Now Multiple JSON Files in One Directory",
     "换设备 / 合并数据 / 只补一个月数据时该怎么做":
       "How to Change Devices, Merge Data, or Restore Just One Month",
     "长按项目拖至目标项目可移动位置或改变分级。":
       "Long-press a project and drag it onto another project to reorder it or change its level.",
     "一级二级项目双击折叠收起；项目列表单击（饼状图和折线图处也是）。":
       "Double-click level 1 or level 2 projects to collapse them. Single-click also works in the project list, pie chart, and line chart.",
-    "所有视图均可放大":
-      "All views can be zoomed in.",
-    "右滑可见计划页面。":
-      "Swipe right to open the planning page.",
+    所有视图均可放大: "All views can be zoomed in.",
+    "右滑可见计划页面。": "Swipe right to open the planning page.",
     "第一次计时时可以不输入下一个项目，一次计时结束后会自动形成记录。":
       "On your first timer run, you can leave the next project empty. A record is created automatically when the timer ends.",
     "创建项目不可同名,改变名称时同名是合并，所有记录合并至目标名称，并删除被改项目":
@@ -12472,52 +13505,50 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "差异导入的逻辑是：核心区按字段替换；重复计划和月分片只处理导入源里出现的内容，并按 ID 或自然键逐条覆盖(每条记录都有一个专属id)；未命中的旧条目会保留。它不是按整天或整月整块替换。":
       "Differential import replaces core fields by field, and only processes recurring plans and monthly partitions that appear in the imported source. Entries are overwritten one by one by ID or natural key, while unmatched existing items are kept. It does not replace whole days or whole months in bulk.",
     "当前小组件类型暂未定义。": "The current widget type is not defined yet.",
-    "打开应用创建新的待办事项。":
-      "Open the app to create a new todo item.",
-    "打开应用创建新的打卡项目。":
-      "Open the app to create a new check-in item.",
+    "打开应用创建新的待办事项。": "Open the app to create a new todo item.",
+    "打开应用创建新的打卡项目。": "Open the app to create a new check-in item.",
     "打开原页补充数据后会自动同步到这里。":
       "Open the original view to add more data, and it will sync here automatically.",
     "打开原页查看完整周计划。":
       "Open the original view to see the full weekly plan.",
     "当前没有待处理的待办。": "There are no pending todos right now.",
-    "待处理待办": "Pending Todos",
-    "今日打卡": "Today's Check-ins",
-    "今日项目占比": "Today's Project Share",
-    "本月目标": "This Month's Goals",
-    "今年年度目标": "This Year's Goals",
+    待处理待办: "Pending Todos",
+    今日打卡: "Today's Check-ins",
+    今日项目占比: "Today's Project Share",
+    本月目标: "This Month's Goals",
+    今年年度目标: "This Year's Goals",
     "近 7 天时间分布": "Time Distribution Over the Last 7 Days",
-    "打开": "Open",
-    "查看计划": "View Plans",
-    "随机色": "Random Color",
+    打开: "Open",
+    查看计划: "View Plans",
+    随机色: "Random Color",
     "父级项目（仅二级和三级项目需要）":
       "Parent Project (required only for level 2 and 3 projects)",
-    "父级项目（仅二级/三级项目）":
-      "Parent Project (level 2/3 only)",
-    "确定创建": "Create",
+    "父级项目（仅二级/三级项目）": "Parent Project (level 2/3 only)",
+    确定创建: "Create",
     "可手动挑色，也可直接点推荐色板":
       "You can choose a color manually or tap a suggested palette below.",
     "颜色仅用于统计图表；一级项目改色时，只会联动仍处于自动色模式的子级。":
       "Colors are only used in charts. When a level 1 project color changes, only child projects still using automatic colors will update with it.",
-    "标准": "Standard",
-    "明亮": "Bright",
-    "柔和": "Soft",
-    "冰川青": "Glacier Cyan",
-    "茶金棕": "Tea Gold Brown",
-    "琥珀砂": "Amber Sand",
-    "莓果酒红": "Berry Wine",
-    "靛夜蓝": "Indigo Night",
-    "待办与打卡": "Todos and Check-ins",
-    "待办与打卡会在你打开侧栏或首屏空闲后载入":
+    标准: "Standard",
+    明亮: "Bright",
+    柔和: "Soft",
+    冰川青: "Glacier Cyan",
+    茶金棕: "Tea Gold Brown",
+    琥珀砂: "Amber Sand",
+    莓果酒红: "Berry Wine",
+    靛夜蓝: "Indigo Night",
+    待办与打卡: "Todos and Check-ins",
+    待办与打卡会在你打开侧栏或首屏空闲后载入:
       "Todos and check-ins load after you open the sidebar or when the first screen becomes idle.",
-    "点击卡片添加年度总目标": "Click a card to add the yearly goal",
-    "年度总目标": "Yearly Goal",
+    点击卡片添加年度总目标: "Click a card to add the yearly goal",
+    年度总目标: "Yearly Goal",
     "例如：完成季度复盘": "For example: finish the quarterly review",
-    "周时间表格": "Weekly Time Grid",
-    "显示本周的时间分配情况": "Shows the time allocation for this week",
-    "项目名称": "Project Name",
-    "双击记录可编辑": "Double-click a record to edit it",
-    "当前时间范围内暂无记录": "No records are available in the selected time range",
+    周时间表格: "Weekly Time Grid",
+    显示本周的时间分配情况: "Shows the time allocation for this week",
+    项目名称: "Project Name",
+    双击记录可编辑: "Double-click a record to edit it",
+    当前时间范围内暂无记录:
+      "No records are available in the selected time range",
     "显示名称:": "Display Name:",
     "原始路径:": "Raw Path:",
     "存储路径信息已在浏览器控制台中显示。":
@@ -12531,34 +13562,81 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     [/^渲染失败：(.+)$/, (_, detail) => `Render failed: ${detail}`],
     [/^(.+)超时$/, (_, label) => `${translateLine(label).trim()} timed out`],
     [/^进行中：(.+)$/, (_, value) => `In progress: ${value}`],
-    [/^今日累计：(.+)$/, (_, value) => `Today's total: ${translateLine(value).trim()}`],
+    [
+      /^今日累计：(.+)$/,
+      (_, value) => `Today's total: ${translateLine(value).trim()}`,
+    ],
     [/^今日日记：(.+)$/, (_, value) => `Today's diary: ${value}`],
     [/^今日记录：(\d+)\s*条$/, (_, count) => `Today's records: ${count}`],
-    [/^今日总时长：(.+)$/, (_, value) => `Today's total: ${translateLine(value).trim()}`],
+    [
+      /^今日总时长：(.+)$/,
+      (_, value) => `Today's total: ${translateLine(value).trim()}`,
+    ],
     [/^待办总数：(\d+)\s*项$/, (_, count) => `Total todos: ${count}`],
     [/^进行中：(\d+)\s*项$/, (_, count) => `In progress: ${count} items`],
     [/^打卡项目：(\d+)\s*项$/, (_, count) => `Check-ins: ${count}`],
     [/^今日已打卡：(\d+)\s*项$/, (_, count) => `Checked in today: ${count}`],
     [/^计划总数：(\d+)\s*项$/, (_, count) => `Plans: ${count}`],
-    [/^当前已保存\s+(\d+)\s+个桌面小组件配置；关闭应用后可在下次启动时自动恢复。$/, (_, count) => `Saved ${count} desktop widget configurations. They can be restored the next time the app starts.`],
-    [/^(.+)\s+小组件已创建，可直接拖动边缘调整尺寸。$/, (_, name) => `${name} widget created. Drag the edges to resize it.`],
-    [/^创建\s+(.+)\s+小组件失败，请重试。$/, (_, name) => `Failed to create the ${name} widget. Please try again.`],
-    [/^(.+)\s+的添加请求已发出，请在桌面确认放置。添加后长按即可调整组件大小。$/, (_, name) => `The request to add ${name} has been sent. Confirm placement on the home screen, then long-press it to resize.`],
-    [/^当前系统不支持应用内直接固定\s+(.+?)。$/, (_, name) => `This device cannot pin ${name} from inside the app.`],
-    [/^当前系统不支持应用内直接固定\s+(.+)，请长按桌面空白处\s*→\s*小组件\s*→\s*Order，手动添加该组件。$/, (_, name) => `This device cannot pin ${name} from inside the app. Long-press the home screen, open Widgets, then add the Order widget manually.`],
-    [/^添加\s+(.+)\s+小组件失败，请重试。$/, (_, name) => `Failed to add the ${name} widget. Please try again.`],
-    [/^今天的记录已存在，最近更新于\s+(.+?)。$/, (_, time) => `Today's entry already exists. Last updated at ${time}.`],
-    [/^确定将项目“(.+)”的记录合并到现有项目“(.+)”吗？$/, (_, source, target) => `Merge records from "${source}" into the existing project "${target}"?`],
-    [/^已将项目“(.+)”的\s*(\d+)\s*条记录合并到“(.+)”。$/, (_, source, count, target) => `Merged ${count} records from "${source}" into "${target}".`],
+    [
+      /^当前已保存\s+(\d+)\s+个桌面小组件配置；关闭应用后可在下次启动时自动恢复。$/,
+      (_, count) =>
+        `Saved ${count} desktop widget configurations. They can be restored the next time the app starts.`,
+    ],
+    [
+      /^(.+)\s+小组件已创建，可直接拖动边缘调整尺寸。$/,
+      (_, name) => `${name} widget created. Drag the edges to resize it.`,
+    ],
+    [
+      /^创建\s+(.+)\s+小组件失败，请重试。$/,
+      (_, name) => `Failed to create the ${name} widget. Please try again.`,
+    ],
+    [
+      /^(.+)\s+的添加请求已发出，请在桌面确认放置。添加后长按即可调整组件大小。$/,
+      (_, name) =>
+        `The request to add ${name} has been sent. Confirm placement on the home screen, then long-press it to resize.`,
+    ],
+    [
+      /^当前系统不支持应用内直接固定\s+(.+?)。$/,
+      (_, name) => `This device cannot pin ${name} from inside the app.`,
+    ],
+    [
+      /^当前系统不支持应用内直接固定\s+(.+)，请长按桌面空白处\s*→\s*小组件\s*→\s*Order，手动添加该组件。$/,
+      (_, name) =>
+        `This device cannot pin ${name} from inside the app. Long-press the home screen, open Widgets, then add the Order widget manually.`,
+    ],
+    [
+      /^添加\s+(.+)\s+小组件失败，请重试。$/,
+      (_, name) => `Failed to add the ${name} widget. Please try again.`,
+    ],
+    [
+      /^今天的记录已存在，最近更新于\s+(.+?)。$/,
+      (_, time) => `Today's entry already exists. Last updated at ${time}.`,
+    ],
+    [
+      /^确定将项目“(.+)”的记录合并到现有项目“(.+)”吗？$/,
+      (_, source, target) =>
+        `Merge records from "${source}" into the existing project "${target}"?`,
+    ],
+    [
+      /^已将项目“(.+)”的\s*(\d+)\s*条记录合并到“(.+)”。$/,
+      (_, source, count, target) =>
+        `Merged ${count} records from "${source}" into "${target}".`,
+    ],
     [/^连击\s+(\d+)\s*天$/, (_, days) => `Streak: ${days} days`],
     [/^连续\s+(\d+)\s*天$/, (_, days) => `${days}-day streak`],
     [/^打卡时间\s+(.+)$/, (_, value) => `Checked in at ${value}`],
     [/^最近进度：(.+)$/, (_, value) => `Latest progress: ${value}`],
-    [/^最近记录\s+(.+)$/, (_, value) => `Latest entry ${translateLine(value).trim()}`],
+    [
+      /^最近记录\s+(.+)$/,
+      (_, value) => `Latest entry ${translateLine(value).trim()}`,
+    ],
     [/^日期\s+(.+)$/, (_, value) => `Date ${translateLine(value).trim()}`],
     [/^日期：(.+)$/, (_, value) => `Date: ${translateLine(value).trim()}`],
     [/^截止\s+(.+)$/, (_, value) => `Due ${translateLine(value).trim()}`],
-    [/^原定\s+(.+)$/, (_, value) => `Originally due ${translateLine(value).trim()}`],
+    [
+      /^原定\s+(.+)$/,
+      (_, value) => `Originally due ${translateLine(value).trim()}`,
+    ],
     [/^开始：(.+)$/, (_, value) => `Start: ${translateLine(value).trim()}`],
     [/^结束：(.+)$/, (_, value) => `End: ${translateLine(value).trim()}`],
     [/^显示名称:\s*(.+)$/, (_, value) => `Display Name: ${value}`],
@@ -12571,35 +13649,92 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     [/^原始根目录：(.+)$/, (_, value) => `Raw Root Directory: ${value}`],
     [/^来源：(.+)$/, (_, value) => `Source: ${translateLine(value).trim()}`],
     [/^时间：(.+)$/, (_, value) => `Time: ${translateLine(value).trim()}`],
-    [/^当前有\s+(\d+)\s+个按月分片$/, (_, count) => `${count} monthly partitions currently exist`],
-    [/^当前状态：(.+)$/, (_, value) => `Current Status: ${translateLine(value).trim()}`],
-    [/^备份周期：每\s+(.+)$/, (_, value) => `Backup Interval: every ${translateLine(value).trim()}`],
-    [/^保留份数：(.+)$/, (_, value) => `Backups Kept: ${translateLine(value).trim()}`],
+    [
+      /^当前有\s+(\d+)\s+个按月分片$/,
+      (_, count) => `${count} monthly partitions currently exist`,
+    ],
+    [
+      /^当前状态：(.+)$/,
+      (_, value) => `Current Status: ${translateLine(value).trim()}`,
+    ],
+    [
+      /^备份周期：每\s+(.+)$/,
+      (_, value) => `Backup Interval: every ${translateLine(value).trim()}`,
+    ],
+    [
+      /^保留份数：(.+)$/,
+      (_, value) => `Backups Kept: ${translateLine(value).trim()}`,
+    ],
     [/^备份目录：(.+)$/, (_, value) => `Backup Directory: ${value}`],
-    [/^目录类型：(.+)$/, (_, value) => `Directory Type: ${translateLine(value).trim()}`],
+    [
+      /^目录类型：(.+)$/,
+      (_, value) => `Directory Type: ${translateLine(value).trim()}`,
+    ],
     [/^现有备份：(.+)\s+份$/, (_, value) => `Existing Backups: ${value}`],
-    [/^最近备份：(.+)$/, (_, value) => `Latest Backup: ${translateLine(value).trim()}`],
-    [/^最近尝试：(.+)$/, (_, value) => `Latest Attempt: ${translateLine(value).trim()}`],
-    [/^最近结果：(.+)$/, (_, value) => `Latest Result: ${translateLine(value).trim()}`],
-    [/^当前已保存\s+(\d+)\s+个桌面小组件配置；当前未开启自动启动或自动恢复。$/, (_, count) => `${count} desktop widget configurations are saved. Auto-start and auto-restore are currently disabled.`],
-    [/^当前已保存\s+(\d+)\s+个桌面小组件配置；手动启动应用时会恢复这些小组件。如需系统登录时恢复，请同时开启“开机自启应用”。$/, (_, count) => `${count} desktop widget configurations are saved. They will be restored when you open the app manually. To restore them after system login, also enable "Launch the app at startup".`],
-    [/^当前已保存\s+(\d+)\s+个桌面小组件配置；系统登录后会自动启动应用，但不会恢复小组件。如需自动恢复，请同时开启“启动时恢复已创建小组件”。$/, (_, count) => `${count} desktop widget configurations are saved. The app will launch after system login, but widgets will not be restored automatically. Also enable "Restore created widgets on launch" if you want that behavior.`],
-    [/^当前已保存\s+(\d+)\s+个桌面小组件配置；系统登录后会自动启动应用并恢复这些小组件。$/, (_, count) => `${count} desktop widget configurations are saved. The app will launch after system login and restore these widgets automatically.`],
+    [
+      /^最近备份：(.+)$/,
+      (_, value) => `Latest Backup: ${translateLine(value).trim()}`,
+    ],
+    [
+      /^最近尝试：(.+)$/,
+      (_, value) => `Latest Attempt: ${translateLine(value).trim()}`,
+    ],
+    [
+      /^最近结果：(.+)$/,
+      (_, value) => `Latest Result: ${translateLine(value).trim()}`,
+    ],
+    [
+      /^当前已保存\s+(\d+)\s+个桌面小组件配置；当前未开启自动启动或自动恢复。$/,
+      (_, count) =>
+        `${count} desktop widget configurations are saved. Auto-start and auto-restore are currently disabled.`,
+    ],
+    [
+      /^当前已保存\s+(\d+)\s+个桌面小组件配置；手动启动应用时会恢复这些小组件。如需系统登录时恢复，请同时开启“开机自启应用”。$/,
+      (_, count) =>
+        `${count} desktop widget configurations are saved. They will be restored when you open the app manually. To restore them after system login, also enable "Launch the app at startup".`,
+    ],
+    [
+      /^当前已保存\s+(\d+)\s+个桌面小组件配置；系统登录后会自动启动应用，但不会恢复小组件。如需自动恢复，请同时开启“启动时恢复已创建小组件”。$/,
+      (_, count) =>
+        `${count} desktop widget configurations are saved. The app will launch after system login, but widgets will not be restored automatically. Also enable "Restore created widgets on launch" if you want that behavior.`,
+    ],
+    [
+      /^当前已保存\s+(\d+)\s+个桌面小组件配置；系统登录后会自动启动应用并恢复这些小组件。$/,
+      (_, count) =>
+        `${count} desktop widget configurations are saved. The app will launch after system login and restore these widgets automatically.`,
+    ],
     [/^进度\s+(\d+)$/, (_, count) => `Progress ${count}`],
     [/^(\d+)\s*条$/, (_, count) => `${count} records`],
     [/^(\d+)\s*个目标$/, (_, count) => `${count} goals`],
     [/^(\d+)\s*个月$/, (_, count) => `${count} months`],
-    [/^(\d+)-(\d+)点$/, (_, start, end) => `${String(start).padStart(2, "0")}:00-${String(end).padStart(2, "0")}:00`],
-    [/^(.+?)\s+(\d+)\s*项$/, (_, label, count) => `${translateLine(label).trim()} ${count}`],
-    [/^(.+?)\s+(\d+)\s*天$/, (_, label, count) => `${translateLine(label).trim()} ${count} days`],
-    [/^(.+?)\s+(\d+)\s*小时$/, (_, label, count) => `${translateLine(label).trim()} ${count} h`],
-    [/^(.+?)\s+(\d+)\s*分钟$/, (_, label, count) => `${translateLine(label).trim()} ${count} min`],
+    [
+      /^(\d+)-(\d+)点$/,
+      (_, start, end) =>
+        `${String(start).padStart(2, "0")}:00-${String(end).padStart(2, "0")}:00`,
+    ],
+    [
+      /^(.+?)\s+(\d+)\s*项$/,
+      (_, label, count) => `${translateLine(label).trim()} ${count}`,
+    ],
+    [
+      /^(.+?)\s+(\d+)\s*天$/,
+      (_, label, count) => `${translateLine(label).trim()} ${count} days`,
+    ],
+    [
+      /^(.+?)\s+(\d+)\s*小时$/,
+      (_, label, count) => `${translateLine(label).trim()} ${count} h`,
+    ],
+    [
+      /^(.+?)\s+(\d+)\s*分钟$/,
+      (_, label, count) => `${translateLine(label).trim()} ${count} min`,
+    ],
     [/^(\d+)\s*秒$/, (_, count) => `${count}s`],
     [/^(\d+)月$/, (_, month) => MONTH_NAMES[Number(month) - 1] || month],
     [/^(\d+)年$/, (_, year) => `${year}`],
     [
       /^(\d+)年(\d+)月 列表$/,
-      (_, year, month) => `${MONTH_NAMES[Number(month) - 1] || month} ${year} List`,
+      (_, year, month) =>
+        `${MONTH_NAMES[Number(month) - 1] || month} ${year} List`,
     ],
     [
       /^(\d+)年(\d+)月$/,
@@ -12609,15 +13744,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     [/^共\s+(\d+)\s+篇匹配$/, (_, count) => `${count} matches`],
     [
       /^(\d+)年(\d+)月 暂无日记$/,
-      (_, year, month) => `No diary entries for ${MONTH_NAMES[Number(month) - 1] || month} ${year}`,
+      (_, year, month) =>
+        `No diary entries for ${MONTH_NAMES[Number(month) - 1] || month} ${year}`,
     ],
-    [/^没有找到包含“(.+)”的日记$/, (_, keyword) => `No diary entries contain "${keyword}"`],
+    [
+      /^没有找到包含“(.+)”的日记$/,
+      (_, keyword) => `No diary entries contain "${keyword}"`,
+    ],
     [/^(\d+)月(\d+)日$/, (_, month, day) => `${month}/${day}`],
     [
       /^(\d+)月(\d+)日\s+(周日|周一|周二|周三|周四|周五|周六)$/,
-      (_, month, day, weekday) => `${month}/${day} ${WEEKDAY_NAMES[weekday] || weekday}`,
+      (_, month, day, weekday) =>
+        `${month}/${day} ${WEEKDAY_NAMES[weekday] || weekday}`,
     ],
-    [/^总时长[:：]\s*(.+)$/, (_, value) => `Total: ${translateLine(value).trim()}`],
+    [
+      /^总时长[:：]\s*(.+)$/,
+      (_, value) => `Total: ${translateLine(value).trim()}`,
+    ],
     [/^已打卡[:：]\s*(.+)$/, (_, value) => `Checked in: ${value}`],
     [/^命中天数:\s*(\d+)$/, (_, count) => `Active days: ${count}`],
     [/^已打卡天数:\s*(\d+)$/, (_, count) => `Checked-in days: ${count}`],
@@ -12625,7 +13768,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     [/^占整体：(.+)$/, (_, value) => `Share of total: ${value}`],
     [/^占上级：(.+)$/, (_, value) => `Share of parent: ${value}`],
     [/^≤\s*(\d+(?:\.\d+)?)\s*小时$/, (_, value) => `≤ ${value} h`],
-    [/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*小时$/, (_, min, max) => `${min} - ${max} h`],
+    [
+      /^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*小时$/,
+      (_, min, max) => `${min} - ${max} h`,
+    ],
     [/^>\s*(\d+(?:\.\d+)?)\s*小时$/, (_, value) => `> ${value} h`],
     [
       /^(\d+)月(\d+)日\s*-\s*(\d+)月(\d+)日$/,
@@ -12749,7 +13895,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     electronLanguageSyncStarted = true;
     try {
-      const mainLanguage = normalizeLanguage(await window.electronAPI.uiGetLanguage());
+      const mainLanguage = normalizeLanguage(
+        await window.electronAPI.uiGetLanguage(),
+      );
       const storedLanguage = readStoredLanguage();
       const normalizedStoredLanguage = storedLanguage
         ? normalizeLanguage(storedLanguage)
@@ -12759,10 +13907,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : "";
       const shouldPreferStoredLanguage =
         !!normalizedStoredLanguage &&
-        (
-          rememberedUserLanguage === normalizedStoredLanguage ||
-          (normalizedStoredLanguage === "en-US" && mainLanguage === "zh-CN")
-        );
+        (rememberedUserLanguage === normalizedStoredLanguage ||
+          (normalizedStoredLanguage === "en-US" && mainLanguage === "zh-CN"));
       const currentLanguage = normalizeLanguage(
         window.ControlerI18n.getLanguage?.() ||
           normalizedStoredLanguage ||
@@ -12799,7 +13945,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function translateLine(line) {
-    if (typeof line !== "string" || !isEnglish() || !/[\u4e00-\u9fff]/.test(line)) {
+    if (
+      typeof line !== "string" ||
+      !isEnglish() ||
+      !/[\u4e00-\u9fff]/.test(line)
+    ) {
       return line;
     }
 
@@ -12807,7 +13957,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     EXTRA_PATTERNS.forEach(([pattern, formatter]) => {
       translated = translated.replace(pattern, formatter);
     });
-    if (translated === line && typeof window.ControlerI18n?.translateText === "function") {
+    if (
+      translated === line &&
+      typeof window.ControlerI18n?.translateText === "function"
+    ) {
       translated = window.ControlerI18n.translateText(line);
     }
     return translated;
@@ -12834,8 +13987,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !(attributeName in element.__controlerI18nExtraAttrs) &&
       /[\u4e00-\u9fff]/.test(String(currentValue || ""))
     ) {
-      element.__controlerI18nExtraAttrs[attributeName] =
-        currentValue;
+      element.__controlerI18nExtraAttrs[attributeName] = currentValue;
     }
     return element.__controlerI18nExtraAttrs[attributeName];
   }
@@ -12856,7 +14008,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!element.hasAttribute(attributeName)) return;
       const originalValue = rememberAttribute(element, attributeName);
       if (originalValue == null) return;
-      const nextValue = isEnglish() ? translateTextBlock(originalValue) : originalValue;
+      const nextValue = isEnglish()
+        ? translateTextBlock(originalValue)
+        : originalValue;
       if (element.getAttribute(attributeName) !== nextValue) {
         element.setAttribute(attributeName, nextValue);
       }
@@ -12865,7 +14019,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (isButtonLikeInput(element) && element.hasAttribute("value")) {
       const originalValue = rememberAttribute(element, "value");
       if (originalValue == null) return;
-      const nextValue = isEnglish() ? translateTextBlock(originalValue) : originalValue;
+      const nextValue = isEnglish()
+        ? translateTextBlock(originalValue)
+        : originalValue;
       if (element.value !== nextValue) {
         element.value = nextValue;
       }
@@ -12948,7 +14104,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
     );
 
-    for (let current = walker.currentNode; current; current = walker.nextNode()) {
+    for (
+      let current = walker.currentNode;
+      current;
+      current = walker.nextNode()
+    ) {
       if (current.nodeType === Node.TEXT_NODE) {
         applyTextTranslation(current);
       } else {
@@ -12998,10 +14158,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   } else {
     init();
   }
-})();
+})(); /* pages/theme-init.js */
 
-
-;/* pages/theme-init.js */
 (() => {
   const SELECTED_THEME_STORAGE_KEY = "selectedTheme";
   const CUSTOM_THEMES_STORAGE_KEY = "customThemes";
@@ -13327,7 +14485,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }),
   ];
 
-  const builtInThemeMap = new Map(BUILT_IN_THEMES.map((theme) => [theme.id, theme]));
+  const builtInThemeMap = new Map(
+    BUILT_IN_THEMES.map((theme) => [theme.id, theme]),
+  );
   const lightThemeIds = new Set(["ivory-light"]);
   let lastThemeStorageSignature = null;
   let lastLaunchThemeSyncSignature = null;
@@ -13402,9 +14562,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function toRgbChannels(color) {
     if (!color) return "121,175,133";
 
-    const hex = String(color)
-      .trim()
-      .match(HEX_COLOR_PATTERN);
+    const hex = String(color).trim().match(HEX_COLOR_PATTERN);
     if (hex) {
       const r = parseInt(hex[1].slice(0, 2), 16);
       const g = parseInt(hex[1].slice(2, 4), 16);
@@ -13412,9 +14570,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return `${r},${g},${b}`;
     }
 
-    const rgb = String(color)
-      .trim()
-      .match(RGB_COLOR_PATTERN);
+    const rgb = String(color).trim().match(RGB_COLOR_PATTERN);
     if (rgb) {
       return `${rgb[1]},${rgb[2]},${rgb[3]}`;
     }
@@ -13454,7 +14610,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function isValidThemeColorValue(color) {
     const normalized = String(color || "").trim();
-    return HEX_COLOR_PATTERN.test(normalized) || RGB_COLOR_PATTERN.test(normalized);
+    return (
+      HEX_COLOR_PATTERN.test(normalized) || RGB_COLOR_PATTERN.test(normalized)
+    );
   }
 
   function firstNonEmpty(...values) {
@@ -13466,14 +14624,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return "";
   }
 
-  function getReadableTextColor(color, darkText = "#173326", lightText = "#f8fafc") {
+  function getReadableTextColor(
+    color,
+    darkText = "#173326",
+    lightText = "#f8fafc",
+  ) {
     const rgb = parseHexColor(toHexColor(color, ""));
     if (!rgb) {
       return darkText;
     }
 
-    const luminance =
-      (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+    const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
     return luminance >= 0.62 ? darkText : lightText;
   }
 
@@ -13604,7 +14765,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       surfaceReference,
       windowGlow: toRgbaColor("#FFFFFF", isLightSurface ? 0.22 : 0.08),
       controlBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.14),
-      controlBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
+      controlBorder: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.14 : 0.18,
+      ),
       controlText: ensureReadableTextColor(
         surfaceReference,
         resolvedColors.text,
@@ -13619,7 +14783,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       cardBorder: toRgbaColor(
         mixThemeColors(
           contrastReference,
-          firstNonEmpty(resolvedColors.panelBorder, resolvedColors.border, accentBase),
+          firstNonEmpty(
+            resolvedColors.panelBorder,
+            resolvedColors.border,
+            accentBase,
+          ),
           0.36,
         ),
         isLightSurface ? 0.3 : 0.26,
@@ -13629,12 +14797,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         isLightSurface ? 0.14 : 0.24,
       ),
       cardGlossStart: toRgbaColor("#FFFFFF", isLightSurface ? 0.22 : 0.08),
-      subtleSurface: toRgbaColor(contrastReference, isLightSurface ? 0.05 : 0.08),
+      subtleSurface: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.05 : 0.08,
+      ),
       subtleSurfaceStrong: toRgbaColor(
         contrastReference,
         isLightSurface ? 0.08 : 0.12,
       ),
-      subtleBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.16),
+      subtleBorder: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.14 : 0.16,
+      ),
       trackBg: toRgbaColor(contrastReference, isLightSurface ? 0.06 : 0.08),
       trackBorder: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.14),
       gridColor: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
@@ -13642,14 +14816,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         contrastReference,
         isLightSurface ? 0.22 : 0.28,
       ),
-      chartTrackBg: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.14),
+      chartTrackBg: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.12 : 0.14,
+      ),
       pieCenterBg: toRgbaColor(
         mixThemeColors(surfaceReference, resolvedColors.primary, 0.18),
         isLightSurface ? 0.96 : 0.92,
       ),
       badgeBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.12),
       badgeText: resolvedColors.mutedText,
-      actionMutedBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.14),
+      actionMutedBg: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.08 : 0.14,
+      ),
       actionMutedBorder: toRgbaColor(
         contrastReference,
         isLightSurface ? 0.14 : 0.18,
@@ -13676,13 +14856,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       goalAnnualBg: toRgbaColor(accentBase, isLightSurface ? 0.18 : 0.16),
       goalAnnualAccent: accentBase,
       goalMonthBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.12),
-      goalMonthAccent: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.2),
-      colorChipOutline: toRgbaColor(contrastReference, isLightSurface ? 0.16 : 0.18),
+      goalMonthAccent: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.18 : 0.2,
+      ),
+      colorChipOutline: toRgbaColor(
+        contrastReference,
+        isLightSurface ? 0.16 : 0.18,
+      ),
     };
   }
 
-  function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD.mode) {
-    const normalizedMode = String(mode || "").trim().toLowerCase();
+  function normalizeThemeRecordCardMode(
+    mode,
+    fallback = DEFAULT_THEME_RECORD_CARD.mode,
+  ) {
+    const normalizedMode = String(mode || "")
+      .trim()
+      .toLowerCase();
     if (normalizedMode === "theme" || normalizedMode === "custom") {
       return "theme";
     }
@@ -13799,7 +14990,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const primaryRgb = parseHexColor(primaryHex);
     const isLightSurface =
       !!primaryRgb &&
-      (0.2126 * primaryRgb.r + 0.7152 * primaryRgb.g + 0.0722 * primaryRgb.b) / 255 >=
+      (0.2126 * primaryRgb.r + 0.7152 * primaryRgb.g + 0.0722 * primaryRgb.b) /
+        255 >=
         0.72;
 
     return {
@@ -13933,8 +15125,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (lightThemeIds.has(theme?.id)) return true;
     const rgb = parseHexColor(toHexColor(theme?.colors?.primary, ""));
     if (!rgb) return false;
-    const luminance =
-      (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+    const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
     return luminance >= 0.72;
   }
 
@@ -13948,7 +15139,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     root.style.setProperty("--bg-tertiary", resolvedColors.tertiary);
     root.style.setProperty("--bg-quaternary", resolvedColors.quaternary);
     root.style.setProperty("--accent-color", resolvedColors.accent);
-    root.style.setProperty("--accent-color-rgb", toRgbChannels(resolvedColors.accent));
+    root.style.setProperty(
+      "--accent-color-rgb",
+      toRgbChannels(resolvedColors.accent),
+    );
     root.style.setProperty("--text-color", resolvedColors.text);
     root.style.setProperty("--muted-text-color", resolvedColors.mutedText);
     root.style.setProperty("--border-color", resolvedColors.border);
@@ -13966,7 +15160,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     root.style.setProperty("--button-border", resolvedColors.buttonBorder);
     root.style.setProperty("--on-accent-text", resolvedColors.onAccentText);
     root.style.setProperty("--bottom-nav-bg", resolvedColors.navBarBg);
-    root.style.setProperty("--bottom-nav-button-bg", resolvedColors.navButtonBg);
+    root.style.setProperty(
+      "--bottom-nav-button-bg",
+      resolvedColors.navButtonBg,
+    );
     root.style.setProperty(
       "--bottom-nav-button-active-bg",
       resolvedColors.navButtonActiveBg,
@@ -13980,17 +15177,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "--record-card-color-mode",
       resolvedRecordCard.mode === "theme" ? "theme" : "project",
     );
-    root.style.setProperty("--record-card-theme-color", resolvedRecordCard.color);
-    root.style.setProperty("--widget-surface-reference", widgetColors.surfaceReference);
+    root.style.setProperty(
+      "--record-card-theme-color",
+      resolvedRecordCard.color,
+    );
+    root.style.setProperty(
+      "--widget-surface-reference",
+      widgetColors.surfaceReference,
+    );
     root.style.setProperty("--widget-window-glow", widgetColors.windowGlow);
     root.style.setProperty("--widget-control-bg", widgetColors.controlBg);
-    root.style.setProperty("--widget-control-border", widgetColors.controlBorder);
+    root.style.setProperty(
+      "--widget-control-border",
+      widgetColors.controlBorder,
+    );
     root.style.setProperty("--widget-control-text", widgetColors.controlText);
     root.style.setProperty("--widget-card-bg", widgetColors.cardBg);
     root.style.setProperty("--widget-card-border", widgetColors.cardBorder);
     root.style.setProperty("--widget-card-shadow", widgetColors.cardShadow);
-    root.style.setProperty("--widget-card-gloss-start", widgetColors.cardGlossStart);
-    root.style.setProperty("--widget-subtle-surface", widgetColors.subtleSurface);
+    root.style.setProperty(
+      "--widget-card-gloss-start",
+      widgetColors.cardGlossStart,
+    );
+    root.style.setProperty(
+      "--widget-subtle-surface",
+      widgetColors.subtleSurface,
+    );
     root.style.setProperty(
       "--widget-subtle-surface-strong",
       widgetColors.subtleSurfaceStrong,
@@ -14003,11 +15215,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "--widget-placeholder-color",
       widgetColors.placeholderColor,
     );
-    root.style.setProperty("--widget-chart-track-bg", widgetColors.chartTrackBg);
+    root.style.setProperty(
+      "--widget-chart-track-bg",
+      widgetColors.chartTrackBg,
+    );
     root.style.setProperty("--widget-pie-center-bg", widgetColors.pieCenterBg);
     root.style.setProperty("--widget-badge-bg", widgetColors.badgeBg);
     root.style.setProperty("--widget-badge-text", widgetColors.badgeText);
-    root.style.setProperty("--widget-action-muted-bg", widgetColors.actionMutedBg);
+    root.style.setProperty(
+      "--widget-action-muted-bg",
+      widgetColors.actionMutedBg,
+    );
     root.style.setProperty(
       "--widget-action-muted-border",
       widgetColors.actionMutedBorder,
@@ -14028,7 +15246,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "--widget-accent-action-text",
       widgetColors.accentActionText,
     );
-    root.style.setProperty("--widget-goal-annual-bg", widgetColors.goalAnnualBg);
+    root.style.setProperty(
+      "--widget-goal-annual-bg",
+      widgetColors.goalAnnualBg,
+    );
     root.style.setProperty(
       "--widget-goal-annual-accent",
       widgetColors.goalAnnualAccent,
@@ -14124,7 +15345,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function resolveActiveThemeState() {
-    const storedTheme = localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default";
+    const storedTheme =
+      localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default";
     const builtInThemeOverrides = loadBuiltInThemeOverrides();
     const rawCustomThemes = JSON.parse(
       localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
@@ -14138,7 +15360,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const mergedBuiltInTheme = baseBuiltInTheme
       ? {
           ...baseBuiltInTheme,
-          name: builtInThemeOverrides[storedTheme]?.name || baseBuiltInTheme.name,
+          name:
+            builtInThemeOverrides[storedTheme]?.name || baseBuiltInTheme.name,
           colors: resolveThemeColors(
             builtInThemeOverrides[storedTheme]
               ? {
@@ -14150,15 +15373,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 }
               : baseBuiltInTheme,
           ),
-          recordCard: resolveThemeRecordCard(
-            {
-              ...baseBuiltInTheme,
-              recordCard: {
-                ...(baseBuiltInTheme.recordCard || {}),
-                ...(builtInThemeOverrides[storedTheme]?.recordCard || {}),
-              },
+          recordCard: resolveThemeRecordCard({
+            ...baseBuiltInTheme,
+            recordCard: {
+              ...(baseBuiltInTheme.recordCard || {}),
+              ...(builtInThemeOverrides[storedTheme]?.recordCard || {}),
             },
-          ),
+          }),
         }
       : null;
 
@@ -14250,7 +15471,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (
-      (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !== themeId
+      (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !==
+      themeId
     ) {
       localStorage.setItem(SELECTED_THEME_STORAGE_KEY, themeId);
     }
@@ -14272,11 +15494,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       appendDesktopThemeDebugLog("apply-from-storage", {
         themeId,
         preloadedThemeId:
-          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string"
+          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId ===
+          "string"
             ? window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId
             : "",
         usedPreloadedTheme:
-          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string" &&
+          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId ===
+            "string" &&
           window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId === themeId,
       });
       applyThemeState(themeId, activeTheme, options);
@@ -14289,7 +15513,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       document.documentElement.setAttribute("data-theme", "default");
       applyThemeColors(fallbackTheme);
       document.documentElement.style.colorScheme = "dark";
-      dispatchThemeApplied("default", resolveThemeColors(fallbackTheme), options);
+      dispatchThemeApplied(
+        "default",
+        resolveThemeColors(fallbackTheme),
+        options,
+      );
     }
   }
 
@@ -14405,10 +15633,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     },
     resolveWidgetThemeColors,
   };
-})();
+})(); /* pages/ui-helpers.js */
 
-
-;/* pages/ui-helpers.js */
 (() => {
   const DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR = 0.75;
   const EXPAND_SURFACE_WIDTH_FACTOR_MIN = 0.4;
@@ -14425,10 +15651,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "controler:app-navigation-visibility-changed";
   const BLOCKING_OVERLAY_STATE_EVENT_NAME =
     "controler:blocking-overlay-state-changed";
-  const SHELL_VISIBILITY_EVENT_NAME =
-    "controler:shell-visibility-changed";
-  const EDGE_BACK_SWIPE_EXCLUSION_ATTR =
-    "data-controler-edge-back-exclusion";
+  const SHELL_VISIBILITY_EVENT_NAME = "controler:shell-visibility-changed";
+  const EDGE_BACK_SWIPE_EXCLUSION_ATTR = "data-controler-edge-back-exclusion";
   const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
@@ -14436,8 +15660,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const DESKTOP_BOOTSTRAP_PREWARM_DELAY_MS = 420;
   const DESKTOP_BOOTSTRAP_PREWARM_STEP_DELAY_MS = 40;
   const DESKTOP_BOOTSTRAP_PREWARM_IDLE_TIMEOUT_MS = 1200;
-  const OFFLINE_ASSET_MANIFEST_GLOBAL =
-    "__CONTROLER_OFFLINE_ASSET_MANIFEST__";
+  const OFFLINE_ASSET_MANIFEST_GLOBAL = "__CONTROLER_OFFLINE_ASSET_MANIFEST__";
   const OFFLINE_ASSET_KEYS = new Set([
     "chart",
     "d3",
@@ -14495,7 +15718,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     normalizedEntry.id = String(
       normalizedEntry.id || normalizedEntry.action || "",
     ).trim();
-    normalizedEntry.widgetKind = String(normalizedEntry.widgetKind || "").trim();
+    normalizedEntry.widgetKind = String(
+      normalizedEntry.widgetKind || "",
+    ).trim();
     normalizedEntry.page = normalizeTodoWidgetPage(
       normalizedEntry.page,
       normalizedEntry.widgetKind,
@@ -14548,8 +15773,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         if (!normalizedEntry) {
           return null;
         }
-        if (!normalizedEntry.widgetKind && widgetActionKindMap.has(normalizedEntry.id)) {
-          normalizedEntry.widgetKind = widgetActionKindMap.get(normalizedEntry.id) || "";
+        if (
+          !normalizedEntry.widgetKind &&
+          widgetActionKindMap.has(normalizedEntry.id)
+        ) {
+          normalizedEntry.widgetKind =
+            widgetActionKindMap.get(normalizedEntry.id) || "";
         }
         if (
           !normalizedEntry.id &&
@@ -14636,7 +15865,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         nodes: [
           {
             tag: "rect",
-            attrs: { x: "4.5", y: "5.75", width: "15", height: "13.25", rx: "3" },
+            attrs: {
+              x: "4.5",
+              y: "5.75",
+              width: "15",
+              height: "13.25",
+              rx: "3",
+            },
           },
           { tag: "path", attrs: { d: "M8 3.75v4" } },
           { tag: "path", attrs: { d: "M16 3.75v4" } },
@@ -14652,7 +15887,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         nodes: [
           {
             tag: "rect",
-            attrs: { x: "5.25", y: "4.75", width: "13.5", height: "14.5", rx: "3" },
+            attrs: {
+              x: "5.25",
+              y: "4.75",
+              width: "13.5",
+              height: "14.5",
+              rx: "3",
+            },
           },
           { tag: "path", attrs: { d: "M8.5 9.25h6.75" } },
           { tag: "path", attrs: { d: "M8.5 13h6.75" } },
@@ -14930,16 +16171,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
     const dedupeKey = `${resolveCurrentPagePerfKey()}:${normalizedStage}`;
-    if (
-      detail?.allowRepeat !== true &&
-      emittedPagePerfStages.has(dedupeKey)
-    ) {
+    if (detail?.allowRepeat !== true && emittedPagePerfStages.has(dedupeKey)) {
       return;
     }
     emittedPagePerfStages.add(dedupeKey);
 
     const now =
-      typeof performance !== "undefined" && typeof performance.now === "function"
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
         ? performance.now()
         : Date.now();
     const payload = {
@@ -15018,7 +16257,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!normalizedUrl) {
       return Promise.reject(new Error("脚本地址为空"));
     }
-    const readyCheck = typeof options.ready === "function" ? options.ready : null;
+    const readyCheck =
+      typeof options.ready === "function" ? options.ready : null;
     const readyTimeoutMs = Math.max(
       250,
       Math.round(Number(options.readyTimeoutMs) || 5000),
@@ -15030,7 +16270,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const existing = Array.from(document.scripts).find(
-      (script) => normalizeAssetUrl(script.getAttribute("src")) === normalizedUrl,
+      (script) =>
+        normalizeAssetUrl(script.getAttribute("src")) === normalizedUrl,
     );
     if (
       existing?.dataset?.controlerLoaded === "true" ||
@@ -15352,8 +16593,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ...(pendingRequest.options || {}),
       targetHref: pendingRequest.targetHref,
       intent:
-        pendingRequest.intent &&
-        typeof pendingRequest.intent === "object"
+        pendingRequest.intent && typeof pendingRequest.intent === "object"
           ? pendingRequest.intent
           : pendingRequest.options?.intent,
     });
@@ -15385,7 +16625,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       BLOCKING_OVERLAY_STATE_EVENT_NAME,
       handleReplayStateChange,
     );
-    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReplayStateChange);
+    window.addEventListener(
+      SHELL_VISIBILITY_EVENT_NAME,
+      handleReplayStateChange,
+    );
     window.addEventListener("focus", handleReplayStateChange);
     document.addEventListener("visibilitychange", handleReplayStateChange);
     scheduleDeferredAppNavigationReplay();
@@ -15443,11 +16686,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 : 0,
             ),
             sourcePage: String(options.intent.sourcePage || "").trim(),
-            sourceHref: normalizeAppNavigationHref(options.intent.sourceHref || ""),
-            targetPage: String(options.intent.targetPage || targetItem.key || "").trim(),
+            sourceHref: normalizeAppNavigationHref(
+              options.intent.sourceHref || "",
+            ),
+            targetPage: String(
+              options.intent.targetPage || targetItem.key || "",
+            ).trim(),
             targetHref:
-              normalizeAppNavigationHref(options.intent.targetHref || targetHref) ||
-              targetHref,
+              normalizeAppNavigationHref(
+                options.intent.targetHref || targetHref,
+              ) || targetHref,
           }
         : buildAppNavigationIntent(targetItem, targetHref);
     return {
@@ -15503,15 +16751,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     initNativeNavigationBridge();
     clearPendingNativeNavigationRequest();
-    const sourcePage =
-      String(navigationRequest.intent?.sourcePage || currentItem?.key || "").trim();
+    const sourcePage = String(
+      navigationRequest.intent?.sourcePage || currentItem?.key || "",
+    ).trim();
     const sourceHref =
       normalizeAppNavigationHref(
         navigationRequest.intent?.sourceHref || window.location.href,
       ) || normalizeAppNavigationHref(window.location.href);
     const intent =
-      navigationRequest.intent &&
-      typeof navigationRequest.intent === "object"
+      navigationRequest.intent && typeof navigationRequest.intent === "object"
         ? navigationRequest.intent
         : buildAppNavigationIntent(targetItem, navigationRequest.targetHref);
     const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
@@ -15601,8 +16849,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
 
-      const ackState = String(detail.state || "").trim()
-        || (detail.queued === true || detail.busy === true
+      const ackState =
+        String(detail.state || "").trim() ||
+        (detail.queued === true || detail.busy === true
           ? "queued"
           : detail.accepted === false
             ? "rejected"
@@ -15652,7 +16901,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const electronApi = window.electronAPI;
     const shouldReportToReactNative = isReactNativeNavigationRuntime();
     const shouldReportToElectron =
-      !!electronApi?.isElectron && typeof electronApi.uiPageReady === "function";
+      !!electronApi?.isElectron &&
+      typeof electronApi.uiPageReady === "function";
     if (
       nativePageReadyReported ||
       (!shouldReportToReactNative && !shouldReportToElectron)
@@ -15695,8 +16945,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : [],
     );
     const visibleOrder = (
-      Array.isArray(navigationState?.order) &&
-      navigationState.order.length
+      Array.isArray(navigationState?.order) && navigationState.order.length
         ? navigationState.order
         : DEFAULT_APP_NAV_ORDER
     )
@@ -15940,10 +17189,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const bundleStorage = window.ControlerStorage;
       if (
         bundleStorage?.isNativeApp !== true ||
-        (
-          typeof bundleStorage?.appendJournal !== "function" &&
-          typeof bundleStorage?.replaceCoreState !== "function"
-        )
+        (typeof bundleStorage?.appendJournal !== "function" &&
+          typeof bundleStorage?.replaceCoreState !== "function")
       ) {
         if (attempt < 12) {
           window.setTimeout(() => {
@@ -15969,7 +17216,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       let managedPreference = "dueDate";
       try {
         const managedSnapshot =
-          typeof bundleStorage.dump === "function" ? bundleStorage.dump() : null;
+          typeof bundleStorage.dump === "function"
+            ? bundleStorage.dump()
+            : null;
         managedPreference = normalizeSharedTodoSortPreference(
           managedSnapshot?.todoSortPreference || "",
         );
@@ -16105,7 +17354,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
 
-    const normalizedState = normalizeAppNavigationVisibilityState(navigationState);
+    const normalizedState =
+      normalizeAppNavigationVisibilityState(navigationState);
     const signature = JSON.stringify({
       hiddenPages: normalizedState.hiddenPages,
       order: normalizedState.order,
@@ -16122,7 +17372,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isVisibleEdgeBackSwipeExclusionTarget(target) {
-    if (!(target instanceof HTMLElement) || !target.isConnected || target.hidden) {
+    if (
+      !(target instanceof HTMLElement) ||
+      !target.isConnected ||
+      target.hidden
+    ) {
       return false;
     }
 
@@ -16253,7 +17507,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!nodeDefinition?.tag) {
         return;
       }
-      const node = document.createElementNS(APP_NAV_ICON_NS, nodeDefinition.tag);
+      const node = document.createElementNS(
+        APP_NAV_ICON_NS,
+        nodeDefinition.tag,
+      );
       Object.entries(nodeDefinition.attrs || {}).forEach(([key, value]) => {
         node.setAttribute(key, String(value));
       });
@@ -16307,8 +17564,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return null;
     }
 
-    const directTarget = target.closest(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR);
-    if (directTarget instanceof HTMLElement && isVisibleInteractiveTextControl(directTarget)) {
+    const directTarget = target.closest(
+      ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR,
+    );
+    if (
+      directTarget instanceof HTMLElement &&
+      isVisibleInteractiveTextControl(directTarget)
+    ) {
       return directTarget;
     }
 
@@ -16317,7 +17579,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const control = labelTarget.querySelector(
         ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR,
       );
-      if (control instanceof HTMLElement && isVisibleInteractiveTextControl(control)) {
+      if (
+        control instanceof HTMLElement &&
+        isVisibleInteractiveTextControl(control)
+      ) {
         return control;
       }
     }
@@ -16386,8 +17651,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         target.focus?.();
       }
     };
-    void window.ControlerNativeBridge
-      .call("ui.showSoftInput")
+    void window.ControlerNativeBridge.call("ui.showSoftInput")
       .catch(() => undefined)
       .finally(() => {
         [0, 72, 168].forEach((delayMs) => {
@@ -16504,8 +17768,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ) {
             const activeInteractiveTarget =
               resolveInteractiveTextControlTarget(activeElement) ||
-              (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
-              activeElement.isContentEditable === true
+              (activeElement.matches?.(
+                ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR,
+              ) || activeElement.isContentEditable === true
                 ? activeElement
                 : null);
             if (
@@ -16571,7 +17836,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
-    const fallbackRetryDelayMs = Math.max(48, Number(options.retryDelayMs) || 120);
+    const fallbackRetryDelayMs = Math.max(
+      48,
+      Number(options.retryDelayMs) || 120,
+    );
     const fallbackRetrySequence = retrySequence.length
       ? retrySequence
       : [fallbackRetryDelayMs, fallbackRetryDelayMs + 120];
@@ -16585,7 +17853,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    const pendingTimers = Array.isArray(target.__controlerAndroidFocusRetryTimers)
+    const pendingTimers = Array.isArray(
+      target.__controlerAndroidFocusRetryTimers,
+    )
       ? target.__controlerAndroidFocusRetryTimers
       : [];
     pendingTimers.forEach((timerId) => {
@@ -16660,7 +17930,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : (callback) => window.setTimeout(callback, 34);
 
     schedule(() => {
-      if (!target.isConnected || isDisabledAndroidInteractiveActionTarget(target)) {
+      if (
+        !target.isConnected ||
+        isDisabledAndroidInteractiveActionTarget(target)
+      ) {
         return;
       }
       clearAndroidNavButtonFocus(target, true);
@@ -16789,7 +18062,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           }
 
           const activeControl = getActiveAndroidInteractiveTextControl();
-          const actionTarget = resolveAndroidInteractiveActionTarget(event.target);
+          const actionTarget = resolveAndroidInteractiveActionTarget(
+            event.target,
+          );
           if (
             !(activeControl instanceof HTMLElement) ||
             !(actionTarget instanceof HTMLElement) ||
@@ -16798,7 +18073,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return;
           }
 
-          const targetTextControl = resolveInteractiveTextControlTarget(event.target);
+          const targetTextControl = resolveInteractiveTextControlTarget(
+            event.target,
+          );
           if (
             targetTextControl instanceof HTMLElement ||
             actionTarget.contains(activeControl) ||
@@ -16901,8 +18178,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function isAndroidReactNativeAppNavLocked() {
     return (
-      isAndroidReactNativeNavigationRuntime() &&
-      androidReactNativeAppNavLocked
+      isAndroidReactNativeNavigationRuntime() && androidReactNativeAppNavLocked
     );
   }
 
@@ -16928,7 +18204,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
 
-    const labelText = String(button.textContent || navItem.label || "").trim() || navItem.label;
+    const labelText =
+      String(button.textContent || navItem.label || "").trim() || navItem.label;
     const label = document.createElement("span");
     label.className = "app-nav-label";
     label.textContent = labelText;
@@ -16985,9 +18262,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function setAppNavigationState(nextState = {}) {
     const currentState = getAppNavigationState();
     const normalizedState = normalizeAppNavigationVisibilityState({
-      hiddenPages:
-        Array.isArray(nextState.hiddenPages) ? nextState.hiddenPages : currentState.hiddenPages,
-      order: Array.isArray(nextState.order) ? nextState.order : currentState.order,
+      hiddenPages: Array.isArray(nextState.hiddenPages)
+        ? nextState.hiddenPages
+        : currentState.hiddenPages,
+      order: Array.isArray(nextState.order)
+        ? nextState.order
+        : currentState.order,
     });
     localStorage.setItem(
       APP_NAV_VISIBILITY_STORAGE_KEY,
@@ -17052,7 +18332,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       Array.from(nav.querySelectorAll("[data-nav-page]")).forEach((button) => {
         const pageKey = String(button.dataset.navPage || "").trim();
-        const navItem = APP_NAV_ITEMS.find((item) => item.key === pageKey) || null;
+        const navItem =
+          APP_NAV_ITEMS.find((item) => item.key === pageKey) || null;
         decorateAppNavigationButton(button, navItem, currentPageKey);
         const isHidden = hiddenPages.has(pageKey);
         button.hidden = isHidden;
@@ -17228,10 +18509,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isDesktopElectronThemeTransitionRuntime() {
-    return (
-      window.electronAPI?.isElectron === true &&
-      !getNativeHostPlatform()
-    );
+    return window.electronAPI?.isElectron === true && !getNativeHostPlatform();
   }
 
   function appendDesktopThemeTransitionLog(label, detail = {}) {
@@ -17261,7 +18539,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     try {
       const parsed = JSON.parse(rawValue);
-      return parsed === null || typeof parsed === "undefined" ? fallback : parsed;
+      return parsed === null || typeof parsed === "undefined"
+        ? fallback
+        : parsed;
     } catch (_error) {
       return fallback;
     }
@@ -17284,11 +18564,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     let selectedTheme = "default";
     try {
-      selectedTheme = String(
-        window.localStorage.getItem(TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY) ||
-          document.documentElement.getAttribute("data-theme") ||
-          "default",
-      ).trim() || "default";
+      selectedTheme =
+        String(
+          window.localStorage.getItem(
+            TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY,
+          ) ||
+            document.documentElement.getAttribute("data-theme") ||
+            "default",
+        ).trim() || "default";
     } catch (_error) {}
     return {
       selectedTheme,
@@ -17318,7 +18601,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       fromPage: currentItem?.key || "",
       toPage: targetItem?.key || "",
       targetHref: normalizeAppNavigationHref(targetHref),
-      direction: getNavigationDirection(currentItem?.key || "", targetItem?.key || ""),
+      direction: getNavigationDirection(
+        currentItem?.key || "",
+        targetItem?.key || "",
+      ),
       startedAt: Date.now(),
       themeSnapshot,
     };
@@ -17344,7 +18630,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function writeAppPageTransitionState(payload) {
     try {
-      sessionStorage.setItem(APP_PAGE_TRANSITION_SESSION_KEY, JSON.stringify(payload));
+      sessionStorage.setItem(
+        APP_PAGE_TRANSITION_SESSION_KEY,
+        JSON.stringify(payload),
+      );
     } catch {}
   }
 
@@ -17390,10 +18679,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     const hrefWithoutHash = normalizedHref.split("#")[0] || normalizedHref;
     const pageName = hrefWithoutHash.split("?")[0] || hrefWithoutHash;
-    return (
-      APP_NAV_ITEMS.find((item) => item.href === pageName) ||
-      null
-    );
+    return APP_NAV_ITEMS.find((item) => item.href === pageName) || null;
   }
 
   function createAppPageLeaveOverlayElement() {
@@ -17498,24 +18784,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const overlayTargetItem =
-      APP_NAV_ITEMS.find((item) => item.key === String(context?.toPage || "").trim())
-      || resolveAppNavigationItemByHref(context?.targetHref || "")
-      || null;
+      APP_NAV_ITEMS.find(
+        (item) => item.key === String(context?.toPage || "").trim(),
+      ) ||
+      resolveAppNavigationItemByHref(context?.targetHref || "") ||
+      null;
     const overlayCopy = buildAppNavigationOverlayCopy(overlayTargetItem);
 
-    const guardEntries = Array.from(beforePageLeaveGuards.values()).map((entry) =>
-      typeof entry === "function"
-        ? {
-            handler: entry,
-            options: {},
-          }
-        : {
-            handler: entry?.handler,
-            options:
-              entry?.options && typeof entry.options === "object"
-                ? entry.options
-                : {},
-          },
+    const guardEntries = Array.from(beforePageLeaveGuards.values()).map(
+      (entry) =>
+        typeof entry === "function"
+          ? {
+              handler: entry,
+              options: {},
+            }
+          : {
+              handler: entry?.handler,
+              options:
+                entry?.options && typeof entry.options === "object"
+                  ? entry.options
+                  : {},
+            },
     );
     const shouldShowOverlay = guardEntries.some(
       (entry) => entry?.options?.showLoadingOverlay !== false,
@@ -17528,7 +18817,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       );
     const shouldUseLeaveGuardOverlay =
       !hasVisibleFullscreenOverlayExcludingLeaveGuard();
-    if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
+    if (
+      (shouldShowOverlay || appPageLeaveOverlayVisible) &&
+      shouldUseLeaveGuardOverlay
+    ) {
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
@@ -17545,7 +18837,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
+      if (
+        (shouldShowOverlay || appPageLeaveOverlayVisible) &&
+        shouldUseLeaveGuardOverlay
+      ) {
         slowMessageTimerId = window.setTimeout(() => {
           if (hasVisibleFullscreenOverlayExcludingLeaveGuard()) {
             setAppPageLeaveOverlayState({
@@ -17667,10 +18962,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const currentHref = normalizeAppNavigationHref(window.location.href);
-    if (
-      currentItem?.key === targetItem.key &&
-      currentHref === targetHref
-    ) {
+    if (currentItem?.key === targetItem.key && currentHref === targetHref) {
       resetAppPageTransitionRuntimeState();
       return true;
     }
@@ -17694,7 +18986,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
       return true;
     }
-    if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
+    if (
+      androidReactNativeNavigationRuntime &&
+      isAndroidReactNativeAppNavLocked()
+    ) {
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
@@ -17803,7 +19098,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!targetItem) {
       return false;
     }
-    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+    if (
+      isAndroidReactNativeNavigationRuntime() &&
+      hasVisibleBlockingOverlay()
+    ) {
       stashDeferredAppNavigationRequest(targetItem);
       setAppPageLeaveOverlayState({
         active: true,
@@ -17823,7 +19121,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!targetItem) {
       return false;
     }
-    if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
+    if (
+      isAndroidReactNativeNavigationRuntime() &&
+      hasVisibleBlockingOverlay()
+    ) {
       stashDeferredAppNavigationRequest(targetItem, {
         ...options,
         targetHref,
@@ -17987,7 +19288,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const minVisibleMs = shouldApplyAndroidPressMinimum(activeTarget)
       ? ANDROID_NAV_PRESS_MIN_ACTIVE_MS
       : 0;
-    const activeSince = Number(activeTarget.__controlerAndroidPressActiveSince) || 0;
+    const activeSince =
+      Number(activeTarget.__controlerAndroidPressActiveSince) || 0;
     const remainingVisibleMs =
       immediate || minVisibleMs <= 0
         ? 0
@@ -17995,12 +19297,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     clearAndroidPressReleaseTimer(activeTarget);
     if (remainingVisibleMs > 0) {
-      activeTarget.__controlerAndroidPressReleaseTimerId = window.setTimeout(() => {
-        if (getAndroidPressTargetRefCount(activeTarget) > 0) {
-          return;
-        }
-        clearAndroidPressTargetNow(activeTarget);
-      }, remainingVisibleMs);
+      activeTarget.__controlerAndroidPressReleaseTimerId = window.setTimeout(
+        () => {
+          if (getAndroidPressTargetRefCount(activeTarget) > 0) {
+            return;
+          }
+          clearAndroidPressTargetNow(activeTarget);
+        },
+        remainingVisibleMs,
+      );
       return activeTarget;
     }
 
@@ -18118,7 +19423,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function nodeContainsBlockingOverlay(node) {
-    return hasOverlaySelectorMatch(node, ".modal-overlay, .page-loading-overlay");
+    return hasOverlaySelectorMatch(
+      node,
+      ".modal-overlay, .page-loading-overlay",
+    );
   }
 
   function didMutationAffectModalState(mutations = []) {
@@ -18314,7 +19622,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     if (normalizedMode !== "none") {
       const scrollTop = Math.max(
-        window.scrollY || window.pageYOffset || root.scrollTop || body.scrollTop || 0,
+        window.scrollY ||
+          window.pageYOffset ||
+          root.scrollTop ||
+          body.scrollTop ||
+          0,
         0,
       );
       blockingOverlayScrollLockState = {
@@ -18646,11 +19958,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         edgeSwipeState.modal = null;
 
         if (
-          (
-            deltaX >= closeDistance ||
+          (deltaX >= closeDistance ||
             (deltaX >= MODAL_EDGE_SWIPE_FLING_CLOSE_DISTANCE &&
-              velocityX >= MODAL_EDGE_SWIPE_CLOSE_VELOCITY)
-          ) &&
+              velocityX >= MODAL_EDGE_SWIPE_CLOSE_VELOCITY)) &&
           Math.abs(deltaY) <= MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE &&
           targetModal
         ) {
@@ -18714,7 +20024,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let targetWidth = Math.max(safeMinWidth, preferredWidth);
     targetWidth = Math.min(targetWidth, safeMaxWidth);
 
-    const fitsRight = rect.left + targetWidth <= viewportWidth - viewportPadding;
+    const fitsRight =
+      rect.left + targetWidth <= viewportWidth - viewportPadding;
     const availableRight = viewportWidth - rect.left - viewportPadding;
     const availableLeft = rect.right - viewportPadding;
 
@@ -18745,18 +20056,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const {
       delay = 0,
-      frame:
-        scheduleFrame =
-          typeof window !== "undefined" &&
-          typeof window.requestAnimationFrame === "function"
-            ? window.requestAnimationFrame.bind(window)
-            : (task) => window.setTimeout(task, 16),
-      cancelFrame:
-        cancelScheduledFrame =
-          typeof window !== "undefined" &&
-          typeof window.cancelAnimationFrame === "function"
-            ? window.cancelAnimationFrame.bind(window)
-            : (taskId) => window.clearTimeout(taskId),
+      frame: scheduleFrame = typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (task) => window.setTimeout(task, 16),
+      cancelFrame: cancelScheduledFrame = typeof window !== "undefined" &&
+      typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame.bind(window)
+        : (taskId) => window.clearTimeout(taskId),
     } = options;
 
     let frameId = null;
@@ -18851,11 +20158,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
-  function mergeDeferredRefreshPayload(currentPayload = null, incomingPayload = {}) {
+  function mergeDeferredRefreshPayload(
+    currentPayload = null,
+    incomingPayload = {},
+  ) {
     const current =
-      currentPayload && typeof currentPayload === "object" ? currentPayload : {};
+      currentPayload && typeof currentPayload === "object"
+        ? currentPayload
+        : {};
     const incoming =
-      incomingPayload && typeof incomingPayload === "object" ? incomingPayload : {};
+      incomingPayload && typeof incomingPayload === "object"
+        ? incomingPayload
+        : {};
     const nextChangedPeriods = {
       ...(current.changedPeriods &&
       typeof current.changedPeriods === "object" &&
@@ -18872,7 +20186,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     Object.keys(incomingChangedPeriods).forEach((section) => {
       nextChangedPeriods[section] = normalizePeriodIdList([
-        ...(Array.isArray(nextChangedPeriods[section]) ? nextChangedPeriods[section] : []),
+        ...(Array.isArray(nextChangedPeriods[section])
+          ? nextChangedPeriods[section]
+          : []),
         ...(Array.isArray(incomingChangedPeriods[section])
           ? incomingChangedPeriods[section]
           : []),
@@ -18890,18 +20206,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? incoming.source.trim()
           : current.source || "",
       changedSections: normalizeChangedSections([
-        ...(Array.isArray(current.changedSections) ? current.changedSections : []),
-        ...(Array.isArray(incoming.changedSections) ? incoming.changedSections : []),
+        ...(Array.isArray(current.changedSections)
+          ? current.changedSections
+          : []),
+        ...(Array.isArray(incoming.changedSections)
+          ? incoming.changedSections
+          : []),
       ]),
       changedPeriods: nextChangedPeriods,
-      data:
-        Object.prototype.hasOwnProperty.call(incoming, "data")
-          ? incoming.data
-          : current.data ?? null,
-      status:
-        Object.prototype.hasOwnProperty.call(incoming, "status")
-          ? incoming.status
-          : current.status ?? null,
+      data: Object.prototype.hasOwnProperty.call(incoming, "data")
+        ? incoming.data
+        : (current.data ?? null),
+      status: Object.prototype.hasOwnProperty.call(incoming, "status")
+        ? incoming.status
+        : (current.status ?? null),
       snapshotFingerprint:
         typeof incoming.snapshotFingerprint === "string" &&
         incoming.snapshotFingerprint.trim()
@@ -18911,7 +20229,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function createDeferredRefreshController(options = {}) {
-    const runTask = typeof options.run === "function" ? options.run : async () => {};
+    const runTask =
+      typeof options.run === "function" ? options.run : async () => {};
     const mergePayload =
       typeof options.mergePayload === "function"
         ? options.mergePayload
@@ -18988,7 +20307,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     };
 
-    window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleReadyState);
+    window.addEventListener(
+      BLOCKING_OVERLAY_STATE_EVENT_NAME,
+      handleReadyState,
+    );
     window.addEventListener("focus", handleReadyState);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -19030,7 +20352,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           handleReadyState,
         );
         window.removeEventListener("focus", handleReadyState);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange,
+        );
       },
       hasPending() {
         return !!pendingPayload;
@@ -19170,9 +20495,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ? Math.max(0, Math.round(Number(options.defaultDelayMs)))
       : 150;
     const defaultShowLoading =
-      typeof options.showLoading === "function" ? options.showLoading : () => {};
+      typeof options.showLoading === "function"
+        ? options.showLoading
+        : () => {};
     const defaultHideLoading =
-      typeof options.hideLoading === "function" ? options.hideLoading : () => {};
+      typeof options.hideLoading === "function"
+        ? options.hideLoading
+        : () => {};
     let activeRequestId = 0;
 
     return {
@@ -19203,7 +20532,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         let loadingShown = false;
 
         const revealLoading = () => {
-          if (!shouldManageLoading || loadingShown || requestId !== activeRequestId) {
+          if (
+            !shouldManageLoading ||
+            loadingShown ||
+            requestId !== activeRequestId
+          ) {
             return;
           }
           loadingShown = true;
@@ -19268,7 +20601,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function createPageLoadingOverlayController(options = {}) {
     const overlay = resolveLoadingOverlayElement(options.overlay);
     const inlineHost =
-      resolveLoadingOverlayElement(options.inlineHost) || overlay?.parentElement || null;
+      resolveLoadingOverlayElement(options.inlineHost) ||
+      overlay?.parentElement ||
+      null;
     const scopeFullscreenToInlineHost =
       options.scopeFullscreenToInlineHost !== false;
     const promoteInlineToFullscreenOnMobile =
@@ -19338,7 +20673,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!visible || mode !== "inline") {
         return false;
       }
-      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      const platform = String(
+        window.ControlerNativeBridge?.platform || "",
+      ).trim();
       if (platform === "android" || platform === "ios") {
         return true;
       }
@@ -19356,8 +20693,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       visible: currentVisibility,
       mode: currentMode,
       title:
-        titleNode instanceof HTMLElement ? titleNode.textContent || "正在加载数据中" : "正在加载数据中",
-      message: messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+        titleNode instanceof HTMLElement
+          ? titleNode.textContent || "正在加载数据中"
+          : "正在加载数据中",
+      message:
+        messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
       lockNavigation: currentMode === "fullscreen" && currentVisibility,
       delegateToNative: true,
     };
@@ -19403,7 +20743,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? busyState.message.trim()
             : "",
         presentation:
-          typeof busyState.presentation === "string" && busyState.presentation.trim()
+          typeof busyState.presentation === "string" &&
+          busyState.presentation.trim()
             ? busyState.presentation.trim()
             : "",
       };
@@ -19435,7 +20776,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }
-      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
+      const platform = String(
+        window.ControlerNativeBridge?.platform || "",
+      ).trim();
       if (platform === "android" || platform === "ios") {
         return false;
       }
@@ -19563,11 +20906,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       } else if (!visible) {
         suppressRevealingAfterShellUnlock = false;
       }
-      const delegatedToNative = shouldDelegateFullscreenOverlayToNative(
-        visible,
-        resolvedMode,
-        delegateToNative,
-      ) && !suppressedByShell;
+      const delegatedToNative =
+        shouldDelegateFullscreenOverlayToNative(
+          visible,
+          resolvedMode,
+          delegateToNative,
+        ) && !suppressedByShell;
       const actualVisible = visible && !suppressedByShell && !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
@@ -19613,7 +20957,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? titleNode.textContent || "正在加载数据中"
             : "正在加载数据中",
         message:
-          messageNode instanceof HTMLElement ? messageNode.textContent || "" : "",
+          messageNode instanceof HTMLElement
+            ? messageNode.textContent || ""
+            : "",
       });
     };
 
@@ -19645,7 +20991,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     window.addEventListener("beforeunload", handlePageDispose);
     window.addEventListener("resize", handleViewportChange);
     window.visualViewport?.addEventListener("resize", handleViewportChange);
-    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleShellVisibilityChange);
+    window.addEventListener(
+      SHELL_VISIBILITY_EVENT_NAME,
+      handleShellVisibilityChange,
+    );
 
     return {
       setState(nextState = {}) {
@@ -19655,7 +21004,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const requestVersion = ++stateRequestVersion;
 
         const active = nextState.active === true;
-        const mode = normalizeMode(nextState.mode || overlay.dataset.mode || "inline");
+        const mode = normalizeMode(
+          nextState.mode || overlay.dataset.mode || "inline",
+        );
         const title =
           typeof nextState.title === "string" && nextState.title.trim()
             ? nextState.title
@@ -19673,7 +21024,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : 0;
         const lockNavigation =
           nextState.lockNavigation === true ||
-          (nextState.lockNavigation !== false && active && mode === "fullscreen");
+          (nextState.lockNavigation !== false &&
+            active &&
+            mode === "fullscreen");
         const delegateToNative = nextState.delegateToNative !== false;
 
         window.clearTimeout(overlayTimerId);
@@ -19759,7 +21112,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.removeEventListener("pagehide", handlePageDispose);
         window.removeEventListener("beforeunload", handlePageDispose);
         window.removeEventListener("resize", handleViewportChange);
-        window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        window.visualViewport?.removeEventListener(
+          "resize",
+          handleViewportChange,
+        );
         window.removeEventListener(
           SHELL_VISIBILITY_EVENT_NAME,
           handleShellVisibilityChange,
@@ -19776,7 +21132,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function normalizeExpandSurfaceWidthFactor(value, fallback = DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR) {
+  function normalizeExpandSurfaceWidthFactor(
+    value,
+    fallback = DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
+  ) {
     const parsed = Number.parseFloat(value);
     if (!Number.isFinite(parsed)) {
       return fallback;
@@ -19787,7 +21146,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
-  function scaleExpandSurfaceConstraint(value, widthFactor = DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR) {
+  function scaleExpandSurfaceConstraint(
+    value,
+    widthFactor = DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
+  ) {
     const numericValue = Number.parseFloat(value);
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
       return 0;
@@ -19828,10 +21190,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     clearModalEdgeSwipeCleanupTimer(modal);
 
     if (animate) {
-      surface.style.transition =
-        `transform ${MODAL_EDGE_SWIPE_RESET_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
-      modal.style.transition =
-        `opacity ${Math.min(MODAL_EDGE_SWIPE_RESET_DURATION_MS, 140)}ms ease`;
+      surface.style.transition = `transform ${MODAL_EDGE_SWIPE_RESET_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+      modal.style.transition = `opacity ${Math.min(MODAL_EDGE_SWIPE_RESET_DURATION_MS, 140)}ms ease`;
     } else {
       surface.style.transition = "";
       modal.style.transition = "";
@@ -19962,11 +21322,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (modalInteractionShieldTimer) {
       window.clearTimeout(modalInteractionShieldTimer);
     }
-    modalInteractionShieldTimer = window.setTimeout(() => {
-      shield.style.pointerEvents = "none";
-      shield.style.display = "none";
-      modalInteractionShieldTimer = 0;
-    }, Math.max(80, Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS));
+    modalInteractionShieldTimer = window.setTimeout(
+      () => {
+        shield.style.pointerEvents = "none";
+        shield.style.display = "none";
+        modalInteractionShieldTimer = 0;
+      },
+      Math.max(80, Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS),
+    );
   }
 
   function closeModal(modal) {
@@ -20075,9 +21438,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function bindModalAction(modal, selector, handler, options = {}) {
     const button =
-      selector instanceof Element
-        ? selector
-        : modal?.querySelector?.(selector);
+      selector instanceof Element ? selector : modal?.querySelector?.(selector);
     if (!button || typeof handler !== "function") return null;
 
     const {
@@ -20089,7 +21450,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     button.addEventListener("click", (event) => {
       if (preventDefault) event.preventDefault();
       if (stopPropagation) event.stopPropagation();
-      if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
+      if (
+        stopImmediate &&
+        typeof event.stopImmediatePropagation === "function"
+      ) {
         event.stopImmediatePropagation();
       }
       handler(event, button);
@@ -20168,7 +21532,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       widthFactor = DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
     } = options;
     const safeWidthFactor = normalizeExpandSurfaceWidthFactor(widthFactor);
-    const scaledMinWidth = scaleExpandSurfaceConstraint(minWidth, safeWidthFactor);
+    const scaledMinWidth = scaleExpandSurfaceConstraint(
+      minWidth,
+      safeWidthFactor,
+    );
     const scaledFloorWidth = scaleExpandSurfaceConstraint(
       floorWidth,
       safeWidthFactor,
@@ -20329,8 +21696,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       menuWidthFactor = widthFactor,
     } = config;
     const safeWidthFactor = normalizeExpandSurfaceWidthFactor(widthFactor);
-    const safeMenuWidthFactor = normalizeExpandSurfaceWidthFactor(menuWidthFactor);
-    const scaledMinWidth = scaleExpandSurfaceConstraint(minWidth, safeWidthFactor);
+    const safeMenuWidthFactor =
+      normalizeExpandSurfaceWidthFactor(menuWidthFactor);
+    const scaledMinWidth = scaleExpandSurfaceConstraint(
+      minWidth,
+      safeWidthFactor,
+    );
     const scaledPreferredMenuWidth = scaleExpandSurfaceConstraint(
       preferredMenuWidth,
       safeMenuWidthFactor,
@@ -20377,8 +21748,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         extraPadding: 68,
         widthFactor: safeWidthFactor,
         floorWidth: Math.max(
-          scaleExpandSurfaceConstraint(wrapper.offsetWidth || 0, safeWidthFactor),
-          scaleExpandSurfaceConstraint(trigger.offsetWidth || 0, safeWidthFactor),
+          scaleExpandSurfaceConstraint(
+            wrapper.offsetWidth || 0,
+            safeWidthFactor,
+          ),
+          scaleExpandSurfaceConstraint(
+            trigger.offsetWidth || 0,
+            safeWidthFactor,
+          ),
           scaledMinWidth,
         ),
       });
@@ -20433,11 +21810,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const syncFromSelect = () => {
       const selectedOption =
         select.options[select.selectedIndex] ||
-        Array.from(select.options).find((option) => option.value === select.value) ||
+        Array.from(select.options).find(
+          (option) => option.value === select.value,
+        ) ||
         null;
       const fallbackText =
-        placeholder ||
-        readSelectText(select.options[0], "请选择");
+        placeholder || readSelectText(select.options[0], "请选择");
       if (triggerText) {
         triggerText.textContent = readSelectText(selectedOption, fallbackText);
       }
@@ -20539,7 +21917,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const handleLanguageChanged = () => {
       rebuildMenu();
     };
-    window.addEventListener("controler:language-changed", handleLanguageChanged);
+    window.addEventListener(
+      "controler:language-changed",
+      handleLanguageChanged,
+    );
 
     const api = {
       refresh() {
@@ -20689,7 +22070,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const handlePointerEnd = (event) => {
-      if (pointerId !== null && event?.pointerId !== undefined && event.pointerId !== pointerId) {
+      if (
+        pointerId !== null &&
+        event?.pointerId !== undefined &&
+        event.pointerId !== pointerId
+      ) {
         return;
       }
 
@@ -20946,7 +22331,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function readThemeSurfaceColors(themeDetail = null) {
     const resolvedColors =
-      themeDetail && typeof themeDetail === "object" ? themeDetail.colors || {} : {};
+      themeDetail && typeof themeDetail === "object"
+        ? themeDetail.colors || {}
+        : {};
     const root = document.documentElement;
     const computed = root ? window.getComputedStyle(root) : null;
     const readVar = (propertyName, fallback = "") =>
@@ -20958,8 +22345,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       overlayColor:
         resolvedColors.panelStrong ||
         readVar("--panel-strong-bg", readVar("--bg-secondary", "#20362b")),
-      symbolColor:
-        resolvedColors.text || readVar("--text-color", "#f5fff8"),
+      symbolColor: resolvedColors.text || readVar("--text-color", "#f5fff8"),
     };
   }
 
@@ -21079,7 +22465,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const applyScale = (scale) => {
       pendingScale = Math.max(0.01, Math.min(Number(scale) || 1, 1));
-      viewport.style.setProperty("--controler-widget-scale", pendingScale.toFixed(4));
+      viewport.style.setProperty(
+        "--controler-widget-scale",
+        pendingScale.toFixed(4),
+      );
       content.dataset.widgetScale = pendingScale.toFixed(4);
       if (supportsZoom) {
         content.style.zoom = pendingScale.toFixed(4);
@@ -21279,7 +22668,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       try {
         handle.setPointerCapture?.(pointerId);
       } catch {}
-      if (!moveInteractionActive && typeof electronApi?.windowBeginMove === "function") {
+      if (
+        !moveInteractionActive &&
+        typeof electronApi?.windowBeginMove === "function"
+      ) {
         moveInteractionActive = true;
         void electronApi.windowBeginMove();
       }
@@ -21714,7 +23106,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     document.documentElement.classList.add("controler-electron-window-root");
     document.body.classList.add("controler-electron-window");
-    document.body.dataset.controlerElectronPlatform = electronApi.platform || "";
+    document.body.dataset.controlerElectronPlatform =
+      electronApi.platform || "";
     document.body.dataset.controlerElectronWindowChromeReady = "true";
 
     injectElectronWindowChromeStyles();
@@ -21745,7 +23138,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       canMinimize: typeof electronApi.windowMinimize === "function",
       canMaximize: typeof electronApi.windowToggleMaximize === "function",
       canClose: typeof electronApi.windowClose === "function",
-      canSyncAppearance: typeof electronApi.windowUpdateAppearance === "function",
+      canSyncAppearance:
+        typeof electronApi.windowUpdateAppearance === "function",
       canReadState: typeof electronApi.windowGetState === "function",
     });
 
@@ -21789,7 +23183,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!(document.body instanceof HTMLElement)) {
         return null;
       }
-      let host = document.getElementById("controler-electron-window-chrome-host");
+      let host = document.getElementById(
+        "controler-electron-window-chrome-host",
+      );
       if (!(host instanceof HTMLElement)) {
         host = document.createElement("div");
         host.id = "controler-electron-window-chrome-host";
@@ -21847,7 +23243,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return null;
       }
 
-      let toolbar = document.getElementById("controler-electron-window-toolbar");
+      let toolbar = document.getElementById(
+        "controler-electron-window-toolbar",
+      );
       if (!(toolbar instanceof HTMLElement)) {
         toolbar = createToolbar();
         mountRoot.appendChild(toolbar);
@@ -21862,7 +23260,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       chromeState.minimizeButton = toolbar.querySelector(
         '[data-window-action="minimize"]',
       );
-      chromeState.moveButton = toolbar.querySelector('[data-window-action="move"]');
+      chromeState.moveButton = toolbar.querySelector(
+        '[data-window-action="move"]',
+      );
       chromeState.maximizeButton = toolbar.querySelector(
         '[data-window-action="maximize"]',
       );
@@ -21879,9 +23279,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         chromeState.moveHandleBinding = null;
       }
 
-      if (
-        chromeState.moveButton instanceof HTMLElement
-      ) {
+      if (chromeState.moveButton instanceof HTMLElement) {
         chromeState.moveButton.setAttribute("draggable", "false");
       }
 
@@ -21891,7 +23289,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           chromeState.moveHandleBinding = null;
         }
         if (chromeState.moveButton instanceof HTMLElement) {
-          chromeState.moveButton.dataset.controlerMoveHandleBound = "native-drag";
+          chromeState.moveButton.dataset.controlerMoveHandleBound =
+            "native-drag";
         }
       } else if (
         !chromeState.moveHandleBinding &&
@@ -21983,8 +23382,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (typeof nextState.isMaximized === "boolean") {
         chromeState.state.isMaximized = nextState.isMaximized;
       }
-      document.body.dataset.controlerWindowMaximized =
-        chromeState.state.isMaximized ? "true" : "false";
+      document.body.dataset.controlerWindowMaximized = chromeState.state
+        .isMaximized
+        ? "true"
+        : "false";
       updateToolbarUi();
     };
 
@@ -22215,5 +23616,3 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     alertDialog,
   };
 })();
-
-
