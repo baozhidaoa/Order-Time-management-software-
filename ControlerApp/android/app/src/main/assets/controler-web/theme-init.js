@@ -2,6 +2,8 @@
   const SELECTED_THEME_STORAGE_KEY = "selectedTheme";
   const CUSTOM_THEMES_STORAGE_KEY = "customThemes";
   const BUILT_IN_THEME_OVERRIDES_STORAGE_KEY = "builtInThemeOverrides";
+  const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
+  const THEME_WINDOW_NAME_PREFIX = "__CONTROLER_THEME_BOOTSTRAP__:";
   const THEME_APPLIED_EVENT_NAME = "controler:theme-applied";
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
@@ -362,6 +364,122 @@
     } catch (_error) {
       // Ignore logging failures.
     }
+  }
+
+  function parseJsonString(rawValue, fallback) {
+    if (typeof rawValue !== "string" || !rawValue.trim()) {
+      return fallback;
+    }
+    try {
+      const parsed = JSON.parse(rawValue);
+      return parsed === null || typeof parsed === "undefined" ? fallback : parsed;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function readStorageEntry(storageKey) {
+    const normalizedKey = String(storageKey || "").trim();
+    if (!normalizedKey) {
+      return {
+        rawValue: null,
+        storageKey: "",
+        usedLocalMirror: false,
+      };
+    }
+    const candidateKeys = [
+      normalizedKey,
+      `${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`,
+    ];
+    for (const candidateKey of candidateKeys) {
+      try {
+        const rawValue = window.localStorage.getItem(candidateKey);
+        if (rawValue !== null && typeof rawValue !== "undefined") {
+          return {
+            rawValue,
+            storageKey: candidateKey,
+            usedLocalMirror: candidateKey.startsWith(LOCAL_ONLY_STORAGE_PREFIX),
+          };
+        }
+      } catch (_error) {}
+    }
+    return {
+      rawValue: null,
+      storageKey: "",
+      usedLocalMirror: false,
+    };
+  }
+
+  function readJsonStorage(storageKey, fallback) {
+    try {
+      const entry = readStorageEntry(storageKey);
+      return parseJsonString(entry.rawValue, fallback);
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function readStringStorage(storageKey, fallback = "") {
+    try {
+      const entry = readStorageEntry(storageKey);
+      if (typeof entry.rawValue !== "string") {
+        return fallback;
+      }
+      const trimmed = entry.rawValue.trim();
+      return trimmed || fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function buildThemeStorageSignature(entries = null) {
+    const selectedThemeEntry =
+      entries?.selectedTheme || readStorageEntry(SELECTED_THEME_STORAGE_KEY);
+    const customThemesEntry =
+      entries?.customThemes || readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
+    const builtInThemeOverridesEntry =
+      entries?.builtInThemeOverrides ||
+      readStorageEntry(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY);
+    return [
+      selectedThemeEntry.storageKey || "",
+      selectedThemeEntry.rawValue || "",
+      customThemesEntry.storageKey || "",
+      customThemesEntry.rawValue || "",
+      builtInThemeOverridesEntry.storageKey || "",
+      builtInThemeOverridesEntry.rawValue || "",
+    ].join("\u0001");
+  }
+
+  function persistThemeWindowNameState(themeId, colors, recordCard = null) {
+    if (!isPlainObject(colors)) {
+      return;
+    }
+    try {
+      window.name =
+        THEME_WINDOW_NAME_PREFIX +
+        JSON.stringify({
+          version: 1,
+          themeId:
+            typeof themeId === "string" && themeId.trim()
+              ? themeId.trim()
+              : "default",
+          colors,
+          recordCard:
+            isPlainObject(recordCard)
+              ? {
+                  mode:
+                    typeof recordCard.mode === "string" &&
+                    recordCard.mode.trim() === "theme"
+                      ? "theme"
+                      : "project",
+                  color:
+                    typeof recordCard.color === "string"
+                      ? recordCard.color.trim()
+                      : "",
+                }
+              : null,
+        });
+    } catch (_error) {}
   }
 
   function parseHexColor(color) {
@@ -891,9 +1009,7 @@
 
   function loadBuiltInThemeOverrides() {
     try {
-      const raw = JSON.parse(
-        localStorage.getItem(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY) || "{}",
-      );
+      const raw = readJsonStorage(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY, {});
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         return {};
       }
@@ -1038,6 +1154,10 @@
       "--widget-color-chip-outline",
       widgetColors.colorChipOutline,
     );
+    return {
+      resolvedColors,
+      resolvedRecordCard,
+    };
   }
 
   function dispatchThemeApplied(themeId, colors, options = {}) {
@@ -1061,9 +1181,7 @@
     }
     try {
       const builtInThemeOverrides = loadBuiltInThemeOverrides();
-      const rawCustomThemes = JSON.parse(
-        localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
-      );
+      const rawCustomThemes = readJsonStorage(CUSTOM_THEMES_STORAGE_KEY, []);
       const matchedCustomTheme = Array.isArray(rawCustomThemes)
         ? normalizeCustomTheme(
             rawCustomThemes.find((theme) => theme?.id === themeId) || null,
@@ -1119,12 +1237,20 @@
     } catch (_error) {}
   }
 
-  function resolveActiveThemeState() {
-    const storedTheme = localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default";
+  function resolveActiveThemeState(storageEntries = null) {
+    const selectedThemeEntry =
+      storageEntries?.selectedTheme || readStorageEntry(SELECTED_THEME_STORAGE_KEY);
+    const customThemesEntry =
+      storageEntries?.customThemes || readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
+    const builtInThemeOverridesEntry =
+      storageEntries?.builtInThemeOverrides ||
+      readStorageEntry(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY);
+    const storedTheme =
+      typeof selectedThemeEntry.rawValue === "string" && selectedThemeEntry.rawValue.trim()
+        ? selectedThemeEntry.rawValue.trim()
+        : "default";
     const builtInThemeOverrides = loadBuiltInThemeOverrides();
-    const rawCustomThemes = JSON.parse(
-      localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
-    );
+    const rawCustomThemes = readJsonStorage(CUSTOM_THEMES_STORAGE_KEY, []);
     const customTheme = Array.isArray(rawCustomThemes)
       ? normalizeCustomTheme(
           rawCustomThemes.find((theme) => theme?.id === storedTheme) || null,
@@ -1157,14 +1283,27 @@
           ),
         }
       : null;
-
     const activeTheme =
-      customTheme || mergedBuiltInTheme || builtInThemeMap.get("default");
+      customTheme ||
+      mergedBuiltInTheme ||
+      builtInThemeMap.get(storedTheme) ||
+      builtInThemeMap.get("default");
     const themeId = activeTheme?.id || "default";
 
     return {
       activeTheme,
       themeId,
+      source:
+        selectedThemeEntry.usedLocalMirror ||
+        customThemesEntry.usedLocalMirror ||
+        builtInThemeOverridesEntry.usedLocalMirror
+          ? "electron-local-mirror"
+          : "local-storage",
+      storageKeys: {
+        selectedTheme: selectedThemeEntry.storageKey,
+        customThemes: customThemesEntry.storageKey,
+        builtInThemeOverrides: builtInThemeOverridesEntry.storageKey,
+      },
     };
   }
 
@@ -1214,11 +1353,11 @@
 
   function applyThemeState(themeId, activeTheme, options = {}) {
     document.documentElement.setAttribute("data-theme", themeId);
-    applyThemeColors(activeTheme);
+    const { resolvedColors, resolvedRecordCard } = applyThemeColors(activeTheme);
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    const resolvedColors = resolveThemeColors(activeTheme);
+    persistThemeWindowNameState(themeId, resolvedColors, resolvedRecordCard);
     dispatchThemeApplied(themeId, resolvedColors, {
       ...options,
       activeTheme,
@@ -1254,26 +1393,34 @@
 
   function applyThemeFromStorage(options = {}) {
     try {
-      const nextSignature = [
-        localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "",
-        localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "",
-        localStorage.getItem(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY) || "",
-      ].join("\u0001");
+      const storageEntries = {
+        selectedTheme: readStorageEntry(SELECTED_THEME_STORAGE_KEY),
+        customThemes: readStorageEntry(CUSTOM_THEMES_STORAGE_KEY),
+        builtInThemeOverrides: readStorageEntry(
+          BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+        ),
+      };
+      const nextSignature = buildThemeStorageSignature(storageEntries);
       if (nextSignature === lastThemeStorageSignature) {
         return;
       }
 
-      const { activeTheme, themeId } = resolveActiveThemeState();
+      const resolvedThemeState = resolveActiveThemeState(storageEntries);
+      const activeTheme = resolvedThemeState.activeTheme;
+      const themeId = resolvedThemeState.themeId;
       lastThemeStorageSignature = nextSignature;
       appendDesktopThemeDebugLog("apply-from-storage", {
         themeId,
+        source: resolvedThemeState.source,
         preloadedThemeId:
           typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string"
             ? window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId
             : "",
-        usedPreloadedTheme:
-          typeof window.__CONTROLER_DESKTOP_PRELOADED_THEME__?.themeId === "string" &&
-          window.__CONTROLER_DESKTOP_PRELOADED_THEME__.themeId === themeId,
+        storageKeys:
+          resolvedThemeState.storageKeys &&
+          typeof resolvedThemeState.storageKeys === "object"
+            ? resolvedThemeState.storageKeys
+            : {},
       });
       applyThemeState(themeId, activeTheme, options);
     } catch (error) {
@@ -1321,11 +1468,7 @@
           JSON.stringify(builtInThemeOverrides),
         );
       }
-      lastThemeStorageSignature = [
-        selectedTheme,
-        JSON.stringify(customThemes),
-        JSON.stringify(builtInThemeOverrides),
-      ].join("\u0001");
+      lastThemeStorageSignature = buildThemeStorageSignature();
       lastLaunchThemeSyncSignature = null;
       applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,
@@ -1341,7 +1484,10 @@
       event.key === null ||
       event.key === SELECTED_THEME_STORAGE_KEY ||
       event.key === CUSTOM_THEMES_STORAGE_KEY ||
-      event.key === BUILT_IN_THEME_OVERRIDES_STORAGE_KEY
+      event.key === BUILT_IN_THEME_OVERRIDES_STORAGE_KEY ||
+      event.key === `${LOCAL_ONLY_STORAGE_PREFIX}${SELECTED_THEME_STORAGE_KEY}` ||
+      event.key === `${LOCAL_ONLY_STORAGE_PREFIX}${CUSTOM_THEMES_STORAGE_KEY}` ||
+      event.key === `${LOCAL_ONLY_STORAGE_PREFIX}${BUILT_IN_THEME_OVERRIDES_STORAGE_KEY}`
     ) {
       applyThemeFromStorage();
     }

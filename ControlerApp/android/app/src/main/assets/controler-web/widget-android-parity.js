@@ -826,16 +826,25 @@ function compareTodoItemsByWidgetSort(left, right, sortPreference = "dueDate") {
 function getTodayTodoStats(state) {
   const today = getDateText(new Date());
   const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const scheduled = todos.filter((todo) => todoScheduledOn(todo, today));
-  const doneCount = scheduled.filter((todo) => !!todo?.completed).length;
+  const scheduled = todos.filter(
+    (todo) => !todo?.completed && todoScheduledOn(todo, today),
+  );
+  const doneCount = todos.filter(
+    (todo) => !!todo?.completed && todoScheduledOn(todo, today),
+  ).length;
   const dueTodayCount = todos.filter((todo) => {
     const schedule = normalizeTodoSchedule(todo);
-    return schedule.repeatType === "none" && !!schedule.dueDate && schedule.dueDate === today;
+    return (
+      !todo?.completed &&
+      schedule.repeatType === "none" &&
+      !!schedule.dueDate &&
+      schedule.dueDate === today
+    );
   }).length;
   return {
     total: scheduled.length,
     doneCount,
-    pendingCount: Math.max(0, scheduled.length - doneCount),
+    pendingCount: scheduled.length,
     incompleteCount: todos.filter((todo) => !todo?.completed).length,
     dueTodayCount,
   };
@@ -847,7 +856,7 @@ function getTodayTodoItems(state, limit = 6) {
     state?.todoSortPreference,
   );
   return (Array.isArray(state?.todos) ? state.todos : [])
-    .filter((todo) => todoScheduledOn(todo, today) || !todo?.completed)
+    .filter((todo) => !todo?.completed)
     .slice()
     .sort((left, right) => compareTodoItemsByWidgetSort(left, right, sortPreference))
     .slice(0, limit)
@@ -1104,7 +1113,9 @@ function buildYearSummary(state) {
 
   const values = monthNames.map((label, index) => {
     const monthRecords = records.filter((record) => {
-      const date = parseDate(record?.timestamp || record?.startTime);
+      const date = parseDate(
+        record?.dateText || record?.endTime || record?.timestamp || record?.startTime,
+      );
       return !!date && date.getFullYear() === currentYear && date.getMonth() === index;
     });
     const minutes = monthRecords.reduce((sum, record) => sum + resolveRecordMinutes(record), 0);
@@ -1167,7 +1178,7 @@ function getRecordDateText(record) {
   if (typeof record?.dateText === "string" && record.dateText) {
     return record.dateText;
   }
-  const parsed = parseDate(record?.timestamp || record?.startTime || record?.endTime);
+  const parsed = parseDate(record?.endTime || record?.timestamp || record?.startTime);
   return parsed ? getDateText(parsed) : "";
 }
 

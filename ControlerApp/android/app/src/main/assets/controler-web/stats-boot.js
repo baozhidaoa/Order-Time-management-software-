@@ -1111,7 +1111,8 @@
     }
 
     const dateText = formatDateKey(startTime);
-    if (!dateText) {
+    const anchorDateText = formatDateKey(endTime);
+    if (!dateText || !anchorDateText) {
       return null;
     }
 
@@ -1121,6 +1122,7 @@
       startTime,
       endTime,
       dateText,
+      anchorDateText,
       durationHours: clampNumber(durationMs / (1000 * 60 * 60), 0),
     };
   }
@@ -1265,8 +1267,8 @@
         (record, sourceIndex) => {
           const timeRecord = buildTimeRecord(record, sourceIndex);
           const dateText =
-            timeRecord?.dateText ||
-            formatDateKey(record?.timestamp || record?.startTime || record?.endTime);
+            timeRecord?.anchorDateText ||
+            formatDateKey(resolveRecordAnchorTime(record));
 
           if (dateText) {
             if (!cache.recordsByDate.has(dateText)) {
@@ -4981,6 +4983,10 @@ function formatStatsWidgetRecordTime(timestamp) {
   });
 }
 
+function getStatsRecordAnchorValue(record) {
+  return record?.endTime || record?.timestamp || record?.startTime || "";
+}
+
 function renderWidgetRecordList(container) {
   const widgetMode = isStatsDesktopWidgetMode();
   container.innerHTML = "";
@@ -4999,8 +5005,8 @@ function renderWidgetRecordList(container) {
   const filteredRecords = filterRecordsByDateRange(startDate, endDate)
     .slice()
     .sort((left, right) => {
-      const leftTime = new Date(left?.timestamp || 0).getTime();
-      const rightTime = new Date(right?.timestamp || 0).getTime();
+      const leftTime = new Date(getStatsRecordAnchorValue(left) || 0).getTime();
+      const rightTime = new Date(getStatsRecordAnchorValue(right) || 0).getTime();
       return rightTime - leftTime;
     });
 
@@ -5062,7 +5068,7 @@ function renderWidgetRecordList(container) {
           ${record?.name || "未命名项目"}
         </div>
         <div style="margin-top: 4px; color: var(--muted-text-color); font-size: 12px;">
-          ${formatStatsWidgetRecordTime(record?.timestamp)}
+          ${formatStatsWidgetRecordTime(getStatsRecordAnchorValue(record))}
         </div>
       </div>
       <div style="color: var(--accent-color); font-size: 13px; font-weight: 600; white-space: nowrap;">
@@ -5298,9 +5304,7 @@ function calculateProjectPeriodSummary(selectionValue, selectionLabel) {
     );
     const activeDaySet = new Set();
     matchedRecords.forEach((record) => {
-      const date = getDateOnly(
-        record?.timestamp || record?.startTime || record?.endTime,
-      );
+      const date = getDateOnly(getStatsRecordAnchorValue(record));
       if (date) {
         activeDaySet.add(formatDateInputValue(date));
       }
@@ -7202,10 +7206,10 @@ async function openStatsRecordEditModal(locator) {
           <div class="ss" style="padding: 10px 12px; border-radius: 10px;">时长：${sourceRecord?.spendtime || timeRecord?.spendtime || "未知"}</div>
         </div>
       </div>
-      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top: 18px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display:flex; align-items:center; gap:10px; margin-top: 18px;">
         <button class="bts" type="button" id="stats-record-delete-btn" style="margin:0; background-color: var(--delete-btn);">删除</button>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="bts" type="button" id="stats-record-cancel-btn" style="margin:0;">收起</button>
+        <div class="controler-form-modal-footer-actions" style="display:flex; gap:10px;">
+          <button class="bts" type="button" id="stats-record-cancel-btn" style="margin:0;">取消</button>
           <button class="bts" type="button" id="stats-record-save-btn" style="margin:0;">保存</button>
         </div>
       </div>

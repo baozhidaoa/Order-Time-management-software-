@@ -2611,14 +2611,14 @@ function showDiaryModal(dateText, entryId = null) {
             color: var(--text-color); font-size:14px;"></textarea>
         </div>
       </div>
-        <div style="display:flex; justify-content:space-between; margin-top:16px;">
+        <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display:flex; align-items:center; gap:10px; margin-top:16px;">
           ${
             isEditMode
               ? '<button class="bts" type="button" id="delete-diary-btn" data-diary-modal-action="delete-entry" style="margin:0; background-color: var(--delete-btn);">删除</button>'
-              : "<span></span>"
+              : ""
           }
-        <div style="display:flex; gap:8px;">
-          <button class="bts" type="button" id="cancel-diary-btn" data-diary-modal-action="cancel" style="margin:0;">收起</button>
+        <div class="controler-form-modal-footer-actions" style="display:flex; gap:8px;">
+          <button class="bts" type="button" id="cancel-diary-btn" data-diary-modal-action="cancel" style="margin:0;">取消</button>
           <button class="bts" type="button" id="save-diary-btn" data-diary-modal-action="save" style="margin:0;">保存</button>
         </div>
       </div>

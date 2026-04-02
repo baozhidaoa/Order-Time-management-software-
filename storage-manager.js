@@ -1885,13 +1885,6 @@ class StorageManager {
     if (settings.enabled !== true) {
       return false;
     }
-    if (
-      state.lastBackedUpFingerprint &&
-      fingerprint &&
-      state.lastBackedUpFingerprint === fingerprint
-    ) {
-      return false;
-    }
     const anchorAt = state.latestBackupAt || state.lastAttemptAt || null;
     if (!anchorAt) {
       return true;

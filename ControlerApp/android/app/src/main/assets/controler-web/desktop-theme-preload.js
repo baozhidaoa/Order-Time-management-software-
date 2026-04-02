@@ -1,9 +1,9 @@
 (() => {
-  const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const SELECTED_THEME_STORAGE_KEY = "selectedTheme";
   const CUSTOM_THEMES_STORAGE_KEY = "customThemes";
   const BUILT_IN_THEME_OVERRIDES_STORAGE_KEY = "builtInThemeOverrides";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
+  const THEME_WINDOW_NAME_PREFIX = "__CONTROLER_THEME_BOOTSTRAP__:";
   const DEFAULT_THEME_ID = "default";
   const DEFAULT_PRIMARY_COLOR = "#1f2f28";
   const DEFAULT_TEXT_COLOR = "#f5fff8";
@@ -191,30 +191,25 @@
     return luminance >= 0.72;
   }
 
-  function readTransitionThemeState() {
+  function readWindowNameThemeState() {
     try {
-      const rawValue = window.sessionStorage.getItem(APP_PAGE_TRANSITION_SESSION_KEY);
+      const rawValue =
+        typeof window.name === "string" && window.name.startsWith(THEME_WINDOW_NAME_PREFIX)
+          ? window.name.slice(THEME_WINDOW_NAME_PREFIX.length)
+          : "";
       const parsed = parseJsonString(rawValue, null);
-      const themeSnapshot =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? parsed.themeSnapshot
-          : null;
-      if (!isPlainObject(themeSnapshot)) {
+      if (!isPlainObject(parsed)) {
         return null;
       }
-      const selectedTheme =
-        typeof themeSnapshot.selectedTheme === "string" && themeSnapshot.selectedTheme.trim()
-          ? themeSnapshot.selectedTheme.trim()
+      const themeId =
+        typeof parsed.themeId === "string" && parsed.themeId.trim()
+          ? parsed.themeId.trim()
           : DEFAULT_THEME_ID;
       return {
-        selectedTheme,
-        customThemes: Array.isArray(themeSnapshot.customThemes)
-          ? themeSnapshot.customThemes
-          : [],
-        builtInThemeOverrides: isPlainObject(themeSnapshot.builtInThemeOverrides)
-          ? themeSnapshot.builtInThemeOverrides
-          : {},
-        source: "transition-session",
+        themeId,
+        colors: isPlainObject(parsed.colors) ? parsed.colors : null,
+        recordCard: isPlainObject(parsed.recordCard) ? parsed.recordCard : null,
+        source: "window-name",
       };
     } catch (_error) {
       return null;
@@ -248,21 +243,20 @@
   }
 
   function resolveSelectedThemeState() {
-    const transitionThemeState = readTransitionThemeState();
+    const windowNameThemeState = readWindowNameThemeState();
     const selectedThemeEntry = readStorageEntry(SELECTED_THEME_STORAGE_KEY);
     const customThemesEntry = readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
     const builtInThemeOverridesEntry = readStorageEntry(
       BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
     );
-    const selectedThemeId = transitionThemeState
-      ? transitionThemeState.selectedTheme
+    const selectedThemeId = windowNameThemeState
+      ? windowNameThemeState.themeId
       : readStringStorage(SELECTED_THEME_STORAGE_KEY, DEFAULT_THEME_ID);
-    const customThemes = transitionThemeState
-      ? transitionThemeState.customThemes
-      : parseJsonString(customThemesEntry.rawValue, []);
-    const builtInThemeOverrides = transitionThemeState
-      ? transitionThemeState.builtInThemeOverrides
-      : parseJsonString(builtInThemeOverridesEntry.rawValue, {});
+    const customThemes = parseJsonString(customThemesEntry.rawValue, []);
+    const builtInThemeOverrides = parseJsonString(
+      builtInThemeOverridesEntry.rawValue,
+      {},
+    );
     const matchedCustomTheme = Array.isArray(customThemes)
       ? customThemes.find((theme) => String(theme?.id || "").trim() === selectedThemeId)
       : null;
@@ -272,18 +266,24 @@
         : null;
     return {
       themeId: selectedThemeId,
-      colors: isPlainObject(matchedCustomTheme?.colors)
-        ? matchedCustomTheme.colors
-        : isPlainObject(builtInOverride?.colors)
-          ? builtInOverride.colors
-          : null,
-      recordCard: isPlainObject(matchedCustomTheme?.recordCard)
-        ? matchedCustomTheme.recordCard
-        : isPlainObject(builtInOverride?.recordCard)
-          ? builtInOverride.recordCard
-          : null,
-      source: transitionThemeState
-        ? transitionThemeState.source
+      colors: (windowNameThemeState && isPlainObject(windowNameThemeState.colors)
+        ? windowNameThemeState.colors
+        : null) ||
+        (isPlainObject(matchedCustomTheme?.colors)
+          ? matchedCustomTheme.colors
+          : isPlainObject(builtInOverride?.colors)
+            ? builtInOverride.colors
+            : null),
+      recordCard: (windowNameThemeState && isPlainObject(windowNameThemeState.recordCard)
+        ? windowNameThemeState.recordCard
+        : null) ||
+        (isPlainObject(matchedCustomTheme?.recordCard)
+          ? matchedCustomTheme.recordCard
+          : isPlainObject(builtInOverride?.recordCard)
+            ? builtInOverride.recordCard
+            : null),
+      source: windowNameThemeState
+        ? windowNameThemeState.source
         : selectedThemeEntry.usedLocalMirror ||
             customThemesEntry.usedLocalMirror ||
             builtInThemeOverridesEntry.usedLocalMirror
@@ -344,6 +344,11 @@
       themeId,
       primaryColor,
       textColor: colors?.text || DEFAULT_TEXT_COLOR,
+      colors: colors ? { ...colors } : null,
+      recordCard:
+        isPlainObject(themeState.recordCard)
+          ? { ...themeState.recordCard }
+          : null,
       source: themeState.source || "unknown",
       storageKeys:
         themeState.storageKeys && typeof themeState.storageKeys === "object"

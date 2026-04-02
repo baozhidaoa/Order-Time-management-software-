@@ -5634,7 +5634,7 @@ function showWeeklyGridPlanModal(planData = null) {
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           planData?.id
             ? `
@@ -6133,7 +6133,7 @@ function showPlanEditModal(planData = null) {
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `

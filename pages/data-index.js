@@ -301,7 +301,8 @@
     }
 
     const dateText = formatDateKey(startTime);
-    if (!dateText) {
+    const anchorDateText = formatDateKey(endTime);
+    if (!dateText || !anchorDateText) {
       return null;
     }
 
@@ -311,6 +312,7 @@
       startTime,
       endTime,
       dateText,
+      anchorDateText,
       durationHours: clampNumber(durationMs / (1000 * 60 * 60), 0),
     };
   }
@@ -455,8 +457,8 @@
         (record, sourceIndex) => {
           const timeRecord = buildTimeRecord(record, sourceIndex);
           const dateText =
-            timeRecord?.dateText ||
-            formatDateKey(record?.timestamp || record?.startTime || record?.endTime);
+            timeRecord?.anchorDateText ||
+            formatDateKey(resolveRecordAnchorTime(record));
 
           if (dateText) {
             if (!cache.recordsByDate.has(dateText)) {

@@ -41,6 +41,12 @@ public class MainActivity extends ReactActivity {
     // own only the real gesture strip instead of our bottom action controls.
     WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
     super.onCreate(savedInstanceState);
+    int launchBackgroundColor =
+        resolveLaunchThemeBackgroundColor(pendingLaunchThemeStateJson);
+    getWindow().getDecorView().setBackgroundColor(launchBackgroundColor);
+    if (findViewById(android.R.id.content) != null) {
+      findViewById(android.R.id.content).setBackgroundColor(launchBackgroundColor);
+    }
     getWindow()
         .setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -274,6 +280,141 @@ public class MainActivity extends ReactActivity {
         "launch_theme_activity_resolved",
         "source=prefs " + describeLaunchThemeStateForTrace(storedThemeState));
     return storedThemeState;
+  }
+
+  private String readThemePrimaryColor(JSONObject themeObject) {
+    if (themeObject == null) {
+      return "";
+    }
+    JSONObject colors = themeObject.optJSONObject("colors");
+    if (colors != null) {
+      String primary = trimLaunchValue(colors.optString("primary", ""));
+      if (!primary.isEmpty()) {
+        return primary;
+      }
+    }
+    return trimLaunchValue(themeObject.optString("primary", ""));
+  }
+
+  private int clampColorChannel(int value) {
+    return Math.max(0, Math.min(255, value));
+  }
+
+  private Integer parseLaunchThemeColor(String colorValue) {
+    String normalized = trimLaunchValue(colorValue);
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    try {
+      return Color.parseColor(normalized);
+    } catch (IllegalArgumentException ignored) {
+      // Fall through to RGB(A) parsing below.
+    }
+    String lower = normalized.toLowerCase(Locale.US);
+    if (!lower.startsWith("rgb(") && !lower.startsWith("rgba(")) {
+      return null;
+    }
+    int openIndex = normalized.indexOf('(');
+    int closeIndex = normalized.lastIndexOf(')');
+    if (openIndex < 0 || closeIndex <= openIndex) {
+      return null;
+    }
+    String[] parts = normalized.substring(openIndex + 1, closeIndex).split(",");
+    if (parts.length < 3) {
+      return null;
+    }
+    try {
+      int red = clampColorChannel(Integer.parseInt(parts[0].trim()));
+      int green = clampColorChannel(Integer.parseInt(parts[1].trim()));
+      int blue = clampColorChannel(Integer.parseInt(parts[2].trim()));
+      int alpha = 255;
+      if (parts.length >= 4) {
+        String alphaText = parts[3].trim();
+        if (!alphaText.isEmpty()) {
+          double alphaValue = Double.parseDouble(alphaText);
+          alpha =
+              alphaValue <= 1d
+                  ? clampColorChannel((int) Math.round(alphaValue * 255d))
+                  : clampColorChannel((int) Math.round(alphaValue));
+        }
+      }
+      return Color.argb(alpha, red, green, blue);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private int resolveBuiltInLaunchBackgroundColor(String themeId) {
+    switch (themeId) {
+      case "blue-ocean":
+        return Color.parseColor("#12263F");
+      case "sunset-orange":
+        return Color.parseColor("#4B261B");
+      case "minimal-gray":
+        return Color.parseColor("#1F252E");
+      case "obsidian-mono":
+        return Color.parseColor("#0D0F12");
+      case "ivory-light":
+        return Color.parseColor("#ECEFF3");
+      case "graphite-mist":
+        return Color.parseColor("#2A2D32");
+      case "aurora-mist":
+        return Color.parseColor("#162A2D");
+      case "velvet-bordeaux":
+        return Color.parseColor("#2F141D");
+      case "champagne-sandstone":
+        return Color.parseColor("#F1EBE2");
+      case "midnight-indigo":
+        return Color.parseColor("#111A35");
+      default:
+        return Color.parseColor("#1F2F28");
+    }
+  }
+
+  private int resolveLaunchThemeBackgroundColor(String themeStateJson) {
+    String selectedTheme = "default";
+    JSONObject selectedOverride = null;
+    JSONObject matchedCustomTheme = null;
+    try {
+      JSONObject parsed =
+          themeStateJson == null || themeStateJson.trim().isEmpty()
+              ? null
+              : new JSONObject(themeStateJson);
+      if (parsed != null) {
+        String parsedTheme = trimLaunchValue(parsed.optString("selectedTheme", "default"));
+        if (!parsedTheme.isEmpty()) {
+          selectedTheme = parsedTheme;
+        }
+        JSONObject builtInOverrides = parsed.optJSONObject("builtInThemeOverrides");
+        if (builtInOverrides != null) {
+          selectedOverride = builtInOverrides.optJSONObject(selectedTheme);
+        }
+        JSONArray customThemes = parsed.optJSONArray("customThemes");
+        if (customThemes != null) {
+          for (int index = 0; index < customThemes.length(); index += 1) {
+            JSONObject item = customThemes.optJSONObject(index);
+            if (item == null) {
+              continue;
+            }
+            if (selectedTheme.equals(trimLaunchValue(item.optString("id", "")))) {
+              matchedCustomTheme = item;
+              break;
+            }
+          }
+        }
+      }
+    } catch (Exception ignored) {
+      selectedTheme = "default";
+    }
+    Integer customColor = parseLaunchThemeColor(readThemePrimaryColor(matchedCustomTheme));
+    if (customColor != null) {
+      return customColor;
+    }
+    Integer overrideColor = parseLaunchThemeColor(readThemePrimaryColor(selectedOverride));
+    if (overrideColor != null) {
+      return overrideColor;
+    }
+    return resolveBuiltInLaunchBackgroundColor(selectedTheme);
   }
 
   private int resolveLaunchThemeStyleRes(String themeStateJson) {

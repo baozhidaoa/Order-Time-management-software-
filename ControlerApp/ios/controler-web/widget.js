@@ -929,16 +929,25 @@ function getTodoCardDescription(todo = {}, progressRecords = []) {
 function getTodayTodoStats(state) {
   const today = getLocalDateText(new Date());
   const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const scheduled = todos.filter((todo) => todoScheduledOn(todo, today));
-  const doneCount = scheduled.filter((todo) => !!todo?.completed).length;
+  const scheduled = todos.filter(
+    (todo) => !todo?.completed && todoScheduledOn(todo, today),
+  );
+  const doneCount = todos.filter(
+    (todo) => !!todo?.completed && todoScheduledOn(todo, today),
+  ).length;
   const dueTodayCount = todos.filter((todo) => {
     const schedule = normalizeTodoSchedule(todo);
-    return schedule.repeatType === "none" && !!schedule.dueDate && schedule.dueDate === today;
+    return (
+      !todo?.completed &&
+      schedule.repeatType === "none" &&
+      !!schedule.dueDate &&
+      schedule.dueDate === today
+    );
   }).length;
   return {
     total: scheduled.length,
     doneCount,
-    pendingCount: Math.max(0, scheduled.length - doneCount),
+    pendingCount: scheduled.length,
     incompleteCount: todos.filter((todo) => !todo?.completed).length,
     dueTodayCount,
   };
@@ -1233,7 +1242,7 @@ function getWidgetTodoItems(state) {
     state?.todoSortPreference,
   );
   return (Array.isArray(state?.todos) ? state.todos : [])
-    .filter((todo) => todoScheduledOn(todo, today) || !todo?.completed)
+    .filter((todo) => !todo?.completed)
     .slice()
     .sort((left, right) => compareTodoWidgetPriority(left, right, sortPreference))
     .map((todo) => {
@@ -1559,7 +1568,7 @@ function getRecordDateText(record) {
   if (typeof record?.dateText === "string" && record.dateText) {
     return record.dateText;
   }
-  const parsed = parseDate(record?.timestamp || record?.startTime || record?.endTime);
+  const parsed = parseDate(record?.endTime || record?.timestamp || record?.startTime);
   return parsed ? getDateText(parsed) : "";
 }
 

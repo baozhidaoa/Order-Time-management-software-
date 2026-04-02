@@ -353,15 +353,17 @@ public final class ControlerWidgetDataStore {
             JSONObject root = new JSONObject();
             copyWidgetCoreFields(root, core);
 
-            boolean needsMonthlyRecords =
+            boolean needsWindowedRecords =
                 normalizedKinds.contains(ControlerWidgetKinds.DAY_PIE)
                     || normalizedKinds.contains(ControlerWidgetKinds.WEEK_GRID);
             boolean needsRecentRecords =
                 normalizedKinds.contains(ControlerWidgetKinds.START_TIMER);
-            if (needsMonthlyRecords || needsRecentRecords) {
+            if (needsWindowedRecords || needsRecentRecords) {
                 JSONObject recordScope =
-                    needsMonthlyRecords
-                        ? buildCurrentMonthScope()
+                    normalizedKinds.contains(ControlerWidgetKinds.DAY_PIE)
+                        ? buildRelativeDateRangeScope(-45, 0)
+                        : normalizedKinds.contains(ControlerWidgetKinds.WEEK_GRID)
+                            ? buildRelativeDateRangeScope(-6, 0)
                         : buildDefaultRecordBootstrapScope();
                 JSONObject recordRange = loadStorageSectionRange(
                     context,
@@ -400,10 +402,14 @@ public final class ControlerWidgetDataStore {
                 normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)
                     || normalizedKinds.contains(ControlerWidgetKinds.YEAR_VIEW);
             if (needsPlanState) {
+                JSONObject planScope =
+                    normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)
+                        ? buildRelativeDateRangeScope(0, 32)
+                        : buildCurrentMonthScope();
                 JSONObject planRange = loadStorageSectionRange(
                     context,
                     "plans",
-                    buildCurrentMonthScope()
+                    planScope
                 );
                 JSONArray mergedPlans = cloneJsonArray(planRange.optJSONArray("items"));
                 JSONArray recurringPlans = cloneJsonArray(core.optJSONArray("recurringPlans"));
@@ -952,7 +958,7 @@ public final class ControlerWidgetDataStore {
                 JSONObject dailyCheckinScope = resolveBootstrapSectionScope(
                     source,
                     "dailyCheckins",
-                    buildCurrentMonthScope()
+                    buildCurrentDayScope()
                 );
                 JSONObject checkinScope = resolveBootstrapSectionScope(
                     source,
@@ -5722,6 +5728,35 @@ public final class ControlerWidgetDataStore {
         return scope;
     }
 
+    private static JSONObject buildRelativeDateRangeScope(int startOffsetDays, int endOffsetDays) {
+        Calendar start = Calendar.getInstance();
+        start.set(Calendar.HOUR_OF_DAY, 0);
+        start.set(Calendar.MINUTE, 0);
+        start.set(Calendar.SECOND, 0);
+        start.set(Calendar.MILLISECOND, 0);
+        start.add(Calendar.DAY_OF_MONTH, startOffsetDays);
+        Calendar end = Calendar.getInstance();
+        end.set(Calendar.HOUR_OF_DAY, 0);
+        end.set(Calendar.MINUTE, 0);
+        end.set(Calendar.SECOND, 0);
+        end.set(Calendar.MILLISECOND, 0);
+        end.add(Calendar.DAY_OF_MONTH, endOffsetDays);
+
+        Calendar lower = start.getTimeInMillis() <= end.getTimeInMillis()
+            ? start
+            : end;
+        Calendar upper = start.getTimeInMillis() <= end.getTimeInMillis()
+            ? end
+            : start;
+        JSONObject scope = new JSONObject();
+        try {
+            scope.put("startDate", formatDateText(lower));
+            scope.put("endDate", formatDateText(upper));
+        } catch (Exception ignored) {
+        }
+        return scope;
+    }
+
     private static JSONObject buildCurrentMonthScope() {
         Calendar start = Calendar.getInstance();
         start.set(Calendar.DAY_OF_MONTH, 1);
@@ -6628,7 +6663,7 @@ public final class ControlerWidgetDataStore {
             record.timestamp = item.optString("timestamp", "");
             record.startTime = item.optString("startTime", "");
             record.endTime = item.optString("endTime", "");
-            String anchorTime = firstNonEmpty(record.startTime, record.timestamp, record.endTime);
+            String anchorTime = firstNonEmpty(record.endTime, record.timestamp, record.startTime);
             record.dateText = extractDateText(anchorTime);
             record.hour = extractHour(anchorTime);
             record.name = item.optString("name", "未命名项目");

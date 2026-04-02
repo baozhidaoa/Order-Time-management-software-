@@ -2902,12 +2902,16 @@ body.page-stats #stats-container {
 .stats-period-summary-label {
   color: var(--muted-text-color);
   font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .stats-period-summary-value {
   color: var(--text-color);
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .stats-period-summary.is-compact {
@@ -3073,6 +3077,25 @@ body.page-stats #stats-container {
   justify-content: flex-end;
   flex: 1 1 auto;
   flex-wrap: wrap;
+}
+
+.controler-form-modal-footer.controler-form-modal-footer-inline {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.controler-form-modal-footer.controler-form-modal-footer-inline
+  .controler-form-modal-footer-actions {
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.controler-form-modal-footer.controler-form-modal-footer-inline .bts {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .plan-year-goal-item {
@@ -5174,8 +5197,20 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.page-stats .stats-period-summary-metrics {
-    grid-template-columns: 1fr;
-    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  body.page-stats .stats-period-summary-item {
+    padding: 7px 8px;
+  }
+
+  body.page-stats .stats-period-summary-label {
+    font-size: 10px;
+  }
+
+  body.page-stats .stats-period-summary-value {
+    font-size: 12px;
   }
 
   body.page-stats .stats-line-chart-layout.is-compact-mobile {
@@ -5466,6 +5501,43 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer .bts {
     flex: 1 1 140px;
     min-width: 0;
+  }
+
+  body.flex.row
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline,
+  body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline {
+    flex-wrap: nowrap;
+  }
+
+  body.flex.row
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
+    .controler-form-modal-footer-actions,
+  body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
+    .controler-form-modal-footer-actions {
+    width: auto;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+
+  body.flex.row
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
+    .bts,
+  body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
+    .bts {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
   }
 
   body.page-stats .stats-heatmap-header {

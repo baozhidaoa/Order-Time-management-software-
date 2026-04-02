@@ -4295,10 +4295,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (settings == null || !settings.optBoolean("enabled", false)) {
             return false;
         }
-        String previousFingerprint = getStoredAutoBackupFingerprint(context, targetKey);
-        if (!TextUtils.isEmpty(previousFingerprint) && previousFingerprint.equals(fingerprint)) {
-            return false;
-        }
         String lastAttemptAt = getStoredAutoBackupLastAttemptAt(context, targetKey);
         if (TextUtils.isEmpty(lastAttemptAt)) {
             return true;

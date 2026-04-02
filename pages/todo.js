@@ -5685,7 +5685,7 @@
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `
@@ -6057,14 +6057,14 @@
         </div>
       </div>
       
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? '<button class="bts" type="button" id="delete-checkin-progress-btn" data-todo-modal-action="delete-progress" style="margin:0; background-color: var(--delete-btn);">删除</button>'
-            : "<span></span>"
+            : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" type="button" id="cancel-checkin-btn" data-todo-modal-action="cancel" style="margin:0;">收起</button>
+          <button class="bts" type="button" id="cancel-checkin-btn" data-todo-modal-action="cancel" style="margin:0;">取消</button>
           <button class="bts" type="button" id="save-checkin-btn" data-todo-modal-action="save" style="margin:0;">保存</button>
         </div>
       </div>
@@ -6746,7 +6746,7 @@
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `

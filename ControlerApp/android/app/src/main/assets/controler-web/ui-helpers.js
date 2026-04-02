@@ -301,11 +301,11 @@
     ]),
   );
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
-  const TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY = "selectedTheme";
-  const TRANSITION_THEME_CUSTOM_THEMES_STORAGE_KEY = "customThemes";
-  const TRANSITION_THEME_BUILT_IN_OVERRIDES_STORAGE_KEY =
-    "builtInThemeOverrides";
+  const APP_PAGE_ENTER_TRANSITION_STATE_KEY =
+    "__CONTROLER_APP_ENTER_TRANSITION__";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
+  const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
+  const APP_PAGE_ENTER_LOADING_OVERLAY_SUPPRESSION_MAX_MS = 6000;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
   const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
@@ -401,6 +401,55 @@
   let lastAndroidSoftInputRequestAt = 0;
   const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
+  function normalizeAppPageEnterTransitionState(source = {}) {
+    return {
+      active: source?.active === true,
+      fromPage:
+        typeof source?.fromPage === "string" ? source.fromPage.trim() : "",
+      toPage: typeof source?.toPage === "string" ? source.toPage.trim() : "",
+      targetHref:
+        typeof source?.targetHref === "string" ? source.targetHref.trim() : "",
+      startedAt: Math.max(
+        0,
+        Number.isFinite(Number(source?.startedAt))
+          ? Number(source.startedAt)
+          : 0,
+      ),
+      loadingOverlaySuppressionActive:
+        source?.loadingOverlaySuppressionActive === true,
+      loadingOverlaySuppressionExpiresAt: Math.max(
+        0,
+        Number.isFinite(Number(source?.loadingOverlaySuppressionExpiresAt))
+          ? Number(source.loadingOverlaySuppressionExpiresAt)
+          : 0,
+      ),
+    };
+  }
+  const appPageEnterTransitionState = normalizeAppPageEnterTransitionState(
+    window?.[APP_PAGE_ENTER_TRANSITION_STATE_KEY],
+  );
+
+  function getAppPageEnterTransitionState() {
+    return {
+      ...appPageEnterTransitionState,
+    };
+  }
+
+  function writeAppPageEnterTransitionState(nextState = {}) {
+    const normalizedState = normalizeAppPageEnterTransitionState(nextState);
+    Object.assign(appPageEnterTransitionState, normalizedState);
+    try {
+      window[APP_PAGE_ENTER_TRANSITION_STATE_KEY] = {
+        ...normalizedState,
+      };
+    } catch {}
+    return getAppPageEnterTransitionState();
+  }
+
+  function clearAppPageEnterTransitionState() {
+    return writeAppPageEnterTransitionState({});
+  }
+
   const ANDROID_INTERACTIVE_ACTION_SELECTOR = [
     "button:not(:disabled)",
     "input[type='button']:not(:disabled)",
@@ -2816,10 +2865,17 @@
     return toIndex >= fromIndex ? "forward" : "back";
   }
 
+  function isDesktopThemeTransitionRuntime() {
+    return (
+      !getNativeHostPlatform() &&
+      typeof window.sessionStorage !== "undefined"
+    );
+  }
+
   function isDesktopElectronThemeTransitionRuntime() {
     return (
       window.electronAPI?.isElectron === true &&
-      !getNativeHostPlatform()
+      isDesktopThemeTransitionRuntime()
     );
   }
 
@@ -2856,60 +2912,17 @@
     }
   }
 
-  function readThemeTransitionStorageJson(storageKey, fallback) {
-    try {
-      return parseAppPageTransitionJson(
-        window.localStorage.getItem(storageKey),
-        fallback,
-      );
-    } catch (_error) {
-      return fallback;
-    }
-  }
-
-  function buildCurrentDesktopThemeTransitionSnapshot() {
-    if (!isDesktopElectronThemeTransitionRuntime()) {
-      return null;
-    }
-    let selectedTheme = "default";
-    try {
-      selectedTheme = String(
-        window.localStorage.getItem(TRANSITION_THEME_SELECTED_THEME_STORAGE_KEY) ||
-          document.documentElement.getAttribute("data-theme") ||
-          "default",
-      ).trim() || "default";
-    } catch (_error) {}
-    return {
-      selectedTheme,
-      customThemes: readThemeTransitionStorageJson(
-        TRANSITION_THEME_CUSTOM_THEMES_STORAGE_KEY,
-        [],
-      ),
-      builtInThemeOverrides: readThemeTransitionStorageJson(
-        TRANSITION_THEME_BUILT_IN_OVERRIDES_STORAGE_KEY,
-        {},
-      ),
-      capturedAt: Date.now(),
-      source: "desktop-page-transition",
-    };
-  }
-
   function persistDesktopAppPageTransitionState(
     currentItem,
     targetItem,
     targetHref,
   ) {
-    const themeSnapshot = buildCurrentDesktopThemeTransitionSnapshot();
-    if (!themeSnapshot) {
-      return null;
-    }
     const payload = {
       fromPage: currentItem?.key || "",
       toPage: targetItem?.key || "",
       targetHref: normalizeAppNavigationHref(targetHref),
       direction: getNavigationDirection(currentItem?.key || "", targetItem?.key || ""),
       startedAt: Date.now(),
-      themeSnapshot,
     };
     writeAppPageTransitionState(payload);
     appendDesktopThemeTransitionLog("state-written", {
@@ -2917,16 +2930,6 @@
       toPage: payload.toPage,
       targetHref: payload.targetHref,
       direction: payload.direction,
-      themeId: themeSnapshot.selectedTheme,
-      customThemeCount: Array.isArray(themeSnapshot.customThemes)
-        ? themeSnapshot.customThemes.length
-        : 0,
-      builtInOverrideCount:
-        themeSnapshot.builtInThemeOverrides &&
-        typeof themeSnapshot.builtInThemeOverrides === "object" &&
-        !Array.isArray(themeSnapshot.builtInThemeOverrides)
-          ? Object.keys(themeSnapshot.builtInThemeOverrides).length
-          : 0,
     });
     return payload;
   }
@@ -3206,7 +3209,32 @@
 
   function applyAppPageEnterTransition() {
     const transitionState = readAppPageTransitionState();
-    if (transitionState?.themeSnapshot) {
+    const currentItem = getCurrentAppNavigationItem();
+    const currentHref = normalizeAppNavigationHref(window.location.href);
+    const targetHref = normalizeAppNavigationHref(transitionState?.targetHref || "");
+    const transitionStartedAt = Math.max(
+      0,
+      Number.isFinite(Number(transitionState?.startedAt))
+        ? Number(transitionState.startedAt)
+        : 0,
+    );
+    const transitionAgeMs = transitionStartedAt
+      ? Math.max(0, Date.now() - transitionStartedAt)
+      : Number.POSITIVE_INFINITY;
+    const isFreshTransition =
+      transitionAgeMs <= APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS;
+    const matchesCurrentTarget =
+      (
+        typeof transitionState?.toPage === "string" &&
+        transitionState.toPage.trim() &&
+        transitionState.toPage.trim() === currentItem?.key
+      ) ||
+      (
+        targetHref &&
+        (targetHref.split("#")[0] || targetHref) ===
+          (currentHref.split("#")[0] || currentHref)
+      );
+    if (transitionState) {
       appendDesktopThemeTransitionLog("state-read", {
         fromPage:
           typeof transitionState.fromPage === "string"
@@ -3220,11 +3248,27 @@
           typeof transitionState.targetHref === "string"
             ? transitionState.targetHref
             : "",
-        themeId:
-          typeof transitionState.themeSnapshot?.selectedTheme === "string"
-            ? transitionState.themeSnapshot.selectedTheme
-            : "",
       });
+    }
+    if (isFreshTransition && matchesCurrentTarget) {
+      writeAppPageEnterTransitionState({
+        active: true,
+        fromPage:
+          typeof transitionState?.fromPage === "string"
+            ? transitionState.fromPage.trim()
+            : "",
+        toPage:
+          typeof transitionState?.toPage === "string"
+            ? transitionState.toPage.trim()
+            : "",
+        targetHref: targetHref || currentHref,
+        startedAt: transitionStartedAt || Date.now(),
+        loadingOverlaySuppressionActive: isDesktopThemeTransitionRuntime(),
+        loadingOverlaySuppressionExpiresAt:
+          Date.now() + APP_PAGE_ENTER_LOADING_OVERLAY_SUPPRESSION_MAX_MS,
+      });
+    } else {
+      clearAppPageEnterTransitionState();
     }
     resetAppPageTransitionRuntimeState({ clearStoredState: false });
     clearAppPageTransitionState();
@@ -4940,6 +4984,7 @@
     let currentMode = normalizeMode(overlay.dataset.mode || "inline");
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
+    let suppressDuringAppPageEnterTransition = false;
     let stateRequestVersion = 0;
     let requestedOverlayState = {
       visible: currentVisibility,
@@ -5062,6 +5107,34 @@
       return !isShellPageActive() || isShellTransitionLoading();
     };
 
+    const isLeaveGuardOverlay =
+      overlay === appPageLeaveOverlayElement ||
+      overlay.id === "controler-page-leave-overlay";
+
+    const shouldSuppressLoadingOverlayDuringAppPageEnterTransition = (visible) => {
+      if (!visible || isLeaveGuardOverlay) {
+        return false;
+      }
+      if (!isDesktopThemeTransitionRuntime()) {
+        return false;
+      }
+      const enterTransitionState = getAppPageEnterTransitionState();
+      if (
+        !enterTransitionState.active ||
+        enterTransitionState.loadingOverlaySuppressionActive !== true
+      ) {
+        return false;
+      }
+      if (
+        enterTransitionState.loadingOverlaySuppressionExpiresAt > 0 &&
+        Date.now() > enterTransitionState.loadingOverlaySuppressionExpiresAt
+      ) {
+        clearAppPageEnterTransitionState();
+        return false;
+      }
+      return true;
+    };
+
     const syncFullscreenGeometry = () => {
       if (!(inlineHost instanceof HTMLElement)) {
         clearFullscreenGeometry();
@@ -5147,6 +5220,8 @@
         visible,
         resolvedMode,
       );
+      const suppressedByAppPageEnterTransition =
+        shouldSuppressLoadingOverlayDuringAppPageEnterTransition(visible);
       if (visible && resolvedMode === "fullscreen" && suppressedByShell) {
         suppressRevealingAfterShellUnlock = true;
       } else if (!visible) {
@@ -5157,7 +5232,11 @@
         resolvedMode,
         delegateToNative,
       ) && !suppressedByShell;
-      const actualVisible = visible && !suppressedByShell && !delegatedToNative;
+      const actualVisible =
+        visible &&
+        !suppressedByShell &&
+        !suppressedByAppPageEnterTransition &&
+        !delegatedToNative;
       if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
@@ -5168,9 +5247,19 @@
       overlay.hidden = !actualVisible;
       overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
+      overlay.dataset.appEnterSuppressed = suppressedByAppPageEnterTransition
+        ? "true"
+        : "false";
       currentVisibility = actualVisible;
       currentBlockingVisibility = actualVisible || delegatedToNative;
       currentMode = resolvedMode;
+
+      if (suppressedByAppPageEnterTransition) {
+        suppressDuringAppPageEnterTransition = true;
+      } else if (!visible && suppressDuringAppPageEnterTransition) {
+        suppressDuringAppPageEnterTransition = false;
+        clearAppPageEnterTransitionState();
+      }
 
       syncNativeBusyState({
         active: delegatedToNative,
@@ -7776,6 +7865,7 @@
     hasVisibleBlockingOverlay,
     getShellVisibilityState,
     isShellPageActive,
+    getAppPageEnterTransitionState,
     normalizeChangedSections,
     hasPeriodOverlap,
     isSerializableEqual,

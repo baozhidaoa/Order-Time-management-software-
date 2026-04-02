@@ -1,4 +1,4 @@
-/* pages/data-index.js */
+;/* pages/data-index.js */
 (() => {
   const projectStatsApi = window.ControlerProjectStats || null;
 
@@ -20,11 +20,7 @@
       const year = Number.parseInt(yearText, 10);
       const month = Number.parseInt(monthText, 10);
       const day = Number.parseInt(dayText, 10);
-      if (
-        !Number.isFinite(year) ||
-        !Number.isFinite(month) ||
-        !Number.isFinite(day)
-      ) {
+      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
         return null;
       }
       return new Date(year, month - 1, day);
@@ -145,8 +141,7 @@
   }
 
   function defaultPlanMatcher(plan, dateText) {
-    const targetDateKey =
-      formatDateKey(dateText) || String(dateText || "").trim();
+    const targetDateKey = formatDateKey(dateText) || String(dateText || "").trim();
     if (!plan || !targetDateKey) {
       return false;
     }
@@ -175,9 +170,7 @@
       return true;
     }
 
-    const repeat = String(plan.repeat || "none")
-      .trim()
-      .toLowerCase();
+    const repeat = String(plan.repeat || "none").trim().toLowerCase();
     if (repeat === "none" || targetDateKey < planDateKey) {
       return false;
     }
@@ -201,21 +194,21 @@
       }
       const planDate = parseFlexibleDate(planDateKey);
       return (
-        (plan.dayOfWeek ??
-          (planDate instanceof Date && !Number.isNaN(planDate.getTime())
-            ? planDate.getDay()
-            : -1)) === targetDate.getDay()
-      );
+        plan.dayOfWeek ??
+        (planDate instanceof Date && !Number.isNaN(planDate.getTime())
+          ? planDate.getDay()
+          : -1)
+      ) === targetDate.getDay();
     }
 
     if (repeat === "monthly") {
       const planDate = parseFlexibleDate(planDateKey);
       return (
-        (plan.dayOfMonth ??
-          (planDate instanceof Date && !Number.isNaN(planDate.getTime())
-            ? planDate.getDate()
-            : 0)) === targetDate.getDate()
-      );
+        plan.dayOfMonth ??
+        (planDate instanceof Date && !Number.isNaN(planDate.getTime())
+          ? planDate.getDate()
+          : 0)
+      ) === targetDate.getDate();
     }
 
     return false;
@@ -309,7 +302,8 @@
     }
 
     const dateText = formatDateKey(startTime);
-    if (!dateText) {
+    const anchorDateText = formatDateKey(endTime);
+    if (!dateText || !anchorDateText) {
       return null;
     }
 
@@ -319,6 +313,7 @@
       startTime,
       endTime,
       dateText,
+      anchorDateText,
       durationHours: clampNumber(durationMs / (1000 * 60 * 60), 0),
     };
   }
@@ -463,10 +458,8 @@
         (record, sourceIndex) => {
           const timeRecord = buildTimeRecord(record, sourceIndex);
           const dateText =
-            timeRecord?.dateText ||
-            formatDateKey(
-              record?.timestamp || record?.startTime || record?.endTime,
-            );
+            timeRecord?.anchorDateText ||
+            formatDateKey(resolveRecordAnchorTime(record));
 
           if (dateText) {
             if (!cache.recordsByDate.has(dateText)) {
@@ -633,8 +626,10 @@
     parseFlexibleDate,
     parseSpendTimeToHours,
   };
-})(); /* pages/plan.js */
+})();
 
+
+;/* pages/plan.js */
 // 计划页面JavaScript
 let plans = []; // 存储计划对象
 let currentDate = new Date(); // 当前显示的日期
@@ -6271,7 +6266,7 @@ function showWeeklyGridPlanModal(planData = null) {
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           planData?.id
             ? `
@@ -6766,11 +6761,11 @@ function showPlanEditModal(planData = null) {
           </div>
         </div>
         
-        
+       
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer" style="display: flex; justify-content: space-between; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `
@@ -7942,3 +7937,5 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+

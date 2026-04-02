@@ -4203,9 +4203,7 @@ public final class ControlerWidgetRenderer {
         Set<String> activeDays = new HashSet<>();
         Map<String, Integer> minutesByDate = new HashMap<>();
         for (ControlerWidgetDataStore.RecordInfo record : state.records) {
-            String date = !TextUtils.isEmpty(record.dateText)
-                ? record.dateText
-                : ControlerWidgetDataStore.extractDateText(record.timestamp);
+            String date = resolveRecordDateText(record);
             if (TextUtils.isEmpty(date)) {
                 continue;
             }
@@ -4352,6 +4350,7 @@ public final class ControlerWidgetRenderer {
             boolean completed = resolveTodoCompletedForWidget(todo, appWidgetId);
             if (
                 todo != null
+                    && !completed
                     && TextUtils.equals(
                         TextUtils.isEmpty(todo.repeatType) ? "none" : todo.repeatType,
                         "none"
@@ -4360,7 +4359,7 @@ public final class ControlerWidgetRenderer {
             ) {
                 dueTodayCount++;
             }
-            if (scheduledToday) {
+            if (scheduledToday && !completed) {
                 todayCount++;
                 visibleTodos.add(todo);
             }
@@ -4580,7 +4579,7 @@ public final class ControlerWidgetRenderer {
             return record.dateText;
         }
         return ControlerWidgetDataStore.extractDateText(
-            firstNonEmpty(record.timestamp, record.startTime, record.endTime)
+            firstNonEmpty(record.endTime, record.timestamp, record.startTime)
         );
     }
 
@@ -6194,7 +6193,7 @@ public final class ControlerWidgetRenderer {
         long startMs = parseTimestampMillis(record.startTime);
         long endMs = parseTimestampMillis(record.endTime);
         long anchorMs = parseTimestampMillis(
-            firstNonEmpty(record.timestamp, record.startTime, record.endTime)
+            firstNonEmpty(record.endTime, record.timestamp, record.startTime)
         );
         long durationMs = Math.max(0L, Math.max(0, record.minutes) * 60000L);
         if (durationMs <= 0L && startMs > 0L && endMs > startMs) {
@@ -6836,10 +6835,7 @@ public final class ControlerWidgetRenderer {
         if (record == null || TextUtils.isEmpty(dayText)) {
             return false;
         }
-        if (!TextUtils.isEmpty(record.dateText) && dayText.equals(record.dateText)) {
-            return true;
-        }
-        return !TextUtils.isEmpty(record.timestamp) && record.timestamp.startsWith(dayText);
+        return dayText.equals(resolveRecordDateText(record));
     }
 
     private static void sortRecordsByTimestampDesc(List<ControlerWidgetDataStore.RecordInfo> records) {
@@ -6849,9 +6845,21 @@ public final class ControlerWidgetRenderer {
                 ControlerWidgetDataStore.RecordInfo left,
                 ControlerWidgetDataStore.RecordInfo right
             ) {
-                String leftTimestamp = left != null && left.timestamp != null ? left.timestamp : "";
-                String rightTimestamp = right != null && right.timestamp != null ? right.timestamp : "";
-                return rightTimestamp.compareTo(leftTimestamp);
+                long leftTimestamp = parseTimestampMillis(
+                    firstNonEmpty(
+                        left == null ? "" : left.endTime,
+                        left == null ? "" : left.timestamp,
+                        left == null ? "" : left.startTime
+                    )
+                );
+                long rightTimestamp = parseTimestampMillis(
+                    firstNonEmpty(
+                        right == null ? "" : right.endTime,
+                        right == null ? "" : right.timestamp,
+                        right == null ? "" : right.startTime
+                    )
+                );
+                return Long.compare(rightTimestamp, leftTimestamp);
             }
         });
     }
