@@ -766,25 +766,82 @@
     );
   }
 
-  function mergeDailyCheckinsByItemId(targetItemId, sourceItemId) {
+  function mergeCheckinItemOccurrenceState(targetItem, sourceItem) {
+    if (!targetItem || !sourceItem) {
+      return targetItem || sourceItem || null;
+    }
+    targetItem.includedDates = normalizePlanDateListForTodo([
+      ...(Array.isArray(targetItem?.includedDates) ? targetItem.includedDates : []),
+      ...(Array.isArray(sourceItem?.includedDates) ? sourceItem.includedDates : []),
+    ]);
+    const targetLastResolved = normalizeTodoOccurrenceDateKey(
+      targetItem?.lastResolvedOccurrenceDate,
+    );
+    const sourceLastResolved = normalizeTodoOccurrenceDateKey(
+      sourceItem?.lastResolvedOccurrenceDate,
+    );
+    targetItem.lastResolvedOccurrenceDate =
+      sourceLastResolved && (!targetLastResolved || sourceLastResolved > targetLastResolved)
+        ? sourceLastResolved
+        : targetLastResolved;
+    if (
+      !String(targetItem?.offScheduleResolutionMode || "").trim() &&
+      String(sourceItem?.offScheduleResolutionMode || "").trim()
+    ) {
+      targetItem.offScheduleResolutionMode = String(
+        sourceItem.offScheduleResolutionMode,
+      ).trim();
+    }
+    return targetItem;
+  }
+
+  function mergeDailyCheckinsByItemIdInList(
+    entryList = [],
+    targetItemId = "",
+    sourceItemId = "",
+  ) {
+    const normalizedTargetItemId = String(targetItemId || "").trim();
+    const normalizedSourceItemId = String(sourceItemId || "").trim();
+    const sourceEntries = Array.isArray(entryList) ? entryList : [];
+    if (
+      !normalizedTargetItemId ||
+      !normalizedSourceItemId ||
+      normalizedTargetItemId === normalizedSourceItemId
+    ) {
+      return {
+        items: sourceEntries.map((entry) => ({ ...(entry || {}) })),
+        changed: false,
+        mergedCount: 0,
+      };
+    }
+
     const groupedByDate = new Map();
     const remaining = [];
-    dailyCheckins.forEach((entry) => {
+    let mergedCount = 0;
+    sourceEntries.forEach((entry) => {
       const entryItemId = String(entry?.itemId || "").trim();
       if (
-        entryItemId !== String(targetItemId || "").trim() &&
-        entryItemId !== String(sourceItemId || "").trim()
+        entryItemId !== normalizedTargetItemId &&
+        entryItemId !== normalizedSourceItemId
       ) {
-        remaining.push(entry);
+        remaining.push({
+          ...(entry || {}),
+        });
         return;
       }
       const date = String(entry?.date || "").trim();
       if (!date) {
+        if (entryItemId === normalizedSourceItemId) {
+          mergedCount += 1;
+        }
         return;
+      }
+      if (entryItemId === normalizedSourceItemId) {
+        mergedCount += 1;
       }
       const normalizedEntry = {
         ...(entry || {}),
-        itemId: targetItemId,
+        itemId: normalizedTargetItemId,
       };
       const existing = groupedByDate.get(date);
       if (!existing) {
@@ -797,16 +854,31 @@
         date,
         {
           ...(nextTimestamp >= existingTimestamp ? normalizedEntry : existing),
-          itemId: targetItemId,
+          itemId: normalizedTargetItemId,
           checked: !!existing.checked || !!normalizedEntry.checked,
         },
       );
     });
-    dailyCheckins = remaining.concat(
-      Array.from(groupedByDate.values()).sort((left, right) =>
-        String(left?.date || "").localeCompare(String(right?.date || "")),
+
+    return {
+      items: remaining.concat(
+        Array.from(groupedByDate.values()).sort((left, right) =>
+          String(left?.date || "").localeCompare(String(right?.date || "")),
+        ),
       ),
+      changed: mergedCount > 0,
+      mergedCount,
+    };
+  }
+
+  function mergeDailyCheckinsByItemId(targetItemId, sourceItemId) {
+    const mergeResult = mergeDailyCheckinsByItemIdInList(
+      dailyCheckins,
+      targetItemId,
+      sourceItemId,
     );
+    dailyCheckins = mergeResult.items;
+    return mergeResult;
   }
 
   function findReusableDeletedCheckinItemByTitle(title = "", excludeId = "") {
@@ -1757,6 +1829,23 @@
       default:
         return [];
     }
+  }
+
+  async function loadAllTodoSectionItemsFromStorage(section) {
+    const normalizedSection =
+      section === "dailyCheckins" || section === "checkins" ? section : "";
+    if (!normalizedSection) {
+      return [];
+    }
+    const bundleStorage = window.ControlerStorage;
+    if (typeof bundleStorage?.loadSectionRange === "function") {
+      const range = await bundleStorage.loadSectionRange(normalizedSection, {});
+      return hydrateTodoCollection(
+        normalizedSection,
+        Array.isArray(range?.items) ? range.items : [],
+      );
+    }
+    return getTodoSectionStateSnapshot(normalizedSection);
   }
 
   function shouldPersistTodoSharedLocalMirror() {
@@ -3349,6 +3438,196 @@
       },
       {
         errorLabel: options?.errorLabel || "保存待办与计划联动数据失败:",
+        refreshReminders: options?.refreshReminders === true,
+      },
+    );
+  }
+
+  function buildTodoAuthoritativeSectionSaveOperations(sectionSaves = []) {
+    return (Array.isArray(sectionSaves) ? sectionSaves : []).flatMap(
+      (entry = {}) => {
+        const section =
+          entry?.section === "dailyCheckins" || entry?.section === "checkins"
+            ? entry.section
+            : "";
+        if (!section) {
+          return [];
+        }
+        const currentItems = Array.isArray(entry?.items)
+          ? entry.items
+          : getTodoSectionStateSnapshot(section);
+        const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
+        const previousPeriodIds = getTodoSectionPeriodIds(
+          section,
+          entry?.previousItems,
+        );
+        const periodIds = explicitPeriodIds.length
+          ? explicitPeriodIds
+          : getTodoNormalizedPeriodIds([
+              ...getTodoSectionPeriodIds(section, currentItems),
+              ...previousPeriodIds,
+            ]);
+        return periodIds.map((periodId) => ({
+          kind: "saveSectionRange",
+          section,
+          payload: {
+            periodId,
+            items: currentItems.filter(
+              (item) => getTodoSectionPeriodId(section, item) === periodId,
+            ),
+            mode: "replace",
+          },
+        }));
+      },
+    );
+  }
+
+  function queueTodoSaveWithAuthoritativeSections(options = {}) {
+    const partialCore =
+      options?.partialCore &&
+      typeof options.partialCore === "object" &&
+      !Array.isArray(options.partialCore)
+        ? normalizeTodoCoreUpdate(options.partialCore)
+        : {};
+    const changedCoreSections = getTodoNormalizedChangedSections(
+      Object.keys(partialCore),
+    );
+    if (changedCoreSections.length) {
+      persistTodoLocalMirrorCore(partialCore);
+      markTodoSelfRefreshIgnored(changedCoreSections);
+    }
+
+    const sectionSaves = Array.isArray(options?.sectionSaves)
+      ? options.sectionSaves
+      : [];
+    sectionSaves.forEach((entry = {}) => {
+      const section =
+        entry?.section === "dailyCheckins" || entry?.section === "checkins"
+          ? entry.section
+          : "";
+      if (!section) {
+        return;
+      }
+      const currentItems = Array.isArray(entry?.items)
+        ? entry.items
+        : getTodoSectionStateSnapshot(section);
+      persistTodoLocalSection(section, currentItems);
+      const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
+      const previousPeriodIds = getTodoSectionPeriodIds(
+        section,
+        entry?.previousItems,
+      );
+      const periodIds = explicitPeriodIds.length
+        ? explicitPeriodIds
+        : getTodoNormalizedPeriodIds([
+            ...getTodoSectionPeriodIds(section, currentItems),
+            ...previousPeriodIds,
+          ]);
+      if (periodIds.length) {
+        markTodoSelfRefreshIgnored([section], {
+          [section]: periodIds,
+        });
+      }
+    });
+
+    const linkedPlanMutation =
+      options?.linkedPlanMutation &&
+      typeof options.linkedPlanMutation === "object"
+        ? options.linkedPlanMutation
+        : null;
+    if (linkedPlanMutation?.allPlans) {
+      persistTodoLinkedPlanLocalMirror(linkedPlanMutation.allPlans);
+    }
+
+    const sectionOperations =
+      buildTodoAuthoritativeSectionSaveOperations(sectionSaves);
+    const journalOperations = [
+      ...(changedCoreSections.length
+        ? [
+            {
+              kind: "replaceCoreState",
+              partialCore: cloneTodoValue(partialCore),
+            },
+          ]
+        : []),
+      ...sectionOperations,
+      ...buildTodoLinkedPlanJournalOperations(
+        linkedPlanMutation?.allPlans || [],
+        linkedPlanMutation?.previousPlan || null,
+        linkedPlanMutation?.nextPlan || null,
+      ),
+    ];
+
+    if (!journalOperations.length) {
+      return Promise.resolve(true);
+    }
+
+    return queueTodoPersistenceTask(
+      async () => {
+        const bundleStorage = window.ControlerStorage;
+        if (typeof bundleStorage?.appendJournal === "function") {
+          await bundleStorage.appendJournal(journalOperations, {
+            reason:
+              typeof options?.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "todo-authoritative-save",
+          });
+          return true;
+        }
+
+        if (
+          changedCoreSections.length &&
+          typeof bundleStorage?.replaceCoreState === "function"
+        ) {
+          await bundleStorage.replaceCoreState(cloneTodoValue(partialCore), {
+            reason:
+              typeof options?.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "todo-authoritative-save",
+          });
+        }
+
+        if (
+          sectionOperations.length &&
+          typeof bundleStorage?.saveSectionRange === "function"
+        ) {
+          await Promise.all(
+            sectionOperations.map((operation) =>
+              bundleStorage.saveSectionRange(
+                operation.section,
+                operation.payload,
+              ),
+            ),
+          );
+        }
+
+        const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
+          linkedPlanMutation?.allPlans || [],
+          linkedPlanMutation?.previousPlan || null,
+          linkedPlanMutation?.nextPlan || null,
+        );
+        for (const operation of linkedPlanOperations) {
+          if (
+            operation.kind === "saveSectionRange" &&
+            typeof bundleStorage?.saveSectionRange === "function"
+          ) {
+            await bundleStorage.saveSectionRange(
+              operation.section,
+              operation.payload,
+            );
+            continue;
+          }
+          if (
+            operation.kind === "replaceRecurringPlans" &&
+            typeof bundleStorage?.replaceRecurringPlans === "function"
+          ) {
+            await bundleStorage.replaceRecurringPlans(operation.items || []);
+          }
+        }
+        return true;
+      },
+      {
+        errorLabel: options?.errorLabel || "保存待办权威分区数据失败:",
         refreshReminders: options?.refreshReminders === true,
       },
     );
@@ -9759,6 +10038,7 @@
     const previousDailyCheckins = getTodoSectionStateSnapshot("dailyCheckins");
     let linkedPlanSourceItem = null;
     let dailyCheckinsChanged = false;
+    let mergeCheckinAcrossAllPeriods = false;
     let mutationReason = "checkin-item-create";
     let progressTitle = "正在创建打卡";
     let progressMessage = "正在写入打卡项目与同步数据，请稍候";
@@ -9783,8 +10063,12 @@
       const sourceItem = hydrateCheckinItem(checkinItems[sourceIndex]);
       const targetItem = hydrateCheckinItem(checkinItems[targetIndex]);
       closeCheckinScheduleRanges(sourceItem, todayText);
-      mergeDailyCheckinsByItemId(targetItem.id, sourceItem.id);
+      const visibleDailyMergeResult = mergeDailyCheckinsByItemId(
+        targetItem.id,
+        sourceItem.id,
+      );
       mergeCheckinScheduleRanges(targetItem, sourceItem);
+      mergeCheckinItemOccurrenceState(targetItem, sourceItem);
       targetItem.title = title;
       targetItem.updatedAt = nowIso;
       sourceItem.status = "ended";
@@ -9793,8 +10077,9 @@
       sourceItem.updatedAt = nowIso;
       checkinItems[targetIndex] = targetItem;
       checkinItems[sourceIndex] = sourceItem;
-      linkedPlanSourceItem = sourceItem;
-      dailyCheckinsChanged = true;
+      linkedPlanSourceItem = targetItem;
+      dailyCheckinsChanged = visibleDailyMergeResult.changed;
+      mergeCheckinAcrossAllPeriods = true;
       mutationReason = "checkin-item-merge-by-title";
       progressTitle = "正在合并打卡";
       progressMessage = "正在合并同名打卡项目与历史记录，请稍候";
@@ -10028,32 +10313,76 @@
           ? checkinItems.find((item) => matchesId(item.id, linkedPlanSourceItem.id)) ||
             linkedPlanSourceItem
           : checkinItems[checkinItems.length - 1] || null;
-        const sectionSaves = dailyCheckinsChanged
-          ? [
-              {
-                section: "dailyCheckins",
-                periodIds: Array.from(
-                  new Set(
-                    getTodoSectionPeriodIds("dailyCheckins", [
-                      ...previousDailyCheckins,
-                      ...dailyCheckins,
-                    ]),
+        let persisted = false;
+        if (mergeCheckinAcrossAllPeriods && itemData) {
+          await flushTodoPendingPersistence();
+          const authoritativeDailyCheckins =
+            await loadAllTodoSectionItemsFromStorage("dailyCheckins");
+          const authoritativeDailyMergeResult = mergeDailyCheckinsByItemIdInList(
+            authoritativeDailyCheckins,
+            targetItem?.id || "",
+            itemData.id,
+          );
+          const authoritativeDailyPeriodIds = Array.from(
+            new Set(
+              getTodoSectionPeriodIds("dailyCheckins", [
+                ...authoritativeDailyCheckins,
+                ...authoritativeDailyMergeResult.items,
+              ]),
+            ),
+          );
+          persisted = await queueTodoSaveWithAuthoritativeSections({
+            partialCore: {
+              checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+            },
+            sectionSaves: authoritativeDailyMergeResult.changed
+              ? [
+                  {
+                    section: "dailyCheckins",
+                    periodIds: authoritativeDailyPeriodIds,
+                    items: authoritativeDailyMergeResult.items,
+                  },
+                ]
+              : [],
+            linkedPlanMutation: buildTodoLinkedPlanMutation(
+              "checkin",
+              targetItem,
+            ),
+            reason: mutationReason,
+            errorLabel: "保存打卡项目失败:",
+            refreshReminders: true,
+          });
+        } else {
+          const sectionSaves = dailyCheckinsChanged
+            ? [
+                {
+                  section: "dailyCheckins",
+                  periodIds: Array.from(
+                    new Set(
+                      getTodoSectionPeriodIds("dailyCheckins", [
+                        ...previousDailyCheckins,
+                        ...dailyCheckins,
+                      ]),
+                    ),
                   ),
-                ),
-                items: getTodoSectionStateSnapshot("dailyCheckins"),
-              },
-            ]
-          : [];
-        const persisted = await queueTodoSaveWithLinkedPlan({
-          partialCore: {
-            checkinItems: getTodoSectionStateSnapshot("checkinItems"),
-          },
-          sectionSaves,
-          linkedPlanMutation: buildTodoLinkedPlanMutation("checkin", targetItem),
-          reason: mutationReason,
-          errorLabel: "保存打卡项目失败:",
-          refreshReminders: true,
-        });
+                  items: getTodoSectionStateSnapshot("dailyCheckins"),
+                },
+              ]
+            : [];
+          persisted = await queueTodoSaveWithLinkedPlan({
+            partialCore: {
+              checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+            },
+            sectionSaves,
+            linkedPlanMutation: buildTodoLinkedPlanMutation(
+              "checkin",
+              targetItem,
+            ),
+            reason: mutationReason,
+            errorLabel: "保存打卡项目失败:",
+            refreshReminders: true,
+          });
+        }
         if (!persisted) {
           await rollbackTodoOptimisticChange(
             {

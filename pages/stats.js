@@ -2942,9 +2942,94 @@ function applyStatsWorkspaceState(snapshot = {}) {
   syncStatsDataIndex(["records", "projects"]);
 }
 
-function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStatsLoadScope()) {
+function addStatsMonthOffsetToPeriodId(periodId, monthOffset = 0) {
+  const normalized = String(periodId || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(normalized)) {
+    return "";
+  }
+  const [yearText, monthText] = normalized.split("-");
+  const cursor = new Date(
+    Number.parseInt(yearText, 10),
+    Number.parseInt(monthText, 10) - 1,
+    1,
+  );
+  if (Number.isNaN(cursor.getTime())) {
+    return "";
+  }
+  cursor.setMonth(cursor.getMonth() + Math.round(Number(monthOffset) || 0));
+  return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function expandStatsScopedRecordPeriodIds(scope = {}) {
   const recordScope = getExpandedStatsRecordLoadScope(scope);
-  const periodIds =
+  if (recordScope?.all === true) {
+    return [];
+  }
+  const normalizedPeriodIds = Array.isArray(recordScope?.periodIds)
+    ? recordScope.periodIds
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean)
+    : [];
+  const periodIds = new Set(normalizedPeriodIds);
+  normalizedPeriodIds.forEach((periodId) => {
+    const previousPeriodId = addStatsMonthOffsetToPeriodId(periodId, -1);
+    const nextPeriodId = addStatsMonthOffsetToPeriodId(periodId, 1);
+    if (previousPeriodId) {
+      periodIds.add(previousPeriodId);
+    }
+    if (nextPeriodId) {
+      periodIds.add(nextPeriodId);
+    }
+  });
+  return Array.from(periodIds).sort((left, right) => left.localeCompare(right));
+}
+
+function statsRecordOverlapsScope(record = {}, scope = getStatsLoadScope()) {
+  if (scope?.all === true) {
+    return true;
+  }
+  const startValue = scope?.startDate || scope?.start || null;
+  const endValue = scope?.endDate || scope?.end || null;
+  if (!startValue || !endValue) {
+    return true;
+  }
+
+  const range = getNormalizedStatsFilterRange(startValue, endValue);
+  const normalizedDurationMeta = normalizeStatsRecordDurationMeta(record?.durationMeta);
+  const rawEnd =
+    parseStatsFlexibleDate(record?.endTime) ||
+    parseStatsFlexibleDate(record?.timestamp) ||
+    parseStatsFlexibleDate(record?.rawEndTime) ||
+    parseStatsFlexibleDate(record?.startTime) ||
+    null;
+  const durationMs = resolveStatsRecordDurationMs(record, normalizedDurationMeta);
+  const rawStart =
+    parseStatsFlexibleDate(record?.startTime) ||
+    (durationMs > 0 && rawEnd
+      ? new Date(rawEnd.getTime() - Math.max(durationMs, 0))
+      : null) ||
+    parseStatsFlexibleDate(record?.timestamp) ||
+    parseStatsFlexibleDate(record?.endTime) ||
+    rawEnd;
+
+  if (!rawStart && !rawEnd) {
+    return false;
+  }
+
+  let startTime = rawStart ? rawStart.getTime() : rawEnd.getTime();
+  let endTime = rawEnd ? rawEnd.getTime() : rawStart.getTime();
+  if (endTime < startTime) {
+    const swapped = startTime;
+    startTime = endTime;
+    endTime = swapped;
+  }
+
+  return endTime > range.start.getTime() && startTime < range.endExclusive.getTime();
+}
+
+function buildStatsLoadedRecordPeriodIds(scope = {}, recordList = []) {
+  const recordScope = getExpandedStatsRecordLoadScope(scope);
+  const logicalPeriodIds =
     recordScope?.all === true
       ? []
       : Array.isArray(recordScope?.periodIds)
@@ -2952,12 +3037,31 @@ function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStats
             .map((periodId) => String(periodId || "").trim())
             .filter(Boolean)
         : [];
-  const periodSet = new Set(periodIds);
+  const actualPeriodIds = Array.isArray(recordList)
+    ? [...new Set(recordList.map((record) => getStatsRecordPeriodId(record)).filter(Boolean))]
+    : [];
+  if (recordScope?.all === true) {
+    return actualPeriodIds;
+  }
+  if (!logicalPeriodIds.length) {
+    return actualPeriodIds;
+  }
+  return [...new Set([...logicalPeriodIds, ...actualPeriodIds])];
+}
+
+function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStatsLoadScope()) {
+  const recordScope = getExpandedStatsRecordLoadScope(scope);
+  const periodSet = new Set(expandStatsScopedRecordPeriodIds(scope));
   const sourceRecords = Array.isArray(sourceState?.records) ? sourceState.records : [];
   const nextRecords =
-    recordScope?.all === true || !periodSet.size
+    recordScope?.all === true
       ? sourceRecords.slice()
-      : sourceRecords.filter((record) => periodSet.has(getStatsRecordPeriodId(record)));
+      : sourceRecords.filter((record) => {
+          if (periodSet.size > 0 && !periodSet.has(getStatsRecordPeriodId(record))) {
+            return false;
+          }
+          return statsRecordOverlapsScope(record, scope);
+        });
   return {
     preferences:
       sourceState?.statsPreferences && typeof sourceState.statsPreferences === "object"
@@ -2967,12 +3071,7 @@ function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStats
           : readStatsPreferencesFromStorage(),
     records: nextRecords,
     projects: Array.isArray(sourceState?.projects) ? sourceState.projects : [],
-    loadedRecordPeriodIds:
-      recordScope?.all === true
-        ? [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))]
-        : periodIds.length
-          ? periodIds.slice()
-          : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+    loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
   };
 }
 
@@ -3024,11 +3123,7 @@ function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()
           : readStatsPreferencesFromStorage(),
       records: nextRecords,
       projects: Array.isArray(data.projects) ? data.projects : [],
-      loadedRecordPeriodIds:
-        Array.isArray(pageBootstrap.loadedPeriodIds) &&
-        pageBootstrap.loadedPeriodIds.length
-          ? pageBootstrap.loadedPeriodIds.slice()
-          : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+      loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
     };
   } catch (error) {
     console.error("读取统计页缓存快照失败:", error);
@@ -3127,11 +3222,7 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
               : preferences,
           records: nextRecords,
           projects: Array.isArray(data.projects) ? data.projects : [],
-          loadedRecordPeriodIds:
-            Array.isArray(pageBootstrap.loadedPeriodIds) &&
-            pageBootstrap.loadedPeriodIds.length
-              ? pageBootstrap.loadedPeriodIds.slice()
-              : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+          loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
         };
       }
     }
@@ -3149,10 +3240,7 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
         preferences,
         records: nextRecords,
         projects: Array.isArray(coreState?.projects) ? coreState.projects : [],
-        loadedRecordPeriodIds:
-          Array.isArray(recordsResult?.periodIds) && recordsResult.periodIds.length
-          ? recordsResult.periodIds.slice()
-          : [...new Set(nextRecords.map((record) => getStatsRecordPeriodId(record)))],
+        loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
       };
     }
 

@@ -1460,6 +1460,97 @@ RCT_EXPORT_MODULE(ControlerBridge);
   return @{@"periodIds": startDate.length > 0 && endDate.length > 0 ? [self periodIdsFromStartDateKey:startDate endDateKey:endDate] : @[], @"startDate": ControlerJSONValue(startDate), @"endDate": ControlerJSONValue(endDate)};
 }
 
+- (NSString *)periodId:(NSString *)periodId byAddingMonthOffset:(NSInteger)monthOffset
+{
+  NSString *normalizedPeriodId = [self normalizedPeriodId:periodId];
+  if (normalizedPeriodId.length == 0) return @"";
+  NSArray<NSString *> *parts = [normalizedPeriodId componentsSeparatedByString:@"-"];
+  if (parts.count != 2) return @"";
+  NSDateComponents *components = [[NSDateComponents alloc] init];
+  components.year = [parts[0] integerValue];
+  components.month = [parts[1] integerValue];
+  components.day = 1;
+  NSCalendar *calendar = [NSCalendar currentCalendar];
+  NSDate *date = [calendar dateFromComponents:components];
+  if (!date) return @"";
+  NSDateComponents *offset = [[NSDateComponents alloc] init];
+  offset.month = monthOffset;
+  NSDate *shiftedDate = [calendar dateByAddingComponents:offset toDate:date options:0];
+  return [self periodIdFromDate:shiftedDate] ?: @"";
+}
+
+- (NSArray<NSString *> *)expandedRecordPeriodIdsForRange:(NSDictionary *)range scope:(NSDictionary *)scope
+{
+  NSMutableOrderedSet<NSString *> *periodIds = [NSMutableOrderedSet orderedSet];
+  NSArray<NSString *> *normalizedPeriodIds = ControlerEnsureArray(ControlerEnsureDictionary(range)[@"periodIds"]);
+  if (normalizedPeriodIds.count > 0) {
+    for (id value in normalizedPeriodIds) {
+      NSString *periodId = [self normalizedPeriodId:value];
+      if (periodId.length == 0) continue;
+      [periodIds addObject:periodId];
+      NSString *previousPeriodId = [self periodId:periodId byAddingMonthOffset:-1];
+      NSString *nextPeriodId = [self periodId:periodId byAddingMonthOffset:1];
+      if (previousPeriodId.length > 0) [periodIds addObject:previousPeriodId];
+      if (nextPeriodId.length > 0) [periodIds addObject:nextPeriodId];
+    }
+    return [[periodIds array] sortedArrayUsingSelector:@selector(compare:)];
+  }
+
+  NSDate *startDate = [self dateFromValue:ControlerEnsureDictionary(range)[@"startDate"]];
+  NSDate *endDate = [self dateFromValue:ControlerEnsureDictionary(range)[@"endDate"]];
+  if (!startDate || !endDate) return @[];
+  if ([startDate compare:endDate] == NSOrderedDescending) { NSDate *tmp = startDate; startDate = endDate; endDate = tmp; }
+  NSCalendar *calendar = [NSCalendar currentCalendar];
+  NSDateComponents *lowerComponents = [calendar components:(NSCalendarUnitYear | NSCalendarUnitMonth) fromDate:startDate];
+  NSDateComponents *upperComponents = [calendar components:(NSCalendarUnitYear | NSCalendarUnitMonth) fromDate:endDate];
+  lowerComponents.day = 1;
+  upperComponents.day = 1;
+  NSDate *cursor = [calendar dateFromComponents:lowerComponents];
+  NSDate *target = [calendar dateFromComponents:upperComponents];
+  if (!cursor || !target) return @[];
+  NSDateComponents *backwardStep = [[NSDateComponents alloc] init];
+  backwardStep.month = -1;
+  NSDateComponents *forwardStep = [[NSDateComponents alloc] init];
+  forwardStep.month = 1;
+  cursor = [calendar dateByAddingComponents:backwardStep toDate:cursor options:0];
+  target = [calendar dateByAddingComponents:forwardStep toDate:target options:0];
+  while (cursor && target && [cursor compare:target] != NSOrderedDescending) {
+    NSString *periodId = [self periodIdFromDate:cursor];
+    if (periodId.length > 0) [periodIds addObject:periodId];
+    cursor = [calendar dateByAddingComponents:forwardStep toDate:cursor options:0];
+  }
+  return [[periodIds array] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (BOOL)record:(NSDictionary *)record overlapsScope:(NSDictionary *)scope
+{
+  NSDictionary *safeScope = ControlerEnsureDictionary(scope);
+  NSDate *rangeStart = [self dateFromValue:safeScope[@"startDate"] ?: safeScope[@"start"]];
+  NSDate *rangeEnd = [self dateFromValue:safeScope[@"endDate"] ?: safeScope[@"end"]];
+  if (!rangeStart || !rangeEnd) return YES;
+  if ([rangeStart compare:rangeEnd] == NSOrderedDescending) { NSDate *tmp = rangeStart; rangeStart = rangeEnd; rangeEnd = tmp; }
+  NSCalendar *calendar = [NSCalendar currentCalendar];
+  NSDate *lower = [calendar startOfDayForDate:rangeStart];
+  NSDateComponents *upperComponents = [calendar components:(NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay) fromDate:rangeEnd];
+  upperComponents.hour = 23;
+  upperComponents.minute = 59;
+  upperComponents.second = 59;
+  NSDate *upper = [calendar dateFromComponents:upperComponents];
+  if (!lower || !upper) return YES;
+  NSTimeInterval upperExclusive = [upper timeIntervalSince1970] + 1.0;
+  NSDate *rawStart = [self dateFromValue:record[@"startTime"] ?: record[@"timestamp"] ?: record[@"endTime"]];
+  NSDate *rawEnd = [self dateFromValue:record[@"endTime"] ?: record[@"timestamp"] ?: record[@"startTime"]];
+  if (!rawStart && !rawEnd) return NO;
+  NSTimeInterval startTime = rawStart ? [rawStart timeIntervalSince1970] : [rawEnd timeIntervalSince1970];
+  NSTimeInterval endTime = rawEnd ? [rawEnd timeIntervalSince1970] : [rawStart timeIntervalSince1970];
+  if (endTime < startTime) {
+    NSTimeInterval tmp = startTime;
+    startTime = endTime;
+    endTime = tmp;
+  }
+  return endTime > [lower timeIntervalSince1970] && startTime < upperExclusive;
+}
+
 - (NSString *)mergeKeyForSection:(NSString *)section item:(NSDictionary *)item
 {
   NSString *identifier = ControlerOptionalTrimmedString(item[@"id"]);
@@ -1579,8 +1670,10 @@ RCT_EXPORT_MODULE(ControlerBridge);
 {
   NSString *normalizedSection = ControlerTrimmedString(section);
   if (![ControlerPartitionedSections() containsObject:normalizedSection]) return nil;
-  NSDictionary *range = [self normalizedRangeFromScope:ControlerEnsureDictionary(scope)];
-  NSSet<NSString *> *requestedPeriodIds = [NSSet setWithArray:ControlerEnsureArray(range[@"periodIds"])];
+  NSDictionary *safeScope = ControlerEnsureDictionary(scope);
+  NSDictionary *range = [self normalizedRangeFromScope:safeScope];
+  NSArray<NSString *> *effectivePeriodIds = [normalizedSection isEqualToString:@"records"] ? [self expandedRecordPeriodIdsForRange:range scope:safeScope] : ControlerEnsureArray(range[@"periodIds"]);
+  NSSet<NSString *> *requestedPeriodIds = [NSSet setWithArray:effectivePeriodIds];
   NSDictionary *manifest = [self readManifest] ?: @{};
   NSDictionary *sectionManifest = ControlerEnsureDictionary(ControlerEnsureDictionary(manifest[@"sections"])[normalizedSection]);
   NSMutableArray *matchedPartitions = [NSMutableArray array], *items = [NSMutableArray array];
@@ -1590,7 +1683,15 @@ RCT_EXPORT_MODULE(ControlerBridge);
     if (requestedPeriodIds.count > 0 && ![requestedPeriodIds containsObject:periodId]) continue;
     if (periodId.length == 0) continue;
     [matchedPartitions addObject:partition];
-    [items addObjectsFromArray:ControlerEnsureArray([self readPartitionEnvelopeForSection:normalizedSection periodId:periodId][@"items"])];
+    NSArray *partitionItems = ControlerEnsureArray([self readPartitionEnvelopeForSection:normalizedSection periodId:periodId][@"items"]);
+    if ([normalizedSection isEqualToString:@"records"]) {
+      for (id itemValue in partitionItems) {
+        NSDictionary *item = ControlerEnsureDictionary(itemValue);
+        if ([self record:item overlapsScope:safeScope]) [items addObject:ControlerDeepCopyJSON(item) ?: item];
+      }
+    } else {
+      [items addObjectsFromArray:partitionItems];
+    }
   }
   return @{
     @"section": normalizedSection,
@@ -2815,20 +2916,7 @@ RCT_REMAP_METHOD(loadStorageSectionRange,
     reject(@"storage_range_load_failed", @"解析分区范围失败。", parseError);
     return;
   }
-  NSDictionary *range = [self normalizedRangeFromScope:ControlerEnsureDictionary(scopeObject)];
-  NSSet<NSString *> *requestedPeriodIds = [NSSet setWithArray:ControlerEnsureArray(range[@"periodIds"])];
-  NSDictionary *manifest = [self readManifest] ?: @{};
-  NSDictionary *sectionManifest = ControlerEnsureDictionary(ControlerEnsureDictionary(manifest[@"sections"])[normalizedSection]);
-  NSMutableArray *matchedPartitions = [NSMutableArray array], *items = [NSMutableArray array];
-  for (id partitionValue in ControlerEnsureArray(sectionManifest[@"partitions"])) {
-    NSDictionary *partition = ControlerEnsureDictionary(partitionValue);
-    NSString *periodId = [self normalizedPeriodId:partition[@"periodId"]];
-    if (requestedPeriodIds.count > 0 && ![requestedPeriodIds containsObject:periodId]) continue;
-    if (periodId.length == 0) continue;
-    [matchedPartitions addObject:partition];
-    [items addObjectsFromArray:ControlerEnsureArray([self readPartitionEnvelopeForSection:normalizedSection periodId:periodId][@"items"])];
-  }
-  resolve([self serializeObject:@{@"section": normalizedSection, @"periodUnit": kPeriodUnit, @"periodIds": requestedPeriodIds.count > 0 ? [[requestedPeriodIds allObjects] sortedArrayUsingSelector:@selector(compare:)] : [matchedPartitions valueForKey:@"periodId"] ?: @[], @"startDate": range[@"startDate"] ?: [NSNull null], @"endDate": range[@"endDate"] ?: [NSNull null], @"items": [self sortedItems:items forSection:normalizedSection], @"manifestPartitions": matchedPartitions}]);
+  resolve([self serializeObject:[self rangePayloadForSection:normalizedSection scope:ControlerEnsureDictionary(scopeObject)] ?: @{}]);
 }
 
 RCT_REMAP_METHOD(saveStorageSectionRange,

@@ -589,7 +589,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.301;
+				MARKETING_VERSION = 1.305;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -616,7 +616,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.301;
+				MARKETING_VERSION = 1.305;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -642,7 +642,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.301;
+				MARKETING_VERSION = 1.305;
 				PRODUCT_BUNDLE_IDENTIFIER = com.controler.timetracker.widgets;
 				PRODUCT_NAME = ControlerWidgetExtension;
 				SKIP_INSTALL = YES;
@@ -665,7 +665,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.301;
+				MARKETING_VERSION = 1.305;
 				PRODUCT_BUNDLE_IDENTIFIER = com.controler.timetracker.widgets;
 				PRODUCT_NAME = ControlerWidgetExtension;
 				SKIP_INSTALL = YES;

@@ -1316,7 +1316,7 @@ public final class ControlerWidgetDataStore {
         }
 
         JSONObject root = loadRoot(context);
-        Set<String> requestedPeriodIds = resolveRequestedPeriodIds(scope);
+        Set<String> requestedPeriodIds = resolveRequestedPeriodIds(normalizedSection, scope);
         JSONArray sourceItems = root.optJSONArray(normalizedSection);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         Set<String> matchedPeriodIds = new HashSet<>();
@@ -2008,7 +2008,7 @@ public final class ControlerWidgetDataStore {
     ) throws Exception {
         ensureBundleStorageReady(context);
         JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
-        Set<String> requestedPeriodIds = resolveRequestedPeriodIds(scope);
+        Set<String> requestedPeriodIds = resolveRequestedPeriodIds(section, scope);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         ArrayList<String> matchedPeriodIds = new ArrayList<>();
 
@@ -5851,7 +5851,39 @@ public final class ControlerWidgetDataStore {
         return new ArrayList<>(sections);
     }
 
-    private static Set<String> resolveRequestedPeriodIds(JSONObject scope) {
+    private static String addMonthOffsetToPeriodId(String periodId, int monthOffset) {
+        String normalizedPeriodId = normalizePeriodId(periodId);
+        if (TextUtils.isEmpty(normalizedPeriodId)) {
+            return "";
+        }
+
+        String[] parts = normalizedPeriodId.split("-");
+        if (parts.length != 2) {
+            return "";
+        }
+        int year;
+        int month;
+        try {
+            year = Integer.parseInt(parts[0]);
+            month = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException error) {
+            return "";
+        }
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.clear();
+        calendar.set(year, month - 1, 1, 0, 0, 0);
+        calendar.add(Calendar.MONTH, monthOffset);
+        return String.format(
+            Locale.US,
+            "%04d-%02d",
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1
+        );
+    }
+
+    private static Set<String> resolveRequestedPeriodIds(String section, JSONObject scope) {
+        String normalizedSection = normalizeBundleSection(section);
         Set<String> periodIds = new HashSet<>();
         if (scope == null) {
             return periodIds;
@@ -5859,11 +5891,27 @@ public final class ControlerWidgetDataStore {
 
         JSONArray explicitPeriodIds = scope.optJSONArray("periodIds");
         if (explicitPeriodIds != null && explicitPeriodIds.length() > 0) {
+            ArrayList<String> normalizedPeriodIds = new ArrayList<>();
             for (int index = 0; index < explicitPeriodIds.length(); index += 1) {
                 String periodId = normalizePeriodId(explicitPeriodIds.optString(index, ""));
                 if (!TextUtils.isEmpty(periodId)) {
-                    periodIds.add(periodId);
+                    normalizedPeriodIds.add(periodId);
                 }
+            }
+            if ("records".equals(normalizedSection)) {
+                for (String periodId : normalizedPeriodIds) {
+                    periodIds.add(periodId);
+                    String previousPeriodId = addMonthOffsetToPeriodId(periodId, -1);
+                    String nextPeriodId = addMonthOffsetToPeriodId(periodId, 1);
+                    if (!TextUtils.isEmpty(previousPeriodId)) {
+                        periodIds.add(previousPeriodId);
+                    }
+                    if (!TextUtils.isEmpty(nextPeriodId)) {
+                        periodIds.add(nextPeriodId);
+                    }
+                }
+            } else {
+                periodIds.addAll(normalizedPeriodIds);
             }
             return periodIds;
         }
@@ -5875,6 +5923,38 @@ public final class ControlerWidgetDataStore {
             firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
         );
         if (TextUtils.isEmpty(startDate) || TextUtils.isEmpty(endDate)) {
+            return periodIds;
+        }
+
+        if ("records".equals(normalizedSection)) {
+            Calendar startCalendar = parseFlexibleDate(startDate);
+            Calendar endCalendar = parseFlexibleDate(endDate);
+            if (startCalendar == null || endCalendar == null) {
+                return periodIds;
+            }
+
+            Calendar lower = startCalendar.getTimeInMillis() <= endCalendar.getTimeInMillis()
+                ? (Calendar) startCalendar.clone()
+                : (Calendar) endCalendar.clone();
+            Calendar upper = startCalendar.getTimeInMillis() <= endCalendar.getTimeInMillis()
+                ? (Calendar) endCalendar.clone()
+                : (Calendar) startCalendar.clone();
+            lower.set(Calendar.DAY_OF_MONTH, 1);
+            upper.set(Calendar.DAY_OF_MONTH, 1);
+            lower.add(Calendar.MONTH, -1);
+            upper.add(Calendar.MONTH, 1);
+
+            while (lower.getTimeInMillis() <= upper.getTimeInMillis()) {
+                periodIds.add(
+                    String.format(
+                        Locale.US,
+                        "%04d-%02d",
+                        lower.get(Calendar.YEAR),
+                        lower.get(Calendar.MONTH) + 1
+                    )
+                );
+                lower.add(Calendar.MONTH, 1);
+            }
             return periodIds;
         }
 

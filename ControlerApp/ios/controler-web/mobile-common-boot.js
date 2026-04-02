@@ -3824,6 +3824,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function shouldUseStateRecordsForProjectNormalization(metadata = {}) {
+    return metadata?.useStateRecordsForProjectNormalization !== false;
+  }
+
   function normalizeState(rawState, metadata = {}) {
     const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -3892,9 +3896,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         normalizedGuideState,
       );
     }
-    base.projects = normalizeProjectCollection(base.projects, {
-      records: base.records,
-    }).projects;
+    base.projects = normalizeProjectCollection(
+      base.projects,
+      shouldUseStateRecordsForProjectNormalization(metadata)
+        ? {
+            records: base.records,
+          }
+        : {},
+    ).projects;
 
     const now = new Date().toISOString();
     const nextStoragePath =
@@ -4205,6 +4214,102 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return itemTime >= lower.getTime() && itemTime <= upper.getTime();
   }
 
+  function addBootstrapMonthOffsetToPeriodId(periodId, monthOffset = 0) {
+    const normalized = String(periodId || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(normalized)) {
+      return "";
+    }
+    const [yearText, monthText] = normalized.split("-");
+    const cursor = new Date(
+      Number.parseInt(yearText, 10),
+      Number.parseInt(monthText, 10) - 1,
+      1,
+    );
+    if (Number.isNaN(cursor.getTime())) {
+      return "";
+    }
+    cursor.setMonth(cursor.getMonth() + Math.round(Number(monthOffset) || 0));
+    return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function expandBootstrapRecordScopePeriodIds(range = {}, rawScope = {}) {
+    const normalizedPeriodIds = normalizeBootstrapPeriodIds(range?.periodIds);
+    const periodIds = new Set(normalizedPeriodIds);
+
+    if (periodIds.size > 0) {
+      normalizedPeriodIds.forEach((periodId) => {
+        const previousPeriodId = addBootstrapMonthOffsetToPeriodId(periodId, -1);
+        const nextPeriodId = addBootstrapMonthOffsetToPeriodId(periodId, 1);
+        if (previousPeriodId) {
+          periodIds.add(previousPeriodId);
+        }
+        if (nextPeriodId) {
+          periodIds.add(nextPeriodId);
+        }
+      });
+    } else {
+      const startValue = rawScope?.startDate || rawScope?.start || null;
+      const endValue = rawScope?.endDate || rawScope?.end || null;
+      const startDate = storageBundle?.normalizeDateInput?.(startValue) || null;
+      const endDate = storageBundle?.normalizeDateInput?.(endValue) || null;
+      if (startDate && endDate) {
+        const lower = startDate.getTime() <= endDate.getTime() ? startDate : endDate;
+        const upper = startDate.getTime() <= endDate.getTime() ? endDate : startDate;
+        const cursor = new Date(lower.getFullYear(), lower.getMonth() - 1, 1);
+        const target = new Date(upper.getFullYear(), upper.getMonth() + 1, 1);
+        while (cursor.getTime() <= target.getTime()) {
+          periodIds.add(
+            `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+          );
+          cursor.setMonth(cursor.getMonth() + 1);
+        }
+      }
+    }
+
+    return normalizeBootstrapPeriodIds(Array.from(periodIds));
+  }
+
+  function bootstrapRecordOverlapsScope(record = {}, rawScope = {}) {
+    const startValue = rawScope?.startDate || rawScope?.start || null;
+    const endValue = rawScope?.endDate || rawScope?.end || null;
+    const rangeStart = storageBundle?.normalizeDateInput?.(startValue) || null;
+    const rangeEnd = storageBundle?.normalizeDateInput?.(endValue) || null;
+    if (!rangeStart || !rangeEnd) {
+      return true;
+    }
+
+    const lower = rangeStart.getTime() <= rangeEnd.getTime() ? rangeStart : rangeEnd;
+    const upper = rangeStart.getTime() <= rangeEnd.getTime() ? rangeEnd : rangeStart;
+    lower.setHours(0, 0, 0, 0);
+    upper.setHours(23, 59, 59, 999);
+    const upperExclusive = upper.getTime() + 1;
+
+    const rawStart =
+      storageBundle?.normalizeDateInput?.(record?.startTime) ||
+      storageBundle?.normalizeDateInput?.(record?.timestamp) ||
+      storageBundle?.normalizeDateInput?.(record?.endTime) ||
+      null;
+    const rawEnd =
+      storageBundle?.normalizeDateInput?.(record?.endTime) ||
+      storageBundle?.normalizeDateInput?.(record?.timestamp) ||
+      storageBundle?.normalizeDateInput?.(record?.startTime) ||
+      null;
+
+    if (!rawStart && !rawEnd) {
+      return false;
+    }
+
+    let startTime = rawStart ? rawStart.getTime() : rawEnd.getTime();
+    let endTime = rawEnd ? rawEnd.getTime() : rawStart.getTime();
+    if (endTime < startTime) {
+      const swapped = startTime;
+      startTime = endTime;
+      endTime = swapped;
+    }
+
+    return endTime > lower.getTime() && startTime < upperExclusive;
+  }
+
   function sortBootstrapSectionItems(section, items = []) {
     if (typeof storageBundle?.sortPartitionItems === "function") {
       return storageBundle.sortPartitionItems(section, items);
@@ -4220,7 +4325,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         endDate: scope?.endDate || scope?.end || null,
       };
     const requestedPeriodIds = new Set(
-      normalizeBootstrapPeriodIds(normalizedScope.periodIds),
+      section === "records"
+        ? expandBootstrapRecordScopePeriodIds(normalizedScope, scope)
+        : normalizeBootstrapPeriodIds(normalizedScope.periodIds),
     );
     const sourceItems =
       section === "plans"
@@ -4237,6 +4344,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const periodId = getStorageSectionPeriodId(section, item);
       if (requestedPeriodIds.size > 0 && !requestedPeriodIds.has(periodId)) {
         return false;
+      }
+      if (section === "records") {
+        return bootstrapRecordOverlapsScope(item, normalizedScope);
       }
       return bootstrapItemMatchesDateScope(section, item, normalizedScope);
     });
@@ -7080,6 +7190,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialMirrorComparableSnapshot = createComparableSnapshot(
       normalizeState(initialMirrorState, {
         platform,
+        useStateRecordsForProjectNormalization: false,
       }),
     );
     const legacyBrowserComparableSnapshot = createComparableSnapshot(
@@ -7105,6 +7216,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialPendingWrite = initialMirrorPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
+      useStateRecordsForProjectNormalization: false,
     });
     let cachedStatus =
       parseJsonSafely(
@@ -7395,6 +7507,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     }
 
+    function buildManagedPartialStateMetadata(extra = {}) {
+      return buildMobileMetadata({
+        ...extra,
+        useStateRecordsForProjectNormalization: false,
+      });
+    }
+
     async function persistNativeProjectHierarchyRepair(
       projectItems = [],
       options = {},
@@ -7433,7 +7552,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       const normalizedLocalState = normalizeState(
         localState,
-        buildMobileMetadata(),
+        buildManagedPartialStateMetadata(),
       );
       const normalizedNativeState = normalizeState(
         latestNativeState && typeof latestNativeState === "object"
@@ -7704,10 +7823,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
-    function mergeManagedSectionRange(section, scope = {}, items = []) {
+    function mergeManagedSectionRange(section, scope = {}, items = [], options = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+        : [];
+      const explicitCoveredPeriodIds = Array.isArray(options?.coveredPeriodIds)
+        ? options.coveredPeriodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
       const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
@@ -7756,7 +7880,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ]) || [...retainedItems, ...nextItems];
       }
 
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasManagedCoreSnapshot = true;
       hasPendingStateChanges = false;
@@ -7766,11 +7893,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
         managedFullyHydratedSections.add(section);
       } else {
-        const coveredPeriodIds = requestedPeriodIds.length
-          ? requestedPeriodIds
-          : Array.from(
-              new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
-            );
+        const coveredPeriodIds =
+          section === "records"
+            ? requestedPeriodIds.length
+              ? requestedPeriodIds
+              : Array.from(
+                  new Set(
+                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
+                  ),
+                )
+            : explicitCoveredPeriodIds.length
+              ? explicitCoveredPeriodIds
+              : requestedPeriodIds.length
+                ? requestedPeriodIds
+              : Array.from(
+                  new Set(
+                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
+                  ),
+                );
         markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
       }
       persistMirrorSnapshot(true);
@@ -7861,7 +8001,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function assignState(nextState) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -7873,7 +8016,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function applyBridgeState(nextState, options = {}) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -9352,7 +9498,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : currentRecurringPlans
           ),
         ],
-      }, buildMobileMetadata(payload));
+      }, buildManagedPartialStateMetadata(payload));
       hasManagedCoreSnapshot = true;
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -9371,7 +9517,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const currentState = readState();
       cachedState = normalizeState(
         mergeManagedStateWithNativeCorePayload(corePayload, currentState),
-        buildMobileMetadata(metadata),
+        buildManagedPartialStateMetadata(metadata),
       );
       hasManagedCoreSnapshot = true;
       rebuildManagedSectionCoverage(cachedState, {
@@ -9445,6 +9591,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? options.recordScope
             : buildRecentHoursBootstrapScope(48),
           Array.isArray(data.recentRecords) ? data.recentRecords : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9470,6 +9621,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               ? { periodIds: options.periodIds }
               : buildCurrentMonthBootstrapScope(),
           Array.isArray(data.visiblePlans) ? data.visiblePlans : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9525,6 +9681,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           Array.isArray(data.currentMonthEntries)
             ? data.currentMonthEntries
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9544,6 +9705,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           Array.isArray(data.defaultRangeRecordsOrAggregate)
             ? data.defaultRangeRecordsOrAggregate
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
       }
 
@@ -9557,7 +9723,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           startDate: scope?.startDate || scope?.start || null,
           endDate: scope?.endDate || scope?.end || null,
         };
-      const requested = new Set(normalizedRange.periodIds || []);
+      const requested = new Set(
+        section === "records"
+          ? expandBootstrapRecordScopePeriodIds(normalizedRange, scope)
+          : normalizeBootstrapPeriodIds(normalizedRange.periodIds),
+      );
       const state = readState();
       const sourceItems =
         section === "plans"
@@ -9570,10 +9740,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : state?.[section] || [];
       const items = storageBundle?.ensureArray?.(sourceItems) || sourceItems;
       const filteredItems = items.filter((item) => {
-        if (requested.size === 0) {
-          return true;
+        if (requested.size > 0 && !requested.has(getManagedSectionPeriodId(section, item))) {
+          return false;
         }
-        return requested.has(getManagedSectionPeriodId(section, item));
+        if (section === "records") {
+          return bootstrapRecordOverlapsScope(item, normalizedRange);
+        }
+        return true;
       });
       return {
         section,
@@ -10039,7 +10212,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               const currentState = readState();
               cachedState = normalizeState(
                 mergeManagedStateWithNativeCorePayload(parsed, currentState),
-                buildMobileMetadata(normalizedCorePayload),
+                buildManagedPartialStateMetadata(normalizedCorePayload),
               );
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
@@ -10180,6 +10353,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 section,
                 scope,
                 Array.isArray(parsed.items) ? parsed.items : [],
+                {
+                  coveredPeriodIds: Array.isArray(parsed.periodIds)
+                    ? parsed.periodIds
+                    : [],
+                },
               );
               return parsed;
             }

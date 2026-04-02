@@ -187,6 +187,12 @@ const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
 const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const INDEX_RECENT_SAVE_EMPTY_GUARD_MS = 8000;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY =
+  "migration:index:legacy-record-project-recovery:v1";
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION = 4;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_IDLE_TIMEOUT_MS = 4000;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME = "历史记录恢复";
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME = "旧记录项目";
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
 const INITIAL_RECORD_GROUP_RENDER_LIMIT = 24;
@@ -365,6 +371,7 @@ let indexPendingWidgetLaunchAction = null;
 let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
+let indexLegacyRecordProjectRecoveryPendingResume = false;
 let indexShellVisibilityBound = false;
 let indexThemeRefreshBound = false;
 let indexThemeRefreshPending = false;
@@ -377,6 +384,9 @@ let indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
 let indexRenderedRecordGroupSignature = "";
 let indexRecordListLazyLoadBound = false;
 let indexRecordListLazyLoadScheduled = false;
+let indexLegacyRecordProjectRecoveryScheduled = false;
+let indexLegacyRecordProjectRecoveryRunning = false;
+let indexLegacyRecordProjectRecoveryTimerId = 0;
 const indexExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -483,6 +493,9 @@ function bindIndexShellVisibilityGate() {
       invalidateIndexDeferredWorkspaceHydration({
         pendingResume: !indexInitialDataValidated,
       });
+      if (clearIndexLegacyRecordProjectRecoverySchedule()) {
+        indexLegacyRecordProjectRecoveryPendingResume = true;
+      }
       return;
     }
 
@@ -506,6 +519,10 @@ function bindIndexShellVisibilityGate() {
     if (indexDeferredRuntimePendingResume) {
       indexDeferredRuntimePendingResume = false;
       void ensureIndexDeferredRuntimeLoaded();
+    }
+    if (indexLegacyRecordProjectRecoveryPendingResume) {
+      indexLegacyRecordProjectRecoveryPendingResume = false;
+      scheduleIndexLegacyRecordProjectRecovery();
     }
     if (indexThemeRefreshPending) {
       indexThemeRefreshPending = false;
@@ -3577,24 +3594,93 @@ function getLatestRecordForTimerSession(recordsList = records) {
 }
 
 function resolveRecordNextProjectName(record, projectList = projects) {
-  const nextProjectId = String(record?.nextProjectId || "").trim();
-  if (nextProjectId) {
-    const matchedProject = (Array.isArray(projectList) ? projectList : []).find(
-      (project) => String(project?.id || "").trim() === nextProjectId,
-    );
-    const matchedProjectName = String(matchedProject?.name || "").trim();
-    if (matchedProjectName) {
-      return matchedProjectName;
-    }
+  const explicitNextProjectName = String(record?.nextProjectName || "").trim();
+  const matchedProject = resolveRecordNextProject(record, projectList);
+  const matchedProjectName = String(matchedProject?.name || "").trim();
+  if (matchedProjectName) {
+    return matchedProjectName;
   }
 
-  const explicitNextProjectName = String(record?.nextProjectName || "").trim();
   if (explicitNextProjectName) {
     return explicitNextProjectName;
   }
 
-  const currentProjectName = String(record?.name || "").trim();
+  const currentProjectName = String(
+    resolveRecordProject(record, projectList)?.name || record?.name || "",
+  ).trim();
   return currentProjectName || "未命名项目";
+}
+
+function extractIndexProjectLeafName(projectName) {
+  const normalizedName = String(projectName || "").trim();
+  if (!normalizedName) {
+    return "";
+  }
+  const leafName = normalizedName
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .pop();
+  return leafName || normalizedName;
+}
+
+function isIndexProjectPathLikeName(projectName) {
+  const normalizedName = String(projectName || "").trim();
+  return (
+    normalizedName.includes("/") &&
+    extractIndexProjectLeafName(normalizedName) !== normalizedName
+  );
+}
+
+function isIndexProjectWithinSubtree(
+  project,
+  ancestorProjectId,
+  projectList = projects,
+) {
+  const normalizedAncestorId = String(ancestorProjectId || "").trim();
+  const normalizedProjectId = String(project?.id || "").trim();
+  if (!normalizedAncestorId || !normalizedProjectId) {
+    return false;
+  }
+  if (normalizedProjectId === normalizedAncestorId) {
+    return true;
+  }
+
+  let currentProject = project;
+  let safety = 0;
+  while (currentProject && safety < 8) {
+    const parentId = String(currentProject?.parentId || "").trim();
+    if (!parentId) {
+      return false;
+    }
+    if (parentId === normalizedAncestorId) {
+      return true;
+    }
+    currentProject = findProjectByIdInList(parentId, projectList);
+    safety += 1;
+  }
+  return false;
+}
+
+function isIndexLegacyRecoverySubtreeProject(project, projectList = projects) {
+  const recoveryRootId = String(
+    findIndexLegacyRecordProjectRecoveryRootProject(projectList)?.id || "",
+  ).trim();
+  if (!recoveryRootId) {
+    return false;
+  }
+  return isIndexProjectWithinSubtree(project, recoveryRootId, projectList);
+}
+
+function isIndexLegacyPathRecoveryAliasProject(
+  project,
+  projectList = projects,
+) {
+  return (
+    !!project &&
+    isIndexProjectPathLikeName(project?.name) &&
+    isIndexLegacyRecoverySubtreeProject(project, projectList)
+  );
 }
 
 function findProjectByNameInList(projectName, projectList = projects) {
@@ -3602,18 +3688,39 @@ function findProjectByNameInList(projectName, projectList = projects) {
   if (!normalizedName) {
     return null;
   }
-  return (
-    (Array.isArray(projectList) ? projectList : []).find(
+  const safeProjectList = Array.isArray(projectList) ? projectList : [];
+  const exactMatch =
+    safeProjectList.find(
       (project) => String(project?.name || "").trim() === normalizedName,
-    ) || null
+    ) || null;
+  const leafName = extractIndexProjectLeafName(normalizedName);
+  const preferredLeafMatch = leafName
+    ? safeProjectList.find(
+        (project) => String(project?.name || "").trim() === leafName,
+      ) || null
+    : null;
+
+  return (
+    exactMatch ||
+    preferredLeafMatch ||
+    null
   );
 }
 
+function resolveRecordNextProject(record, projectList = projects) {
+  const nextProjectId = String(record?.nextProjectId || "").trim();
+  const matchedById = findProjectByIdInList(nextProjectId, projectList);
+  const explicitNextProjectName = String(record?.nextProjectName || "").trim();
+  const matchedByName = explicitNextProjectName
+    ? findProjectByNameInList(explicitNextProjectName, projectList)
+    : null;
+  return matchedById || matchedByName || null;
+}
+
 function resolveRecordProject(record, projectList = projects) {
-  return (
-    findProjectByIdInList(record?.projectId, projectList) ||
-    findProjectByNameInList(record?.name, projectList)
-  );
+  const matchedById = findProjectByIdInList(record?.projectId, projectList);
+  const matchedByName = findProjectByNameInList(record?.name, projectList);
+  return matchedById || matchedByName || null;
 }
 
 function resolveRecordProjectColor(record, projectList = projects) {
@@ -5568,6 +5675,225 @@ async function ensureIndexProjectDurationCaches(options = {}) {
   return true;
 }
 
+async function replaceIndexProjectsAndAuthoritativeRecords(
+  nextProjects,
+  authoritativeRecords,
+  options = {},
+) {
+  if (typeof window.ControlerStorage?.replaceCoreState !== "function") {
+    throw new Error("当前环境缺少 replaceCoreState 存储接口");
+  }
+
+  await flushIndexPendingPersistenceOrThrow(
+    {
+      allowDeferredBarrier: false,
+    },
+    "记录页数据保存失败",
+  );
+
+  const wasAllHistoricalRecordsLoaded = indexAllHistoricalRecordsLoaded === true;
+  const preservedLoadedPeriodIds = Array.isArray(indexLoadedRecordPeriodIds)
+    ? indexLoadedRecordPeriodIds.slice()
+    : [];
+  const preservedRecordLoadMode = indexLoadedRecordWindowMode;
+  const preservedRecordLoadScope = cloneIndexRecordLoadScope(
+    indexLoadedRecordWindowScope,
+  );
+  const saveRevision = bumpIndexRecordMutationRevision();
+  const saveTransactionId = beginIndexSaveTransaction();
+
+  try {
+    const normalizedProjects = normalizeStoredProjects(nextProjects);
+    const normalizedAllRecords = normalizeIndexLoadedRecords(
+      authoritativeRecords,
+      normalizedProjects,
+    );
+    const rebuiltProjects =
+      typeof storageBundleApi?.rebuildProjectDurationCaches === "function"
+        ? normalizeStoredProjects(
+            storageBundleApi.rebuildProjectDurationCaches(
+              normalizedProjects,
+              normalizedAllRecords,
+            ),
+          )
+        : normalizedProjects;
+    const normalizedVisibleRecords = wasAllHistoricalRecordsLoaded
+      ? normalizedAllRecords
+      : normalizeIndexLoadedRecords(
+          Array.isArray(options.visibleRecords) ? options.visibleRecords : records,
+          rebuiltProjects,
+        );
+    const reason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "index-project-record-replace";
+
+    await window.ControlerStorage.replaceCoreState(
+      {
+        projects: rebuiltProjects,
+        records: normalizedAllRecords,
+      },
+      {
+        reason,
+      },
+    );
+
+    if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+      await window.ControlerStorage.saveCoordinator.flush(
+        reason,
+        "index-persistence",
+      );
+    } else {
+      await window.ControlerStorage?.flush?.();
+    }
+
+    projects = rebuiltProjects;
+    records = normalizedVisibleRecords;
+    projectHierarchyExpansionState = normalizeProjectHierarchyExpansionState(
+      projectHierarchyExpansionState,
+      projects,
+    );
+    projectTotalsExpansionState = normalizeProjectHierarchyExpansionState(
+      projectTotalsExpansionState,
+      projects,
+    );
+    saveProjectHierarchyExpansionState();
+
+    if (wasAllHistoricalRecordsLoaded) {
+      indexAllHistoricalRecordsLoaded = true;
+      indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(normalizedAllRecords);
+      rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_FULL_HISTORY);
+    } else {
+      indexAllHistoricalRecordsLoaded = false;
+      indexLoadedRecordPeriodIds = preservedLoadedPeriodIds.length
+        ? preservedLoadedPeriodIds.slice()
+        : getIndexRecordPeriodIds(normalizedVisibleRecords);
+      rememberIndexRecordLoadWindow(
+        preservedRecordLoadMode,
+        preservedRecordLoadScope,
+      );
+    }
+
+    syncIndexProjectMirrorIfNeeded(projects);
+    syncIndexRawRecordMirror(normalizedAllRecords, {
+      write: true,
+    });
+    if (saveRevision === indexRecordMutationRevision) {
+      resetIndexRecordPersistenceTracking();
+      indexPendingRecordSaveIds.clear();
+    }
+    updateProjectsList();
+    updateExistingProjectsList();
+    updateParentProjectSelect(1);
+    refreshIndexWorkspace({ immediate: true });
+    return {
+      projects,
+      records,
+      allRecords: normalizedAllRecords,
+    };
+  } finally {
+    finishIndexSaveTransaction(saveTransactionId);
+  }
+}
+
+async function replaceIndexAuthoritativeRecords(
+  authoritativeRecords,
+  options = {},
+) {
+  if (typeof window.ControlerStorage?.replaceCoreState !== "function") {
+    throw new Error("当前环境缺少 replaceCoreState 存储接口");
+  }
+
+  await flushIndexPendingPersistenceOrThrow(
+    {
+      allowDeferredBarrier: false,
+    },
+    "记录页数据保存失败",
+  );
+
+  const wasAllHistoricalRecordsLoaded = indexAllHistoricalRecordsLoaded === true;
+  const preservedLoadedPeriodIds = Array.isArray(indexLoadedRecordPeriodIds)
+    ? indexLoadedRecordPeriodIds.slice()
+    : [];
+  const preservedRecordLoadMode = indexLoadedRecordWindowMode;
+  const preservedRecordLoadScope = cloneIndexRecordLoadScope(
+    indexLoadedRecordWindowScope,
+  );
+  const recordProjects = normalizeStoredProjects(
+    Array.isArray(options.projectList) ? options.projectList : projects,
+  );
+  const saveRevision = bumpIndexRecordMutationRevision();
+  const saveTransactionId = beginIndexSaveTransaction();
+
+  try {
+    const normalizedAllRecords = normalizeIndexLoadedRecords(
+      authoritativeRecords,
+      recordProjects,
+    );
+    const normalizedVisibleRecords = wasAllHistoricalRecordsLoaded
+      ? normalizedAllRecords
+      : normalizeIndexLoadedRecords(
+          Array.isArray(options.visibleRecords) ? options.visibleRecords : records,
+          recordProjects,
+        );
+    const reason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "index-record-replace";
+
+    await window.ControlerStorage.replaceCoreState(
+      {
+        records: normalizedAllRecords,
+      },
+      {
+        reason,
+      },
+    );
+
+    if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
+      await window.ControlerStorage.saveCoordinator.flush(
+        reason,
+        "index-persistence",
+      );
+    } else {
+      await window.ControlerStorage?.flush?.();
+    }
+
+    records = normalizedVisibleRecords;
+    if (wasAllHistoricalRecordsLoaded) {
+      indexAllHistoricalRecordsLoaded = true;
+      indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(normalizedAllRecords);
+      rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_FULL_HISTORY);
+    } else {
+      indexAllHistoricalRecordsLoaded = false;
+      indexLoadedRecordPeriodIds = preservedLoadedPeriodIds.length
+        ? preservedLoadedPeriodIds.slice()
+        : getIndexRecordPeriodIds(normalizedVisibleRecords);
+      rememberIndexRecordLoadWindow(
+        preservedRecordLoadMode,
+        preservedRecordLoadScope,
+      );
+    }
+
+    syncIndexRawRecordMirror(normalizedAllRecords, {
+      write: true,
+    });
+    if (saveRevision === indexRecordMutationRevision) {
+      resetIndexRecordPersistenceTracking();
+      indexPendingRecordSaveIds.clear();
+    }
+    if (options.refreshUi !== false) {
+      refreshIndexWorkspace({ immediate: true });
+    }
+    return {
+      records,
+      allRecords: normalizedAllRecords,
+    };
+  } finally {
+    finishIndexSaveTransaction(saveTransactionId);
+  }
+}
+
 function getProjectColorInputValue(project) {
   const level = normalizeProjectLevel(project?.level);
   return normalizeProjectColorToHex(
@@ -5621,6 +5947,117 @@ function collectProjectDescendantIds(projectId, projectList = projects) {
   }
 
   return descendants;
+}
+
+function buildProjectMergeHierarchyPlan(
+  sourceProject,
+  targetProject,
+  projectList = projects,
+) {
+  const sourceProjectId = String(sourceProject?.id || "").trim();
+  const targetProjectId = String(targetProject?.id || "").trim();
+  const safeProjects = Array.isArray(projectList)
+    ? cloneProjectDurationSnapshot(projectList)
+    : [];
+  if (!sourceProjectId || !targetProjectId || sourceProjectId === targetProjectId) {
+    return {
+      supported: false,
+      reason: "当前项目与目标项目无效，无法执行合并。",
+      nextProjects: safeProjects,
+      reassignedProjectCount: 0,
+    };
+  }
+
+  const sourceDescendantIds = new Set(
+    collectProjectDescendantIds(sourceProjectId, safeProjects),
+  );
+  if (sourceDescendantIds.has(targetProjectId)) {
+    return {
+      supported: false,
+      reason: "目标项目位于当前项目的子项目树中，暂不支持直接合并到自己的子项目。",
+      nextProjects: safeProjects,
+      reassignedProjectCount: 0,
+    };
+  }
+
+  const normalizedTargetLevel = normalizeProjectLevel(targetProject?.level);
+  const directChildren = safeProjects.filter(
+    (candidate) =>
+      String(candidate?.parentId || "").trim() === sourceProjectId,
+  );
+  const levelUpdates = new Map();
+  const parentUpdates = new Map();
+
+  for (const childProject of directChildren) {
+    const childProjectId = String(childProject?.id || "").trim();
+    if (!childProjectId) {
+      continue;
+    }
+    const childSubtreeIds = [
+      childProjectId,
+      ...collectProjectDescendantIds(childProjectId, safeProjects),
+    ];
+    const levelDelta =
+      normalizedTargetLevel + 1 - normalizeProjectLevel(childProject?.level);
+
+    for (const subtreeProjectId of childSubtreeIds) {
+      const subtreeProject = findProjectByIdInList(subtreeProjectId, safeProjects);
+      if (!subtreeProject) {
+        continue;
+      }
+      const nextLevel = normalizeProjectLevel(subtreeProject.level) + levelDelta;
+      if (nextLevel < 1 || nextLevel > 3) {
+        return {
+          supported: false,
+          reason: "合并后会让子项目层级超出三级范围，当前组合暂不支持直接合并。",
+          nextProjects: safeProjects,
+          reassignedProjectCount: 0,
+        };
+      }
+      levelUpdates.set(subtreeProjectId, nextLevel);
+    }
+
+    parentUpdates.set(childProjectId, targetProjectId);
+  }
+
+  const nextProjects = normalizeStoredProjects(
+    safeProjects
+      .filter((candidate) => String(candidate?.id || "").trim() !== sourceProjectId)
+      .map((candidate) => {
+        const candidateId = String(candidate?.id || "").trim();
+        if (!candidateId) {
+          return candidate;
+        }
+        if (!levelUpdates.has(candidateId) && !parentUpdates.has(candidateId)) {
+          return candidate;
+        }
+        return {
+          ...candidate,
+          level: levelUpdates.get(candidateId) || normalizeProjectLevel(candidate.level),
+          parentId: parentUpdates.has(candidateId)
+            ? parentUpdates.get(candidateId)
+            : candidate.parentId || null,
+        };
+      }),
+  );
+
+  directChildren.forEach((childProject) => {
+    const childProjectId = String(childProject?.id || "").trim();
+    if (!childProjectId) {
+      return;
+    }
+    syncAutoProjectColorsInSubtree(childProjectId, {
+      includeSelf: true,
+      projectList: nextProjects,
+    });
+  });
+
+  return {
+    supported: true,
+    reason: "",
+    nextProjects,
+    reassignedProjectCount: levelUpdates.size,
+  };
 }
 
 function syncAutoProjectColorsInSubtree(
@@ -5721,6 +6158,63 @@ function findAnotherProjectWithName(
         String(project?.name || "").trim() === normalizedName
       );
     }) || null
+  );
+}
+
+function isIndexLegacyRecoveryScopedProjectName(projectName, expectedName) {
+  const normalizedProjectName = String(projectName || "").trim();
+  const normalizedExpectedName = String(expectedName || "").trim();
+  return (
+    !!normalizedProjectName &&
+    !!normalizedExpectedName &&
+    (normalizedProjectName === normalizedExpectedName ||
+      normalizedProjectName.startsWith(`${normalizedExpectedName}-`))
+  );
+}
+
+function findIndexLegacyRecordProjectRecoveryRootProject(projectList = projects) {
+  const safeProjects = Array.isArray(projectList) ? projectList : [];
+  return (
+    safeProjects.find((project) => {
+      if (
+        normalizeProjectLevel(project?.level) !== 1 ||
+        !isIndexLegacyRecoveryScopedProjectName(
+          project?.name,
+          INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME,
+        )
+      ) {
+        return false;
+      }
+      const projectId = String(project?.id || "").trim();
+      if (!projectId) {
+        return false;
+      }
+      return safeProjects.some((childProject) => {
+        return (
+          normalizeProjectLevel(childProject?.level) === 2 &&
+          String(childProject?.parentId || "").trim() === projectId &&
+          isIndexLegacyRecoveryScopedProjectName(
+            childProject?.name,
+            INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME,
+          )
+        );
+      });
+    }) || null
+  );
+}
+
+function isIndexLegacyRecordProjectRecoveryRootProject(
+  project,
+  projectList = projects,
+) {
+  const normalizedProjectId = String(project?.id || "").trim();
+  if (!normalizedProjectId) {
+    return false;
+  }
+  return (
+    String(
+      findIndexLegacyRecordProjectRecoveryRootProject(projectList)?.id || "",
+    ).trim() === normalizedProjectId
   );
 }
 
@@ -10586,13 +11080,24 @@ function showProjectEditModal(project) {
       oldName !== newName
         ? findAnotherProjectWithName(newName, liveProject.id, projects)
         : null;
+    const shouldPromptProjectMerge =
+      oldName !== newName &&
+      String(mergeTargetProject?.name || "").trim() === newName;
 
-    if (mergeTargetProject) {
-      const hasDescendants =
-        collectProjectDescendantIds(liveProject.id, projects).length > 0;
-      if (hasDescendants) {
+    if (shouldPromptProjectMerge) {
+      const mergeHierarchyPlan = buildProjectMergeHierarchyPlan(
+        liveProject,
+        mergeTargetProject,
+        projects,
+      );
+      const mergeIntoAncestorProject = isIndexProjectWithinSubtree(
+        liveProject,
+        mergeTargetProject?.id,
+        projects,
+      );
+      if (!mergeHierarchyPlan.supported) {
         await showIndexAlert(
-          "当前项目下仍有子项目，只有叶子项目才能通过重命名合并。",
+          mergeHierarchyPlan.reason || "当前项目暂不支持这样合并，请调整层级后再重试。",
           {
             title: "无法合并项目",
             danger: true,
@@ -10601,8 +11106,15 @@ function showProjectEditModal(project) {
         return;
       }
 
+      const mergeDescendantHint =
+        mergeHierarchyPlan.reassignedProjectCount > 0
+          ? `\n当前项目下关联的 ${mergeHierarchyPlan.reassignedProjectCount} 个子项目会一起转挂到“${mergeTargetProject.name}”下，并自动修正到合法层级。`
+          : "";
+      const mergeAggregateHint = mergeIntoAncestorProject
+        ? "\n提示：如果你是合并到当前项目的父级或祖先项目，“项目名称：总时长”面板显示的是包含子项目的汇总时长，所以目标项目的总时长数字可能保持不变，这是正常现象。"
+        : "";
       const confirmed = await requestIndexConfirmation(
-        `确定将项目“${oldName}”的记录合并到现有项目“${mergeTargetProject.name}”吗？\n合并后当前项目会消失，目标项目的层级、父级和颜色保持不变。`,
+        `确定将项目“${oldName}”的记录合并到现有项目“${mergeTargetProject.name}”吗？\n合并后当前项目会消失，目标项目的层级、父级和颜色保持不变。${mergeDescendantHint}${mergeAggregateHint}`,
         {
           title: "合并项目",
           confirmText: "合并",
@@ -10616,6 +11128,8 @@ function showProjectEditModal(project) {
 
       let mergedRecordCount = 0;
       let mergeError = null;
+      let mergeBlockedNoRecords = false;
+      let mergeRepairedDurations = false;
       setEditModalMergePending(true);
       setIndexLoadingState({
         active: true,
@@ -10625,65 +11139,93 @@ function showProjectEditModal(project) {
         lockNativeExit: true,
       });
       try {
-        const sourceRecordsBeforeMerge = records
-          .filter((record) => {
-            const recordProjectId = String(record?.projectId || "").trim();
-            return (
-              (liveProject.id && recordProjectId === liveProject.id) ||
-              (!recordProjectId && oldName && record.name === oldName)
-            );
-          })
-          .map((record) => ({
-            ...record,
-          }));
-        const mergeResult = mergeProjectRecordsIntoTarget(
+        const authoritativeRecords = normalizeIndexLoadedRecords(
+          await loadAllIndexRecordsFromStorage(),
+          projects,
+        );
+        const fullMergeResult = mergeProjectRecordsInList(
+          authoritativeRecords,
           liveProject,
           mergeTargetProject,
         );
-        mergedRecordCount = mergeResult.mergedCount;
-        applyIndexProjectRecordDurationChanges({
-          removedRecords: sourceRecordsBeforeMerge,
-          addedRecords: sourceRecordsBeforeMerge.map((record) => ({
-            ...record,
-            name: mergeTargetProject.name,
-            projectId: mergeTargetProject.id,
-          })),
-        });
-        const mergedDurationBaseProjects = cloneProjectDurationSnapshot(projects);
-        projects = projects.filter((p) => p.id !== liveProject.id);
-        updateProjectNameReferences(oldName, mergeTargetProject.name, liveProject.id);
-
-        projects = normalizeStoredProjects(projects);
-        reconcileIndexProjectDurationCaches(mergedDurationBaseProjects);
-        updateProjectsList();
-        updateExistingProjectsList();
-        updateParentProjectSelect(1);
-        bumpIndexRecordMutationRevision();
-        markIndexRecordPeriodsDirty([
-          ...mergeResult.changedBeforeRecords,
-          ...mergeResult.changedAfterRecords,
-        ]);
-        queueIndexRecordPatchRemovals(mergeResult.changedBeforeRecords);
-        queueIndexRecordPatchUpserts(mergeResult.changedAfterRecords);
-        await Promise.all([saveRecordsToStorage(), saveProjectsToStorage()]);
-        if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
-          await window.ControlerStorage.saveCoordinator.flush(
-            "index-merge-flush",
-            "index-persistence",
+        const visibleMergeResult = mergeProjectRecordsInList(
+          records,
+          liveProject,
+          mergeTargetProject,
+        );
+        mergedRecordCount = fullMergeResult.mergedCount;
+        if (mergedRecordCount <= 0) {
+          mergeBlockedNoRecords = true;
+          const statsApi = window.ControlerProjectStats;
+          const storedStatsContext =
+            typeof statsApi?.createStatsContext === "function"
+              ? statsApi.createStatsContext(projects, [], {
+                  useStoredDurations: true,
+                })
+              : null;
+          const authoritativeStatsContext =
+            typeof statsApi?.createStatsContext === "function"
+              ? statsApi.createStatsContext(projects, authoritativeRecords, {
+                  useStoredDurations: false,
+                })
+              : null;
+          const storedTotalMs = Number(
+            storedStatsContext?.getStat?.(liveProject.id)?.totalMs || 0,
           );
+          const authoritativeTotalMs = Number(
+            authoritativeStatsContext?.getStat?.(liveProject.id)?.totalMs || 0,
+          );
+          if (storedTotalMs !== authoritativeTotalMs) {
+            await replaceIndexProjectsAndAuthoritativeRecords(
+              projects,
+              authoritativeRecords,
+              {
+                reason: "project-merge-duration-cache-repair",
+                visibleRecords: normalizeIndexLoadedRecords(
+                  records,
+                  projects,
+                ),
+              },
+            );
+            mergeRepairedDurations = true;
+          }
         } else {
-          await window.ControlerStorage?.flush?.();
+          await replaceIndexProjectsAndAuthoritativeRecords(
+            mergeHierarchyPlan.nextProjects,
+            fullMergeResult.items,
+            {
+              reason: "project-merge-full-history",
+              visibleRecords: visibleMergeResult.items,
+            },
+          );
+          updateProjectNameReferences(
+            oldName,
+            mergeTargetProject.name,
+            liveProject.id,
+          );
         }
-        refreshIndexWorkspace({ immediate: true });
       } catch (error) {
         mergeError = error;
       } finally {
         setIndexLoadingState({
           active: false,
         });
-        if (mergeError) {
+        if (mergeError || mergeBlockedNoRecords) {
           setEditModalMergePending(false);
         }
+      }
+
+      if (mergeBlockedNoRecords) {
+        await showIndexAlert(
+          mergeRepairedDurations
+            ? "这次没有匹配到可合并的历史记录，原项目已保留，并且我已经按真实记录重新校正了项目总时长。请确认记录名称后再重试合并。"
+            : "这次没有匹配到可合并的历史记录，原项目已保留。请确认记录名称后再重试合并。",
+          {
+            title: "未执行合并",
+            danger: true,
+          },
+        );
+        return;
       }
 
       if (mergeError) {
@@ -10696,8 +11238,11 @@ function showProjectEditModal(project) {
       }
 
       closeEditModal();
+      const mergeAggregateResultHint = mergeIntoAncestorProject
+        ? "\n由于“项目名称：总时长”显示的是包含子项目的汇总时长，目标项目如果原本就是当前项目的父级或祖先，合并后这个总时长数字可能看起来不变，这是正常的。"
+        : "";
       await showIndexAlert(
-        `已将项目“${oldName}”的 ${mergedRecordCount} 条记录合并到“${mergeTargetProject.name}”。\n原项目已删除。`,
+        `已将项目“${oldName}”的 ${mergedRecordCount} 条记录合并到“${mergeTargetProject.name}”。${mergeHierarchyPlan.reassignedProjectCount > 0 ? `\n另有 ${mergeHierarchyPlan.reassignedProjectCount} 个子项目已同步转挂并修正层级。` : ""}${mergeAggregateResultHint}\n原项目已删除。`,
         {
           title: "合并完成",
         },
@@ -10777,7 +11322,8 @@ function showProjectEditModal(project) {
     }
 
     // 更新项目
-    projects[liveProjectIndex] = {
+    const nextProjects = cloneProjectDurationSnapshot(projects);
+    nextProjects[liveProjectIndex] = {
       ...liveProject,
       name: newName,
       level: newLevel,
@@ -10785,7 +11331,7 @@ function showProjectEditModal(project) {
       colorMode: newColorMode,
       parentId: newLevel === 1 ? null : newParentId,
     };
-    const updatedProject = projects[liveProjectIndex];
+    const updatedProject = nextProjects[liveProjectIndex];
     if (
       previousLevel === 1 &&
       newLevel === 2 &&
@@ -10793,8 +11339,17 @@ function showProjectEditModal(project) {
       !hasLevel3Descendants
     ) {
       directLevel2Children.forEach((childProject) => {
-        childProject.level = 3;
-        childProject.parentId = updatedProject.id;
+        const childIndex = nextProjects.findIndex(
+          (candidate) => candidate.id === childProject.id,
+        );
+        if (childIndex === -1) {
+          return;
+        }
+        nextProjects[childIndex] = {
+          ...nextProjects[childIndex],
+          level: 3,
+          parentId: updatedProject.id,
+        };
       });
     }
     const didLevelChange = previousLevel !== newLevel;
@@ -10811,7 +11366,7 @@ function showProjectEditModal(project) {
     ) {
       updatedProject.color = resolveAutoProjectColorForProject(
         updatedProject,
-        projects,
+        nextProjects,
       );
     }
 
@@ -10822,23 +11377,69 @@ function showProjectEditModal(project) {
     ) {
       syncAutoProjectColorsInSubtree(updatedProject.id, {
         includeSelf: false,
-        projectList: projects,
+        projectList: nextProjects,
       });
     }
 
     // 如果项目名称改变，更新所有相关记录
+    let persistedByRenameRepair = false;
     if (oldName !== newName) {
-      await updateRecordsProjectName(oldName, newName, liveProject.id);
-      updateProjectNameReferences(oldName, newName, liveProject.id);
+      let renameError = null;
+      setEditModalMergePending(true);
+      setIndexLoadingState({
+        active: true,
+        mode: "fullscreen",
+        title: "正在更新项目",
+        message: "正在同步历史记录与项目名称，请稍候。",
+        lockNativeExit: true,
+      });
+      try {
+        persistedByRenameRepair = await updateRecordsProjectName(
+          oldName,
+          newName,
+          liveProject.id,
+          {
+            nextProjects,
+            reason: "project-rename-full-history",
+          },
+        );
+      } catch (error) {
+        renameError = error;
+      } finally {
+        setIndexLoadingState({
+          active: false,
+        });
+        if (renameError || !persistedByRenameRepair) {
+          setEditModalMergePending(false);
+        }
+      }
+
+      if (renameError) {
+        console.error("更新历史记录项目名称失败:", renameError);
+        await showIndexAlert("项目改名失败，请稍后重试。", {
+          title: "保存失败",
+          danger: true,
+        });
+        return;
+      }
+
+      if (persistedByRenameRepair) {
+        updateProjectNameReferences(oldName, newName, liveProject.id);
+        closeEditModal();
+        return;
+      }
     }
 
     // 更新UI和存储
-    projects = normalizeStoredProjects(projects);
+    projects = normalizeStoredProjects(nextProjects);
     reconcileIndexProjectDurationCaches(previousProjectsForDurationCache);
     updateProjectsList();
     updateExistingProjectsList();
     updateParentProjectSelect(1);
-    saveProjectsToStorage();
+    await saveProjectsToStorage();
+    if (oldName !== newName) {
+      updateProjectNameReferences(oldName, newName, liveProject.id);
+    }
     refreshIndexWorkspace({ immediate: true });
 
     closeEditModal();
@@ -11128,14 +11729,21 @@ function updateProjectTotals() {
       : Array.isArray(statsContext.hierarchy?.roots)
         ? statsContext.hierarchy.roots
         : [];
+  const visibleRootNodes = rootNodes.filter((rootNode) => {
+    if (!isIndexLegacyRecordProjectRecoveryRootProject(rootNode, projects)) {
+      return true;
+    }
+    const totalMs = Number(statsContext.getStat(rootNode.id)?.totalMs || 0);
+    return totalMs > 0;
+  });
 
-  if (rootNodes.length === 0) {
+  if (visibleRootNodes.length === 0) {
     container.innerHTML = "<div>暂无项目数据</div>";
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  rootNodes.forEach((rootNode) => {
+  visibleRootNodes.forEach((rootNode) => {
     const rootElement = renderProjectTotalTreeNode(rootNode, statsContext, {
       summaryScale,
     });
@@ -11899,6 +12507,338 @@ function removeIndexRawLocalMirrorItem(key) {
   localStorage.removeItem(key);
 }
 
+function readIndexLegacyRecordProjectRecoveryState() {
+  try {
+    const raw = getIndexRawLocalMirrorItem(
+      INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY,
+    );
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    console.error("读取历史记录项目恢复标记失败:", error);
+    return null;
+  }
+}
+
+function hasCompletedIndexLegacyRecordProjectRecovery() {
+  const state = readIndexLegacyRecordProjectRecoveryState();
+  return (
+    Number(state?.version) === INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION &&
+    state?.completed === true
+  );
+}
+
+function markIndexLegacyRecordProjectRecoveryCompleted(summary = {}) {
+  setIndexRawLocalMirrorItem(
+    INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY,
+    JSON.stringify({
+      version: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION,
+      completed: true,
+      completedAt: new Date().toISOString(),
+      summary:
+        summary && typeof summary === "object" && !Array.isArray(summary)
+          ? cloneIndexValue(summary)
+          : {},
+    }),
+  );
+}
+
+function ensureIndexScopedProjectInList(
+  projectList = [],
+  {
+    preferredName = "",
+    level = 1,
+    parentId = null,
+    reservedNames = [],
+  } = {},
+) {
+  const normalizedName = String(preferredName || "").trim();
+  const normalizedLevel = normalizeProjectLevel(level);
+  const normalizedParentId = String(parentId || "").trim() || null;
+  const reservedNameSet = new Set(
+    (Array.isArray(reservedNames) ? reservedNames : [])
+      .map((name) => String(name || "").trim())
+      .filter(Boolean),
+  );
+  if (!normalizedName) {
+    return {
+      projects: Array.isArray(projectList) ? projectList.slice() : [],
+      project: null,
+      created: false,
+    };
+  }
+
+  const safeProjects = Array.isArray(projectList) ? projectList.slice() : [];
+  const exactMatch =
+    safeProjects.find((project) => {
+      return (
+        String(project?.name || "").trim() === normalizedName &&
+        normalizeProjectLevel(project?.level) === normalizedLevel &&
+        (String(project?.parentId || "").trim() || null) === normalizedParentId
+      );
+    }) || null;
+  if (exactMatch) {
+    return {
+      projects: safeProjects,
+      project: exactMatch,
+      created: false,
+    };
+  }
+
+  let candidateName = normalizedName;
+  let suffix = 2;
+  while (
+    reservedNameSet.has(candidateName) ||
+    safeProjects.some(
+      (project) => String(project?.name || "").trim() === candidateName,
+    )
+  ) {
+    candidateName = `${normalizedName}-${suffix}`;
+    suffix += 1;
+  }
+
+  const createdProject = new Project(
+    candidateName,
+    normalizedLevel,
+    normalizedParentId,
+    null,
+    "",
+    "auto",
+  );
+  return {
+    projects: [...safeProjects, createdProject],
+    project: createdProject,
+    created: true,
+  };
+}
+
+function buildIndexLegacyRecordProjectRecoveryPlan(
+  recordList = [],
+  projectList = projects,
+) {
+  const normalizedProjects = normalizeStoredProjects(projectList);
+  const existingProjectNames = new Set(
+    normalizedProjects
+      .map((project) => String(project?.name || "").trim())
+      .filter(Boolean),
+  );
+  const missingRecordNames = Array.from(
+    new Set(
+      (Array.isArray(recordList) ? recordList : [])
+        .map((record) => String(record?.name || "").trim())
+        .filter(
+          (name) =>
+            name &&
+            name !== "未命名项目" &&
+            !existingProjectNames.has(name),
+        ),
+    ),
+  ).sort((left, right) => left.localeCompare(right, "zh-CN"));
+
+  if (!missingRecordNames.length) {
+    const normalizedRecords = normalizeIndexLoadedRecords(
+      recordList,
+      normalizedProjects,
+    );
+    const repairedRecordCount = normalizedRecords.reduce((count, record, index) => {
+      return count +
+        (String(record?.projectId || "").trim() !==
+        String(recordList?.[index]?.projectId || "").trim()
+          ? 1
+          : 0);
+    }, 0);
+    return {
+      projects: normalizedProjects,
+      records: normalizedRecords,
+      createdProjectNames: [],
+      repairedRecordCount,
+      changed: repairedRecordCount > 0,
+    };
+  }
+
+  let nextProjects = normalizedProjects.slice();
+  const rootResult = ensureIndexScopedProjectInList(nextProjects, {
+    preferredName: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME,
+    level: 1,
+    reservedNames: missingRecordNames,
+  });
+  nextProjects = rootResult.projects;
+  const groupResult = ensureIndexScopedProjectInList(nextProjects, {
+    preferredName: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME,
+    level: 2,
+    parentId: rootResult.project?.id || null,
+    reservedNames: missingRecordNames,
+  });
+  nextProjects = groupResult.projects;
+  const createdProjectNames = [];
+
+  missingRecordNames.forEach((name) => {
+    const projectResult = ensureIndexScopedProjectInList(nextProjects, {
+      preferredName: name,
+      level: 3,
+      parentId: groupResult.project?.id || null,
+    });
+    nextProjects = projectResult.projects;
+    if (projectResult.created) {
+      createdProjectNames.push(String(projectResult.project?.name || "").trim());
+    }
+  });
+
+  const normalizedRecords = normalizeIndexLoadedRecords(recordList, nextProjects);
+  const repairedRecordCount = normalizedRecords.reduce((count, record, index) => {
+    return count +
+      (String(record?.projectId || "").trim() !==
+      String(recordList?.[index]?.projectId || "").trim()
+        ? 1
+        : 0);
+  }, 0);
+
+  return {
+    projects: nextProjects,
+    records: normalizedRecords,
+    createdProjectNames,
+    repairedRecordCount,
+    changed: createdProjectNames.length > 0 || repairedRecordCount > 0,
+  };
+}
+
+async function runIndexLegacyRecordProjectRecovery() {
+  if (
+    INDEX_WIDGET_CONTEXT.enabled ||
+    hasCompletedIndexLegacyRecordProjectRecovery() ||
+    indexLegacyRecordProjectRecoveryRunning
+  ) {
+    return false;
+  }
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+    indexLegacyRecordProjectRecoveryPendingResume = true;
+    return false;
+  }
+  if (
+    isIndexSaveTransactionActive() ||
+    indexPendingPersistenceTasks.size > 0 ||
+    isModalOpen
+  ) {
+    scheduleIndexLegacyRecordProjectRecovery();
+    return false;
+  }
+
+  indexLegacyRecordProjectRecoveryRunning = true;
+  try {
+    await ensureIndexForegroundBootstrapReady();
+    await flushIndexPendingPersistenceOrThrow(
+      {
+        allowDeferredBarrier: false,
+      },
+      "记录页数据保存失败",
+    );
+    if (!indexShellPageActive) {
+      indexLegacyRecordProjectRecoveryPendingResume = true;
+      return false;
+    }
+    const authoritativeRecords = await loadAllIndexRecordsFromStorage();
+    if (
+      !indexShellPageActive ||
+      isIndexSaveTransactionActive() ||
+      indexPendingPersistenceTasks.size > 0 ||
+      isModalOpen
+    ) {
+      if (!indexShellPageActive) {
+        indexLegacyRecordProjectRecoveryPendingResume = true;
+      } else {
+        scheduleIndexLegacyRecordProjectRecovery();
+      }
+      return false;
+    }
+    const recoveryPlan = buildIndexLegacyRecordProjectRecoveryPlan(
+      authoritativeRecords,
+      projects,
+    );
+    if (!recoveryPlan.changed) {
+      markIndexLegacyRecordProjectRecoveryCompleted({
+        createdProjectCount: 0,
+        repairedRecordCount: recoveryPlan.repairedRecordCount,
+      });
+      return false;
+    }
+
+    await replaceIndexProjectsAndAuthoritativeRecords(
+      recoveryPlan.projects,
+      recoveryPlan.records,
+      {
+        reason: "legacy-record-project-recovery",
+        visibleRecords: normalizeIndexLoadedRecords(records, recoveryPlan.projects),
+      },
+    );
+
+    markIndexLegacyRecordProjectRecoveryCompleted({
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      createdProjectNames: recoveryPlan.createdProjectNames,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+    });
+    emitIndexDebugPerf("legacy-record-project-recovery", {
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+    });
+    return true;
+  } catch (error) {
+    console.error("执行历史记录项目恢复失败:", error);
+    return false;
+  } finally {
+    indexLegacyRecordProjectRecoveryRunning = false;
+  }
+}
+
+function clearIndexLegacyRecordProjectRecoverySchedule() {
+  if (!indexLegacyRecordProjectRecoveryTimerId) {
+    indexLegacyRecordProjectRecoveryScheduled = false;
+    return false;
+  }
+  if (typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(indexLegacyRecordProjectRecoveryTimerId);
+  } else {
+    window.clearTimeout(indexLegacyRecordProjectRecoveryTimerId);
+  }
+  indexLegacyRecordProjectRecoveryTimerId = 0;
+  indexLegacyRecordProjectRecoveryScheduled = false;
+  return true;
+}
+
+function scheduleIndexLegacyRecordProjectRecovery() {
+  if (
+    INDEX_WIDGET_CONTEXT.enabled ||
+    hasCompletedIndexLegacyRecordProjectRecovery() ||
+    indexLegacyRecordProjectRecoveryScheduled ||
+    indexLegacyRecordProjectRecoveryRunning
+  ) {
+    return false;
+  }
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+    indexLegacyRecordProjectRecoveryPendingResume = true;
+    return false;
+  }
+
+  const run = () => {
+    indexLegacyRecordProjectRecoveryTimerId = 0;
+    indexLegacyRecordProjectRecoveryScheduled = false;
+    void runIndexLegacyRecordProjectRecovery();
+  };
+
+  indexLegacyRecordProjectRecoveryScheduled = true;
+  if (typeof window.requestIdleCallback === "function") {
+    indexLegacyRecordProjectRecoveryTimerId = window.requestIdleCallback(run, {
+      timeout: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_IDLE_TIMEOUT_MS,
+    });
+    return true;
+  }
+
+  indexLegacyRecordProjectRecoveryTimerId = window.setTimeout(run, 320);
+  return true;
+}
+
 function syncIndexRawRecordMirror(recordList = [], options = {}) {
   const shouldWrite = options.write === true;
   if (window.ControlerStorage?.isNativeApp === true) {
@@ -12140,6 +13080,225 @@ function saveRecordsToStorage() {
   );
 }
 
+function renameProjectRecordsInList(
+  recordList = [],
+  oldName,
+  newName,
+  projectId = "",
+  projectList = projects,
+) {
+  const normalizedProjectId = String(projectId || "").trim();
+  const sourceProjectIdentity = {
+    id: normalizedProjectId,
+    name: String(oldName || "").trim(),
+  };
+  const nextProjectId =
+    normalizedProjectId ||
+    findProjectByNameInList(newName, projectList)?.id ||
+    null;
+  let updated = false;
+  const changedBeforeRecords = [];
+  const changedAfterRecords = [];
+  const items = (Array.isArray(recordList) ? recordList : []).map((record) => {
+    const resolvedCurrentProject = resolveRecordProject(record, projectList);
+    const resolvedNextProject = resolveRecordNextProject(record, projectList);
+    const resolvedRecordName = String(record?.name || "").trim();
+    const resolvedNextProjectName = resolveRecordNextProjectName(record, projectList);
+    const currentProjectId = String(record?.projectId || "").trim();
+    const nextProjectIdText = String(record?.nextProjectId || "").trim();
+    const boundCurrentProject = findProjectByIdInList(currentProjectId, projectList);
+    const boundNextProject = findProjectByIdInList(nextProjectIdText, projectList);
+    const matchesCurrentProject =
+      (normalizedProjectId &&
+        (currentProjectId === normalizedProjectId ||
+          String(resolvedCurrentProject?.id || "").trim() === normalizedProjectId)) ||
+      (!!sourceProjectIdentity.name &&
+        (resolvedRecordName === sourceProjectIdentity.name ||
+          String(resolvedCurrentProject?.name || "").trim() ===
+            sourceProjectIdentity.name ||
+          (isIndexProjectPathLikeName(resolvedRecordName) &&
+            extractIndexProjectLeafName(resolvedRecordName) ===
+              sourceProjectIdentity.name) ||
+          (isIndexLegacyPathRecoveryAliasProject(boundCurrentProject, projectList) &&
+            extractIndexProjectLeafName(boundCurrentProject?.name) ===
+              sourceProjectIdentity.name)));
+    const matchesNextProject =
+      (normalizedProjectId &&
+        (nextProjectIdText === normalizedProjectId ||
+          String(resolvedNextProject?.id || "").trim() === normalizedProjectId)) ||
+      (!!sourceProjectIdentity.name &&
+        (resolvedNextProjectName === sourceProjectIdentity.name ||
+          String(resolvedNextProject?.name || "").trim() ===
+            sourceProjectIdentity.name ||
+          (isIndexProjectPathLikeName(String(record?.nextProjectName || "").trim()) &&
+            extractIndexProjectLeafName(record?.nextProjectName) ===
+              sourceProjectIdentity.name) ||
+          (isIndexLegacyPathRecoveryAliasProject(boundNextProject, projectList) &&
+            extractIndexProjectLeafName(boundNextProject?.name) ===
+              sourceProjectIdentity.name)));
+    if (
+      !matchesCurrentProject &&
+      !matchesNextProject
+    ) {
+      return record;
+    }
+
+    updated = true;
+    const previousRecord = {
+      ...record,
+    };
+    const nextRecord = {
+      ...record,
+      name: matchesCurrentProject ? newName : resolvedRecordName,
+      projectId:
+        matchesCurrentProject
+          ? nextProjectId
+          : String(resolvedCurrentProject?.id || "").trim() ||
+            currentProjectId ||
+            null,
+      nextProjectName:
+        matchesNextProject
+          ? newName
+          : resolvedNextProjectName,
+      nextProjectId:
+        matchesNextProject
+          ? nextProjectId
+          : String(resolvedNextProject?.id || "").trim() ||
+            nextProjectIdText ||
+            null,
+    };
+    const decoratedNextRecord = decorateIndexRecordProjectState(
+      nextRecord,
+      projectList,
+    );
+    changedBeforeRecords.push(previousRecord);
+    changedAfterRecords.push({
+      ...decoratedNextRecord,
+    });
+    return decoratedNextRecord;
+  });
+
+  return {
+    items,
+    updated,
+    changedBeforeRecords,
+    changedAfterRecords,
+  };
+}
+
+function mergeProjectRecordsInList(
+  recordList = [],
+  sourceProject,
+  targetProject,
+  projectList = projects,
+) {
+  const sourceProjectId = String(sourceProject?.id || "").trim();
+  const sourceProjectName = String(sourceProject?.name || "").trim();
+  const targetProjectId = String(targetProject?.id || "").trim();
+  const targetProjectName =
+    String(targetProject?.name || "").trim() || "未命名项目";
+
+  if ((!sourceProjectId && !sourceProjectName) || !targetProjectId) {
+    return {
+      items: Array.isArray(recordList) ? recordList.slice() : [],
+      mergedCount: 0,
+      changedBeforeRecords: [],
+      changedAfterRecords: [],
+    };
+  }
+
+  let mergedCount = 0;
+  const changedBeforeRecords = [];
+  const changedAfterRecords = [];
+  const items = (Array.isArray(recordList) ? recordList : []).map((record) => {
+    const resolvedCurrentProject = resolveRecordProject(record, projectList);
+    const resolvedNextProject = resolveRecordNextProject(record, projectList);
+    const resolvedRecordName = String(record?.name || "").trim();
+    const resolvedNextProjectName = resolveRecordNextProjectName(record, projectList);
+    const recordProjectId = String(record?.projectId || "").trim();
+    const recordNextProjectId = String(record?.nextProjectId || "").trim();
+    const boundCurrentProject = findProjectByIdInList(recordProjectId, projectList);
+    const boundNextProject = findProjectByIdInList(recordNextProjectId, projectList);
+    const matchesCurrentProject =
+      (sourceProjectId &&
+        (recordProjectId === sourceProjectId ||
+          String(resolvedCurrentProject?.id || "").trim() === sourceProjectId)) ||
+      (!!sourceProjectName &&
+        (resolvedRecordName === sourceProjectName ||
+          String(resolvedCurrentProject?.name || "").trim() === sourceProjectName ||
+          (isIndexProjectPathLikeName(resolvedRecordName) &&
+            extractIndexProjectLeafName(resolvedRecordName) ===
+              sourceProjectName) ||
+          (isIndexLegacyPathRecoveryAliasProject(boundCurrentProject, projectList) &&
+            extractIndexProjectLeafName(boundCurrentProject?.name) ===
+              sourceProjectName)));
+    const matchesNextProject =
+      (sourceProjectId &&
+        (recordNextProjectId === sourceProjectId ||
+          String(resolvedNextProject?.id || "").trim() === sourceProjectId)) ||
+      (!!sourceProjectName &&
+        (resolvedNextProjectName === sourceProjectName ||
+          String(resolvedNextProject?.name || "").trim() === sourceProjectName ||
+          (isIndexProjectPathLikeName(String(record?.nextProjectName || "").trim()) &&
+            extractIndexProjectLeafName(record?.nextProjectName) ===
+              sourceProjectName) ||
+          (isIndexLegacyPathRecoveryAliasProject(boundNextProject, projectList) &&
+            extractIndexProjectLeafName(boundNextProject?.name) ===
+              sourceProjectName)));
+
+    if (
+      !matchesCurrentProject &&
+      !matchesNextProject
+    ) {
+      return record;
+    }
+
+    const shouldMergeCurrentProject = matchesCurrentProject;
+    if (shouldMergeCurrentProject) {
+      mergedCount += 1;
+    }
+    const previousRecord = {
+      ...record,
+    };
+    const nextRecord = {
+      ...record,
+      name: shouldMergeCurrentProject ? targetProjectName : resolvedRecordName,
+      projectId:
+        shouldMergeCurrentProject
+          ? targetProjectId
+          : String(resolvedCurrentProject?.id || "").trim() ||
+            recordProjectId ||
+            null,
+      nextProjectName:
+        matchesNextProject
+          ? targetProjectName
+          : resolvedNextProjectName,
+      nextProjectId:
+        matchesNextProject
+          ? targetProjectId
+          : String(resolvedNextProject?.id || "").trim() ||
+            recordNextProjectId ||
+            null,
+    };
+    const decoratedNextRecord = decorateIndexRecordProjectState(
+      nextRecord,
+      projectList,
+    );
+    changedBeforeRecords.push(previousRecord);
+    changedAfterRecords.push({
+      ...decoratedNextRecord,
+    });
+    return decoratedNextRecord;
+  });
+
+  return {
+    items,
+    mergedCount,
+    changedBeforeRecords,
+    changedAfterRecords,
+  };
+}
+
 // 删除记录
 function deleteRecord(recordId) {
   try {
@@ -12178,158 +13337,72 @@ function deleteRecord(recordId) {
 }
 
 // 更新记录中的项目名称（当项目名称改变时）
-async function updateRecordsProjectName(oldName, newName, projectId = "") {
-  try {
-    let updated = false;
-    const normalizedProjectId = String(projectId || "").trim();
-    const nextProjectId =
-      normalizedProjectId ||
-      projects.find((project) => project.name === newName)?.id ||
-      null;
-    const changedBeforeRecords = [];
-    const changedAfterRecords = [];
-    records = records.map((record) => {
-      const matchesByProjectId =
-        normalizedProjectId &&
-        String(record?.projectId || "").trim() === normalizedProjectId;
-      const matchesByProjectName = record.name === oldName;
-      const matchesNextProjectById =
-        normalizedProjectId &&
-        String(record?.nextProjectId || "").trim() === normalizedProjectId;
-      const matchesNextProjectByName =
-        resolveRecordNextProjectName(record, projects) === oldName;
-      if (
-        matchesByProjectId ||
-        matchesByProjectName ||
-        matchesNextProjectById ||
-        matchesNextProjectByName
-      ) {
-        updated = true;
-        const previousRecord = {
-          ...record,
-        };
-        const nextRecord = {
-          ...record,
-          name:
-            matchesByProjectId || matchesByProjectName ? newName : record.name,
-          projectId:
-            matchesByProjectId || matchesByProjectName
-              ? nextProjectId
-              : record.projectId || null,
-          nextProjectName:
-            matchesNextProjectById || matchesNextProjectByName
-              ? newName
-              : resolveRecordNextProjectName(record, projects),
-          nextProjectId:
-            matchesNextProjectById || matchesNextProjectByName
-              ? nextProjectId
-              : String(record?.nextProjectId || "").trim() || null,
-        };
-        const decoratedNextRecord = decorateIndexRecordProjectState(
-          nextRecord,
-          projects,
-        );
-        changedBeforeRecords.push(previousRecord);
-        changedAfterRecords.push({
-          ...decoratedNextRecord,
-        });
-        return decoratedNextRecord;
-      }
-      return record;
-    });
-
-    if (updated) {
-      bumpIndexRecordMutationRevision();
-      markIndexRecordPeriodsDirty([
-        ...changedBeforeRecords,
-        ...changedAfterRecords,
-      ]);
-      queueIndexRecordPatchRemovals(changedBeforeRecords);
-      queueIndexRecordPatchUpserts(changedAfterRecords);
-      await saveRecordsToStorage();
-      console.log(`已更新 ${oldName} 到 ${newName} 的记录`);
-    }
-    return updated;
-  } catch (e) {
-    console.error("更新记录项目名称失败:", e);
+async function updateRecordsProjectName(
+  oldName,
+  newName,
+  projectId = "",
+  options = {},
+) {
+  const projectList = Array.isArray(options.nextProjects)
+    ? options.nextProjects
+    : projects;
+  const authoritativeRecords = normalizeIndexLoadedRecords(
+    await loadAllIndexRecordsFromStorage(),
+    projectList,
+  );
+  const fullRenameResult = renameProjectRecordsInList(
+    authoritativeRecords,
+    oldName,
+    newName,
+    projectId,
+    projectList,
+  );
+  if (!fullRenameResult.updated) {
     return false;
   }
+
+  const visibleRenameResult = renameProjectRecordsInList(
+    Array.isArray(options.visibleRecords) ? options.visibleRecords : records,
+    oldName,
+    newName,
+    projectId,
+    projectList,
+  );
+
+  if (Array.isArray(options.nextProjects)) {
+    await replaceIndexProjectsAndAuthoritativeRecords(
+      options.nextProjects,
+      fullRenameResult.items,
+      {
+        reason: options.reason || "project-rename-history-repair",
+        visibleRecords: visibleRenameResult.items,
+      },
+    );
+  } else {
+    await replaceIndexAuthoritativeRecords(fullRenameResult.items, {
+      reason: options.reason || "project-rename-history-repair",
+      visibleRecords: visibleRenameResult.items,
+      projectList,
+      refreshUi: options.refreshUi,
+    });
+  }
+
+  console.log(`已更新 ${oldName} 到 ${newName} 的全部历史记录`);
+  return true;
 }
 
 function mergeProjectRecordsIntoTarget(sourceProject, targetProject) {
-  const sourceProjectId = String(sourceProject?.id || "").trim();
-  const sourceProjectName = String(sourceProject?.name || "").trim();
-  const targetProjectId = String(targetProject?.id || "").trim();
-  const targetProjectName =
-    String(targetProject?.name || "").trim() || "未命名项目";
-
-  if ((!sourceProjectId && !sourceProjectName) || !targetProjectId) {
-    return {
-      mergedCount: 0,
-      changedBeforeRecords: [],
-      changedAfterRecords: [],
-    };
-  }
-
-  let mergedCount = 0;
-  const changedBeforeRecords = [];
-  const changedAfterRecords = [];
-  records = records.map((record) => {
-    const recordProjectId = String(record?.projectId || "").trim();
-    const matchesByProjectId =
-      sourceProjectId && recordProjectId === sourceProjectId;
-    const matchesLegacyName =
-      !recordProjectId && sourceProjectName && record.name === sourceProjectName;
-    const recordNextProjectId = String(record?.nextProjectId || "").trim();
-    const matchesNextProjectById =
-      sourceProjectId && recordNextProjectId === sourceProjectId;
-    const matchesNextProjectByName =
-      resolveRecordNextProjectName(record, projects) === sourceProjectName;
-
-    if (
-      !matchesByProjectId &&
-      !matchesLegacyName &&
-      !matchesNextProjectById &&
-      !matchesNextProjectByName
-    ) {
-      return record;
-    }
-
-    const shouldMergeCurrentProject = matchesByProjectId || matchesLegacyName;
-    if (shouldMergeCurrentProject) {
-      mergedCount += 1;
-    }
-    const previousRecord = {
-      ...record,
-    };
-    const nextRecord = {
-      ...record,
-      name: shouldMergeCurrentProject ? targetProjectName : record.name,
-      projectId: shouldMergeCurrentProject ? targetProjectId : record.projectId || null,
-      nextProjectName:
-        matchesNextProjectById || matchesNextProjectByName
-          ? targetProjectName
-          : resolveRecordNextProjectName(record, projects),
-      nextProjectId:
-        matchesNextProjectById || matchesNextProjectByName
-          ? targetProjectId
-          : recordNextProjectId || null,
-    };
-    const decoratedNextRecord = decorateIndexRecordProjectState(
-      nextRecord,
-      projects,
-    );
-    changedBeforeRecords.push(previousRecord);
-    changedAfterRecords.push({
-      ...decoratedNextRecord,
-    });
-    return decoratedNextRecord;
-  });
-
+  const mergeResult = mergeProjectRecordsInList(
+    records,
+    sourceProject,
+    targetProject,
+    projects,
+  );
+  records = mergeResult.items;
   return {
-    mergedCount,
-    changedBeforeRecords,
-    changedAfterRecords,
+    mergedCount: mergeResult.mergedCount,
+    changedBeforeRecords: mergeResult.changedBeforeRecords,
+    changedAfterRecords: mergeResult.changedAfterRecords,
   };
 }
 
@@ -12669,6 +13742,7 @@ async function finalizeIndexInitialHydration(options = {}) {
   window.setTimeout(() => {
     reportIndexDebugInteractivityState("initial-hydration");
   }, 300);
+  scheduleIndexLegacyRecordProjectRecovery();
   if (scheduleDeferredRuntime) {
     if (!indexShellPageActive) {
       indexDeferredRuntimePendingResume = true;
