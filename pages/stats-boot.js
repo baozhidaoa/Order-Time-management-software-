@@ -970,9 +970,28 @@
     if (excludedDateSet?.has(targetDateKey)) {
       return false;
     }
+    const includedDateSet =
+      plan.includedDateSet instanceof Set
+        ? plan.includedDateSet
+        : Array.isArray(plan.includedDates)
+          ? new Set(
+              plan.includedDates
+                .map((item) => formatDateKey(item) || String(item || "").trim())
+                .filter(Boolean),
+            )
+          : null;
+    if (includedDateSet?.has(targetDateKey)) {
+      return true;
+    }
 
-    const planDateKey = formatDateKey(plan.dateKey || plan.date);
+    const planDateKey = formatDateKey(
+      plan.dateKey || plan.startDate || plan.date,
+    );
     if (!planDateKey) {
+      return false;
+    }
+    const endDateKey = formatDateKey(plan.endDateKey || plan.endDate);
+    if (endDateKey && targetDateKey > endDateKey) {
       return false;
     }
     if (planDateKey === targetDateKey) {
@@ -1011,6 +1030,14 @@
     }
 
     if (repeat === "monthly") {
+      const repeatMonthDays = Array.isArray(plan.repeatMonthDays)
+        ? plan.repeatMonthDays
+            .map((day) => Number.parseInt(day, 10))
+            .filter((day) => day >= 1 && day <= 31)
+        : [];
+      if (repeatMonthDays.length > 0) {
+        return repeatMonthDays.includes(targetDate.getDate());
+      }
       const planDate = parseFlexibleDate(planDateKey);
       return (
         plan.dayOfMonth ??
@@ -4673,13 +4700,13 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
           lockNativeExit,
         });
       }
-      const snapshot = await readStatsWorkspace(scope);
+      const snapshot = await readStatsWorkspace(scope, options);
       await commitLoadedState(snapshot);
       return;
     }
 
     const refreshResult = await statsRefreshController.run(
-      () => readStatsWorkspace(scope),
+      () => readStatsWorkspace(scope, options),
       {
         delayMs,
         manageLoading,
@@ -10015,6 +10042,7 @@ function refreshStatsFromExternalStorageChange() {
   void refreshStatsRangeData(true, {
     manageLoading: !statsInitialDataLoaded,
     mode: statsInitialDataLoaded ? "inline" : "fullscreen",
+    fresh: true,
   });
 }
 
@@ -10347,6 +10375,7 @@ async function init() {
       await refreshStatsRangeData(false, {
         manageLoading: false,
         message: "正在校准统计范围，请稍候",
+        fresh: true,
       });
     }
     renderCurrentView();
@@ -10360,6 +10389,7 @@ async function init() {
       void refreshStatsRangeData(true, {
         manageLoading: false,
         message: "正在更新统计结果，请稍候",
+        fresh: true,
       });
     }
     statsInitialDataLoaded = true;
@@ -10438,6 +10468,10 @@ function renderHeatmap(container) {
   const weekdayLabelWidth = clamp(Math.round(26 * heatmapScale), 18, 40);
   const palette = getHeatmapPalette();
   const checkinData = loadCheckinHeatmapData();
+  const selectableCheckinItems = (Array.isArray(checkinData?.items)
+    ? checkinData.items
+    : []
+  ).filter((item) => !isStatsCheckinItemDeleted(item));
   const projectSelectorTree = buildProjectSelectorTree("全部项目（汇总）");
   const validProjectFilters = flattenProjectSelectorTree(
     projectSelectorTree,
@@ -10628,7 +10662,7 @@ function renderHeatmap(container) {
     thresholdGroup.style.display = "none";
     const checkinOptions = [
       { value: "all", label: "全部打卡项目" },
-      ...checkinData.items.map((item) => ({
+      ...selectableCheckinItems.map((item) => ({
         value: item.id,
         label: item.title || "未命名打卡项目",
       })),
@@ -10862,6 +10896,10 @@ function renderHeatmap(container) {
     monthPanel.appendChild(
       createStatsPeriodSummaryCard(getHeatmapProjectPeriodSummary()),
     );
+  } else {
+    monthPanel.appendChild(
+      createStatsCheckinRangeCard(checkinData, heatmapState.checkinItemId),
+    );
   }
   root.appendChild(monthPanel);
   viewRoot.appendChild(root);
@@ -10950,8 +10988,16 @@ function destroyCalHeatmapInstance() {
 
 function loadCheckinHeatmapData() {
   try {
-    const items = JSON.parse(localStorage.getItem("checkinItems") || "[]");
-    const daily = JSON.parse(localStorage.getItem("dailyCheckins") || "[]");
+    const managedSnapshot =
+      typeof window.ControlerStorage?.dump === "function"
+        ? window.ControlerStorage.dump()
+        : null;
+    const items = Array.isArray(managedSnapshot?.checkinItems)
+      ? managedSnapshot.checkinItems
+      : JSON.parse(localStorage.getItem("checkinItems") || "[]");
+    const daily = Array.isArray(managedSnapshot?.dailyCheckins)
+      ? managedSnapshot.dailyCheckins
+      : JSON.parse(localStorage.getItem("dailyCheckins") || "[]");
     return {
       items: Array.isArray(items) ? items : [],
       daily: Array.isArray(daily) ? daily : [],
@@ -10960,6 +11006,146 @@ function loadCheckinHeatmapData() {
     console.error("加载打卡数据失败:", error);
     return { items: [], daily: [] };
   }
+}
+
+function isStatsCheckinItemDeleted(item) {
+  return !!String(item?.deletedAt || "").trim();
+}
+
+function getStatsTodayDateText() {
+  return formatDateInputValue(new Date());
+}
+
+function normalizeStatsCheckinScheduleRanges(item = {}) {
+  const ranges = Array.isArray(item?.scheduleRanges) ? item.scheduleRanges : [];
+  const normalized = ranges
+    .map((range) => ({
+      startDate: String(range?.startDate || "").trim(),
+      endDate: String(range?.endDate || "").trim(),
+    }))
+    .filter((range) => !!range.startDate)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  if (String(item?.startDate || "").trim()) {
+    return [
+      {
+        startDate: String(item.startDate || "").trim(),
+        endDate: String(item.endDate || "").trim(),
+      },
+    ];
+  }
+  return [];
+}
+
+function formatStatsCheckinRangeDate(dateText) {
+  const parsed = new Date(dateText);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(dateText || "").trim();
+  }
+  return `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`;
+}
+
+function getStatsCheckinRangeLabels(item = {}) {
+  const todayText = getStatsTodayDateText();
+  return normalizeStatsCheckinScheduleRanges(item)
+    .map((range) => {
+      const startLabel = formatStatsCheckinRangeDate(range.startDate);
+      if (!range.endDate || todayText < range.endDate) {
+        return startLabel;
+      }
+      return `${startLabel}—${formatStatsCheckinRangeDate(range.endDate)}`;
+    })
+    .filter(Boolean);
+}
+
+function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
+  const card = document.createElement("section");
+  card.className = "stats-period-summary";
+
+  const title = document.createElement("div");
+  title.className = "stats-period-summary-title";
+  title.textContent = "打卡开始结束日期的时间段";
+  card.appendChild(title);
+
+  const target = document.createElement("div");
+  target.className = "stats-period-summary-target";
+  const selectableItems = (Array.isArray(checkinData?.items) ? checkinData.items : []).filter(
+    (item) => !isStatsCheckinItemDeleted(item),
+  );
+  const selectedItem =
+    selectedItemId !== "all"
+      ? selectableItems.find((item) => String(item?.id || "") === String(selectedItemId || ""))
+      : null;
+  target.textContent =
+    selectedItem?.title ||
+    (selectedItemId === "all" ? "全部打卡项目" : "未命名打卡项目");
+  target.title = target.textContent;
+  card.appendChild(target);
+
+  const list = document.createElement("div");
+  list.className = "stats-period-summary-metrics";
+  list.style.gridTemplateColumns = "minmax(0, 1fr)";
+
+  const entries =
+    selectedItemId === "all"
+      ? selectableItems.flatMap((item) =>
+          getStatsCheckinRangeLabels(item).map((label, index) => ({
+            label: item.title || "未命名打卡项目",
+            value:
+              getStatsCheckinRangeLabels(item).length > 1
+                ? `${label} · 第${index + 1}段`
+                : label,
+          })),
+        )
+      : getStatsCheckinRangeLabels(selectedItem || {}).map((label, index, all) => ({
+          label: all.length > 1 ? `时间段 ${index + 1}` : "时间段",
+          value: label,
+        }));
+
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "stats-period-summary-item";
+
+    const emptyLabel = document.createElement("span");
+    emptyLabel.className = "stats-period-summary-label";
+    emptyLabel.textContent = "暂无时间段";
+
+    const emptyValue = document.createElement("strong");
+    emptyValue.className = "stats-period-summary-value";
+    emptyValue.textContent =
+      selectedItemId === "all"
+        ? "当前没有可展示的打卡时间段"
+        : "当前打卡项目还没有可展示的时间段";
+
+    empty.appendChild(emptyLabel);
+    empty.appendChild(emptyValue);
+    list.appendChild(empty);
+    card.appendChild(list);
+    return card;
+  }
+
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "stats-period-summary-item";
+
+    const label = document.createElement("span");
+    label.className = "stats-period-summary-label";
+    label.textContent = entry.label;
+
+    const value = document.createElement("strong");
+    value.className = "stats-period-summary-value";
+    value.textContent = entry.value;
+    value.title = entry.value;
+
+    row.appendChild(label);
+    row.appendChild(value);
+    list.appendChild(row);
+  });
+
+  card.appendChild(list);
+  return card;
 }
 
 function getMonthKeysInRange(start, end) {

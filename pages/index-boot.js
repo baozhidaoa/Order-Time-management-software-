@@ -970,9 +970,28 @@
     if (excludedDateSet?.has(targetDateKey)) {
       return false;
     }
+    const includedDateSet =
+      plan.includedDateSet instanceof Set
+        ? plan.includedDateSet
+        : Array.isArray(plan.includedDates)
+          ? new Set(
+              plan.includedDates
+                .map((item) => formatDateKey(item) || String(item || "").trim())
+                .filter(Boolean),
+            )
+          : null;
+    if (includedDateSet?.has(targetDateKey)) {
+      return true;
+    }
 
-    const planDateKey = formatDateKey(plan.dateKey || plan.date);
+    const planDateKey = formatDateKey(
+      plan.dateKey || plan.startDate || plan.date,
+    );
     if (!planDateKey) {
+      return false;
+    }
+    const endDateKey = formatDateKey(plan.endDateKey || plan.endDate);
+    if (endDateKey && targetDateKey > endDateKey) {
       return false;
     }
     if (planDateKey === targetDateKey) {
@@ -1011,6 +1030,14 @@
     }
 
     if (repeat === "monthly") {
+      const repeatMonthDays = Array.isArray(plan.repeatMonthDays)
+        ? plan.repeatMonthDays
+            .map((day) => Number.parseInt(day, 10))
+            .filter((day) => day >= 1 && day <= 31)
+        : [];
+      if (repeatMonthDays.length > 0) {
+        return repeatMonthDays.includes(targetDate.getDate());
+      }
       const planDate = parseFlexibleDate(planDateKey);
       return (
         plan.dayOfMonth ??
@@ -6997,7 +7024,8 @@ function normalizeStoredProjects(rawProjects = []) {
       : false;
 
   if (
-    (hierarchyRepairResult.repaired || needsDurationRepair) &&
+    hierarchyRepairResult.repaired &&
+    !needsDurationRepair &&
     typeof storageBundleApi?.recalculateProjectDurationTotals === "function"
   ) {
     return storageBundleApi.recalculateProjectDurationTotals(repairedProjects);
@@ -15828,4 +15856,5 @@ if (document.readyState === "loading") {
     renderIndexBootstrapError(error, "ready");
   });
 }
+
 

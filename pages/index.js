@@ -5185,7 +5185,8 @@ function normalizeStoredProjects(rawProjects = []) {
       : false;
 
   if (
-    (hierarchyRepairResult.repaired || needsDurationRepair) &&
+    hierarchyRepairResult.repaired &&
+    !needsDurationRepair &&
     typeof storageBundleApi?.recalculateProjectDurationTotals === "function"
   ) {
     return storageBundleApi.recalculateProjectDurationTotals(repairedProjects);

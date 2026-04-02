@@ -161,9 +161,28 @@
     if (excludedDateSet?.has(targetDateKey)) {
       return false;
     }
+    const includedDateSet =
+      plan.includedDateSet instanceof Set
+        ? plan.includedDateSet
+        : Array.isArray(plan.includedDates)
+          ? new Set(
+              plan.includedDates
+                .map((item) => formatDateKey(item) || String(item || "").trim())
+                .filter(Boolean),
+            )
+          : null;
+    if (includedDateSet?.has(targetDateKey)) {
+      return true;
+    }
 
-    const planDateKey = formatDateKey(plan.dateKey || plan.date);
+    const planDateKey = formatDateKey(
+      plan.dateKey || plan.startDate || plan.date,
+    );
     if (!planDateKey) {
+      return false;
+    }
+    const endDateKey = formatDateKey(plan.endDateKey || plan.endDate);
+    if (endDateKey && targetDateKey > endDateKey) {
       return false;
     }
     if (planDateKey === targetDateKey) {
@@ -202,6 +221,14 @@
     }
 
     if (repeat === "monthly") {
+      const repeatMonthDays = Array.isArray(plan.repeatMonthDays)
+        ? plan.repeatMonthDays
+            .map((day) => Number.parseInt(day, 10))
+            .filter((day) => day >= 1 && day <= 31)
+        : [];
+      if (repeatMonthDays.length > 0) {
+        return repeatMonthDays.includes(targetDate.getDate());
+      }
       const planDate = parseFlexibleDate(planDateKey);
       return (
         plan.dayOfMonth ??
@@ -3257,8 +3284,14 @@ function showDiaryModal(dateText, entryId = null) {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    uiTools.prepareModalOverlay(modal, {
+      zIndex: 2200,
+    });
+  } else {
+    document.body.appendChild(modal);
+    uiTools?.stopModalContentPropagation?.(modal);
+  }
 
   const titleInput = modal.querySelector("#diary-title-input");
   const contentInput = modal.querySelector("#diary-content-input");
@@ -3382,7 +3415,7 @@ function showDiaryModal(dateText, entryId = null) {
     unbindModalActions();
     categorySelector.destroy();
     if (modal.parentNode) {
-      document.body.removeChild(modal);
+      modal.parentNode.removeChild(modal);
     }
     if (options?.discardDraft === true) {
       discardDiaryDraft();
@@ -3532,14 +3565,20 @@ function showCategoryModal() {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    uiTools.prepareModalOverlay(modal, {
+      zIndex: 2200,
+    });
+  } else {
+    document.body.appendChild(modal);
+    uiTools?.stopModalContentPropagation?.(modal);
+  }
 
   let unbindModalActions = () => {};
   const closeModal = () => {
     unbindModalActions();
     if (modal.parentNode) {
-      document.body.removeChild(modal);
+      modal.parentNode.removeChild(modal);
     }
   };
 

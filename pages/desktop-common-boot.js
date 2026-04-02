@@ -909,7 +909,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const CORE_FILE_NAME = "core.json";
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
-  const PROJECT_DURATION_CACHE_VERSION = 1;
+  const PROJECT_DURATION_CACHE_VERSION = 2;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
   const PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
@@ -3715,7 +3715,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         options.records,
       );
     } else if (
-      (repairResult.repaired || needsDurationRepair) &&
+      repairResult.repaired &&
+      !needsDurationRepair &&
       typeof storageBundle?.recalculateProjectDurationTotals === "function"
     ) {
       normalizedProjects = storageBundle.recalculateProjectDurationTotals(
@@ -3823,6 +3824,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function shouldUseStateRecordsForProjectNormalization(metadata = {}) {
+    return metadata?.useStateRecordsForProjectNormalization !== false;
+  }
+
   function normalizeState(rawState, metadata = {}) {
     const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -3891,9 +3896,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         normalizedGuideState,
       );
     }
-    base.projects = normalizeProjectCollection(base.projects, {
-      records: base.records,
-    }).projects;
+    base.projects = normalizeProjectCollection(
+      base.projects,
+      shouldUseStateRecordsForProjectNormalization(metadata)
+        ? {
+            records: base.records,
+          }
+        : {},
+    ).projects;
 
     const now = new Date().toISOString();
     const nextStoragePath =
@@ -7079,6 +7089,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialMirrorComparableSnapshot = createComparableSnapshot(
       normalizeState(initialMirrorState, {
         platform,
+        useStateRecordsForProjectNormalization: false,
       }),
     );
     const legacyBrowserComparableSnapshot = createComparableSnapshot(
@@ -7104,6 +7115,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialPendingWrite = initialMirrorPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
+      useStateRecordsForProjectNormalization: false,
     });
     let cachedStatus =
       parseJsonSafely(
@@ -7394,6 +7406,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     }
 
+    function buildManagedPartialStateMetadata(extra = {}) {
+      return buildMobileMetadata({
+        ...extra,
+        useStateRecordsForProjectNormalization: false,
+      });
+    }
+
     async function persistNativeProjectHierarchyRepair(
       projectItems = [],
       options = {},
@@ -7432,7 +7451,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       const normalizedLocalState = normalizeState(
         localState,
-        buildMobileMetadata(),
+        buildManagedPartialStateMetadata(),
       );
       const normalizedNativeState = normalizeState(
         latestNativeState && typeof latestNativeState === "object"
@@ -7703,10 +7722,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
-    function mergeManagedSectionRange(section, scope = {}, items = []) {
+    function mergeManagedSectionRange(section, scope = {}, items = [], options = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+        : [];
+      const explicitCoveredPeriodIds = Array.isArray(options?.coveredPeriodIds)
+        ? options.coveredPeriodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
       const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
@@ -7755,7 +7779,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ]) || [...retainedItems, ...nextItems];
       }
 
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasManagedCoreSnapshot = true;
       hasPendingStateChanges = false;
@@ -7765,8 +7792,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
         managedFullyHydratedSections.add(section);
       } else {
-        const coveredPeriodIds = requestedPeriodIds.length
-          ? requestedPeriodIds
+        const coveredPeriodIds = explicitCoveredPeriodIds.length
+          ? explicitCoveredPeriodIds
+          : requestedPeriodIds.length
+            ? requestedPeriodIds
           : Array.from(
               new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
             );
@@ -7860,7 +7889,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function assignState(nextState) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -7872,7 +7904,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function applyBridgeState(nextState, options = {}) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -9351,7 +9386,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : currentRecurringPlans
           ),
         ],
-      }, buildMobileMetadata(payload));
+      }, buildManagedPartialStateMetadata(payload));
       hasManagedCoreSnapshot = true;
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -9370,7 +9405,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const currentState = readState();
       cachedState = normalizeState(
         mergeManagedStateWithNativeCorePayload(corePayload, currentState),
-        buildMobileMetadata(metadata),
+        buildManagedPartialStateMetadata(metadata),
       );
       hasManagedCoreSnapshot = true;
       rebuildManagedSectionCoverage(cachedState, {
@@ -9444,6 +9479,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? options.recordScope
             : buildRecentHoursBootstrapScope(48),
           Array.isArray(data.recentRecords) ? data.recentRecords : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9469,6 +9509,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               ? { periodIds: options.periodIds }
               : buildCurrentMonthBootstrapScope(),
           Array.isArray(data.visiblePlans) ? data.visiblePlans : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9524,6 +9569,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           Array.isArray(data.currentMonthEntries)
             ? data.currentMonthEntries
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -9543,6 +9593,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           Array.isArray(data.defaultRangeRecordsOrAggregate)
             ? data.defaultRangeRecordsOrAggregate
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
       }
 
@@ -10038,7 +10093,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               const currentState = readState();
               cachedState = normalizeState(
                 mergeManagedStateWithNativeCorePayload(parsed, currentState),
-                buildMobileMetadata(normalizedCorePayload),
+                buildManagedPartialStateMetadata(normalizedCorePayload),
               );
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
@@ -10179,6 +10234,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 section,
                 scope,
                 Array.isArray(parsed.items) ? parsed.items : [],
+                {
+                  coveredPeriodIds: Array.isArray(parsed.periodIds)
+                    ? parsed.periodIds
+                    : [],
+                },
               );
               return parsed;
             }
@@ -20321,6 +20381,114 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }, Math.max(80, Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS));
   }
 
+  function clearContentScopedModalViewportSync(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    const cleanup = modal.__controlerContentViewportCleanup;
+    if (typeof cleanup === "function") {
+      cleanup();
+    }
+    modal.__controlerContentViewportCleanup = null;
+  }
+
+  function syncContentScopedModalViewport(modal) {
+    if (
+      !(modal instanceof HTMLElement) ||
+      String(modal.dataset?.controlerOverlayScope || "").trim() !== "content"
+    ) {
+      return null;
+    }
+    const host = modal.parentElement;
+    if (!(host instanceof HTMLElement)) {
+      return null;
+    }
+    const viewportWidth = Math.max(0, host.clientWidth || host.offsetWidth || 0);
+    const viewportHeight = Math.max(
+      0,
+      host.clientHeight || host.offsetHeight || 0,
+    );
+    modal.style.setProperty("position", "absolute", "important");
+    modal.style.setProperty("inset", "auto", "important");
+    modal.style.setProperty(
+      "top",
+      `${Math.max(host.scrollTop || 0, 0)}px`,
+      "important",
+    );
+    modal.style.setProperty(
+      "left",
+      `${Math.max(host.scrollLeft || 0, 0)}px`,
+      "important",
+    );
+    modal.style.setProperty("right", "auto", "important");
+    modal.style.setProperty("bottom", "auto", "important");
+    if (viewportWidth > 0) {
+      modal.style.setProperty("width", `${viewportWidth}px`, "important");
+    }
+    if (viewportHeight > 0) {
+      const viewportHeightValue = `${viewportHeight}px`;
+      modal.style.setProperty("min-height", viewportHeightValue, "important");
+      modal.style.setProperty("height", viewportHeightValue, "important");
+      modal.style.setProperty("max-height", viewportHeightValue, "important");
+    }
+    return host;
+  }
+
+  function bindContentScopedModalViewportSync(modal) {
+    clearContentScopedModalViewportSync(modal);
+    const host = syncContentScopedModalViewport(modal);
+    if (!(host instanceof HTMLElement)) {
+      return modal;
+    }
+
+    let frameHandle = 0;
+    const scheduleSync = () => {
+      if (frameHandle) {
+        return;
+      }
+      const raf =
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (callback) => window.setTimeout(callback, 16);
+      frameHandle = raf(() => {
+        frameHandle = 0;
+        syncContentScopedModalViewport(modal);
+      });
+    };
+
+    host.addEventListener("scroll", scheduleSync, {
+      passive: true,
+    });
+    window.addEventListener("resize", scheduleSync);
+    window.visualViewport?.addEventListener?.("resize", scheduleSync);
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver === "function") {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleSync();
+      });
+      resizeObserver.observe(host);
+    }
+
+    modal.__controlerContentViewportCleanup = () => {
+      host.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      window.visualViewport?.removeEventListener?.("resize", scheduleSync);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (frameHandle) {
+        if (typeof window.cancelAnimationFrame === "function") {
+          window.cancelAnimationFrame(frameHandle);
+        } else {
+          window.clearTimeout(frameHandle);
+        }
+        frameHandle = 0;
+      }
+    };
+    return modal;
+  }
+
   function closeModal(modal) {
     if (!modal) {
       scheduleModalHistorySync();
@@ -20330,6 +20498,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (modal instanceof HTMLElement) {
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
+      clearContentScopedModalViewportSync(modal);
     }
 
     activateModalInteractionShield();
@@ -20439,6 +20608,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } else if (!modal.isConnected && document.body) {
       document.body.appendChild(modal);
     }
+    bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
     return modal;
   }
@@ -22587,4 +22757,3 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     alertDialog,
   };
 })();
-

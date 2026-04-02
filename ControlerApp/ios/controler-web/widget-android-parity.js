@@ -1030,18 +1030,31 @@ function getTodayCheckinItems(state, limit = 6) {
 }
 
 function planOccursOnDate(plan, dateText) {
+  const sharedMatcher = window.ControlerDataIndex?.defaultPlanMatcher;
+  if (typeof sharedMatcher === "function") {
+    return sharedMatcher(plan, dateText);
+  }
   if (!plan || !dateText) return false;
   const target = parseDate(dateText);
-  const start = parseDate(plan?.date);
+  const start = parseDate(firstNonEmpty(plan?.startDate, plan?.date));
   if (!target || !start) return false;
 
-  const excluded = Array.isArray(plan?.excludedDates) ? plan.excludedDates : [];
-  if (excluded.includes(dateText)) return false;
+  const normalizedDateText = getDateText(target);
+  const excluded = Array.isArray(plan?.excludedDates)
+    ? plan.excludedDates
+        .map((item) => getDateText(parseDate(item)))
+        .filter(Boolean)
+    : [];
+  if (excluded.includes(normalizedDateText)) return false;
 
-  if (getDateText(start) === dateText) return true;
-  const repeat = plan?.repeat || "none";
-  if (repeat === "none") return false;
-  if (target.getTime() < start.getTime()) return false;
+  const end = parseDate(plan?.endDate);
+  if (end && normalizedDateText > getDateText(end)) return false;
+
+  const normalizedStart = getDateText(start);
+  if (normalizedStart === normalizedDateText) return true;
+
+  const repeat = String(plan?.repeat || "none").trim().toLowerCase();
+  if (repeat === "none" || normalizedDateText < normalizedStart) return false;
   if (repeat === "daily") return true;
   if (repeat === "weekly") {
     const repeatDays = Array.isArray(plan?.repeatDays)
@@ -1054,7 +1067,18 @@ function planOccursOnDate(plan, dateText) {
       : start.getDay() === target.getDay();
   }
   if (repeat === "monthly") {
-    return start.getDate() === target.getDate();
+    const repeatMonthDays = Array.isArray(plan?.repeatMonthDays)
+      ? plan.repeatMonthDays
+          .map((item) => parseInt(item, 10))
+          .filter((item) => item >= 1 && item <= 31)
+      : Array.isArray(plan?.repeatDates)
+        ? plan.repeatDates
+            .map((item) => parseInt(item, 10))
+            .filter((item) => item >= 1 && item <= 31)
+        : [];
+    return repeatMonthDays.length > 0
+      ? repeatMonthDays.includes(target.getDate())
+      : start.getDate() === target.getDate();
   }
   return false;
 }

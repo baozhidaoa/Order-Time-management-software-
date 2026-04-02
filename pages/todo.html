@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>待办与打卡</title>
-                                                                                        <script src="desktop-theme-preload.js"></script>
+                                                                                                                                                    <script src="desktop-theme-preload.js"></script>
     <script defer src="offline-assets/offline-assets-manifest.js"></script>
     <script defer src="desktop-common-boot.js"></script>
     <script defer src="todo-boot.js"></script>
@@ -741,17 +741,29 @@
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                gap: 10px;
-                flex-wrap: wrap;
+                gap: 8px;
+                flex-wrap: nowrap;
                 padding: 10px;
               "
             >
-              <div style="color: var(--text-color); font-size: 14px">
+              <div
+                style="
+                  color: var(--text-color);
+                  font-size: 14px;
+                  flex: 1 1 auto;
+                  min-width: 0;
+                  white-space: nowrap;
+                "
+              >
                 <span>今日打卡统计：</span>
                 <span id="today-checkin-count">0</span>/<span id="total-checkin-count">0</span>
               </div>
-              <div style="color: var(--text-color); font-size: 14px">
-                连续打卡最长：<span id="max-streak-days">0</span>天
+              <div style="min-width: 0; flex: 0 0 132px">
+                <select id="checkin-status-filter-select" style="width: 100%">
+                  <option value="in_progress">进行中</option>
+                  <option value="stopped">已停止</option>
+                  <option value="ended">结束</option>
+                </select>
               </div>
             </div>
           </div>

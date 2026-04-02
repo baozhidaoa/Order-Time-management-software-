@@ -762,7 +762,7 @@ function toggleTodoInState(state, todoId) {
 }
 
 function toggleCheckinInState(state, itemId) {
-  const target = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).find(
+  const target = getWidgetVisibleCheckinItems(state).find(
     (item) => String(item?.id || "") === String(itemId || ""),
   );
   if (!target) {
@@ -770,6 +770,9 @@ function toggleCheckinInState(state, itemId) {
   }
 
   const today = getLocalDateText(new Date());
+  if (!checkinScheduledOn(target, today)) {
+    return { ok: false, message: "当前打卡项目已停止或不在打卡周期内。" };
+  }
   if (!Array.isArray(state.dailyCheckins)) {
     state.dailyCheckins = [];
   }
@@ -1270,11 +1273,28 @@ function getWidgetTodoItems(state) {
 }
 
 function checkinScheduledOn(item, dateText) {
-  const repeatType = item?.repeatType === "weekly" ? "weekly" : "daily";
+  if (!item || isWidgetCheckinDeleted(item)) {
+    return false;
+  }
+  const effectiveStatus = getWidgetCheckinEffectiveStatus(item, dateText);
+  if (effectiveStatus !== "in_progress") {
+    return false;
+  }
+  const repeatType =
+    item?.repeatType === "weekly"
+      ? "weekly"
+      : item?.repeatType === "monthly"
+        ? "monthly"
+        : "daily";
   const weekdays = Array.isArray(item?.repeatWeekdays)
     ? item.repeatWeekdays
         .map((value) => parseInt(value, 10))
         .filter((value) => value >= 0 && value <= 6)
+    : [];
+  const monthDays = Array.isArray(item?.repeatMonthDays)
+    ? item.repeatMonthDays
+        .map((value) => parseInt(value, 10))
+        .filter((value) => value >= 1 && value <= 31)
     : [];
   const start = parseDate(item?.startDate || dateText);
   const date = parseDate(dateText);
@@ -1293,7 +1313,49 @@ function checkinScheduledOn(item, dateText) {
   if (repeatType === "weekly") {
     return weekdays.includes(date.getDay());
   }
+  if (repeatType === "monthly") {
+    return monthDays.includes(date.getDate());
+  }
   return true;
+}
+
+function normalizeWidgetCheckinStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "stopped" || normalized === "已停止") {
+    return "stopped";
+  }
+  if (normalized === "ended" || normalized === "结束") {
+    return "ended";
+  }
+  return "in_progress";
+}
+
+function isWidgetCheckinDeleted(item) {
+  return !!String(item?.deletedAt || "").trim();
+}
+
+function getWidgetCheckinEffectiveStatus(
+  item,
+  dateText = getLocalDateText(new Date()),
+) {
+  if (!item || isWidgetCheckinDeleted(item)) {
+    return "deleted";
+  }
+  const storedStatus = normalizeWidgetCheckinStatus(item?.status);
+  if (storedStatus === "stopped" || storedStatus === "ended") {
+    return storedStatus;
+  }
+  const endDate = String(item?.endDate || "").trim();
+  if (endDate && dateText && dateText >= endDate) {
+    return "stopped";
+  }
+  return "in_progress";
+}
+
+function getWidgetVisibleCheckinItems(state) {
+  return (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
+    (item) => !isWidgetCheckinDeleted(item),
+  );
 }
 
 function getCheckinTodayEntry(state, itemId, today = getLocalDateText(new Date())) {
@@ -1314,11 +1376,21 @@ function getCheckinRepeatSummary(item = {}) {
       : [];
     return `每周 ${labels.join("、") || "未设置"}`;
   }
+  if (item?.repeatType === "monthly") {
+    const labels = Array.isArray(item?.repeatMonthDays)
+      ? item.repeatMonthDays
+          .map((value) => parseInt(value, 10))
+          .filter((value) => value >= 1 && value <= 31)
+          .sort((left, right) => left - right)
+          .map((value) => `${value}日`)
+      : [];
+    return `每月 ${labels.join("、") || "未设置"}`;
+  }
   return "每天";
 }
 
 function getCheckinStreakDays(state, itemId) {
-  const target = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).find(
+  const target = getWidgetVisibleCheckinItems(state).find(
     (item) => String(item?.id || "") === String(itemId || ""),
   );
   if (!target) {
@@ -1364,8 +1436,8 @@ function getCheckinCheckedDaysCount(state, itemId) {
 
 function getTodayCheckinStats(state) {
   const today = getLocalDateText(new Date());
-  const scheduled = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
-    (item) => checkinScheduledOn(item, today),
+  const scheduled = getWidgetVisibleCheckinItems(state).filter((item) =>
+    checkinScheduledOn(item, today),
   );
   const doneCount = scheduled.filter((item) =>
     getCheckinTodayEntry(state, item?.id, today)?.checked,
@@ -1379,7 +1451,7 @@ function getTodayCheckinStats(state) {
 
 function getTodayCheckinItems(state) {
   const today = getLocalDateText(new Date());
-  return (Array.isArray(state?.checkinItems) ? state.checkinItems : [])
+  return getWidgetVisibleCheckinItems(state)
     .filter((item) => checkinScheduledOn(item, today))
     .slice()
     .sort((left, right) => {
@@ -1415,18 +1487,31 @@ function getTodayCheckinItems(state) {
 }
 
 function planOccursOnDate(plan, dateText) {
+  const sharedMatcher = window.ControlerDataIndex?.defaultPlanMatcher;
+  if (typeof sharedMatcher === "function") {
+    return sharedMatcher(plan, dateText);
+  }
   if (!plan || !dateText) return false;
   const target = parseDate(dateText);
-  const start = parseDate(plan?.date);
+  const start = parseDate(firstNonEmpty(plan?.startDate, plan?.date));
   if (!target || !start) return false;
 
-  const excluded = Array.isArray(plan?.excludedDates) ? plan.excludedDates : [];
-  if (excluded.includes(dateText)) return false;
+  const normalizedDateText = getDateText(target);
+  const excluded = Array.isArray(plan?.excludedDates)
+    ? plan.excludedDates
+        .map((item) => getDateText(parseDate(item)))
+        .filter(Boolean)
+    : [];
+  if (excluded.includes(normalizedDateText)) return false;
 
-  if (getDateText(start) === dateText) return true;
-  const repeat = plan?.repeat || "none";
-  if (repeat === "none") return false;
-  if (target.getTime() < start.getTime()) return false;
+  const end = parseDate(plan?.endDate);
+  if (end && normalizedDateText > getDateText(end)) return false;
+
+  const normalizedStart = getDateText(start);
+  if (normalizedStart === normalizedDateText) return true;
+
+  const repeat = String(plan?.repeat || "none").trim().toLowerCase();
+  if (repeat === "none" || normalizedDateText < normalizedStart) return false;
   if (repeat === "daily") return true;
   if (repeat === "weekly") {
     const repeatDays = Array.isArray(plan?.repeatDays)
@@ -1439,7 +1524,18 @@ function planOccursOnDate(plan, dateText) {
       : start.getDay() === target.getDay();
   }
   if (repeat === "monthly") {
-    return start.getDate() === target.getDate();
+    const repeatMonthDays = Array.isArray(plan?.repeatMonthDays)
+      ? plan.repeatMonthDays
+          .map((item) => parseInt(item, 10))
+          .filter((item) => item >= 1 && item <= 31)
+      : Array.isArray(plan?.repeatDates)
+        ? plan.repeatDates
+            .map((item) => parseInt(item, 10))
+            .filter((item) => item >= 1 && item <= 31)
+        : [];
+    return repeatMonthDays.length > 0
+      ? repeatMonthDays.includes(target.getDate())
+      : start.getDate() === target.getDate();
   }
   return false;
 }

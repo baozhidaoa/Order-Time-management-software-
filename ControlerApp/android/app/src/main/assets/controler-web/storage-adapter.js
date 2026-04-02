@@ -750,7 +750,8 @@
         options.records,
       );
     } else if (
-      (repairResult.repaired || needsDurationRepair) &&
+      repairResult.repaired &&
+      !needsDurationRepair &&
       typeof storageBundle?.recalculateProjectDurationTotals === "function"
     ) {
       normalizedProjects = storageBundle.recalculateProjectDurationTotals(
@@ -858,6 +859,10 @@
     };
   }
 
+  function shouldUseStateRecordsForProjectNormalization(metadata = {}) {
+    return metadata?.useStateRecordsForProjectNormalization !== false;
+  }
+
   function normalizeState(rawState, metadata = {}) {
     const sourceState = migrateLegacyLocalOnlySharedValues(
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -926,9 +931,14 @@
         normalizedGuideState,
       );
     }
-    base.projects = normalizeProjectCollection(base.projects, {
-      records: base.records,
-    }).projects;
+    base.projects = normalizeProjectCollection(
+      base.projects,
+      shouldUseStateRecordsForProjectNormalization(metadata)
+        ? {
+            records: base.records,
+          }
+        : {},
+    ).projects;
 
     const now = new Date().toISOString();
     const nextStoragePath =
@@ -4114,6 +4124,7 @@
     const initialMirrorComparableSnapshot = createComparableSnapshot(
       normalizeState(initialMirrorState, {
         platform,
+        useStateRecordsForProjectNormalization: false,
       }),
     );
     const legacyBrowserComparableSnapshot = createComparableSnapshot(
@@ -4139,6 +4150,7 @@
     const initialPendingWrite = initialMirrorPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
+      useStateRecordsForProjectNormalization: false,
     });
     let cachedStatus =
       parseJsonSafely(
@@ -4429,6 +4441,13 @@
       };
     }
 
+    function buildManagedPartialStateMetadata(extra = {}) {
+      return buildMobileMetadata({
+        ...extra,
+        useStateRecordsForProjectNormalization: false,
+      });
+    }
+
     async function persistNativeProjectHierarchyRepair(
       projectItems = [],
       options = {},
@@ -4467,7 +4486,7 @@
     ) {
       const normalizedLocalState = normalizeState(
         localState,
-        buildMobileMetadata(),
+        buildManagedPartialStateMetadata(),
       );
       const normalizedNativeState = normalizeState(
         latestNativeState && typeof latestNativeState === "object"
@@ -4738,10 +4757,15 @@
       return true;
     }
 
-    function mergeManagedSectionRange(section, scope = {}, items = []) {
+    function mergeManagedSectionRange(section, scope = {}, items = [], options = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+        : [];
+      const explicitCoveredPeriodIds = Array.isArray(options?.coveredPeriodIds)
+        ? options.coveredPeriodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
         : [];
       const requestedPeriodSet = new Set(requestedPeriodIds);
       const shouldReplaceWholeSection = isFullManagedSectionRange(normalizedRange);
@@ -4790,7 +4814,10 @@
           ]) || [...retainedItems, ...nextItems];
       }
 
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasManagedCoreSnapshot = true;
       hasPendingStateChanges = false;
@@ -4800,8 +4827,10 @@
         });
         managedFullyHydratedSections.add(section);
       } else {
-        const coveredPeriodIds = requestedPeriodIds.length
-          ? requestedPeriodIds
+        const coveredPeriodIds = explicitCoveredPeriodIds.length
+          ? explicitCoveredPeriodIds
+          : requestedPeriodIds.length
+            ? requestedPeriodIds
           : Array.from(
               new Set(nextItems.map((item) => getManagedSectionPeriodId(section, item))),
             );
@@ -4895,7 +4924,10 @@
     }
 
     function assignState(nextState) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -4907,7 +4939,10 @@
     }
 
     function applyBridgeState(nextState, options = {}) {
-      cachedState = normalizeState(nextState, buildMobileMetadata());
+      cachedState = normalizeState(
+        nextState,
+        buildManagedPartialStateMetadata(),
+      );
       rebuildManagedSectionCoverage(cachedState, {
         markFull:
           managedFullyHydratedSections.size === MANAGED_RANGE_SECTIONS.length,
@@ -6386,7 +6421,7 @@
               : currentRecurringPlans
           ),
         ],
-      }, buildMobileMetadata(payload));
+      }, buildManagedPartialStateMetadata(payload));
       hasManagedCoreSnapshot = true;
       lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
       hasPendingStateChanges = false;
@@ -6405,7 +6440,7 @@
       const currentState = readState();
       cachedState = normalizeState(
         mergeManagedStateWithNativeCorePayload(corePayload, currentState),
-        buildMobileMetadata(metadata),
+        buildManagedPartialStateMetadata(metadata),
       );
       hasManagedCoreSnapshot = true;
       rebuildManagedSectionCoverage(cachedState, {
@@ -6479,6 +6514,11 @@
             ? options.recordScope
             : buildRecentHoursBootstrapScope(48),
           Array.isArray(data.recentRecords) ? data.recentRecords : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -6504,6 +6544,11 @@
               ? { periodIds: options.periodIds }
               : buildCurrentMonthBootstrapScope(),
           Array.isArray(data.visiblePlans) ? data.visiblePlans : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -6559,6 +6604,11 @@
           Array.isArray(data.currentMonthEntries)
             ? data.currentMonthEntries
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
         return pageBootstrap;
       }
@@ -6578,6 +6628,11 @@
           Array.isArray(data.defaultRangeRecordsOrAggregate)
             ? data.defaultRangeRecordsOrAggregate
             : [],
+          {
+            coveredPeriodIds: Array.isArray(pageBootstrap?.loadedPeriodIds)
+              ? pageBootstrap.loadedPeriodIds
+              : [],
+          },
         );
       }
 
@@ -7073,7 +7128,7 @@
               const currentState = readState();
               cachedState = normalizeState(
                 mergeManagedStateWithNativeCorePayload(parsed, currentState),
-                buildMobileMetadata(normalizedCorePayload),
+                buildManagedPartialStateMetadata(normalizedCorePayload),
               );
               hasManagedCoreSnapshot = true;
               rebuildManagedSectionCoverage(cachedState, {
@@ -7214,6 +7269,11 @@
                 section,
                 scope,
                 Array.isArray(parsed.items) ? parsed.items : [],
+                {
+                  coveredPeriodIds: Array.isArray(parsed.periodIds)
+                    ? parsed.periodIds
+                    : [],
+                },
               );
               return parsed;
             }

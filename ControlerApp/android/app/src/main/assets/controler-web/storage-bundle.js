@@ -12,7 +12,7 @@
   const CORE_FILE_NAME = "core.json";
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
-  const PROJECT_DURATION_CACHE_VERSION = 1;
+  const PROJECT_DURATION_CACHE_VERSION = 2;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
   const PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";

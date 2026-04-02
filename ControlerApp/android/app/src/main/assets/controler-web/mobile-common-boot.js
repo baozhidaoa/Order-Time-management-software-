@@ -909,7 +909,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const CORE_FILE_NAME = "core.json";
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
-  const PROJECT_DURATION_CACHE_VERSION = 1;
+  const PROJECT_DURATION_CACHE_VERSION = 2;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
   const PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
@@ -3715,7 +3715,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         options.records,
       );
     } else if (
-      (repairResult.repaired || needsDurationRepair) &&
+      repairResult.repaired &&
+      !needsDurationRepair &&
       typeof storageBundle?.recalculateProjectDurationTotals === "function"
     ) {
       normalizedProjects = storageBundle.recalculateProjectDurationTotals(
@@ -18339,10 +18340,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isContentScopedOverlayElement(overlay) {
-    return (
-      overlay instanceof HTMLElement &&
-      String(overlay.dataset.controlerOverlayScope || "").trim() === "content"
-    );
+    if (!(overlay instanceof HTMLElement)) {
+      return false;
+    }
+    if (String(overlay.dataset.controlerOverlayScope || "").trim() === "content") {
+      return true;
+    }
+    if (!isDesktopContentOverlayRuntime()) {
+      return false;
+    }
+    const closestHost = overlay.closest(DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR);
+    return closestHost instanceof HTMLElement && closestHost !== document.body;
   }
 
   function isVisibleBlockingLoadingOverlay(
@@ -20314,6 +20322,114 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }, Math.max(80, Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS));
   }
 
+  function clearContentScopedModalViewportSync(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    const cleanup = modal.__controlerContentViewportCleanup;
+    if (typeof cleanup === "function") {
+      cleanup();
+    }
+    modal.__controlerContentViewportCleanup = null;
+  }
+
+  function syncContentScopedModalViewport(modal) {
+    if (
+      !(modal instanceof HTMLElement) ||
+      String(modal.dataset?.controlerOverlayScope || "").trim() !== "content"
+    ) {
+      return null;
+    }
+    const host = modal.parentElement;
+    if (!(host instanceof HTMLElement)) {
+      return null;
+    }
+    const viewportWidth = Math.max(0, host.clientWidth || host.offsetWidth || 0);
+    const viewportHeight = Math.max(
+      0,
+      host.clientHeight || host.offsetHeight || 0,
+    );
+    modal.style.setProperty("position", "absolute", "important");
+    modal.style.setProperty("inset", "auto", "important");
+    modal.style.setProperty(
+      "top",
+      `${Math.max(host.scrollTop || 0, 0)}px`,
+      "important",
+    );
+    modal.style.setProperty(
+      "left",
+      `${Math.max(host.scrollLeft || 0, 0)}px`,
+      "important",
+    );
+    modal.style.setProperty("right", "auto", "important");
+    modal.style.setProperty("bottom", "auto", "important");
+    if (viewportWidth > 0) {
+      modal.style.setProperty("width", `${viewportWidth}px`, "important");
+    }
+    if (viewportHeight > 0) {
+      const viewportHeightValue = `${viewportHeight}px`;
+      modal.style.setProperty("min-height", viewportHeightValue, "important");
+      modal.style.setProperty("height", viewportHeightValue, "important");
+      modal.style.setProperty("max-height", viewportHeightValue, "important");
+    }
+    return host;
+  }
+
+  function bindContentScopedModalViewportSync(modal) {
+    clearContentScopedModalViewportSync(modal);
+    const host = syncContentScopedModalViewport(modal);
+    if (!(host instanceof HTMLElement)) {
+      return modal;
+    }
+
+    let frameHandle = 0;
+    const scheduleSync = () => {
+      if (frameHandle) {
+        return;
+      }
+      const raf =
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (callback) => window.setTimeout(callback, 16);
+      frameHandle = raf(() => {
+        frameHandle = 0;
+        syncContentScopedModalViewport(modal);
+      });
+    };
+
+    host.addEventListener("scroll", scheduleSync, {
+      passive: true,
+    });
+    window.addEventListener("resize", scheduleSync);
+    window.visualViewport?.addEventListener?.("resize", scheduleSync);
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver === "function") {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleSync();
+      });
+      resizeObserver.observe(host);
+    }
+
+    modal.__controlerContentViewportCleanup = () => {
+      host.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      window.visualViewport?.removeEventListener?.("resize", scheduleSync);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (frameHandle) {
+        if (typeof window.cancelAnimationFrame === "function") {
+          window.cancelAnimationFrame(frameHandle);
+        } else {
+          window.clearTimeout(frameHandle);
+        }
+        frameHandle = 0;
+      }
+    };
+    return modal;
+  }
+
   function closeModal(modal) {
     if (!modal) {
       scheduleModalHistorySync();
@@ -20323,6 +20439,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (modal instanceof HTMLElement) {
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
+      clearContentScopedModalViewportSync(modal);
     }
 
     activateModalInteractionShield();
@@ -20432,6 +20549,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } else if (!modal.isConnected && document.body) {
       document.body.appendChild(modal);
     }
+    bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
     return modal;
   }

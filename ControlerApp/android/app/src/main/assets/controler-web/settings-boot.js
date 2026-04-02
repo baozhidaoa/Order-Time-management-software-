@@ -3501,6 +3501,38 @@ function resetBuiltInThemeOverride(themeId) {
   }
 }
 
+function prepareSettingsModalOverlayElement(modal, options = {}) {
+  if (!(modal instanceof HTMLElement)) {
+    return null;
+  }
+  const nextOptions = { ...options };
+  const currentZIndex = Number.parseInt(modal.style.zIndex || "", 10);
+  if (
+    !Number.isFinite(nextOptions.zIndex) &&
+    Number.isFinite(currentZIndex) &&
+    currentZIndex > 0
+  ) {
+    nextOptions.zIndex = currentZIndex;
+  }
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    return uiTools.prepareModalOverlay(modal, nextOptions);
+  }
+  if (nextOptions.append !== false && !modal.isConnected && document.body) {
+    document.body.appendChild(modal);
+  }
+  if (nextOptions.visible === false) {
+    modal.style.display = "none";
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  } else if (nextOptions.visible === true) {
+    modal.style.display = "flex";
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+  }
+  uiTools?.stopModalContentPropagation?.(modal);
+  return modal;
+}
+
 function showThemeEditorModal(theme = null) {
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
@@ -3541,7 +3573,7 @@ function showThemeEditorModal(theme = null) {
   ).join("");
 
   modal.innerHTML = `
-    <div class="modal-content themed-dialog-card ms" style="width:min(920px, calc(100vw - 32px)); max-width:min(920px, calc(100vw - 32px)); max-height:min(90vh, 860px); overflow:auto; padding:20px;">
+    <div class="modal-content themed-dialog-card ms" style="width:min(920px, calc(100% - 32px)); max-width:min(920px, calc(100% - 32px)); max-height:min(90vh, 860px); overflow:auto; padding:20px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px;">
         <div>
           <div class="themed-dialog-title">${dialogTitle}</div>
@@ -3814,7 +3846,7 @@ function showThemeEditorModal(theme = null) {
       closeModal();
     });
 
-  document.body.appendChild(modal);
+  prepareSettingsModalOverlayElement(modal);
 }
 
 // 计算存储使用情况
@@ -5661,8 +5693,7 @@ function openSettingsFormDialog({
       }
     });
 
-    document.body.appendChild(modal);
-    window.ControlerUI?.stopModalContentPropagation?.(modal);
+    prepareSettingsModalOverlayElement(modal);
     if (window.ControlerUI?.enhanceNativeSelect) {
       modal.querySelectorAll("select").forEach((select) => {
         if (!(select instanceof HTMLSelectElement)) {
@@ -7929,10 +7960,9 @@ function portalSettingsModalToBody(modalId) {
     return null;
   }
 
-  if (modal.parentElement !== document.body) {
-    document.body.appendChild(modal);
-  }
-  uiTools?.stopModalContentPropagation?.(modal);
+  prepareSettingsModalOverlayElement(modal, {
+    visible: modal.style.display !== "none" && !modal.hidden,
+  });
   return modal;
 }
 
@@ -7940,10 +7970,9 @@ function showSettingsModal(modal) {
   if (!(modal instanceof HTMLElement)) {
     return;
   }
-  if (modal.parentElement !== document.body) {
-    document.body.appendChild(modal);
-  }
-  modal.style.display = "flex";
+  prepareSettingsModalOverlayElement(modal, {
+    visible: true,
+  });
 }
 
 function hideSettingsModal(modal) {
@@ -7951,6 +7980,8 @@ function hideSettingsModal(modal) {
     return;
   }
   modal.style.display = "none";
+  modal.hidden = true;
+  modal.setAttribute("aria-hidden", "true");
 }
 
 let settingsExternalStorageRefreshQueued = false;

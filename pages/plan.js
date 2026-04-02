@@ -21,7 +21,8 @@ const PLAN_LOADING_OVERLAY_DELAY_MS = Math.max(
 );
 const PLAN_DRAFT_SAVE_DELAY_MS = 300;
 const PLAN_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
-const PLAN_TODO_RUNTIME_ASSET_URL = "todo.js?v=20260310-modal-fix";
+const PLAN_TODO_RUNTIME_ASSET_URL =
+  "todo.js?v=20260402-linked-plan-occurrence-resync";
 let reminderTools = window.ControlerReminders || null;
 let planLoadedPeriodIds = [];
 let planLoadRequestId = 0;
@@ -2005,6 +2006,194 @@ function normalizePlanDateList(values = []) {
   ).sort();
 }
 
+function normalizePlanMonthDayList(values = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((item) => Number.parseInt(item, 10))
+        .filter((item) => Number.isFinite(item) && item >= 1 && item <= 31),
+    ),
+  ).sort((left, right) => left - right);
+}
+
+function buildPlanMonthlyRepeatOptionsHtml(
+  inputName = "plan-repeat-month-day",
+  selectedDays = [],
+) {
+  const normalizedSelectedDays = normalizePlanMonthDayList(selectedDays);
+  return Array.from({ length: 31 }, (_, index) => index + 1)
+    .map(
+      (day) => `
+        <label class="controler-repeat-day-chip">
+          <input type="checkbox" name="${inputName}" value="${day}" ${
+            normalizedSelectedDays.includes(day) ? "checked" : ""
+          }>
+          <span>${day}号</span>
+        </label>
+      `,
+    )
+    .join("");
+}
+
+function formatPlanMonthlyRepeatSummary(days = []) {
+  const normalizedDays = normalizePlanMonthDayList(days);
+  return `每月 ${normalizedDays.map((day) => `${day}号`).join("、") || "未设置"}`;
+}
+
+function getPlanRepeatSummaryText(planLike = null) {
+  const repeat = String(planLike?.repeat || "none").trim().toLowerCase();
+  if (repeat === "daily") {
+    return "每天重复";
+  }
+  if (repeat === "weekly") {
+    const weekdayMap = ["日", "一", "二", "三", "四", "五", "六"];
+    const repeatDays = Array.isArray(planLike?.repeatDays)
+      ? planLike.repeatDays
+          .map((day) => Number.parseInt(day, 10))
+          .filter((day) => day >= 0 && day <= 6)
+      : [];
+    const labels = repeatDays
+      .sort((left, right) => left - right)
+      .map((day) => `周${weekdayMap[day]}`)
+      .join("、");
+    return `每周 ${labels || "未设置"}`;
+  }
+  if (repeat === "monthly") {
+    return formatPlanMonthlyRepeatSummary(planLike?.repeatMonthDays || []);
+  }
+  return "不重复";
+}
+
+function normalizePlanTimeRangeFields({ startTime = "", endTime = "" } = {}) {
+  const normalizedStartTime =
+    typeof startTime === "string" && /^\d{2}:\d{2}$/.test(startTime.trim())
+      ? startTime.trim()
+      : "";
+  const normalizedEndTime =
+    typeof endTime === "string" && /^\d{2}:\d{2}$/.test(endTime.trim())
+      ? endTime.trim()
+      : "";
+  return {
+    startTime: normalizedStartTime,
+    endTime: normalizedEndTime,
+  };
+}
+
+function normalizeLinkedPlanSourceType(value) {
+  const normalized = String(value || "").trim();
+  return normalized === "todo" ? "todo" : normalized === "checkin" ? "checkin" : "";
+}
+
+function isLinkedSourcePlan(planLike = null) {
+  return (
+    !!planLike &&
+    normalizeLinkedPlanSourceType(planLike?.linkedSourceType) !== "" &&
+    !!String(planLike?.linkedSourceId || "").trim()
+  );
+}
+
+function getLinkedPlanSourceLabel(planLike = null) {
+  const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
+  if (sourceType === "todo") {
+    return "待办";
+  }
+  if (sourceType === "checkin") {
+    return "打卡";
+  }
+  return "";
+}
+
+async function openLinkedPlanSourceEditor(planLike = null) {
+  const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
+  const sourceId = String(planLike?.linkedSourceId || "").trim();
+  if (!sourceType || !sourceId) {
+    return false;
+  }
+  try {
+    const runtime = await ensureTodoSidebarRuntimeLoaded({
+      initialView: sourceType === "checkin" ? "checkins" : "todos",
+      persistWidgetView: true,
+      reason: "plan-linked-edit",
+    });
+    if (sourceType === "todo" && typeof runtime?.editTodoById === "function") {
+      return !!runtime.editTodoById(sourceId);
+    }
+    if (
+      sourceType === "checkin" &&
+      typeof runtime?.editCheckinById === "function"
+    ) {
+      return !!runtime.editCheckinById(sourceId);
+    }
+  } catch (error) {
+    console.error("打开关联源事项编辑器失败:", error);
+  }
+  return false;
+}
+
+async function toggleLinkedPlanSourceCompletion(
+  planLike = null,
+  occurrenceDate = null,
+) {
+  const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
+  const sourceId = String(planLike?.linkedSourceId || "").trim();
+  const dateKey = getPlanOccurrenceDateKey(planLike, occurrenceDate);
+  if (!sourceType || !sourceId) {
+    return false;
+  }
+  try {
+    const runtime = await ensureTodoSidebarRuntimeLoaded({
+      initialView: sourceType === "checkin" ? "checkins" : "todos",
+      persistWidgetView: true,
+      reason: "plan-linked-toggle",
+    });
+    if (
+      sourceType === "todo" &&
+      typeof runtime?.toggleTodoCompletionById === "function"
+    ) {
+      return !!runtime.toggleTodoCompletionById(sourceId, dateKey);
+    }
+    if (
+      sourceType === "checkin" &&
+      dateKey &&
+      typeof runtime?.toggleCheckinByIdOnDate === "function"
+    ) {
+      return !!runtime.toggleCheckinByIdOnDate(sourceId, dateKey);
+    }
+  } catch (error) {
+    console.error("切换关联源事项完成状态失败:", error);
+  }
+  return false;
+}
+
+async function cleanupDeletedLinkedPlanSourceOccurrence(
+  planLike = null,
+  occurrenceDate = null,
+) {
+  const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
+  const sourceId = String(planLike?.linkedSourceId || "").trim();
+  const dateKey = getPlanOccurrenceDateKey(planLike, occurrenceDate);
+  if (!sourceType || !sourceId || !dateKey) {
+    return false;
+  }
+  try {
+    const runtime = await ensureTodoSidebarRuntimeLoaded({
+      initialView: sourceType === "checkin" ? "checkins" : "todos",
+      persistWidgetView: true,
+      reason: "plan-linked-delete-sync",
+    });
+    if (typeof runtime?.cleanupLinkedPlanSourceOccurrence === "function") {
+      return !!(await runtime.cleanupLinkedPlanSourceOccurrence(
+        sourceType,
+        sourceId,
+        dateKey,
+      ));
+    }
+  } catch (error) {
+    console.error("同步删除后的关联源事项状态失败:", error);
+  }
+  return false;
+}
+
 function parsePlanDateFromKey(dateKey) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || "").trim())) {
     return null;
@@ -2022,10 +2211,20 @@ function applyPlanDerivedFields(plan) {
   if (!plan || typeof plan !== "object") {
     return plan;
   }
-  const dateKey = normalizePlanDateKey(plan.date);
+  const startDateKey = normalizePlanDateKey(plan.startDate || plan.date);
+  const endDateKey = normalizePlanDateKey(plan.endDate);
+  if (startDateKey) {
+    plan.startDate = startDateKey;
+    plan.date = startDateKey;
+  }
+  plan.endDate = endDateKey || "";
+  const dateKey = startDateKey;
   const baseDate = parsePlanDateFromKey(dateKey);
+  const endDate = parsePlanDateFromKey(endDateKey);
   plan.dateKey = dateKey;
+  plan.endDateKey = endDateKey || "";
   plan.startDateMs = baseDate ? baseDate.getTime() : 0;
+  plan.endDateMs = endDate ? endDate.getTime() : 0;
   plan.dayOfWeek = baseDate ? baseDate.getDay() : -1;
   plan.dayOfMonth = baseDate ? baseDate.getDate() : 0;
   plan.repeatDays = Array.isArray(plan.repeatDays)
@@ -2033,6 +2232,13 @@ function applyPlanDerivedFields(plan) {
         .map((day) => parseInt(day, 10))
         .filter((day) => day >= 0 && day <= 6)
     : [];
+  plan.repeatMonthDays = normalizePlanMonthDayList(
+    plan.repeatMonthDays ||
+      plan.repeatDates ||
+      (plan.repeat === "monthly" && dateKey ? [baseDate?.getDate?.()] : []),
+  );
+  plan.includedDates = normalizePlanDateList(plan.includedDates);
+  plan.includedDateSet = new Set(plan.includedDates);
   plan.excludedDates = normalizePlanDateList(plan.excludedDates);
   plan.excludedDateSet = new Set(plan.excludedDates);
   plan.completedDates = normalizePlanDateList(plan.completedDates);
@@ -2137,17 +2343,23 @@ class Plan {
     repeat = "none",
     projectId = null,
     repeatDays = [],
+    repeatMonthDays = [],
+    endDate = "",
     notification = null,
   ) {
     this.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     this.name = name;
-    this.date = date; // YYYY-MM-DD格式
+    this.date = date; // 兼容旧字段，表示开始日期
+    this.startDate = date; // YYYY-MM-DD格式
+    this.endDate = endDate || "";
     this.startTime = startTime; // HH:MM格式
     this.endTime = endTime; // HH:MM格式
     this.color = color || this.generateColor();
     this.repeat = repeat; // "none", "daily", "weekly", "monthly"
     this.projectId = projectId; // 关联的项目ID
     this.repeatDays = Array.isArray(repeatDays) ? repeatDays : []; // 每周重复对应的周几数组（0-6）
+    this.repeatMonthDays = normalizePlanMonthDayList(repeatMonthDays); // 每月重复的具体几号
+    this.includedDates = [];
     this.excludedDates = []; // 针对重复计划，排除某一次出现
     this.completedDates = [];
     this.uncompletedDates = [];
@@ -2184,10 +2396,20 @@ class Plan {
     ) {
       return false;
     }
+    if (
+      this.includedDateSet instanceof Set &&
+      this.includedDateSet.has(targetDateKey)
+    ) {
+      return true;
+    }
     if (!this.dateKey) {
       applyPlanDerivedFields(this);
     }
     if (!this.dateKey) {
+      return false;
+    }
+
+    if (this.endDateKey && targetDateKey > this.endDateKey) {
       return false;
     }
 
@@ -2222,7 +2444,11 @@ class Plan {
       if (!(targetDate instanceof Date)) {
         return false;
       }
-      // 每月同一天
+      const repeatMonthDays = normalizePlanMonthDayList(this.repeatMonthDays);
+      if (repeatMonthDays.length > 0) {
+        return repeatMonthDays.includes(targetDate.getDate());
+      }
+      // 兼容旧数据：每月同一天
       return this.dayOfMonth === targetDate.getDate();
     }
 
@@ -2233,7 +2459,7 @@ class Plan {
 function hydratePlan(rawPlan) {
   const plan = new Plan(
     rawPlan.name || "未命名计划",
-    rawPlan.date || new Date().toISOString().split("T")[0],
+    rawPlan.startDate || rawPlan.date || new Date().toISOString().split("T")[0],
     rawPlan.startTime || "09:00",
     rawPlan.endTime || "10:00",
     rawPlan.color || null,
@@ -2244,6 +2470,12 @@ function hydratePlan(rawPlan) {
           .map((day) => parseInt(day, 10))
           .filter((day) => day >= 0 && day <= 6)
       : [],
+    Array.isArray(rawPlan.repeatMonthDays)
+      ? rawPlan.repeatMonthDays
+      : Array.isArray(rawPlan.repeatDates)
+        ? rawPlan.repeatDates
+        : [],
+    rawPlan.endDate || "",
     rawPlan.notification || null,
   );
 
@@ -2254,6 +2486,9 @@ function hydratePlan(rawPlan) {
     plan.createdAt = rawPlan.createdAt;
   }
   plan.isCompleted = !!rawPlan.isCompleted;
+  plan.includedDates = Array.isArray(rawPlan.includedDates)
+    ? rawPlan.includedDates
+    : [];
   plan.excludedDates = Array.isArray(rawPlan.excludedDates)
     ? rawPlan.excludedDates
     : [];
@@ -2265,9 +2500,12 @@ function hydratePlan(rawPlan) {
     : [];
   plan.notification = normalizePlanNotificationConfig(rawPlan.notification, {
     ...rawPlan,
-    date: plan.date,
+    date: plan.startDate || plan.date,
     startTime: plan.startTime,
   });
+  plan.linkedSourceType = rawPlan.linkedSourceType || "";
+  plan.linkedSourceId = rawPlan.linkedSourceId || "";
+  plan.linkManaged = rawPlan.linkManaged === true;
   return applyPlanDerivedFields(plan);
 }
 
@@ -5405,6 +5643,10 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
     refreshPlanUiAfterMutation({
       includeGuideCard: true,
     });
+    await cleanupDeletedLinkedPlanSourceOccurrence(
+      previousPlanSnapshot,
+      normalizedOccurrenceDate || getPlanOccurrenceDateKey(previousPlanSnapshot),
+    );
     return true;
   }
 
@@ -5462,6 +5704,12 @@ async function deletePlanWithRepeatChoice(planId, occurrenceDate = null) {
   refreshPlanUiAfterMutation({
     includeGuideCard: true,
   });
+  if (normalizedOccurrenceDate) {
+    await cleanupDeletedLinkedPlanSourceOccurrence(
+      previousPlanSnapshot,
+      normalizedOccurrenceDate,
+    );
+  }
   return true;
 }
 
@@ -5480,6 +5728,9 @@ function showWeeklyGridPlanModal(planData = null) {
   modal.style.backgroundColor = "var(--overlay-bg)";
   modal.style.alignItems = "center";
   modal.style.justifyContent = "center";
+  const weeklyGridMonthlyRepeatDays = normalizePlanMonthDayList(
+    planData?.repeatMonthDays || [],
+  );
 
   // 重复选项的详细设置
   const repeatOptionsHtml = `
@@ -5515,7 +5766,7 @@ function showWeeklyGridPlanModal(planData = null) {
 
   // 弹窗内容
   modal.innerHTML = `
-    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-content ms controler-form-modal plan-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${planData?.id ? "编辑计划" : "添加新计划"}
       </h2>
@@ -5537,20 +5788,34 @@ function showWeeklyGridPlanModal(planData = null) {
           ">
         </div>
         
-        <!-- 日期 -->
-        <div>
-          <div style="flex: 1;">
+        <!-- 起止日期 -->
+        <div class="modal-date-range controler-form-modal-date-range">
+          <div class="modal-date-field">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-              日期
+              开始日期
             </label>
-            <input type="date" id="weekly-plan-date-input" value="${planData?.date || currentDate.toISOString().split("T")[0]}" style="
+            <input type="date" id="weekly-plan-start-date-input" class="modal-date-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
               border: 1px solid var(--bg-tertiary);
               background-color: var(--bg-quaternary);
               color: var(--text-color);
-              font-size: 16px;
+              font-size: 14px;
+            ">
+          </div>
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
+              结束日期
+            </label>
+            <input type="date" id="weekly-plan-end-date-input" class="modal-date-input" value="${planData?.endDate || ""}" style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--bg-tertiary);
+              background-color: var(--bg-quaternary);
+              color: var(--text-color);
+              font-size: 14px;
             ">
           </div>
         </div>
@@ -5610,6 +5875,17 @@ function showWeeklyGridPlanModal(planData = null) {
             </label>
           </div>
           ${repeatOptionsHtml}
+          <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 8px; display: ${planData?.repeat === "monthly" ? "block" : "none"};" id="repeat-monthly-details">
+            <div style="margin-bottom: 10px; font-size: 13px; color: var(--text-color);">
+              每月重复设置:
+            </div>
+            <div class="controler-repeat-day-grid">
+              ${buildPlanMonthlyRepeatOptionsHtml(
+                "repeat-month-days",
+                weeklyGridMonthlyRepeatDays,
+              )}
+            </div>
+          </div>
         </div>
 
         ${getPlanReminderSectionHtml(planData, "weekly-plan")}
@@ -5634,7 +5910,7 @@ function showWeeklyGridPlanModal(planData = null) {
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline plan-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           planData?.id
             ? `
@@ -5644,7 +5920,7 @@ function showWeeklyGridPlanModal(planData = null) {
         `
             : ""
         }
-        <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
+        <div class="controler-form-modal-footer-actions plan-form-modal-footer-actions" style="display: flex; gap: 10px;">
           <button type="button" class="bts" id="weekly-cancel-plan-btn">取消</button>
           <button type="button" class="bts" id="weekly-save-plan-btn">${planData?.id ? "保存更改" : "创建计划"}</button>
         </div>
@@ -5657,11 +5933,9 @@ function showWeeklyGridPlanModal(planData = null) {
   });
   bindPlanFormModalEventShield(modal);
 
-  // 显示/隐藏每周重复详细设置
-  const weeklyRadio = modal.querySelector(
-    'input[name="weekly-plan-repeat"][value="weekly"]',
-  );
   const repeatDetails = modal.querySelector("#repeat-details");
+  const repeatMonthDetails = modal.querySelector("#repeat-monthly-details");
+  const repeatRadios = modal.querySelectorAll('input[name="weekly-plan-repeat"]');
 
   // 编辑模式下恢复每周重复的周几
   const existingWeeklyDays = Array.isArray(planData?.repeatDays)
@@ -5676,8 +5950,11 @@ function showWeeklyGridPlanModal(planData = null) {
         checkbox.checked = true;
       }
     });
-  } else if (planData?.repeat === "weekly" && planData?.date) {
-    const fallbackDay = new Date(planData.date).getDay();
+  } else if (
+    planData?.repeat === "weekly" &&
+    (planData?.startDate || planData?.date)
+  ) {
+    const fallbackDay = new Date(planData.startDate || planData.date).getDay();
     const checkbox = modal.querySelector(
       `input[name="repeat-days"][value="${fallbackDay}"]`,
     );
@@ -5686,30 +5963,22 @@ function showWeeklyGridPlanModal(planData = null) {
     }
   }
 
-  weeklyRadio.addEventListener("change", function () {
-    if (this.checked) {
-      repeatDetails.style.display = "block";
-    }
-  });
-
-  modal
-    .querySelectorAll('input[name="weekly-plan-repeat"]:not([value="weekly"])')
-    .forEach((radio) => {
-      radio.addEventListener("change", function () {
-        if (this.checked) {
-          repeatDetails.style.display = "none";
-        }
-      });
+  repeatRadios.forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (repeatDetails) {
+        repeatDetails.style.display =
+          radio.value === "weekly" && radio.checked ? "block" : "none";
+      }
+      if (repeatMonthDetails) {
+        repeatMonthDetails.style.display =
+          radio.value === "monthly" && radio.checked ? "block" : "none";
+      }
     });
-
-  // 如果初始就是每周重复，显示详细设置
-  if (planData?.repeat === "weekly") {
-    repeatDetails.style.display = "block";
-  }
+  });
 
   bindPlanReminderInputs(modal, "weekly-plan");
   bindPlanReminderBaseDateSync(modal, "weekly-plan", {
-    dateSelector: "#weekly-plan-date-input",
+    dateSelector: "#weekly-plan-start-date-input",
     startTimeSelector: "#weekly-plan-start-time-input",
     repeatSelector: 'input[name="weekly-plan-repeat"]',
   });
@@ -5799,38 +6068,48 @@ function showWeeklyGridPlanModal(planData = null) {
 async function saveWeeklyGridPlan(modal, planData, options = {}) {
   const draftSession = options?.draftSession || null;
   const name = modal.querySelector("#weekly-plan-name-input").value.trim();
-  const date = modal.querySelector("#weekly-plan-date-input").value;
+  const startDate = modal.querySelector("#weekly-plan-start-date-input").value;
+  const endDate =
+    modal.querySelector("#weekly-plan-end-date-input")?.value || "";
   const startTime = modal.querySelector("#weekly-plan-start-time-input").value;
   const endTime = modal.querySelector("#weekly-plan-end-time-input").value;
   const color = modal.querySelector("#weekly-plan-color-input").value;
   const repeat = modal.querySelector(
     'input[name="weekly-plan-repeat"]:checked',
   ).value;
+  const normalizedTimeRange = normalizePlanTimeRangeFields({
+    startTime,
+    endTime,
+  });
   const reminderConfig = readPlanReminderConfig(
     modal,
     {
       ...planData,
-      date: planData?.date || date,
-      startTime,
-      _occurrenceDate: planData?._occurrenceDate || date,
+      date: planData?.startDate || planData?.date || startDate,
+      startDate: planData?.startDate || planData?.date || startDate,
+      startTime: normalizedTimeRange.startTime,
+      _occurrenceDate: planData?._occurrenceDate || startDate,
     },
     "weekly-plan",
   );
-
-  // 如果是每周重复，获取选中的星期几
-  let weeklyDays = [];
-  if (repeat === "weekly") {
-    modal
-      .querySelectorAll('input[name="repeat-days"]:checked')
-      .forEach((checkbox) => {
-        weeklyDays.push(parseInt(checkbox.value));
-      });
-
-    // 如果未勾选具体星期，则默认使用所选日期对应的星期
-    if (weeklyDays.length === 0) {
-      weeklyDays.push(new Date(date).getDay());
-    }
-  }
+  const selectedRepeatDays = Array.from(
+    modal.querySelectorAll('input[name="repeat-days"]:checked'),
+  ).map((checkbox) => parseInt(checkbox.value, 10));
+  const selectedRepeatMonthDays = Array.from(
+    modal.querySelectorAll('input[name="repeat-month-days"]:checked'),
+  ).map((checkbox) => parseInt(checkbox.value, 10));
+  const weeklyDays =
+    repeat === "weekly"
+      ? selectedRepeatDays.length > 0
+        ? selectedRepeatDays
+        : [new Date(startDate).getDay()]
+      : [];
+  const repeatMonthDays =
+    repeat === "monthly"
+      ? selectedRepeatMonthDays.length > 0
+        ? normalizePlanMonthDayList(selectedRepeatMonthDays)
+        : [new Date(startDate).getDate()]
+      : [];
 
   // 验证输入
   if (!name) {
@@ -5838,19 +6117,24 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
     return;
   }
 
-  if (!date) {
-    alert("请选择日期");
+  if (!startDate) {
+    alert("请选择开始日期");
     return;
   }
 
-  if (!startTime || !endTime) {
+  if (!normalizedTimeRange.startTime || !normalizedTimeRange.endTime) {
     alert("请选择开始和结束时间");
     return;
   }
 
   // 检查结束时间是否晚于开始时间
-  if (startTime >= endTime) {
+  if (normalizedTimeRange.startTime >= normalizedTimeRange.endTime) {
     alert("结束时间必须晚于开始时间");
+    return;
+  }
+
+  if (endDate && endDate < startDate) {
+    alert("结束日期不能早于开始日期");
     return;
   }
 
@@ -5869,33 +6153,51 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
       return false;
     }
     previousPlanSnapshot = clonePlanValue(plans[index]);
+    const currentCompletion = getPlanCompletionState(
+      plans[index],
+      planData?._occurrenceDate || startDate,
+    );
     const updatedPlan = hydratePlan({
       ...plans[index],
       name,
-      date,
-      startTime,
-      endTime,
+      date: startDate,
+      startDate,
+      endDate,
+      startTime: normalizedTimeRange.startTime,
+      endTime: normalizedTimeRange.endTime,
       color,
       repeat,
-      repeatDays: repeat === "weekly" ? weeklyDays : [],
+      repeatDays: weeklyDays,
+      repeatMonthDays,
       notification: reminderConfig,
     });
     updatedPlan.id = plans[index].id;
     updatedPlan.createdAt = plans[index].createdAt;
-    setStoredPlanCompletionState(updatedPlan, plans[index].isCompleted, null);
+    setStoredPlanCompletionState(
+      updatedPlan,
+      currentCompletion,
+      isRecurringPlan(updatedPlan) && planData?._occurrenceDate
+        ? getPlanOccurrenceDateKey(
+            planData,
+            planData?._occurrenceDate || startDate,
+          )
+        : null,
+    );
     plans[index] = updatedPlan;
     nextPlanSnapshot = clonePlanValue(updatedPlan);
   } else {
     // 创建新计划
     const newPlan = new Plan(
       name,
-      date,
-      startTime,
-      endTime,
+      startDate,
+      normalizedTimeRange.startTime,
+      normalizedTimeRange.endTime,
       color,
       repeat,
       null,
-      repeat === "weekly" ? weeklyDays : [],
+      weeklyDays,
+      repeatMonthDays,
+      endDate,
       reminderConfig,
     );
     plans.push(newPlan);
@@ -5966,6 +6268,9 @@ function showPlanEditModal(planData = null) {
         .map((day) => parseInt(day, 10))
         .filter((day) => day >= 0 && day <= 6)
     : [];
+  const monthlyRepeatDays = normalizePlanMonthDayList(
+    planData?.repeatMonthDays || [],
+  );
 
   // 创建弹窗
   const modal = document.createElement("div");
@@ -5983,7 +6288,7 @@ function showPlanEditModal(planData = null) {
 
   // 弹窗内容
   modal.innerHTML = `
-    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-content ms controler-form-modal plan-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${isEditMode ? "编辑计划" : "创建新计划"}
       </h2>
@@ -6005,20 +6310,36 @@ function showPlanEditModal(planData = null) {
           ">
         </div>
         
-        <!-- 日期 -->
-        <div>
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-            日期
-          </label>
-          <input type="date" id="plan-date-input" value="${planData?.date || currentDate.toISOString().split("T")[0]}" style="
-            width: 100%;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--bg-tertiary);
-            background-color: var(--bg-quaternary);
-            color: var(--text-color);
-            font-size: 16px;
-          ">
+        <!-- 起止日期 -->
+        <div class="modal-date-range controler-form-modal-date-range">
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
+              开始日期
+            </label>
+            <input type="date" id="plan-start-date-input" class="modal-date-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--bg-tertiary);
+              background-color: var(--bg-quaternary);
+              color: var(--text-color);
+              font-size: 14px;
+            ">
+          </div>
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
+              结束日期
+            </label>
+            <input type="date" id="plan-end-date-input" class="modal-date-input" value="${planData?.endDate || ""}" style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--bg-tertiary);
+              background-color: var(--bg-quaternary);
+              color: var(--text-color);
+              font-size: 14px;
+            ">
+          </div>
         </div>
         
         <!-- 时间范围 -->
@@ -6107,6 +6428,23 @@ function showPlanEditModal(planData = null) {
                 .join("")}
             </div>
           </div>
+          <div id="plan-repeat-monthdays-wrap" style="
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: var(--bg-tertiary);
+            display: ${planData?.repeat === "monthly" ? "block" : "none"};
+          ">
+            <div style="color: var(--muted-text-color); font-size: 12px; margin-bottom: 8px;">
+              每月重复日期
+            </div>
+            <div class="controler-repeat-day-grid">
+              ${buildPlanMonthlyRepeatOptionsHtml(
+                "plan-repeat-month-day",
+                monthlyRepeatDays,
+              )}
+            </div>
+          </div>
         </div>
 
         ${getPlanReminderSectionHtml(planData, "plan")}
@@ -6133,7 +6471,7 @@ function showPlanEditModal(planData = null) {
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline plan-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `
@@ -6143,7 +6481,7 @@ function showPlanEditModal(planData = null) {
         `
             : ""
         }
-        <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
+        <div class="controler-form-modal-footer-actions plan-form-modal-footer-actions" style="display: flex; gap: 10px;">
           <button type="button" class="bts" id="cancel-plan-btn">取消</button>
           <button type="button" class="bts" id="save-plan-btn">${isEditMode ? "保存更改" : "创建计划"}</button>
         </div>
@@ -6158,16 +6496,24 @@ function showPlanEditModal(planData = null) {
 
   const repeatRadios = modal.querySelectorAll('input[name="plan-repeat"]');
   const repeatDaysWrap = modal.querySelector("#plan-repeat-days-wrap");
+  const repeatMonthDaysWrap = modal.querySelector(
+    "#plan-repeat-monthdays-wrap",
+  );
   repeatRadios.forEach((radio) => {
     radio.addEventListener("change", () => {
-      if (!repeatDaysWrap) return;
-      repeatDaysWrap.style.display =
-        radio.value === "weekly" && radio.checked ? "block" : "none";
+      if (repeatDaysWrap) {
+        repeatDaysWrap.style.display =
+          radio.value === "weekly" && radio.checked ? "block" : "none";
+      }
+      if (repeatMonthDaysWrap) {
+        repeatMonthDaysWrap.style.display =
+          radio.value === "monthly" && radio.checked ? "block" : "none";
+      }
     });
   });
   bindPlanReminderInputs(modal, "plan");
   bindPlanReminderBaseDateSync(modal, "plan", {
-    dateSelector: "#plan-date-input",
+    dateSelector: "#plan-start-date-input",
     startTimeSelector: "#plan-start-time-input",
     repeatSelector: 'input[name="plan-repeat"]',
   });
@@ -6249,30 +6595,46 @@ function showPlanEditModal(planData = null) {
 async function savePlan(modal, isEditMode, planData, options = {}) {
   const draftSession = options?.draftSession || null;
   const name = modal.querySelector("#plan-name-input").value.trim();
-  const date = modal.querySelector("#plan-date-input").value;
+  const startDate = modal.querySelector("#plan-start-date-input").value;
+  const endDate = modal.querySelector("#plan-end-date-input")?.value || "";
   const startTime = modal.querySelector("#plan-start-time-input").value;
   const endTime = modal.querySelector("#plan-end-time-input").value;
   const color = modal.querySelector("#plan-color-input").value;
   const repeat = modal.querySelector('input[name="plan-repeat"]:checked').value;
-  const isCompleted = modal.querySelector("#plan-completed-checkbox").checked;
+  const isCompleted =
+    modal.querySelector("#plan-completed-checkbox")?.checked || false;
+  const normalizedTimeRange = normalizePlanTimeRangeFields({
+    startTime,
+    endTime,
+  });
   const reminderConfig = readPlanReminderConfig(
     modal,
     {
       ...planData,
-      date: planData?.date || date,
-      startTime,
-      _occurrenceDate: planData?._occurrenceDate || date,
+      date: planData?.startDate || planData?.date || startDate,
+      startDate: planData?.startDate || planData?.date || startDate,
+      startTime: normalizedTimeRange.startTime,
+      _occurrenceDate: planData?._occurrenceDate || startDate,
     },
     "plan",
   );
   const selectedRepeatDays = Array.from(
     modal.querySelectorAll('input[name="plan-repeat-days"]:checked'),
   ).map((input) => parseInt(input.value, 10));
+  const selectedRepeatMonthDays = Array.from(
+    modal.querySelectorAll('input[name="plan-repeat-month-day"]:checked'),
+  ).map((input) => parseInt(input.value, 10));
   const repeatDays =
     repeat === "weekly"
       ? selectedRepeatDays.length > 0
         ? selectedRepeatDays
-        : [new Date(date).getDay()]
+        : [new Date(startDate).getDay()]
+      : [];
+  const repeatMonthDays =
+    repeat === "monthly"
+      ? selectedRepeatMonthDays.length > 0
+        ? normalizePlanMonthDayList(selectedRepeatMonthDays)
+        : [new Date(startDate).getDate()]
       : [];
   let previousPlanSnapshot = null;
   let nextPlanSnapshot = null;
@@ -6283,19 +6645,24 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
     return;
   }
 
-  if (!date) {
-    alert("请选择日期");
+  if (!startDate) {
+    alert("请选择开始日期");
     return;
   }
 
-  if (!startTime || !endTime) {
+  if (!normalizedTimeRange.startTime || !normalizedTimeRange.endTime) {
     alert("请选择开始和结束时间");
     return;
   }
 
   // 检查结束时间是否晚于开始时间
-  if (startTime >= endTime) {
+  if (normalizedTimeRange.startTime >= normalizedTimeRange.endTime) {
     alert("结束时间必须晚于开始时间");
+    return;
+  }
+
+  if (endDate && endDate < startDate) {
+    alert("结束日期不能早于开始日期");
     return;
   }
 
@@ -6313,12 +6680,15 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
     const updatedPlan = hydratePlan({
       ...plans[index],
       name,
-      date,
-      startTime,
-      endTime,
+      date: startDate,
+      startDate,
+      endDate,
+      startTime: normalizedTimeRange.startTime,
+      endTime: normalizedTimeRange.endTime,
       color,
       repeat,
       repeatDays,
+      repeatMonthDays,
       notification: reminderConfig,
       isCompleted: plans[index].isCompleted,
     });
@@ -6328,7 +6698,10 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
       updatedPlan,
       isCompleted,
       isRecurringPlan(updatedPlan) && planData?._occurrenceDate
-        ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
+        ? getPlanOccurrenceDateKey(
+            planData,
+            planData?._occurrenceDate || startDate,
+          )
         : null,
     );
     plans[index] = updatedPlan;
@@ -6337,20 +6710,25 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
     // 创建新计划
     const newPlan = new Plan(
       name,
-      date,
-      startTime,
-      endTime,
+      startDate,
+      normalizedTimeRange.startTime,
+      normalizedTimeRange.endTime,
       color,
       repeat,
       null,
       repeatDays,
+      repeatMonthDays,
+      endDate,
       reminderConfig,
     );
     setStoredPlanCompletionState(
       newPlan,
       isCompleted,
       isRecurringPlan(newPlan) && planData?._occurrenceDate
-        ? getPlanOccurrenceDateKey(planData, planData?._occurrenceDate || date)
+        ? getPlanOccurrenceDateKey(
+            planData,
+            planData?._occurrenceDate || startDate,
+          )
         : null,
     );
     plans.push(newPlan);
@@ -6417,14 +6795,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   modal.style.alignItems = "center";
   modal.style.justifyContent = "center";
 
-  // 重复设置文本
-  const repeatText =
-    {
-      none: "不重复",
-      daily: "每天重复",
-      weekly: "每周重复",
-      monthly: "每月重复",
-    }[plan.repeat] || "不重复";
+  const repeatText = getPlanRepeatSummaryText(plan);
   const reminderSummary =
     getReminderTools()?.describePlanReminder?.(
       plan,
@@ -6433,59 +6804,86 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   const detailDate =
     getPlanOccurrenceDateKey(plan, occurrenceDate) || plan.date;
   const detailCompleted = getPlanCompletionState(plan, detailDate);
+  const startDateText = plan.startDate || plan.date || detailDate || "";
+  const activeRangeText = plan.endDate
+    ? `${startDateText} 至 ${plan.endDate}`
+    : startDateText || "未设置";
+  const linkedSourceLabel = getLinkedPlanSourceLabel(plan);
+  const linkedPlan = isLinkedSourcePlan(plan);
+  const editButtonText = linkedPlan ? `编辑源${linkedSourceLabel}` : "编辑";
+  const deleteButtonText = linkedPlan ? "从计划中删除" : "删除";
 
   // 弹窗内容
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 25px; border-radius: 15px; max-width: 450px; width: 90%;">
-      <div style="display: flex; align-items: center; margin-bottom: 20px;">
-        <div style="width: 20px; height: 20px; background-color: ${plan.color}; border-radius: 4px; margin-right: 10px;"></div>
-        <h2 style="margin: 0; color: var(--text-color);">${plan.name}</h2>
+    <div class="modal-content ms plan-detail-modal">
+      <div class="plan-detail-modal-header">
+        <div class="plan-detail-modal-title">
+          <div class="plan-detail-modal-swatch" style="background-color: ${plan.color};"></div>
+          <h2>${plan.name}</h2>
+        </div>
+        <button type="button" class="bts plan-detail-modal-close" id="close-detail-btn">关闭</button>
       </div>
       
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">📅 日期:</span>
-          <span style="color: var(--text-color); font-size: 16px; font-weight: bold;">${detailDate}</span>
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">⏰ 时间:</span>
-          <span style="color: var(--text-color); font-size: 16px; font-weight: bold;">${plan.startTime} - ${plan.endTime}</span>
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">🔄 重复:</span>
-          <span style="color: var(--text-color); font-size: 16px;">${repeatText}</span>
+      <div class="plan-detail-modal-body">
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">当前日期:</span>
+          <span class="plan-detail-modal-value" style="font-weight: bold;">${detailDate}</span>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">🔔 通知:</span>
-          <span style="color: var(--text-color); font-size: 16px;">${reminderSummary}</span>
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">生效日期:</span>
+          <span class="plan-detail-modal-value">${activeRangeText}</span>
         </div>
         
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">✅ 状态:</span>
-          <span style="color: ${detailCompleted ? "var(--accent-color)" : "var(--text-color)"}; font-size: 16px;">
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">时间:</span>
+          <span class="plan-detail-modal-value" style="font-weight: bold;">${plan.startTime} - ${plan.endTime}</span>
+        </div>
+        
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">重复:</span>
+          <span class="plan-detail-modal-value">${repeatText}</span>
+        </div>
+
+        ${
+          linkedPlan
+            ? `
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">来源:</span>
+          <span class="plan-detail-modal-value">${linkedSourceLabel}</span>
+        </div>
+        `
+            : ""
+        }
+
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">通知:</span>
+          <span class="plan-detail-modal-value">${reminderSummary}</span>
+        </div>
+        
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">状态:</span>
+          <span class="plan-detail-modal-value plan-detail-modal-status${detailCompleted ? " is-completed" : ""}">
             ${detailCompleted ? "已完成" : "未完成"}
           </span>
         </div>
         
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="color: var(--text-color); font-size: 14px; opacity: 0.8;">📝 创建时间:</span>
-          <span style="color: var(--text-color); font-size: 14px;">
+        <div class="plan-detail-modal-row">
+          <span class="plan-detail-modal-label">创建时间:</span>
+          <span class="plan-detail-modal-value plan-detail-modal-value--muted">
             ${new Date(plan.createdAt).toLocaleString()}
           </span>
         </div>
       </div>
       
-      <div style="display: flex; justify-content: space-between;">
-        <button type="button" class="bts" id="close-detail-btn">关闭</button>
-        <div style="display: flex; gap: 10px;">
-          <button type="button" class="bts" id="toggle-complete-btn" style="background-color: ${detailCompleted ? "var(--bg-tertiary)" : "var(--accent-color)"};">
-            ${detailCompleted ? "标记为未完成" : "标记为已完成"}
-          </button>
-          <button type="button" class="bts" id="edit-plan-btn">编辑</button>
-        </div>
+      <div class="plan-detail-modal-actions">
+        <button type="button" class="bts" id="delete-plan-btn" style="background-color: var(--delete-btn);">
+          ${deleteButtonText}
+        </button>
+        <button type="button" class="bts" id="toggle-complete-btn" style="background-color: ${detailCompleted ? "var(--bg-tertiary)" : "var(--accent-color)"};">
+          ${detailCompleted ? "标记为未完成" : "标记为已完成"}
+        </button>
+        <button type="button" class="bts" id="edit-plan-btn">${editButtonText}</button>
       </div>
     </div>
   `;
@@ -6500,8 +6898,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   };
   modal.__controlerCloseModal = closeDetailModal;
 
-  const editPlanAction = () => {
-    closeDetailModal();
+  const openRegularPlanEditor = () => {
     setTimeout(
       () =>
         showPlanEditModal({
@@ -6512,7 +6909,36 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
     );
   };
 
+  const editPlanAction = async () => {
+    closeDetailModal();
+    if (linkedPlan) {
+      const opened = await openLinkedPlanSourceEditor(plan);
+      if (opened) {
+        return;
+      }
+    }
+    openRegularPlanEditor();
+  };
+
+  const deletePlanAction = async () => {
+    const deleted = await deletePlanWithRepeatChoice(plan.id, detailDate);
+    if (deleted) {
+      closeDetailModal();
+    }
+  };
+
   const togglePlanCompleteAction = async () => {
+    if (linkedPlan) {
+      const toggledLinkedSource = await toggleLinkedPlanSourceCompletion(
+        plan,
+        detailDate,
+      );
+      if (toggledLinkedSource) {
+        closeDetailModal();
+        void refreshPlanFromExternalStorageChange();
+        return;
+      }
+    }
     const index = plans.findIndex((p) => matchesId(p.id, plan.id));
     if (index !== -1) {
       const previousPlanSnapshot = clonePlanValue(plans[index]);
@@ -6538,6 +6964,7 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(modal, "#close-detail-btn", closeDetailModal);
     uiTools.bindModalAction(modal, "#edit-plan-btn", editPlanAction);
+    uiTools.bindModalAction(modal, "#delete-plan-btn", deletePlanAction);
     uiTools.bindModalAction(
       modal,
       "#toggle-complete-btn",
@@ -6550,6 +6977,9 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
     modal
       .querySelector("#edit-plan-btn")
       .addEventListener("click", editPlanAction);
+    modal
+      .querySelector("#delete-plan-btn")
+      .addEventListener("click", deletePlanAction);
     modal
       .querySelector("#toggle-complete-btn")
       .addEventListener("click", togglePlanCompleteAction);
