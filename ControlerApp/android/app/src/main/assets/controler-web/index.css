@@ -556,7 +556,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   min-height: var(--controler-stable-visual-viewport-height, 100dvh);
   height: var(--controler-stable-visual-viewport-height, 100dvh);
   max-height: var(--controler-stable-visual-viewport-height, 100dvh);
-  background-color: var(--overlay-bg);
+  background-color: var(--controler-perf-overlay-bg, var(--overlay-bg));
   display: flex;
   justify-content: center;
   align-items: center;
@@ -565,6 +565,15 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   overscroll-behavior: contain;
   box-sizing: border-box;
   pointer-events: auto;
+}
+
+body.flex.row .modal-overlay[data-controler-overlay-scope="content"] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  min-height: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
 }
 
 body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
@@ -4886,9 +4895,9 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
   }
 
   body.flex.row .modal-content {
-    width: min(96vw, 520px) !important;
-    max-width: min(96vw, 520px) !important;
-    max-height: calc(100dvh - 18px) !important;
+    width: min(100%, 520px) !important;
+    max-width: min(100%, 520px) !important;
+    max-height: calc(100% - 18px) !important;
     padding: 14px !important;
     border-radius: 12px !important;
   }
@@ -7322,7 +7331,7 @@ body :is(
     max(20px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom))
     max(20px, env(safe-area-inset-left));
-  background: var(--bg-primary);
+  background: var(--controler-loading-overlay-bg-strong);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -7345,7 +7354,7 @@ body.controler-ios-native .page-loading-overlay {
     max(10px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom))
     max(10px, env(safe-area-inset-left)) !important;
-  background: var(--bg-primary) !important;
+  background: var(--controler-loading-overlay-bg-strong) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }

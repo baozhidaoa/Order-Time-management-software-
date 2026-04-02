@@ -14869,6 +14869,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在跳转";
   const APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE =
     "正在处理当前页面数据并切换页面，请稍候";
+  const DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR =
+    ".app-main, .settings-main";
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
     "button",
     'input[type="button"]',
@@ -17365,6 +17367,53 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
+  function isDesktopContentOverlayRuntime() {
+    if (getNativeHostPlatform()) {
+      return false;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    if (!(body instanceof HTMLElement)) {
+      return false;
+    }
+    if (
+      root?.classList.contains("controler-mobile-runtime") ||
+      root?.classList.contains("controler-android-native") ||
+      root?.classList.contains("controler-ios-native") ||
+      body.classList.contains("controler-mobile-runtime") ||
+      body.classList.contains("controler-android-native") ||
+      body.classList.contains("controler-ios-native")
+    ) {
+      return false;
+    }
+    return body.classList.contains("row");
+  }
+
+  function resolveDesktopContentOverlayHost(target = null) {
+    if (!isDesktopContentOverlayRuntime()) {
+      return null;
+    }
+    if (target instanceof Element) {
+      const closestHost = target.closest(DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR);
+      if (closestHost instanceof HTMLElement) {
+        return closestHost;
+      }
+    }
+    const matchedHost = document.querySelector(DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR);
+    return matchedHost instanceof HTMLElement ? matchedHost : null;
+  }
+
+  function ensureDesktopContentOverlayHost(target = null) {
+    const host = resolveDesktopContentOverlayHost(target);
+    if (!(host instanceof HTMLElement)) {
+      return null;
+    }
+    if (window.getComputedStyle(host).position === "static") {
+      host.style.position = "relative";
+    }
+    return host;
+  }
+
   function clearAppPageTransitionClasses() {
     const body = document.body;
     if (!(body instanceof HTMLElement)) {
@@ -17575,7 +17624,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const overlay = createAppPageLeaveOverlayElement();
     appPageLeaveOverlayController = createPageLoadingOverlayController({
       overlay,
-      inlineHost: document.body,
+      inlineHost: ensureDesktopContentOverlayHost() || document.body,
     });
     bindAppPageLeaveOverlayShellVisibility();
     return appPageLeaveOverlayController;
@@ -18289,11 +18338,34 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return visibleModals[visibleModals.length - 1] || null;
   }
 
-  function isVisibleBlockingLoadingOverlay(overlay) {
+  function isContentScopedOverlayElement(overlay) {
+    if (!(overlay instanceof HTMLElement)) {
+      return false;
+    }
+    if (String(overlay.dataset.controlerOverlayScope || "").trim() === "content") {
+      return true;
+    }
+    if (!isDesktopContentOverlayRuntime()) {
+      return false;
+    }
+    const closestHost = overlay.closest(DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR);
+    return closestHost instanceof HTMLElement && closestHost !== document.body;
+  }
+
+  function isVisibleBlockingLoadingOverlay(
+    overlay,
+    { includeContentScoped = true } = {},
+  ) {
     if (!isVisibleOverlayElement(overlay, "page-loading-overlay")) {
       return false;
     }
-    return String(overlay.dataset.mode || "").trim() === "fullscreen";
+    if (String(overlay.dataset.mode || "").trim() !== "fullscreen") {
+      return false;
+    }
+    if (!includeContentScoped && isContentScopedOverlayElement(overlay)) {
+      return false;
+    }
+    return true;
   }
 
   function hasOverlaySelectorMatch(node, selector) {
@@ -18378,7 +18450,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     return Array.from(document.querySelectorAll(".page-loading-overlay")).some(
-      (overlay) => isVisibleBlockingLoadingOverlay(overlay),
+      (overlay) =>
+        isVisibleBlockingLoadingOverlay(overlay, {
+          includeContentScoped: false,
+        }),
     );
   }
 
@@ -18388,8 +18463,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const body = document.body;
     const modalCount = getVisibleModalOverlays().length;
     const hasOpenModal = modalCount > 0;
+    const hasBlockingLoadingOverlay = Array.from(
+      document.querySelectorAll(".page-loading-overlay"),
+    ).some((overlay) => isVisibleBlockingLoadingOverlay(overlay));
     const hasFullscreenBlockingOverlay = hasVisibleFullscreenBlockingOverlay();
-    const active = hasOpenModal || hasFullscreenBlockingOverlay;
+    const active = hasOpenModal || hasBlockingLoadingOverlay;
     const lockMode = hasFullscreenBlockingOverlay
       ? "fullscreen"
       : hasOpenModal
@@ -18415,6 +18493,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       active,
       hasOpenModal,
       modalCount,
+      hasBlockingLoadingOverlay,
       hasFullscreenBlockingOverlay,
     });
     if (lastReportedBlockingOverlaySignature !== nextSignature) {
@@ -18425,6 +18504,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             active,
             modalCount,
             hasOpenModal,
+            hasBlockingLoadingOverlay,
             hasFullscreenBlockingOverlay,
           },
         }),
@@ -18683,7 +18763,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["style", "class", "hidden", "data-mode"],
+        attributeFilter: [
+          "style",
+          "class",
+          "hidden",
+          "data-mode",
+          "data-controler-overlay-scope",
+        ],
       });
 
       window.addEventListener("popstate", () => {
@@ -19620,10 +19706,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const shouldScopeFullscreenToInlineHost = () => {
-      if (!scopeFullscreenToInlineHost) {
+      if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }
-      if (!(inlineHost instanceof HTMLElement)) {
+      const forceDesktopContentScope =
+        inlineHost !== document.body &&
+        isDesktopContentOverlayRuntime() &&
+        !!ensureDesktopContentOverlayHost(inlineHost);
+      if (!scopeFullscreenToInlineHost && !forceDesktopContentScope) {
         return false;
       }
       const platform = String(window.ControlerNativeBridge?.platform || "").trim();
@@ -19801,6 +19891,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       overlay.dataset.mode = resolvedMode;
+      overlay.dataset.controlerOverlayScope =
+        resolvedMode === "fullscreen" && shouldScopeFullscreenToInlineHost()
+          ? "content"
+          : "viewport";
       overlay.hidden = !actualVisible;
       overlay.setAttribute("aria-hidden", actualVisible ? "false" : "true");
       overlay.dataset.shellSuppressed = suppressedByShell ? "true" : "false";
@@ -20145,13 +20239,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return null;
     }
     const shield = document.createElement("div");
+    const contentHost = ensureDesktopContentOverlayHost();
+    const scopedToContent = contentHost instanceof HTMLElement;
     shield.dataset.controlerModalInteractionShield = "true";
+    shield.dataset.controlerOverlayScope = scopedToContent ? "content" : "viewport";
     shield.setAttribute("aria-hidden", "true");
-    shield.style.position = "fixed";
+    shield.style.position = scopedToContent ? "absolute" : "fixed";
     shield.style.inset = "0";
-    shield.style.width = "100vw";
-    shield.style.height = "100vh";
-    shield.style.maxHeight = "100vh";
+    shield.style.width = scopedToContent ? "auto" : "100vw";
+    shield.style.minHeight = scopedToContent ? "100%" : "100vh";
+    shield.style.height = scopedToContent ? "100%" : "100vh";
+    shield.style.maxHeight = scopedToContent ? "none" : "100vh";
+    shield.style.borderRadius =
+      scopedToContent && contentHost instanceof HTMLElement
+        ? window.getComputedStyle(contentHost).borderRadius || ""
+        : "";
     shield.style.background = "transparent";
     shield.style.pointerEvents = "none";
     shield.style.touchAction = "none";
@@ -20189,8 +20291,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(shield instanceof HTMLElement)) {
       return;
     }
-    if (!document.body?.contains(shield)) {
-      document.body.appendChild(shield);
+    const scopedHost = ensureDesktopContentOverlayHost() || document.body;
+    if (!(scopedHost instanceof HTMLElement)) {
+      return;
+    }
+    shield.dataset.controlerOverlayScope =
+      scopedHost === document.body ? "viewport" : "content";
+    shield.style.position = scopedHost === document.body ? "fixed" : "absolute";
+    shield.style.width = scopedHost === document.body ? "100vw" : "auto";
+    shield.style.minHeight = scopedHost === document.body ? "100vh" : "100%";
+    shield.style.height = scopedHost === document.body ? "100vh" : "100%";
+    shield.style.maxHeight = scopedHost === document.body ? "100vh" : "none";
+    shield.style.borderRadius =
+      scopedHost === document.body
+        ? ""
+        : window.getComputedStyle(scopedHost).borderRadius || "";
+    if (!scopedHost.contains(shield)) {
+      scopedHost.appendChild(shield);
     }
     shield.style.display = "block";
     shield.style.pointerEvents = "auto";
@@ -20269,22 +20386,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : "";
     const closeHandler =
       typeof options.close === "function" ? options.close : null;
+    const scopedHost = ensureDesktopContentOverlayHost(modal);
+    const scopeToContent = scopedHost instanceof HTMLElement;
 
     modal.classList.add("modal-overlay");
-    modal.style.position = "fixed";
+    modal.dataset.controlerOverlayScope = scopeToContent ? "content" : "viewport";
+    modal.style.position = scopeToContent ? "absolute" : "fixed";
     modal.style.top = "0";
     modal.style.left = "0";
     modal.style.right = "0";
     modal.style.bottom = "0";
     modal.style.inset = "0";
-    modal.style.width = "100vw";
-    modal.style.minHeight =
-      "var(--controler-stable-visual-viewport-height, 100dvh)";
-    modal.style.height =
-      "var(--controler-stable-visual-viewport-height, 100dvh)";
-    modal.style.maxHeight =
-      "var(--controler-stable-visual-viewport-height, 100dvh)";
-    modal.style.backgroundColor = "var(--overlay-bg)";
+    modal.style.width = scopeToContent ? "auto" : "100vw";
+    modal.style.minHeight = scopeToContent
+      ? "100%"
+      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+    modal.style.height = scopeToContent
+      ? "100%"
+      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+    modal.style.maxHeight = scopeToContent
+      ? "none"
+      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+    modal.style.borderRadius =
+      scopeToContent && scopedHost instanceof HTMLElement
+        ? window.getComputedStyle(scopedHost).borderRadius || ""
+        : "";
+    modal.style.backgroundColor =
+      "var(--controler-perf-overlay-bg, var(--overlay-bg))";
     modal.style.display = options.visible === false ? "none" : "flex";
     modal.style.alignItems = options.alignItems || "center";
     modal.style.justifyContent = options.justifyContent || "center";
@@ -20301,7 +20429,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       modal.__controlerCloseModal = closeHandler;
     }
 
-    if (options.append !== false && !modal.isConnected && document.body) {
+    const mountHost = scopeToContent ? scopedHost : document.body;
+    if (
+      mountHost instanceof HTMLElement &&
+      options.append !== false &&
+      modal.parentElement !== mountHost
+    ) {
+      mountHost.appendChild(modal);
+    } else if (!modal.isConnected && document.body) {
       document.body.appendChild(modal);
     }
     stopModalContentPropagation(modal);
@@ -20451,7 +20586,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       modal.style.zIndex = "4200";
 
       modal.innerHTML = `
-        <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100vw - 32px)); max-width:min(420px, calc(100vw - 32px));">
+        <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100% - 32px)); max-width:min(420px, calc(100% - 32px));">
           <div class="themed-dialog-title"></div>
           <div class="themed-dialog-message"></div>
           <div class="themed-dialog-actions">
@@ -20516,8 +20651,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }
       });
 
-      document.body.appendChild(modal);
-      stopModalContentPropagation(modal);
+      prepareModalOverlay(modal, {
+        zIndex: 4200,
+      });
       activateModalInteractionShield(180);
       document.addEventListener("keydown", handleKeydown, true);
       setTimeout(() => {
@@ -22451,5 +22587,4 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     alertDialog,
   };
 })();
-
 

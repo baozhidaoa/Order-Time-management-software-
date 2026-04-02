@@ -7193,7 +7193,7 @@ async function openStatsRecordEditModal(locator) {
   modal.style.display = "flex";
   modal.style.zIndex = "3200";
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; width: min(520px, calc(100vw - 24px)); max-width: min(520px, calc(100vw - 24px)); max-height: calc(var(--controler-visual-viewport-height, 100vh) - 24px); overflow-y: auto;">
+    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; width: min(520px, calc(100% - 24px)); max-width: min(520px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto;">
       <h3 style="margin: 0 0 16px 0; color: var(--text-color);">编辑记录</h3>
       <div style="display:flex; flex-direction:column; gap: 12px;">
         <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
@@ -7216,8 +7216,14 @@ async function openStatsRecordEditModal(locator) {
     </div>
   `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    uiTools.prepareModalOverlay(modal, {
+      zIndex: 3200,
+    });
+  } else {
+    document.body.appendChild(modal);
+    uiTools?.stopModalContentPropagation?.(modal);
+  }
 
   const closeModal = () => {
     uiTools?.closeModal?.(modal);
@@ -11646,5 +11652,4 @@ function getHeatmapPalette() {
     border,
   };
 }
-
 

@@ -3256,7 +3256,13 @@
     if (typeof role === "string" && role.trim()) {
       modal.dataset.todoModalRole = role.trim();
     }
-    document.body.appendChild(modal);
+    if (typeof uiTools?.prepareModalOverlay === "function") {
+      uiTools.prepareModalOverlay(modal, {
+        zIndex: Number.parseInt(modal.style.zIndex || "", 10),
+      });
+    } else {
+      document.body.appendChild(modal);
+    }
     uiTools?.autofocusInteractiveTextControl?.(modal, {
       delayMs: 40,
       retryDelayMs: 120,
@@ -3442,7 +3448,7 @@
         getTopVisibleTodoModalOverlayZIndex(4200) + 20,
       );
       modal.innerHTML = `
-      <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100vw - 32px)); max-width:min(420px, calc(100vw - 32px));">
+      <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100% - 32px)); max-width:min(420px, calc(100% - 32px));">
         <div class="themed-dialog-title">${escapeHtml(title)}</div>
         <div class="themed-dialog-message">${escapeHtml(String(message ?? ""))}</div>
         <div class="themed-dialog-actions">
@@ -3582,8 +3588,14 @@
       });
 
       modal.style.pointerEvents = "none";
-      document.body.appendChild(modal);
-      uiTools?.stopModalContentPropagation?.(modal);
+      if (typeof uiTools?.prepareModalOverlay === "function") {
+        uiTools.prepareModalOverlay(modal, {
+          zIndex: Number.parseInt(modal.style.zIndex || "", 10),
+        });
+      } else {
+        document.body.appendChild(modal);
+        uiTools?.stopModalContentPropagation?.(modal);
+      }
       document.addEventListener("keydown", handleKeydown, true);
       window.setTimeout(
         () => {
@@ -7904,5 +7916,4 @@
     }
   }
 })();
-
 

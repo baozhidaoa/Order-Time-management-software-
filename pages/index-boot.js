@@ -12235,8 +12235,14 @@ function showProjectEditModal(project) {
       </div>
     `;
 
-  document.body.appendChild(modal);
-  uiTools?.stopModalContentPropagation?.(modal);
+  if (typeof uiTools?.prepareModalOverlay === "function") {
+    uiTools.prepareModalOverlay(modal, {
+      zIndex: modalZIndex,
+    });
+  } else {
+    document.body.appendChild(modal);
+    uiTools?.stopModalContentPropagation?.(modal);
+  }
 
   const closeEditModal = () => {
     if (modal.parentNode) {
@@ -15822,5 +15828,4 @@ if (document.readyState === "loading") {
     renderIndexBootstrapError(error, "ready");
   });
 }
-
 
