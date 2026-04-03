@@ -4181,7 +4181,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function shouldUseStateRecordsForProjectNormalization(metadata = {}) {
-    return metadata?.useStateRecordsForProjectNormalization !== false;
+    // Managed state may contain only range-scoped partitions (for example the
+    // current month of records). Rebuilding project duration caches from those
+    // partial records corrupts the all-cycle totals stored on projects, so we
+    // only allow this when the caller explicitly confirms the records array is
+    // a full authoritative snapshot.
+    return metadata?.useStateRecordsForProjectNormalization === true;
   }
 
   function normalizeState(rawState, metadata = {}) {
@@ -6436,6 +6441,205 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     }
 
+    function hashLocalStorageKeyText(text = "") {
+      const source = String(text || "");
+      let hash = 0;
+      for (let index = 0; index < source.length; index += 1) {
+        hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+      }
+      return hash.toString(36);
+    }
+
+    function normalizeTrustedRecordBootstrapPageKey(pageKey) {
+      const normalizedPage = normalizePageBootstrapKey(pageKey);
+      return normalizedPage === "index" || normalizedPage === "stats"
+        ? normalizedPage
+        : "";
+    }
+
+    function normalizeTrustedRecordBootstrapScope(scope = {}) {
+      if (scope?.all === true) {
+        return {
+          all: true,
+        };
+      }
+      const normalizedRange =
+        storageBundle?.normalizeRangeInput?.(scope) || {
+          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
+          startDate: scope?.startDate || scope?.start || null,
+          endDate: scope?.endDate || scope?.end || null,
+        };
+      const normalizedPeriodIds = Array.isArray(normalizedRange?.periodIds)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+      const normalizedScope = {
+        periodIds: Array.from(new Set(normalizedPeriodIds)).sort(),
+      };
+      const startDate =
+        typeof normalizedRange?.startDate === "string"
+          ? normalizedRange.startDate.trim()
+          : String(normalizedRange?.startDate || "").trim();
+      const endDate =
+        typeof normalizedRange?.endDate === "string"
+          ? normalizedRange.endDate.trim()
+          : String(normalizedRange?.endDate || "").trim();
+      if (startDate) {
+        normalizedScope.startDate = startDate;
+      }
+      if (endDate) {
+        normalizedScope.endDate = endDate;
+      }
+      if (
+        !normalizedScope.startDate &&
+        !normalizedScope.endDate &&
+        normalizedScope.periodIds.length === 0
+      ) {
+        return null;
+      }
+      return normalizedScope;
+    }
+
+    function getTrustedRecordBootstrapCurrentFingerprint() {
+      return typeof cachedStatus?.fingerprint === "string"
+        ? cachedStatus.fingerprint.trim()
+        : "";
+    }
+
+    function getTrustedRecordBootstrapStorageKey(pageKey, recordScope) {
+      const normalizedPage = normalizeTrustedRecordBootstrapPageKey(pageKey);
+      const normalizedScope = normalizeTrustedRecordBootstrapScope(recordScope);
+      if (!normalizedPage || !normalizedScope) {
+        return "";
+      }
+      return `${LOCAL_ONLY_STORAGE_PREFIX}trusted-record-bootstrap:${normalizedPage}:${hashLocalStorageKeyText(
+        safeSerialize({
+          page: normalizedPage,
+          recordScope: normalizedScope,
+        }),
+      )}`;
+    }
+
+    function normalizeTrustedRecordBootstrapEnvelope(pageKey, value = {}, options = {}) {
+      const normalizedPage = normalizeTrustedRecordBootstrapPageKey(pageKey);
+      const sourceValue =
+        value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const normalizedScope = normalizeTrustedRecordBootstrapScope(
+        sourceValue.recordScope || options.recordScope || options.scope || {},
+      );
+      if (!normalizedPage || !normalizedScope) {
+        return null;
+      }
+      return {
+        page: normalizedPage,
+        recordScope: normalizedScope,
+        sourceFingerprint:
+          typeof sourceValue.sourceFingerprint === "string" &&
+          sourceValue.sourceFingerprint.trim()
+            ? sourceValue.sourceFingerprint.trim()
+            : typeof options.sourceFingerprint === "string" &&
+                options.sourceFingerprint.trim()
+              ? options.sourceFingerprint.trim()
+              : getTrustedRecordBootstrapCurrentFingerprint(),
+        builtAt:
+          typeof sourceValue.builtAt === "string" && sourceValue.builtAt
+            ? sourceValue.builtAt
+            : new Date().toISOString(),
+        loadedPeriodIds: normalizeBootstrapPeriodIds(
+          Array.isArray(sourceValue.loadedPeriodIds)
+            ? sourceValue.loadedPeriodIds
+            : options.loadedPeriodIds,
+        ),
+        projects: cloneValue(
+          Array.isArray(sourceValue.projects)
+            ? sourceValue.projects
+            : Array.isArray(options.projects)
+              ? options.projects
+              : [],
+        ),
+        records: cloneValue(
+          Array.isArray(sourceValue.records)
+            ? sourceValue.records
+            : Array.isArray(options.records)
+              ? options.records
+              : [],
+        ),
+      };
+    }
+
+    function readTrustedRecordBootstrapEnvelope(pageKey, options = {}) {
+      const storageKey = getTrustedRecordBootstrapStorageKey(
+        pageKey,
+        options.recordScope || options.scope || {},
+      );
+      if (!storageKey) {
+        return null;
+      }
+      const rawValue = nativeMethods.getItem?.call(window.localStorage, storageKey);
+      if (rawValue === null || rawValue === undefined) {
+        return null;
+      }
+      const parsed = safeDeserialize(rawValue);
+      if (!isPlainObject(parsed)) {
+        nativeMethods.removeItem?.call(window.localStorage, storageKey);
+        return null;
+      }
+      const envelope = normalizeTrustedRecordBootstrapEnvelope(pageKey, parsed, options);
+      if (!envelope) {
+        nativeMethods.removeItem?.call(window.localStorage, storageKey);
+        return null;
+      }
+      const requestedScope = normalizeTrustedRecordBootstrapScope(
+        options.recordScope || options.scope || {},
+      );
+      if (safeSerialize(envelope.recordScope) !== safeSerialize(requestedScope)) {
+        return null;
+      }
+      const currentFingerprint = getTrustedRecordBootstrapCurrentFingerprint();
+      const envelopeFingerprint = String(envelope.sourceFingerprint || "").trim();
+      if (
+        currentFingerprint &&
+        (!envelopeFingerprint || currentFingerprint !== envelopeFingerprint)
+      ) {
+        nativeMethods.removeItem?.call(window.localStorage, storageKey);
+        return null;
+      }
+      return envelope;
+    }
+
+    function writeTrustedRecordBootstrapEnvelope(pageKey, value = {}, options = {}) {
+      const envelope = normalizeTrustedRecordBootstrapEnvelope(pageKey, value, options);
+      if (!envelope) {
+        return null;
+      }
+      const storageKey = getTrustedRecordBootstrapStorageKey(
+        pageKey,
+        envelope.recordScope,
+      );
+      if (!storageKey) {
+        return null;
+      }
+      nativeMethods.setItem?.call(
+        window.localStorage,
+        storageKey,
+        safeSerialize(envelope),
+      );
+      return envelope;
+    }
+
+    function removeTrustedRecordBootstrapEnvelope(pageKey, options = {}) {
+      const storageKey = getTrustedRecordBootstrapStorageKey(
+        pageKey,
+        options.recordScope || options.scope || {},
+      );
+      if (!storageKey) {
+        return false;
+      }
+      nativeMethods.removeItem?.call(window.localStorage, storageKey);
+      return true;
+    }
+
     if (nativeLengthDescriptor?.configurable) {
       Object.defineProperty(nativeStoragePrototype, "length", {
         configurable: true,
@@ -6621,6 +6825,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       async removeDraft(key) {
         return removeFallbackDraftEnvelope(key);
       },
+      peekTrustedRecordBootstrapState(pageKey, options = {}) {
+        const envelope = readTrustedRecordBootstrapEnvelope(pageKey, options);
+        return envelope ? cloneValue(envelope) : null;
+      },
+      getTrustedRecordBootstrapStateSync(pageKey, options = {}) {
+        return this.peekTrustedRecordBootstrapState(pageKey, options);
+      },
+      async getTrustedRecordBootstrapState(pageKey, options = {}) {
+        return this.peekTrustedRecordBootstrapState(pageKey, options);
+      },
+      async setTrustedRecordBootstrapState(pageKey, value = {}, options = {}) {
+        const envelope = writeTrustedRecordBootstrapEnvelope(pageKey, value, options);
+        return envelope ? cloneValue(envelope) : null;
+      },
+      async removeTrustedRecordBootstrapState(pageKey, options = {}) {
+        return removeTrustedRecordBootstrapEnvelope(pageKey, options);
+      },
       getPageBootstrapStateSync(pageKey, options = {}) {
         return this.peekPageBootstrapState(pageKey, options);
       },
@@ -6727,7 +6948,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       try {
         const rawState = electronAPI.storageLoadSync() || {};
         adoptLegacyLocalOnlyValues(rawState);
-        cachedState = normalizeState(rawState);
+        cachedState = normalizeState(rawState, {
+          useStateRecordsForProjectNormalization: true,
+        });
         persistSharedBootstrapMirrors(cachedState);
       } catch (error) {
         console.error("同步读取 Electron 存储失败，保留当前内存状态:", error);
@@ -6749,7 +6972,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function assignState(nextState) {
       adoptLegacyLocalOnlyValues(nextState);
-      cachedState = normalizeState(nextState);
+      cachedState = normalizeState(nextState, {
+        useStateRecordsForProjectNormalization: true,
+      });
       persistSharedBootstrapMirrors(cachedState);
       return cachedState;
     }
@@ -6812,6 +7037,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     async function flushElectronState() {
       const pendingChangeMetadata = peekPendingElectronStorageChangeMetadata();
       const nextState = normalizeState(readState(), {
+        useStateRecordsForProjectNormalization: true,
         touchModified: true,
         touchSyncSave: true,
       });
@@ -6911,7 +7137,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           return readState();
         })) || {};
       adoptLegacyLocalOnlyValues(nextRawState);
-      const nextState = normalizeState(nextRawState);
+      const nextState = normalizeState(nextRawState, {
+        useStateRecordsForProjectNormalization: true,
+      });
       cachedState = nextState;
       persistSharedBootstrapMirrors(nextState);
       const nextSnapshot = createComparableSnapshot(nextState);
@@ -7448,6 +7676,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       platform,
       fileName: MOBILE_FILE_NAME,
       uri: BROWSER_STATE_KEY,
+      useStateRecordsForProjectNormalization: true,
       ...extra,
     });
 
@@ -8309,6 +8538,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function mergeManagedSectionRange(section, scope = {}, items = [], options = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
+      if (
+        section === "records" &&
+        hasConcreteManagedSectionRangeBounds(normalizedRange)
+      ) {
+        return;
+      }
       const requestedPeriodIds = Array.isArray(normalizedRange.periodIds)
         ? normalizedRange.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
         : [];
@@ -11753,6 +11988,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     platform: browserPlatform,
     fileName: MOBILE_FILE_NAME,
     uri: BROWSER_STATE_KEY,
+    useStateRecordsForProjectNormalization: true,
     ...extra,
   });
 
@@ -18465,6 +18701,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       active,
       mode: "fullscreen",
       lockNavigation: false,
+      delegateToNative: false,
       title:
         typeof options.title === "string" && options.title.trim()
           ? options.title.trim()
@@ -18536,9 +18773,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
-        delayMs: appPageLeaveOverlayVisible
-          ? 0
-          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+        delayMs: 0,
       });
     } else if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
@@ -18754,9 +18989,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     setAppPageLeaveOverlayState({
       active: true,
       ...overlayCopy,
-      delayMs: appPageLeaveOverlayVisible
-        ? 0
-        : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+      delayMs: 0,
     });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;

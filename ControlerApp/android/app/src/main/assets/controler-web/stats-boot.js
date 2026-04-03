@@ -134,6 +134,397 @@
     return parseSpendTimeToMs(record.spendtime);
   }
 
+  function clonePlainValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      return value;
+    }
+  }
+
+  function parseFlexibleDate(value) {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedValue) {
+      return null;
+    }
+    const parsed = new Date(normalizedValue);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function serializeRecordDate(value) {
+    return value instanceof Date && !Number.isNaN(value.getTime())
+      ? value.toISOString()
+      : null;
+  }
+
+  function formatRecordDurationFromMs(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return "小于1min";
+    }
+
+    const totalMinutes = Math.floor(ms / 60000);
+    if (totalMinutes <= 0) {
+      return "小于1min";
+    }
+
+    const days = Math.floor(totalMinutes / (24 * 60));
+    const remainingAfterDays = totalMinutes - days * 24 * 60;
+    const hours = Math.floor(remainingAfterDays / 60);
+    const minutes = remainingAfterDays % 60;
+
+    if (days > 0) {
+      return `${days}天${hours}小时${minutes}分钟`;
+    }
+    if (hours > 0) {
+      return `${hours}小时${minutes}分钟`;
+    }
+    return `${minutes}分钟`;
+  }
+
+  function createRecordId(prefix = "") {
+    const safePrefix = String(prefix || "").trim();
+    return `${safePrefix}${Date.now()}${Math.random().toString(36).slice(2, 11)}`;
+  }
+
+  function createProjectId(prefix = "project") {
+    return `${String(prefix || "project").trim() || "project"}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function extractProjectLeafName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return "";
+    }
+    const leafName = normalizedName
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    return leafName || normalizedName;
+  }
+
+  function normalizeProjectReferenceName(projectName, fallback = "") {
+    const normalizedName = String(projectName || "").trim();
+    const fallbackName = String(fallback || "").trim();
+    if (!normalizedName) {
+      return fallbackName;
+    }
+    return extractProjectLeafName(normalizedName) || fallbackName;
+  }
+
+  function isPathLikeProjectName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    return (
+      normalizedName.includes("/") &&
+      extractProjectLeafName(normalizedName) !== normalizedName
+    );
+  }
+
+  function findProjectByReferenceName(projectName, projectList = []) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return null;
+    }
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const exactPreferred =
+      safeProjectList.find((project) => {
+        const candidateName = String(project?.name || "").trim();
+        return candidateName === normalizedName && !isPathLikeProjectName(candidateName);
+      }) || null;
+    const exactMatch =
+      safeProjectList.find(
+        (project) => String(project?.name || "").trim() === normalizedName,
+      ) || null;
+    const leafName = extractProjectLeafName(normalizedName);
+    const preferredLeafMatch = leafName
+      ? safeProjectList.find((project) => {
+          const candidateName = String(project?.name || "").trim();
+          return candidateName === leafName && !isPathLikeProjectName(candidateName);
+        }) || null
+      : null;
+    const leafMatch = leafName
+      ? safeProjectList.find(
+          (project) => String(project?.name || "").trim() === leafName,
+        ) || null
+      : null;
+    return exactPreferred || exactMatch || preferredLeafMatch || leafMatch || null;
+  }
+
+  function normalizeDurationCarryoverState(rawState) {
+    if (!rawState || typeof rawState !== "object") {
+      return null;
+    }
+
+    const carryoverMs =
+      Number.isFinite(rawState.carryoverMs) && rawState.carryoverMs > 0
+        ? Math.max(1, Math.floor(rawState.carryoverMs))
+        : null;
+    if (!carryoverMs) {
+      return null;
+    }
+
+    return {
+      carryoverMs,
+      sourceRecordId:
+        typeof rawState.sourceRecordId === "string" ? rawState.sourceRecordId : "",
+      sourceProject:
+        typeof rawState.sourceProject === "string"
+          ? rawState.sourceProject.trim()
+          : "",
+      targetProject:
+        typeof rawState.targetProject === "string"
+          ? rawState.targetProject.trim()
+          : "",
+      createdAt: typeof rawState.createdAt === "string" ? rawState.createdAt : "",
+    };
+  }
+
+  function normalizeRecordDurationMeta(rawMeta) {
+    if (!rawMeta || typeof rawMeta !== "object") {
+      return null;
+    }
+
+    const toSafeMs = (value) =>
+      Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+    const originalMs = toSafeMs(rawMeta.originalMs);
+    const recordedMs = toSafeMs(rawMeta.recordedMs);
+    const returnedMs = toSafeMs(rawMeta.returnedMs);
+    const returnTargetProject =
+      typeof rawMeta.returnTargetProject === "string"
+        ? rawMeta.returnTargetProject.trim()
+        : "";
+    const appliedCarryover = normalizeDurationCarryoverState(rawMeta.appliedCarryover);
+
+    if (
+      !Number.isFinite(originalMs) &&
+      !Number.isFinite(recordedMs) &&
+      !Number.isFinite(returnedMs) &&
+      !returnTargetProject &&
+      !appliedCarryover
+    ) {
+      return null;
+    }
+
+    return {
+      originalMs,
+      recordedMs,
+      returnedMs,
+      returnTargetProject,
+      appliedCarryover,
+    };
+  }
+
+  function resolveRecordProject(record, projectList = []) {
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const normalizedProjectId = String(record?.projectId || "").trim();
+    if (normalizedProjectId) {
+      const matchedById =
+        safeProjectList.find(
+          (project) => String(project?.id || "").trim() === normalizedProjectId,
+        ) || null;
+      if (matchedById) {
+        return matchedById;
+      }
+    }
+    return findProjectByReferenceName(record?.name, safeProjectList);
+  }
+
+  function resolveRecordNextProject(record, projectList = []) {
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const nextProjectId = String(record?.nextProjectId || "").trim();
+    if (nextProjectId) {
+      const matchedById =
+        safeProjectList.find(
+          (project) => String(project?.id || "").trim() === nextProjectId,
+        ) || null;
+      if (matchedById) {
+        return matchedById;
+      }
+    }
+    return record?.nextProjectName
+      ? findProjectByReferenceName(record.nextProjectName, safeProjectList)
+      : null;
+  }
+
+  function resolveRecordNextProjectName(record, projectList = []) {
+    const explicitNextProjectName = String(record?.nextProjectName || "").trim();
+    const matchedProject = resolveRecordNextProject(record, projectList);
+    const matchedProjectName = String(matchedProject?.name || "").trim();
+    if (matchedProjectName) {
+      return matchedProjectName;
+    }
+    if (explicitNextProjectName) {
+      return normalizeProjectReferenceName(
+        explicitNextProjectName,
+        explicitNextProjectName,
+      );
+    }
+    const matchedCurrentProject = resolveRecordProject(record, projectList);
+    const matchedCurrentProjectName = String(matchedCurrentProject?.name || "").trim();
+    if (matchedCurrentProjectName) {
+      return matchedCurrentProjectName;
+    }
+    return normalizeProjectReferenceName(record?.name, "未命名项目") || "未命名项目";
+  }
+
+  function buildRecordEntry(input = {}, options = {}) {
+    const source =
+      input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const existingRecord =
+      source.existingRecord && typeof source.existingRecord === "object"
+        ? source.existingRecord
+        : null;
+    const projectList = Array.isArray(options?.projectList) ? options.projectList : [];
+    const workingRecord = {
+      ...(existingRecord ? clonePlainValue(existingRecord) : {}),
+      ...clonePlainValue(source),
+    };
+    delete workingRecord.existingRecord;
+
+    const normalizedDurationMeta = normalizeRecordDurationMeta(workingRecord.durationMeta);
+    const rawEndDate =
+      parseFlexibleDate(workingRecord.rawEndTime) ||
+      parseFlexibleDate(workingRecord.endTime) ||
+      parseFlexibleDate(existingRecord?.rawEndTime) ||
+      parseFlexibleDate(existingRecord?.endTime) ||
+      new Date();
+    const endDate =
+      parseFlexibleDate(workingRecord.endTime) ||
+      parseFlexibleDate(existingRecord?.endTime) ||
+      new Date(rawEndDate.getTime());
+    const startDate =
+      parseFlexibleDate(workingRecord.startTime) ||
+      parseFlexibleDate(existingRecord?.startTime);
+    const boundedDurationMs =
+      startDate instanceof Date && !Number.isNaN(startDate.getTime())
+        ? Math.max(endDate.getTime() - startDate.getTime(), 0)
+        : null;
+    const explicitDurationMs =
+      Number.isFinite(workingRecord.durationMs) && workingRecord.durationMs >= 0
+        ? Math.round(workingRecord.durationMs)
+        : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+            normalizedDurationMeta.recordedMs >= 0
+          ? Math.round(normalizedDurationMeta.recordedMs)
+          : parseSpendTimeToMs(workingRecord.spendtime);
+    const durationMs =
+      Number.isFinite(boundedDurationMs) && boundedDurationMs >= 0
+        ? Math.round(boundedDurationMs)
+        : explicitDurationMs;
+    const normalizedName =
+      normalizeProjectReferenceName(
+        workingRecord.name,
+        normalizeProjectReferenceName(existingRecord?.name, "未命名项目"),
+      ) || "未命名项目";
+    const matchedProject =
+      findProjectByReferenceName(normalizedName, projectList) ||
+      (String(workingRecord.projectId || "").trim()
+        ? projectList.find(
+            (project) =>
+              String(project?.id || "").trim() === String(workingRecord.projectId).trim(),
+          ) || null
+        : null);
+    const normalizedNextProjectName = resolveRecordNextProjectName(
+      {
+        ...workingRecord,
+        name: normalizedName,
+        projectId: matchedProject?.id || workingRecord.projectId || null,
+      },
+      projectList,
+    );
+    const matchedNextProject =
+      resolveRecordNextProject(
+        {
+          ...workingRecord,
+          nextProjectName: normalizedNextProjectName,
+        },
+        projectList,
+      ) ||
+      findProjectByReferenceName(normalizedNextProjectName, projectList);
+    const normalizedEndTime = serializeRecordDate(endDate) || new Date().toISOString();
+    const normalizedRawEndTime = serializeRecordDate(rawEndDate) || normalizedEndTime;
+
+    return {
+      ...(existingRecord ? clonePlainValue(existingRecord) : {}),
+      ...clonePlainValue(workingRecord),
+      id:
+        String(workingRecord.id || existingRecord?.id || "").trim() || createRecordId(),
+      timestamp: normalizedEndTime,
+      sptTime: normalizedEndTime,
+      name: matchedProject?.name || normalizedName,
+      spendtime: formatRecordDurationFromMs(durationMs),
+      projectId: String(
+        matchedProject?.id || workingRecord.projectId || existingRecord?.projectId || "",
+      ).trim() || null,
+      nextProjectName: normalizedNextProjectName,
+      nextProjectId: String(
+        matchedNextProject?.id ||
+          workingRecord.nextProjectId ||
+          existingRecord?.nextProjectId ||
+          "",
+      ).trim() || null,
+      startTime: startDate ? serializeRecordDate(startDate) : null,
+      endTime: normalizedEndTime,
+      rawEndTime: normalizedRawEndTime,
+      durationMs: Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : null,
+      clickCount:
+        Number.isFinite(existingRecord?.clickCount) && existingRecord.clickCount > 0
+          ? Math.max(1, Math.floor(existingRecord.clickCount))
+          : null,
+      timerRollbackState:
+        existingRecord?.timerRollbackState &&
+        typeof existingRecord.timerRollbackState === "object"
+          ? clonePlainValue(existingRecord.timerRollbackState)
+          : null,
+      durationMeta: normalizedDurationMeta,
+      color:
+        matchedProject?.color ||
+        String(existingRecord?.color || workingRecord.color || "").trim() ||
+        defaultColorForName(normalizedName),
+    };
+  }
+
+  function updateRecordEntry(existingRecord, updates = {}, options = {}) {
+    return buildRecordEntry(
+      {
+        existingRecord,
+        ...(updates && typeof updates === "object" ? updates : {}),
+      },
+      options,
+    );
+  }
+
+  function createProjectEntry(projectName, options = {}) {
+    const normalizedName = normalizeProjectReferenceName(projectName);
+    if (!normalizedName) {
+      return null;
+    }
+    return {
+      id: createProjectId(options.prefix || "project"),
+      name: normalizedName,
+      level: normalizeProjectLevel(options.level || 1),
+      parentId: options.parentId ? String(options.parentId).trim() : null,
+      color:
+        String(options.color || "").trim() ||
+        defaultColorForName(`${normalizeProjectLevel(options.level || 1)}:${normalizedName}`),
+      description:
+        typeof options.description === "string" ? options.description : "",
+      colorMode:
+        typeof options.colorMode === "string" && options.colorMode.trim()
+          ? options.colorMode.trim()
+          : "auto",
+      createdAt:
+        typeof options.createdAt === "string" && options.createdAt
+          ? options.createdAt
+          : new Date().toISOString(),
+    };
+  }
+
   function buildProjectHierarchyIndex(projects = []) {
     const allNodes = (Array.isArray(projects) ? projects : [])
       .filter((project) => project && typeof project === "object")
@@ -803,6 +1194,24 @@
     findProjectForRecord,
     buildProjectPath,
     createStatsContext,
+  };
+  window.ControlerRecordDomain = {
+    clonePlainValue,
+    parseFlexibleDate,
+    serializeRecordDate,
+    parseSpendTimeToMs,
+    formatRecordDurationFromMs,
+    createRecordId,
+    createProjectId,
+    extractProjectLeafName,
+    normalizeProjectReferenceName,
+    findProjectByReferenceName,
+    normalizeRecordDurationMeta,
+    resolveRecordProject,
+    resolveRecordNextProjectName,
+    buildRecordEntry,
+    updateRecordEntry,
+    createProjectEntry,
   };
 })();
 
@@ -1477,6 +1886,8 @@ let statsLastPersistenceError = null;
 let statsBeforePageLeaveGuardBound = false;
 const uiTools = window.ControlerUI || null;
 const projectStatsApi = window.ControlerProjectStats || null;
+const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
+const statsRecordDomainApi = window.ControlerRecordDomain || null;
 const statsStorageBundleApi = window.ControlerStorageBundle || null;
 const statsDataIndex = window.ControlerDataIndex?.createStore?.() || null;
 const IS_ANDROID_NATIVE_STATS_RUNTIME =
@@ -4644,7 +5055,11 @@ function buildStatsLoadedRecordPeriodIds(scope = {}, recordList = []) {
             .filter(Boolean)
         : [];
   const actualPeriodIds = Array.isArray(recordList)
-    ? [...new Set(recordList.map((record) => getStatsRecordPeriodId(record)).filter(Boolean))]
+    ? [
+        ...new Set(
+          recordList.flatMap((record) => getStatsRecordPeriodIds(record)).filter(Boolean),
+        ),
+      ]
     : [];
   if (recordScope?.all === true) {
     return actualPeriodIds;
@@ -4663,7 +5078,10 @@ function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStats
     recordScope?.all === true
       ? sourceRecords.slice()
       : sourceRecords.filter((record) => {
-          if (periodSet.size > 0 && !periodSet.has(getStatsRecordPeriodId(record))) {
+          if (
+            periodSet.size > 0 &&
+            !getStatsRecordPeriodIds(record).some((periodId) => periodSet.has(periodId))
+          ) {
             return false;
           }
           return statsRecordOverlapsScope(record, scope);
@@ -4703,91 +5121,89 @@ function pickPreferredStatsWorkspaceSnapshot(primarySnapshot = null, fallbackSna
     : primarySnapshot;
 }
 
-function readStatsWorkspaceSnapshotFromPageBootstrap(scope = getStatsLoadScope()) {
+function buildStatsWorkspaceSnapshotFromTrustedEnvelope(
+  envelope = null,
+  scope = getStatsLoadScope(),
+) {
+  if (!envelope || typeof envelope !== "object") {
+    return null;
+  }
+  const nextRecords = Array.isArray(envelope.records) ? envelope.records : [];
+  return {
+    preferences: readStatsPreferencesFromStorage(),
+    records: nextRecords,
+    projects: Array.isArray(envelope.projects) ? envelope.projects : [],
+    loadedRecordPeriodIds:
+      Array.isArray(envelope.loadedPeriodIds) && envelope.loadedPeriodIds.length
+        ? envelope.loadedPeriodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : buildStatsLoadedRecordPeriodIds(scope, nextRecords),
+  };
+}
+
+function readStatsWorkspaceSnapshotFromTrustedCache(scope = getStatsLoadScope()) {
   try {
-    if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
+    if (
+      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !== "function"
+    ) {
       return null;
     }
     const recordScope = getExpandedStatsRecordLoadScope(scope);
-    const pageBootstrap = window.ControlerStorage.peekPageBootstrapState("stats", {
-      recordScope,
-    });
-    const data =
-      pageBootstrap?.data && typeof pageBootstrap.data === "object"
-        ? pageBootstrap.data
-        : null;
-    if (!data) {
-      return null;
-    }
-    const nextRecords = Array.isArray(data.defaultRangeRecordsOrAggregate)
-      ? data.defaultRangeRecordsOrAggregate
-      : [];
-    return {
-      preferences:
-        data.statsPreferences && typeof data.statsPreferences === "object"
-          ? data.statsPreferences
-          : readStatsPreferencesFromStorage(),
-      records: nextRecords,
-      projects: Array.isArray(data.projects) ? data.projects : [],
-      loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
-    };
-  } catch (error) {
-    console.error("读取统计页缓存快照失败:", error);
-    return null;
-  }
-}
-
-function readStatsWorkspaceSnapshotFromManagedStorage(scope = getStatsLoadScope()) {
-  try {
-    const snapshot =
-      typeof window.ControlerStorage?.dump === "function"
-        ? window.ControlerStorage.dump()
-        : null;
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-      return null;
-    }
-    return buildStatsWorkspaceSnapshotFromState(snapshot, scope);
-  } catch (error) {
-    console.error("读取统计页受管快照失败:", error);
-    return null;
-  }
-}
-
-function readStatsWorkspaceSnapshotFromLocalMirror(scope = getStatsLoadScope()) {
-  try {
-    const rawRecords = JSON.parse(localStorage.getItem("records") || "[]");
-    const rawProjects = JSON.parse(localStorage.getItem("projects") || "[]");
-    const rawPreferences = JSON.parse(
-      localStorage.getItem(STATS_PREFERENCES_STORAGE_KEY) || "{}",
-    );
-    return buildStatsWorkspaceSnapshotFromState(
+    const cachedEnvelope = window.ControlerStorage.peekTrustedRecordBootstrapState(
+      "stats",
       {
-        records: Array.isArray(rawRecords) ? rawRecords : [],
-        projects: Array.isArray(rawProjects) ? rawProjects : [],
-        statsPreferences: rawPreferences,
+        recordScope,
       },
-      scope,
     );
+    return buildStatsWorkspaceSnapshotFromTrustedEnvelope(cachedEnvelope, scope);
   } catch (error) {
-    console.error("读取统计页本地镜像失败:", error);
+    console.error("读取统计页精确范围缓存失败:", error);
     return null;
   }
+}
+
+async function persistStatsTrustedRecordBootstrap(
+  scope = getStatsLoadScope(),
+  snapshot = {},
+) {
+  if (typeof window.ControlerStorage?.setTrustedRecordBootstrapState !== "function") {
+    return null;
+  }
+  const recordScope = getExpandedStatsRecordLoadScope(scope);
+  const normalizedSnapshot =
+    snapshot && typeof snapshot === "object" ? snapshot : captureStatsWorkspaceSnapshot();
+  const recordSnapshot = Array.isArray(normalizedSnapshot.records)
+    ? cloneStatsRecordSnapshotList(normalizedSnapshot.records)
+    : cloneStatsRecordSnapshotList(records);
+  return window.ControlerStorage.setTrustedRecordBootstrapState(
+    "stats",
+    {
+      recordScope,
+      loadedPeriodIds:
+        Array.isArray(normalizedSnapshot.loadedRecordPeriodIds) &&
+        normalizedSnapshot.loadedRecordPeriodIds.length
+          ? normalizedSnapshot.loadedRecordPeriodIds
+          : buildStatsLoadedRecordPeriodIds(scope, recordSnapshot),
+      projects: Array.isArray(normalizedSnapshot.projects)
+        ? cloneStatsProjectSnapshot(normalizedSnapshot.projects)
+        : cloneStatsProjectSnapshot(projects),
+      records: recordSnapshot,
+    },
+    {
+      recordScope,
+    },
+  );
 }
 
 function bootstrapStatsFromCachedSnapshot(scope = getStatsLoadScope()) {
-  const pageBootstrapSnapshot = readStatsWorkspaceSnapshotFromPageBootstrap(scope);
-  const managedSnapshot = readStatsWorkspaceSnapshotFromManagedStorage(scope);
-  const localSnapshot = readStatsWorkspaceSnapshotFromLocalMirror(scope);
-  const snapshot = pickPreferredStatsWorkspaceSnapshot(
-    pickPreferredStatsWorkspaceSnapshot(pageBootstrapSnapshot, managedSnapshot),
-    localSnapshot,
-  );
+  const snapshot = readStatsWorkspaceSnapshotFromTrustedCache(scope);
   if (!snapshot) {
     statsBootstrappedFromPageBootstrap = false;
     return false;
   }
   applyStatsWorkspaceState(snapshot);
-  statsBootstrappedFromPageBootstrap = snapshot === pageBootstrapSnapshot;
+  statsBootstrappedFromPageBootstrap = false;
   uiTools?.markPerfStage?.("first-data-ready", {
     rangeUnit: statsRangeState.unit,
     recordCount: records.length,
@@ -4853,6 +5269,9 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           projectCount: snapshot.projects.length,
           loadedPeriodCount: snapshot.loadedRecordPeriodIds.length,
         });
+        await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
+          console.error("写入统计页精确范围缓存失败:", error);
+        });
         return snapshot;
       }
     }
@@ -4896,6 +5315,9 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           ? recordsResult.periodIds.length
           : snapshot.loadedRecordPeriodIds.length,
       });
+      await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
+        console.error("写入统计页精确范围缓存失败:", error);
+      });
       return snapshot;
     }
 
@@ -4916,6 +5338,9 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
       authoritative: forceAuthoritativeRead,
       recordCount: snapshot.records.length,
       projectCount: snapshot.projects.length,
+    });
+    await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
+      console.error("写入统计页精确范围缓存失败:", error);
     });
     return snapshot;
   } catch (e) {
@@ -7169,6 +7594,22 @@ function renderWeeklyTimeGrid(container) {
         hour === 23
           ? "none"
           : "1px solid color-mix(in srgb, var(--panel-border-color) 72%, transparent)";
+      if (!widgetMode) {
+        bindStatsGridGapActivation(cell, (event) => {
+          const clickedAt = resolveStatsWeeklyGridClickTime(dayDate, hour, cell, event);
+          const gap = findStatsGapAtTime(dayDate, clickedAt);
+          if (!gap || gap.endTime.getTime() <= gap.startTime.getTime()) {
+            return;
+          }
+          if (gap.endTime.getTime() > Date.now()) {
+            return;
+          }
+          openStatsRecordEditModal({
+            mode: "create",
+            gap,
+          });
+        });
+      }
       weeklyGridCellRefs.set(`${formatDateInputValue(dayDate)}-${hour}`, cell);
       table.appendChild(cell);
     }
@@ -7195,7 +7636,7 @@ function renderWeeklyTimeGrid(container) {
   legend.style.flex = "0 0 auto";
   legend.innerHTML = `
     <p style="margin: 0 0 10px 0; color: var(--text-color); font-size: 14px">
-      <strong>图例：</strong> 每个色块代表一个时间段，鼠标悬停可查看详情，双击记录可编辑
+      <strong>图例：</strong> 每个色块代表一个时间段，鼠标悬停可查看详情，双击记录可编辑，双击过去空白区可新增
     </p>
     <div style="display: flex; gap: 10px; flex-wrap: wrap">
       ${getProjectColorsLegend({
@@ -7258,6 +7699,56 @@ function bindStatsRecordEditActivation(element, onActivate) {
     event.stopPropagation();
     lastTapAt = 0;
     onActivate();
+  });
+}
+
+function bindStatsGridGapActivation(element, onActivate) {
+  if (!(element instanceof HTMLElement) || typeof onActivate !== "function") {
+    return;
+  }
+  if (element.__statsGridGapActivationBound) {
+    return;
+  }
+  element.__statsGridGapActivationBound = true;
+
+  let lastTapAt = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
+
+  element.addEventListener("dblclick", (event) => {
+    if (event.target !== element) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onActivate(event);
+  });
+
+  element.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "mouse" || event.target !== element) {
+      return;
+    }
+
+    const now = Date.now();
+    const deltaX = Math.abs(event.clientX - lastTapX);
+    const deltaY = Math.abs(event.clientY - lastTapY);
+    const tappedTwice =
+      now - lastTapAt <= DOUBLE_TAP_ACTIVATION_DELAY_MS &&
+      deltaX <= DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX &&
+      deltaY <= DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX;
+
+    lastTapAt = now;
+    lastTapX = event.clientX;
+    lastTapY = event.clientY;
+
+    if (!tappedTwice) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    lastTapAt = 0;
+    onActivate(event);
   });
 }
 
@@ -7336,20 +7827,20 @@ function saveStatsRecordsToStorage() {
     if (typeof window.ControlerStorage?.saveSectionRange === "function") {
       const periodIds = statsLoadedRecordPeriodIds.length
         ? statsLoadedRecordPeriodIds.slice()
-        : [...new Set(records.map((record) => getStatsRecordPeriodId(record)))];
+        : [...new Set(records.flatMap((record) => getStatsRecordPeriodIds(record)))];
       await Promise.all(
         periodIds.map((periodId) =>
           window.ControlerStorage.saveSectionRange("records", {
             periodId,
             items: records.filter(
-              (record) => getStatsRecordPeriodId(record) === periodId,
+              (record) => getStatsRecordPeriodIds(record).includes(periodId),
             ),
             mode: "replace",
           }),
         ),
       );
     } else {
-      localStorage.setItem("records", JSON.stringify(records));
+      localStorage.setItem("records", JSON.stringify(recordsSnapshot));
     }
     const authoritativeRecords = await loadAllStatsRecordsFromStorage(records);
     const nextProjects =
@@ -7357,90 +7848,104 @@ function saveStatsRecordsToStorage() {
       cloneStatsProjectSnapshot(projects);
     await persistStatsProjectsSnapshot(nextProjects);
     syncStatsDataIndex(["records", "projects"]);
+    await persistStatsTrustedRecordBootstrap(
+      getStatsLoadScope(),
+      captureStatsWorkspaceSnapshot({
+        projects: nextProjects,
+      }),
+    ).catch((error) => {
+      console.error("写入统计页精确范围缓存失败:", error);
+    });
     return true;
   }, "保存统计记录失败:");
 }
 
-function saveStatsRecordPeriodReplace(periodId, recordsSnapshot = []) {
-  return window.ControlerStorage.saveSectionRange("records", {
-    periodId,
-    items: recordsSnapshot.filter(
-      (record) => getStatsRecordPeriodId(record) === periodId,
-    ),
-    mode: "replace",
-  });
+function persistStatsRecordMutationsToStorage({
+  upserts = [],
+  removedItems = [],
+  projectSnapshot = projects,
+  recordsSnapshot = records,
+  periodIds = [],
+  forceReplacePeriodIds = [],
+} = {}) {
+  return queueStatsPersistenceTask(async () => {
+    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
+      if (typeof indexRecordPersistenceApi?.persistRecordMutations !== "function") {
+        throw new Error("缺少统一 records 分区持久化能力。");
+      }
+      await indexRecordPersistenceApi.persistRecordMutations({
+        currentRecords: cloneStatsRecordSnapshotList(recordsSnapshot),
+        upserts: cloneStatsRecordSnapshotList(upserts),
+        removedItems: cloneStatsRecordSnapshotList(removedItems),
+        periodIds: Array.isArray(periodIds) ? periodIds : [],
+        forceReplacePeriodIds: Array.isArray(forceReplacePeriodIds)
+          ? forceReplacePeriodIds
+          : [],
+        allRecordsLoaded: false,
+        supportsPatch: true,
+        loadSectionRange: (section, scope) =>
+          window.ControlerStorage.loadSectionRange(section, scope),
+        saveSectionRange: (section, payload) =>
+          window.ControlerStorage.saveSectionRange(section, payload),
+        getPeriodId: getStatsRecordPeriodId,
+        getPeriodIds: getStatsRecordPeriodIds,
+        cloneValue: cloneStatsValue,
+      });
+    } else {
+      const authoritativeRecords = await loadAllStatsRecordsFromStorage(recordsSnapshot);
+      const nextAllRecords =
+        typeof indexRecordPersistenceApi?.applyRecordMutations === "function"
+          ? indexRecordPersistenceApi.applyRecordMutations(
+              authoritativeRecords,
+              {
+                upserts,
+                removedItems,
+              },
+              {
+                cloneValue: cloneStatsValue,
+              },
+            )
+          : cloneStatsRecordSnapshotList(recordsSnapshot);
+      localStorage.setItem("records", JSON.stringify(nextAllRecords));
+    }
+    await persistStatsProjectsSnapshot(projectSnapshot);
+    await persistStatsTrustedRecordBootstrap(
+      getStatsLoadScope(),
+      captureStatsWorkspaceSnapshot({
+        projects: projectSnapshot,
+        records: recordsSnapshot,
+      }),
+    ).catch((error) => {
+      console.error("写入统计页精确范围缓存失败:", error);
+    });
+    return true;
+  }, "保存统计记录失败:");
 }
 
 function saveStatsRecordUpdateToStorage(
   previousRecord,
   nextRecord,
-  recordsSnapshot = [],
   projectSnapshot = projects,
+  recordsSnapshot = records,
 ) {
-  const previousPeriodId = previousRecord
-    ? getStatsRecordPeriodId(previousRecord)
-    : "";
-  const nextPeriodId = nextRecord ? getStatsRecordPeriodId(nextRecord) : "";
-  const previousRecordId = getStatsRecordStableId(previousRecord);
-  const nextRecordId = getStatsRecordStableId(nextRecord);
-  const stableRecordId = nextRecordId || previousRecordId;
-
-  return queueStatsPersistenceTask(async () => {
-    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      const canUsePatch =
-        !!stableRecordId &&
-        !!previousPeriodId &&
-        previousPeriodId === nextPeriodId;
-      if (canUsePatch) {
-        await window.ControlerStorage.saveSectionRange("records", {
-          periodId: nextPeriodId,
-          items: nextRecord ? [nextRecord] : [],
-          mode: "patch",
-        });
-      } else {
-        const periodIds = [...new Set([previousPeriodId, nextPeriodId].filter(Boolean))];
-        await Promise.all(
-          periodIds.map((periodId) =>
-            saveStatsRecordPeriodReplace(periodId, recordsSnapshot),
-          ),
-        );
-      }
-    } else {
-      localStorage.setItem("records", JSON.stringify(recordsSnapshot));
-    }
-    await persistStatsProjectsSnapshot(projectSnapshot);
-    return true;
-  }, "保存统计记录失败:");
+  return persistStatsRecordMutationsToStorage({
+    upserts: nextRecord ? [nextRecord] : [],
+    removedItems: previousRecord ? [previousRecord] : [],
+    projectSnapshot,
+    recordsSnapshot,
+  });
 }
 
 function deleteStatsRecordFromStorage(
   deletedRecord,
-  recordsSnapshot = [],
   projectSnapshot = projects,
+  recordsSnapshot = records,
 ) {
-  const deletedPeriodId = deletedRecord ? getStatsRecordPeriodId(deletedRecord) : "";
-  const deletedRecordId = getStatsRecordStableId(deletedRecord);
-
-  return queueStatsPersistenceTask(async () => {
-    if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      const canUsePatch = !!deletedRecordId && !!deletedPeriodId;
-      if (canUsePatch) {
-        await window.ControlerStorage.saveSectionRange("records", {
-          periodId: deletedPeriodId,
-          items: [],
-          removedItems: deletedRecord ? [deletedRecord] : [],
-          removeIds: deletedRecordId ? [deletedRecordId] : [],
-          mode: "patch",
-        });
-      } else if (deletedPeriodId) {
-        await saveStatsRecordPeriodReplace(deletedPeriodId, recordsSnapshot);
-      }
-    } else {
-      localStorage.setItem("records", JSON.stringify(recordsSnapshot));
-    }
-    await persistStatsProjectsSnapshot(projectSnapshot);
-    return true;
-  }, "删除统计记录失败:");
+  return persistStatsRecordMutationsToStorage({
+    removedItems: deletedRecord ? [deletedRecord] : [],
+    projectSnapshot,
+    recordsSnapshot,
+  });
 }
 
 function getStatsRecordPeriodId(record) {
@@ -7453,6 +7958,22 @@ function getStatsRecordPeriodId(record) {
   const anchor =
     record?.endTime || record?.timestamp || record?.startTime || "";
   return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+}
+
+function getStatsRecordPeriodIds(record) {
+  if (typeof window.ControlerStorageBundle?.getPeriodIdsForSectionItem === "function") {
+    const periodIds = window.ControlerStorageBundle.getPeriodIdsForSectionItem(
+      "records",
+      record,
+    );
+    const normalizedPeriodIds = (Array.isArray(periodIds) ? periodIds : [])
+      .map((periodId) => String(periodId || "").trim())
+      .filter(Boolean);
+    if (normalizedPeriodIds.length) {
+      return [...new Set(normalizedPeriodIds)];
+    }
+  }
+  return [getStatsRecordPeriodId(record)];
 }
 
 function getStatsProjectPath(project) {
@@ -7500,54 +8021,444 @@ function resolveStatsProjectNameFromInput(rawInput) {
   return normalizedInput;
 }
 
+function formatStatsDateTimeLocalValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${formatDateInputValue(date)}T${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+function parseStatsDateTimeLocalValue(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return null;
+  }
+  const parsed = new Date(normalizedValue);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getStatsDayStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function getStatsDayEndExclusive(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+}
+
+function clampStatsFutureBoundary(boundary, referenceDate = boundary) {
+  const now = new Date();
+  if (
+    boundary instanceof Date &&
+    !Number.isNaN(boundary.getTime()) &&
+    referenceDate instanceof Date &&
+    !Number.isNaN(referenceDate.getTime()) &&
+    isSameDate(referenceDate, now) &&
+    boundary.getTime() > now.getTime()
+  ) {
+    return new Date(now.getTime());
+  }
+  return boundary instanceof Date && !Number.isNaN(boundary.getTime())
+    ? new Date(boundary.getTime())
+    : null;
+}
+
+function buildStatsRecordEditorPayload({
+  existingRecord = null,
+  projectName = "",
+  startTime,
+  endTime,
+  projectList = projects,
+} = {}) {
+  const normalizedName = resolveStatsProjectNameFromInput(projectName);
+  if (!normalizedName) {
+    return null;
+  }
+  const safeProjectList = Array.isArray(projectList) ? projectList : [];
+  if (typeof statsRecordDomainApi?.buildRecordEntry === "function") {
+    const builtRecord = statsRecordDomainApi.buildRecordEntry(
+      {
+        existingRecord,
+        name: normalizedName,
+        startTime,
+        endTime,
+        rawEndTime: endTime,
+        durationMs: Math.max(
+          0,
+          (endTime instanceof Date ? endTime.getTime() : 0) -
+            (startTime instanceof Date ? startTime.getTime() : 0),
+        ),
+        nextProjectName: existingRecord?.nextProjectName,
+        nextProjectId: existingRecord?.nextProjectId,
+        durationMeta: existingRecord?.durationMeta || null,
+      },
+      {
+        projectList: safeProjectList,
+      },
+    );
+    return normalizeStatsLoadedRecords([builtRecord], safeProjectList)[0] || builtRecord;
+  }
+  return normalizeStatsLoadedRecords(
+    [
+      {
+        ...(existingRecord && typeof existingRecord === "object" ? existingRecord : {}),
+        id:
+          String(existingRecord?.id || "").trim() ||
+          `stats-record-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        timestamp: endTime.toISOString(),
+        sptTime: endTime.toISOString(),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        rawEndTime: endTime.toISOString(),
+        name: normalizedName,
+        spendtime: formatMergedSpendtime(endTime.getTime() - startTime.getTime()),
+        durationMs: Math.max(0, endTime.getTime() - startTime.getTime()),
+      },
+    ],
+    safeProjectList,
+  )[0];
+}
+
+function ensureStatsProjectSnapshotForName(projectName, projectList = projects) {
+  const normalizedName = resolveStatsProjectNameFromInput(projectName);
+  const safeProjectList = cloneStatsProjectSnapshot(projectList);
+  if (!normalizedName) {
+    return {
+      projects: safeProjectList,
+      project: null,
+      created: false,
+    };
+  }
+  const existingProject = findStatsProjectByName(normalizedName, safeProjectList);
+  if (existingProject) {
+    return {
+      projects: safeProjectList,
+      project: existingProject,
+      created: false,
+    };
+  }
+  const createdProject =
+    typeof statsRecordDomainApi?.createProjectEntry === "function"
+      ? statsRecordDomainApi.createProjectEntry(normalizedName, {
+          level: 1,
+          parentId: null,
+          colorMode: "auto",
+        })
+      : {
+          id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          name: normalizedName,
+          level: 1,
+          parentId: null,
+          color: getProjectColor(normalizedName),
+          description: "",
+          colorMode: "auto",
+          createdAt: new Date().toISOString(),
+        };
+  const nextProjects = [...safeProjectList, createdProject];
+  return {
+    projects: nextProjects,
+    project: createdProject,
+    created: true,
+  };
+}
+
+function applyStatsProjectDurationChangesToSnapshot(
+  projectList = projects,
+  changes = {},
+) {
+  const baseProjects = cloneStatsProjectSnapshot(projectList);
+  if (typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !== "function") {
+    return baseProjects;
+  }
+  const nextProjects = statsStorageBundleApi.applyProjectRecordDurationChanges(
+    baseProjects,
+    {
+      removedRecords: cloneStatsRecordSnapshotList(changes?.removedRecords),
+      addedRecords: cloneStatsRecordSnapshotList(changes?.addedRecords),
+    },
+  );
+  return Array.isArray(nextProjects)
+    ? cloneStatsProjectSnapshot(nextProjects)
+    : baseProjects;
+}
+
+function commitStatsMutationState(nextRecords = [], nextProjects = projects) {
+  projects = cloneStatsProjectSnapshot(nextProjects);
+  records = normalizeStatsLoadedRecords(nextRecords, projects);
+  statsLoadedRecordPeriodIds = buildStatsLoadedRecordPeriodIds(
+    getStatsLoadScope(),
+    records,
+  );
+  syncStatsDataIndex(["records", "projects"]);
+}
+
+function getStatsSortedTimelineRecords() {
+  return convertToTimeRecords()
+    .slice()
+    .sort((left, right) => left.startTime.getTime() - right.startTime.getTime());
+}
+
+function getStatsRecordNeighborBounds(locator) {
+  const timelineRecords = getStatsSortedTimelineRecords();
+  const recordKey = getStatsRecordLocatorKey(locator);
+  const currentIndex = timelineRecords.findIndex(
+    (record) => getStatsRecordLocatorKey(record.sourceLocator) === recordKey,
+  );
+  if (currentIndex < 0) {
+    return null;
+  }
+  const currentRecord = timelineRecords[currentIndex];
+  const previousRecord = currentIndex > 0 ? timelineRecords[currentIndex - 1] : null;
+  const nextRecord =
+    currentIndex < timelineRecords.length - 1 ? timelineRecords[currentIndex + 1] : null;
+  const minimumStart = previousRecord
+    ? new Date(previousRecord.endTime.getTime())
+    : getStatsDayStart(currentRecord.startTime);
+  const maximumEnd = nextRecord
+    ? new Date(nextRecord.startTime.getTime())
+    : clampStatsFutureBoundary(
+        getStatsDayEndExclusive(currentRecord.endTime),
+        currentRecord.endTime,
+      );
+  return {
+    currentRecord,
+    previousRecord,
+    nextRecord,
+    minimumStart,
+    maximumEnd,
+  };
+}
+
+function buildStatsDayTimeline(date) {
+  const dayStart = getStatsDayStart(date);
+  const rawDayEnd = getStatsDayEndExclusive(date);
+  const dayEnd = clampStatsFutureBoundary(rawDayEnd, date) || rawDayEnd;
+  const items = getStatsSortedTimelineRecords()
+    .filter(
+      (record) =>
+        record.endTime.getTime() > dayStart.getTime() &&
+        record.startTime.getTime() < dayEnd.getTime(),
+    )
+    .map((record) => ({
+      ...record,
+      clippedStart: new Date(Math.max(record.startTime.getTime(), dayStart.getTime())),
+      clippedEnd: new Date(Math.min(record.endTime.getTime(), dayEnd.getTime())),
+    }))
+    .sort((left, right) => left.clippedStart.getTime() - right.clippedStart.getTime());
+  return {
+    dayStart,
+    dayEnd,
+    items,
+  };
+}
+
+function findStatsGapAtTime(date, clickedAt) {
+  const timeline = buildStatsDayTimeline(date);
+  const clickTime = clickedAt instanceof Date ? clickedAt.getTime() : Number.NaN;
+  if (!Number.isFinite(clickTime)) {
+    return null;
+  }
+  if (clickTime < timeline.dayStart.getTime() || clickTime > timeline.dayEnd.getTime()) {
+    return null;
+  }
+  let cursorTime = timeline.dayStart.getTime();
+  let previousRecord = null;
+  for (const item of timeline.items) {
+    const itemStart = item.clippedStart.getTime();
+    const itemEnd = item.clippedEnd.getTime();
+    if (itemEnd <= cursorTime) {
+      if (!previousRecord || itemEnd >= previousRecord.clippedEnd.getTime()) {
+        previousRecord = item;
+      }
+      continue;
+    }
+    if (itemStart > cursorTime && clickTime >= cursorTime && clickTime < itemStart) {
+      return {
+        startTime: new Date(cursorTime),
+        endTime: new Date(itemStart),
+        previousRecord,
+        nextRecord: item,
+      };
+    }
+    cursorTime = Math.max(cursorTime, itemEnd);
+    previousRecord = item;
+  }
+  if (clickTime >= cursorTime && clickTime <= timeline.dayEnd.getTime()) {
+    return {
+      startTime: new Date(cursorTime),
+      endTime: new Date(timeline.dayEnd.getTime()),
+      previousRecord,
+      nextRecord: null,
+    };
+  }
+  return null;
+}
+
+function resolveStatsWeeklyGridClickTime(date, hour, cell, event) {
+  const baseDate =
+    date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  let minute = 30;
+  if (
+    cell instanceof HTMLElement &&
+    event &&
+    Number.isFinite(event.clientY) &&
+    typeof cell.getBoundingClientRect === "function"
+  ) {
+    const rect = cell.getBoundingClientRect();
+    if (rect.height > 0) {
+      const offsetY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+      minute = Math.min(59, Math.max(0, Math.floor((offsetY / rect.height) * 60)));
+    }
+  }
+  return new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    Math.max(0, Math.min(23, Math.round(Number(hour) || 0))),
+    minute,
+    0,
+    0,
+  );
+}
+
 function getStatsRecordInputDisplayValue(record) {
   const project = findProjectForRecord(record);
   return project ? getStatsProjectPath(project) : record?.name || "";
 }
 
 async function openStatsRecordEditModal(locator) {
-  const recordIndex = findStatsSourceRecordIndex(locator);
-  if (recordIndex < 0) {
-    if (uiTools?.alertDialog) {
-      await uiTools.alertDialog({
-        title: "未找到记录",
-        message: "当前记录已不存在，请刷新后重试。",
-        confirmText: "知道了",
-        danger: true,
-      });
-    } else {
-      window.alert("当前记录已不存在，请刷新后重试。");
+  const request =
+    locator && typeof locator === "object" && ("mode" in locator || "gap" in locator)
+      ? locator
+      : {
+          mode: "edit",
+          locator,
+        };
+  const isCreateMode = request.mode === "create";
+  let sourceRecord = null;
+  let timeRecord = null;
+  let recordLocator = request.locator || null;
+  let minimumStart = null;
+  let maximumEnd = null;
+
+  const ceilDateToMinute = (date) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return null;
     }
-    void refreshStatsRangeData(true);
+    const normalized = new Date(date.getTime());
+    if (normalized.getSeconds() !== 0 || normalized.getMilliseconds() !== 0) {
+      normalized.setMinutes(normalized.getMinutes() + 1);
+    }
+    normalized.setSeconds(0, 0);
+    return normalized;
+  };
+  const floorDateToMinute = (date) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const normalized = new Date(date.getTime());
+    normalized.setSeconds(0, 0);
+    return normalized;
+  };
+
+  if (isCreateMode) {
+    const gap = request.gap;
+    if (
+      !gap ||
+      !(gap.startTime instanceof Date) ||
+      Number.isNaN(gap.startTime.getTime()) ||
+      !(gap.endTime instanceof Date) ||
+      Number.isNaN(gap.endTime.getTime()) ||
+      gap.endTime.getTime() <= gap.startTime.getTime()
+    ) {
+      return;
+    }
+    minimumStart = new Date(gap.startTime.getTime());
+    maximumEnd = new Date(gap.endTime.getTime());
+  } else {
+    const recordIndex = findStatsSourceRecordIndex(recordLocator);
+    if (recordIndex < 0) {
+      if (uiTools?.alertDialog) {
+        await uiTools.alertDialog({
+          title: "未找到记录",
+          message: "当前记录已不存在，请刷新后重试。",
+          confirmText: "知道了",
+          danger: true,
+        });
+      } else {
+        window.alert("当前记录已不存在，请刷新后重试。");
+      }
+      void refreshStatsRangeData(true);
+      return;
+    }
+
+    sourceRecord = records[recordIndex];
+    const neighborBounds = getStatsRecordNeighborBounds(recordLocator);
+    if (!neighborBounds?.currentRecord) {
+      void refreshStatsRangeData(true);
+      return;
+    }
+    timeRecord = neighborBounds.currentRecord;
+    minimumStart = neighborBounds.minimumStart;
+    maximumEnd = neighborBounds.maximumEnd;
+  }
+
+  const normalizedMinimumStart = ceilDateToMinute(minimumStart);
+  const normalizedMaximumEnd = floorDateToMinute(maximumEnd);
+  if (
+    !(normalizedMinimumStart instanceof Date) ||
+    Number.isNaN(normalizedMinimumStart.getTime()) ||
+    !(normalizedMaximumEnd instanceof Date) ||
+    Number.isNaN(normalizedMaximumEnd.getTime()) ||
+    normalizedMaximumEnd.getTime() <= normalizedMinimumStart.getTime()
+  ) {
+    await showStatsPersistenceFailureAlert("当前时间范围不可编辑，请调整后重试。", {
+      title: isCreateMode ? "无法新增记录" : "无法编辑记录",
+    });
     return;
   }
 
-  const sourceRecord = records[recordIndex];
-  const timeRecord = convertToTimeRecords().find(
-    (record) =>
-      getStatsRecordLocatorKey(record.sourceLocator) ===
-      getStatsRecordLocatorKey(locator),
-  );
+  const initialStart = isCreateMode
+    ? normalizedMinimumStart
+    : floorDateToMinute(timeRecord?.startTime) || normalizedMinimumStart;
+  const initialEnd = isCreateMode
+    ? normalizedMaximumEnd
+    : floorDateToMinute(timeRecord?.endTime) || normalizedMaximumEnd;
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
   modal.style.display = "flex";
   modal.style.zIndex = "3200";
   modal.innerHTML = `
     <div class="modal-content ms" style="padding: 22px; border-radius: 15px; width: min(520px, calc(100% - 24px)); max-width: min(520px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto;">
-      <h3 style="margin: 0 0 16px 0; color: var(--text-color);">编辑记录</h3>
+      <h3 style="margin: 0 0 16px 0; color: var(--text-color);">${isCreateMode ? "新增记录" : "编辑记录"}</h3>
       <div style="display:flex; flex-direction:column; gap: 12px;">
         <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
           <span>项目名称</span>
           <input id="stats-record-name-input" type="text" autocomplete="off" spellcheck="false" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 16px;" />
         </label>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; color: var(--muted-text-color); font-size: 13px;">
-          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">开始：${timeRecord ? `${formatDateInputValue(timeRecord.startTime)} ${formatTime(timeRecord.startTime)}` : "未知"}</div>
-          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">结束：${timeRecord ? `${formatDateInputValue(timeRecord.endTime)} ${formatTime(timeRecord.endTime)}` : "未知"}</div>
-          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">时长：${sourceRecord?.spendtime || timeRecord?.spendtime || "未知"}</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+          <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
+            <span>开始时间</span>
+            <input id="stats-record-start-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
+            <span>结束时间</span>
+            <input id="stats-record-end-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
+          </label>
         </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; color: var(--muted-text-color); font-size: 13px;">
+          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">开始下限：${formatDateInputValue(normalizedMinimumStart)} ${formatTime(normalizedMinimumStart)}</div>
+          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">结束上限：${formatDateInputValue(normalizedMaximumEnd)} ${formatTime(normalizedMaximumEnd)}</div>
+          <div class="ss" style="padding: 10px 12px; border-radius: 10px;">时长：<span id="stats-record-duration-value">未知</span></div>
+        </div>
+        <div id="stats-record-editor-hint" style="color: var(--muted-text-color); font-size: 12px;"></div>
       </div>
       <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display:flex; align-items:center; gap:10px; margin-top: 18px;">
-        <button class="bts" type="button" id="stats-record-delete-btn" style="margin:0; background-color: var(--delete-btn);">删除</button>
+        ${isCreateMode ? "" : '<button class="bts" type="button" id="stats-record-delete-btn" style="margin:0; background-color: var(--delete-btn);">删除</button>'}
         <div class="controler-form-modal-footer-actions" style="display:flex; gap:10px;">
           <button class="bts" type="button" id="stats-record-cancel-btn" style="margin:0;">取消</button>
           <button class="bts" type="button" id="stats-record-save-btn" style="margin:0;">保存</button>
@@ -7573,28 +8484,70 @@ async function openStatsRecordEditModal(locator) {
     renderCurrentView();
   };
   const nameInput = modal.querySelector("#stats-record-name-input");
+  const startInput = modal.querySelector("#stats-record-start-input");
+  const endInput = modal.querySelector("#stats-record-end-input");
+  const durationValue = modal.querySelector("#stats-record-duration-value");
+  const hintNode = modal.querySelector("#stats-record-editor-hint");
   const cancelBtn = modal.querySelector("#stats-record-cancel-btn");
   const saveBtn = modal.querySelector("#stats-record-save-btn");
   const deleteBtn = modal.querySelector("#stats-record-delete-btn");
 
   if (nameInput) {
-    nameInput.value = getStatsRecordInputDisplayValue(sourceRecord);
+    nameInput.value = isCreateMode ? "" : getStatsRecordInputDisplayValue(sourceRecord);
     window.setTimeout(() => {
       nameInput.focus();
       nameInput.select?.();
     }, 0);
   }
+  if (startInput) {
+    startInput.min = formatStatsDateTimeLocalValue(normalizedMinimumStart);
+    startInput.max = formatStatsDateTimeLocalValue(normalizedMaximumEnd);
+    startInput.value = formatStatsDateTimeLocalValue(initialStart);
+  }
+  if (endInput) {
+    endInput.min = formatStatsDateTimeLocalValue(normalizedMinimumStart);
+    endInput.max = formatStatsDateTimeLocalValue(normalizedMaximumEnd);
+    endInput.value = formatStatsDateTimeLocalValue(initialEnd);
+  }
 
-  cancelBtn?.addEventListener("click", () => {
-    closeModal();
-  });
+  const syncDurationPreview = () => {
+    const startDate = parseStatsDateTimeLocalValue(startInput?.value);
+    const endDate = parseStatsDateTimeLocalValue(endInput?.value);
+    if (
+      !(startDate instanceof Date) ||
+      Number.isNaN(startDate.getTime()) ||
+      !(endDate instanceof Date) ||
+      Number.isNaN(endDate.getTime())
+    ) {
+      if (durationValue) {
+        durationValue.textContent = "请选择有效时间";
+      }
+      if (hintNode) {
+        hintNode.textContent = "请输入有效的开始时间和结束时间。";
+      }
+      return;
+    }
+    if (durationValue) {
+      durationValue.textContent =
+        endDate.getTime() > startDate.getTime()
+          ? formatMergedSpendtime(endDate.getTime() - startDate.getTime())
+          : "结束时间需晚于开始时间";
+    }
+    if (hintNode) {
+      hintNode.textContent = `允许范围：${formatDateInputValue(
+        normalizedMinimumStart,
+      )} ${formatTime(normalizedMinimumStart)} 至 ${formatDateInputValue(
+        normalizedMaximumEnd,
+      )} ${formatTime(normalizedMaximumEnd)}`;
+    }
+  };
 
-  saveBtn?.addEventListener("click", async () => {
+  const validateEditorForm = async () => {
     const nextName = resolveStatsProjectNameFromInput(nameInput?.value);
     if (!nextName) {
       if (uiTools?.alertDialog) {
         await uiTools.alertDialog({
-          title: "无法保存记录",
+          title: isCreateMode ? "无法新增记录" : "无法保存记录",
           message: "请输入项目名称",
           confirmText: "知道了",
           danger: true,
@@ -7603,43 +8556,151 @@ async function openStatsRecordEditModal(locator) {
         window.alert("请输入项目名称");
       }
       nameInput?.focus();
-      return;
+      return null;
     }
 
-    const liveRecordIndex = findStatsSourceRecordIndex(locator);
-    if (liveRecordIndex < 0) {
-      closeModal();
-      void refreshStatsRangeData(true);
-      return;
+    const startDate = parseStatsDateTimeLocalValue(startInput?.value);
+    const endDate = parseStatsDateTimeLocalValue(endInput?.value);
+    if (
+      !(startDate instanceof Date) ||
+      Number.isNaN(startDate.getTime()) ||
+      !(endDate instanceof Date) ||
+      Number.isNaN(endDate.getTime())
+    ) {
+      await showStatsPersistenceFailureAlert("请输入有效的开始时间和结束时间。", {
+        title: isCreateMode ? "无法新增记录" : "无法保存记录",
+      });
+      return null;
     }
-
-    const nextProject =
-      projects.find((project) => project.name === nextName) || null;
-    const previousRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
-    records[liveRecordIndex] = {
-      ...records[liveRecordIndex],
-      name: nextName,
-      projectId: nextProject?.id || null,
+    if (endDate.getTime() <= startDate.getTime()) {
+      await showStatsPersistenceFailureAlert("结束时间必须晚于开始时间。", {
+        title: isCreateMode ? "无法新增记录" : "无法保存记录",
+      });
+      return null;
+    }
+    if (startDate.getTime() < normalizedMinimumStart.getTime()) {
+      await showStatsPersistenceFailureAlert(
+        `开始时间不能早于 ${formatDateInputValue(normalizedMinimumStart)} ${formatTime(normalizedMinimumStart)}。`,
+        {
+          title: isCreateMode ? "无法新增记录" : "无法保存记录",
+        },
+      );
+      return null;
+    }
+    if (endDate.getTime() > normalizedMaximumEnd.getTime()) {
+      await showStatsPersistenceFailureAlert(
+        `结束时间不能晚于 ${formatDateInputValue(normalizedMaximumEnd)} ${formatTime(normalizedMaximumEnd)}。`,
+        {
+          title: isCreateMode ? "无法新增记录" : "无法保存记录",
+        },
+      );
+      return null;
+    }
+    return {
+      nextName,
+      startDate,
+      endDate,
     };
-    const nextRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
-    const nextProjectsSnapshot =
-      applyStatsProjectRecordDurationChanges({
-        removedRecords: [previousRecordSnapshot],
-        addedRecords: [nextRecordSnapshot],
-      }) || cloneStatsProjectSnapshot(projects);
-    syncStatsDataIndex(["records", "projects"]);
-    const recordsSnapshot = cloneStatsRecordSnapshotList(records);
-    const persistPromise = saveStatsRecordUpdateToStorage(
-      previousRecordSnapshot,
-      nextRecordSnapshot,
-      recordsSnapshot,
-      nextProjectsSnapshot,
+  };
+
+  startInput?.addEventListener("input", syncDurationPreview);
+  endInput?.addEventListener("input", syncDurationPreview);
+  syncDurationPreview();
+
+  cancelBtn?.addEventListener("click", () => {
+    closeModal();
+  });
+
+  saveBtn?.addEventListener("click", async () => {
+    const formState = await validateEditorForm();
+    if (!formState) {
+      return;
+    }
+
+    const projectResolution = ensureStatsProjectSnapshotForName(
+      formState.nextName,
+      projects,
     );
+    let previousRecordSnapshot = null;
+    const nextRecordsSnapshot = cloneStatsRecordSnapshotList(records);
+    if (!isCreateMode) {
+      const liveRecordIndex = findStatsSourceRecordIndex(recordLocator);
+      if (liveRecordIndex < 0) {
+        closeModal();
+        void refreshStatsRangeData(true);
+        return;
+      }
+      previousRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
+      const nextRecordSnapshot = buildStatsRecordEditorPayload({
+        existingRecord: previousRecordSnapshot,
+        projectName: formState.nextName,
+        startTime: formState.startDate,
+        endTime: formState.endDate,
+        projectList: projectResolution.projects,
+      });
+      if (!nextRecordSnapshot) {
+        await showStatsPersistenceFailureAlert("记录构建失败，请稍后重试。", {
+          title: "保存失败",
+        });
+        return;
+      }
+      nextRecordsSnapshot[liveRecordIndex] = nextRecordSnapshot;
+      const nextProjectsSnapshot = applyStatsProjectDurationChangesToSnapshot(
+        projectResolution.projects,
+        {
+          removedRecords: [previousRecordSnapshot],
+          addedRecords: [nextRecordSnapshot],
+        },
+      );
+      commitStatsMutationState(nextRecordsSnapshot, nextProjectsSnapshot);
+      const committedRecordsSnapshot = cloneStatsRecordSnapshotList(records);
+      const persistPromise = saveStatsRecordUpdateToStorage(
+        previousRecordSnapshot,
+        nextRecordSnapshot,
+        nextProjectsSnapshot,
+        committedRecordsSnapshot,
+      );
+      refreshAfterMutation();
+      const persisted = await persistPromise;
+      if (!persisted) {
+        await showStatsPersistenceFailureAlert("记录保存失败，请稍后重试。", {
+          title: "保存失败",
+        });
+      }
+      return;
+    }
+
+    const nextRecordSnapshot = buildStatsRecordEditorPayload({
+      projectName: formState.nextName,
+      startTime: formState.startDate,
+      endTime: formState.endDate,
+      projectList: projectResolution.projects,
+    });
+    if (!nextRecordSnapshot) {
+      await showStatsPersistenceFailureAlert("记录构建失败，请稍后重试。", {
+        title: "新增失败",
+      });
+      return;
+    }
+    nextRecordsSnapshot.push(nextRecordSnapshot);
+    const nextProjectsSnapshot = applyStatsProjectDurationChangesToSnapshot(
+      projectResolution.projects,
+      {
+        addedRecords: [nextRecordSnapshot],
+      },
+    );
+    commitStatsMutationState(nextRecordsSnapshot, nextProjectsSnapshot);
+    const committedRecordsSnapshot = cloneStatsRecordSnapshotList(records);
+    const persistPromise = persistStatsRecordMutationsToStorage({
+      upserts: [nextRecordSnapshot],
+      projectSnapshot: nextProjectsSnapshot,
+      recordsSnapshot: committedRecordsSnapshot,
+    });
     refreshAfterMutation();
     const persisted = await persistPromise;
     if (!persisted) {
-      await showStatsPersistenceFailureAlert("记录保存失败，请稍后重试。", {
-        title: "保存失败",
+      await showStatsPersistenceFailureAlert("记录新增失败，请稍后重试。", {
+        title: "新增失败",
       });
     }
   });
@@ -7657,7 +8718,7 @@ async function openStatsRecordEditModal(locator) {
       return;
     }
 
-    const liveRecordIndex = findStatsSourceRecordIndex(locator);
+    const liveRecordIndex = findStatsSourceRecordIndex(recordLocator);
     if (liveRecordIndex < 0) {
       closeModal();
       void refreshStatsRangeData(true);
@@ -7665,17 +8726,17 @@ async function openStatsRecordEditModal(locator) {
     }
 
     const deletedRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
-    records.splice(liveRecordIndex, 1);
-    const nextProjectsSnapshot =
-      applyStatsProjectRecordDurationChanges({
-        removedRecords: [deletedRecordSnapshot],
-      }) || cloneStatsProjectSnapshot(projects);
-    syncStatsDataIndex(["records", "projects"]);
-    const recordsSnapshot = cloneStatsRecordSnapshotList(records);
+    const nextRecordsSnapshot = cloneStatsRecordSnapshotList(records);
+    nextRecordsSnapshot.splice(liveRecordIndex, 1);
+    const nextProjectsSnapshot = applyStatsProjectDurationChangesToSnapshot(projects, {
+      removedRecords: [deletedRecordSnapshot],
+    });
+    commitStatsMutationState(nextRecordsSnapshot, nextProjectsSnapshot);
+    const committedRecordsSnapshot = cloneStatsRecordSnapshotList(records);
     const persistPromise = deleteStatsRecordFromStorage(
       deletedRecordSnapshot,
-      recordsSnapshot,
       nextProjectsSnapshot,
+      committedRecordsSnapshot,
     );
     refreshAfterMutation();
     const persisted = await persistPromise;

@@ -624,85 +624,37 @@ function buildIndexWorkspaceSnapshotFromRaw(parts = {}, options = {}) {
   };
 }
 
-function readIndexWorkspaceSnapshotFromPageBootstrap(recordScope = null) {
+function readIndexWorkspaceSnapshotFromTrustedCache(recordScope = null) {
   try {
-    if (typeof window.ControlerStorage?.peekPageBootstrapState !== "function") {
+    if (
+      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !== "function"
+    ) {
       return null;
     }
-    const bootstrap = window.ControlerStorage.peekPageBootstrapState("index", {
+    const bootstrap = window.ControlerStorage.peekTrustedRecordBootstrapState("index", {
       recordScope: cloneIndexRecordLoadScope(recordScope) || getIndexDefaultRecordScope(),
     });
-    const data =
-      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
-    if (!data) {
+    if (!bootstrap || typeof bootstrap !== "object") {
       return null;
     }
     return buildIndexWorkspaceSnapshotFromRaw(
       {
-        projects: Array.isArray(data.projects) ? data.projects : [],
-        records: Array.isArray(data.recentRecords) ? data.recentRecords : [],
+        projects: Array.isArray(bootstrap.projects) ? bootstrap.projects : [],
+        records: Array.isArray(bootstrap.records) ? bootstrap.records : [],
       },
       {
-        source: "page-bootstrap-cache",
-        recordScope,
-        loadedPeriodIds: bootstrap?.loadedPeriodIds,
+        source: "trusted-scope-cache",
+        recordScope:
+          cloneIndexRecordLoadScope(bootstrap.recordScope) ||
+          cloneIndexRecordLoadScope(recordScope) ||
+          getIndexDefaultRecordScope(),
+        loadedPeriodIds: bootstrap.loadedPeriodIds,
       },
     );
   } catch (error) {
-    console.error("读取记录页引导快照失败，回退本地快照:", error);
+    console.error("读取记录页精确范围缓存失败:", error);
     return null;
   }
-}
-
-function readIndexWorkspaceSnapshotFromManagedStorage(recordScope = null) {
-  try {
-    const snapshot =
-      typeof window.ControlerStorage?.dump === "function"
-        ? window.ControlerStorage.dump()
-        : null;
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-      return null;
-    }
-    const hasProjects = Array.isArray(snapshot.projects);
-    const hasRecords = Array.isArray(snapshot.records);
-    if (!hasProjects && !hasRecords) {
-      return null;
-    }
-    return buildIndexWorkspaceSnapshotFromRaw(
-      {
-        projects: hasProjects ? snapshot.projects : [],
-        records: hasRecords ? snapshot.records : [],
-      },
-      {
-        source: "managed-snapshot",
-        recordScope,
-      },
-    );
-  } catch (error) {
-    console.error("读取记录页受管快照失败，回退本地镜像:", error);
-    return null;
-  }
-}
-
-function readIndexWorkspaceSnapshotFromLocalMirror(recordScope = null) {
-  if (window.ControlerStorage?.isNativeApp === true) {
-    return null;
-  }
-  const localProjectMirror = readIndexProjectMirrorState();
-  const localRecordMirror = readIndexLocalRecordSnapshot();
-  if (!localProjectMirror.hasMirror && !localRecordMirror.hasMirror) {
-    return null;
-  }
-  return buildIndexWorkspaceSnapshotFromRaw(
-    {
-      projects: localProjectMirror.items,
-      records: localRecordMirror.items,
-    },
-    {
-      source: "local-mirror",
-      recordScope,
-    },
-  );
 }
 
 function hasUsableIndexRecordSnapshot(snapshot = null) {
@@ -725,17 +677,41 @@ function readIndexWorkspaceSnapshot() {
   const recordLoadOptions = getIndexCurrentRecordLoadOptions();
   const recordScope =
     cloneIndexRecordLoadScope(recordLoadOptions.recordScope) || getIndexDefaultRecordScope();
-  const pageBootstrapSnapshot = readIndexWorkspaceSnapshotFromPageBootstrap(recordScope);
-  const managedSnapshot = readIndexWorkspaceSnapshotFromManagedStorage(recordScope);
-  const localMirrorSnapshot = readIndexWorkspaceSnapshotFromLocalMirror(recordScope);
-  const fallbackSnapshot = managedSnapshot || localMirrorSnapshot;
+  return readIndexWorkspaceSnapshotFromTrustedCache(recordScope);
+}
+
+async function persistIndexTrustedRecordBootstrap(options = {}) {
+  const recordLoadOptions = getIndexCurrentRecordLoadOptions();
   if (
-    hasUsableIndexRecordSnapshot(pageBootstrapSnapshot) ||
-    !hasUsableIndexRecordSnapshot(fallbackSnapshot)
+    recordLoadOptions.recordLoadMode !== INDEX_RECORD_LOAD_MODE_RECENT_RANGE ||
+    typeof window.ControlerStorage?.setTrustedRecordBootstrapState !== "function"
   ) {
-    return pageBootstrapSnapshot || fallbackSnapshot;
+    return null;
   }
-  return fallbackSnapshot || pageBootstrapSnapshot;
+  const recordScope =
+    cloneIndexRecordLoadScope(options.recordScope || recordLoadOptions.recordScope) ||
+    getIndexDefaultRecordScope();
+  const scopedRecords = filterIndexRecordsByScope(
+    Array.isArray(options.records) ? options.records : records,
+    recordScope,
+  );
+  const loadedPeriodIds = normalizeIndexRecordPeriodIdList(
+    Array.isArray(options.loadedPeriodIds)
+      ? options.loadedPeriodIds
+      : getIndexRecordPeriodIds(scopedRecords),
+  );
+  return window.ControlerStorage.setTrustedRecordBootstrapState(
+    "index",
+    {
+      recordScope,
+      loadedPeriodIds,
+      projects: Array.isArray(options.projects) ? options.projects : projects,
+      records: scopedRecords,
+    },
+    {
+      recordScope,
+    },
+  );
 }
 
 function applyIndexWorkspaceSnapshot(snapshot = {}) {
@@ -1821,10 +1797,6 @@ async function hydrateIndexWorkspace(options = {}) {
     recordLoadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE
       ? cloneIndexRecordLoadScope(options.recordScope) || getIndexDefaultRecordScope()
       : null;
-  const currentRecordsSnapshot = Array.isArray(records) ? records.slice() : [];
-  const currentLoadedPeriodIdsSnapshot = Array.isArray(indexLoadedRecordPeriodIds)
-    ? indexLoadedRecordPeriodIds.slice()
-    : [];
   emitIndexDebugPerf("hydrate-workspace-start", {
     includeProjects,
     includeRecords,
@@ -1832,8 +1804,6 @@ async function hydrateIndexWorkspace(options = {}) {
     startDate: recordScope?.startDate || "",
     endDate: recordScope?.endDate || "",
     freshBootstrap: options.freshBootstrap === true,
-    protectRecentRecordWindowFromEmpty:
-      options.protectRecentRecordWindowFromEmpty === true,
   });
   if (
     includeProjects &&
@@ -1863,35 +1833,10 @@ async function hydrateIndexWorkspace(options = {}) {
           ? bootstrap.loadedPeriodIds
           : getIndexRecordPeriodIds(nextRecords),
       );
-      const protectedRecentWindow =
-        options.protectRecentRecordWindowFromEmpty === true
-          ? protectIndexRecentRecordWindowFromEmptyResult({
-              source: "page-bootstrap",
-              loadMode: recordLoadMode,
-              recordScope,
-              nextRecords,
-              nextLoadedPeriodIds,
-              currentRecordsSnapshot,
-              currentLoadedPeriodIds: currentLoadedPeriodIdsSnapshot,
-            })
-          : null;
-      records = normalizeIndexLoadedRecords(
-        protectedRecentWindow ? protectedRecentWindow.records : nextRecords,
-        projects,
-      );
+      records = normalizeIndexLoadedRecords(nextRecords, projects);
       indexAllHistoricalRecordsLoaded = false;
       rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_RECENT_RANGE, recordScope);
-      indexLoadedRecordPeriodIds = protectedRecentWindow
-        ? protectedRecentWindow.loadedPeriodIds.slice()
-        : nextLoadedPeriodIds.slice();
-      if (!protectedRecentWindow) {
-        settleIndexRecentSaveGuardAfterRecordLoad(
-          recordLoadMode,
-          recordScope,
-          records,
-          "page-bootstrap",
-        );
-      }
+      indexLoadedRecordPeriodIds = nextLoadedPeriodIds.slice();
       loadProjectHierarchyExpansionStateFromStorage();
       projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
         projectTotalsExpansionState,
@@ -1901,7 +1846,6 @@ async function hydrateIndexWorkspace(options = {}) {
         projectCount: Array.isArray(projects) ? projects.length : 0,
         recordCount: Array.isArray(records) ? records.length : 0,
         loadedPeriodCount: indexLoadedRecordPeriodIds.length,
-        protectedRecentWindow: !!protectedRecentWindow,
       });
       return {
         includeProjects,
@@ -1944,6 +1888,7 @@ async function hydrateIndexWorkspace(options = {}) {
 async function commitIndexWorkspaceSnapshot(options = {}) {
   const forceTimerSessionSync = options.forceTimerSessionSync === true;
   const markFirstCommit = options.markFirstCommit === true;
+  const writeTrustedBootstrap = options.writeTrustedBootstrap !== false;
   const repairedDurationCache = await ensureIndexProjectDurationCaches({
     persist: false,
   });
@@ -1987,6 +1932,15 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
           projectCount: projects.length,
           recordCount: records.length,
           periodIds: indexLoadedRecordPeriodIds.slice(),
+        });
+      }
+      if (writeTrustedBootstrap) {
+        void persistIndexTrustedRecordBootstrap({
+          projects,
+          records,
+          loadedPeriodIds: indexLoadedRecordPeriodIds,
+        }).catch((error) => {
+          console.error("写入记录页精确范围缓存失败:", error);
         });
       }
       if (repairedDurationCache) {
@@ -2064,7 +2018,6 @@ async function refreshIndexFromExternalStorageChange() {
         recordLoadMode: recordLoadOptions.recordLoadMode,
         recordScope: recordLoadOptions.recordScope,
         freshBootstrap: shouldForceFreshBootstrap,
-        protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
         refreshReason,
         refreshSource,
       });
@@ -2082,7 +2035,6 @@ async function refreshIndexFromExternalStorageChange() {
           recordLoadMode: recordLoadOptions.recordLoadMode,
           recordScope: recordLoadOptions.recordScope,
           freshBootstrap: shouldForceFreshBootstrap,
-          protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
           refreshReason,
           refreshSource,
         }),
@@ -14102,36 +14054,11 @@ async function loadRecordsFromStorage(options = {}) {
     const nextLoadedPeriodIds = normalizeIndexRecordPeriodIdList(
       loadedPeriodIds.length > 0 ? loadedPeriodIds : getIndexRecordPeriodIds(nextRecords),
     );
-    const protectedRecentWindow =
-      options.protectRecentRecordWindowFromEmpty === true
-        ? protectIndexRecentRecordWindowFromEmptyResult({
-            source: "section-range",
-            loadMode: loadMode,
-            recordScope,
-            nextRecords,
-            nextLoadedPeriodIds,
-            currentRecordsSnapshot: existingRecordsSnapshot,
-            currentLoadedPeriodIds: indexLoadedRecordPeriodIds,
-          })
-        : null;
-    records = normalizeIndexLoadedRecords(
-      protectedRecentWindow ? protectedRecentWindow.records : nextRecords,
-      projects,
-    );
+    records = normalizeIndexLoadedRecords(nextRecords, projects);
     indexAllHistoricalRecordsLoaded =
       loadMode === INDEX_RECORD_LOAD_MODE_FULL_HISTORY;
     rememberIndexRecordLoadWindow(loadMode, recordScope);
-    indexLoadedRecordPeriodIds = protectedRecentWindow
-      ? protectedRecentWindow.loadedPeriodIds.slice()
-      : nextLoadedPeriodIds.slice();
-    if (!protectedRecentWindow) {
-      settleIndexRecentSaveGuardAfterRecordLoad(
-        loadMode,
-        recordScope,
-        records,
-        "section-range",
-      );
-    }
+    indexLoadedRecordPeriodIds = nextLoadedPeriodIds.slice();
     if (loadRevision === indexRecordMutationRevision) {
       indexDirtyRecordPeriodIds = new Set();
       indexPendingRecordPatchByPeriod.clear();
@@ -14561,6 +14488,7 @@ async function init() {
     if (bootstrappedSnapshot) {
       await commitIndexWorkspaceSnapshot({
         markFirstCommit: true,
+        writeTrustedBootstrap: false,
       });
       markIndexInitialDataReady(bootstrappedSnapshot);
       await finalizeIndexInitialHydration();

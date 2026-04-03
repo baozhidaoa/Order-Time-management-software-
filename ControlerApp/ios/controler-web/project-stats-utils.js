@@ -133,6 +133,397 @@
     return parseSpendTimeToMs(record.spendtime);
   }
 
+  function clonePlainValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      return value;
+    }
+  }
+
+  function parseFlexibleDate(value) {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedValue) {
+      return null;
+    }
+    const parsed = new Date(normalizedValue);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function serializeRecordDate(value) {
+    return value instanceof Date && !Number.isNaN(value.getTime())
+      ? value.toISOString()
+      : null;
+  }
+
+  function formatRecordDurationFromMs(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return "小于1min";
+    }
+
+    const totalMinutes = Math.floor(ms / 60000);
+    if (totalMinutes <= 0) {
+      return "小于1min";
+    }
+
+    const days = Math.floor(totalMinutes / (24 * 60));
+    const remainingAfterDays = totalMinutes - days * 24 * 60;
+    const hours = Math.floor(remainingAfterDays / 60);
+    const minutes = remainingAfterDays % 60;
+
+    if (days > 0) {
+      return `${days}天${hours}小时${minutes}分钟`;
+    }
+    if (hours > 0) {
+      return `${hours}小时${minutes}分钟`;
+    }
+    return `${minutes}分钟`;
+  }
+
+  function createRecordId(prefix = "") {
+    const safePrefix = String(prefix || "").trim();
+    return `${safePrefix}${Date.now()}${Math.random().toString(36).slice(2, 11)}`;
+  }
+
+  function createProjectId(prefix = "project") {
+    return `${String(prefix || "project").trim() || "project"}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function extractProjectLeafName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return "";
+    }
+    const leafName = normalizedName
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    return leafName || normalizedName;
+  }
+
+  function normalizeProjectReferenceName(projectName, fallback = "") {
+    const normalizedName = String(projectName || "").trim();
+    const fallbackName = String(fallback || "").trim();
+    if (!normalizedName) {
+      return fallbackName;
+    }
+    return extractProjectLeafName(normalizedName) || fallbackName;
+  }
+
+  function isPathLikeProjectName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    return (
+      normalizedName.includes("/") &&
+      extractProjectLeafName(normalizedName) !== normalizedName
+    );
+  }
+
+  function findProjectByReferenceName(projectName, projectList = []) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return null;
+    }
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const exactPreferred =
+      safeProjectList.find((project) => {
+        const candidateName = String(project?.name || "").trim();
+        return candidateName === normalizedName && !isPathLikeProjectName(candidateName);
+      }) || null;
+    const exactMatch =
+      safeProjectList.find(
+        (project) => String(project?.name || "").trim() === normalizedName,
+      ) || null;
+    const leafName = extractProjectLeafName(normalizedName);
+    const preferredLeafMatch = leafName
+      ? safeProjectList.find((project) => {
+          const candidateName = String(project?.name || "").trim();
+          return candidateName === leafName && !isPathLikeProjectName(candidateName);
+        }) || null
+      : null;
+    const leafMatch = leafName
+      ? safeProjectList.find(
+          (project) => String(project?.name || "").trim() === leafName,
+        ) || null
+      : null;
+    return exactPreferred || exactMatch || preferredLeafMatch || leafMatch || null;
+  }
+
+  function normalizeDurationCarryoverState(rawState) {
+    if (!rawState || typeof rawState !== "object") {
+      return null;
+    }
+
+    const carryoverMs =
+      Number.isFinite(rawState.carryoverMs) && rawState.carryoverMs > 0
+        ? Math.max(1, Math.floor(rawState.carryoverMs))
+        : null;
+    if (!carryoverMs) {
+      return null;
+    }
+
+    return {
+      carryoverMs,
+      sourceRecordId:
+        typeof rawState.sourceRecordId === "string" ? rawState.sourceRecordId : "",
+      sourceProject:
+        typeof rawState.sourceProject === "string"
+          ? rawState.sourceProject.trim()
+          : "",
+      targetProject:
+        typeof rawState.targetProject === "string"
+          ? rawState.targetProject.trim()
+          : "",
+      createdAt: typeof rawState.createdAt === "string" ? rawState.createdAt : "",
+    };
+  }
+
+  function normalizeRecordDurationMeta(rawMeta) {
+    if (!rawMeta || typeof rawMeta !== "object") {
+      return null;
+    }
+
+    const toSafeMs = (value) =>
+      Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+    const originalMs = toSafeMs(rawMeta.originalMs);
+    const recordedMs = toSafeMs(rawMeta.recordedMs);
+    const returnedMs = toSafeMs(rawMeta.returnedMs);
+    const returnTargetProject =
+      typeof rawMeta.returnTargetProject === "string"
+        ? rawMeta.returnTargetProject.trim()
+        : "";
+    const appliedCarryover = normalizeDurationCarryoverState(rawMeta.appliedCarryover);
+
+    if (
+      !Number.isFinite(originalMs) &&
+      !Number.isFinite(recordedMs) &&
+      !Number.isFinite(returnedMs) &&
+      !returnTargetProject &&
+      !appliedCarryover
+    ) {
+      return null;
+    }
+
+    return {
+      originalMs,
+      recordedMs,
+      returnedMs,
+      returnTargetProject,
+      appliedCarryover,
+    };
+  }
+
+  function resolveRecordProject(record, projectList = []) {
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const normalizedProjectId = String(record?.projectId || "").trim();
+    if (normalizedProjectId) {
+      const matchedById =
+        safeProjectList.find(
+          (project) => String(project?.id || "").trim() === normalizedProjectId,
+        ) || null;
+      if (matchedById) {
+        return matchedById;
+      }
+    }
+    return findProjectByReferenceName(record?.name, safeProjectList);
+  }
+
+  function resolveRecordNextProject(record, projectList = []) {
+    const safeProjectList = Array.isArray(projectList) ? projectList : [];
+    const nextProjectId = String(record?.nextProjectId || "").trim();
+    if (nextProjectId) {
+      const matchedById =
+        safeProjectList.find(
+          (project) => String(project?.id || "").trim() === nextProjectId,
+        ) || null;
+      if (matchedById) {
+        return matchedById;
+      }
+    }
+    return record?.nextProjectName
+      ? findProjectByReferenceName(record.nextProjectName, safeProjectList)
+      : null;
+  }
+
+  function resolveRecordNextProjectName(record, projectList = []) {
+    const explicitNextProjectName = String(record?.nextProjectName || "").trim();
+    const matchedProject = resolveRecordNextProject(record, projectList);
+    const matchedProjectName = String(matchedProject?.name || "").trim();
+    if (matchedProjectName) {
+      return matchedProjectName;
+    }
+    if (explicitNextProjectName) {
+      return normalizeProjectReferenceName(
+        explicitNextProjectName,
+        explicitNextProjectName,
+      );
+    }
+    const matchedCurrentProject = resolveRecordProject(record, projectList);
+    const matchedCurrentProjectName = String(matchedCurrentProject?.name || "").trim();
+    if (matchedCurrentProjectName) {
+      return matchedCurrentProjectName;
+    }
+    return normalizeProjectReferenceName(record?.name, "未命名项目") || "未命名项目";
+  }
+
+  function buildRecordEntry(input = {}, options = {}) {
+    const source =
+      input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const existingRecord =
+      source.existingRecord && typeof source.existingRecord === "object"
+        ? source.existingRecord
+        : null;
+    const projectList = Array.isArray(options?.projectList) ? options.projectList : [];
+    const workingRecord = {
+      ...(existingRecord ? clonePlainValue(existingRecord) : {}),
+      ...clonePlainValue(source),
+    };
+    delete workingRecord.existingRecord;
+
+    const normalizedDurationMeta = normalizeRecordDurationMeta(workingRecord.durationMeta);
+    const rawEndDate =
+      parseFlexibleDate(workingRecord.rawEndTime) ||
+      parseFlexibleDate(workingRecord.endTime) ||
+      parseFlexibleDate(existingRecord?.rawEndTime) ||
+      parseFlexibleDate(existingRecord?.endTime) ||
+      new Date();
+    const endDate =
+      parseFlexibleDate(workingRecord.endTime) ||
+      parseFlexibleDate(existingRecord?.endTime) ||
+      new Date(rawEndDate.getTime());
+    const startDate =
+      parseFlexibleDate(workingRecord.startTime) ||
+      parseFlexibleDate(existingRecord?.startTime);
+    const boundedDurationMs =
+      startDate instanceof Date && !Number.isNaN(startDate.getTime())
+        ? Math.max(endDate.getTime() - startDate.getTime(), 0)
+        : null;
+    const explicitDurationMs =
+      Number.isFinite(workingRecord.durationMs) && workingRecord.durationMs >= 0
+        ? Math.round(workingRecord.durationMs)
+        : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+            normalizedDurationMeta.recordedMs >= 0
+          ? Math.round(normalizedDurationMeta.recordedMs)
+          : parseSpendTimeToMs(workingRecord.spendtime);
+    const durationMs =
+      Number.isFinite(boundedDurationMs) && boundedDurationMs >= 0
+        ? Math.round(boundedDurationMs)
+        : explicitDurationMs;
+    const normalizedName =
+      normalizeProjectReferenceName(
+        workingRecord.name,
+        normalizeProjectReferenceName(existingRecord?.name, "未命名项目"),
+      ) || "未命名项目";
+    const matchedProject =
+      findProjectByReferenceName(normalizedName, projectList) ||
+      (String(workingRecord.projectId || "").trim()
+        ? projectList.find(
+            (project) =>
+              String(project?.id || "").trim() === String(workingRecord.projectId).trim(),
+          ) || null
+        : null);
+    const normalizedNextProjectName = resolveRecordNextProjectName(
+      {
+        ...workingRecord,
+        name: normalizedName,
+        projectId: matchedProject?.id || workingRecord.projectId || null,
+      },
+      projectList,
+    );
+    const matchedNextProject =
+      resolveRecordNextProject(
+        {
+          ...workingRecord,
+          nextProjectName: normalizedNextProjectName,
+        },
+        projectList,
+      ) ||
+      findProjectByReferenceName(normalizedNextProjectName, projectList);
+    const normalizedEndTime = serializeRecordDate(endDate) || new Date().toISOString();
+    const normalizedRawEndTime = serializeRecordDate(rawEndDate) || normalizedEndTime;
+
+    return {
+      ...(existingRecord ? clonePlainValue(existingRecord) : {}),
+      ...clonePlainValue(workingRecord),
+      id:
+        String(workingRecord.id || existingRecord?.id || "").trim() || createRecordId(),
+      timestamp: normalizedEndTime,
+      sptTime: normalizedEndTime,
+      name: matchedProject?.name || normalizedName,
+      spendtime: formatRecordDurationFromMs(durationMs),
+      projectId: String(
+        matchedProject?.id || workingRecord.projectId || existingRecord?.projectId || "",
+      ).trim() || null,
+      nextProjectName: normalizedNextProjectName,
+      nextProjectId: String(
+        matchedNextProject?.id ||
+          workingRecord.nextProjectId ||
+          existingRecord?.nextProjectId ||
+          "",
+      ).trim() || null,
+      startTime: startDate ? serializeRecordDate(startDate) : null,
+      endTime: normalizedEndTime,
+      rawEndTime: normalizedRawEndTime,
+      durationMs: Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : null,
+      clickCount:
+        Number.isFinite(existingRecord?.clickCount) && existingRecord.clickCount > 0
+          ? Math.max(1, Math.floor(existingRecord.clickCount))
+          : null,
+      timerRollbackState:
+        existingRecord?.timerRollbackState &&
+        typeof existingRecord.timerRollbackState === "object"
+          ? clonePlainValue(existingRecord.timerRollbackState)
+          : null,
+      durationMeta: normalizedDurationMeta,
+      color:
+        matchedProject?.color ||
+        String(existingRecord?.color || workingRecord.color || "").trim() ||
+        defaultColorForName(normalizedName),
+    };
+  }
+
+  function updateRecordEntry(existingRecord, updates = {}, options = {}) {
+    return buildRecordEntry(
+      {
+        existingRecord,
+        ...(updates && typeof updates === "object" ? updates : {}),
+      },
+      options,
+    );
+  }
+
+  function createProjectEntry(projectName, options = {}) {
+    const normalizedName = normalizeProjectReferenceName(projectName);
+    if (!normalizedName) {
+      return null;
+    }
+    return {
+      id: createProjectId(options.prefix || "project"),
+      name: normalizedName,
+      level: normalizeProjectLevel(options.level || 1),
+      parentId: options.parentId ? String(options.parentId).trim() : null,
+      color:
+        String(options.color || "").trim() ||
+        defaultColorForName(`${normalizeProjectLevel(options.level || 1)}:${normalizedName}`),
+      description:
+        typeof options.description === "string" ? options.description : "",
+      colorMode:
+        typeof options.colorMode === "string" && options.colorMode.trim()
+          ? options.colorMode.trim()
+          : "auto",
+      createdAt:
+        typeof options.createdAt === "string" && options.createdAt
+          ? options.createdAt
+          : new Date().toISOString(),
+    };
+  }
+
   function buildProjectHierarchyIndex(projects = []) {
     const allNodes = (Array.isArray(projects) ? projects : [])
       .filter((project) => project && typeof project === "object")
@@ -802,5 +1193,23 @@
     findProjectForRecord,
     buildProjectPath,
     createStatsContext,
+  };
+  window.ControlerRecordDomain = {
+    clonePlainValue,
+    parseFlexibleDate,
+    serializeRecordDate,
+    parseSpendTimeToMs,
+    formatRecordDurationFromMs,
+    createRecordId,
+    createProjectId,
+    extractProjectLeafName,
+    normalizeProjectReferenceName,
+    findProjectByReferenceName,
+    normalizeRecordDurationMeta,
+    resolveRecordProject,
+    resolveRecordNextProjectName,
+    buildRecordEntry,
+    updateRecordEntry,
+    createProjectEntry,
   };
 })();

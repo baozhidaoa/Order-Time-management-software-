@@ -2519,6 +2519,53 @@ class StorageManager {
     return normalized.core;
   }
 
+  buildAuthoritativeCoreState(root = this.getBundleRoot()) {
+    const currentCore = this.repairStoredCoreProjectsIfNeeded(root);
+    const authoritativeProjects =
+      typeof bundleHelper.rebuildProjectDurationCaches === "function"
+        ? bundleHelper.rebuildProjectDurationCaches(
+            bundleHelper.ensureArray(currentCore.projects),
+            bundleHelper.ensureArray(
+              this.loadSectionRange("records", {
+                all: true,
+              })?.items,
+            ),
+          )
+        : bundleHelper.cloneValue(bundleHelper.ensureArray(currentCore.projects));
+
+    const serializedCurrent = JSON.stringify(
+      bundleHelper.ensureArray(currentCore.projects),
+    );
+    const serializedAuthoritative = JSON.stringify(
+      bundleHelper.ensureArray(authoritativeProjects),
+    );
+
+    if (serializedCurrent !== serializedAuthoritative) {
+      const repairedAt = new Date().toISOString();
+      const repairedCore = {
+        ...currentCore,
+        projects: authoritativeProjects,
+        lastModified: repairedAt,
+      };
+      this.writeJsonFileSync(this.getCorePath(root), repairedCore);
+
+      const manifest = this.readManifestSync(root);
+      if (manifest) {
+        manifest.lastModified = repairedAt;
+        this.writeJsonFileSync(this.getManifestPath(root), manifest);
+      }
+
+      this.cachedStorageSnapshot = null;
+      this.markKnownFileVersion({ includeHash: true });
+      return repairedCore;
+    }
+
+    return {
+      ...currentCore,
+      projects: authoritativeProjects,
+    };
+  }
+
   readRecurringPlansSync(root = this.getBundleRoot()) {
     return bundleHelper.ensureArray(this.readJsonFileSync(this.getRecurringPlansPath(root), []));
   }
@@ -3982,7 +4029,7 @@ class StorageManager {
   buildPageBootstrapPayload(pageKey, options = {}) {
     const normalizedPage = this.normalizePageBootstrapKey(pageKey);
     const root = this.getBundleRoot(this.storagePath);
-    const core = this.repairStoredCoreProjectsIfNeeded(root);
+    const core = this.buildAuthoritativeCoreState(root);
     const effectiveRecovery =
       this.storageRecoveryState === "needs-recovery"
         ? this.buildRecoveredBundlePayloadFromFilesystem(root).recovery || core?.recovery
@@ -5400,7 +5447,7 @@ class StorageManager {
     this.ensureStorageReady();
     const root = this.getBundleRoot(this.storagePath);
     return {
-      ...bundleHelper.cloneValue(this.repairStoredCoreProjectsIfNeeded(root)),
+      ...bundleHelper.cloneValue(this.buildAuthoritativeCoreState(root)),
       recurringPlans: bundleHelper.cloneValue(this.readRecurringPlansSync(root)),
       storagePath: this.getBundleDisplayPath(root),
       storageDirectory: root,
