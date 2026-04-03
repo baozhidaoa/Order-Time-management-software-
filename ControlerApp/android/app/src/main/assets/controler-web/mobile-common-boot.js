@@ -1250,6 +1250,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return `${parsed.getFullYear()}-${padNumber(parsed.getMonth() + 1)}-${padNumber(parsed.getDate())}`;
   }
 
+  function extractProjectLeafName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return "";
+    }
+    const leafName = normalizedName
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    return leafName || normalizedName;
+  }
+
+  function isProjectPathLikeName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    return (
+      normalizedName.includes("/") &&
+      extractProjectLeafName(normalizedName) !== normalizedName
+    );
+  }
+
+  function normalizeProjectReferenceName(projectName, fallback = "") {
+    const normalizedName = String(projectName || "").trim();
+    const fallbackName = String(fallback || "").trim();
+    if (!normalizedName) {
+      return fallbackName;
+    }
+    return extractProjectLeafName(normalizedName) || fallbackName;
+  }
+
   function normalizePeriodId(value) {
     const normalized = String(value || "").trim();
     if (!normalized) {
@@ -1668,15 +1698,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return -1;
     }
 
+    const preferredRecordName = normalizeProjectReferenceName(recordName);
+    if (preferredRecordName && context.byName.has(preferredRecordName)) {
+      return context.byName.get(preferredRecordName).index;
+    }
+
     if (context.byName.has(recordName)) {
       return context.byName.get(recordName).index;
     }
 
-    const leafName = recordName
-      .split("/")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .pop();
+    const leafName = extractProjectLeafName(recordName);
 
     if (leafName && context.byName.has(leafName)) {
       return context.byName.get(leafName).index;
@@ -1693,7 +1724,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const normalizedProjectId = String(record.projectId || "").trim();
-      if (normalizedProjectId) {
+      if (normalizedProjectId && context.byId.has(normalizedProjectId)) {
         return cloneValue(record);
       }
 
@@ -1877,6 +1908,199 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return recalculateProjectDurationTotals(context.projects);
   }
 
+  function compareProjectCanonicalOrder(left, right) {
+    const leftPathLike = isProjectPathLikeName(left?.name) ? 1 : 0;
+    const rightPathLike = isProjectPathLikeName(right?.name) ? 1 : 0;
+    if (leftPathLike !== rightPathLike) {
+      return leftPathLike - rightPathLike;
+    }
+    const leftCreatedAt =
+      normalizeDateInput(left?.createdAt)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const rightCreatedAt =
+      normalizeDateInput(right?.createdAt)?.getTime() || Number.MAX_SAFE_INTEGER;
+    if (leftCreatedAt !== rightCreatedAt) {
+      return leftCreatedAt - rightCreatedAt;
+    }
+    const leftLevel = Number.isFinite(left?.level) ? Number(left.level) : 99;
+    const rightLevel = Number.isFinite(right?.level) ? Number(right.level) : 99;
+    if (leftLevel !== rightLevel) {
+      return leftLevel - rightLevel;
+    }
+    return String(left?.id || "").localeCompare(String(right?.id || ""));
+  }
+
+  function buildProjectLookupIndex(projects = []) {
+    const byId = new Map();
+    const byName = new Map();
+    ensureArray(projects).forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      const projectName = String(project?.name || "").trim();
+      if (projectId && !byId.has(projectId)) {
+        byId.set(projectId, project);
+      }
+      if (projectName && !byName.has(projectName)) {
+        byName.set(projectName, project);
+      }
+    });
+    return {
+      byId,
+      byName,
+    };
+  }
+
+  function repairPathNamedRecordProjects(projects = [], records = []) {
+    const nextProjects = ensureArray(projects).map((project) =>
+      cloneValue(project && typeof project === "object" && !Array.isArray(project)
+        ? project
+        : {}),
+    );
+    const nextRecords = ensureArray(records).map((record) => cloneValue(record));
+    const groupsByLeaf = new Map();
+    let mergedProjectCount = 0;
+    let renamedProjectCount = 0;
+
+    nextProjects.forEach((project) => {
+      const leafName = normalizeProjectReferenceName(project?.name);
+      if (!leafName) {
+        return;
+      }
+      if (!groupsByLeaf.has(leafName)) {
+        groupsByLeaf.set(leafName, []);
+      }
+      groupsByLeaf.get(leafName).push(project);
+    });
+
+    const duplicateProjectIds = new Set();
+    const projectIdMap = new Map();
+
+    groupsByLeaf.forEach((group, leafName) => {
+      const hasPathLike = group.some((project) =>
+        isProjectPathLikeName(project?.name),
+      );
+      if (!hasPathLike || group.length === 0) {
+        return;
+      }
+
+      const canonicalProject = group.slice().sort(compareProjectCanonicalOrder)[0];
+      const canonicalId = String(canonicalProject?.id || "").trim();
+      if (!canonicalId) {
+        return;
+      }
+      if (String(canonicalProject?.name || "").trim() !== leafName) {
+        canonicalProject.name = leafName;
+        renamedProjectCount += 1;
+      }
+
+      group.forEach((project) => {
+        const projectId = String(project?.id || "").trim();
+        if (!projectId || projectId === canonicalId) {
+          return;
+        }
+        duplicateProjectIds.add(projectId);
+        projectIdMap.set(projectId, canonicalId);
+        mergedProjectCount += 1;
+      });
+    });
+
+    const filteredProjects = nextProjects.filter((project) => {
+      const projectId = String(project?.id || "").trim();
+      return projectId ? !duplicateProjectIds.has(projectId) : true;
+    });
+
+    filteredProjects.forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      const rawParentId = String(project?.parentId || "").trim();
+      const mappedParentId = rawParentId
+        ? String(projectIdMap.get(rawParentId) || rawParentId).trim()
+        : "";
+      project.parentId =
+        mappedParentId && mappedParentId !== projectId ? mappedParentId : null;
+    });
+
+    const hierarchyRepairResult = repairProjectHierarchy(filteredProjects);
+    const repairedProjects = ensureArray(
+      hierarchyRepairResult?.projects || filteredProjects,
+    ).map((project) => cloneValue(project));
+    const projectLookup = buildProjectLookupIndex(repairedProjects);
+    let repairedRecordCount = 0;
+
+    const repairedRecords = nextRecords.map((record) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
+        return cloneValue(record);
+      }
+
+      const source = cloneValue(record);
+      const normalizedName =
+        normalizeProjectReferenceName(source?.name, "未命名项目") || "未命名项目";
+      const normalizedNextProjectName = normalizeProjectReferenceName(
+        source?.nextProjectName,
+      );
+      const mappedProjectId = String(
+        projectIdMap.get(String(source?.projectId || "").trim()) ||
+          source?.projectId ||
+          "",
+      ).trim();
+      const mappedNextProjectId = String(
+        projectIdMap.get(String(source?.nextProjectId || "").trim()) ||
+          source?.nextProjectId ||
+          "",
+      ).trim();
+      const matchedProject =
+        (mappedProjectId && projectLookup.byId.get(mappedProjectId)) ||
+        (normalizedName && projectLookup.byName.get(normalizedName)) ||
+        null;
+      const matchedNextProject =
+        (mappedNextProjectId && projectLookup.byId.get(mappedNextProjectId)) ||
+        (normalizedNextProjectName &&
+          projectLookup.byName.get(normalizedNextProjectName)) ||
+        null;
+      const nextName =
+        String(matchedProject?.name || normalizedName || "").trim() ||
+        "未命名项目";
+      const nextProjectId =
+        String(matchedProject?.id || mappedProjectId || "").trim() || null;
+      const nextNextProjectName = String(
+        matchedNextProject?.name || normalizedNextProjectName || "",
+      ).trim();
+      const nextNextProjectId =
+        String(matchedNextProject?.id || mappedNextProjectId || "").trim() ||
+        null;
+
+      if (
+        String(source?.name || "").trim() !== nextName ||
+        String(source?.projectId || "").trim() !==
+          String(nextProjectId || "").trim() ||
+        String(source?.nextProjectName || "").trim() !== nextNextProjectName ||
+        String(source?.nextProjectId || "").trim() !==
+          String(nextNextProjectId || "").trim()
+      ) {
+        repairedRecordCount += 1;
+      }
+
+      return {
+        ...source,
+        name: nextName,
+        projectId: nextProjectId,
+        nextProjectName: nextNextProjectName,
+        nextProjectId: nextNextProjectId,
+      };
+    });
+
+    return {
+      projects: repairedProjects,
+      records: repairedRecords,
+      changed:
+        mergedProjectCount > 0 ||
+        renamedProjectCount > 0 ||
+        hierarchyRepairResult?.repaired === true ||
+        repairedRecordCount > 0,
+      mergedProjectCount,
+      renamedProjectCount,
+      repairedRecordCount,
+      projectIdMap,
+    };
+  }
+
   function createBaseSyncMeta(syncMeta = {}, options = {}) {
     const source = ensureObject(syncMeta);
     const fileName =
@@ -1998,12 +2222,57 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  function getRecordPeriodIdsForSectionItem(item) {
+    const startDate =
+      normalizeDateInput(item?.startTime) ||
+      normalizeDateInput(item?.timestamp) ||
+      normalizeDateInput(item?.endTime);
+    const endDate =
+      normalizeDateInput(item?.endTime) ||
+      normalizeDateInput(item?.timestamp) ||
+      normalizeDateInput(item?.startTime);
+    if (!startDate && !endDate) {
+      return [UNDATED_PERIOD_ID];
+    }
+    let lower = startDate || endDate;
+    let upper = endDate || startDate;
+    if (upper.getTime() < lower.getTime()) {
+      const swapped = lower;
+      lower = upper;
+      upper = swapped;
+    }
+    const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+    const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
+    const periodIds = [];
+    while (cursor.getTime() <= target.getTime()) {
+      const periodId = formatDateToPeriodId(cursor);
+      if (periodId) {
+        periodIds.push(periodId);
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return periodIds.length
+      ? Array.from(new Set(periodIds))
+      : [UNDATED_PERIOD_ID];
+  }
+
+  function getPeriodIdsForSectionItem(section, item) {
+    if (section === "plans" && isRecurringPlan(item)) {
+      return [];
+    }
+    if (section === "records") {
+      return getRecordPeriodIdsForSectionItem(item);
+    }
+    const itemDate = getSectionItemDate(section, item);
+    return [formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID];
+  }
+
   function getPeriodIdForSectionItem(section, item) {
     if (section === "plans" && isRecurringPlan(item)) {
       return "";
     }
-    const itemDate = getSectionItemDate(section, item);
-    return formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID;
+    const periodIds = getPeriodIdsForSectionItem(section, item);
+    return periodIds[0] || UNDATED_PERIOD_ID;
   }
 
   function canonicalizeSectionItem(section, item = {}, options = {}) {
@@ -2051,26 +2320,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     if (section === "records") {
       assignGeneratedId("legacy-record");
-      const normalizedName = String(
+      const normalizedName = normalizeProjectReferenceName(
         nextItem.name ||
           nextItem.project ||
           nextItem.projectName ||
           nextItem.title ||
           "",
-      ).trim();
+      );
+      const normalizedNameForSave = normalizedName || "未命名项目";
+      const normalizedNextProjectName = normalizeProjectReferenceName(
+        nextItem.nextProjectName ||
+          nextItem.next_project_name ||
+          nextItem.nextProject ||
+          "",
+      );
       const normalizedProjectId =
         normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
         null;
-      assignIfChanged("name", normalizedName);
+      assignIfChanged("name", normalizedNameForSave);
       assignIfChanged("projectId", normalizedProjectId);
       assignIfChanged(
         "nextProjectId",
         normalizeId(
           nextItem.nextProjectId ||
             nextItem.next_project_id ||
-            nextItem.nextProjectID,
+          nextItem.nextProjectID,
         ) || null,
       );
+      if (normalizedNextProjectName) {
+        assignIfChanged("nextProjectName", normalizedNextProjectName);
+      }
       const normalizedStartTime = normalizeDateField(
         nextItem.startTime || nextItem.startedAt || nextItem.beginTime,
       );
@@ -2270,15 +2549,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (canonicalized.repaired) {
         repaired = true;
       }
-      const itemPeriodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
-      if (itemPeriodId !== normalizedPeriodId) {
+      const itemPeriodIds = getPeriodIdsForSectionItem(
+        section,
+        canonicalized.item,
+      );
+      if (!itemPeriodIds.includes(normalizedPeriodId)) {
         repaired = true;
         invalidItems.push({
           section,
           periodId: normalizedPeriodId,
           item: cloneValue(canonicalized.item),
-          actualPeriodId: itemPeriodId,
+          actualPeriodId:
+            itemPeriodIds.length > 0
+              ? itemPeriodIds.join(",")
+              : UNDATED_PERIOD_ID,
           reason: "period-mismatch",
         });
         return;
@@ -2291,7 +2575,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             section,
             periodId: normalizedPeriodId,
             item: cloneValue(canonicalized.item),
-            actualPeriodId: itemPeriodId,
+            actualPeriodId:
+              itemPeriodIds.length > 0
+                ? itemPeriodIds.join(",")
+                : UNDATED_PERIOD_ID,
             reason: duplicateReason,
           });
           return;
@@ -2479,13 +2766,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           recurringPlans.push(cloneValue(canonicalized.item));
           return;
         }
-        const periodId =
-          getPeriodIdForSectionItem(section, canonicalized.item) ||
-          UNDATED_PERIOD_ID;
-        if (!partitionMap[section].has(periodId)) {
-          partitionMap[section].set(periodId, []);
-        }
-        partitionMap[section].get(periodId).push(cloneValue(canonicalized.item));
+        getPeriodIdsForSectionItem(section, canonicalized.item).forEach(
+          (periodId) => {
+            const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+            if (!partitionMap[section].has(normalizedPeriodId)) {
+              partitionMap[section].set(normalizedPeriodId, []);
+            }
+            partitionMap[section]
+              .get(normalizedPeriodId)
+              .push(cloneValue(canonicalized.item));
+          },
+        );
       });
     });
     const manifest = {
@@ -2549,7 +2840,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           );
         });
       }
-      nextState[section] = sortPartitionItems(section, items);
+      nextState[section] = sortPartitionItems(
+        section,
+        section === "records"
+          ? mergePartitionItems("records", [], items, "merge")
+          : items,
+      );
     });
     nextState.plans = sortPartitionItems("plans", [
       ...ensureArray(nextState.plans),
@@ -2761,19 +3057,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function validateItemsForPeriod(section, periodId, items = []) {
     const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
     return ensureArray(items).every((item) => {
-      const itemPeriodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
-      return itemPeriodId === normalizedPeriodId;
+      const itemPeriodIds = getPeriodIdsForSectionItem(section, item);
+      return itemPeriodIds.includes(normalizedPeriodId);
     });
   }
 
   function groupItemsByPeriod(section, items = []) {
     const grouped = new Map();
     ensureArray(items).forEach((item) => {
-      const periodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
-      if (!grouped.has(periodId)) {
-        grouped.set(periodId, []);
-      }
-      grouped.get(periodId).push(cloneValue(item));
+      getPeriodIdsForSectionItem(section, item).forEach((periodId) => {
+        const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+        if (!grouped.has(normalizedPeriodId)) {
+          grouped.set(normalizedPeriodId, []);
+        }
+        grouped.get(normalizedPeriodId).push(cloneValue(item));
+      });
     });
     return grouped;
   }
@@ -2836,12 +3134,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         recurringItems.push(cloneValue(canonicalized.item));
         return;
       }
-      const periodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
-      if (!groupedItems.has(periodId)) {
-        groupedItems.set(periodId, []);
-      }
-      groupedItems.get(periodId).push(cloneValue(canonicalized.item));
+      getPeriodIdsForSectionItem(section, canonicalized.item).forEach(
+        (periodId) => {
+          const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+          if (!groupedItems.has(normalizedPeriodId)) {
+            groupedItems.set(normalizedPeriodId, []);
+          }
+          groupedItems
+            .get(normalizedPeriodId)
+            .push(cloneValue(canonicalized.item));
+        },
+      );
     });
 
     groupedItems.forEach((periodItems, periodId) => {
@@ -2916,10 +3219,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     normalizeDurationMs,
     normalizeDateInput,
     normalizeDateKey,
+    extractProjectLeafName,
+    isProjectPathLikeName,
+    normalizeProjectReferenceName,
     normalizePeriodId,
     normalizeRangeInput,
     getPeriodIdsForRange,
     getSectionItemDate,
+    getPeriodIdsForSectionItem,
     getPeriodIdForSectionItem,
     getPartitionRelativePath,
     parseSpendTimeToMs,
@@ -2933,6 +3240,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     rebuildProjectDurationCaches,
     reconcileProjectDurationCaches,
     applyProjectRecordDurationChanges,
+    repairPathNamedRecordProjects,
     createBaseSyncMeta,
     createEmptyRecoverySummary,
     normalizeRecoveryEntry,
@@ -2971,6 +3279,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
   const MOBILE_MIRROR_STATUS_KEY = "__controler_mobile_status__";
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
+  const MOBILE_MIRROR_PENDING_SESSION_KEY =
+    "__controler_mobile_pending_session__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
   const JOURNAL_BATCH_DELAY_MS = 40;
@@ -3031,6 +3341,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const guideBundle = window.ControlerGuideBundle || null;
   const storageBundle = window.ControlerStorageBundle || null;
   const platformContract = window.ControlerPlatformContract || null;
+  function resolveReactNativeRuntimeSessionId() {
+    if (
+      typeof window.__CONTROLER_RN_SESSION_ID__ === "string" &&
+      window.__CONTROLER_RN_SESSION_ID__.trim()
+    ) {
+      return window.__CONTROLER_RN_SESSION_ID__.trim();
+    }
+    if (
+      window.__CONTROLER_RN_META__ &&
+      typeof window.__CONTROLER_RN_META__ === "object" &&
+      typeof window.__CONTROLER_RN_META__.runtimeSessionId === "string" &&
+      window.__CONTROLER_RN_META__.runtimeSessionId.trim()
+    ) {
+      return window.__CONTROLER_RN_META__.runtimeSessionId.trim();
+    }
+    return "";
+  }
+  const REACT_NATIVE_RUNTIME_SESSION_ID = resolveReactNativeRuntimeSessionId();
   function resolveStorageDebugPageKey() {
     try {
       const pathSegments = String(window.location.pathname || "").split("/");
@@ -3736,15 +4064,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function normalizeCorePayloadProjects(corePayload = {}, options = {}) {
+    const stripResult = stripPartitionedSectionsFromCorePayload(corePayload);
     const source =
-      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
-        ? corePayload
+      stripResult.payload &&
+      typeof stripResult.payload === "object" &&
+      !Array.isArray(stripResult.payload)
+        ? stripResult.payload
         : {};
     if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
       return {
         payload: source,
         projects: [],
-        repaired: false,
+        repaired: stripResult.repaired,
       };
     }
     const projectResult = normalizeProjectCollection(source.projects, options);
@@ -3754,7 +4085,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         projects: cloneValue(projectResult.projects),
       },
       projects: projectResult.projects,
-      repaired: projectResult.repaired,
+      repaired: stripResult.repaired || projectResult.repaired,
+    };
+  }
+
+  function stripPartitionedSectionsFromCorePayload(corePayload = {}) {
+    const source =
+      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
+        ? corePayload
+        : {};
+    const sanitized = {
+      ...source,
+    };
+    let repaired = false;
+    const partitionedSections = Array.isArray(storageBundle?.PARTITIONED_SECTIONS)
+      ? storageBundle.PARTITIONED_SECTIONS
+      : ["records", "plans", "diaryEntries", "dailyCheckins", "checkins"];
+    partitionedSections.forEach((section) => {
+      if (!Object.prototype.hasOwnProperty.call(sanitized, section)) {
+        return;
+      }
+      delete sanitized[section];
+      repaired = true;
+    });
+    return {
+      payload: sanitized,
+      repaired,
     };
   }
 
@@ -7179,9 +7535,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         window.localStorage,
         MOBILE_MIRROR_PENDING_WRITE_KEY,
       ) || "";
+    const initialMirrorPendingSessionId =
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_PENDING_SESSION_KEY,
+      ) || "";
     const initialMirrorPendingWrite =
       initialMirrorPendingWriteRaw === "1" ||
       initialMirrorPendingWriteRaw === "true";
+    const shouldDiscardInitialPendingWrite =
+      initialMirrorPendingWrite &&
+      !!REACT_NATIVE_RUNTIME_SESSION_ID &&
+      initialMirrorPendingSessionId !== REACT_NATIVE_RUNTIME_SESSION_ID;
+    if (shouldDiscardInitialPendingWrite) {
+      try {
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_WRITE_KEY,
+          "0",
+        );
+        nativeMethods.removeItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_SESSION_KEY,
+        );
+      } catch (error) {
+        console.warn("清理失效的移动端 pending 镜像标记失败:", error);
+      }
+      emitStorageDebug("discard-stale-pending-mirror", {
+        runtimeSessionId: REACT_NATIVE_RUNTIME_SESSION_ID,
+        pendingOwnerSessionId: String(initialMirrorPendingSessionId || "").trim(),
+        hasMirrorState: !!initialMirrorStateRaw.trim(),
+      });
+      emitStoragePerfMetric("storage-sync-discard-stale-pending-mirror", {
+        runtimeSessionId: REACT_NATIVE_RUNTIME_SESSION_ID,
+        pendingOwnerSessionId: String(initialMirrorPendingSessionId || "").trim(),
+        hasMirrorState: !!initialMirrorStateRaw.trim(),
+      });
+    }
     const initialMirrorState = parseJsonSafely(
       initialMirrorStateRaw,
       {},
@@ -7213,7 +7603,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
       : initialMirrorState;
-    const initialPendingWrite = initialMirrorPendingWrite;
+    const initialPendingWrite =
+      initialMirrorPendingWrite && !shouldDiscardInitialPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
       useStateRecordsForProjectNormalization: false,
@@ -7242,6 +7633,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
     let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+    let lastMirroredPendingSessionId = initialPendingWrite
+      ? String(initialMirrorPendingSessionId || "").trim()
+      : "";
     let hasPendingStateChanges = initialPendingWrite;
     let managedStateRevision = initialPendingWrite ? 1 : 0;
     let lastKnownVersionProbe = normalizeVersionProbe(cachedStatus, cachedStatus);
@@ -7290,6 +7684,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           initialPendingWrite ? "1" : "0",
         );
         lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+        if (initialPendingWrite && REACT_NATIVE_RUNTIME_SESSION_ID) {
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+            REACT_NATIVE_RUNTIME_SESSION_ID,
+          );
+          lastMirroredPendingSessionId = REACT_NATIVE_RUNTIME_SESSION_ID;
+        } else {
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+          );
+          lastMirroredPendingSessionId = "";
+        }
       } catch (error) {
         console.error("写入移动端 legacy 启动镜像失败:", error);
       }
@@ -7300,6 +7708,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         coverage[section] = new Set();
         return coverage;
       }, {});
+    }
+
+    function cloneManagedSectionCoverage(sourceCoverage = managedSectionCoverage) {
+      const nextCoverage = createManagedSectionCoverage();
+      MANAGED_RANGE_SECTIONS.forEach((section) => {
+        const sourcePeriods = sourceCoverage?.[section];
+        if (!(sourcePeriods instanceof Set)) {
+          return;
+        }
+        sourcePeriods.forEach((periodId) => {
+          const normalizedPeriodId = String(periodId || "").trim();
+          if (normalizedPeriodId) {
+            nextCoverage[section].add(normalizedPeriodId);
+          }
+        });
+      });
+      return nextCoverage;
     }
 
     function normalizeChangedSectionsList(changedSections = []) {
@@ -7658,6 +8083,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     function rebuildManagedSectionCoverage(state, options = {}) {
       const markFull = options?.markFull === true;
+      if (!markFull) {
+        // Partial date-range loads only cache slices of a month, so we must not
+        // rebuild month coverage from the currently mirrored items.
+        managedSectionCoverage = cloneManagedSectionCoverage();
+        return;
+      }
       const nextCoverage = createManagedSectionCoverage();
       MANAGED_RANGE_SECTIONS.forEach((section) => {
         const sourceItems =
@@ -7669,7 +8100,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               )
             : state?.[section] || [];
         sourceItems.forEach((item) => {
-          nextCoverage[section].add(getManagedSectionPeriodId(section, item));
+          getManagedSectionPeriodIds(section, item).forEach((periodId) => {
+            nextCoverage[section].add(periodId);
+          });
         });
       });
       managedSectionCoverage = nextCoverage;
@@ -7732,6 +8165,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       );
     }
 
+    function hasConcreteManagedSectionRangeBounds(normalizedRange = {}) {
+      const normalizedStartDate =
+        typeof normalizedRange?.startDate === "string"
+          ? normalizedRange.startDate.trim()
+          : normalizedRange?.startDate || "";
+      const normalizedEndDate =
+        typeof normalizedRange?.endDate === "string"
+          ? normalizedRange.endDate.trim()
+          : normalizedRange?.endDate || "";
+      return !!normalizedStartDate || !!normalizedEndDate;
+    }
+
+    function shouldTrackManagedSectionRangeCoverage(
+      normalizedRange = {},
+      explicitCoveredPeriodIds = [],
+    ) {
+      if (isFullManagedSectionRange(normalizedRange)) {
+        return false;
+      }
+      if (hasConcreteManagedSectionRangeBounds(normalizedRange)) {
+        return false;
+      }
+      const normalizedPeriodIds = Array.isArray(normalizedRange?.periodIds)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+      return explicitCoveredPeriodIds.length > 0 || normalizedPeriodIds.length > 0;
+    }
+
     function canServeManagedSectionRange(section, scope = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
@@ -7746,6 +8209,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       )
         ? normalizedRange
         : null;
+    }
+
+    function shouldForceAuthoritativeRead(options = {}) {
+      return (
+        options?.fresh === true ||
+        options?.authoritative === true ||
+        options?.__controlerAuthoritative === true
+      );
+    }
+
+    function stripAuthoritativeReadFlags(options = {}) {
+      if (!options || typeof options !== "object") {
+        return {};
+      }
+      const nextOptions = {
+        ...options,
+      };
+      delete nextOptions.authoritative;
+      delete nextOptions.__controlerAuthoritative;
+      delete nextOptions.fresh;
+      return nextOptions;
     }
 
     function canServeManagedPageBootstrap(pageKey, options = {}) {
@@ -7851,7 +8335,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           ? []
           : (state?.plans || []).filter(
               (item) =>
-                !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
+                !managedSectionItemMatchesRequestedPeriods(
+                  section,
+                  item,
+                  requestedPeriodSet,
+                ) &&
                 !(
                   typeof storageBundle?.isRecurringPlan === "function"
                     ? storageBundle.isRecurringPlan(item)
@@ -7871,7 +8359,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         const retainedItems = shouldReplaceWholeSection
           ? []
           : (state?.[section] || []).filter(
-              (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
+              (item) =>
+                !managedSectionItemMatchesRequestedPeriods(
+                  section,
+                  item,
+                  requestedPeriodSet,
+                ),
             );
         nextState[section] =
           storageBundle?.sortPartitionItems?.(section, [
@@ -7893,25 +8386,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
         managedFullyHydratedSections.add(section);
       } else {
-        const coveredPeriodIds =
-          section === "records"
-            ? requestedPeriodIds.length
+        if (
+          shouldTrackManagedSectionRangeCoverage(
+            normalizedRange,
+            explicitCoveredPeriodIds,
+          )
+        ) {
+          const coveredPeriodIds = explicitCoveredPeriodIds.length
+            ? explicitCoveredPeriodIds
+            : requestedPeriodIds.length
               ? requestedPeriodIds
               : Array.from(
-                  new Set(
-                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
-                  ),
-                )
-            : explicitCoveredPeriodIds.length
-              ? explicitCoveredPeriodIds
-              : requestedPeriodIds.length
-                ? requestedPeriodIds
-              : Array.from(
-                  new Set(
-                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
-                  ),
+                  new Set(collectManagedSectionCoveredPeriodIds(section, nextItems)),
                 );
-        markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+          markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+        }
       }
       persistMirrorSnapshot(true);
     }
@@ -8063,6 +8552,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             nextPendingWriteValue,
           );
           lastMirroredPendingWriteValue = nextPendingWriteValue;
+        }
+        const nextPendingSessionId =
+          hasPendingStateChanges && REACT_NATIVE_RUNTIME_SESSION_ID
+            ? REACT_NATIVE_RUNTIME_SESSION_ID
+            : "";
+        if (nextPendingSessionId) {
+          if (force || nextPendingSessionId !== lastMirroredPendingSessionId) {
+            nativeMethods.setItem?.call(
+              window.localStorage,
+              MOBILE_MIRROR_PENDING_SESSION_KEY,
+              nextPendingSessionId,
+            );
+            lastMirroredPendingSessionId = nextPendingSessionId;
+          }
+        } else if (force || lastMirroredPendingSessionId) {
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+          );
+          lastMirroredPendingSessionId = "";
         }
       } catch (error) {
         console.error("写入移动端镜像状态失败:", error);
@@ -9285,12 +9794,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     }
 
-    function getManagedSectionPeriodId(section, item) {
-      if (typeof storageBundle?.getPeriodIdForSectionItem === "function") {
-        return (
-          storageBundle.getPeriodIdForSectionItem(section, item) || "undated"
-        );
-      }
+    function resolveManagedPrimarySectionPeriodId(section, item) {
       const dateText =
         typeof item?.date === "string" && item.date
           ? item.date
@@ -9302,6 +9806,42 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 ? item.updatedAt
                 : "";
       return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "undated";
+    }
+
+    function getManagedSectionPeriodIds(section, item) {
+      if (typeof storageBundle?.getPeriodIdsForSectionItem === "function") {
+        const periodIds = storageBundle.getPeriodIdsForSectionItem(section, item);
+        const normalizedPeriodIds = (Array.isArray(periodIds) ? periodIds : [])
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean);
+        if (normalizedPeriodIds.length) {
+          return [...new Set(normalizedPeriodIds)];
+        }
+      }
+      return [resolveManagedPrimarySectionPeriodId(section, item)];
+    }
+
+    function managedSectionItemMatchesRequestedPeriods(
+      section,
+      item,
+      requestedPeriods = new Set(),
+    ) {
+      if (!(requestedPeriods instanceof Set) || requestedPeriods.size === 0) {
+        return true;
+      }
+      return getManagedSectionPeriodIds(section, item).some((periodId) =>
+        requestedPeriods.has(periodId),
+      );
+    }
+
+    function collectManagedSectionCoveredPeriodIds(section, items = []) {
+      return [
+        ...new Set(
+          (Array.isArray(items) ? items : []).flatMap((item) =>
+            getManagedSectionPeriodIds(section, item),
+          ),
+        ),
+      ];
     }
 
     function getManagedRecurringPlans(state = readState()) {
@@ -9740,7 +10280,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : state?.[section] || [];
       const items = storageBundle?.ensureArray?.(sourceItems) || sourceItems;
       const filteredItems = items.filter((item) => {
-        if (requested.size > 0 && !requested.has(getManagedSectionPeriodId(section, item))) {
+        if (
+          requested.size > 0 &&
+          !managedSectionItemMatchesRequestedPeriods(section, item, requested)
+        ) {
           return false;
         }
         if (section === "records") {
@@ -9754,7 +10297,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         periodIds:
           requested.size > 0
             ? Array.from(requested)
-            : [...new Set(filteredItems.map((item) => getManagedSectionPeriodId(section, item)))],
+            : collectManagedSectionCoveredPeriodIds(section, filteredItems),
         startDate: normalizedRange.startDate || null,
         endDate: normalizedRange.endDate || null,
         items:
@@ -9973,27 +10516,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
+            normalizedOptions,
+          );
+          const nativeBootstrapOptions = stripAuthoritativeReadFlags(
+            normalizedOptions,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          const useFreshBootstrap = normalizedOptions.fresh === true;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
-            normalizedOptions,
+            nativeBootstrapOptions,
           );
           const canUseManagedBootstrapFastPath =
-            nativeInitializationSettled && canUseManagedBootstrap;
+            !forceAuthoritativeBootstrap &&
+            nativeInitializationSettled &&
+            canUseManagedBootstrap;
           const preferManagedBootstrap =
+            !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =
-            useFreshBootstrap || !canUseManagedBootstrapFastPath;
+            forceAuthoritativeBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          if (canUseManagedBootstrapFastPath && !useFreshBootstrap) {
+          if (canUseManagedBootstrapFastPath) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -10004,11 +10555,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               typeof reactNativeBridge?.call === "function"
                 ? await reactNativeBridge.call("storage.getPageBootstrapState", {
                     pageKey: normalizedPage,
-                    options: normalizedOptions,
+                    options: nativeBootstrapOptions,
                   }).catch(async () =>
                     reactNativeBridge.call("storage.getBootstrapState", {
                       options: {
-                        ...normalizedOptions,
+                        ...nativeBootstrapOptions,
                         page: normalizedPage,
                       },
                     }),
@@ -10023,7 +10574,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               const normalizedBootstrap = normalizePageBootstrapEnvelope(
                 normalizedPage,
                 parsed,
-                normalizedOptions,
+                nativeBootstrapOptions,
                 buildCurrentMergedState(),
                 {
                   storageStatus: cachedStatus,
@@ -10048,7 +10599,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 applyNativePageBootstrapToManagedMirror(
                   normalizedPage,
                   normalizedBootstrap,
-                  normalizedOptions,
+                  nativeBootstrapOptions,
                 );
               }
               return normalizedBootstrap;
@@ -10062,10 +10613,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           try {
             const fallbackBootstrap = await buildPageBootstrapStateFromAsyncLoaders(
               normalizedPage,
-              normalizedOptions,
+              nativeBootstrapOptions,
               {
                 fallbackState: buildCurrentMergedState(),
-                getCoreState: async () => this.getCoreState(),
+                getCoreState: async () =>
+                  this.getCoreState({
+                    authoritative: forceAuthoritativeBootstrap,
+                  }),
                 loadSectionRange: async (section, scope = {}) => {
                   const rawPayload = await reactNativeBridge.call(
                     "storage.loadSectionRange",
@@ -10094,7 +10648,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               applyNativePageBootstrapToManagedMirror(
                 normalizedPage,
                 fallbackBootstrap,
-                normalizedOptions,
+                nativeBootstrapOptions,
               );
             }
             return fallbackBootstrap;
@@ -10193,13 +10747,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               : {}
           );
         },
-        async getCoreState() {
+        async getCoreState(options = {}) {
           const managedSnapshot = getManagedCoreStateSnapshot();
+          const forceAuthoritativeCoreState = shouldForceAuthoritativeRead(
+            options,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return managedSnapshot;
           }
-          if (hasManagedCoreSnapshot) {
+          if (hasManagedCoreSnapshot && !forceAuthoritativeCoreState) {
             scheduleManagedFastValidation("core-fast-path");
             return managedSnapshot;
           }
@@ -10321,17 +10878,29 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           }
         },
         async loadSectionRange(section, scope = {}) {
-          const normalizedRange = canServeManagedSectionRange(section, scope);
+          const normalizedScope =
+            scope && typeof scope === "object" ? { ...scope } : {};
+          const forceAuthoritativeRange = shouldForceAuthoritativeRead(
+            normalizedScope,
+          );
+          const nativeScope = stripAuthoritativeReadFlags(normalizedScope);
+          const normalizedRange = canServeManagedSectionRange(
+            section,
+            nativeScope,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return loadManagedSectionRange(
               section,
-              normalizedRange || scope,
+              normalizedRange || nativeScope,
             );
           }
           const canUseManagedRangeFastPath =
-            nativeInitializationSettled && !!normalizedRange;
+            !forceAuthoritativeRange &&
+            nativeInitializationSettled &&
+            !!normalizedRange;
           const preferManagedRange =
+            !forceAuthoritativeRange &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
@@ -10339,19 +10908,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
               section,
-              normalizedRange || scope,
+              normalizedRange || nativeScope,
             );
           }
           try {
             const rawPayload = await reactNativeBridge.call("storage.loadSectionRange", {
               section,
-              scope,
+              scope: nativeScope,
             });
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               mergeManagedSectionRange(
                 section,
-                scope,
+                nativeScope,
                 Array.isArray(parsed.items) ? parsed.items : [],
                 {
                   coveredPeriodIds: Array.isArray(parsed.periodIds)
@@ -10379,7 +10948,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 )
               : state?.[section] || [];
           const existingItems = sectionItems.filter(
-            (item) => getManagedSectionPeriodId(section, item) === periodId,
+            (item) => getManagedSectionPeriodIds(section, item).includes(periodId),
           );
           const mergedItems =
             section === "records" && payload?.mode === "patch"
@@ -10435,7 +11004,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                   payload?.mode === "merge" ? "merge" : "replace",
                 ) || cloneValue(payload?.items || []);
           const remainingItems = sectionItems.filter(
-            (item) => getManagedSectionPeriodId(section, item) !== periodId,
+            (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
           );
           const nextState =
             section === "plans"
@@ -10455,6 +11024,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                   ...state,
                   [section]: [...remainingItems, ...mergedItems],
                 };
+          const invalidPayloadItems = (Array.isArray(payload?.items)
+            ? payload.items
+            : []
+          ).filter(
+            (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
+          );
+          const callerHint = (() => {
+            try {
+              return String(new Error().stack || "")
+                .split("\n")
+                .slice(2, 6)
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .join(" | ");
+            } catch (error) {
+              return "";
+            }
+          })();
+          if (section === "records") {
+            emitStoragePerfMetric("storage-range-save-request", {
+              section,
+              periodId,
+              mode: String(payload?.mode || "replace").trim() || "replace",
+              itemCount: Array.isArray(payload?.items) ? payload.items.length : 0,
+              invalidItemCount: invalidPayloadItems.length,
+              invalidSample: invalidPayloadItems.slice(0, 2).map((item) => ({
+                id: String(item?.id || "").trim(),
+                name: String(item?.name || "").trim(),
+                projectId: String(item?.projectId || "").trim(),
+                startTime: String(item?.startTime || "").trim(),
+                endTime: String(item?.endTime || "").trim(),
+                timestamp: String(item?.timestamp || "").trim(),
+                periodIds: getManagedSectionPeriodIds(section, item),
+              })),
+              callerHint,
+            });
+          }
           assignState(nextState);
           hasManagedCoreSnapshot = true;
           markManagedSectionPeriodsLoaded(section, [periodId]);
@@ -10492,6 +11098,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               },
             );
           } catch (error) {
+            const invalidItems = (Array.isArray(payload?.items) ? payload.items : []).filter(
+              (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
+            );
+            emitStoragePerfMetric("storage-range-save-error", {
+              section,
+              periodId,
+              mode: String(payload?.mode || "replace").trim() || "replace",
+              itemCount: Array.isArray(payload?.items) ? payload.items.length : 0,
+              invalidItemCount: invalidItems.length,
+              invalidSample: invalidItems.slice(0, 1).map((item) => ({
+                id: String(item?.id || "").trim(),
+                name: String(item?.name || "").trim(),
+                projectId: String(item?.projectId || "").trim(),
+                startTime: String(item?.startTime || "").trim(),
+                endTime: String(item?.endTime || "").trim(),
+                timestamp: String(item?.timestamp || "").trim(),
+                periodIds: getManagedSectionPeriodIds(section, item),
+              })),
+              message: error instanceof Error ? error.message : String(error || ""),
+              callerHint,
+            });
             console.error("保存 React Native 分区范围失败，已保留本地镜像:", error);
             markPendingNativeStorageChangeMetadata({
               changedSections: [section],
@@ -20971,6 +21598,49 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  function emitTreeSelectScrollLog(stage, payload = {}) {
+    const normalizedStage = String(stage || "").trim() || "unknown";
+    try {
+      console.info("[ui.tree-select-scroll]", {
+        stage: normalizedStage,
+        ...payload,
+      });
+    } catch (error) {
+      // Ignore logging failures.
+    }
+    emitUiDebugEvent("ui.debug-tree-select-scroll", {
+      stage: normalizedStage,
+      ...payload,
+    });
+  }
+
+  function emitUiDebugEvent(name, payload = {}) {
+    if (
+      typeof window === "undefined" ||
+      typeof window.ControlerNativeBridge?.emitEvent !== "function"
+    ) {
+      return;
+    }
+    window.ControlerNativeBridge.emitEvent(name, {
+      href: window.location.href,
+      ...payload,
+    });
+  }
+
+  function readScrollableElementDebugState(target) {
+    if (!(target instanceof HTMLElement)) {
+      return {};
+    }
+    const computedStyle = window.getComputedStyle(target);
+    return {
+      scrollTop: Math.round(target.scrollTop || 0),
+      scrollHeight: Math.round(target.scrollHeight || 0),
+      clientHeight: Math.round(target.clientHeight || 0),
+      overflowY: computedStyle.overflowY,
+      touchAction: computedStyle.touchAction,
+    };
+  }
+
   function enhanceNativeSelect(select, config = {}) {
     if (!(select instanceof HTMLSelectElement)) return null;
 
@@ -21002,6 +21672,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const wrapper = document.createElement("div");
     wrapper.className = "tree-select native-select-enhancer";
+    wrapper.setAttribute("data-controler-disable-edge-swipe", "true");
 
     const trigger = document.createElement("button");
     trigger.type = "button";
@@ -21014,6 +21685,40 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const menu = document.createElement("div");
     menu.className = "tree-select-menu";
+    menu.setAttribute("data-controler-disable-edge-swipe", "true");
+    menu.style.touchAction = "pan-y";
+    menu.style.overscrollBehavior = "contain";
+    menu.style.webkitOverflowScrolling = "touch";
+    const stopScrollableMenuPropagation = (event) => {
+      if (!wrapper.classList.contains("open")) {
+        return;
+      }
+      event.stopPropagation();
+    };
+    menu.addEventListener("wheel", stopScrollableMenuPropagation, {
+      passive: true,
+    });
+    menu.addEventListener("touchmove", stopScrollableMenuPropagation, {
+      passive: true,
+    });
+    let menuVerticalDragApi = null;
+    const ensureMenuVerticalDrag = () => {
+      if (
+        menuVerticalDragApi ||
+        typeof bindVerticalDragScroll !== "function"
+      ) {
+        return;
+      }
+      menuVerticalDragApi = bindVerticalDragScroll(menu, {
+        enabled: () => wrapper.classList.contains("open"),
+        ignoreSelector: null,
+        idleCursor: "default",
+      });
+      emitTreeSelectScrollLog("drag-scroll-bound", {
+        optionCount: menu.querySelectorAll(".tree-select-option").length,
+        ...readScrollableElementDebugState(menu),
+      });
+    };
 
     const collectOptionLabels = () =>
       Array.from(select.querySelectorAll("option")).map((optionNode) =>
@@ -21075,8 +21780,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const openMenu = () => {
       if (select.disabled) return;
+      ensureMenuVerticalDrag();
       repositionMenu();
       wrapper.classList.add("open");
+      emitTreeSelectScrollLog("menu-open", {
+        optionCount: menu.querySelectorAll(".tree-select-option").length,
+        ...readScrollableElementDebugState(menu),
+      });
       setTimeout(() => {
         document.addEventListener("click", handleOutsideClick, true);
         window.addEventListener("resize", repositionMenu, true);
@@ -21145,6 +21855,34 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       optionButton.type = "button";
       optionButton.className = "tree-select-option";
       optionButton.dataset.value = String(optionNode.value ?? "");
+      optionButton.style.touchAction = "pan-y";
+
+      let pointerDragState = null;
+      let ignoreNextClick = false;
+      const TREE_SELECT_SCROLL_THRESHOLD_PX = 10;
+      const updatePointerDragState = (event) => {
+        if (
+          !pointerDragState ||
+          event.pointerId !== pointerDragState.pointerId
+        ) {
+          return;
+        }
+        const deltaX = Math.abs(event.clientX - pointerDragState.startX);
+        const deltaY = Math.abs(event.clientY - pointerDragState.startY);
+        if (
+          !pointerDragState.dragging &&
+          (deltaY >= TREE_SELECT_SCROLL_THRESHOLD_PX ||
+            deltaX >= TREE_SELECT_SCROLL_THRESHOLD_PX + 4)
+        ) {
+          pointerDragState.dragging = true;
+          ignoreNextClick = true;
+          emitTreeSelectScrollLog("drag-detected", {
+            pointerType: String(event.pointerType || "").trim() || "unknown",
+            deltaX: Math.round(deltaX),
+            deltaY: Math.round(deltaY),
+          });
+        }
+      };
 
       const label = document.createElement("span");
       label.className = "tree-select-option-label";
@@ -21155,7 +21893,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         optionButton.classList.add("is-disabled");
         optionButton.disabled = true;
       } else {
+        optionButton.addEventListener("pointerdown", (event) => {
+          pointerDragState = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            dragging: false,
+          };
+        });
+        optionButton.addEventListener(
+          "pointermove",
+          (event) => {
+            updatePointerDragState(event);
+          },
+          {
+            passive: true,
+          },
+        );
+        optionButton.addEventListener("pointerup", (event) => {
+          updatePointerDragState(event);
+          pointerDragState = null;
+        });
+        optionButton.addEventListener("pointercancel", () => {
+          pointerDragState = null;
+        });
         optionButton.addEventListener("click", (event) => {
+          if (ignoreNextClick) {
+            ignoreNextClick = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
           select.value = optionNode.value;
@@ -21206,6 +21974,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         rebuildMenu();
       },
       destroy() {
+        menuVerticalDragApi?.destroy?.();
         observer.disconnect();
         document.removeEventListener("click", handleOutsideClick, true);
         window.removeEventListener("resize", repositionMenu, true);

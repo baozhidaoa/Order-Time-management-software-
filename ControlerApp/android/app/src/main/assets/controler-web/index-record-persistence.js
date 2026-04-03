@@ -31,21 +31,82 @@
       : "recent-range";
   }
 
+  function parseRecordDate(value) {
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedValue) {
+      return null;
+    }
+    const timestamp = Date.parse(normalizedValue);
+    if (!Number.isFinite(timestamp)) {
+      return null;
+    }
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatRecordPeriodId(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function getRecordPeriodIdsForItem(record = {}) {
+    const startDate =
+      parseRecordDate(record?.startTime) ||
+      parseRecordDate(record?.timestamp) ||
+      parseRecordDate(record?.endTime);
+    const endDate =
+      parseRecordDate(record?.endTime) ||
+      parseRecordDate(record?.timestamp) ||
+      parseRecordDate(record?.startTime);
+    if (!startDate && !endDate) {
+      return ["undated"];
+    }
+    let lower = startDate || endDate;
+    let upper = endDate || startDate;
+    if (upper.getTime() < lower.getTime()) {
+      const swapped = lower;
+      lower = upper;
+      upper = swapped;
+    }
+    const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+    const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
+    const periodIds = [];
+    while (cursor.getTime() <= target.getTime()) {
+      const periodId = normalizePeriodId(formatRecordPeriodId(cursor) || "undated");
+      if (periodId) {
+        periodIds.push(periodId);
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return periodIds.length ? Array.from(new Set(periodIds)) : ["undated"];
+  }
+
+  function resolveRecordItemPeriodIds(record = {}, options = {}) {
+    if (typeof options.getPeriodIds === "function") {
+      const periodIds = options.getPeriodIds(record);
+      const normalizedPeriodIds = ensureArray(periodIds)
+        .map((periodId) => normalizePeriodId(periodId || "undated"))
+        .filter(Boolean);
+      return normalizedPeriodIds.length ? normalizedPeriodIds : ["undated"];
+    }
+    if (typeof options.getPeriodId === "function") {
+      return [normalizePeriodId(options.getPeriodId(record) || "undated")].filter(Boolean);
+    }
+    return getRecordPeriodIdsForItem(record);
+  }
+
   function getRecordPeriodId(record = {}) {
-    const anchor =
-      record?.endTime || record?.timestamp || record?.startTime || "";
-    return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+    return resolveRecordItemPeriodIds(record)[0] || "undated";
   }
 
   function getRecordPeriodIds(items = [], options = {}) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     return Array.from(
       new Set(
         ensureArray(items)
-          .map((item) => normalizePeriodId(resolvePeriodId(item) || "undated"))
+          .flatMap((item) => resolveRecordItemPeriodIds(item, options))
+          .map((periodId) => normalizePeriodId(periodId || "undated"))
           .filter(Boolean),
       ),
     );
@@ -88,10 +149,6 @@
     periodIds = [],
     options = {},
   ) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     const targetPeriods = new Set(
       ensureArray(periodIds)
         .map((periodId) => normalizePeriodId(periodId))
@@ -101,28 +158,29 @@
       return ensureArray(incomingItems).slice();
     }
     const preserved = ensureArray(existingItems).filter(
-      (item) => !targetPeriods.has(resolvePeriodId(item)),
+      (item) =>
+        !resolveRecordItemPeriodIds(item, options).some((periodId) =>
+          targetPeriods.has(periodId),
+        ),
     );
     return [...preserved, ...ensureArray(incomingItems)];
   }
 
   function groupRecordsByPeriod(items = [], options = {}) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     const clone =
       typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
     const grouped = new Map();
     ensureArray(items).forEach((item) => {
-      const periodId = normalizePeriodId(resolvePeriodId(item) || "undated");
-      if (!periodId) {
-        return;
-      }
-      if (!grouped.has(periodId)) {
-        grouped.set(periodId, []);
-      }
-      grouped.get(periodId).push(clone(item));
+      resolveRecordItemPeriodIds(item, options).forEach((periodId) => {
+        const normalizedPeriodId = normalizePeriodId(periodId || "undated");
+        if (!normalizedPeriodId) {
+          return;
+        }
+        if (!grouped.has(normalizedPeriodId)) {
+          grouped.set(normalizedPeriodId, []);
+        }
+        grouped.get(normalizedPeriodId).push(clone(item));
+      });
     });
     return grouped;
   }
@@ -165,10 +223,10 @@
     const existingItems = ensureArray(options.existingItems);
     const fallbackItems = ensureArray(options.fallbackItems);
     const rangeItems = ensureArray(options.rangeItems);
-    const getPeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
+    const periodResolverOptions = {
+      getPeriodId: options.getPeriodId,
+      getPeriodIds: options.getPeriodIds,
+    };
     const rangePeriodIds = ensureArray(options.rangePeriodIds)
       .map((periodId) => normalizePeriodId(periodId))
       .filter(Boolean);
@@ -177,7 +235,7 @@
         ? options.mergeByPeriods
         : (currentItems, incomingItems, targetPeriodIds) =>
             mergeRecordItemsByPeriods(currentItems, incomingItems, targetPeriodIds, {
-              getPeriodId,
+              ...periodResolverOptions,
             });
 
     let items = fallbackItems.slice();
@@ -190,15 +248,15 @@
     return {
       mode,
       items,
-      loadedPeriodIds:
-        mode === "full-history"
+        loadedPeriodIds:
+          mode === "full-history"
           ? getRecordPeriodIds(items, {
-              getPeriodId,
+              ...periodResolverOptions,
             })
           : rangePeriodIds.length
             ? rangePeriodIds.slice()
             : getRecordPeriodIds(rangeItems, {
-                getPeriodId,
+                ...periodResolverOptions,
               }),
     };
   }
@@ -206,10 +264,10 @@
   async function persistRecordMutations(options = {}) {
     const clone =
       typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
-    const getPeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
+    const periodResolverOptions = {
+      getPeriodId: options.getPeriodId,
+      getPeriodIds: options.getPeriodIds,
+    };
     const buildMergeKey =
       typeof options.buildMergeKey === "function"
         ? options.buildMergeKey
@@ -229,11 +287,11 @@
       clone(item),
     );
     const upsertsByPeriod = groupRecordsByPeriod(options.upserts, {
-      getPeriodId,
+      ...periodResolverOptions,
       cloneValue: clone,
     });
     const removedByPeriod = groupRecordsByPeriod(options.removedItems, {
-      getPeriodId,
+      ...periodResolverOptions,
       cloneValue: clone,
     });
     const targetPeriodIds = new Set(
@@ -288,7 +346,9 @@
 
       if (allRecordsLoaded) {
         const nextItems = sortItems(
-          currentRecords.filter((item) => getPeriodId(item) === periodId),
+          currentRecords.filter((item) =>
+            resolveRecordItemPeriodIds(item, periodResolverOptions).includes(periodId),
+          ),
         );
         await saveSectionRange("records", {
           periodId,
@@ -319,9 +379,11 @@
 
       const authoritativeRange = await loadSectionRange("records", {
         periodIds: [periodId],
+        authoritative: true,
       });
       const authoritativeItems = ensureArray(authoritativeRange?.items).filter(
-        (item) => getPeriodId(item) === periodId,
+        (item) =>
+          resolveRecordItemPeriodIds(item, periodResolverOptions).includes(periodId),
       );
       const nextItems = applyRecordMutations(
         authoritativeItems,

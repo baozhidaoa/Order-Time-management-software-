@@ -1,7 +1,9 @@
 package com.controlerapp.widgets;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
@@ -11,6 +13,7 @@ import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
 import android.util.AtomicFile;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -41,6 +44,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ControlerWidgetDataStore {
+    private static final String TAG = "ControlerDataStore";
     private static final Pattern DAY_PATTERN = Pattern.compile("(\\d+)天");
     private static final Pattern HOUR_PATTERN = Pattern.compile("(\\d+)小时");
     private static final Pattern MINUTE_PATTERN = Pattern.compile("(\\d+)分钟");
@@ -69,13 +73,25 @@ public final class ControlerWidgetDataStore {
     public static final String BUNDLE_MANIFEST_FILE_NAME = "bundle-manifest.json";
     public static final String BUNDLE_CORE_FILE_NAME = "core.json";
     public static final String BUNDLE_RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+    private static final String[] PARTITIONED_SECTION_KEYS = new String[] {
+        "records",
+        "diaryEntries",
+        "dailyCheckins",
+        "checkins",
+        "plans"
+    };
     private static final String STORAGE_RECOVERY_STATE_OK = "ok";
     private static final String STORAGE_RECOVERY_STATE_REPAIRED = "repaired";
     private static final String STORAGE_RECOVERY_STATE_NEEDS_RECOVERY = "needs-recovery";
     private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
         "directory-document-uri-cache.json";
     private static final String BUNDLE_SIZE_CACHE_FILE_NAME = "bundle-size-cache.json";
+    private static final String STORAGE_BINDING_FILE_NAME = "storage-binding.json";
+    private static final String STORAGE_BINDING_KIND_RESET = "reset";
+    private static final String STORAGE_BINDING_KIND_FILE = "file";
+    private static final String STORAGE_BINDING_KIND_DIRECTORY = "directory";
     private static final long BUNDLE_STORAGE_READY_CACHE_WINDOW_MS = 2500L;
+    private static final long STORAGE_BINDING_RESOLUTION_CACHE_WINDOW_MS = 2500L;
     private static final int PROJECT_DURATION_CACHE_VERSION = 1;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -84,6 +100,7 @@ public final class ControlerWidgetDataStore {
     private static volatile String storageRecoveryMessage = "";
     private static volatile long bundleStorageReadyVerifiedAt = 0L;
     private static volatile String bundleStorageReadyCacheKey = "";
+    private static volatile long storageBindingResolvedAt = 0L;
 
     private ControlerWidgetDataStore() {}
 
@@ -117,6 +134,21 @@ public final class ControlerWidgetDataStore {
         public String color = "#ed8936";
         public String priority = "medium";
         public String createdAt = "";
+    }
+
+    private static final class CorePayloadSanitizeResult {
+        final JSONObject payload;
+        final ArrayList<String> removedSections;
+
+        CorePayloadSanitizeResult(JSONObject payload, ArrayList<String> removedSections) {
+            this.payload = payload == null ? new JSONObject() : payload;
+            this.removedSections =
+                removedSections == null ? new ArrayList<String>() : removedSections;
+        }
+
+        boolean repaired() {
+            return !removedSections.isEmpty();
+        }
     }
 
     public static final class CheckinItemInfo {
@@ -217,6 +249,20 @@ public final class ControlerWidgetDataStore {
         public String fingerprint = "";
         public boolean supportsModifiedAt = false;
         public boolean fallbackHashUsed = false;
+    }
+
+    private static final class StoredStorageBinding {
+        public String kind = "";
+        public Uri uri = null;
+        public String displayName = "";
+        public long updatedAt = 0L;
+    }
+
+    private static final class StorageBindingCandidate {
+        public Uri uri = null;
+        public String displayName = "";
+        public long persistedAt = 0L;
+        public int score = Integer.MIN_VALUE;
     }
 
     private static final class ProjectDurationIndexEntry {
@@ -406,6 +452,18 @@ public final class ControlerWidgetDataStore {
                     normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)
                         ? buildRelativeDateRangeScope(0, 32)
                         : buildCurrentMonthScope();
+                if (normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)) {
+                    try {
+                        Log.i(
+                            TAG,
+                            "[widget.week-view-load] stage=start startDate="
+                                + safeText(planScope.optString("startDate", ""))
+                                + " endDate="
+                                + safeText(planScope.optString("endDate", ""))
+                        );
+                    } catch (Exception ignored) {
+                    }
+                }
                 JSONObject planRange = loadStorageSectionRange(
                     context,
                     "plans",
@@ -415,6 +473,23 @@ public final class ControlerWidgetDataStore {
                 JSONArray recurringPlans = cloneJsonArray(core.optJSONArray("recurringPlans"));
                 for (int index = 0; index < recurringPlans.length(); index++) {
                     mergedPlans.put(cloneJsonValue(recurringPlans.opt(index)));
+                }
+                if (normalizedKinds.contains(ControlerWidgetKinds.WEEK_VIEW)) {
+                    try {
+                        JSONArray loadedOneTimePlans = planRange.optJSONArray("items");
+                        Log.i(
+                            TAG,
+                            "[widget.week-view-load] stage=loaded oneTimePlanCount="
+                                + (loadedOneTimePlans == null ? 0 : loadedOneTimePlans.length())
+                                + " recurringPlanCount="
+                                + recurringPlans.length()
+                                + " loadedPeriodCount="
+                                + (planRange.optJSONArray("periodIds") == null
+                                    ? 0
+                                    : planRange.optJSONArray("periodIds").length())
+                        );
+                    } catch (Exception ignored) {
+                    }
                 }
                 root.put("plans", mergedPlans);
                 root.put(
@@ -1145,6 +1220,27 @@ public final class ControlerWidgetDataStore {
                     cloneJsonArray(range.optJSONArray("items"))
                 );
                 data.put("statsPreferences", new JSONObject());
+                Log.i(
+                    TAG,
+                    "[stats.page-bootstrap] startDate="
+                        + normalizeDateText(
+                            firstNonEmpty(
+                                recordScope.optString("startDate", ""),
+                                recordScope.optString("start", "")
+                            )
+                        )
+                        + " endDate="
+                        + normalizeDateText(
+                            firstNonEmpty(
+                                recordScope.optString("endDate", ""),
+                                recordScope.optString("end", "")
+                            )
+                        )
+                        + " loadedPeriodCount="
+                        + loadedPeriodIds.length()
+                        + " recordCount="
+                        + (range.optJSONArray("items") == null ? 0 : range.optJSONArray("items").length())
+                );
             } else {
                 data.put("storageStatus", JSONObject.NULL);
                 data.put("autoBackupStatus", JSONObject.NULL);
@@ -1330,15 +1426,24 @@ public final class ControlerWidgetDataStore {
                 if ("plans".equals(normalizedSection) && isRecurringPlan(item)) {
                     continue;
                 }
-                String periodId = getPeriodIdForSectionItem(normalizedSection, item);
-                if (!requestedPeriodIds.isEmpty() && !requestedPeriodIds.contains(periodId)) {
+                ArrayList<String> itemPeriodIds = getPeriodIdsForSectionItem(normalizedSection, item);
+                boolean matchesRequestedPeriods = requestedPeriodIds.isEmpty();
+                if (!matchesRequestedPeriods) {
+                    for (String itemPeriodId : itemPeriodIds) {
+                        if (requestedPeriodIds.contains(itemPeriodId)) {
+                            matchesRequestedPeriods = true;
+                            break;
+                        }
+                    }
+                }
+                if (!matchesRequestedPeriods) {
                     continue;
                 }
                 if (!sectionItemMatchesScope(normalizedSection, item, scope)) {
                     continue;
                 }
                 matchedItems.add(cloneJsonObject(item));
-                matchedPeriodIds.add(periodId);
+                matchedPeriodIds.addAll(itemPeriodIds);
             }
         }
 
@@ -1369,6 +1474,37 @@ public final class ControlerWidgetDataStore {
             )
         );
         result.put("items", buildJsonArrayFromObjects(matchedItems));
+        if ("records".equals(section) || "plans".equals(section)) {
+            Log.i(
+                TAG,
+                "[storage.section-range] section="
+                    + section
+                    + " startDate="
+                    + normalizeDateText(
+                        scope == null
+                            ? ""
+                            : firstNonEmpty(
+                                scope.optString("startDate", ""),
+                                scope.optString("start", "")
+                            )
+                    )
+                    + " endDate="
+                    + normalizeDateText(
+                        scope == null
+                            ? ""
+                            : firstNonEmpty(
+                                scope.optString("endDate", ""),
+                                scope.optString("end", "")
+                            )
+                    )
+                    + " requestedPeriodCount="
+                    + requestedPeriodIds.size()
+                    + " matchedPeriodCount="
+                    + matchedPeriodIds.size()
+                    + " matchedItemCount="
+                    + matchedItems.size()
+            );
+        }
         return result;
     }
 
@@ -1414,7 +1550,7 @@ public final class ControlerWidgetDataStore {
                     recurringPlans.add(cloneJsonObject(item));
                     continue;
                 }
-                if (periodId.equals(getPeriodIdForSectionItem(normalizedSection, item))) {
+                if (getPeriodIdsForSectionItem(normalizedSection, item).contains(periodId)) {
                     existingPartitionItems.add(cloneJsonObject(item));
                 } else {
                     retainedItems.add(cloneJsonObject(item));
@@ -1486,11 +1622,16 @@ public final class ControlerWidgetDataStore {
         Context context,
         JSONObject partialCore
     ) throws Exception {
+        CorePayloadSanitizeResult sanitizeResult =
+            stripPartitionedSectionsFromCorePayload(
+                partialCore == null ? new JSONObject() : partialCore
+            );
+        JSONObject source = sanitizeResult.payload;
         if (usesDirectoryBundleStorage(context)) {
-            return replaceBundleCoreState(context, partialCore);
+            logBundleCorePollutionCleanup("replaceStorageCoreState", sanitizeResult.removedSections);
+            return replaceBundleCoreState(context, source);
         }
         JSONObject root = loadRoot(context);
-        JSONObject source = partialCore == null ? new JSONObject() : partialCore;
         String[] mutableKeys = new String[] {
             "projects",
             "todos",
@@ -1521,6 +1662,7 @@ public final class ControlerWidgetDataStore {
         if (!saveRoot(context, root)) {
             throw new Exception("保存移动端数据失败。");
         }
+        logBundleCorePollutionCleanup("replaceStorageCoreState", sanitizeResult.removedSections);
         return buildCoreStateReplaceResult(source);
     }
 
@@ -1642,7 +1784,12 @@ public final class ControlerWidgetDataStore {
         if (usesDirectoryBundleStorage(context)) {
             ensureBundleStorageReady(context);
             String relativePath = getPartitionRelativePath(normalizedSection, normalizedPeriodId);
-            JSONObject envelope = readBundlePartitionEnvelope(context, relativePath);
+            JSONObject envelope = readBundlePartitionEnvelopeWithConflictRecovery(
+                context,
+                normalizedSection,
+                normalizedPeriodId,
+                relativePath
+            );
             if (envelope != null) {
                 return envelope;
             }
@@ -1904,6 +2051,16 @@ public final class ControlerWidgetDataStore {
                 }
             }
 
+            if ("records".equals(section)) {
+                mergedItems = buildJsonArrayFromObjects(
+                    mergePartitionItems(
+                        section,
+                        new ArrayList<>(),
+                        jsonArrayToObjectList(mergedItems),
+                        true
+                    )
+                );
+            }
             root.put(section, mergedItems);
         }
 
@@ -1958,6 +2115,7 @@ public final class ControlerWidgetDataStore {
 
             writeBundleJson(context, BUNDLE_MANIFEST_FILE_NAME, manifest);
             deleteStaleBundleFiles(context, previousManifest, manifest);
+            deleteIgnoredBundleArtifacts(context, "writeBundleRoot");
             return true;
         } catch (Exception error) {
             error.printStackTrace();
@@ -2027,8 +2185,10 @@ public final class ControlerWidgetDataStore {
                 if (!requestedPeriodIds.isEmpty() && !requestedPeriodIds.contains(periodId)) {
                     continue;
                 }
-                JSONObject envelope = readBundlePartitionEnvelope(
+                JSONObject envelope = readBundlePartitionEnvelopeWithConflictRecovery(
                     context,
+                    section,
+                    periodId,
                     partition.optString("file", "")
                 );
                 JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
@@ -2047,6 +2207,9 @@ public final class ControlerWidgetDataStore {
             }
         }
 
+        if ("records".equals(section)) {
+            matchedItems = mergePartitionItems(section, new ArrayList<>(), matchedItems, true);
+        }
         Collections.sort(matchedPeriodIds);
         sortJsonItems(section, matchedItems);
 
@@ -2193,7 +2356,12 @@ public final class ControlerWidgetDataStore {
         }
 
         String relativePath = getPartitionRelativePath(section, periodId);
-        JSONObject existingEnvelope = readBundlePartitionEnvelope(context, relativePath);
+        JSONObject existingEnvelope = readBundlePartitionEnvelopeWithConflictRecovery(
+            context,
+            section,
+            periodId,
+            relativePath
+        );
         ArrayList<JSONObject> existingItems =
             jsonArrayToObjectList(
                 existingEnvelope == null ? null : existingEnvelope.optJSONArray("items")
@@ -2365,6 +2533,7 @@ public final class ControlerWidgetDataStore {
             return;
         }
 
+        deleteIgnoredBundleArtifacts(context, "ensureBundleStorageReady");
         String previousRecoveryState = getStorageRecoveryState();
         BundleArtifactInspection inspection = inspectBundleArtifacts(context);
         if (inspection.manifestExists || inspection.hasBundleArtifacts()) {
@@ -2814,24 +2983,70 @@ public final class ControlerWidgetDataStore {
         return changed;
     }
 
+    private static CorePayloadSanitizeResult stripPartitionedSectionsFromCorePayload(
+        JSONObject corePayload
+    ) {
+        JSONObject sanitized = corePayload == null ? new JSONObject() : cloneJsonObject(corePayload);
+        ArrayList<String> removedSections = new ArrayList<>();
+        for (String section : PARTITIONED_SECTION_KEYS) {
+            if (!sanitized.has(section)) {
+                continue;
+            }
+            sanitized.remove(section);
+            removedSections.add(section);
+        }
+        return new CorePayloadSanitizeResult(sanitized, removedSections);
+    }
+
+    private static void logBundleCorePollutionCleanup(
+        String source,
+        ArrayList<String> removedSections
+    ) {
+        if (removedSections == null || removedSections.isEmpty()) {
+            return;
+        }
+        try {
+            Log.i(
+                TAG,
+                "Sanitized polluted bundle core from "
+                    + safeText(source)
+                    + ", removed sections: "
+                    + TextUtils.join(", ", removedSections)
+            );
+        } catch (Exception ignored) {
+        }
+    }
+
     private static JSONObject loadBundleCoreWithProjectDurationCache(Context context)
         throws Exception {
         ensureBundleStorageReady(context);
-        JSONObject core = readBundleCore(context);
-        if (core == null) {
+        JSONObject storedCore = readBundleCore(context);
+        if (storedCore == null) {
             JSONObject rebuiltCore = buildCoreStateFromRoot(loadBundleRoot(context, false));
             writeBundleJson(context, BUNDLE_CORE_FILE_NAME, rebuiltCore);
             return rebuiltCore;
         }
+        CorePayloadSanitizeResult sanitizeResult =
+            stripPartitionedSectionsFromCorePayload(storedCore);
+        JSONObject core = sanitizeResult.payload;
         boolean themeStateChanged = ensureThemeStateInCore(core);
-        if (projectsHaveValidDurationCache(core.optJSONArray("projects")) && !themeStateChanged) {
+        boolean projectDurationCacheValid = projectsHaveValidDurationCache(
+            core.optJSONArray("projects")
+        );
+        if (projectDurationCacheValid && !themeStateChanged && !sanitizeResult.repaired()) {
             return core;
         }
         JSONObject repairedCore = cloneJsonObject(core);
-        JSONObject repairedRoot = loadBundleRoot(context, false);
-        repairedCore.put("projects", cloneJsonArray(repairedRoot.optJSONArray("projects")));
+        if (!projectDurationCacheValid) {
+            JSONObject repairedRoot = loadBundleRoot(context, false);
+            repairedCore.put("projects", cloneJsonArray(repairedRoot.optJSONArray("projects")));
+        }
         ensureThemeStateInCore(repairedCore);
         writeBundleJson(context, BUNDLE_CORE_FILE_NAME, repairedCore);
+        logBundleCorePollutionCleanup(
+            "loadBundleCoreWithProjectDurationCache",
+            sanitizeResult.removedSections
+        );
         return repairedCore;
     }
 
@@ -3078,31 +3293,50 @@ public final class ControlerWidgetDataStore {
         return normalizeDurationMs(totalMs);
     }
 
-    private static long parseRecordTimestampMs(String value) {
+    private static Date parseDateTimeValue(String value) {
         if (TextUtils.isEmpty(value)) {
-            return -1L;
+            return null;
         }
-        String[] patterns = new String[] {
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        String trimmedValue = value.trim();
+        String[] timezoneAwarePatterns = new String[] {
             "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
             "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSS",
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyy-MM-dd HH:mm:ss"
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX"
         };
-        for (String pattern : patterns) {
+        for (String pattern : timezoneAwarePatterns) {
             try {
                 SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
-                format.setTimeZone(TimeZone.getDefault());
-                Date parsedDate = format.parse(value.trim());
+                format.setTimeZone(TimeZone.getTimeZone("UTC"));
+                Date parsedDate = format.parse(trimmedValue);
                 if (parsedDate != null) {
-                    return parsedDate.getTime();
+                    return parsedDate;
                 }
             } catch (Exception ignored) {
             }
         }
-        return -1L;
+        String[] localPatterns = new String[] {
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss"
+        };
+        for (String pattern : localPatterns) {
+            try {
+                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+                format.setTimeZone(TimeZone.getDefault());
+                Date parsedDate = format.parse(trimmedValue);
+                if (parsedDate != null) {
+                    return parsedDate;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static long parseRecordTimestampMs(String value) {
+        Date parsedDate = parseDateTimeValue(value);
+        return parsedDate == null ? -1L : parsedDate.getTime();
     }
 
     private static long getRecordDurationMs(JSONObject record) {
@@ -3431,6 +3665,128 @@ public final class ControlerWidgetDataStore {
         }
     }
 
+    private static boolean shouldUseRecoveredConflictPartition(int activeCount, int recoveredCount) {
+        if (recoveredCount <= activeCount || recoveredCount <= 0) {
+            return false;
+        }
+        if (activeCount <= 1) {
+            return true;
+        }
+        return activeCount < 16
+            && recoveredCount >= 64
+            && recoveredCount >= activeCount * 4;
+    }
+
+    private static ArrayList<String> listBundleConflictPartitionRelativePaths(
+        Context context,
+        String relativePath
+    ) {
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedRelativePath) || !normalizedRelativePath.endsWith(".json")) {
+            return new ArrayList<>();
+        }
+        int separatorIndex = normalizedRelativePath.lastIndexOf('/');
+        String directoryPrefix =
+            separatorIndex >= 0 ? normalizedRelativePath.substring(0, separatorIndex + 1) : "";
+        String fileName =
+            separatorIndex >= 0
+                ? normalizedRelativePath.substring(separatorIndex + 1)
+                : normalizedRelativePath;
+        String fileBaseName = fileName.substring(0, fileName.length() - 5);
+        String conflictPrefix = directoryPrefix + fileBaseName + ".sync-conflict-";
+        Uri treeUri = usesDirectoryBundleStorage(context) ? getCustomStorageDirectoryUri(context) : null;
+        File localRoot = treeUri == null ? getDefaultBundleRootDirectory(context) : null;
+        ArrayList<String> matches = new ArrayList<>();
+        for (String candidatePath : listBundlePartitionRelativePaths(context, treeUri, localRoot)) {
+            if (candidatePath.startsWith(conflictPrefix) && candidatePath.endsWith(".json")) {
+                matches.add(candidatePath);
+            }
+        }
+        Collections.sort(matches);
+        return matches;
+    }
+
+    private static JSONObject readBundlePartitionEnvelopeWithConflictRecovery(
+        Context context,
+        String section,
+        String periodId,
+        String relativePath
+    ) {
+        JSONObject activeEnvelope = readBundlePartitionEnvelope(context, relativePath);
+        ArrayList<JSONObject> activeItems = jsonArrayToObjectList(
+            activeEnvelope == null ? null : activeEnvelope.optJSONArray("items")
+        );
+        int activeCount = activeItems.size();
+        if (activeCount > 1) {
+            return activeEnvelope;
+        }
+
+        ArrayList<String> conflictPaths = listBundleConflictPartitionRelativePaths(context, relativePath);
+        if (conflictPaths.isEmpty()) {
+            return activeEnvelope;
+        }
+
+        ArrayList<JSONObject> recoveredItems = new ArrayList<>(activeItems);
+        for (String conflictPath : conflictPaths) {
+            JSONObject conflictEnvelope = readBundlePartitionEnvelope(context, conflictPath);
+            ArrayList<JSONObject> conflictItems = jsonArrayToObjectList(
+                conflictEnvelope == null ? null : conflictEnvelope.optJSONArray("items")
+            );
+            if (conflictItems.isEmpty()) {
+                continue;
+            }
+            recoveredItems = mergePartitionItems(section, recoveredItems, conflictItems, true);
+        }
+
+        ArrayList<JSONObject> filteredRecoveredItems = new ArrayList<>();
+        for (JSONObject item : recoveredItems) {
+            if (item == null) {
+                continue;
+            }
+            if (getPeriodIdsForSectionItem(section, item).contains(periodId)) {
+                filteredRecoveredItems.add(cloneJsonObject(item));
+            }
+        }
+        sortJsonItems(section, filteredRecoveredItems);
+
+        if (!shouldUseRecoveredConflictPartition(activeCount, filteredRecoveredItems.size())) {
+            return activeEnvelope;
+        }
+
+        Log.i(
+            TAG,
+            "[storage.partition-conflict-repair] section="
+                + section
+                + " periodId="
+                + periodId
+                + " activeCount="
+                + activeCount
+                + " recoveredCount="
+                + filteredRecoveredItems.size()
+                + " conflictFileCount="
+                + conflictPaths.size()
+                + " relativePath="
+                + safeText(relativePath)
+        );
+        try {
+            return buildPartitionEnvelope(section, periodId, filteredRecoveredItems);
+        } catch (Exception error) {
+            Log.w(
+                TAG,
+                "[storage.partition-conflict-repair-build-failed] section="
+                    + section
+                    + " periodId="
+                    + periodId
+                    + " recoveredCount="
+                    + filteredRecoveredItems.size()
+                    + " relativePath="
+                    + safeText(relativePath),
+                error
+            );
+            return activeEnvelope;
+        }
+    }
+
     private static JSONObject normalizeRoot(Context context, JSONObject root, boolean touchSyncSave) {
         return normalizeRoot(context, root, touchSyncSave, true);
     }
@@ -3735,7 +4091,13 @@ public final class ControlerWidgetDataStore {
         JSONObject core
     ) throws Exception {
         String now = isoNow();
-        JSONObject safeCore = core == null ? buildCoreStateFromRoot(normalizeRoot(context, new JSONObject(), false)) : core;
+        JSONObject safeCore =
+            core == null
+                ? buildCoreStateFromRoot(normalizeRoot(context, new JSONObject(), false))
+                : core;
+        CorePayloadSanitizeResult sanitizeResult =
+            stripPartitionedSectionsFromCorePayload(safeCore);
+        safeCore = sanitizeResult.payload;
         JSONObject syncMeta = safeCore.optJSONObject("syncMeta");
         if (syncMeta == null) {
             syncMeta = new JSONObject();
@@ -3748,11 +4110,13 @@ public final class ControlerWidgetDataStore {
         safeCore.put("syncMeta", syncMeta);
         safeCore.put("lastModified", now);
         writeBundleJson(context, BUNDLE_CORE_FILE_NAME, safeCore);
+        logBundleCorePollutionCleanup("touchBundleMetadata", sanitizeResult.removedSections);
 
         if (manifest != null) {
             manifest.put("lastModified", now);
             writeBundleJson(context, BUNDLE_MANIFEST_FILE_NAME, manifest);
         }
+        deleteIgnoredBundleArtifacts(context, "touchBundleMetadata");
     }
 
     private static JSONObject readBundleJsonObject(Context context, String relativePath)
@@ -4115,7 +4479,63 @@ public final class ControlerWidgetDataStore {
             .replaceAll("^/+|/+$", "");
     }
 
-    private static ArrayList<String> listBundlePartitionRelativePaths(
+    private static String getBundleRelativeFileName(String relativePath) {
+        String normalizedPath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedPath)) {
+            return "";
+        }
+        int separatorIndex = normalizedPath.lastIndexOf('/');
+        return separatorIndex >= 0
+            ? normalizedPath.substring(separatorIndex + 1)
+            : normalizedPath;
+    }
+
+    private static boolean isIgnoredBundleArtifactRelativePath(String relativePath) {
+        String normalizedPath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedPath)) {
+            return false;
+        }
+        String normalizedLower = normalizedPath.toLowerCase(Locale.US);
+        if (normalizedLower.endsWith(".json") && normalizedLower.contains(".sync-conflict-")) {
+            return true;
+        }
+        String fileName = getBundleRelativeFileName(normalizedPath);
+        String fileNameLower = fileName.toLowerCase(Locale.US);
+        if (!fileNameLower.endsWith(".json")) {
+            return false;
+        }
+        if (fileName.matches("(?i).+ \\(\\d+\\)\\.json$")) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isIgnoredBundleArtifactDirectoryName(String directoryName) {
+        String normalizedName = safeText(directoryName);
+        if (TextUtils.isEmpty(normalizedName)) {
+            return false;
+        }
+        if (!normalizedName.matches(".+ \\(\\d+\\)$")) {
+            return false;
+        }
+        String baseName = normalizedName.replaceFirst(" \\(\\d+\\)$", "");
+        return "records".equals(baseName)
+            || "dailyCheckins".equals(baseName)
+            || "checkins".equals(baseName)
+            || "plans".equals(baseName)
+            || "diaryEntries".equals(baseName)
+            || "backups".equals(baseName);
+    }
+
+    private static String getIgnoredBundleArtifactDirectoryBaseName(String directoryName) {
+        String normalizedName = safeText(directoryName);
+        if (!isIgnoredBundleArtifactDirectoryName(normalizedName)) {
+            return "";
+        }
+        return normalizedName.replaceFirst(" \\(\\d+\\)$", "");
+    }
+
+    private static ArrayList<String> listBundleJsonRelativePaths(
         Context context,
         Uri treeUri,
         File localRoot
@@ -4140,8 +4560,25 @@ public final class ControlerWidgetDataStore {
             collectLocalBundleJsonPaths(localRoot, "", relativePaths);
         }
 
-        ArrayList<String> partitions = new ArrayList<>();
+        ArrayList<String> normalizedPaths = new ArrayList<>();
         for (String relativePath : relativePaths) {
+            String normalizedPath = normalizeBundleRelativePath(relativePath);
+            if (!TextUtils.isEmpty(normalizedPath)
+                && normalizedPath.toLowerCase(Locale.US).endsWith(".json")) {
+                normalizedPaths.add(normalizedPath);
+            }
+        }
+        Collections.sort(normalizedPaths);
+        return normalizedPaths;
+    }
+
+    private static ArrayList<String> listBundlePartitionRelativePaths(
+        Context context,
+        Uri treeUri,
+        File localRoot
+    ) {
+        ArrayList<String> partitions = new ArrayList<>();
+        for (String relativePath : listBundleJsonRelativePaths(context, treeUri, localRoot)) {
             String normalizedPath = normalizeBundleRelativePath(relativePath);
             if (isBundlePartitionRelativePath(normalizedPath)) {
                 partitions.add(normalizedPath);
@@ -4149,6 +4586,132 @@ public final class ControlerWidgetDataStore {
         }
         Collections.sort(partitions);
         return partitions;
+    }
+
+    private static void deleteIgnoredBundleArtifacts(Context context, String reason) {
+        Uri treeUri = usesDirectoryBundleStorage(context) ? getCustomStorageDirectoryUri(context) : null;
+        File localRoot = treeUri == null ? getDefaultBundleRootDirectory(context) : null;
+        ArrayList<String> candidates = listBundleJsonRelativePaths(context, treeUri, localRoot);
+        ArrayList<String> deletedSamples = new ArrayList<>();
+        int deletedCount = 0;
+        for (String relativePath : candidates) {
+            if (!isIgnoredBundleArtifactRelativePath(relativePath)) {
+                continue;
+            }
+            deleteBundlePath(context, relativePath);
+            deletedCount += 1;
+            if (deletedSamples.size() < 6) {
+                deletedSamples.add(relativePath);
+            }
+        }
+        deletedCount += deleteIgnoredBundleArtifactDirectories(
+            context,
+            treeUri,
+            localRoot,
+            deletedSamples
+        );
+        if (deletedCount > 0) {
+            Log.i(
+                TAG,
+                "[storage.bundle-artifact-cleanup] reason="
+                    + safeText(reason)
+                    + " deletedCount="
+                    + deletedCount
+                    + " samples="
+                    + deletedSamples.toString()
+            );
+        }
+    }
+
+    private static int deleteIgnoredBundleArtifactDirectories(
+        Context context,
+        Uri treeUri,
+        File localRoot,
+        ArrayList<String> deletedSamples
+    ) {
+        int deletedCount = 0;
+        if (treeUri != null && context != null) {
+            Uri rootDocumentUri = resolveMetadataQueryUri(treeUri);
+            Cursor cursor = null;
+            try {
+                String rootDocumentId = DocumentsContract.getDocumentId(rootDocumentUri);
+                Uri childrenUri =
+                    DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootDocumentId);
+                cursor = context.getContentResolver().query(
+                    childrenUri,
+                    new String[] {
+                        Document.COLUMN_DOCUMENT_ID,
+                        Document.COLUMN_DISPLAY_NAME,
+                        Document.COLUMN_MIME_TYPE
+                    },
+                    null,
+                    null,
+                    null
+                );
+                if (cursor != null) {
+                    while (cursor.moveToNext()) {
+                        String documentId = cursor.getString(0);
+                        String displayName = cursor.getString(1);
+                        String mimeType = cursor.getString(2);
+                        if (!Document.MIME_TYPE_DIR.equals(mimeType)) {
+                            continue;
+                        }
+                        if (!isIgnoredBundleArtifactDirectoryName(displayName)) {
+                            continue;
+                        }
+                        String baseName = getIgnoredBundleArtifactDirectoryBaseName(displayName);
+                        if (TextUtils.isEmpty(baseName)) {
+                            continue;
+                        }
+                        Uri canonicalUri = buildDirectChildDocumentUri(treeUri, rootDocumentUri, baseName);
+                        if (canonicalUri == null || !queryDocumentExists(context, canonicalUri)) {
+                            continue;
+                        }
+                        Uri duplicateUri =
+                            DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
+                        deleteDocumentQuietly(context, duplicateUri);
+                        deletedCount += 1;
+                        if (deletedSamples != null && deletedSamples.size() < 6) {
+                            deletedSamples.add(displayName + "/");
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
+            }
+            return deletedCount;
+        }
+
+        if (localRoot == null || !localRoot.exists()) {
+            return 0;
+        }
+        File[] children = localRoot.listFiles();
+        if (children == null) {
+            return 0;
+        }
+        for (File child : children) {
+            if (child == null || !child.isDirectory()) {
+                continue;
+            }
+            String baseName = getIgnoredBundleArtifactDirectoryBaseName(child.getName());
+            if (TextUtils.isEmpty(baseName)) {
+                continue;
+            }
+            File canonicalDirectory = new File(localRoot, baseName);
+            if (!canonicalDirectory.exists() || !canonicalDirectory.isDirectory()) {
+                continue;
+            }
+            clearLocalDirectory(child);
+            child.delete();
+            deletedCount += 1;
+            if (deletedSamples != null && deletedSamples.size() < 6) {
+                deletedSamples.add(child.getName() + "/");
+            }
+        }
+        return deletedCount;
     }
 
     private static void collectLocalBundleJsonPaths(
@@ -4248,6 +4811,7 @@ public final class ControlerWidgetDataStore {
     private static boolean isBundlePartitionRelativePath(String relativePath) {
         String normalizedPath = normalizeBundleRelativePath(relativePath);
         if (TextUtils.isEmpty(normalizedPath)
+            || isIgnoredBundleArtifactRelativePath(normalizedPath)
             || BUNDLE_MANIFEST_FILE_NAME.equals(normalizedPath)
             || BUNDLE_CORE_FILE_NAME.equals(normalizedPath)
             || BUNDLE_RECURRING_PLANS_FILE_NAME.equals(normalizedPath)
@@ -4500,6 +5064,409 @@ public final class ControlerWidgetDataStore {
         File sizeCacheFile = getBundleSizeCacheFile(context);
         if (sizeCacheFile.exists()) {
             sizeCacheFile.delete();
+        }
+        clearStorageBindingResolutionCache();
+    }
+
+    private static void clearStorageBindingResolutionCache() {
+        storageBindingResolvedAt = 0L;
+    }
+
+    private static boolean canUseStorageBindingResolutionCache() {
+        return storageBindingResolvedAt > 0L
+            && SystemClock.elapsedRealtime() - storageBindingResolvedAt
+                <= STORAGE_BINDING_RESOLUTION_CACHE_WINDOW_MS;
+    }
+
+    private static void markStorageBindingResolved() {
+        storageBindingResolvedAt = SystemClock.elapsedRealtime();
+    }
+
+    private static File getStorageBindingFile(Context context) {
+        File root =
+            context == null
+                ? null
+                : (
+                    context.getNoBackupFilesDir() != null
+                        ? context.getNoBackupFilesDir()
+                        : context.getFilesDir()
+                );
+        File directory = new File(root == null ? new File(".") : root, "runtime-sidecar");
+        if (!directory.exists()) {
+            directory.mkdirs();
+        }
+        return new File(directory, STORAGE_BINDING_FILE_NAME);
+    }
+
+    private static String getStoredStorageModeRaw(Context context) {
+        if (context == null) {
+            return MODE_DEFAULT;
+        }
+        return getStoragePreferences(context).getString(KEY_STORAGE_MODE, MODE_DEFAULT);
+    }
+
+    private static String getStoredCustomStorageNameRaw(Context context) {
+        if (context == null) {
+            return "";
+        }
+        return getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_NAME, "");
+    }
+
+    private static String getStoredCustomStorageDirectoryNameRaw(Context context) {
+        if (context == null) {
+            return "";
+        }
+        return getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_DIRECTORY_NAME, "");
+    }
+
+    private static Uri parseStoredUri(String rawUri) {
+        if (TextUtils.isEmpty(rawUri)) {
+            return null;
+        }
+        try {
+            return Uri.parse(rawUri);
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static Uri getStoredCustomStorageUriRaw(Context context) {
+        if (context == null) {
+            return null;
+        }
+        return parseStoredUri(getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_URI, ""));
+    }
+
+    private static Uri getStoredCustomStorageDirectoryUriRaw(Context context) {
+        if (context == null) {
+            return null;
+        }
+        return parseStoredUri(
+            getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_DIRECTORY_URI, "")
+        );
+    }
+
+    private static void persistStorageBindingSnapshot(
+        Context context,
+        String kind,
+        Uri uri,
+        String displayName
+    ) {
+        if (context == null) {
+            return;
+        }
+        File file = getStorageBindingFile(context);
+        try {
+            JSONObject snapshot = new JSONObject();
+            snapshot.put("kind", safeText(kind));
+            snapshot.put(
+                "uri",
+                uri == null || TextUtils.isEmpty(uri.toString()) ? JSONObject.NULL : uri.toString()
+            );
+            snapshot.put(
+                "displayName",
+                TextUtils.isEmpty(displayName) ? JSONObject.NULL : displayName
+            );
+            snapshot.put("updatedAt", System.currentTimeMillis());
+            writeTextToFile(file, snapshot.toString(2));
+        } catch (Exception error) {
+            Log.w(TAG, "[storage.binding] stage=snapshot-write-failed", error);
+        }
+    }
+
+    private static void markStorageBindingReset(Context context) {
+        persistStorageBindingSnapshot(context, STORAGE_BINDING_KIND_RESET, null, "");
+    }
+
+    private static StoredStorageBinding readStoredStorageBinding(Context context) {
+        StoredStorageBinding binding = new StoredStorageBinding();
+        if (context == null) {
+            return binding;
+        }
+        File file = getStorageBindingFile(context);
+        if (!file.exists()) {
+            return binding;
+        }
+        try {
+            JSONObject snapshot = new JSONObject(readTextFromFile(file));
+            binding.kind = safeText(snapshot.optString("kind", ""));
+            binding.uri = parseStoredUri(snapshot.optString("uri", ""));
+            binding.displayName = safeText(snapshot.optString("displayName", ""));
+            binding.updatedAt = Math.max(0L, snapshot.optLong("updatedAt", 0L));
+        } catch (Exception error) {
+            Log.w(TAG, "[storage.binding] stage=snapshot-read-failed", error);
+        }
+        return binding;
+    }
+
+    private static boolean hasPersistedUriAccess(Context context, Uri uri) {
+        if (context == null || uri == null) {
+            return false;
+        }
+        try {
+            List<UriPermission> permissions = context.getContentResolver().getPersistedUriPermissions();
+            for (UriPermission permission : permissions) {
+                if (permission == null || permission.getUri() == null) {
+                    continue;
+                }
+                if (!uri.equals(permission.getUri())) {
+                    continue;
+                }
+                if (permission.isReadPermission() || permission.isWritePermission()) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private static void releasePersistedUriPermissionQuietly(Context context, Uri uri) {
+        if (context == null || uri == null) {
+            return;
+        }
+        try {
+            context
+                .getContentResolver()
+                .releasePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static boolean isAccessibleStorageFileUri(Context context, Uri uri) {
+        return uri != null
+            && hasPersistedUriAccess(context, uri)
+            && queryDocumentExists(context, resolveMetadataQueryUri(uri));
+    }
+
+    private static boolean isAccessibleStorageDirectoryUri(Context context, Uri treeUri) {
+        return treeUri != null
+            && hasPersistedUriAccess(context, treeUri)
+            && queryDocumentExists(context, resolveMetadataQueryUri(treeUri));
+    }
+
+    private static void logStorageBindingState(
+        String stage,
+        String reason,
+        String mode,
+        Uri uri,
+        String extra
+    ) {
+        Log.i(
+            TAG,
+            "[storage.binding] stage="
+                + safeText(stage)
+                + " reason="
+                + safeText(reason)
+                + " mode="
+                + safeText(mode)
+                + " uri="
+                + (uri == null ? "" : uri.toString())
+                + " extra="
+                + safeText(extra)
+        );
+    }
+
+    private static void restoreStorageBindingFromSnapshot(
+        Context context,
+        StoredStorageBinding binding,
+        String reason
+    ) {
+        if (context == null || binding == null || binding.uri == null) {
+            return;
+        }
+        if (STORAGE_BINDING_KIND_FILE.equals(binding.kind)) {
+            setCustomStorageUri(
+                context,
+                binding.uri,
+                firstNonEmpty(binding.displayName, queryDisplayName(context, binding.uri))
+            );
+            logStorageBindingState(
+                "restored-from-snapshot",
+                reason,
+                MODE_FILE,
+                binding.uri,
+                binding.displayName
+            );
+            return;
+        }
+        if (STORAGE_BINDING_KIND_DIRECTORY.equals(binding.kind)) {
+            setCustomStorageDirectoryUri(
+                context,
+                binding.uri,
+                firstNonEmpty(binding.displayName, queryDisplayName(context, binding.uri))
+            );
+            logStorageBindingState(
+                "restored-from-snapshot",
+                reason,
+                MODE_DIRECTORY,
+                binding.uri,
+                binding.displayName
+            );
+        }
+    }
+
+    private static StorageBindingCandidate findPersistedDirectoryBindingCandidate(Context context) {
+        StorageBindingCandidate best = null;
+        if (context == null) {
+            return null;
+        }
+        int inspectedCount = 0;
+        int matchedCount = 0;
+        try {
+            List<UriPermission> permissions = context.getContentResolver().getPersistedUriPermissions();
+            for (UriPermission permission : permissions) {
+                Uri uri = permission == null ? null : permission.getUri();
+                if (uri == null || !permission.isReadPermission()) {
+                    continue;
+                }
+                if (!DocumentsContract.isTreeUri(uri)) {
+                    continue;
+                }
+                inspectedCount += 1;
+                boolean hasBundleData = false;
+                try {
+                    hasBundleData = directoryContainsBundleOrLegacy(context, uri);
+                } catch (Exception ignored) {
+                    hasBundleData = false;
+                }
+                logStorageBindingState(
+                    "persisted-scan",
+                    "scan-persisted-tree",
+                    MODE_DIRECTORY,
+                    uri,
+                    "hasBundleData=" + hasBundleData
+                );
+                if (!hasBundleData) {
+                    continue;
+                }
+                matchedCount += 1;
+                String displayName = queryDisplayName(context, uri);
+                int score = 1000;
+                String lowerDisplayName = String.valueOf(displayName).toLowerCase(Locale.US);
+                String lowerUri = uri.toString().toLowerCase(Locale.US);
+                if (permission.isWritePermission()) {
+                    score += 100;
+                }
+                if (lowerDisplayName.contains("order")) {
+                    score += 50;
+                }
+                if (lowerUri.contains("order")) {
+                    score += 25;
+                }
+                score += (int) Math.min(Integer.MAX_VALUE / 4, permission.getPersistedTime() / 1000L);
+                if (best == null || score > best.score) {
+                    best = new StorageBindingCandidate();
+                    best.uri = uri;
+                    best.displayName = displayName;
+                    best.persistedAt = permission.getPersistedTime();
+                    best.score = score;
+                }
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "[storage.binding] stage=persisted-scan-failed", error);
+            return null;
+        }
+        logStorageBindingState(
+            "persisted-scan-summary",
+            "scan-persisted-tree",
+            MODE_DIRECTORY,
+            best == null ? null : best.uri,
+            "inspected=" + inspectedCount + " matched=" + matchedCount
+        );
+        return best;
+    }
+
+    private static void ensureStorageBindingResolved(Context context, String reason) {
+        if (context == null || canUseStorageBindingResolutionCache()) {
+            return;
+        }
+        try {
+            String rawMode = getStoredStorageModeRaw(context);
+            Uri rawFileUri = getStoredCustomStorageUriRaw(context);
+            Uri rawDirectoryUri = getStoredCustomStorageDirectoryUriRaw(context);
+            if (MODE_FILE.equals(rawMode) && isAccessibleStorageFileUri(context, rawFileUri)) {
+                persistStorageBindingSnapshot(
+                    context,
+                    STORAGE_BINDING_KIND_FILE,
+                    rawFileUri,
+                    firstNonEmpty(
+                        getStoredCustomStorageNameRaw(context),
+                        queryDisplayName(context, rawFileUri)
+                    )
+                );
+                logStorageBindingState("active-pref", reason, MODE_FILE, rawFileUri, "accessible");
+                return;
+            }
+            if (
+                MODE_DIRECTORY.equals(rawMode)
+                    && isAccessibleStorageDirectoryUri(context, rawDirectoryUri)
+            ) {
+                persistStorageBindingSnapshot(
+                    context,
+                    STORAGE_BINDING_KIND_DIRECTORY,
+                    rawDirectoryUri,
+                    firstNonEmpty(
+                        getStoredCustomStorageDirectoryNameRaw(context),
+                        queryDisplayName(context, rawDirectoryUri)
+                    )
+                );
+                logStorageBindingState(
+                    "active-pref",
+                    reason,
+                    MODE_DIRECTORY,
+                    rawDirectoryUri,
+                    "accessible"
+                );
+                return;
+            }
+
+            StoredStorageBinding snapshot = readStoredStorageBinding(context);
+            if (STORAGE_BINDING_KIND_RESET.equals(snapshot.kind)) {
+                logStorageBindingState("skip-reset-marker", reason, rawMode, null, "snapshot-reset");
+                return;
+            }
+
+            if (
+                STORAGE_BINDING_KIND_FILE.equals(snapshot.kind)
+                    && isAccessibleStorageFileUri(context, snapshot.uri)
+            ) {
+                restoreStorageBindingFromSnapshot(context, snapshot, reason);
+                return;
+            }
+
+            if (
+                STORAGE_BINDING_KIND_DIRECTORY.equals(snapshot.kind)
+                    && isAccessibleStorageDirectoryUri(context, snapshot.uri)
+                    && directoryContainsBundleOrLegacy(context, snapshot.uri)
+            ) {
+                restoreStorageBindingFromSnapshot(context, snapshot, reason);
+                return;
+            }
+
+            StorageBindingCandidate candidate = findPersistedDirectoryBindingCandidate(context);
+            if (candidate != null && candidate.uri != null) {
+                setCustomStorageDirectoryUri(
+                    context,
+                    candidate.uri,
+                    firstNonEmpty(candidate.displayName, queryDisplayName(context, candidate.uri))
+                );
+                logStorageBindingState(
+                    "restored-from-persisted",
+                    reason,
+                    MODE_DIRECTORY,
+                    candidate.uri,
+                    candidate.displayName
+                );
+                return;
+            }
+
+            logStorageBindingState("fall-back-default", reason, rawMode, null, "no-restorable-binding");
+        } finally {
+            markStorageBindingResolved();
         }
     }
 
@@ -5080,14 +6047,47 @@ public final class ControlerWidgetDataStore {
                 }
                 boolean isLast = index == segments.length - 1;
                 boolean shouldBeDirectory = isLast ? directory : true;
+                Uri directChildUri = buildDirectChildDocumentUri(treeUri, currentUri, segment);
+                if (directChildUri != null && queryDocumentExists(context, directChildUri)) {
+                    currentUri = directChildUri;
+                    continue;
+                }
                 Uri childUri = findChildDocumentUri(context, treeUri, currentUri, segment);
                 if (childUri == null && createIfMissing) {
-                    childUri = DocumentsContract.createDocument(
+                    Uri createdUri = DocumentsContract.createDocument(
                         context.getContentResolver(),
                         currentUri,
                         shouldBeDirectory ? Document.MIME_TYPE_DIR : "application/json",
                         segment
                     );
+                    String createdName = queryDisplayName(context, createdUri);
+                    if (!TextUtils.isEmpty(createdName) && !segment.equals(createdName)) {
+                        Uri canonicalChildUri = buildDirectChildDocumentUri(treeUri, currentUri, segment);
+                        if (canonicalChildUri != null && queryDocumentExists(context, canonicalChildUri)) {
+                            deleteDocumentQuietly(context, createdUri);
+                            childUri = canonicalChildUri;
+                            Log.w(
+                                TAG,
+                                "[storage.directory-conflict] expected="
+                                    + segment
+                                    + " created="
+                                    + createdName
+                                    + " resolved=canonical"
+                            );
+                        } else {
+                            childUri = createdUri;
+                            Log.w(
+                                TAG,
+                                "[storage.directory-conflict] expected="
+                                    + segment
+                                    + " created="
+                                    + createdName
+                                    + " resolved=created"
+                            );
+                        }
+                    } else {
+                        childUri = createdUri;
+                    }
                 }
                 if (childUri == null) {
                     return null;
@@ -5114,6 +6114,10 @@ public final class ControlerWidgetDataStore {
     ) {
         if (context == null || treeUri == null || parentDocumentUri == null) {
             return null;
+        }
+        Uri directChildUri = buildDirectChildDocumentUri(treeUri, parentDocumentUri, childName);
+        if (directChildUri != null && queryDocumentExists(context, directChildUri)) {
+            return directChildUri;
         }
         Cursor cursor = null;
         try {
@@ -5161,10 +6165,11 @@ public final class ControlerWidgetDataStore {
     }
 
     public static String getStorageMode(Context context) {
+        ensureStorageBindingResolved(context, "get-storage-mode");
         if (context == null) {
             return MODE_DEFAULT;
         }
-        String mode = getStoragePreferences(context).getString(KEY_STORAGE_MODE, MODE_DEFAULT);
+        String mode = getStoredStorageModeRaw(context);
         if (MODE_FILE.equals(mode) || MODE_DIRECTORY.equals(mode)) {
             return mode;
         }
@@ -5249,6 +6254,12 @@ public final class ControlerWidgetDataStore {
             .remove(KEY_CUSTOM_STORAGE_DIRECTORY_URI)
             .remove(KEY_CUSTOM_STORAGE_DIRECTORY_NAME)
             .apply();
+        persistStorageBindingSnapshot(
+            context,
+            STORAGE_BINDING_KIND_FILE,
+            uri,
+            firstNonEmpty(displayName, "controler-data.json")
+        );
     }
 
     public static void setCustomStorageDirectoryUri(Context context, Uri uri, String displayName) {
@@ -5267,6 +6278,12 @@ public final class ControlerWidgetDataStore {
             .remove(KEY_CUSTOM_STORAGE_URI)
             .remove(KEY_CUSTOM_STORAGE_NAME)
             .apply();
+        persistStorageBindingSnapshot(
+            context,
+            STORAGE_BINDING_KIND_DIRECTORY,
+            uri,
+            firstNonEmpty(displayName, "已选择目录")
+        );
     }
 
     public static void clearCustomStorageUri(Context context) {
@@ -5274,6 +6291,9 @@ public final class ControlerWidgetDataStore {
             return;
         }
 
+        Uri currentFileUri = getStoredCustomStorageUriRaw(context);
+        Uri currentDirectoryUri = getStoredCustomStorageDirectoryUriRaw(context);
+        StoredStorageBinding snapshot = readStoredStorageBinding(context);
         clearStorageRuntimeCaches(context);
 
         SharedPreferences preferences = getStoragePreferences(context);
@@ -5285,51 +6305,32 @@ public final class ControlerWidgetDataStore {
             .remove(KEY_CUSTOM_STORAGE_DIRECTORY_URI)
             .remove(KEY_CUSTOM_STORAGE_DIRECTORY_NAME)
             .apply();
+        releasePersistedUriPermissionQuietly(context, currentFileUri);
+        releasePersistedUriPermissionQuietly(context, currentDirectoryUri);
+        if (snapshot != null) {
+            releasePersistedUriPermissionQuietly(context, snapshot.uri);
+        }
+        markStorageBindingReset(context);
     }
 
     public static String getStoredCustomStorageName(Context context) {
-        if (context == null) {
-            return "";
-        }
-        return getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_NAME, "");
+        ensureStorageBindingResolved(context, "get-stored-file-name");
+        return getStoredCustomStorageNameRaw(context);
     }
 
     public static Uri getCustomStorageUri(Context context) {
-        if (context == null) {
-            return null;
-        }
-        String rawUri = getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_URI, "");
-        if (TextUtils.isEmpty(rawUri)) {
-            return null;
-        }
-        try {
-            return Uri.parse(rawUri);
-        } catch (Exception error) {
-            return null;
-        }
+        ensureStorageBindingResolved(context, "get-custom-file-uri");
+        return getStoredCustomStorageUriRaw(context);
     }
 
     public static String getStoredCustomStorageDirectoryName(Context context) {
-        if (context == null) {
-            return "";
-        }
-        return getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_DIRECTORY_NAME, "");
+        ensureStorageBindingResolved(context, "get-stored-directory-name");
+        return getStoredCustomStorageDirectoryNameRaw(context);
     }
 
     public static Uri getCustomStorageDirectoryUri(Context context) {
-        if (context == null) {
-            return null;
-        }
-        String rawUri =
-            getStoragePreferences(context).getString(KEY_CUSTOM_STORAGE_DIRECTORY_URI, "");
-        if (TextUtils.isEmpty(rawUri)) {
-            return null;
-        }
-        try {
-            return Uri.parse(rawUri);
-        } catch (Exception error) {
-            return null;
-        }
+        ensureStorageBindingResolved(context, "get-custom-directory-uri");
+        return getStoredCustomStorageDirectoryUriRaw(context);
     }
 
     private static SharedPreferences getStoragePreferences(Context context) {
@@ -5420,6 +6421,43 @@ public final class ControlerWidgetDataStore {
         } catch (Exception ignored) {
         }
         return uri;
+    }
+
+    private static boolean isExternalStorageDocumentsTreeUri(Uri treeUri) {
+        return treeUri != null
+            && "com.android.externalstorage.documents".equals(treeUri.getAuthority());
+    }
+
+    private static Uri buildDirectChildDocumentUri(
+        Uri treeUri,
+        Uri parentDocumentUri,
+        String childName
+    ) {
+        if (!isExternalStorageDocumentsTreeUri(treeUri) || parentDocumentUri == null) {
+            return null;
+        }
+        try {
+            String parentDocumentId = DocumentsContract.getDocumentId(parentDocumentUri);
+            if (TextUtils.isEmpty(parentDocumentId) || TextUtils.isEmpty(childName)) {
+                return null;
+            }
+            return DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                parentDocumentId + "/" + childName
+            );
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static void deleteDocumentQuietly(Context context, Uri documentUri) {
+        if (context == null || documentUri == null) {
+            return;
+        }
+        try {
+            DocumentsContract.deleteDocument(context.getContentResolver(), documentUri);
+        } catch (Exception ignored) {
+        }
     }
 
     private static long queryDocumentSize(Context context, Uri uri) {
@@ -5683,10 +6721,14 @@ public final class ControlerWidgetDataStore {
     ) {
         JSONObject scope = null;
         boolean explicitScopeProvided = false;
+        ArrayList<String> scopeKeys = getBootstrapSectionScopeKeys(section);
         if (options != null) {
-            if (options.has(section + "Scope")) {
-                scope = options.optJSONObject(section + "Scope");
-                explicitScopeProvided = true;
+            for (String scopeKey : scopeKeys) {
+                if (options.has(scopeKey)) {
+                    scope = options.optJSONObject(scopeKey);
+                    explicitScopeProvided = true;
+                    break;
+                }
             }
             if (!explicitScopeProvided) {
                 JSONObject scopes = options.optJSONObject("scopes");
@@ -5697,9 +6739,14 @@ public final class ControlerWidgetDataStore {
             }
             if (!explicitScopeProvided) {
                 JSONObject pageData = options.optJSONObject("pageData");
-                if (pageData != null && pageData.has(section + "Scope")) {
-                    scope = pageData.optJSONObject(section + "Scope");
-                    explicitScopeProvided = true;
+                if (pageData != null) {
+                    for (String scopeKey : scopeKeys) {
+                        if (pageData.has(scopeKey)) {
+                            scope = pageData.optJSONObject(scopeKey);
+                            explicitScopeProvided = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -5709,6 +6756,27 @@ public final class ControlerWidgetDataStore {
             resolved = cloneJsonObject(fallbackScope);
         }
         return resolved;
+    }
+
+    private static ArrayList<String> getBootstrapSectionScopeKeys(String section) {
+        String normalizedSection = normalizeBundleSection(section);
+        LinkedHashSet<String> scopeKeys = new LinkedHashSet<>();
+        if (TextUtils.isEmpty(normalizedSection)) {
+            return new ArrayList<>(scopeKeys);
+        }
+        scopeKeys.add(normalizedSection + "Scope");
+        if ("records".equals(normalizedSection)) {
+            scopeKeys.add("recordScope");
+        } else if ("plans".equals(normalizedSection)) {
+            scopeKeys.add("planScope");
+        } else if ("diaryEntries".equals(normalizedSection)) {
+            scopeKeys.add("diaryScope");
+        } else if ("dailyCheckins".equals(normalizedSection)) {
+            scopeKeys.add("dailyCheckinScope");
+        } else if ("checkins".equals(normalizedSection)) {
+            scopeKeys.add("checkinScope");
+        }
+        return new ArrayList<>(scopeKeys);
     }
 
     private static JSONObject buildDefaultRecordBootstrapScope() {
@@ -6003,30 +7071,15 @@ public final class ControlerWidgetDataStore {
             return null;
         }
 
-        String[] patterns = new String[] {
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd HH:mm:ss"
-        };
-        for (String pattern : patterns) {
-            try {
-                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
-                format.setTimeZone(TimeZone.getDefault());
-                Date date = format.parse(value);
-                if (date == null) {
-                    continue;
-                }
-                Calendar calendar = Calendar.getInstance();
-                calendar.setTime(date);
-                calendar.set(Calendar.HOUR_OF_DAY, 0);
-                calendar.set(Calendar.MINUTE, 0);
-                calendar.set(Calendar.SECOND, 0);
-                calendar.set(Calendar.MILLISECOND, 0);
-                return calendar;
-            } catch (Exception ignored) {
-            }
+        Date parsedDate = parseDateTimeValue(value);
+        if (parsedDate != null) {
+            Calendar calendar = Calendar.getInstance();
+            calendar.setTime(parsedDate);
+            calendar.set(Calendar.HOUR_OF_DAY, 0);
+            calendar.set(Calendar.MINUTE, 0);
+            calendar.set(Calendar.SECOND, 0);
+            calendar.set(Calendar.MILLISECOND, 0);
+            return calendar;
         }
         return null;
     }
@@ -6083,15 +7136,89 @@ public final class ControlerWidgetDataStore {
         return "";
     }
 
-    private static String getPeriodIdForSectionItem(String section, JSONObject item) {
-        if ("plans".equals(section) && isRecurringPlan(item)) {
-            return "";
+    private static ArrayList<String> getRecordPeriodIdsForSectionItem(JSONObject item) {
+        long startTimeMs = parseRecordTimestampMs(
+            firstNonEmpty(
+                item == null ? "" : item.optString("startTime", ""),
+                item == null ? "" : item.optString("timestamp", ""),
+                item == null ? "" : item.optString("endTime", "")
+            )
+        );
+        long endTimeMs = parseRecordTimestampMs(
+            firstNonEmpty(
+                item == null ? "" : item.optString("endTime", ""),
+                item == null ? "" : item.optString("timestamp", ""),
+                item == null ? "" : item.optString("startTime", "")
+            )
+        );
+        if (startTimeMs < 0L && endTimeMs < 0L) {
+            String anchorDate = getSectionItemDateKey("records", item);
+            if (!TextUtils.isEmpty(anchorDate) && anchorDate.length() >= 7) {
+                return new ArrayList<>(Collections.singletonList(anchorDate.substring(0, 7)));
+            }
+            return new ArrayList<>(Collections.singletonList(UNDATED_PERIOD_ID));
         }
-        String dateKey = getSectionItemDateKey(section, item);
+        if (startTimeMs < 0L) {
+            startTimeMs = endTimeMs;
+        }
+        if (endTimeMs < 0L) {
+            endTimeMs = startTimeMs;
+        }
+        if (endTimeMs < startTimeMs) {
+            long swapped = startTimeMs;
+            startTimeMs = endTimeMs;
+            endTimeMs = swapped;
+        }
+        Calendar cursor = Calendar.getInstance();
+        cursor.setTimeInMillis(startTimeMs);
+        cursor.set(Calendar.DAY_OF_MONTH, 1);
+        cursor.set(Calendar.HOUR_OF_DAY, 0);
+        cursor.set(Calendar.MINUTE, 0);
+        cursor.set(Calendar.SECOND, 0);
+        cursor.set(Calendar.MILLISECOND, 0);
+        Calendar target = Calendar.getInstance();
+        target.setTimeInMillis(endTimeMs);
+        target.set(Calendar.DAY_OF_MONTH, 1);
+        target.set(Calendar.HOUR_OF_DAY, 0);
+        target.set(Calendar.MINUTE, 0);
+        target.set(Calendar.SECOND, 0);
+        target.set(Calendar.MILLISECOND, 0);
+        LinkedHashSet<String> periodIds = new LinkedHashSet<>();
+        while (cursor.getTimeInMillis() <= target.getTimeInMillis()) {
+            periodIds.add(
+                String.format(
+                    Locale.US,
+                    "%04d-%02d",
+                    cursor.get(Calendar.YEAR),
+                    cursor.get(Calendar.MONTH) + 1
+                )
+            );
+            cursor.add(Calendar.MONTH, 1);
+        }
+        if (periodIds.isEmpty()) {
+            periodIds.add(UNDATED_PERIOD_ID);
+        }
+        return new ArrayList<>(periodIds);
+    }
+
+    private static ArrayList<String> getPeriodIdsForSectionItem(String section, JSONObject item) {
+        String normalizedSection = normalizeBundleSection(section);
+        if ("plans".equals(normalizedSection) && isRecurringPlan(item)) {
+            return new ArrayList<>();
+        }
+        if ("records".equals(normalizedSection)) {
+            return getRecordPeriodIdsForSectionItem(item);
+        }
+        String dateKey = getSectionItemDateKey(normalizedSection, item);
         if (TextUtils.isEmpty(dateKey) || dateKey.length() < 7) {
-            return UNDATED_PERIOD_ID;
+            return new ArrayList<>(Collections.singletonList(UNDATED_PERIOD_ID));
         }
-        return dateKey.substring(0, 7);
+        return new ArrayList<>(Collections.singletonList(dateKey.substring(0, 7)));
+    }
+
+    private static String getPeriodIdForSectionItem(String section, JSONObject item) {
+        ArrayList<String> periodIds = getPeriodIdsForSectionItem(section, item);
+        return periodIds.isEmpty() ? UNDATED_PERIOD_ID : periodIds.get(0);
     }
 
     private static String getPartitionRelativePath(String section, String periodId) {
@@ -6158,13 +7285,14 @@ public final class ControlerWidgetDataStore {
             if ("plans".equals(section) && isRecurringPlan(item)) {
                 continue;
             }
-            String periodId = getPeriodIdForSectionItem(section, item);
-            ArrayList<JSONObject> items = grouped.get(periodId);
-            if (items == null) {
-                items = new ArrayList<>();
-                grouped.put(periodId, items);
+            for (String periodId : getPeriodIdsForSectionItem(section, item)) {
+                ArrayList<JSONObject> items = grouped.get(periodId);
+                if (items == null) {
+                    items = new ArrayList<>();
+                    grouped.put(periodId, items);
+                }
+                items.add(cloneJsonObject(item));
             }
-            items.add(cloneJsonObject(item));
         }
         return grouped;
     }
@@ -6186,8 +7314,32 @@ public final class ControlerWidgetDataStore {
             if (item == null) {
                 continue;
             }
-            String itemPeriodId = getPeriodIdForSectionItem(section, item);
-            if (!normalizedPeriodId.equals(itemPeriodId)) {
+            ArrayList<String> itemPeriodIds = getPeriodIdsForSectionItem(section, item);
+            if (!itemPeriodIds.contains(normalizedPeriodId)) {
+                Log.i(
+                    TAG,
+                    "[storage.range-validate] stage=invalid"
+                        + " section="
+                        + section
+                        + " periodId="
+                        + normalizedPeriodId
+                        + " index="
+                        + index
+                        + " itemId="
+                        + item.optString("id", "")
+                        + " itemName="
+                        + item.optString("name", "")
+                        + " projectId="
+                        + item.optString("projectId", "")
+                        + " startTime="
+                        + item.optString("startTime", "")
+                        + " endTime="
+                        + item.optString("endTime", "")
+                        + " timestamp="
+                        + item.optString("timestamp", "")
+                        + " itemPeriodIds="
+                        + TextUtils.join(",", itemPeriodIds)
+                );
                 return false;
             }
         }
@@ -6679,21 +7831,11 @@ public final class ControlerWidgetDataStore {
         } catch (Exception ignored) {
         }
 
-        String[] patterns = new String[] {
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX"
-        };
-        for (String pattern : patterns) {
-            try {
-                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
-                format.setTimeZone(TimeZone.getDefault());
-                Calendar calendar = Calendar.getInstance();
-                calendar.setTime(format.parse(timestamp));
-                return calendar.get(Calendar.HOUR_OF_DAY);
-            } catch (Exception ignored) {
-            }
+        Date parsedDate = parseDateTimeValue(timestamp);
+        if (parsedDate != null) {
+            Calendar calendar = Calendar.getInstance();
+            calendar.setTime(parsedDate);
+            return calendar.get(Calendar.HOUR_OF_DAY);
         }
         return 0;
     }

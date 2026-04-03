@@ -2919,6 +2919,159 @@
     };
   }
 
+  function mergeTodoLinkedPlanDraftState(basePlan = null, incomingPlan = null) {
+    const primary =
+      basePlan && typeof basePlan === "object" ? cloneTodoValue(basePlan) : null;
+    const secondary =
+      incomingPlan && typeof incomingPlan === "object"
+        ? cloneTodoValue(incomingPlan)
+        : null;
+    if (!primary && !secondary) {
+      return null;
+    }
+    const merged = {
+      ...(secondary || {}),
+      ...(primary || {}),
+    };
+    merged.notification =
+      primary?.notification || secondary?.notification || null;
+    merged.projectId = primary?.projectId || secondary?.projectId || null;
+    merged.color = primary?.color || secondary?.color || "";
+    const createdAtCandidates = [primary?.createdAt, secondary?.createdAt]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftTime = Date.parse(left);
+        const rightTime = Date.parse(right);
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+          return leftTime - rightTime;
+        }
+        if (Number.isFinite(leftTime)) {
+          return -1;
+        }
+        if (Number.isFinite(rightTime)) {
+          return 1;
+        }
+        return left.localeCompare(right);
+      });
+    merged.createdAt = createdAtCandidates[0] || new Date().toISOString();
+    const primaryIncludedDates = normalizePlanDateListForTodo(
+      Array.isArray(primary?.includedDates) ? primary.includedDates : [],
+    );
+    const primaryExcludedDates = normalizePlanDateListForTodo(
+      Array.isArray(primary?.excludedDates) ? primary.excludedDates : [],
+    );
+    const primaryCompletedDates = normalizePlanDateListForTodo(
+      Array.isArray(primary?.completedDates) ? primary.completedDates : [],
+    );
+    const primaryUncompletedDates = normalizePlanDateListForTodo(
+      Array.isArray(primary?.uncompletedDates) ? primary.uncompletedDates : [],
+    );
+    const secondaryIncludedDates = normalizePlanDateListForTodo(
+      (Array.isArray(secondary?.includedDates) ? secondary.includedDates : []).filter(
+        (dateKey) => !primaryExcludedDates.includes(dateKey),
+      ),
+    );
+    const secondaryExcludedDates = normalizePlanDateListForTodo(
+      (Array.isArray(secondary?.excludedDates) ? secondary.excludedDates : []).filter(
+        (dateKey) => !primaryIncludedDates.includes(dateKey),
+      ),
+    );
+    const secondaryCompletedDates = normalizePlanDateListForTodo(
+      (Array.isArray(secondary?.completedDates) ? secondary.completedDates : []).filter(
+        (dateKey) => !primaryUncompletedDates.includes(dateKey),
+      ),
+    );
+    const secondaryUncompletedDates = normalizePlanDateListForTodo(
+      (Array.isArray(secondary?.uncompletedDates) ? secondary.uncompletedDates : []).filter(
+        (dateKey) => !primaryCompletedDates.includes(dateKey),
+      ),
+    );
+    merged.includedDates = normalizePlanDateListForTodo([
+      ...primaryIncludedDates,
+      ...secondaryIncludedDates,
+    ]);
+    merged.excludedDates = normalizePlanDateListForTodo([
+      ...primaryExcludedDates,
+      ...secondaryExcludedDates,
+    ]);
+    merged.completedDates = normalizePlanDateListForTodo([
+      ...primaryCompletedDates,
+      ...secondaryCompletedDates,
+    ]);
+    merged.uncompletedDates = normalizePlanDateListForTodo([
+      ...primaryUncompletedDates,
+      ...secondaryUncompletedDates,
+    ]);
+    merged.isCompleted = !!primary?.isCompleted || !!secondary?.isCompleted;
+    return merged;
+  }
+
+  function buildTodoLinkedPlanMergeMutation(
+    sourceType = "",
+    targetSourceLike = null,
+    sourceId = "",
+  ) {
+    const normalizedSourceType = normalizeTodoLinkedPlanSourceType(sourceType);
+    const normalizedTargetId = String(targetSourceLike?.id || "").trim();
+    const normalizedSourceId = String(sourceId || "").trim();
+    if (
+      !normalizedSourceType ||
+      !normalizedTargetId ||
+      !normalizedSourceId ||
+      normalizedTargetId === normalizedSourceId
+    ) {
+      return buildTodoLinkedPlanMutation(sourceType, targetSourceLike);
+    }
+    const allPlans = readTodoLinkedPlanCollection();
+    const targetIndex = findTodoLinkedPlanIndex(
+      allPlans,
+      normalizedSourceType,
+      normalizedTargetId,
+    );
+    const sourceIndex = findTodoLinkedPlanIndex(
+      allPlans,
+      normalizedSourceType,
+      normalizedSourceId,
+    );
+    const targetPlan = targetIndex >= 0 ? cloneTodoValue(allPlans[targetIndex]) : null;
+    const sourcePlan = sourceIndex >= 0 ? cloneTodoValue(allPlans[sourceIndex]) : null;
+    const previousPlans = [targetPlan, sourcePlan]
+      .filter((planLike) => planLike && typeof planLike === "object")
+      .filter((planLike, index, collection) => {
+        const planId = String(planLike?.id || "").trim();
+        if (!planId) {
+          return true;
+        }
+        return (
+          collection.findIndex(
+            (candidate) => String(candidate?.id || "").trim() === planId,
+          ) === index
+        );
+      })
+      .map((planLike) => cloneTodoValue(planLike));
+    const mergedPlanSeed = mergeTodoLinkedPlanDraftState(targetPlan, sourcePlan);
+    const nextPlan = createTodoLinkedPlanDraft(
+      normalizedSourceType,
+      targetSourceLike,
+      mergedPlanSeed,
+    );
+    const nextPlans = nextPlan ? [cloneTodoValue(nextPlan)] : [];
+    const nextAllPlans = (Array.isArray(allPlans) ? allPlans : []).filter(
+      (_plan, index) => index !== targetIndex && index !== sourceIndex,
+    );
+    if (nextPlan) {
+      nextAllPlans.push(nextPlan);
+    }
+    return {
+      allPlans: nextAllPlans,
+      previousPlans,
+      nextPlans,
+      previousPlan: previousPlans[0] ? cloneTodoValue(previousPlans[0]) : null,
+      nextPlan: nextPlan ? cloneTodoValue(nextPlan) : null,
+    };
+  }
+
   function buildTodoLinkedPlanCompletionMutation(
     sourceType = "",
     sourceId = "",
@@ -3219,9 +3372,33 @@
     const recurringPlans = normalizedPlans.filter((plan) =>
       isTodoLinkedPlanRecurring(plan),
     );
+    const normalizeMutationPlanList = (planLike) => {
+      const rawList = Array.isArray(planLike)
+        ? planLike
+        : planLike && typeof planLike === "object"
+          ? [planLike]
+          : [];
+      const seenPlanIds = new Set();
+      return rawList
+        .filter((entry) => entry && typeof entry === "object")
+        .filter((entry) => {
+          const planId = String(entry?.id || "").trim();
+          if (!planId) {
+            return true;
+          }
+          if (seenPlanIds.has(planId)) {
+            return false;
+          }
+          seenPlanIds.add(planId);
+          return true;
+        })
+        .map((entry) => cloneTodoValue(entry));
+    };
+    const previousPlans = normalizeMutationPlanList(previousPlan);
+    const nextPlans = normalizeMutationPlanList(nextPlan);
     const periodIds = Array.from(
       new Set(
-        [previousPlan, nextPlan]
+        [...previousPlans, ...nextPlans]
           .filter(
             (plan) =>
               plan &&
@@ -3244,7 +3421,11 @@
         mode: "replace",
       },
     }));
-    if (isTodoLinkedPlanRecurring(previousPlan) || isTodoLinkedPlanRecurring(nextPlan)) {
+    if (
+      [...previousPlans, ...nextPlans].some((planLike) =>
+        isTodoLinkedPlanRecurring(planLike),
+      )
+    ) {
       operations.push({
         kind: "replaceRecurringPlans",
         items: recurringPlans,
@@ -3372,8 +3553,10 @@
       ...buildTodoSectionSaveOperations(sectionSaves),
       ...buildTodoLinkedPlanJournalOperations(
         linkedPlanMutation?.allPlans || [],
-        linkedPlanMutation?.previousPlan || null,
-        linkedPlanMutation?.nextPlan || null,
+        linkedPlanMutation?.previousPlans ||
+          linkedPlanMutation?.previousPlan ||
+          null,
+        linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
       ),
     ];
 
@@ -3414,8 +3597,10 @@
 
         const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
           linkedPlanMutation?.allPlans || [],
-          linkedPlanMutation?.previousPlan || null,
-          linkedPlanMutation?.nextPlan || null,
+          linkedPlanMutation?.previousPlans ||
+            linkedPlanMutation?.previousPlan ||
+            null,
+          linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
         );
         for (const operation of linkedPlanOperations) {
           if (
@@ -3554,8 +3739,10 @@
       ...sectionOperations,
       ...buildTodoLinkedPlanJournalOperations(
         linkedPlanMutation?.allPlans || [],
-        linkedPlanMutation?.previousPlan || null,
-        linkedPlanMutation?.nextPlan || null,
+        linkedPlanMutation?.previousPlans ||
+          linkedPlanMutation?.previousPlan ||
+          null,
+        linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
       ),
     ];
 
@@ -3604,8 +3791,10 @@
 
         const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
           linkedPlanMutation?.allPlans || [],
-          linkedPlanMutation?.previousPlan || null,
-          linkedPlanMutation?.nextPlan || null,
+          linkedPlanMutation?.previousPlans ||
+            linkedPlanMutation?.previousPlan ||
+            null,
+          linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
         );
         for (const operation of linkedPlanOperations) {
           if (
@@ -10314,6 +10503,14 @@
           ? checkinItems.find((item) => matchesId(item.id, linkedPlanSourceItem.id)) ||
             linkedPlanSourceItem
           : checkinItems[checkinItems.length - 1] || null;
+        const linkedPlanMutation =
+          mergeCheckinAcrossAllPeriods && itemData
+            ? buildTodoLinkedPlanMergeMutation(
+                "checkin",
+                targetItem,
+                itemData.id,
+              )
+            : buildTodoLinkedPlanMutation("checkin", targetItem);
         let persisted = false;
         if (mergeCheckinAcrossAllPeriods && itemData) {
           await flushTodoPendingPersistence();
@@ -10345,10 +10542,7 @@
                   },
                 ]
               : [],
-            linkedPlanMutation: buildTodoLinkedPlanMutation(
-              "checkin",
-              targetItem,
-            ),
+            linkedPlanMutation,
             reason: mutationReason,
             errorLabel: "保存打卡项目失败:",
             refreshReminders: true,
@@ -10375,10 +10569,7 @@
               checkinItems: getTodoSectionStateSnapshot("checkinItems"),
             },
             sectionSaves,
-            linkedPlanMutation: buildTodoLinkedPlanMutation(
-              "checkin",
-              targetItem,
-            ),
+            linkedPlanMutation,
             reason: mutationReason,
             errorLabel: "保存打卡项目失败:",
             refreshReminders: true,

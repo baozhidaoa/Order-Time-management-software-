@@ -1640,6 +1640,42 @@ function waitForStatsStorageReady() {
   });
 }
 
+function emitStatsRangeLoad(stage, payload = {}) {
+  const normalizedStage = String(stage || "").trim() || "unknown";
+  try {
+    console.info("[stats.range-load]", {
+      stage: normalizedStage,
+      ...payload,
+    });
+  } catch (error) {
+    // Ignore logging failures.
+  }
+  emitStatsDebugPerf("stats.range-load", {
+    stage: normalizedStage,
+    ...payload,
+  });
+}
+
+function emitStatsDebugEvent(name, payload = {}) {
+  if (
+    typeof window === "undefined" ||
+    typeof window.ControlerNativeBridge?.emitEvent !== "function"
+  ) {
+    return;
+  }
+  window.ControlerNativeBridge.emitEvent(name, {
+    href: window.location.href,
+    ...payload,
+  });
+}
+
+function emitStatsDebugPerf(reason, payload = {}) {
+  emitStatsDebugEvent("ui.debug-perf", {
+    reason,
+    ...payload,
+  });
+}
+
 function parseStatsFlexibleDate(value) {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
@@ -1735,10 +1771,68 @@ function resolveStatsRecordDurationMs(record, durationMeta = null) {
   );
 }
 
+function extractStatsProjectLeafName(projectName) {
+  const normalizedName = String(projectName || "").trim();
+  if (!normalizedName) {
+    return "";
+  }
+  const leafName = normalizedName
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .pop();
+  return leafName || normalizedName;
+}
+
+function normalizeStatsProjectReferenceName(projectName, fallback = "") {
+  const normalizedName = String(projectName || "").trim();
+  const fallbackName = String(fallback || "").trim();
+  if (!normalizedName) {
+    return fallbackName;
+  }
+  return extractStatsProjectLeafName(normalizedName) || fallbackName;
+}
+
+function findStatsProjectByName(projectName, projectList = projects) {
+  const normalizedName = String(projectName || "").trim();
+  if (!normalizedName) {
+    return null;
+  }
+  const safeProjects = Array.isArray(projectList) ? projectList : [];
+  const exactPreferred =
+    safeProjects.find((project) => {
+      const projectNameText = String(project?.name || "").trim();
+      return (
+        projectNameText === normalizedName &&
+        extractStatsProjectLeafName(projectNameText) === projectNameText
+      );
+    }) || null;
+  const exactMatch =
+    safeProjects.find(
+      (project) => String(project?.name || "").trim() === normalizedName,
+    ) || null;
+  const leafName = extractStatsProjectLeafName(normalizedName);
+  const preferredLeafMatch = leafName
+    ? safeProjects.find((project) => {
+        const projectNameText = String(project?.name || "").trim();
+        return (
+          projectNameText === leafName &&
+          extractStatsProjectLeafName(projectNameText) === projectNameText
+        );
+      }) || null
+    : null;
+  const leafMatch = leafName
+    ? safeProjects.find(
+        (project) => String(project?.name || "").trim() === leafName,
+      ) || null
+    : null;
+  return exactPreferred || preferredLeafMatch || exactMatch || leafMatch || null;
+}
+
 function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
   const safeProjects = Array.isArray(projectList) ? projectList : [];
   const sourceRecords = Array.isArray(recordList) ? recordList : [];
-  return sourceRecords.map((record) => {
+  const normalizedRecords = sourceRecords.map((record) => {
     const normalizedDurationMeta = normalizeStatsRecordDurationMeta(
       record?.durationMeta,
     );
@@ -1759,30 +1853,37 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
     const rawEndDate =
       parseStatsFlexibleDate(record?.rawEndTime) || canonicalEndDate;
     const normalizedName =
-      typeof record?.name === "string" && record.name.trim()
-        ? record.name.trim()
-        : "未命名项目";
-    const matchedProject = safeProjects.find((project) => {
-      const projectName = String(project?.name || "").trim();
-      if (!projectName) {
-        return false;
-      }
-      if (projectName === normalizedName) {
-        return true;
-      }
-      const leafName = normalizedName
-        .split("/")
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .pop();
-      return !!leafName && projectName === leafName;
-    });
+      normalizeStatsProjectReferenceName(record?.name, "未命名项目") ||
+      "未命名项目";
+    const normalizedProjectId = String(record?.projectId || "").trim();
+    const matchedProject =
+      findStatsProjectByName(normalizedName, safeProjects) ||
+      safeProjects.find(
+        (project) => String(project?.id || "").trim() === normalizedProjectId,
+      ) ||
+      null;
+    const normalizedNextProjectName = normalizeStatsProjectReferenceName(
+      record?.nextProjectName,
+    );
+    const normalizedNextProjectId = String(record?.nextProjectId || "").trim();
+    const matchedNextProject =
+      findStatsProjectByName(normalizedNextProjectName, safeProjects) ||
+      safeProjects.find(
+        (project) => String(project?.id || "").trim() === normalizedNextProjectId,
+      ) ||
+      null;
 
     return {
       ...record,
-      name: normalizedName,
+      name: matchedProject?.name || normalizedName,
       projectId:
-        String(record?.projectId || matchedProject?.id || "").trim() || null,
+        String(matchedProject?.id || normalizedProjectId || "").trim() || null,
+      nextProjectName: String(
+        matchedNextProject?.name || normalizedNextProjectName || "",
+      ).trim(),
+      nextProjectId:
+        String(matchedNextProject?.id || normalizedNextProjectId || "").trim() ||
+        null,
       timestamp: canonicalEndDate.toISOString(),
       sptTime: canonicalEndDate.toISOString(),
       endTime: canonicalEndDate.toISOString(),
@@ -1798,6 +1899,43 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
       durationMeta: normalizedDurationMeta,
     };
   });
+  return dedupeStatsLoadedRecords(normalizedRecords);
+}
+
+function buildStatsRecordDedupKey(record = {}) {
+  const stableId = getStatsRecordStableId(record);
+  if (stableId) {
+    return `id:${stableId}`;
+  }
+  return JSON.stringify({
+    timestamp: record?.timestamp || "",
+    startTime: record?.startTime || "",
+    endTime: record?.endTime || "",
+    rawEndTime: record?.rawEndTime || "",
+    name: record?.name || "",
+    projectId: record?.projectId || "",
+    nextProjectId: record?.nextProjectId || "",
+    spendtime: record?.spendtime || "",
+    durationMs:
+      Number.isFinite(record?.durationMs) && record.durationMs >= 0
+        ? Math.round(record.durationMs)
+        : "",
+  });
+}
+
+function dedupeStatsLoadedRecords(recordList = []) {
+  const orderedKeys = [];
+  const dedupedByKey = new Map();
+  (Array.isArray(recordList) ? recordList : []).forEach((record) => {
+    const recordKey = buildStatsRecordDedupKey(record);
+    if (!dedupedByKey.has(recordKey)) {
+      orderedKeys.push(recordKey);
+    }
+    dedupedByKey.set(recordKey, record);
+  });
+  return orderedKeys
+    .map((recordKey) => dedupedByKey.get(recordKey))
+    .filter(Boolean);
 }
 
 function queueStatsPersistenceTask(
@@ -4665,13 +4803,27 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
     preferences,
     loadedRecordPeriodIds: statsLoadedRecordPeriodIds,
   });
+  const forceAuthoritativeRead =
+    options?.fresh === true || options?.authoritative === true;
+  const allowPageBootstrap = !forceAuthoritativeRead;
+  emitStatsRangeLoad("start", {
+    rangeUnit: statsRangeState.unit,
+    startDate: String(scope?.startDate || "").trim(),
+    endDate: String(scope?.endDate || "").trim(),
+    requestedFresh: options?.fresh === true,
+    authoritative: forceAuthoritativeRead,
+  });
   try {
-    if (typeof window.ControlerStorage?.getPageBootstrapState === "function") {
+    if (
+      allowPageBootstrap &&
+      typeof window.ControlerStorage?.getPageBootstrapState === "function"
+    ) {
       const recordScope = getExpandedStatsRecordLoadScope(scope);
       const pageBootstrap = await window.ControlerStorage.getPageBootstrapState(
         "stats",
         {
-          fresh: options?.fresh === true,
+          fresh: forceAuthoritativeRead,
+          authoritative: forceAuthoritativeRead,
           recordScope,
         },
       );
@@ -4683,7 +4835,7 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
         const nextRecords = Array.isArray(data.defaultRangeRecordsOrAggregate)
           ? data.defaultRangeRecordsOrAggregate
           : [];
-        return {
+        const snapshot = {
           preferences:
             data.statsPreferences && typeof data.statsPreferences === "object"
               ? data.statsPreferences
@@ -4692,7 +4844,25 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           projects: Array.isArray(data.projects) ? data.projects : [],
           loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
         };
+        emitStatsRangeLoad("page-bootstrap", {
+          rangeUnit: statsRangeState.unit,
+          startDate: String(scope?.startDate || "").trim(),
+          endDate: String(scope?.endDate || "").trim(),
+          authoritative: forceAuthoritativeRead,
+          recordCount: snapshot.records.length,
+          projectCount: snapshot.projects.length,
+          loadedPeriodCount: snapshot.loadedRecordPeriodIds.length,
+        });
+        return snapshot;
       }
+    }
+    if (!allowPageBootstrap) {
+      emitStatsRangeLoad("page-bootstrap-skipped", {
+        rangeUnit: statsRangeState.unit,
+        startDate: String(scope?.startDate || "").trim(),
+        endDate: String(scope?.endDate || "").trim(),
+        authoritative: true,
+      });
     }
     if (
       typeof window.ControlerStorage?.loadSectionRange === "function" &&
@@ -4700,30 +4870,63 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
     ) {
       const recordScope = getExpandedStatsRecordLoadScope(scope);
       const [recordsResult, coreState] = await Promise.all([
-        window.ControlerStorage.loadSectionRange("records", recordScope),
-        window.ControlerStorage.getCoreState(),
+        window.ControlerStorage.loadSectionRange("records", {
+          ...recordScope,
+          authoritative: forceAuthoritativeRead,
+        }),
+        window.ControlerStorage.getCoreState({
+          authoritative: forceAuthoritativeRead,
+        }),
       ]);
       const nextRecords = Array.isArray(recordsResult?.items) ? recordsResult.items : [];
-      return {
+      const snapshot = {
         preferences,
         records: nextRecords,
         projects: Array.isArray(coreState?.projects) ? coreState.projects : [],
         loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
       };
+      emitStatsRangeLoad("section-range", {
+        rangeUnit: statsRangeState.unit,
+        startDate: String(scope?.startDate || "").trim(),
+        endDate: String(scope?.endDate || "").trim(),
+        authoritative: forceAuthoritativeRead,
+        recordCount: snapshot.records.length,
+        projectCount: snapshot.projects.length,
+        loadedPeriodCount: Array.isArray(recordsResult?.periodIds)
+          ? recordsResult.periodIds.length
+          : snapshot.loadedRecordPeriodIds.length,
+      });
+      return snapshot;
     }
 
     const savedRecords = localStorage.getItem("records");
     const savedProjects = localStorage.getItem("projects");
     const parsedRecords = savedRecords ? JSON.parse(savedRecords) : [];
     const parsedProjects = savedProjects ? JSON.parse(savedProjects) : [];
-    return {
+    const snapshot = {
       preferences,
       records: Array.isArray(parsedRecords) ? parsedRecords : [],
       projects: Array.isArray(parsedProjects) ? parsedProjects : [],
       loadedRecordPeriodIds: [],
     };
+    emitStatsRangeLoad("local-storage", {
+      rangeUnit: statsRangeState.unit,
+      startDate: String(scope?.startDate || "").trim(),
+      endDate: String(scope?.endDate || "").trim(),
+      authoritative: forceAuthoritativeRead,
+      recordCount: snapshot.records.length,
+      projectCount: snapshot.projects.length,
+    });
+    return snapshot;
   } catch (e) {
     console.error("加载数据失败:", e);
+    emitStatsRangeLoad("error", {
+      rangeUnit: statsRangeState.unit,
+      startDate: String(scope?.startDate || "").trim(),
+      endDate: String(scope?.endDate || "").trim(),
+      authoritative: forceAuthoritativeRead,
+      message: e instanceof Error ? e.message : String(e || ""),
+    });
     return mergeStatsWorkspaceSnapshot({}, retainedSnapshot);
   }
 }
@@ -4875,6 +5078,8 @@ function getStatsRangeNavigationRefreshOptions(
     title: "正在加载数据中",
     message,
     lockNativeExit: true,
+    fresh: true,
+    authoritative: true,
   };
 }
 
@@ -6309,6 +6514,7 @@ function renderCurrentView() {
   const container = document.getElementById("stats-container");
   if (!container) return;
 
+  disposeWeeklyGridOverlayLifecycle(container);
   destroyCalHeatmapInstance();
   if (window.pieChart && typeof window.pieChart.destroy === "function") {
     window.pieChart.destroy();
@@ -6318,17 +6524,11 @@ function renderCurrentView() {
     window.lineChart.destroy();
     window.lineChart = null;
   }
-  const stagedContainer = document.createElement("div");
-  stagedContainer.style.display = "contents";
+  container.replaceChildren();
 
   const widgetRenderer = getStatsWidgetRendererConfig();
   if (widgetRenderer) {
-    renderStatsSectionPanel(
-      stagedContainer,
-      widgetRenderer.title,
-      widgetRenderer.render,
-    );
-    container.replaceChildren(...Array.from(stagedContainer.childNodes));
+    renderStatsSectionPanel(container, widgetRenderer.title, widgetRenderer.render);
     return;
   }
 
@@ -6341,12 +6541,20 @@ function renderCurrentView() {
     "day-line": renderLineChart,
   };
   const safeMode = renderers[statsViewMode] ? statsViewMode : "table";
+  emitStatsDebugPerf("stats.view-render", {
+    viewMode: safeMode,
+    recordCount: Array.isArray(records) ? records.length : 0,
+    projectCount: Array.isArray(projects) ? projects.length : 0,
+    shellPageActive: statsShellPageActive,
+    documentHidden: document.hidden === true,
+    containerConnected: container.isConnected === true,
+  });
   if (safeMode === "charts") {
     const missingChart = typeof window.Chart === "undefined";
     const missingD3 = typeof window.d3 === "undefined";
     if (missingChart || missingD3) {
       renderStatsRuntimeMessage(
-        stagedContainer,
+        container,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6368,14 +6576,13 @@ function renderCurrentView() {
             }`,
           );
         });
-      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   if (safeMode === "day-line") {
     if (typeof window.Chart === "undefined") {
       renderStatsRuntimeMessage(
-        stagedContainer,
+        container,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6394,14 +6601,13 @@ function renderCurrentView() {
             }`,
           );
         });
-      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   if (safeMode === "day-pie") {
     if (typeof window.d3 === "undefined") {
       renderStatsRuntimeMessage(
-        stagedContainer,
+        container,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
@@ -6420,16 +6626,14 @@ function renderCurrentView() {
             }`,
           );
         });
-      container.replaceChildren(...Array.from(stagedContainer.childNodes));
       return;
     }
   }
   renderStatsSectionPanel(
-    stagedContainer,
+    container,
     STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
     renderers[safeMode] || renderers.table,
   );
-  container.replaceChildren(...Array.from(stagedContainer.childNodes));
 }
 
 function renderStatsSectionPanel(container, title, renderContent) {
@@ -6605,6 +6809,7 @@ function renderCombinedCharts(container) {
 // 动态时间表格（周视图）
 function renderWeeklyTimeGrid(container) {
   const widgetMode = isStatsDesktopWidgetMode();
+  disposeWeeklyGridOverlayLifecycle(container);
   container.innerHTML = "";
   const { shell: viewShell, content: viewRoot } = applyResizableViewShell(
     container,
@@ -6802,6 +7007,26 @@ function renderWeeklyTimeGrid(container) {
     dates,
     timeTableLevelFilter,
   );
+  const uniqueSegmentCount = new Set(
+    Array.from(weeklyGridSegmentsByCell.values()).flatMap((segments) =>
+      (segments || []).map((segment) => String(segment?.segmentKey || "")),
+    ),
+  ).size;
+  emitStatsDebugPerf("stats.weekly-grid-build", {
+    startDate: formatDateInputValue(start),
+    endDate: formatDateInputValue(end),
+    selectedDayCount: resolvedRange.selectedDayCount,
+    adjusted: resolvedRange.adjusted || "none",
+    visibleDayCount: daysDiff,
+    recordCount: Array.isArray(records) ? records.length : 0,
+    timeRecordCount: convertToTimeRecords().length,
+    segmentCellCount: weeklyGridSegmentsByCell.size,
+    uniqueSegmentCount,
+    containerConnected: container.isConnected === true,
+    shellConnected: viewShell.isConnected === true,
+    shellPageActive: statsShellPageActive,
+    documentHidden: document.hidden === true,
+  });
   const columnTemplate = `${timeColumnWidth}px repeat(${daysDiff}, ${colWidth}px)`;
   const surface = document.createElement("div");
   surface.style.width = `${totalTableWidth}px`;
@@ -7720,6 +7945,99 @@ function measureWeeklyGridOverlayLayout(table, cellRefs) {
   };
 }
 
+function disposeWeeklyGridOverlayLifecycle(root) {
+  if (!(root instanceof Element) && !(root instanceof DocumentFragment)) {
+    return;
+  }
+  root.querySelectorAll?.(".weekly-glass-table").forEach((table) => {
+    cleanupWeeklyGridOverlayLifecycle(table);
+  });
+}
+
+function cleanupWeeklyGridOverlayLifecycle(table) {
+  if (!(table instanceof HTMLElement)) {
+    return;
+  }
+  clearWeeklyGridBlocksOverlayRetryTimer(table);
+  const resizeObserver = table.__controlerWeeklyGridOverlayResizeObserver;
+  if (resizeObserver && typeof resizeObserver.disconnect === "function") {
+    resizeObserver.disconnect();
+  }
+  const handleVisibilityChange =
+    table.__controlerWeeklyGridOverlayVisibilityHandler;
+  if (typeof handleVisibilityChange === "function") {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }
+  const pendingFrameId = Number(table.__controlerWeeklyGridOverlayFrameId) || 0;
+  if (pendingFrameId > 0 && typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(pendingFrameId);
+  }
+  table.__controlerWeeklyGridOverlayResizeObserver = null;
+  table.__controlerWeeklyGridOverlayVisibilityHandler = null;
+  table.__controlerWeeklyGridOverlayFrameId = 0;
+  table.__controlerWeeklyGridOverlayRenderOptions = null;
+  table.__controlerWeeklyGridOverlayLifecycleBound = false;
+}
+
+function bindWeeklyGridOverlayLifecycle(renderOptions) {
+  const table = renderOptions?.table;
+  if (!(table instanceof HTMLElement)) {
+    return;
+  }
+  table.__controlerWeeklyGridOverlayRenderOptions = {
+    ...renderOptions,
+    retryCount: 0,
+  };
+  if (table.__controlerWeeklyGridOverlayLifecycleBound) {
+    return;
+  }
+  table.__controlerWeeklyGridOverlayLifecycleBound = true;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const rerender = (trigger = "unknown") => {
+    const nextRenderOptions = table.__controlerWeeklyGridOverlayRenderOptions;
+    if (!(nextRenderOptions?.table instanceof HTMLElement)) {
+      return;
+    }
+    const nextTable = nextRenderOptions.table;
+    if (!nextTable.isConnected) {
+      return;
+    }
+    const pendingFrameId = Number(nextTable.__controlerWeeklyGridOverlayFrameId) || 0;
+    if (pendingFrameId > 0 && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(pendingFrameId);
+    }
+    nextTable.__controlerWeeklyGridOverlayFrameId = schedule(() => {
+      nextTable.__controlerWeeklyGridOverlayFrameId = 0;
+      emitStatsDebugPerf("stats.weekly-grid-overlay-rerender", {
+        trigger,
+        tableConnected: nextTable.isConnected === true,
+        documentHidden: document.hidden === true,
+      });
+      renderWeeklyGridBlocksOverlay({
+        ...nextRenderOptions,
+        retryCount: 0,
+      });
+    });
+  };
+  if (typeof ResizeObserver === "function") {
+    const resizeObserver = new ResizeObserver(() => {
+      rerender("resize-observer");
+    });
+    resizeObserver.observe(table);
+    table.__controlerWeeklyGridOverlayResizeObserver = resizeObserver;
+  }
+  const handleVisibilityChange = () => {
+    if (!document.hidden) {
+      rerender("visibilitychange");
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  table.__controlerWeeklyGridOverlayVisibilityHandler = handleVisibilityChange;
+}
+
 function clearWeeklyGridBlocksOverlayRetryTimer(table) {
   const retryTimerId = Number(table?.__controlerWeeklyGridOverlayRetryTimer) || 0;
   if (retryTimerId > 0) {
@@ -7766,6 +8084,13 @@ function renderWeeklyGridBlocksOverlay({
     return;
   }
 
+  bindWeeklyGridOverlayLifecycle({
+    scroller,
+    table,
+    cellRefs,
+    segmentsByCell,
+    scale,
+  });
   clearWeeklyGridBlocksOverlayRetryTimer(table);
   scroller
     .querySelectorAll(".weekly-glass-block-layer")
@@ -7784,6 +8109,12 @@ function renderWeeklyGridBlocksOverlay({
   });
 
   if (uniqueSegments.size === 0) {
+    emitStatsDebugPerf("stats.weekly-grid-overlay", {
+      stage: "no-segments",
+      retryCount,
+      tableConnected: table.isConnected === true,
+      documentHidden: document.hidden === true,
+    });
     return;
   }
 
@@ -7808,6 +8139,17 @@ function renderWeeklyGridBlocksOverlay({
         sampleCellHeight: layoutMetrics.sampleCellHeight,
       });
     }
+    emitStatsDebugPerf("stats.weekly-grid-overlay", {
+      stage: scheduled ? "layout-waiting" : "layout-failed",
+      retryCount,
+      uniqueSegmentCount: uniqueSegments.size,
+      tableConnected: table.isConnected === true,
+      documentHidden: document.hidden === true,
+      tableWidth: layoutMetrics.tableWidth,
+      tableHeight: layoutMetrics.tableHeight,
+      sampleCellWidth: layoutMetrics.sampleCellWidth,
+      sampleCellHeight: layoutMetrics.sampleCellHeight,
+    });
     return;
   }
 
@@ -7969,6 +8311,17 @@ function renderWeeklyGridBlocksOverlay({
       skippedSegmentKeys: Array.from(skippedSegmentKeys),
     });
   }
+  emitStatsDebugPerf("stats.weekly-grid-overlay", {
+    stage: "rendered",
+    retryCount,
+    uniqueSegmentCount: uniqueSegments.size,
+    renderedBlockCount,
+    skippedSegmentCount: skippedSegmentKeys.size,
+    tableConnected: table.isConnected === true,
+    documentHidden: document.hidden === true,
+    tableWidth: layoutMetrics.tableWidth,
+    tableHeight: layoutMetrics.tableHeight,
+  });
 }
 
 function resolveWeeklyGridSegmentMetrics(segment, cellRefs, table = null) {
@@ -10169,6 +10522,10 @@ function bindStatsShellVisibilityGate() {
     if (statsExternalRefreshPendingResume) {
       statsExternalRefreshPendingResume = false;
       refreshStatsFromExternalStorageChange();
+      return;
+    }
+    if (statsInitialDataLoaded) {
+      renderCurrentView();
     }
   });
 }

@@ -166,6 +166,25 @@ function mergeChangedPeriods(...maps) {
   return merged;
 }
 
+function stripPartitionedSectionsFromCorePayload(corePayload = {}) {
+  const source = isPlainObject(corePayload) ? corePayload : {};
+  const sanitized = {
+    ...source,
+  };
+  let repaired = false;
+  bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, section)) {
+      return;
+    }
+    delete sanitized[section];
+    repaired = true;
+  });
+  return {
+    payload: sanitized,
+    repaired,
+  };
+}
+
 function normalizeRebuildPeriodIds(periodIds = []) {
   return Array.from(
     new Set(
@@ -209,10 +228,7 @@ function mergeSidecarRebuildRequest(current = {}, next = {}) {
 }
 
 function inferChangedSectionsFromCorePatch(partialCore = {}) {
-  const source =
-    partialCore && typeof partialCore === "object" && !Array.isArray(partialCore)
-      ? partialCore
-      : {};
+  const source = stripPartitionedSectionsFromCorePayload(partialCore).payload;
   const sections = new Set();
 
   Object.keys(source).forEach((key) => {
@@ -926,6 +942,17 @@ class StorageManager {
         next[key] = bundleHelper.cloneValue(source[key]);
       },
     );
+
+    if (typeof bundleHelper.repairPathNamedRecordProjects === "function") {
+      const pathRepairResult = bundleHelper.repairPathNamedRecordProjects(
+        next.projects,
+        next.records,
+      );
+      if (pathRepairResult?.changed) {
+        next.projects = bundleHelper.cloneValue(pathRepairResult.projects || []);
+        next.records = bundleHelper.cloneValue(pathRepairResult.records || []);
+      }
+    }
 
     next.records = bundleHelper.attachProjectIdsToRecords(
       bundleHelper.ensureArray(next.records),
@@ -2416,15 +2443,19 @@ class StorageManager {
       this.readJsonFileSync(this.getCorePath(root), {}),
       {},
     );
-    core.recovery = bundleHelper.normalizeRecoveryState(core.recovery);
-    core.schemaVersion = Number.isFinite(core.schemaVersion)
-      ? Math.max(1, Math.round(Number(core.schemaVersion)))
+    const sanitizedCore = stripPartitionedSectionsFromCorePayload(core).payload;
+    sanitizedCore.recovery = bundleHelper.normalizeRecoveryState(
+      sanitizedCore.recovery,
+    );
+    sanitizedCore.schemaVersion = Number.isFinite(sanitizedCore.schemaVersion)
+      ? Math.max(1, Math.round(Number(sanitizedCore.schemaVersion)))
       : this.schemaVersion;
-    core.protectionMode =
-      typeof core.protectionMode === "string" && core.protectionMode.trim()
-        ? core.protectionMode.trim()
+    sanitizedCore.protectionMode =
+      typeof sanitizedCore.protectionMode === "string" &&
+      sanitizedCore.protectionMode.trim()
+        ? sanitizedCore.protectionMode.trim()
         : PROTECTION_MODE_OFF;
-    return core;
+    return sanitizedCore;
   }
 
   normalizeCoreProjectsSnapshot(core = {}) {
@@ -4334,9 +4365,11 @@ class StorageManager {
     const root = this.getBundleRoot(this.storagePath);
     this.assertStorageWritable(root);
     const currentCore = this.readCoreSync(root);
+    const normalizedPartialCore =
+      stripPartitionedSectionsFromCorePayload(partialCore).payload;
     const nextCore = {
       ...currentCore,
-      ...bundleHelper.ensureObject(partialCore, {}),
+      ...bundleHelper.ensureObject(normalizedPartialCore, {}),
       lastModified: new Date().toISOString(),
       storagePath: this.storagePath,
       storageDirectory: root,
@@ -4346,9 +4379,9 @@ class StorageManager {
       recovery: this.appendInvalidRecoveryItems(currentCore.recovery, []),
       protectionMode: PROTECTION_MODE_OFF,
     };
-    if (Object.prototype.hasOwnProperty.call(partialCore, "projects")) {
+    if (Object.prototype.hasOwnProperty.call(normalizedPartialCore, "projects")) {
       nextCore.projects = bundleHelper.reconcileProjectDurationCaches(
-        bundleHelper.ensureArray(partialCore.projects),
+        bundleHelper.ensureArray(normalizedPartialCore.projects),
         bundleHelper.ensureArray(currentCore.projects),
       );
     } else {
@@ -4382,7 +4415,9 @@ class StorageManager {
         : "core-replace";
     if (options.emitChange !== false) {
       this.emitChange(changeReason, {
-        changedSections: inferChangedSectionsFromCorePatch(partialCore),
+        changedSections: inferChangedSectionsFromCorePatch(
+          normalizedPartialCore,
+        ),
       });
       this.maybeRunAutoBackup({ reason: changeReason });
     }
@@ -5391,6 +5426,7 @@ class StorageManager {
       items.push(...bundleHelper.ensureArray(this.readPartitionEnvelopeSync(root, section, partition.periodId).items));
     });
     if (section === "records") {
+      items = bundleHelper.mergePartitionItems("records", [], items, "merge");
       items = items.filter((item) => recordOverlapsScope(item, scope));
     }
     return {

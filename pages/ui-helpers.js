@@ -3102,6 +3102,7 @@
       active,
       mode: "fullscreen",
       lockNavigation: false,
+      delegateToNative: false,
       title:
         typeof options.title === "string" && options.title.trim()
           ? options.title.trim()
@@ -3173,9 +3174,7 @@
       setAppPageLeaveOverlayState({
         active: true,
         ...overlayCopy,
-        delayMs: appPageLeaveOverlayVisible
-          ? 0
-          : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+        delayMs: 0,
       });
     } else if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
@@ -3391,9 +3390,7 @@
     setAppPageLeaveOverlayState({
       active: true,
       ...overlayCopy,
-      delayMs: appPageLeaveOverlayVisible
-        ? 0
-        : APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS,
+      delayMs: 0,
     });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
@@ -6235,6 +6232,49 @@
     });
   }
 
+  function emitTreeSelectScrollLog(stage, payload = {}) {
+    const normalizedStage = String(stage || "").trim() || "unknown";
+    try {
+      console.info("[ui.tree-select-scroll]", {
+        stage: normalizedStage,
+        ...payload,
+      });
+    } catch (error) {
+      // Ignore logging failures.
+    }
+    emitUiDebugEvent("ui.debug-tree-select-scroll", {
+      stage: normalizedStage,
+      ...payload,
+    });
+  }
+
+  function emitUiDebugEvent(name, payload = {}) {
+    if (
+      typeof window === "undefined" ||
+      typeof window.ControlerNativeBridge?.emitEvent !== "function"
+    ) {
+      return;
+    }
+    window.ControlerNativeBridge.emitEvent(name, {
+      href: window.location.href,
+      ...payload,
+    });
+  }
+
+  function readScrollableElementDebugState(target) {
+    if (!(target instanceof HTMLElement)) {
+      return {};
+    }
+    const computedStyle = window.getComputedStyle(target);
+    return {
+      scrollTop: Math.round(target.scrollTop || 0),
+      scrollHeight: Math.round(target.scrollHeight || 0),
+      clientHeight: Math.round(target.clientHeight || 0),
+      overflowY: computedStyle.overflowY,
+      touchAction: computedStyle.touchAction,
+    };
+  }
+
   function enhanceNativeSelect(select, config = {}) {
     if (!(select instanceof HTMLSelectElement)) return null;
 
@@ -6266,6 +6306,7 @@
 
     const wrapper = document.createElement("div");
     wrapper.className = "tree-select native-select-enhancer";
+    wrapper.setAttribute("data-controler-disable-edge-swipe", "true");
 
     const trigger = document.createElement("button");
     trigger.type = "button";
@@ -6278,6 +6319,40 @@
 
     const menu = document.createElement("div");
     menu.className = "tree-select-menu";
+    menu.setAttribute("data-controler-disable-edge-swipe", "true");
+    menu.style.touchAction = "pan-y";
+    menu.style.overscrollBehavior = "contain";
+    menu.style.webkitOverflowScrolling = "touch";
+    const stopScrollableMenuPropagation = (event) => {
+      if (!wrapper.classList.contains("open")) {
+        return;
+      }
+      event.stopPropagation();
+    };
+    menu.addEventListener("wheel", stopScrollableMenuPropagation, {
+      passive: true,
+    });
+    menu.addEventListener("touchmove", stopScrollableMenuPropagation, {
+      passive: true,
+    });
+    let menuVerticalDragApi = null;
+    const ensureMenuVerticalDrag = () => {
+      if (
+        menuVerticalDragApi ||
+        typeof bindVerticalDragScroll !== "function"
+      ) {
+        return;
+      }
+      menuVerticalDragApi = bindVerticalDragScroll(menu, {
+        enabled: () => wrapper.classList.contains("open"),
+        ignoreSelector: null,
+        idleCursor: "default",
+      });
+      emitTreeSelectScrollLog("drag-scroll-bound", {
+        optionCount: menu.querySelectorAll(".tree-select-option").length,
+        ...readScrollableElementDebugState(menu),
+      });
+    };
 
     const collectOptionLabels = () =>
       Array.from(select.querySelectorAll("option")).map((optionNode) =>
@@ -6339,8 +6414,13 @@
 
     const openMenu = () => {
       if (select.disabled) return;
+      ensureMenuVerticalDrag();
       repositionMenu();
       wrapper.classList.add("open");
+      emitTreeSelectScrollLog("menu-open", {
+        optionCount: menu.querySelectorAll(".tree-select-option").length,
+        ...readScrollableElementDebugState(menu),
+      });
       setTimeout(() => {
         document.addEventListener("click", handleOutsideClick, true);
         window.addEventListener("resize", repositionMenu, true);
@@ -6409,6 +6489,34 @@
       optionButton.type = "button";
       optionButton.className = "tree-select-option";
       optionButton.dataset.value = String(optionNode.value ?? "");
+      optionButton.style.touchAction = "pan-y";
+
+      let pointerDragState = null;
+      let ignoreNextClick = false;
+      const TREE_SELECT_SCROLL_THRESHOLD_PX = 10;
+      const updatePointerDragState = (event) => {
+        if (
+          !pointerDragState ||
+          event.pointerId !== pointerDragState.pointerId
+        ) {
+          return;
+        }
+        const deltaX = Math.abs(event.clientX - pointerDragState.startX);
+        const deltaY = Math.abs(event.clientY - pointerDragState.startY);
+        if (
+          !pointerDragState.dragging &&
+          (deltaY >= TREE_SELECT_SCROLL_THRESHOLD_PX ||
+            deltaX >= TREE_SELECT_SCROLL_THRESHOLD_PX + 4)
+        ) {
+          pointerDragState.dragging = true;
+          ignoreNextClick = true;
+          emitTreeSelectScrollLog("drag-detected", {
+            pointerType: String(event.pointerType || "").trim() || "unknown",
+            deltaX: Math.round(deltaX),
+            deltaY: Math.round(deltaY),
+          });
+        }
+      };
 
       const label = document.createElement("span");
       label.className = "tree-select-option-label";
@@ -6419,7 +6527,37 @@
         optionButton.classList.add("is-disabled");
         optionButton.disabled = true;
       } else {
+        optionButton.addEventListener("pointerdown", (event) => {
+          pointerDragState = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            dragging: false,
+          };
+        });
+        optionButton.addEventListener(
+          "pointermove",
+          (event) => {
+            updatePointerDragState(event);
+          },
+          {
+            passive: true,
+          },
+        );
+        optionButton.addEventListener("pointerup", (event) => {
+          updatePointerDragState(event);
+          pointerDragState = null;
+        });
+        optionButton.addEventListener("pointercancel", () => {
+          pointerDragState = null;
+        });
         optionButton.addEventListener("click", (event) => {
+          if (ignoreNextClick) {
+            ignoreNextClick = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
           select.value = optionNode.value;
@@ -6470,6 +6608,7 @@
         rebuildMenu();
       },
       destroy() {
+        menuVerticalDragApi?.destroy?.();
         observer.disconnect();
         document.removeEventListener("click", handleOutsideClick, true);
         window.removeEventListener("resize", repositionMenu, true);

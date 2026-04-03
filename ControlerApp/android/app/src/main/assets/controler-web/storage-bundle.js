@@ -353,6 +353,36 @@
     return `${parsed.getFullYear()}-${padNumber(parsed.getMonth() + 1)}-${padNumber(parsed.getDate())}`;
   }
 
+  function extractProjectLeafName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    if (!normalizedName) {
+      return "";
+    }
+    const leafName = normalizedName
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    return leafName || normalizedName;
+  }
+
+  function isProjectPathLikeName(projectName) {
+    const normalizedName = String(projectName || "").trim();
+    return (
+      normalizedName.includes("/") &&
+      extractProjectLeafName(normalizedName) !== normalizedName
+    );
+  }
+
+  function normalizeProjectReferenceName(projectName, fallback = "") {
+    const normalizedName = String(projectName || "").trim();
+    const fallbackName = String(fallback || "").trim();
+    if (!normalizedName) {
+      return fallbackName;
+    }
+    return extractProjectLeafName(normalizedName) || fallbackName;
+  }
+
   function normalizePeriodId(value) {
     const normalized = String(value || "").trim();
     if (!normalized) {
@@ -771,15 +801,16 @@
       return -1;
     }
 
+    const preferredRecordName = normalizeProjectReferenceName(recordName);
+    if (preferredRecordName && context.byName.has(preferredRecordName)) {
+      return context.byName.get(preferredRecordName).index;
+    }
+
     if (context.byName.has(recordName)) {
       return context.byName.get(recordName).index;
     }
 
-    const leafName = recordName
-      .split("/")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .pop();
+    const leafName = extractProjectLeafName(recordName);
 
     if (leafName && context.byName.has(leafName)) {
       return context.byName.get(leafName).index;
@@ -796,7 +827,7 @@
       }
 
       const normalizedProjectId = String(record.projectId || "").trim();
-      if (normalizedProjectId) {
+      if (normalizedProjectId && context.byId.has(normalizedProjectId)) {
         return cloneValue(record);
       }
 
@@ -980,6 +1011,199 @@
     return recalculateProjectDurationTotals(context.projects);
   }
 
+  function compareProjectCanonicalOrder(left, right) {
+    const leftPathLike = isProjectPathLikeName(left?.name) ? 1 : 0;
+    const rightPathLike = isProjectPathLikeName(right?.name) ? 1 : 0;
+    if (leftPathLike !== rightPathLike) {
+      return leftPathLike - rightPathLike;
+    }
+    const leftCreatedAt =
+      normalizeDateInput(left?.createdAt)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const rightCreatedAt =
+      normalizeDateInput(right?.createdAt)?.getTime() || Number.MAX_SAFE_INTEGER;
+    if (leftCreatedAt !== rightCreatedAt) {
+      return leftCreatedAt - rightCreatedAt;
+    }
+    const leftLevel = Number.isFinite(left?.level) ? Number(left.level) : 99;
+    const rightLevel = Number.isFinite(right?.level) ? Number(right.level) : 99;
+    if (leftLevel !== rightLevel) {
+      return leftLevel - rightLevel;
+    }
+    return String(left?.id || "").localeCompare(String(right?.id || ""));
+  }
+
+  function buildProjectLookupIndex(projects = []) {
+    const byId = new Map();
+    const byName = new Map();
+    ensureArray(projects).forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      const projectName = String(project?.name || "").trim();
+      if (projectId && !byId.has(projectId)) {
+        byId.set(projectId, project);
+      }
+      if (projectName && !byName.has(projectName)) {
+        byName.set(projectName, project);
+      }
+    });
+    return {
+      byId,
+      byName,
+    };
+  }
+
+  function repairPathNamedRecordProjects(projects = [], records = []) {
+    const nextProjects = ensureArray(projects).map((project) =>
+      cloneValue(project && typeof project === "object" && !Array.isArray(project)
+        ? project
+        : {}),
+    );
+    const nextRecords = ensureArray(records).map((record) => cloneValue(record));
+    const groupsByLeaf = new Map();
+    let mergedProjectCount = 0;
+    let renamedProjectCount = 0;
+
+    nextProjects.forEach((project) => {
+      const leafName = normalizeProjectReferenceName(project?.name);
+      if (!leafName) {
+        return;
+      }
+      if (!groupsByLeaf.has(leafName)) {
+        groupsByLeaf.set(leafName, []);
+      }
+      groupsByLeaf.get(leafName).push(project);
+    });
+
+    const duplicateProjectIds = new Set();
+    const projectIdMap = new Map();
+
+    groupsByLeaf.forEach((group, leafName) => {
+      const hasPathLike = group.some((project) =>
+        isProjectPathLikeName(project?.name),
+      );
+      if (!hasPathLike || group.length === 0) {
+        return;
+      }
+
+      const canonicalProject = group.slice().sort(compareProjectCanonicalOrder)[0];
+      const canonicalId = String(canonicalProject?.id || "").trim();
+      if (!canonicalId) {
+        return;
+      }
+      if (String(canonicalProject?.name || "").trim() !== leafName) {
+        canonicalProject.name = leafName;
+        renamedProjectCount += 1;
+      }
+
+      group.forEach((project) => {
+        const projectId = String(project?.id || "").trim();
+        if (!projectId || projectId === canonicalId) {
+          return;
+        }
+        duplicateProjectIds.add(projectId);
+        projectIdMap.set(projectId, canonicalId);
+        mergedProjectCount += 1;
+      });
+    });
+
+    const filteredProjects = nextProjects.filter((project) => {
+      const projectId = String(project?.id || "").trim();
+      return projectId ? !duplicateProjectIds.has(projectId) : true;
+    });
+
+    filteredProjects.forEach((project) => {
+      const projectId = String(project?.id || "").trim();
+      const rawParentId = String(project?.parentId || "").trim();
+      const mappedParentId = rawParentId
+        ? String(projectIdMap.get(rawParentId) || rawParentId).trim()
+        : "";
+      project.parentId =
+        mappedParentId && mappedParentId !== projectId ? mappedParentId : null;
+    });
+
+    const hierarchyRepairResult = repairProjectHierarchy(filteredProjects);
+    const repairedProjects = ensureArray(
+      hierarchyRepairResult?.projects || filteredProjects,
+    ).map((project) => cloneValue(project));
+    const projectLookup = buildProjectLookupIndex(repairedProjects);
+    let repairedRecordCount = 0;
+
+    const repairedRecords = nextRecords.map((record) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
+        return cloneValue(record);
+      }
+
+      const source = cloneValue(record);
+      const normalizedName =
+        normalizeProjectReferenceName(source?.name, "未命名项目") || "未命名项目";
+      const normalizedNextProjectName = normalizeProjectReferenceName(
+        source?.nextProjectName,
+      );
+      const mappedProjectId = String(
+        projectIdMap.get(String(source?.projectId || "").trim()) ||
+          source?.projectId ||
+          "",
+      ).trim();
+      const mappedNextProjectId = String(
+        projectIdMap.get(String(source?.nextProjectId || "").trim()) ||
+          source?.nextProjectId ||
+          "",
+      ).trim();
+      const matchedProject =
+        (mappedProjectId && projectLookup.byId.get(mappedProjectId)) ||
+        (normalizedName && projectLookup.byName.get(normalizedName)) ||
+        null;
+      const matchedNextProject =
+        (mappedNextProjectId && projectLookup.byId.get(mappedNextProjectId)) ||
+        (normalizedNextProjectName &&
+          projectLookup.byName.get(normalizedNextProjectName)) ||
+        null;
+      const nextName =
+        String(matchedProject?.name || normalizedName || "").trim() ||
+        "未命名项目";
+      const nextProjectId =
+        String(matchedProject?.id || mappedProjectId || "").trim() || null;
+      const nextNextProjectName = String(
+        matchedNextProject?.name || normalizedNextProjectName || "",
+      ).trim();
+      const nextNextProjectId =
+        String(matchedNextProject?.id || mappedNextProjectId || "").trim() ||
+        null;
+
+      if (
+        String(source?.name || "").trim() !== nextName ||
+        String(source?.projectId || "").trim() !==
+          String(nextProjectId || "").trim() ||
+        String(source?.nextProjectName || "").trim() !== nextNextProjectName ||
+        String(source?.nextProjectId || "").trim() !==
+          String(nextNextProjectId || "").trim()
+      ) {
+        repairedRecordCount += 1;
+      }
+
+      return {
+        ...source,
+        name: nextName,
+        projectId: nextProjectId,
+        nextProjectName: nextNextProjectName,
+        nextProjectId: nextNextProjectId,
+      };
+    });
+
+    return {
+      projects: repairedProjects,
+      records: repairedRecords,
+      changed:
+        mergedProjectCount > 0 ||
+        renamedProjectCount > 0 ||
+        hierarchyRepairResult?.repaired === true ||
+        repairedRecordCount > 0,
+      mergedProjectCount,
+      renamedProjectCount,
+      repairedRecordCount,
+      projectIdMap,
+    };
+  }
+
   function createBaseSyncMeta(syncMeta = {}, options = {}) {
     const source = ensureObject(syncMeta);
     const fileName =
@@ -1101,12 +1325,57 @@
     }
   }
 
+  function getRecordPeriodIdsForSectionItem(item) {
+    const startDate =
+      normalizeDateInput(item?.startTime) ||
+      normalizeDateInput(item?.timestamp) ||
+      normalizeDateInput(item?.endTime);
+    const endDate =
+      normalizeDateInput(item?.endTime) ||
+      normalizeDateInput(item?.timestamp) ||
+      normalizeDateInput(item?.startTime);
+    if (!startDate && !endDate) {
+      return [UNDATED_PERIOD_ID];
+    }
+    let lower = startDate || endDate;
+    let upper = endDate || startDate;
+    if (upper.getTime() < lower.getTime()) {
+      const swapped = lower;
+      lower = upper;
+      upper = swapped;
+    }
+    const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+    const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
+    const periodIds = [];
+    while (cursor.getTime() <= target.getTime()) {
+      const periodId = formatDateToPeriodId(cursor);
+      if (periodId) {
+        periodIds.push(periodId);
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return periodIds.length
+      ? Array.from(new Set(periodIds))
+      : [UNDATED_PERIOD_ID];
+  }
+
+  function getPeriodIdsForSectionItem(section, item) {
+    if (section === "plans" && isRecurringPlan(item)) {
+      return [];
+    }
+    if (section === "records") {
+      return getRecordPeriodIdsForSectionItem(item);
+    }
+    const itemDate = getSectionItemDate(section, item);
+    return [formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID];
+  }
+
   function getPeriodIdForSectionItem(section, item) {
     if (section === "plans" && isRecurringPlan(item)) {
       return "";
     }
-    const itemDate = getSectionItemDate(section, item);
-    return formatDateToPeriodId(itemDate) || UNDATED_PERIOD_ID;
+    const periodIds = getPeriodIdsForSectionItem(section, item);
+    return periodIds[0] || UNDATED_PERIOD_ID;
   }
 
   function canonicalizeSectionItem(section, item = {}, options = {}) {
@@ -1154,26 +1423,36 @@
 
     if (section === "records") {
       assignGeneratedId("legacy-record");
-      const normalizedName = String(
+      const normalizedName = normalizeProjectReferenceName(
         nextItem.name ||
           nextItem.project ||
           nextItem.projectName ||
           nextItem.title ||
           "",
-      ).trim();
+      );
+      const normalizedNameForSave = normalizedName || "未命名项目";
+      const normalizedNextProjectName = normalizeProjectReferenceName(
+        nextItem.nextProjectName ||
+          nextItem.next_project_name ||
+          nextItem.nextProject ||
+          "",
+      );
       const normalizedProjectId =
         normalizeId(nextItem.projectId || nextItem.projectID || nextItem.project_id) ||
         null;
-      assignIfChanged("name", normalizedName);
+      assignIfChanged("name", normalizedNameForSave);
       assignIfChanged("projectId", normalizedProjectId);
       assignIfChanged(
         "nextProjectId",
         normalizeId(
           nextItem.nextProjectId ||
             nextItem.next_project_id ||
-            nextItem.nextProjectID,
+          nextItem.nextProjectID,
         ) || null,
       );
+      if (normalizedNextProjectName) {
+        assignIfChanged("nextProjectName", normalizedNextProjectName);
+      }
       const normalizedStartTime = normalizeDateField(
         nextItem.startTime || nextItem.startedAt || nextItem.beginTime,
       );
@@ -1373,15 +1652,20 @@
       if (canonicalized.repaired) {
         repaired = true;
       }
-      const itemPeriodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
-      if (itemPeriodId !== normalizedPeriodId) {
+      const itemPeriodIds = getPeriodIdsForSectionItem(
+        section,
+        canonicalized.item,
+      );
+      if (!itemPeriodIds.includes(normalizedPeriodId)) {
         repaired = true;
         invalidItems.push({
           section,
           periodId: normalizedPeriodId,
           item: cloneValue(canonicalized.item),
-          actualPeriodId: itemPeriodId,
+          actualPeriodId:
+            itemPeriodIds.length > 0
+              ? itemPeriodIds.join(",")
+              : UNDATED_PERIOD_ID,
           reason: "period-mismatch",
         });
         return;
@@ -1394,7 +1678,10 @@
             section,
             periodId: normalizedPeriodId,
             item: cloneValue(canonicalized.item),
-            actualPeriodId: itemPeriodId,
+            actualPeriodId:
+              itemPeriodIds.length > 0
+                ? itemPeriodIds.join(",")
+                : UNDATED_PERIOD_ID,
             reason: duplicateReason,
           });
           return;
@@ -1582,13 +1869,17 @@
           recurringPlans.push(cloneValue(canonicalized.item));
           return;
         }
-        const periodId =
-          getPeriodIdForSectionItem(section, canonicalized.item) ||
-          UNDATED_PERIOD_ID;
-        if (!partitionMap[section].has(periodId)) {
-          partitionMap[section].set(periodId, []);
-        }
-        partitionMap[section].get(periodId).push(cloneValue(canonicalized.item));
+        getPeriodIdsForSectionItem(section, canonicalized.item).forEach(
+          (periodId) => {
+            const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+            if (!partitionMap[section].has(normalizedPeriodId)) {
+              partitionMap[section].set(normalizedPeriodId, []);
+            }
+            partitionMap[section]
+              .get(normalizedPeriodId)
+              .push(cloneValue(canonicalized.item));
+          },
+        );
       });
     });
     const manifest = {
@@ -1652,7 +1943,12 @@
           );
         });
       }
-      nextState[section] = sortPartitionItems(section, items);
+      nextState[section] = sortPartitionItems(
+        section,
+        section === "records"
+          ? mergePartitionItems("records", [], items, "merge")
+          : items,
+      );
     });
     nextState.plans = sortPartitionItems("plans", [
       ...ensureArray(nextState.plans),
@@ -1864,19 +2160,21 @@
   function validateItemsForPeriod(section, periodId, items = []) {
     const normalizedPeriodId = normalizePeriodId(periodId) || UNDATED_PERIOD_ID;
     return ensureArray(items).every((item) => {
-      const itemPeriodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
-      return itemPeriodId === normalizedPeriodId;
+      const itemPeriodIds = getPeriodIdsForSectionItem(section, item);
+      return itemPeriodIds.includes(normalizedPeriodId);
     });
   }
 
   function groupItemsByPeriod(section, items = []) {
     const grouped = new Map();
     ensureArray(items).forEach((item) => {
-      const periodId = getPeriodIdForSectionItem(section, item) || UNDATED_PERIOD_ID;
-      if (!grouped.has(periodId)) {
-        grouped.set(periodId, []);
-      }
-      grouped.get(periodId).push(cloneValue(item));
+      getPeriodIdsForSectionItem(section, item).forEach((periodId) => {
+        const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+        if (!grouped.has(normalizedPeriodId)) {
+          grouped.set(normalizedPeriodId, []);
+        }
+        grouped.get(normalizedPeriodId).push(cloneValue(item));
+      });
     });
     return grouped;
   }
@@ -1939,12 +2237,17 @@
         recurringItems.push(cloneValue(canonicalized.item));
         return;
       }
-      const periodId =
-        getPeriodIdForSectionItem(section, canonicalized.item) || UNDATED_PERIOD_ID;
-      if (!groupedItems.has(periodId)) {
-        groupedItems.set(periodId, []);
-      }
-      groupedItems.get(periodId).push(cloneValue(canonicalized.item));
+      getPeriodIdsForSectionItem(section, canonicalized.item).forEach(
+        (periodId) => {
+          const normalizedPeriodId = periodId || UNDATED_PERIOD_ID;
+          if (!groupedItems.has(normalizedPeriodId)) {
+            groupedItems.set(normalizedPeriodId, []);
+          }
+          groupedItems
+            .get(normalizedPeriodId)
+            .push(cloneValue(canonicalized.item));
+        },
+      );
     });
 
     groupedItems.forEach((periodItems, periodId) => {
@@ -2019,10 +2322,14 @@
     normalizeDurationMs,
     normalizeDateInput,
     normalizeDateKey,
+    extractProjectLeafName,
+    isProjectPathLikeName,
+    normalizeProjectReferenceName,
     normalizePeriodId,
     normalizeRangeInput,
     getPeriodIdsForRange,
     getSectionItemDate,
+    getPeriodIdsForSectionItem,
     getPeriodIdForSectionItem,
     getPartitionRelativePath,
     parseSpendTimeToMs,
@@ -2036,6 +2343,7 @@
     rebuildProjectDurationCaches,
     reconcileProjectDurationCaches,
     applyProjectRecordDurationChanges,
+    repairPathNamedRecordProjects,
     createBaseSyncMeta,
     createEmptyRecoverySummary,
     normalizeRecoveryEntry,

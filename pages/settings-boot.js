@@ -304,8 +304,21 @@
     return String(value).padStart(2, "0");
   }
 
+  function extractProjectLeafName(value) {
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedValue) {
+      return "";
+    }
+    const leafName = normalizedValue
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .pop();
+    return leafName || normalizedValue;
+  }
+
   function normalizeProjectName(value) {
-    return String(value || "").trim();
+    return extractProjectLeafName(value);
   }
 
   function normalizeDateInput(value) {
@@ -899,7 +912,10 @@
       const source = isPlainObject(record) ? cloneValue(record) : {};
       const sourceProjectId = String(source.projectId || "").trim();
       const sourceName = normalizeProjectName(source.name);
+      const sourceNextProjectId = String(source.nextProjectId || "").trim();
+      const sourceNextProjectName = normalizeProjectName(source.nextProjectName);
       let matchedProject = null;
+      let matchedNextProject = null;
 
       if (sourceProjectId && projectIdMap.has(sourceProjectId)) {
         const mappedId = projectIdMap.get(sourceProjectId);
@@ -910,11 +926,22 @@
       if (!matchedProject && sourceName) {
         matchedProject = nameIndex.get(sourceName) || null;
       }
+      if (sourceNextProjectId && projectIdMap.has(sourceNextProjectId)) {
+        const mappedNextId = projectIdMap.get(sourceNextProjectId);
+        matchedNextProject = ensureArray(reconciliation.projects).find(
+          (project) => String(project?.id || "").trim() === String(mappedNextId || ""),
+        );
+      }
+      if (!matchedNextProject && sourceNextProjectName) {
+        matchedNextProject = nameIndex.get(sourceNextProjectName) || null;
+      }
 
       mappedRecords.push({
         ...source,
         name: matchedProject?.name || sourceName || "未命名项目",
         projectId: matchedProject?.id || null,
+        nextProjectName: matchedNextProject?.name || sourceNextProjectName || "",
+        nextProjectId: matchedNextProject?.id || null,
       });
     });
 
@@ -990,6 +1017,8 @@
 
 
 ;/* pages/settings.js */
+const uiTools = window.ControlerUI || null;
+
 // 主题配置
 const DEFAULT_THEME_COLORS = {
   primary: "#1f2f28",

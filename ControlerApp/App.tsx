@@ -81,6 +81,12 @@ type NativeBridgeModule = {
   showSoftInput?: () => Promise<string>;
 };
 
+function createRuntimeSessionId(): string {
+  return `rn-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
 type BridgeEnvelopePayload = {
   id?: string;
   method?: string;
@@ -2260,6 +2266,7 @@ function buildWidgetLaunchDispatchScript(
 function buildBridgeBootstrapScript(
   payload: Record<string, unknown>,
   themeState: Record<string, unknown> | null = null,
+  runtimeSessionId = '',
 ): string {
   const serialized = JSON.stringify(payload)
     .replace(/\u2028/g, '\\u2028')
@@ -2276,9 +2283,11 @@ function buildBridgeBootstrapScript(
     .replace(/\u2029/g, '\\u2029');
   return `
     (function () {
-      window.__CONTROLER_RN_META__ = ${JSON.stringify(
-        platformContract.getReactNativeRuntimeProfile(Platform.OS),
-      )};
+      window.__CONTROLER_RN_META__ = {
+        ...${JSON.stringify(platformContract.getReactNativeRuntimeProfile(Platform.OS))},
+        runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
+      };
+      window.__CONTROLER_RN_SESSION_ID__ = ${JSON.stringify(runtimeSessionId)};
       const themeState = ${serializedThemeState};
       const themeBootstrapState = ${serializedThemeBootstrapState};
       try {
@@ -2527,6 +2536,7 @@ function App({
   initialCoreStateJson = '',
   initialUiLanguage = DEFAULT_UI_LANGUAGE,
 }: AppProps): JSX.Element {
+  const runtimeSessionIdRef = useRef<string>(createRuntimeSessionId());
   const initialCoreStateRef = useRef<Record<string, unknown> | null>(
     parseBridgeJson(initialCoreStateJson),
   );
@@ -6591,7 +6601,7 @@ function App({
             page: slotState.pageKey,
             href: slotState.uri,
             transitionLoading: slot === transitionLoadingSlot,
-          }, launchThemeStateRef.current)}
+          }, launchThemeStateRef.current, runtimeSessionIdRef.current)}
           onMessage={event => {
             handleWebViewMessage(slot, event).catch(() => undefined);
           }}

@@ -1037,10 +1037,30 @@ function readWidgetTimerSessionState() {
   return parsed && typeof parsed === "object" ? parsed : null;
 }
 
-async function loadWidgetCoreState() {
+function emitWidgetWeekViewLoad(stage, payload = {}) {
+  try {
+    console.info("[widget.week-view-load]", {
+      stage: String(stage || "").trim() || "unknown",
+      ...payload,
+    });
+  } catch (error) {
+    // Ignore logging failures.
+  }
+}
+
+async function loadWidgetCoreState(options = {}) {
+  const forceAuthoritative = options?.authoritative !== false;
   if (typeof window.ControlerStorage?.getCoreState === "function") {
     try {
-      return (await window.ControlerStorage.getCoreState()) || {};
+      return (
+        (await window.ControlerStorage.getCoreState(
+          forceAuthoritative
+            ? {
+                authoritative: true,
+              }
+            : {},
+        )) || {}
+      );
     } catch (error) {
       console.error("读取小组件核心状态失败:", error);
     }
@@ -1048,10 +1068,16 @@ async function loadWidgetCoreState() {
   return {};
 }
 
-async function loadWidgetSectionRange(section, scope = {}) {
+async function loadWidgetSectionRange(section, scope = {}, options = {}) {
+  const forceAuthoritative = options?.authoritative !== false;
+  const requestScope =
+    scope && typeof scope === "object" ? { ...scope } : {};
+  if (forceAuthoritative) {
+    requestScope.authoritative = true;
+  }
   if (typeof window.ControlerStorage?.loadSectionRange === "function") {
     try {
-      return (await window.ControlerStorage.loadSectionRange(section, scope)) || {
+      return (await window.ControlerStorage.loadSectionRange(section, requestScope)) || {
         items: [],
         periodIds: [],
       };
@@ -1162,17 +1188,43 @@ async function loadWidgetDataPayload(widgetType) {
     }
     case "week-view": {
       const endDate = addDaysToDateText(todayText, 32) || todayText;
+      const planPeriodIds = collectWidgetPeriodIdsBetween(todayText, endDate);
+      emitWidgetWeekViewLoad("start", {
+        startDate: todayText,
+        endDate,
+        requestedPeriodCount: planPeriodIds.length,
+      });
       const [coreState, plansResult] = await Promise.all([
-        loadWidgetCoreState(),
+        loadWidgetCoreState({
+          authoritative: true,
+        }),
         loadWidgetSectionRange("plans", {
-          periodIds: collectWidgetPeriodIdsBetween(todayText, endDate),
+          startDate: todayText,
+          endDate,
+          periodIds: planPeriodIds,
+        }, {
+          authoritative: true,
         }),
       ]);
+      const oneTimePlans = Array.isArray(plansResult?.items) ? plansResult.items : [];
+      const recurringPlans = Array.isArray(coreState?.recurringPlans)
+        ? coreState.recurringPlans
+        : [];
+      emitWidgetWeekViewLoad("loaded", {
+        startDate: todayText,
+        endDate,
+        requestedPeriodCount: planPeriodIds.length,
+        loadedPeriodCount: Array.isArray(plansResult?.periodIds)
+          ? plansResult.periodIds.length
+          : 0,
+        oneTimePlanCount: oneTimePlans.length,
+        recurringPlanCount: recurringPlans.length,
+      });
       return {
         ...createWidgetStateFromCore(coreState),
         plans: [
-          ...(Array.isArray(plansResult?.items) ? plansResult.items : []),
-          ...(Array.isArray(coreState?.recurringPlans) ? coreState.recurringPlans : []),
+          ...oneTimePlans,
+          ...recurringPlans,
         ],
       };
     }

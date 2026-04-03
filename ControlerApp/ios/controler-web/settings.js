@@ -1,3 +1,5 @@
+const uiTools = window.ControlerUI || null;
+
 // 主题配置
 const DEFAULT_THEME_COLORS = {
   primary: "#1f2f28",

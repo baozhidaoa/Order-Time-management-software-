@@ -6,6 +6,8 @@
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
   const MOBILE_MIRROR_STATUS_KEY = "__controler_mobile_status__";
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
+  const MOBILE_MIRROR_PENDING_SESSION_KEY =
+    "__controler_mobile_pending_session__";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const MOBILE_MIRROR_FLUSH_DELAY_MS = 90;
   const JOURNAL_BATCH_DELAY_MS = 40;
@@ -66,6 +68,24 @@
   const guideBundle = window.ControlerGuideBundle || null;
   const storageBundle = window.ControlerStorageBundle || null;
   const platformContract = window.ControlerPlatformContract || null;
+  function resolveReactNativeRuntimeSessionId() {
+    if (
+      typeof window.__CONTROLER_RN_SESSION_ID__ === "string" &&
+      window.__CONTROLER_RN_SESSION_ID__.trim()
+    ) {
+      return window.__CONTROLER_RN_SESSION_ID__.trim();
+    }
+    if (
+      window.__CONTROLER_RN_META__ &&
+      typeof window.__CONTROLER_RN_META__ === "object" &&
+      typeof window.__CONTROLER_RN_META__.runtimeSessionId === "string" &&
+      window.__CONTROLER_RN_META__.runtimeSessionId.trim()
+    ) {
+      return window.__CONTROLER_RN_META__.runtimeSessionId.trim();
+    }
+    return "";
+  }
+  const REACT_NATIVE_RUNTIME_SESSION_ID = resolveReactNativeRuntimeSessionId();
   function resolveStorageDebugPageKey() {
     try {
       const pathSegments = String(window.location.pathname || "").split("/");
@@ -771,15 +791,18 @@
   }
 
   function normalizeCorePayloadProjects(corePayload = {}, options = {}) {
+    const stripResult = stripPartitionedSectionsFromCorePayload(corePayload);
     const source =
-      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
-        ? corePayload
+      stripResult.payload &&
+      typeof stripResult.payload === "object" &&
+      !Array.isArray(stripResult.payload)
+        ? stripResult.payload
         : {};
     if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
       return {
         payload: source,
         projects: [],
-        repaired: false,
+        repaired: stripResult.repaired,
       };
     }
     const projectResult = normalizeProjectCollection(source.projects, options);
@@ -789,7 +812,32 @@
         projects: cloneValue(projectResult.projects),
       },
       projects: projectResult.projects,
-      repaired: projectResult.repaired,
+      repaired: stripResult.repaired || projectResult.repaired,
+    };
+  }
+
+  function stripPartitionedSectionsFromCorePayload(corePayload = {}) {
+    const source =
+      corePayload && typeof corePayload === "object" && !Array.isArray(corePayload)
+        ? corePayload
+        : {};
+    const sanitized = {
+      ...source,
+    };
+    let repaired = false;
+    const partitionedSections = Array.isArray(storageBundle?.PARTITIONED_SECTIONS)
+      ? storageBundle.PARTITIONED_SECTIONS
+      : ["records", "plans", "diaryEntries", "dailyCheckins", "checkins"];
+    partitionedSections.forEach((section) => {
+      if (!Object.prototype.hasOwnProperty.call(sanitized, section)) {
+        return;
+      }
+      delete sanitized[section];
+      repaired = true;
+    });
+    return {
+      payload: sanitized,
+      repaired,
     };
   }
 
@@ -4214,9 +4262,43 @@
         window.localStorage,
         MOBILE_MIRROR_PENDING_WRITE_KEY,
       ) || "";
+    const initialMirrorPendingSessionId =
+      nativeMethods.getItem?.call(
+        window.localStorage,
+        MOBILE_MIRROR_PENDING_SESSION_KEY,
+      ) || "";
     const initialMirrorPendingWrite =
       initialMirrorPendingWriteRaw === "1" ||
       initialMirrorPendingWriteRaw === "true";
+    const shouldDiscardInitialPendingWrite =
+      initialMirrorPendingWrite &&
+      !!REACT_NATIVE_RUNTIME_SESSION_ID &&
+      initialMirrorPendingSessionId !== REACT_NATIVE_RUNTIME_SESSION_ID;
+    if (shouldDiscardInitialPendingWrite) {
+      try {
+        nativeMethods.setItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_WRITE_KEY,
+          "0",
+        );
+        nativeMethods.removeItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_PENDING_SESSION_KEY,
+        );
+      } catch (error) {
+        console.warn("清理失效的移动端 pending 镜像标记失败:", error);
+      }
+      emitStorageDebug("discard-stale-pending-mirror", {
+        runtimeSessionId: REACT_NATIVE_RUNTIME_SESSION_ID,
+        pendingOwnerSessionId: String(initialMirrorPendingSessionId || "").trim(),
+        hasMirrorState: !!initialMirrorStateRaw.trim(),
+      });
+      emitStoragePerfMetric("storage-sync-discard-stale-pending-mirror", {
+        runtimeSessionId: REACT_NATIVE_RUNTIME_SESSION_ID,
+        pendingOwnerSessionId: String(initialMirrorPendingSessionId || "").trim(),
+        hasMirrorState: !!initialMirrorStateRaw.trim(),
+      });
+    }
     const initialMirrorState = parseJsonSafely(
       initialMirrorStateRaw,
       {},
@@ -4248,7 +4330,8 @@
     const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
       ? legacyBrowserBootstrap.state
       : initialMirrorState;
-    const initialPendingWrite = initialMirrorPendingWrite;
+    const initialPendingWrite =
+      initialMirrorPendingWrite && !shouldDiscardInitialPendingWrite;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
       useStateRecordsForProjectNormalization: false,
@@ -4277,6 +4360,9 @@
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
     let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+    let lastMirroredPendingSessionId = initialPendingWrite
+      ? String(initialMirrorPendingSessionId || "").trim()
+      : "";
     let hasPendingStateChanges = initialPendingWrite;
     let managedStateRevision = initialPendingWrite ? 1 : 0;
     let lastKnownVersionProbe = normalizeVersionProbe(cachedStatus, cachedStatus);
@@ -4325,6 +4411,20 @@
           initialPendingWrite ? "1" : "0",
         );
         lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
+        if (initialPendingWrite && REACT_NATIVE_RUNTIME_SESSION_ID) {
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+            REACT_NATIVE_RUNTIME_SESSION_ID,
+          );
+          lastMirroredPendingSessionId = REACT_NATIVE_RUNTIME_SESSION_ID;
+        } else {
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+          );
+          lastMirroredPendingSessionId = "";
+        }
       } catch (error) {
         console.error("写入移动端 legacy 启动镜像失败:", error);
       }
@@ -4335,6 +4435,23 @@
         coverage[section] = new Set();
         return coverage;
       }, {});
+    }
+
+    function cloneManagedSectionCoverage(sourceCoverage = managedSectionCoverage) {
+      const nextCoverage = createManagedSectionCoverage();
+      MANAGED_RANGE_SECTIONS.forEach((section) => {
+        const sourcePeriods = sourceCoverage?.[section];
+        if (!(sourcePeriods instanceof Set)) {
+          return;
+        }
+        sourcePeriods.forEach((periodId) => {
+          const normalizedPeriodId = String(periodId || "").trim();
+          if (normalizedPeriodId) {
+            nextCoverage[section].add(normalizedPeriodId);
+          }
+        });
+      });
+      return nextCoverage;
     }
 
     function normalizeChangedSectionsList(changedSections = []) {
@@ -4693,6 +4810,12 @@
 
     function rebuildManagedSectionCoverage(state, options = {}) {
       const markFull = options?.markFull === true;
+      if (!markFull) {
+        // Partial date-range loads only cache slices of a month, so we must not
+        // rebuild month coverage from the currently mirrored items.
+        managedSectionCoverage = cloneManagedSectionCoverage();
+        return;
+      }
       const nextCoverage = createManagedSectionCoverage();
       MANAGED_RANGE_SECTIONS.forEach((section) => {
         const sourceItems =
@@ -4704,7 +4827,9 @@
               )
             : state?.[section] || [];
         sourceItems.forEach((item) => {
-          nextCoverage[section].add(getManagedSectionPeriodId(section, item));
+          getManagedSectionPeriodIds(section, item).forEach((periodId) => {
+            nextCoverage[section].add(periodId);
+          });
         });
       });
       managedSectionCoverage = nextCoverage;
@@ -4767,6 +4892,36 @@
       );
     }
 
+    function hasConcreteManagedSectionRangeBounds(normalizedRange = {}) {
+      const normalizedStartDate =
+        typeof normalizedRange?.startDate === "string"
+          ? normalizedRange.startDate.trim()
+          : normalizedRange?.startDate || "";
+      const normalizedEndDate =
+        typeof normalizedRange?.endDate === "string"
+          ? normalizedRange.endDate.trim()
+          : normalizedRange?.endDate || "";
+      return !!normalizedStartDate || !!normalizedEndDate;
+    }
+
+    function shouldTrackManagedSectionRangeCoverage(
+      normalizedRange = {},
+      explicitCoveredPeriodIds = [],
+    ) {
+      if (isFullManagedSectionRange(normalizedRange)) {
+        return false;
+      }
+      if (hasConcreteManagedSectionRangeBounds(normalizedRange)) {
+        return false;
+      }
+      const normalizedPeriodIds = Array.isArray(normalizedRange?.periodIds)
+        ? normalizedRange.periodIds
+            .map((periodId) => String(periodId || "").trim())
+            .filter(Boolean)
+        : [];
+      return explicitCoveredPeriodIds.length > 0 || normalizedPeriodIds.length > 0;
+    }
+
     function canServeManagedSectionRange(section, scope = {}) {
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
@@ -4781,6 +4936,27 @@
       )
         ? normalizedRange
         : null;
+    }
+
+    function shouldForceAuthoritativeRead(options = {}) {
+      return (
+        options?.fresh === true ||
+        options?.authoritative === true ||
+        options?.__controlerAuthoritative === true
+      );
+    }
+
+    function stripAuthoritativeReadFlags(options = {}) {
+      if (!options || typeof options !== "object") {
+        return {};
+      }
+      const nextOptions = {
+        ...options,
+      };
+      delete nextOptions.authoritative;
+      delete nextOptions.__controlerAuthoritative;
+      delete nextOptions.fresh;
+      return nextOptions;
     }
 
     function canServeManagedPageBootstrap(pageKey, options = {}) {
@@ -4886,7 +5062,11 @@
           ? []
           : (state?.plans || []).filter(
               (item) =>
-                !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)) &&
+                !managedSectionItemMatchesRequestedPeriods(
+                  section,
+                  item,
+                  requestedPeriodSet,
+                ) &&
                 !(
                   typeof storageBundle?.isRecurringPlan === "function"
                     ? storageBundle.isRecurringPlan(item)
@@ -4906,7 +5086,12 @@
         const retainedItems = shouldReplaceWholeSection
           ? []
           : (state?.[section] || []).filter(
-              (item) => !requestedPeriodSet.has(getManagedSectionPeriodId(section, item)),
+              (item) =>
+                !managedSectionItemMatchesRequestedPeriods(
+                  section,
+                  item,
+                  requestedPeriodSet,
+                ),
             );
         nextState[section] =
           storageBundle?.sortPartitionItems?.(section, [
@@ -4928,25 +5113,21 @@
         });
         managedFullyHydratedSections.add(section);
       } else {
-        const coveredPeriodIds =
-          section === "records"
-            ? requestedPeriodIds.length
+        if (
+          shouldTrackManagedSectionRangeCoverage(
+            normalizedRange,
+            explicitCoveredPeriodIds,
+          )
+        ) {
+          const coveredPeriodIds = explicitCoveredPeriodIds.length
+            ? explicitCoveredPeriodIds
+            : requestedPeriodIds.length
               ? requestedPeriodIds
               : Array.from(
-                  new Set(
-                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
-                  ),
-                )
-            : explicitCoveredPeriodIds.length
-              ? explicitCoveredPeriodIds
-              : requestedPeriodIds.length
-                ? requestedPeriodIds
-              : Array.from(
-                  new Set(
-                    nextItems.map((item) => getManagedSectionPeriodId(section, item)),
-                  ),
+                  new Set(collectManagedSectionCoveredPeriodIds(section, nextItems)),
                 );
-        markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+          markManagedSectionPeriodsLoaded(section, coveredPeriodIds);
+        }
       }
       persistMirrorSnapshot(true);
     }
@@ -5098,6 +5279,26 @@
             nextPendingWriteValue,
           );
           lastMirroredPendingWriteValue = nextPendingWriteValue;
+        }
+        const nextPendingSessionId =
+          hasPendingStateChanges && REACT_NATIVE_RUNTIME_SESSION_ID
+            ? REACT_NATIVE_RUNTIME_SESSION_ID
+            : "";
+        if (nextPendingSessionId) {
+          if (force || nextPendingSessionId !== lastMirroredPendingSessionId) {
+            nativeMethods.setItem?.call(
+              window.localStorage,
+              MOBILE_MIRROR_PENDING_SESSION_KEY,
+              nextPendingSessionId,
+            );
+            lastMirroredPendingSessionId = nextPendingSessionId;
+          }
+        } else if (force || lastMirroredPendingSessionId) {
+          nativeMethods.removeItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_PENDING_SESSION_KEY,
+          );
+          lastMirroredPendingSessionId = "";
         }
       } catch (error) {
         console.error("写入移动端镜像状态失败:", error);
@@ -6320,12 +6521,7 @@
       });
     }
 
-    function getManagedSectionPeriodId(section, item) {
-      if (typeof storageBundle?.getPeriodIdForSectionItem === "function") {
-        return (
-          storageBundle.getPeriodIdForSectionItem(section, item) || "undated"
-        );
-      }
+    function resolveManagedPrimarySectionPeriodId(section, item) {
       const dateText =
         typeof item?.date === "string" && item.date
           ? item.date
@@ -6337,6 +6533,42 @@
                 ? item.updatedAt
                 : "";
       return /^\d{4}-\d{2}/.test(dateText) ? dateText.slice(0, 7) : "undated";
+    }
+
+    function getManagedSectionPeriodIds(section, item) {
+      if (typeof storageBundle?.getPeriodIdsForSectionItem === "function") {
+        const periodIds = storageBundle.getPeriodIdsForSectionItem(section, item);
+        const normalizedPeriodIds = (Array.isArray(periodIds) ? periodIds : [])
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean);
+        if (normalizedPeriodIds.length) {
+          return [...new Set(normalizedPeriodIds)];
+        }
+      }
+      return [resolveManagedPrimarySectionPeriodId(section, item)];
+    }
+
+    function managedSectionItemMatchesRequestedPeriods(
+      section,
+      item,
+      requestedPeriods = new Set(),
+    ) {
+      if (!(requestedPeriods instanceof Set) || requestedPeriods.size === 0) {
+        return true;
+      }
+      return getManagedSectionPeriodIds(section, item).some((periodId) =>
+        requestedPeriods.has(periodId),
+      );
+    }
+
+    function collectManagedSectionCoveredPeriodIds(section, items = []) {
+      return [
+        ...new Set(
+          (Array.isArray(items) ? items : []).flatMap((item) =>
+            getManagedSectionPeriodIds(section, item),
+          ),
+        ),
+      ];
     }
 
     function getManagedRecurringPlans(state = readState()) {
@@ -6775,7 +7007,10 @@
           : state?.[section] || [];
       const items = storageBundle?.ensureArray?.(sourceItems) || sourceItems;
       const filteredItems = items.filter((item) => {
-        if (requested.size > 0 && !requested.has(getManagedSectionPeriodId(section, item))) {
+        if (
+          requested.size > 0 &&
+          !managedSectionItemMatchesRequestedPeriods(section, item, requested)
+        ) {
           return false;
         }
         if (section === "records") {
@@ -6789,7 +7024,7 @@
         periodIds:
           requested.size > 0
             ? Array.from(requested)
-            : [...new Set(filteredItems.map((item) => getManagedSectionPeriodId(section, item)))],
+            : collectManagedSectionCoveredPeriodIds(section, filteredItems),
         startDate: normalizedRange.startDate || null,
         endDate: normalizedRange.endDate || null,
         items:
@@ -7008,27 +7243,35 @@
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
+            normalizedOptions,
+          );
+          const nativeBootstrapOptions = stripAuthoritativeReadFlags(
+            normalizedOptions,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          const useFreshBootstrap = normalizedOptions.fresh === true;
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
-            normalizedOptions,
+            nativeBootstrapOptions,
           );
           const canUseManagedBootstrapFastPath =
-            nativeInitializationSettled && canUseManagedBootstrap;
+            !forceAuthoritativeBootstrap &&
+            nativeInitializationSettled &&
+            canUseManagedBootstrap;
           const preferManagedBootstrap =
+            !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =
-            useFreshBootstrap || !canUseManagedBootstrapFastPath;
+            forceAuthoritativeBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }
-          if (canUseManagedBootstrapFastPath && !useFreshBootstrap) {
+          if (canUseManagedBootstrapFastPath) {
             scheduleManagedFastValidation(
               `${normalizedPage}-bootstrap-fast-path`,
             );
@@ -7039,11 +7282,11 @@
               typeof reactNativeBridge?.call === "function"
                 ? await reactNativeBridge.call("storage.getPageBootstrapState", {
                     pageKey: normalizedPage,
-                    options: normalizedOptions,
+                    options: nativeBootstrapOptions,
                   }).catch(async () =>
                     reactNativeBridge.call("storage.getBootstrapState", {
                       options: {
-                        ...normalizedOptions,
+                        ...nativeBootstrapOptions,
                         page: normalizedPage,
                       },
                     }),
@@ -7058,7 +7301,7 @@
               const normalizedBootstrap = normalizePageBootstrapEnvelope(
                 normalizedPage,
                 parsed,
-                normalizedOptions,
+                nativeBootstrapOptions,
                 buildCurrentMergedState(),
                 {
                   storageStatus: cachedStatus,
@@ -7083,7 +7326,7 @@
                 applyNativePageBootstrapToManagedMirror(
                   normalizedPage,
                   normalizedBootstrap,
-                  normalizedOptions,
+                  nativeBootstrapOptions,
                 );
               }
               return normalizedBootstrap;
@@ -7097,10 +7340,13 @@
           try {
             const fallbackBootstrap = await buildPageBootstrapStateFromAsyncLoaders(
               normalizedPage,
-              normalizedOptions,
+              nativeBootstrapOptions,
               {
                 fallbackState: buildCurrentMergedState(),
-                getCoreState: async () => this.getCoreState(),
+                getCoreState: async () =>
+                  this.getCoreState({
+                    authoritative: forceAuthoritativeBootstrap,
+                  }),
                 loadSectionRange: async (section, scope = {}) => {
                   const rawPayload = await reactNativeBridge.call(
                     "storage.loadSectionRange",
@@ -7129,7 +7375,7 @@
               applyNativePageBootstrapToManagedMirror(
                 normalizedPage,
                 fallbackBootstrap,
-                normalizedOptions,
+                nativeBootstrapOptions,
               );
             }
             return fallbackBootstrap;
@@ -7228,13 +7474,16 @@
               : {}
           );
         },
-        async getCoreState() {
+        async getCoreState(options = {}) {
           const managedSnapshot = getManagedCoreStateSnapshot();
+          const forceAuthoritativeCoreState = shouldForceAuthoritativeRead(
+            options,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return managedSnapshot;
           }
-          if (hasManagedCoreSnapshot) {
+          if (hasManagedCoreSnapshot && !forceAuthoritativeCoreState) {
             scheduleManagedFastValidation("core-fast-path");
             return managedSnapshot;
           }
@@ -7356,17 +7605,29 @@
           }
         },
         async loadSectionRange(section, scope = {}) {
-          const normalizedRange = canServeManagedSectionRange(section, scope);
+          const normalizedScope =
+            scope && typeof scope === "object" ? { ...scope } : {};
+          const forceAuthoritativeRange = shouldForceAuthoritativeRead(
+            normalizedScope,
+          );
+          const nativeScope = stripAuthoritativeReadFlags(normalizedScope);
+          const normalizedRange = canServeManagedSectionRange(
+            section,
+            nativeScope,
+          );
           if (isManagedShellInactive()) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return loadManagedSectionRange(
               section,
-              normalizedRange || scope,
+              normalizedRange || nativeScope,
             );
           }
           const canUseManagedRangeFastPath =
-            nativeInitializationSettled && !!normalizedRange;
+            !forceAuthoritativeRange &&
+            nativeInitializationSettled &&
+            !!normalizedRange;
           const preferManagedRange =
+            !forceAuthoritativeRange &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
@@ -7374,19 +7635,19 @@
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
               section,
-              normalizedRange || scope,
+              normalizedRange || nativeScope,
             );
           }
           try {
             const rawPayload = await reactNativeBridge.call("storage.loadSectionRange", {
               section,
-              scope,
+              scope: nativeScope,
             });
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
               mergeManagedSectionRange(
                 section,
-                scope,
+                nativeScope,
                 Array.isArray(parsed.items) ? parsed.items : [],
                 {
                   coveredPeriodIds: Array.isArray(parsed.periodIds)
@@ -7414,7 +7675,7 @@
                 )
               : state?.[section] || [];
           const existingItems = sectionItems.filter(
-            (item) => getManagedSectionPeriodId(section, item) === periodId,
+            (item) => getManagedSectionPeriodIds(section, item).includes(periodId),
           );
           const mergedItems =
             section === "records" && payload?.mode === "patch"
@@ -7470,7 +7731,7 @@
                   payload?.mode === "merge" ? "merge" : "replace",
                 ) || cloneValue(payload?.items || []);
           const remainingItems = sectionItems.filter(
-            (item) => getManagedSectionPeriodId(section, item) !== periodId,
+            (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
           );
           const nextState =
             section === "plans"
@@ -7490,6 +7751,43 @@
                   ...state,
                   [section]: [...remainingItems, ...mergedItems],
                 };
+          const invalidPayloadItems = (Array.isArray(payload?.items)
+            ? payload.items
+            : []
+          ).filter(
+            (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
+          );
+          const callerHint = (() => {
+            try {
+              return String(new Error().stack || "")
+                .split("\n")
+                .slice(2, 6)
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .join(" | ");
+            } catch (error) {
+              return "";
+            }
+          })();
+          if (section === "records") {
+            emitStoragePerfMetric("storage-range-save-request", {
+              section,
+              periodId,
+              mode: String(payload?.mode || "replace").trim() || "replace",
+              itemCount: Array.isArray(payload?.items) ? payload.items.length : 0,
+              invalidItemCount: invalidPayloadItems.length,
+              invalidSample: invalidPayloadItems.slice(0, 2).map((item) => ({
+                id: String(item?.id || "").trim(),
+                name: String(item?.name || "").trim(),
+                projectId: String(item?.projectId || "").trim(),
+                startTime: String(item?.startTime || "").trim(),
+                endTime: String(item?.endTime || "").trim(),
+                timestamp: String(item?.timestamp || "").trim(),
+                periodIds: getManagedSectionPeriodIds(section, item),
+              })),
+              callerHint,
+            });
+          }
           assignState(nextState);
           hasManagedCoreSnapshot = true;
           markManagedSectionPeriodsLoaded(section, [periodId]);
@@ -7527,6 +7825,27 @@
               },
             );
           } catch (error) {
+            const invalidItems = (Array.isArray(payload?.items) ? payload.items : []).filter(
+              (item) => !getManagedSectionPeriodIds(section, item).includes(periodId),
+            );
+            emitStoragePerfMetric("storage-range-save-error", {
+              section,
+              periodId,
+              mode: String(payload?.mode || "replace").trim() || "replace",
+              itemCount: Array.isArray(payload?.items) ? payload.items.length : 0,
+              invalidItemCount: invalidItems.length,
+              invalidSample: invalidItems.slice(0, 1).map((item) => ({
+                id: String(item?.id || "").trim(),
+                name: String(item?.name || "").trim(),
+                projectId: String(item?.projectId || "").trim(),
+                startTime: String(item?.startTime || "").trim(),
+                endTime: String(item?.endTime || "").trim(),
+                timestamp: String(item?.timestamp || "").trim(),
+                periodIds: getManagedSectionPeriodIds(section, item),
+              })),
+              message: error instanceof Error ? error.message : String(error || ""),
+              callerHint,
+            });
             console.error("保存 React Native 分区范围失败，已保留本地镜像:", error);
             markPendingNativeStorageChangeMetadata({
               changedSections: [section],

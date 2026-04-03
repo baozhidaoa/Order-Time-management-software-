@@ -1499,21 +1499,82 @@
       : "recent-range";
   }
 
+  function parseRecordDate(value) {
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedValue) {
+      return null;
+    }
+    const timestamp = Date.parse(normalizedValue);
+    if (!Number.isFinite(timestamp)) {
+      return null;
+    }
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatRecordPeriodId(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function getRecordPeriodIdsForItem(record = {}) {
+    const startDate =
+      parseRecordDate(record?.startTime) ||
+      parseRecordDate(record?.timestamp) ||
+      parseRecordDate(record?.endTime);
+    const endDate =
+      parseRecordDate(record?.endTime) ||
+      parseRecordDate(record?.timestamp) ||
+      parseRecordDate(record?.startTime);
+    if (!startDate && !endDate) {
+      return ["undated"];
+    }
+    let lower = startDate || endDate;
+    let upper = endDate || startDate;
+    if (upper.getTime() < lower.getTime()) {
+      const swapped = lower;
+      lower = upper;
+      upper = swapped;
+    }
+    const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+    const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
+    const periodIds = [];
+    while (cursor.getTime() <= target.getTime()) {
+      const periodId = normalizePeriodId(formatRecordPeriodId(cursor) || "undated");
+      if (periodId) {
+        periodIds.push(periodId);
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return periodIds.length ? Array.from(new Set(periodIds)) : ["undated"];
+  }
+
+  function resolveRecordItemPeriodIds(record = {}, options = {}) {
+    if (typeof options.getPeriodIds === "function") {
+      const periodIds = options.getPeriodIds(record);
+      const normalizedPeriodIds = ensureArray(periodIds)
+        .map((periodId) => normalizePeriodId(periodId || "undated"))
+        .filter(Boolean);
+      return normalizedPeriodIds.length ? normalizedPeriodIds : ["undated"];
+    }
+    if (typeof options.getPeriodId === "function") {
+      return [normalizePeriodId(options.getPeriodId(record) || "undated")].filter(Boolean);
+    }
+    return getRecordPeriodIdsForItem(record);
+  }
+
   function getRecordPeriodId(record = {}) {
-    const anchor =
-      record?.endTime || record?.timestamp || record?.startTime || "";
-    return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+    return resolveRecordItemPeriodIds(record)[0] || "undated";
   }
 
   function getRecordPeriodIds(items = [], options = {}) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     return Array.from(
       new Set(
         ensureArray(items)
-          .map((item) => normalizePeriodId(resolvePeriodId(item) || "undated"))
+          .flatMap((item) => resolveRecordItemPeriodIds(item, options))
+          .map((periodId) => normalizePeriodId(periodId || "undated"))
           .filter(Boolean),
       ),
     );
@@ -1556,10 +1617,6 @@
     periodIds = [],
     options = {},
   ) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     const targetPeriods = new Set(
       ensureArray(periodIds)
         .map((periodId) => normalizePeriodId(periodId))
@@ -1569,28 +1626,29 @@
       return ensureArray(incomingItems).slice();
     }
     const preserved = ensureArray(existingItems).filter(
-      (item) => !targetPeriods.has(resolvePeriodId(item)),
+      (item) =>
+        !resolveRecordItemPeriodIds(item, options).some((periodId) =>
+          targetPeriods.has(periodId),
+        ),
     );
     return [...preserved, ...ensureArray(incomingItems)];
   }
 
   function groupRecordsByPeriod(items = [], options = {}) {
-    const resolvePeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
     const clone =
       typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
     const grouped = new Map();
     ensureArray(items).forEach((item) => {
-      const periodId = normalizePeriodId(resolvePeriodId(item) || "undated");
-      if (!periodId) {
-        return;
-      }
-      if (!grouped.has(periodId)) {
-        grouped.set(periodId, []);
-      }
-      grouped.get(periodId).push(clone(item));
+      resolveRecordItemPeriodIds(item, options).forEach((periodId) => {
+        const normalizedPeriodId = normalizePeriodId(periodId || "undated");
+        if (!normalizedPeriodId) {
+          return;
+        }
+        if (!grouped.has(normalizedPeriodId)) {
+          grouped.set(normalizedPeriodId, []);
+        }
+        grouped.get(normalizedPeriodId).push(clone(item));
+      });
     });
     return grouped;
   }
@@ -1633,10 +1691,10 @@
     const existingItems = ensureArray(options.existingItems);
     const fallbackItems = ensureArray(options.fallbackItems);
     const rangeItems = ensureArray(options.rangeItems);
-    const getPeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
+    const periodResolverOptions = {
+      getPeriodId: options.getPeriodId,
+      getPeriodIds: options.getPeriodIds,
+    };
     const rangePeriodIds = ensureArray(options.rangePeriodIds)
       .map((periodId) => normalizePeriodId(periodId))
       .filter(Boolean);
@@ -1645,7 +1703,7 @@
         ? options.mergeByPeriods
         : (currentItems, incomingItems, targetPeriodIds) =>
             mergeRecordItemsByPeriods(currentItems, incomingItems, targetPeriodIds, {
-              getPeriodId,
+              ...periodResolverOptions,
             });
 
     let items = fallbackItems.slice();
@@ -1658,15 +1716,15 @@
     return {
       mode,
       items,
-      loadedPeriodIds:
-        mode === "full-history"
+        loadedPeriodIds:
+          mode === "full-history"
           ? getRecordPeriodIds(items, {
-              getPeriodId,
+              ...periodResolverOptions,
             })
           : rangePeriodIds.length
             ? rangePeriodIds.slice()
             : getRecordPeriodIds(rangeItems, {
-                getPeriodId,
+                ...periodResolverOptions,
               }),
     };
   }
@@ -1674,10 +1732,10 @@
   async function persistRecordMutations(options = {}) {
     const clone =
       typeof options.cloneValue === "function" ? options.cloneValue : cloneValue;
-    const getPeriodId =
-      typeof options.getPeriodId === "function"
-        ? options.getPeriodId
-        : getRecordPeriodId;
+    const periodResolverOptions = {
+      getPeriodId: options.getPeriodId,
+      getPeriodIds: options.getPeriodIds,
+    };
     const buildMergeKey =
       typeof options.buildMergeKey === "function"
         ? options.buildMergeKey
@@ -1697,11 +1755,11 @@
       clone(item),
     );
     const upsertsByPeriod = groupRecordsByPeriod(options.upserts, {
-      getPeriodId,
+      ...periodResolverOptions,
       cloneValue: clone,
     });
     const removedByPeriod = groupRecordsByPeriod(options.removedItems, {
-      getPeriodId,
+      ...periodResolverOptions,
       cloneValue: clone,
     });
     const targetPeriodIds = new Set(
@@ -1756,7 +1814,9 @@
 
       if (allRecordsLoaded) {
         const nextItems = sortItems(
-          currentRecords.filter((item) => getPeriodId(item) === periodId),
+          currentRecords.filter((item) =>
+            resolveRecordItemPeriodIds(item, periodResolverOptions).includes(periodId),
+          ),
         );
         await saveSectionRange("records", {
           periodId,
@@ -1787,9 +1847,11 @@
 
       const authoritativeRange = await loadSectionRange("records", {
         periodIds: [periodId],
+        authoritative: true,
       });
       const authoritativeItems = ensureArray(authoritativeRange?.items).filter(
-        (item) => getPeriodId(item) === periodId,
+        (item) =>
+          resolveRecordItemPeriodIds(item, periodResolverOptions).includes(periodId),
       );
       const nextItems = applyRecordMutations(
         authoritativeItems,
@@ -2367,6 +2429,20 @@ function bindIndexShellVisibilityGate() {
       indexThemeRefreshPending = false;
       updateDisplay();
     }
+    if (
+      !indexInitialDataValidated &&
+      !hasUsableIndexRecordSnapshot({
+        projects,
+        records,
+        loadedPeriodIds: indexLoadedRecordPeriodIds,
+      })
+    ) {
+      void ensureIndexForegroundBootstrapReady()
+        .then(() => hydrateIndexInitialForegroundWorkspace())
+        .catch((error) => {
+          console.error("恢复记录页可见工作区失败:", error);
+        });
+    }
   });
 }
 
@@ -2468,7 +2544,7 @@ function readIndexWorkspaceSnapshotFromPageBootstrap(recordScope = null) {
         records: Array.isArray(data.recentRecords) ? data.recentRecords : [],
       },
       {
-        source: "page-bootstrap",
+        source: "page-bootstrap-cache",
         recordScope,
         loadedPeriodIds: bootstrap?.loadedPeriodIds,
       },
@@ -2534,11 +2610,16 @@ function hasUsableIndexRecordSnapshot(snapshot = null) {
   if (!snapshot || typeof snapshot !== "object") {
     return false;
   }
+  const snapshotProjects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
   const snapshotRecords = Array.isArray(snapshot.records) ? snapshot.records : [];
   const snapshotLoadedPeriodIds = Array.isArray(snapshot.loadedPeriodIds)
     ? snapshot.loadedPeriodIds
     : [];
-  return snapshotRecords.length > 0 || snapshotLoadedPeriodIds.length > 0;
+  return (
+    snapshotProjects.length > 0 ||
+    snapshotRecords.length > 0 ||
+    snapshotLoadedPeriodIds.length > 0
+  );
 }
 
 function readIndexWorkspaceSnapshot() {
@@ -2559,6 +2640,8 @@ function readIndexWorkspaceSnapshot() {
 }
 
 function applyIndexWorkspaceSnapshot(snapshot = {}) {
+  const snapshotSource =
+    typeof snapshot.source === "string" ? snapshot.source.trim() : "";
   const nextProjects = normalizeStoredProjects(snapshot.projects || []);
   const nextRecords = normalizeIndexLoadedRecords(
     snapshot.records || [],
@@ -2583,7 +2666,8 @@ function applyIndexWorkspaceSnapshot(snapshot = {}) {
     write:
       nextRecords.length > 0 ||
       indexLoadedRecordPeriodIds.length > 0 ||
-      snapshot.source !== "page-bootstrap",
+      (snapshotSource !== "page-bootstrap" &&
+        snapshotSource !== "page-bootstrap-cache"),
   });
   loadProjectHierarchyExpansionStateFromStorage();
   projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
@@ -2591,9 +2675,20 @@ function applyIndexWorkspaceSnapshot(snapshot = {}) {
     nextProjects,
   );
   indexInitialDataLoaded = true;
-  indexBootstrappedFromPageBootstrap = snapshot.source === "page-bootstrap";
-  indexInitialDataValidated =
-    indexBootstrappedFromPageBootstrap && window.ControlerStorage?.isNativeApp === true;
+  indexBootstrappedFromPageBootstrap =
+    snapshotSource === "page-bootstrap" ||
+    snapshotSource === "page-bootstrap-cache";
+  // Cached bootstrap is only a first-paint snapshot. Native truth still needs a
+  // real foreground read before we trust project/record state on mobile.
+  indexInitialDataValidated = false;
+  emitIndexStructuredLog("index.bootstrap", {
+    stage: "cached-snapshot-applied",
+    source: snapshotSource || "unknown",
+    projectCount: nextProjects.length,
+    recordCount: nextRecords.length,
+    loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+    validated: false,
+  });
   emitIndexDebugPerf(
     "hydrate-workspace-bootstrap-cached",
     buildIndexWorkspacePerfDetail({
@@ -2607,7 +2702,7 @@ function applyIndexWorkspaceSnapshot(snapshot = {}) {
 
 function bootstrapIndexFromCachedSnapshot() {
   const snapshot = readIndexWorkspaceSnapshot();
-  if (!snapshot) {
+  if (!hasUsableIndexRecordSnapshot(snapshot)) {
     indexBootstrappedFromPageBootstrap = false;
     indexInitialDataValidated = false;
     return null;
@@ -2909,6 +3004,33 @@ function emitIndexDebugPerf(reason, payload = {}) {
     reason,
     ...payload,
   });
+}
+
+function emitIndexStructuredLog(tag, payload = {}) {
+  try {
+    console.info(
+      `[${String(tag || "").trim() || "index"}]`,
+      JSON.stringify(
+        payload && typeof payload === "object" ? payload : { value: payload },
+      ),
+    );
+  } catch (error) {
+    // Ignore logging failures.
+  }
+}
+
+function createIndexRecordPartitionDebugSample(record) {
+  return {
+    id: String(record?.id || "").trim(),
+    name: String(record?.name || "").trim(),
+    projectId: String(record?.projectId || "").trim(),
+    nextProjectName: String(record?.nextProjectName || "").trim(),
+    nextProjectId: String(record?.nextProjectId || "").trim(),
+    startTime: String(record?.startTime || "").trim(),
+    endTime: String(record?.endTime || "").trim(),
+    timestamp: String(record?.timestamp || "").trim(),
+    periodIds: getIndexRecordPeriodIdsForRecord(record),
+  };
 }
 
 function getIndexRecordGroupSignature(recordGroups) {
@@ -3732,7 +3854,6 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
   updateProjectsList();
   updateExistingProjectsList();
   updateParentProjectSelect(1);
-  uiTools?.refreshEnhancedSelect?.(document.getElementById("parent-project-select"));
   renderRecordGuideCard();
 
   return new Promise((resolve) => {
@@ -3805,6 +3926,8 @@ async function refreshIndexFromExternalStorageChange() {
     recordLoadOptions.recordLoadMode,
     recordLoadOptions.recordScope,
   );
+  const shouldForceFreshBootstrap =
+    window.ControlerStorage?.isNativeApp === true || !!activeRecentSaveGuard;
   indexExternalStorageRefreshQueued = false;
   indexExternalStorageRefreshForceTimerSessionSync = false;
   indexExternalStorageRefreshChangedSections = new Set();
@@ -3825,6 +3948,7 @@ async function refreshIndexFromExternalStorageChange() {
     changedRecordPeriods,
     includeProjects,
     includeRecords,
+    freshBootstrap: shouldForceFreshBootstrap,
     recordLoadMode: recordLoadOptions.recordLoadMode,
     startDate: recordLoadOptions.recordScope?.startDate || "",
     endDate: recordLoadOptions.recordScope?.endDate || "",
@@ -3840,7 +3964,7 @@ async function refreshIndexFromExternalStorageChange() {
         includeRecords,
         recordLoadMode: recordLoadOptions.recordLoadMode,
         recordScope: recordLoadOptions.recordScope,
-        freshBootstrap: !!activeRecentSaveGuard,
+        freshBootstrap: shouldForceFreshBootstrap,
         protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
         refreshReason,
         refreshSource,
@@ -3858,7 +3982,7 @@ async function refreshIndexFromExternalStorageChange() {
           includeRecords,
           recordLoadMode: recordLoadOptions.recordLoadMode,
           recordScope: recordLoadOptions.recordScope,
-          freshBootstrap: !!activeRecentSaveGuard,
+          freshBootstrap: shouldForceFreshBootstrap,
           protectRecentRecordWindowFromEmpty: !!activeRecentSaveGuard,
           refreshReason,
           refreshSource,
@@ -5289,7 +5413,8 @@ function resolveRecordTime(record) {
 }
 
 function createRecordEntry(name, spendtime, options = {}) {
-  const normalizedName = String(name || "").trim() || "未命名项目";
+  const normalizedName =
+    normalizeIndexProjectReferenceName(name, "未命名项目") || "未命名项目";
   const durationMeta = normalizeRecordDurationMeta(options.durationMeta);
   const resolveDateOption = (value) => {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -5441,13 +5566,17 @@ function resolveRecordNextProjectName(record, projectList = projects) {
   }
 
   if (explicitNextProjectName) {
-    return explicitNextProjectName;
+    return normalizeIndexProjectReferenceName(
+      explicitNextProjectName,
+      explicitNextProjectName,
+    );
   }
 
-  const currentProjectName = String(
-    resolveRecordProject(record, projectList)?.name || record?.name || "",
-  ).trim();
-  return currentProjectName || "未命名项目";
+  return resolveCanonicalRecordProjectName(
+    resolveRecordProject(record, projectList),
+    record?.name,
+    "未命名项目",
+  );
 }
 
 function extractIndexProjectLeafName(projectName) {
@@ -5461,6 +5590,15 @@ function extractIndexProjectLeafName(projectName) {
     .filter(Boolean)
     .pop();
   return leafName || normalizedName;
+}
+
+function normalizeIndexProjectReferenceName(projectName, fallback = "") {
+  const normalizedName = String(projectName || "").trim();
+  const fallbackName = String(fallback || "").trim();
+  if (!normalizedName) {
+    return fallbackName;
+  }
+  return extractIndexProjectLeafName(normalizedName) || fallbackName;
 }
 
 function isIndexProjectPathLikeName(projectName) {
@@ -5528,20 +5666,39 @@ function findProjectByNameInList(projectName, projectList = projects) {
     return null;
   }
   const safeProjectList = Array.isArray(projectList) ? projectList : [];
+  const exactPreferred =
+    safeProjectList.find((project) => {
+      const candidateName = String(project?.name || "").trim();
+      return (
+        candidateName === normalizedName &&
+        !isIndexProjectPathLikeName(candidateName)
+      );
+    }) || null;
   const exactMatch =
     safeProjectList.find(
       (project) => String(project?.name || "").trim() === normalizedName,
     ) || null;
   const leafName = extractIndexProjectLeafName(normalizedName);
   const preferredLeafMatch = leafName
+    ? safeProjectList.find((project) => {
+        const candidateName = String(project?.name || "").trim();
+        return (
+          candidateName === leafName &&
+          !isIndexProjectPathLikeName(candidateName)
+        );
+      }) || null
+    : null;
+  const leafMatch = leafName
     ? safeProjectList.find(
         (project) => String(project?.name || "").trim() === leafName,
       ) || null
     : null;
 
   return (
+    exactPreferred ||
     exactMatch ||
     preferredLeafMatch ||
+    leafMatch ||
     null
   );
 }
@@ -5549,17 +5706,35 @@ function findProjectByNameInList(projectName, projectList = projects) {
 function resolveRecordNextProject(record, projectList = projects) {
   const nextProjectId = String(record?.nextProjectId || "").trim();
   const matchedById = findProjectByIdInList(nextProjectId, projectList);
+  if (matchedById) {
+    return matchedById;
+  }
   const explicitNextProjectName = String(record?.nextProjectName || "").trim();
-  const matchedByName = explicitNextProjectName
+  return explicitNextProjectName
     ? findProjectByNameInList(explicitNextProjectName, projectList)
     : null;
-  return matchedById || matchedByName || null;
 }
 
 function resolveRecordProject(record, projectList = projects) {
   const matchedById = findProjectByIdInList(record?.projectId, projectList);
-  const matchedByName = findProjectByNameInList(record?.name, projectList);
-  return matchedById || matchedByName || null;
+  if (matchedById) {
+    return matchedById;
+  }
+  return findProjectByNameInList(record?.name, projectList);
+}
+
+function resolveCanonicalRecordProjectName(
+  project,
+  fallbackProjectName = "",
+  fallback = "未命名项目",
+) {
+  const matchedProjectName = String(project?.name || "").trim();
+  if (matchedProjectName) {
+    return matchedProjectName;
+  }
+  return (
+    normalizeIndexProjectReferenceName(fallbackProjectName, fallback) || fallback
+  );
 }
 
 function resolveRecordProjectColor(record, projectList = projects) {
@@ -7299,9 +7474,14 @@ function reconcileIndexProjectDurationCaches(previousProjects = []) {
   return true;
 }
 
-async function loadAllIndexRecordsFromStorage() {
+async function loadAllIndexRecordsFromStorage(options = {}) {
+  const requestScope =
+    options && typeof options === "object" ? { ...options.scope } : {};
+  if (options?.authoritative !== false) {
+    requestScope.authoritative = true;
+  }
   if (typeof window.ControlerStorage?.loadSectionRange === "function") {
-    const range = await window.ControlerStorage.loadSectionRange("records", {});
+    const range = await window.ControlerStorage.loadSectionRange("records", requestScope);
     return Array.isArray(range?.items) ? range.items : [];
   }
   const localSnapshot = readIndexLocalRecordSnapshot();
@@ -7311,14 +7491,150 @@ async function loadAllIndexRecordsFromStorage() {
   return cloneIndexValue(records);
 }
 
+async function loadAuthoritativeIndexProjectsFromStorage(options = {}) {
+  const fallbackProjects = normalizeStoredProjects(
+    Array.isArray(options?.fallbackProjects) ? options.fallbackProjects : projects,
+  );
+  if (typeof window.ControlerStorage?.getCoreState !== "function") {
+    return fallbackProjects;
+  }
+  try {
+    const coreState = await window.ControlerStorage.getCoreState({
+      authoritative: options?.authoritative !== false,
+    });
+    if (Array.isArray(coreState?.projects)) {
+      return normalizeStoredProjects(coreState.projects);
+    }
+  } catch (error) {
+    console.error("读取权威项目列表失败，回退当前工作区项目:", error);
+  }
+  return fallbackProjects;
+}
+
+async function loadPersistedIndexRecordPeriodIdsFromStorage() {
+  const fallbackPeriodIds = normalizeIndexRecordPeriodIdList([
+    ...indexLoadedRecordPeriodIds,
+    ...getIndexRecordPeriodIds(records),
+  ]);
+  if (typeof window.ControlerStorage?.loadSectionRange !== "function") {
+    return fallbackPeriodIds;
+  }
+  try {
+    const range = await window.ControlerStorage.loadSectionRange("records", {
+      authoritative: true,
+    });
+    const periodIds =
+      Array.isArray(range?.periodIds) && range.periodIds.length
+        ? range.periodIds
+        : getIndexRecordPeriodIds(Array.isArray(range?.items) ? range.items : []);
+    return normalizeIndexRecordPeriodIdList(periodIds);
+  } catch (error) {
+    console.error("读取记录分区列表失败，回退当前工作区分区信息:", error);
+    return fallbackPeriodIds;
+  }
+}
+
+async function replaceIndexPersistedRecordPartitions(recordList = [], options = {}) {
+  if (typeof window.ControlerStorage?.saveSectionRange !== "function") {
+    return false;
+  }
+  const nextRecords = Array.isArray(recordList) ? recordList : [];
+  const reason =
+    typeof options?.reason === "string" && options.reason.trim()
+      ? options.reason.trim()
+      : "index-record-partition-replace";
+  const targetPeriodIds = normalizeIndexRecordPeriodIdList([
+    ...(await loadPersistedIndexRecordPeriodIdsFromStorage()),
+    ...getIndexRecordPeriodIds(nextRecords),
+  ]);
+  emitIndexStructuredLog("index.record-partition-save", {
+    stage: "start",
+    reason,
+    totalRecordCount: nextRecords.length,
+    targetPeriodCount: targetPeriodIds.length,
+    targetPeriodIds,
+  });
+  emitIndexDebugPerf("index-record-partition-save", {
+    stage: "start",
+    reason,
+    totalRecordCount: nextRecords.length,
+    targetPeriodCount: targetPeriodIds.length,
+    targetPeriodIds,
+  });
+  for (const periodId of targetPeriodIds) {
+    const itemsForPeriod = nextRecords.filter((record) =>
+      getIndexRecordPeriodIdsForRecord(record).includes(periodId),
+    );
+    const invalidItems = itemsForPeriod.filter(
+      (record) => !getIndexRecordPeriodIdsForRecord(record).includes(periodId),
+    );
+    emitIndexStructuredLog("index.record-partition-save", {
+      stage: invalidItems.length ? "invalid-payload" : "save",
+      reason,
+      periodId,
+      itemCount: itemsForPeriod.length,
+      invalidItemCount: invalidItems.length,
+      invalidSample: invalidItems
+        .slice(0, 2)
+        .map((record) => createIndexRecordPartitionDebugSample(record)),
+    });
+    emitIndexDebugPerf("index-record-partition-save", {
+      stage: invalidItems.length ? "invalid-payload" : "save",
+      reason,
+      periodId,
+      itemCount: itemsForPeriod.length,
+      invalidItemCount: invalidItems.length,
+      invalidSample: invalidItems
+        .slice(0, 2)
+        .map((record) => createIndexRecordPartitionDebugSample(record)),
+    });
+    await window.ControlerStorage.saveSectionRange("records", {
+      periodId,
+      items: itemsForPeriod,
+      mode: "replace",
+    });
+  }
+  return true;
+}
+
+function dedupeIndexLoadedRecords(recordList = []) {
+  const orderedKeys = [];
+  const dedupedByKey = new Map();
+  (Array.isArray(recordList) ? recordList : []).forEach((record) => {
+    const recordKey = buildIndexRecordPatchKey(record);
+    if (!dedupedByKey.has(recordKey)) {
+      orderedKeys.push(recordKey);
+    }
+    dedupedByKey.set(recordKey, record);
+  });
+  return orderedKeys
+    .map((recordKey) => dedupedByKey.get(recordKey))
+    .filter(Boolean);
+}
+
 function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
   const sourceRecords = Array.isArray(recordList) ? recordList : [];
   const normalizedProjects = Array.isArray(projectList) ? projectList : [];
   if (sourceRecords.length === 0) {
     return [];
   }
-  return sourceRecords.map((record) => {
-    const normalizedName = String(record?.name || "").trim() || "未命名项目";
+  const normalizedRecords = sourceRecords.map((record) => {
+    const rawProjectName = String(record?.name || "").trim();
+    const normalizedProjectIdText = String(record?.projectId || "").trim();
+    const normalizedProject = resolveRecordProject(
+      {
+        ...record,
+        name: rawProjectName,
+        projectId: normalizedProjectIdText || null,
+      },
+      normalizedProjects,
+    );
+    const normalizedName =
+      resolveCanonicalRecordProjectName(
+        normalizedProject,
+        rawProjectName,
+        "未命名项目",
+      ) || "未命名项目";
     const canonicalEndDate =
       deserializeTimerDate(record?.endTime) ||
       deserializeTimerDate(record?.sptTime) ||
@@ -7351,10 +7667,27 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
     const rawEndDate =
       deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
     const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
+    const normalizedNextProjectIdText = String(record?.nextProjectId || "").trim();
+    const normalizedProjectId =
+      String(normalizedProject?.id || normalizedProjectIdText || "").trim() || null;
+    const normalizedRecordReference = {
+      ...record,
+      name: normalizedName,
+      projectId: normalizedProjectId,
+      nextProjectName: String(record?.nextProjectName || "").trim(),
+      nextProjectId: normalizedNextProjectIdText || null,
+    };
+    const normalizedNextProject = resolveRecordNextProject(
+      normalizedRecordReference,
+      normalizedProjects,
+    );
     const normalizedNextProjectName = resolveRecordNextProjectName(
       {
-        ...record,
-        name: normalizedName,
+        ...normalizedRecordReference,
+        nextProjectId:
+          String(
+            normalizedNextProject?.id || normalizedNextProjectIdText || "",
+          ).trim() || null,
       },
       normalizedProjects,
     );
@@ -7370,8 +7703,12 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
         : null,
       spendtime: normalizedSpendtime,
       name: normalizedName,
+      projectId: normalizedProjectId,
       nextProjectName: normalizedNextProjectName,
-      nextProjectId: String(record?.nextProjectId || "").trim() || null,
+      nextProjectId:
+        String(
+          normalizedNextProject?.id || normalizedNextProjectIdText || "",
+        ).trim() || null,
       clickCount:
         Number.isFinite(record.clickCount) && record.clickCount > 0
           ? Math.max(1, Math.floor(record.clickCount))
@@ -7382,6 +7719,7 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
       durationMeta: normalizedDurationMeta,
     }, normalizedProjects);
   });
+  return dedupeIndexLoadedRecords(normalizedRecords);
 }
 
 function scheduleIndexHistoricalRecordHydration(options = {}) {
@@ -7519,7 +7857,11 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
   authoritativeRecords,
   options = {},
 ) {
-  if (typeof window.ControlerStorage?.replaceCoreState !== "function") {
+  const hasCoreStateStorage =
+    typeof window.ControlerStorage?.replaceCoreState === "function";
+  const hasRecordRangeStorage =
+    typeof window.ControlerStorage?.saveSectionRange === "function";
+  if (!hasCoreStateStorage) {
     throw new Error("当前环境缺少 replaceCoreState 存储接口");
   }
 
@@ -7567,15 +7909,29 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
         ? options.reason.trim()
         : "index-project-record-replace";
 
-    await window.ControlerStorage.replaceCoreState(
-      {
-        projects: rebuiltProjects,
-        records: normalizedAllRecords,
-      },
-      {
+    if (hasRecordRangeStorage) {
+      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
         reason,
-      },
-    );
+      });
+      await window.ControlerStorage.replaceCoreState(
+        {
+          projects: rebuiltProjects,
+        },
+        {
+          reason,
+        },
+      );
+    } else {
+      await window.ControlerStorage.replaceCoreState(
+        {
+          projects: rebuiltProjects,
+          records: normalizedAllRecords,
+        },
+        {
+          reason,
+        },
+      );
+    }
 
     if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
       await window.ControlerStorage.saveCoordinator.flush(
@@ -7639,8 +7995,12 @@ async function replaceIndexAuthoritativeRecords(
   authoritativeRecords,
   options = {},
 ) {
-  if (typeof window.ControlerStorage?.replaceCoreState !== "function") {
-    throw new Error("当前环境缺少 replaceCoreState 存储接口");
+  const hasCoreStateStorage =
+    typeof window.ControlerStorage?.replaceCoreState === "function";
+  const hasRecordRangeStorage =
+    typeof window.ControlerStorage?.saveSectionRange === "function";
+  if (!hasRecordRangeStorage && !hasCoreStateStorage) {
+    throw new Error("当前环境缺少记录存储接口");
   }
 
   await flushIndexPendingPersistenceOrThrow(
@@ -7680,14 +8040,20 @@ async function replaceIndexAuthoritativeRecords(
         ? options.reason.trim()
         : "index-record-replace";
 
-    await window.ControlerStorage.replaceCoreState(
-      {
-        records: normalizedAllRecords,
-      },
-      {
+    if (hasRecordRangeStorage) {
+      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
         reason,
-      },
-    );
+      });
+    } else {
+      await window.ControlerStorage.replaceCoreState(
+        {
+          records: normalizedAllRecords,
+        },
+        {
+          reason,
+        },
+      );
+    }
 
     if (typeof window.ControlerStorage?.saveCoordinator?.flush === "function") {
       await window.ControlerStorage.saveCoordinator.flush(
@@ -9179,7 +9545,6 @@ async function handleCreateProjectConfirm() {
         title: "缺少父级项目",
         danger: true,
       });
-      uiTools?.refreshEnhancedSelect?.(document.getElementById("parent-project-select"));
       return;
     }
 
@@ -9190,7 +9555,6 @@ async function handleCreateProjectConfirm() {
         title: "父级项目无效",
         danger: true,
       });
-      uiTools?.refreshEnhancedSelect?.(document.getElementById("parent-project-select"));
       return;
     }
 
@@ -9201,7 +9565,6 @@ async function handleCreateProjectConfirm() {
         title: "层级关系错误",
         danger: true,
       });
-      uiTools?.refreshEnhancedSelect?.(document.getElementById("parent-project-select"));
       return;
     }
     if (level === 3 && parentLevel !== 2) {
@@ -9209,7 +9572,6 @@ async function handleCreateProjectConfirm() {
         title: "层级关系错误",
         danger: true,
       });
-      uiTools?.refreshEnhancedSelect?.(document.getElementById("parent-project-select"));
       return;
     }
   }
@@ -12593,7 +12955,6 @@ function updateParentProjectSelect(selectedLevel) {
     }
   }
 
-  uiTools?.refreshEnhancedSelect?.(select);
 }
 
 function updateProjectsList() {
@@ -12978,19 +13339,55 @@ function showProjectEditModal(project) {
         lockNativeExit: true,
       });
       try {
-        const authoritativeRecords = normalizeIndexLoadedRecords(
-          await loadAllIndexRecordsFromStorage(),
-          projects,
+        const authoritativeProjects = await loadAuthoritativeIndexProjectsFromStorage({
+          authoritative: true,
+          fallbackProjects: projects,
+        });
+        const authoritativeLiveProject =
+          findProjectByIdInList(liveProject.id, authoritativeProjects) ||
+          findProjectByNameInList(liveProject.name, authoritativeProjects) ||
+          liveProject;
+        const authoritativeMergeTargetProject =
+          findProjectByIdInList(mergeTargetProject.id, authoritativeProjects) ||
+          findProjectByNameInList(mergeTargetProject.name, authoritativeProjects) ||
+          mergeTargetProject;
+        const authoritativeMergeHierarchyPlan = buildProjectMergeHierarchyPlan(
+          authoritativeLiveProject,
+          authoritativeMergeTargetProject,
+          authoritativeProjects,
+        );
+        if (!authoritativeMergeHierarchyPlan.supported) {
+          throw new Error(
+            authoritativeMergeHierarchyPlan.reason ||
+              "当前项目暂不支持这样合并，请调整层级后再重试。",
+          );
+        }
+        emitIndexStructuredLog("index.project-merge", {
+          stage: "start",
+          sourceProjectId: authoritativeLiveProject.id,
+          sourceProjectName: authoritativeLiveProject.name,
+          targetProjectId: authoritativeMergeTargetProject.id,
+          targetProjectName: authoritativeMergeTargetProject.name,
+          authoritativeProjectCount: authoritativeProjects.length,
+        });
+        const authoritativeRecords = await loadAllIndexRecordsFromStorage({
+          authoritative: true,
+        });
+        const authoritativeNormalizedRecords = normalizeIndexLoadedRecords(
+          authoritativeRecords,
+          authoritativeProjects,
         );
         const fullMergeResult = mergeProjectRecordsInList(
           authoritativeRecords,
-          liveProject,
-          mergeTargetProject,
+          authoritativeLiveProject,
+          authoritativeMergeTargetProject,
+          authoritativeProjects,
         );
         const visibleMergeResult = mergeProjectRecordsInList(
           records,
-          liveProject,
-          mergeTargetProject,
+          authoritativeLiveProject,
+          authoritativeMergeTargetProject,
+          authoritativeProjects,
         );
         mergedRecordCount = fullMergeResult.mergedCount;
         if (mergedRecordCount <= 0) {
@@ -12998,39 +13395,52 @@ function showProjectEditModal(project) {
           const statsApi = window.ControlerProjectStats;
           const storedStatsContext =
             typeof statsApi?.createStatsContext === "function"
-              ? statsApi.createStatsContext(projects, [], {
+              ? statsApi.createStatsContext(authoritativeProjects, [], {
                   useStoredDurations: true,
                 })
               : null;
           const authoritativeStatsContext =
             typeof statsApi?.createStatsContext === "function"
-              ? statsApi.createStatsContext(projects, authoritativeRecords, {
-                  useStoredDurations: false,
-                })
+              ? statsApi.createStatsContext(
+                  authoritativeProjects,
+                  authoritativeNormalizedRecords,
+                  {
+                    useStoredDurations: false,
+                  },
+                )
               : null;
           const storedTotalMs = Number(
-            storedStatsContext?.getStat?.(liveProject.id)?.totalMs || 0,
+            storedStatsContext?.getStat?.(authoritativeLiveProject.id)?.totalMs || 0,
           );
           const authoritativeTotalMs = Number(
-            authoritativeStatsContext?.getStat?.(liveProject.id)?.totalMs || 0,
+            authoritativeStatsContext?.getStat?.(authoritativeLiveProject.id)?.totalMs ||
+              0,
           );
           if (storedTotalMs !== authoritativeTotalMs) {
             await replaceIndexProjectsAndAuthoritativeRecords(
-              projects,
-              authoritativeRecords,
+              authoritativeProjects,
+              authoritativeNormalizedRecords,
               {
                 reason: "project-merge-duration-cache-repair",
                 visibleRecords: normalizeIndexLoadedRecords(
                   records,
-                  projects,
+                  authoritativeProjects,
                 ),
               },
             );
             mergeRepairedDurations = true;
+            emitIndexStructuredLog("index.project-merge", {
+              stage: "duration-cache-repair",
+              sourceProjectId: authoritativeLiveProject.id,
+              sourceProjectName: authoritativeLiveProject.name,
+              targetProjectId: authoritativeMergeTargetProject.id,
+              targetProjectName: authoritativeMergeTargetProject.name,
+              authoritativeRecordCount: authoritativeRecords.length,
+            });
           }
         } else {
           await replaceIndexProjectsAndAuthoritativeRecords(
-            mergeHierarchyPlan.nextProjects,
+            authoritativeMergeHierarchyPlan.nextProjects,
             fullMergeResult.items,
             {
               reason: "project-merge-full-history",
@@ -13039,12 +13449,29 @@ function showProjectEditModal(project) {
           );
           updateProjectNameReferences(
             oldName,
-            mergeTargetProject.name,
-            liveProject.id,
+            authoritativeMergeTargetProject.name,
+            authoritativeLiveProject.id,
           );
+          emitIndexStructuredLog("index.project-merge", {
+            stage: "applied",
+            sourceProjectId: authoritativeLiveProject.id,
+            sourceProjectName: authoritativeLiveProject.name,
+            targetProjectId: authoritativeMergeTargetProject.id,
+            targetProjectName: authoritativeMergeTargetProject.name,
+            authoritativeRecordCount: authoritativeRecords.length,
+            mergedRecordCount,
+          });
         }
       } catch (error) {
         mergeError = error;
+        emitIndexStructuredLog("index.project-merge", {
+          stage: "error",
+          sourceProjectId: liveProject.id,
+          sourceProjectName: liveProject.name,
+          targetProjectId: mergeTargetProject?.id,
+          targetProjectName: mergeTargetProject?.name,
+          message: error instanceof Error ? error.message : String(error || ""),
+        });
       } finally {
         setIndexLoadingState({
           active: false,
@@ -13055,6 +13482,13 @@ function showProjectEditModal(project) {
       }
 
       if (mergeBlockedNoRecords) {
+        emitIndexStructuredLog("index.project-merge", {
+          stage: "no-match",
+          sourceProjectId: liveProject.id,
+          sourceProjectName: liveProject.name,
+          targetProjectId: mergeTargetProject.id,
+          targetProjectName: mergeTargetProject.name,
+        });
         await showIndexAlert(
           mergeRepairedDurations
             ? "这次没有匹配到可合并的历史记录，原项目已保留，并且我已经按真实记录重新校正了项目总时长。请确认记录名称后再重试合并。"
@@ -14145,22 +14579,64 @@ function saveProjectsToStorage() {
   });
 }
 
-function getIndexRecordPeriodId(record) {
-  if (typeof window.ControlerStorageBundle?.getPeriodIdForSectionItem === "function") {
-    return (
-      window.ControlerStorageBundle.getPeriodIdForSectionItem("records", record) ||
-      "undated"
+function getIndexRecordPeriodIdsForRecord(record) {
+  if (
+    typeof window.ControlerStorageBundle?.getPeriodIdsForSectionItem ===
+    "function"
+  ) {
+    const periodIds = window.ControlerStorageBundle.getPeriodIdsForSectionItem(
+      "records",
+      record,
     );
+    const normalizedPeriodIds = (Array.isArray(periodIds) ? periodIds : [])
+      .map((periodId) => String(periodId || "").trim())
+      .filter(Boolean);
+    if (normalizedPeriodIds.length) {
+      return [...new Set(normalizedPeriodIds)];
+    }
   }
-  const anchor =
-    record?.endTime || record?.timestamp || record?.startTime || "";
-  return /^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated";
+  const startDate =
+    deserializeTimerDate(record?.startTime) ||
+    deserializeTimerDate(record?.timestamp) ||
+    deserializeTimerDate(record?.endTime);
+  const endDate =
+    deserializeTimerDate(record?.endTime) ||
+    deserializeTimerDate(record?.timestamp) ||
+    deserializeTimerDate(record?.startTime);
+  if (!(startDate instanceof Date) && !(endDate instanceof Date)) {
+    const anchor =
+      record?.endTime || record?.timestamp || record?.startTime || "";
+    return [/^\d{4}-\d{2}/.test(anchor) ? anchor.slice(0, 7) : "undated"];
+  }
+  let lower = startDate || endDate;
+  let upper = endDate || startDate;
+  if (upper.getTime() < lower.getTime()) {
+    const swapped = lower;
+    lower = upper;
+    upper = swapped;
+  }
+  const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+  const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
+  const periodIds = [];
+  while (cursor.getTime() <= target.getTime()) {
+    periodIds.push(
+      `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+    );
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return periodIds.length ? [...new Set(periodIds)] : ["undated"];
+}
+
+function getIndexRecordPeriodId(record) {
+  return getIndexRecordPeriodIdsForRecord(record)[0] || "undated";
 }
 
 function getIndexRecordPeriodIds(items = []) {
   return [
     ...new Set(
-      (Array.isArray(items) ? items : []).map((record) => getIndexRecordPeriodId(record)),
+      (Array.isArray(items) ? items : []).flatMap((record) =>
+        getIndexRecordPeriodIdsForRecord(record),
+      ),
     ),
   ];
 }
@@ -14239,41 +14715,41 @@ function markIndexRecordPeriodsDirty(items = []) {
 
 function queueIndexRecordPatchUpserts(items = []) {
   (Array.isArray(items) ? items : []).forEach((record) => {
-    const periodId = getIndexRecordPeriodId(record);
-    if (!periodId) {
-      return;
-    }
-    if (indexForceReplaceRecordPeriods.has(periodId)) {
-      return;
-    }
-    const patch = ensureIndexPendingRecordPatch(periodId);
+    const periodIds = getIndexRecordPeriodIdsForRecord(record);
     const patchKey = buildIndexRecordPatchKey(record);
-    patch.upserts.set(patchKey, cloneIndexValue(record));
-    patch.removed.delete(patchKey);
     const recordId = String(record?.id || "").trim();
-    if (recordId) {
-      patch.removed.delete(`id:${recordId}`);
-    }
+    periodIds.forEach((periodId) => {
+      if (!periodId || indexForceReplaceRecordPeriods.has(periodId)) {
+        return;
+      }
+      const patch = ensureIndexPendingRecordPatch(periodId);
+      patch.upserts.set(patchKey, cloneIndexValue(record));
+      patch.removed.delete(patchKey);
+      if (recordId) {
+        patch.removed.delete(`id:${recordId}`);
+      }
+    });
   });
 }
 
 function queueIndexRecordPatchRemovals(items = []) {
   (Array.isArray(items) ? items : []).forEach((record) => {
-    const periodId = getIndexRecordPeriodId(record);
-    if (!periodId) {
-      return;
-    }
-    if (indexForceReplaceRecordPeriods.has(periodId)) {
-      return;
-    }
-    const patch = ensureIndexPendingRecordPatch(periodId);
     const patchKey = buildIndexRecordPatchKey(record);
     const recordId = String(record?.id || "").trim();
-    patch.upserts.delete(patchKey);
-    if (recordId) {
-      patch.upserts.delete(`id:${recordId}`);
-    }
-    patch.removed.set(recordId ? `id:${recordId}` : patchKey, cloneIndexValue(record));
+    getIndexRecordPeriodIdsForRecord(record).forEach((periodId) => {
+      if (!periodId || indexForceReplaceRecordPeriods.has(periodId)) {
+        return;
+      }
+      const patch = ensureIndexPendingRecordPatch(periodId);
+      patch.upserts.delete(patchKey);
+      if (recordId) {
+        patch.upserts.delete(`id:${recordId}`);
+      }
+      patch.removed.set(
+        recordId ? `id:${recordId}` : patchKey,
+        cloneIndexValue(record),
+      );
+    });
   });
 }
 
@@ -14302,7 +14778,10 @@ function mergeIndexRecordsByPeriods(
     return Array.isArray(incomingItems) ? incomingItems.slice() : [];
   }
   const preserved = (Array.isArray(existingItems) ? existingItems : []).filter(
-    (record) => !targetPeriods.has(getIndexRecordPeriodId(record)),
+    (record) =>
+      !getIndexRecordPeriodIdsForRecord(record).some((periodId) =>
+        targetPeriods.has(periodId),
+      ),
   );
   return [...preserved, ...(Array.isArray(incomingItems) ? incomingItems : [])];
 }
@@ -14454,51 +14933,93 @@ function ensureIndexScopedProjectInList(
   };
 }
 
+function countIndexRecordProjectReferenceChanges(
+  beforeRecords = [],
+  afterRecords = [],
+) {
+  const beforeList = Array.isArray(beforeRecords) ? beforeRecords : [];
+  const afterList = Array.isArray(afterRecords) ? afterRecords : [];
+  const length = Math.max(beforeList.length, afterList.length);
+  let changedCount = 0;
+  for (let index = 0; index < length; index += 1) {
+    const beforeRecord = beforeList[index];
+    const afterRecord = afterList[index];
+    if (
+      String(beforeRecord?.name || "").trim() !==
+        String(afterRecord?.name || "").trim() ||
+      String(beforeRecord?.projectId || "").trim() !==
+        String(afterRecord?.projectId || "").trim() ||
+      String(beforeRecord?.nextProjectName || "").trim() !==
+        String(afterRecord?.nextProjectName || "").trim() ||
+      String(beforeRecord?.nextProjectId || "").trim() !==
+        String(afterRecord?.nextProjectId || "").trim()
+    ) {
+      changedCount += 1;
+    }
+  }
+  return changedCount;
+}
+
 function buildIndexLegacyRecordProjectRecoveryPlan(
   recordList = [],
   projectList = projects,
 ) {
   const normalizedProjects = normalizeStoredProjects(projectList);
-  const existingProjectNames = new Set(
-    normalizedProjects
-      .map((project) => String(project?.name || "").trim())
-      .filter(Boolean),
+  const pathRepairResult =
+    typeof storageBundleApi?.repairPathNamedRecordProjects === "function"
+      ? storageBundleApi.repairPathNamedRecordProjects(
+          normalizedProjects,
+          recordList,
+        )
+      : null;
+  const repairedProjects = normalizeStoredProjects(
+    Array.isArray(pathRepairResult?.projects)
+      ? pathRepairResult.projects
+      : normalizedProjects,
   );
+  const repairedRecordSource = Array.isArray(pathRepairResult?.records)
+    ? pathRepairResult.records
+    : Array.isArray(recordList)
+      ? recordList
+      : [];
   const missingRecordNames = Array.from(
     new Set(
-      (Array.isArray(recordList) ? recordList : [])
-        .map((record) => String(record?.name || "").trim())
+      repairedRecordSource
+        .map((record) =>
+          normalizeIndexProjectReferenceName(record?.name, ""),
+        )
         .filter(
           (name) =>
             name &&
             name !== "未命名项目" &&
-            !existingProjectNames.has(name),
+            !findProjectByNameInList(name, repairedProjects),
         ),
     ),
   ).sort((left, right) => left.localeCompare(right, "zh-CN"));
 
   if (!missingRecordNames.length) {
     const normalizedRecords = normalizeIndexLoadedRecords(
-      recordList,
-      normalizedProjects,
+      repairedRecordSource,
+      repairedProjects,
     );
-    const repairedRecordCount = normalizedRecords.reduce((count, record, index) => {
-      return count +
-        (String(record?.projectId || "").trim() !==
-        String(recordList?.[index]?.projectId || "").trim()
-          ? 1
-          : 0);
-    }, 0);
+    const repairedRecordCount = countIndexRecordProjectReferenceChanges(
+      repairedRecordSource,
+      normalizedRecords,
+    );
     return {
-      projects: normalizedProjects,
+      projects: repairedProjects,
       records: normalizedRecords,
       createdProjectNames: [],
       repairedRecordCount,
-      changed: repairedRecordCount > 0,
+      mergedProjectCount: Number(pathRepairResult?.mergedProjectCount || 0),
+      renamedProjectCount: Number(pathRepairResult?.renamedProjectCount || 0),
+      changed:
+        repairedRecordCount > 0 ||
+        pathRepairResult?.changed === true,
     };
   }
 
-  let nextProjects = normalizedProjects.slice();
+  let nextProjects = repairedProjects.slice();
   const rootResult = ensureIndexScopedProjectInList(nextProjects, {
     preferredName: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME,
     level: 1,
@@ -14526,29 +15047,34 @@ function buildIndexLegacyRecordProjectRecoveryPlan(
     }
   });
 
-  const normalizedRecords = normalizeIndexLoadedRecords(recordList, nextProjects);
-  const repairedRecordCount = normalizedRecords.reduce((count, record, index) => {
-    return count +
-      (String(record?.projectId || "").trim() !==
-      String(recordList?.[index]?.projectId || "").trim()
-        ? 1
-        : 0);
-  }, 0);
+  const normalizedRecords = normalizeIndexLoadedRecords(
+    repairedRecordSource,
+    nextProjects,
+  );
+  const repairedRecordCount = countIndexRecordProjectReferenceChanges(
+    repairedRecordSource,
+    normalizedRecords,
+  );
 
   return {
     projects: nextProjects,
     records: normalizedRecords,
     createdProjectNames,
     repairedRecordCount,
-    changed: createdProjectNames.length > 0 || repairedRecordCount > 0,
+    mergedProjectCount: Number(pathRepairResult?.mergedProjectCount || 0),
+    renamedProjectCount: Number(pathRepairResult?.renamedProjectCount || 0),
+    changed:
+      createdProjectNames.length > 0 ||
+      repairedRecordCount > 0 ||
+      pathRepairResult?.changed === true,
   };
 }
 
 async function runIndexLegacyRecordProjectRecovery() {
   if (
     INDEX_WIDGET_CONTEXT.enabled ||
-    hasCompletedIndexLegacyRecordProjectRecovery() ||
-    indexLegacyRecordProjectRecoveryRunning
+    indexLegacyRecordProjectRecoveryRunning ||
+    hasCompletedIndexLegacyRecordProjectRecovery()
   ) {
     return false;
   }
@@ -14567,6 +15093,11 @@ async function runIndexLegacyRecordProjectRecovery() {
 
   indexLegacyRecordProjectRecoveryRunning = true;
   try {
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "start",
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      visibleRecordCount: Array.isArray(records) ? records.length : 0,
+    });
     await ensureIndexForegroundBootstrapReady();
     await flushIndexPendingPersistenceOrThrow(
       {
@@ -14578,7 +15109,42 @@ async function runIndexLegacyRecordProjectRecovery() {
       indexLegacyRecordProjectRecoveryPendingResume = true;
       return false;
     }
-    const authoritativeRecords = await loadAllIndexRecordsFromStorage();
+    const [authoritativeProjects, authoritativeRecords] = await Promise.all([
+      loadAuthoritativeIndexProjectsFromStorage({
+        authoritative: true,
+        fallbackProjects: projects,
+      }),
+      loadAllIndexRecordsFromStorage({
+        authoritative: true,
+      }),
+    ]);
+    const authoritativePeriodIds = getIndexRecordPeriodIds(
+      Array.isArray(authoritativeRecords) ? authoritativeRecords : [],
+    );
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "authoritative-loaded",
+      authoritativeProjectCount: Array.isArray(authoritativeProjects)
+        ? authoritativeProjects.length
+        : 0,
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      authoritativePeriodCount: authoritativePeriodIds.length,
+      authoritativeFirstPeriods: authoritativePeriodIds.slice(0, 6),
+      authoritativeLastPeriods: authoritativePeriodIds.slice(-6),
+    });
+    emitIndexDebugPerf("index-path-repair", {
+      stage: "authoritative-loaded",
+      authoritativeProjectCount: Array.isArray(authoritativeProjects)
+        ? authoritativeProjects.length
+        : 0,
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      authoritativePeriodCount: authoritativePeriodIds.length,
+      authoritativeFirstPeriods: authoritativePeriodIds.slice(0, 6),
+      authoritativeLastPeriods: authoritativePeriodIds.slice(-6),
+    });
     if (
       !indexShellPageActive ||
       isIndexSaveTransactionActive() ||
@@ -14594,12 +15160,21 @@ async function runIndexLegacyRecordProjectRecovery() {
     }
     const recoveryPlan = buildIndexLegacyRecordProjectRecoveryPlan(
       authoritativeRecords,
-      projects,
+      authoritativeProjects,
     );
     if (!recoveryPlan.changed) {
       markIndexLegacyRecordProjectRecoveryCompleted({
         createdProjectCount: 0,
         repairedRecordCount: recoveryPlan.repairedRecordCount,
+      });
+      emitIndexStructuredLog("index.path-repair", {
+        stage: "no-op",
+        authoritativeRecordCount: Array.isArray(authoritativeRecords)
+          ? authoritativeRecords.length
+          : 0,
+        repairedRecordCount: recoveryPlan.repairedRecordCount,
+        mergedProjectCount: recoveryPlan.mergedProjectCount,
+        renamedProjectCount: recoveryPlan.renamedProjectCount,
       });
       return false;
     }
@@ -14618,6 +15193,16 @@ async function runIndexLegacyRecordProjectRecovery() {
       createdProjectNames: recoveryPlan.createdProjectNames,
       repairedRecordCount: recoveryPlan.repairedRecordCount,
     });
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "applied",
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+      mergedProjectCount: recoveryPlan.mergedProjectCount,
+      renamedProjectCount: recoveryPlan.renamedProjectCount,
+    });
     emitIndexDebugPerf("legacy-record-project-recovery", {
       createdProjectCount: recoveryPlan.createdProjectNames.length,
       repairedRecordCount: recoveryPlan.repairedRecordCount,
@@ -14625,6 +15210,10 @@ async function runIndexLegacyRecordProjectRecovery() {
     return true;
   } catch (error) {
     console.error("执行历史记录项目恢复失败:", error);
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "error",
+      message: error instanceof Error ? error.message : String(error || ""),
+    });
     return false;
   } finally {
     indexLegacyRecordProjectRecoveryRunning = false;
@@ -14649,9 +15238,9 @@ function clearIndexLegacyRecordProjectRecoverySchedule() {
 function scheduleIndexLegacyRecordProjectRecovery() {
   if (
     INDEX_WIDGET_CONTEXT.enabled ||
-    hasCompletedIndexLegacyRecordProjectRecovery() ||
     indexLegacyRecordProjectRecoveryScheduled ||
-    indexLegacyRecordProjectRecoveryRunning
+    indexLegacyRecordProjectRecoveryRunning ||
+    hasCompletedIndexLegacyRecordProjectRecovery()
   ) {
     return false;
   }
@@ -14891,6 +15480,7 @@ function saveRecordsToStorage() {
             saveSectionRange: (section, payload) =>
               window.ControlerStorage.saveSectionRange(section, payload),
             getPeriodId: getIndexRecordPeriodId,
+            getPeriodIds: getIndexRecordPeriodIdsForRecord,
             buildMergeKey: buildIndexRecordPatchKey,
             sortItems: sortIndexRecordPartitionItems,
             cloneValue: cloneIndexValue,
@@ -14919,6 +15509,77 @@ function saveRecordsToStorage() {
   );
 }
 
+function collectIndexRecordProjectReferenceMatchData(
+  record,
+  projectList = projects,
+  options = {},
+) {
+  const nextReference = options?.next === true;
+  const rawName = String(
+    nextReference ? record?.nextProjectName || "" : record?.name || "",
+  ).trim();
+  const rawProjectId = String(
+    nextReference ? record?.nextProjectId || "" : record?.projectId || "",
+  ).trim();
+  const boundProject = findProjectByIdInList(rawProjectId, projectList);
+  const resolvedProject = nextReference
+    ? resolveRecordNextProject(record, projectList)
+    : resolveRecordProject(record, projectList);
+  const names = new Set(
+    [
+      rawName,
+      extractIndexProjectLeafName(rawName),
+      String(boundProject?.name || "").trim(),
+      extractIndexProjectLeafName(boundProject?.name),
+      String(resolvedProject?.name || "").trim(),
+      extractIndexProjectLeafName(resolvedProject?.name),
+    ].filter(Boolean),
+  );
+  const ids = new Set(
+    [
+      rawProjectId,
+      String(boundProject?.id || "").trim(),
+      String(resolvedProject?.id || "").trim(),
+    ].filter(Boolean),
+  );
+  return {
+    rawName,
+    rawProjectId,
+    boundProject,
+    resolvedProject,
+    names,
+    ids,
+  };
+}
+
+function matchesIndexRecordProjectReference(
+  referenceData,
+  projectIdentity = {},
+) {
+  const sourceProjectId = String(projectIdentity?.id || "").trim();
+  const sourceProjectName = String(projectIdentity?.name || "").trim();
+  const sourceNameIsPathLike = isIndexProjectPathLikeName(sourceProjectName);
+  const sourceLeafName = sourceNameIsPathLike
+    ? ""
+    : extractIndexProjectLeafName(sourceProjectName);
+  const rawProjectId = String(referenceData?.rawProjectId || "").trim();
+  if (sourceProjectId && referenceData?.ids instanceof Set) {
+    if (referenceData.ids.has(sourceProjectId)) {
+      return true;
+    }
+  }
+  if (sourceProjectId && rawProjectId && rawProjectId !== sourceProjectId) {
+    return false;
+  }
+  if (sourceProjectName && referenceData?.names instanceof Set) {
+    return (
+      referenceData.names.has(sourceProjectName) ||
+      (!!sourceLeafName && referenceData.names.has(sourceLeafName))
+    );
+  }
+  return false;
+}
+
 function renameProjectRecordsInList(
   recordList = [],
   oldName,
@@ -14939,42 +15600,25 @@ function renameProjectRecordsInList(
   const changedBeforeRecords = [];
   const changedAfterRecords = [];
   const items = (Array.isArray(recordList) ? recordList : []).map((record) => {
-    const resolvedCurrentProject = resolveRecordProject(record, projectList);
-    const resolvedNextProject = resolveRecordNextProject(record, projectList);
-    const resolvedRecordName = String(record?.name || "").trim();
-    const resolvedNextProjectName = resolveRecordNextProjectName(record, projectList);
-    const currentProjectId = String(record?.projectId || "").trim();
-    const nextProjectIdText = String(record?.nextProjectId || "").trim();
-    const boundCurrentProject = findProjectByIdInList(currentProjectId, projectList);
-    const boundNextProject = findProjectByIdInList(nextProjectIdText, projectList);
-    const matchesCurrentProject =
-      (normalizedProjectId &&
-        (currentProjectId === normalizedProjectId ||
-          String(resolvedCurrentProject?.id || "").trim() === normalizedProjectId)) ||
-      (!!sourceProjectIdentity.name &&
-        (resolvedRecordName === sourceProjectIdentity.name ||
-          String(resolvedCurrentProject?.name || "").trim() ===
-            sourceProjectIdentity.name ||
-          (isIndexProjectPathLikeName(resolvedRecordName) &&
-            extractIndexProjectLeafName(resolvedRecordName) ===
-              sourceProjectIdentity.name) ||
-          (isIndexLegacyPathRecoveryAliasProject(boundCurrentProject, projectList) &&
-            extractIndexProjectLeafName(boundCurrentProject?.name) ===
-              sourceProjectIdentity.name)));
-    const matchesNextProject =
-      (normalizedProjectId &&
-        (nextProjectIdText === normalizedProjectId ||
-          String(resolvedNextProject?.id || "").trim() === normalizedProjectId)) ||
-      (!!sourceProjectIdentity.name &&
-        (resolvedNextProjectName === sourceProjectIdentity.name ||
-          String(resolvedNextProject?.name || "").trim() ===
-            sourceProjectIdentity.name ||
-          (isIndexProjectPathLikeName(String(record?.nextProjectName || "").trim()) &&
-            extractIndexProjectLeafName(record?.nextProjectName) ===
-              sourceProjectIdentity.name) ||
-          (isIndexLegacyPathRecoveryAliasProject(boundNextProject, projectList) &&
-            extractIndexProjectLeafName(boundNextProject?.name) ===
-              sourceProjectIdentity.name)));
+    const currentReference = collectIndexRecordProjectReferenceMatchData(
+      record,
+      projectList,
+    );
+    const nextReference = collectIndexRecordProjectReferenceMatchData(
+      record,
+      projectList,
+      {
+        next: true,
+      },
+    );
+    const matchesCurrentProject = matchesIndexRecordProjectReference(
+      currentReference,
+      sourceProjectIdentity,
+    );
+    const matchesNextProject = matchesIndexRecordProjectReference(
+      nextReference,
+      sourceProjectIdentity,
+    );
     if (
       !matchesCurrentProject &&
       !matchesNextProject
@@ -14988,22 +15632,34 @@ function renameProjectRecordsInList(
     };
     const nextRecord = {
       ...record,
-      name: matchesCurrentProject ? newName : resolvedRecordName,
+      name:
+        matchesCurrentProject
+          ? newName
+          : currentReference.rawName ||
+            String(currentReference.resolvedProject?.name || "").trim() ||
+            "未命名项目",
       projectId:
         matchesCurrentProject
           ? nextProjectId
-          : String(resolvedCurrentProject?.id || "").trim() ||
-            currentProjectId ||
+          : String(
+              currentReference.rawProjectId ||
+                currentReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
             null,
       nextProjectName:
         matchesNextProject
           ? newName
-          : resolvedNextProjectName,
+          : nextReference.rawName ||
+            String(nextReference.resolvedProject?.name || "").trim(),
       nextProjectId:
         matchesNextProject
           ? nextProjectId
-          : String(resolvedNextProject?.id || "").trim() ||
-            nextProjectIdText ||
+          : String(
+              nextReference.rawProjectId ||
+                nextReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
             null,
     };
     const decoratedNextRecord = decorateIndexRecordProjectState(
@@ -15050,40 +15706,25 @@ function mergeProjectRecordsInList(
   const changedBeforeRecords = [];
   const changedAfterRecords = [];
   const items = (Array.isArray(recordList) ? recordList : []).map((record) => {
-    const resolvedCurrentProject = resolveRecordProject(record, projectList);
-    const resolvedNextProject = resolveRecordNextProject(record, projectList);
-    const resolvedRecordName = String(record?.name || "").trim();
-    const resolvedNextProjectName = resolveRecordNextProjectName(record, projectList);
-    const recordProjectId = String(record?.projectId || "").trim();
-    const recordNextProjectId = String(record?.nextProjectId || "").trim();
-    const boundCurrentProject = findProjectByIdInList(recordProjectId, projectList);
-    const boundNextProject = findProjectByIdInList(recordNextProjectId, projectList);
-    const matchesCurrentProject =
-      (sourceProjectId &&
-        (recordProjectId === sourceProjectId ||
-          String(resolvedCurrentProject?.id || "").trim() === sourceProjectId)) ||
-      (!!sourceProjectName &&
-        (resolvedRecordName === sourceProjectName ||
-          String(resolvedCurrentProject?.name || "").trim() === sourceProjectName ||
-          (isIndexProjectPathLikeName(resolvedRecordName) &&
-            extractIndexProjectLeafName(resolvedRecordName) ===
-              sourceProjectName) ||
-          (isIndexLegacyPathRecoveryAliasProject(boundCurrentProject, projectList) &&
-            extractIndexProjectLeafName(boundCurrentProject?.name) ===
-              sourceProjectName)));
-    const matchesNextProject =
-      (sourceProjectId &&
-        (recordNextProjectId === sourceProjectId ||
-          String(resolvedNextProject?.id || "").trim() === sourceProjectId)) ||
-      (!!sourceProjectName &&
-        (resolvedNextProjectName === sourceProjectName ||
-          String(resolvedNextProject?.name || "").trim() === sourceProjectName ||
-          (isIndexProjectPathLikeName(String(record?.nextProjectName || "").trim()) &&
-            extractIndexProjectLeafName(record?.nextProjectName) ===
-              sourceProjectName) ||
-          (isIndexLegacyPathRecoveryAliasProject(boundNextProject, projectList) &&
-            extractIndexProjectLeafName(boundNextProject?.name) ===
-              sourceProjectName)));
+    const currentReference = collectIndexRecordProjectReferenceMatchData(
+      record,
+      projectList,
+    );
+    const nextReference = collectIndexRecordProjectReferenceMatchData(
+      record,
+      projectList,
+      {
+        next: true,
+      },
+    );
+    const matchesCurrentProject = matchesIndexRecordProjectReference(
+      currentReference,
+      sourceProject,
+    );
+    const matchesNextProject = matchesIndexRecordProjectReference(
+      nextReference,
+      sourceProject,
+    );
 
     if (
       !matchesCurrentProject &&
@@ -15092,8 +15733,7 @@ function mergeProjectRecordsInList(
       return record;
     }
 
-    const shouldMergeCurrentProject = matchesCurrentProject;
-    if (shouldMergeCurrentProject) {
+    if (matchesCurrentProject || matchesNextProject) {
       mergedCount += 1;
     }
     const previousRecord = {
@@ -15101,22 +15741,34 @@ function mergeProjectRecordsInList(
     };
     const nextRecord = {
       ...record,
-      name: shouldMergeCurrentProject ? targetProjectName : resolvedRecordName,
+      name:
+        matchesCurrentProject
+          ? targetProjectName
+          : currentReference.rawName ||
+            String(currentReference.resolvedProject?.name || "").trim() ||
+            "未命名项目",
       projectId:
-        shouldMergeCurrentProject
+        matchesCurrentProject
           ? targetProjectId
-          : String(resolvedCurrentProject?.id || "").trim() ||
-            recordProjectId ||
+          : String(
+              currentReference.rawProjectId ||
+                currentReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
             null,
       nextProjectName:
         matchesNextProject
           ? targetProjectName
-          : resolvedNextProjectName,
+          : nextReference.rawName ||
+            String(nextReference.resolvedProject?.name || "").trim(),
       nextProjectId:
         matchesNextProject
           ? targetProjectId
-          : String(resolvedNextProject?.id || "").trim() ||
-            recordNextProjectId ||
+          : String(
+              nextReference.rawProjectId ||
+                nextReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
             null,
     };
     const decoratedNextRecord = decorateIndexRecordProjectState(
@@ -15185,10 +15837,9 @@ async function updateRecordsProjectName(
   const projectList = Array.isArray(options.nextProjects)
     ? options.nextProjects
     : projects;
-  const authoritativeRecords = normalizeIndexLoadedRecords(
-    await loadAllIndexRecordsFromStorage(),
-    projectList,
-  );
+  const authoritativeRecords = await loadAllIndexRecordsFromStorage({
+    authoritative: true,
+  });
   const fullRenameResult = renameProjectRecordsInList(
     authoritativeRecords,
     oldName,
@@ -15448,14 +16099,6 @@ function initIndexSecondaryBindings() {
   }
   indexSecondaryBindingsInitialized = true;
 
-  uiTools?.enhanceNativeSelect?.(
-    document.getElementById("parent-project-select"),
-    {
-      fullWidth: true,
-      minWidth: 240,
-    },
-  );
-
   activeCreateProjectColorController = createProjectColorController({
     input: document.getElementById("project-color-picker"),
     paletteContainer: document.getElementById("project-color-presets"),
@@ -15680,9 +16323,16 @@ function scheduleIndexDeferredWorkspaceHydration() {
       }
       Promise.resolve()
         .then(async () => {
+          const shouldForceFreshBootstrap =
+            window.ControlerStorage?.isNativeApp === true;
+          emitIndexStructuredLog("index.bootstrap", {
+            stage: "deferred-refresh-start",
+            freshBootstrap: shouldForceFreshBootstrap,
+          });
           await hydrateIndexWorkspace({
             includeProjects: true,
             includeRecords: true,
+            freshBootstrap: shouldForceFreshBootstrap,
           });
           if (isHydrationStale()) {
             resolve();
@@ -15703,6 +16353,13 @@ function scheduleIndexDeferredWorkspaceHydration() {
             markFirstCommit: true,
           });
           indexInitialDataValidated = true;
+          emitIndexStructuredLog("index.bootstrap", {
+            stage: "deferred-refresh-applied",
+            freshBootstrap: shouldForceFreshBootstrap,
+            projectCount: Array.isArray(projects) ? projects.length : 0,
+            recordCount: Array.isArray(records) ? records.length : 0,
+            loadedPeriodCount: indexLoadedRecordPeriodIds.length,
+          });
           await finalizeIndexInitialHydration();
           resolve();
         })
@@ -16930,5 +17587,3 @@ if (document.readyState === "loading") {
     renderIndexBootstrapError(error, "ready");
   });
 }
-
-
