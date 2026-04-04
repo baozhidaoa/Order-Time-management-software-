@@ -8436,27 +8436,102 @@ function readStatsThemeCssVar(propertyName, fallback = "") {
   }
 }
 
-function getCssColorAlpha(colorText) {
+function parseStatsCssColorLayer(colorText) {
   if (typeof colorText !== "string" || !colorText.trim()) {
-    return 0;
+    return null;
   }
 
   const normalizedColor = colorText.trim().toLowerCase();
   if (normalizedColor === "transparent") {
-    return 0;
+    return {
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+    };
   }
 
+  const rgb = parseCssColor(normalizedColor);
+  if (!rgb) {
+    return null;
+  }
+
+  let alpha = 1;
   const rgbaMatch = normalizedColor.match(
     /^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*([\d.]+)\s*\)$/,
   );
   if (rgbaMatch) {
-    const alpha = Number.parseFloat(rgbaMatch[1]);
-    if (Number.isFinite(alpha)) {
-      return Math.max(0, Math.min(1, alpha));
+    const parsedAlpha = Number.parseFloat(rgbaMatch[1]);
+    if (Number.isFinite(parsedAlpha)) {
+      alpha = Math.max(0, Math.min(1, parsedAlpha));
     }
   }
 
-  return 1;
+  return {
+    ...rgb,
+    a: alpha,
+  };
+}
+
+function compositeStatsCssColorLayers(foreground, background) {
+  if (!foreground) {
+    return background || null;
+  }
+  if (!background) {
+    return foreground;
+  }
+
+  const fgAlpha = Math.max(0, Math.min(1, Number(foreground.a) || 0));
+  const bgAlpha = Math.max(0, Math.min(1, Number(background.a) || 0));
+  const outputAlpha = fgAlpha + bgAlpha * (1 - fgAlpha);
+  if (outputAlpha <= 0.001) {
+    return {
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+    };
+  }
+
+  const blendChannel = (foregroundChannel, backgroundChannel) =>
+    Math.round(
+      (foregroundChannel * fgAlpha +
+        backgroundChannel * bgAlpha * (1 - fgAlpha)) /
+        outputAlpha,
+    );
+
+  return {
+    r: blendChannel(foreground.r, background.r),
+    g: blendChannel(foreground.g, background.g),
+    b: blendChannel(foreground.b, background.b),
+    a: outputAlpha,
+  };
+}
+
+function formatStatsOpaqueCssColor(colorLayer) {
+  if (!colorLayer) {
+    return "";
+  }
+
+  return `rgb(${Math.max(0, Math.min(255, Math.round(colorLayer.r)))}, ${Math.max(0, Math.min(255, Math.round(colorLayer.g)))}, ${Math.max(0, Math.min(255, Math.round(colorLayer.b)))})`;
+}
+
+function resolveStatsThemeSurfaceReferenceColor() {
+  const primaryLayer =
+    parseStatsCssColorLayer(readStatsThemeCssVar("--bg-primary")) ||
+    parseStatsCssColorLayer("#20362b");
+  const surfaceLayer =
+    parseStatsCssColorLayer(
+      readStatsThemeCssVar("--panel-strong-bg") ||
+        readStatsThemeCssVar("--panel-bg") ||
+        readStatsThemeCssVar("--bg-secondary") ||
+        readStatsThemeCssVar("--bg-primary") ||
+        "#20362b",
+    ) || primaryLayer;
+
+  return formatStatsOpaqueCssColor(
+    compositeStatsCssColorLayers(surfaceLayer, primaryLayer),
+  );
 }
 
 function resolveStatsChartSurfaceColor(surfaceElement = null) {
@@ -8464,23 +8539,37 @@ function resolveStatsChartSurfaceColor(surfaceElement = null) {
     typeof Element !== "undefined" && surfaceElement instanceof Element
       ? surfaceElement
       : null;
+  let composedLayer = null;
 
+  // The stats chart often sits on translucent glass surfaces, so we need the
+  // composed visible background instead of the first raw rgba() layer.
   while (currentElement) {
     const backgroundColor =
       window.getComputedStyle(currentElement).backgroundColor?.trim() || "";
-    if (getCssColorAlpha(backgroundColor) > 0.01) {
-      return backgroundColor;
+    const nextLayer = parseStatsCssColorLayer(backgroundColor);
+    if (nextLayer && nextLayer.a > 0.01) {
+      composedLayer = composedLayer
+        ? compositeStatsCssColorLayers(composedLayer, nextLayer)
+        : nextLayer;
+      if (composedLayer.a >= 0.995) {
+        break;
+      }
     }
     currentElement = currentElement.parentElement;
   }
 
-  return (
-    readStatsThemeCssVar("--panel-strong-bg") ||
-    readStatsThemeCssVar("--panel-bg") ||
-    readStatsThemeCssVar("--bg-secondary") ||
-    readStatsThemeCssVar("--bg-primary") ||
-    "#20362b"
-  );
+  if (!composedLayer) {
+    return resolveStatsThemeSurfaceReferenceColor();
+  }
+
+  if (composedLayer.a < 0.995) {
+    composedLayer = compositeStatsCssColorLayers(
+      composedLayer,
+      parseStatsCssColorLayer(resolveStatsThemeSurfaceReferenceColor()),
+    );
+  }
+
+  return formatStatsOpaqueCssColor(composedLayer);
 }
 
 function resolveStatsReadableTextColor(backgroundColor, preferredTextColor = "") {

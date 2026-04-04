@@ -18180,7 +18180,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return null;
     }
     const actionTarget = target.closest(ANDROID_INTERACTIVE_ACTION_SELECTOR);
-    return actionTarget instanceof HTMLElement ? actionTarget : null;
+    if (!(actionTarget instanceof HTMLElement)) {
+      return null;
+    }
+    if (actionTarget.closest(".native-select-enhancer")) {
+      return null;
+    }
+    return actionTarget;
   }
 
   function isDisabledAndroidInteractiveActionTarget(target) {
@@ -22252,60 +22258,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     menu.style.touchAction = "pan-y";
     menu.style.overscrollBehavior = "contain";
     menu.style.webkitOverflowScrolling = "touch";
-    let menuClickSuppressedUntil = 0;
-    const suppressMenuClicks = (windowMs = 280) => {
-      menuClickSuppressedUntil = Math.max(
-        menuClickSuppressedUntil,
-        Date.now() + Math.max(0, Number(windowMs) || 0),
-      );
-    };
-    const shouldSuppressMenuClick = () =>
-      Date.now() < (Number(menuClickSuppressedUntil) || 0);
-    const stopScrollableMenuPropagation = (event) => {
-      if (!wrapper.classList.contains("open")) {
-        return;
-      }
-      if (event?.type === "touchmove") {
-        suppressMenuClicks(320);
-      }
-      event.stopPropagation();
-    };
-    menu.addEventListener("wheel", stopScrollableMenuPropagation, {
-      passive: true,
-    });
-    menu.addEventListener("touchmove", stopScrollableMenuPropagation, {
-      passive: true,
-    });
-    menu.addEventListener(
-      "scroll",
-      () => {
-        if (!wrapper.classList.contains("open")) {
-          return;
-        }
-        suppressMenuClicks(220);
-      },
-      {
-        passive: true,
-      },
-    );
-    let menuVerticalDragApi = null;
-    const ensureMenuVerticalDrag = () => {
-      if (
-        menuVerticalDragApi ||
-        typeof bindVerticalDragScroll !== "function"
-      ) {
-        return;
-      }
-      menuVerticalDragApi = bindVerticalDragScroll(menu, {
-        enabled: () => wrapper.classList.contains("open"),
-        ignoreSelector: null,
-        idleCursor: "default",
-      });
-      emitTreeSelectScrollLog("drag-scroll-bound", {
-        optionCount: menu.querySelectorAll(".tree-select-option").length,
-        ...readScrollableElementDebugState(menu),
-      });
-    };
 
     const collectOptionLabels = () =>
       Array.from(select.querySelectorAll("option")).map((optionNode) =>
@@ -22367,13 +22319,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     const openMenu = () => {
       if (select.disabled) return;
-      ensureMenuVerticalDrag();
       repositionMenu();
       wrapper.classList.add("open");
-      emitTreeSelectScrollLog("menu-open", {
-        optionCount: menu.querySelectorAll(".tree-select-option").length,
-        ...readScrollableElementDebugState(menu),
-      });
       setTimeout(() => {
         document.addEventListener("click", handleOutsideClick, true);
         window.addEventListener("resize", repositionMenu, true);
@@ -22407,6 +22354,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
 
       trigger.disabled = !!select.disabled;
+    };
+
+    const commitOptionSelection = (optionNode, event = null) => {
+      if (!(optionNode instanceof HTMLOptionElement) || optionNode.disabled) {
+        return;
+      }
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      select.value = optionNode.value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      syncFromSelect();
+      closeMenu();
     };
 
     const rebuildMenu = () => {
@@ -22454,17 +22413,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         optionButton.disabled = true;
       } else {
         optionButton.addEventListener("click", (event) => {
-          if (shouldSuppressMenuClick()) {
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          select.value = optionNode.value;
-          select.dispatchEvent(new Event("change", { bubbles: true }));
-          syncFromSelect();
-          closeMenu();
+          commitOptionSelection(optionNode, event);
         });
       }
 
@@ -22509,7 +22458,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         rebuildMenu();
       },
       destroy() {
-        menuVerticalDragApi?.destroy?.();
         observer.disconnect();
         document.removeEventListener("click", handleOutsideClick, true);
         window.removeEventListener("resize", repositionMenu, true);
@@ -22712,7 +22660,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       directionLockThreshold = 8,
       pressDelay = 160,
       mouseLongPressMaxMove = 4,
-      clickSuppressionMs = 420,
       idleCursor = "grab",
     } = options;
 
@@ -22722,7 +22669,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let startScrollTop = 0;
     let isPointerDown = false;
     let isDraggingVertically = false;
-    let suppressNextClickUntil = 0;
+    let suppressNextClick = false;
     let previousBodyUserSelect = "";
     let pressTimerId = null;
     let longPressReady = false;
@@ -22864,17 +22811,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       const didDrag = isDraggingVertically;
       if (didDrag) {
-        suppressNextClickUntil =
-          Date.now() + Math.max(0, Number(clickSuppressionMs) || 0);
+        suppressNextClick = true;
+        window.setTimeout(() => {
+          suppressNextClick = false;
+        }, 0);
       }
 
       resetDraggingState(didDrag);
     };
 
     const handleClickCapture = (event) => {
-      if (Date.now() >= suppressNextClickUntil) {
-        return;
-      }
+      if (!suppressNextClick) return;
+      suppressNextClick = false;
       event.preventDefault();
       event.stopPropagation();
     };
