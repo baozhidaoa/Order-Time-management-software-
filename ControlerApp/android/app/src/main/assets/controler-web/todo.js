@@ -1367,6 +1367,15 @@
   }
 
   function waitForTodoStorageReady() {
+    if (
+      window.ControlerStorage?.isNativeApp === true &&
+      (
+        typeof window.ControlerStorage?.getPageBootstrapState === "function" ||
+        typeof window.ControlerStorage?.loadSectionRange === "function"
+      )
+    ) {
+      return Promise.resolve(true);
+    }
     if (typeof window.ControlerStorage?.whenReady !== "function") {
       return Promise.resolve(true);
     }
@@ -1688,6 +1697,71 @@
       : todoDeferredToggleCommits.todo;
   }
 
+  function collectTodoToggleCommitControllers(options = {}) {
+    const normalizedKind =
+      options?.kind === "checkin" || options?.kind === "todo"
+        ? options.kind
+        : "";
+    const normalizedTargetId = String(options?.targetId || "").trim();
+    const controllerEntries = [];
+    const collectFromMap = (kind, commitMap) => {
+      if (!(commitMap instanceof Map)) {
+        return;
+      }
+      commitMap.forEach((controller, targetId) => {
+        const normalizedControllerId = String(targetId || "").trim();
+        if (!normalizedControllerId) {
+          return;
+        }
+        if (
+          normalizedTargetId &&
+          normalizedControllerId !== normalizedTargetId
+        ) {
+          return;
+        }
+        controllerEntries.push({
+          kind,
+          targetId: normalizedControllerId,
+          controller,
+        });
+      });
+    };
+
+    if (normalizedKind) {
+      collectFromMap(normalizedKind, getTodoToggleCommitMap(normalizedKind));
+      return controllerEntries;
+    }
+
+    collectFromMap("todo", todoDeferredToggleCommits.todo);
+    collectFromMap("checkin", todoDeferredToggleCommits.checkin);
+    return controllerEntries;
+  }
+
+  async function flushTodoDeferredToggleCommits(options = {}) {
+    const controllerEntries = collectTodoToggleCommitControllers(options).filter(
+      ({ controller }) =>
+        controller &&
+        (controller.pending === true ||
+          controller.running === true ||
+          Number(controller.timer) > 0),
+    );
+    if (!controllerEntries.length) {
+      return true;
+    }
+    controllerEntries.forEach(({ controller }) => {
+      if (Number(controller?.timer) > 0) {
+        window.clearTimeout(controller.timer);
+        controller.timer = 0;
+      }
+    });
+    await Promise.all(
+      controllerEntries.map(({ kind, targetId }) =>
+        flushTodoToggleCommit(kind, targetId),
+      ),
+    );
+    return true;
+  }
+
   function hasTodoPendingLocalMutations() {
     if (todoPendingPersistenceCount > 0) {
       return true;
@@ -1789,6 +1863,11 @@
 
       todoShellPageActive = nextActive;
       if (!todoShellPageActive) {
+        if (hasTodoPendingLocalMutations()) {
+          void flushTodoPendingPersistence().catch((error) => {
+            console.error("待办页后台前刷新待提交变更失败:", error);
+          });
+        }
         if (
           todoExternalStorageRefreshQueued ||
           todoExternalStorageRefreshCoordinator?.hasPending?.()
@@ -1986,11 +2065,9 @@
   }
 
   async function flushTodoPendingPersistence() {
+    await flushTodoDeferredToggleCommits();
     if (todoPendingPersistenceCount > 0) {
       await todoPersistChain.catch(() => false);
-    }
-    if (todoLastPersistenceError) {
-      throw todoLastPersistenceError;
     }
     if (todoLastPersistenceError) {
       throw todoLastPersistenceError;
@@ -2005,7 +2082,7 @@
     todoBeforePageLeaveGuardBound = true;
     uiTools?.registerBeforePageLeave?.(
       async () => {
-        if (todoPendingPersistenceCount <= 0 && !todoLastPersistenceError) {
+        if (!hasTodoPendingLocalMutations() && !todoLastPersistenceError) {
           return true;
         }
         return flushTodoPendingPersistence();
@@ -11582,6 +11659,11 @@
         persistWidgetView: true,
       });
       openTodoCreateFlow(options);
+    },
+    async flushPendingChanges(options = {}) {
+      await flushTodoDeferredToggleCommits(options);
+      await flushTodoPendingPersistence();
+      return true;
     },
   };
 

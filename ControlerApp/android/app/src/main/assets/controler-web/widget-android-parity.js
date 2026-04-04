@@ -883,7 +883,49 @@ function getTodayTodoItems(state, limit = 6) {
     });
 }
 
+function normalizeWidgetCheckinStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "stopped" || normalized === "已停止") {
+    return "stopped";
+  }
+  if (normalized === "ended" || normalized === "结束") {
+    return "ended";
+  }
+  return "in_progress";
+}
+
+function isWidgetCheckinDeleted(item) {
+  return !!String(item?.deletedAt || "").trim();
+}
+
+function getWidgetCheckinEffectiveStatus(
+  item,
+  dateText = getDateText(new Date()),
+) {
+  if (!item || isWidgetCheckinDeleted(item)) {
+    return "deleted";
+  }
+  const storedStatus = normalizeWidgetCheckinStatus(item?.status);
+  if (storedStatus === "stopped" || storedStatus === "ended") {
+    return storedStatus;
+  }
+  const endDate = String(item?.endDate || "").trim();
+  if (endDate && dateText && dateText >= endDate) {
+    return "stopped";
+  }
+  return "in_progress";
+}
+
+function getWidgetVisibleCheckinItems(state) {
+  return (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
+    (item) => !isWidgetCheckinDeleted(item),
+  );
+}
+
 function checkinScheduledOn(item, dateText) {
+  if (getWidgetCheckinEffectiveStatus(item, dateText) !== "in_progress") {
+    return false;
+  }
   const repeatType = item?.repeatType === "weekly" ? "weekly" : "daily";
   const weekdays = Array.isArray(item?.repeatWeekdays)
     ? item.repeatWeekdays
@@ -932,7 +974,7 @@ function getCheckinRepeatSummary(item = {}) {
 }
 
 function getCheckinStreakDays(state, itemId) {
-  const target = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).find(
+  const target = getWidgetVisibleCheckinItems(state).find(
     (item) => String(item?.id || "") === String(itemId || ""),
   );
   if (!target) {
@@ -978,7 +1020,7 @@ function getCheckinCheckedDaysCount(state, itemId) {
 
 function getTodayCheckinStats(state) {
   const today = getDateText(new Date());
-  const scheduled = (Array.isArray(state?.checkinItems) ? state.checkinItems : []).filter(
+  const scheduled = getWidgetVisibleCheckinItems(state).filter(
     (item) => checkinScheduledOn(item, today),
   );
   const doneCount = scheduled.filter((item) =>
@@ -993,7 +1035,7 @@ function getTodayCheckinStats(state) {
 
 function getTodayCheckinItems(state, limit = 6) {
   const today = getDateText(new Date());
-  return (Array.isArray(state?.checkinItems) ? state.checkinItems : [])
+  return getWidgetVisibleCheckinItems(state)
     .filter((item) => checkinScheduledOn(item, today))
     .slice()
     .sort((left, right) => {

@@ -251,7 +251,17 @@
     }
   }
 
+  const pendingNativeMessages = Array.isArray(
+    window.__CONTROLER_PENDING_NATIVE_MESSAGES__,
+  )
+    ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
+    : [];
   window.__controlerReceiveNativeMessage = receive;
+  if (pendingNativeMessages.length > 0) {
+    pendingNativeMessages.splice(0).forEach((message) => {
+      receive(message);
+    });
+  }
   window.ControlerNativeBridge = {
     get isReactNativeApp() {
       return isReactNativeApp();

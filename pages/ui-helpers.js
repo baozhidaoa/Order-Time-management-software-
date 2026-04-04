@@ -16,6 +16,8 @@
     "controler:blocking-overlay-state-changed";
   const SHELL_VISIBILITY_EVENT_NAME =
     "controler:shell-visibility-changed";
+  const SHELL_RESUME_SETTLED_EVENT_NAME =
+    "controler:shell-resume-settled";
   const EDGE_BACK_SWIPE_EXCLUSION_ATTR =
     "data-controler-edge-back-exclusion";
   const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
@@ -386,6 +388,10 @@
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
+  let androidNativeBootstrapTransitionOverlayActive = false;
+  let nativeShellResumeReadyPending = false;
+  let nativeShellResumeReadyVersion = 0;
+  let nativeShellResumeReadyPromise = null;
   let desktopBootstrapPrewarmScheduled = false;
   let desktopBootstrapPrewarmRunning = false;
   let desktopBootstrapPrewarmTimerId = 0;
@@ -879,6 +885,17 @@
 
   function applyShellVisibilityState(detail = {}) {
     const nextState = normalizeShellVisibilityState(detail);
+    const nextStateEnteringActiveTransitionLoading =
+      isReactNativeNavigationRuntime() &&
+      nextState.active !== false &&
+      nextState.transitionLoading === true &&
+      (shellVisibilityState.active === false ||
+        shellVisibilityState.transitionLoading !== true);
+    const nextStateLeavingActiveTransitionLoading =
+      isReactNativeNavigationRuntime() &&
+      shellVisibilityState.active !== false &&
+      shellVisibilityState.transitionLoading === true &&
+      (nextState.active === false || nextState.transitionLoading !== true);
     const nextSignature = JSON.stringify({
       active: nextState.active,
       slot: nextState.slot,
@@ -900,7 +917,17 @@
       }
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
+        hideOverlay: !shouldKeepOverlayDuringNativeShellStateChange(nextState),
       });
+    }
+    if (nextStateEnteringActiveTransitionLoading) {
+      nativeShellResumeReadyPending = nativePageReadyReported === true;
+      nativeShellResumeReadyVersion += 1;
+      nativeShellResumeReadyPromise = null;
+    } else if (nextStateLeavingActiveTransitionLoading) {
+      nativeShellResumeReadyPending = false;
+      nativeShellResumeReadyVersion += 1;
+      nativeShellResumeReadyPromise = null;
     }
 
     lastShellVisibilityStateSignature = nextSignature;
@@ -910,6 +937,9 @@
       (!nextState.active || !pendingNativeNavigationRequest)
     ) {
       setAndroidReactNativeAppNavLocked(false);
+    }
+    if (nextState.active !== false) {
+      syncAndroidNativeBootstrapTransitionOverlay();
     }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
     markPagePerfStage(
@@ -1044,6 +1074,72 @@
       title: "正在加载数据中",
       message: "页面资源与本地数据正在就绪",
     };
+  }
+
+  function hasPageBootstrapPendingBodyState() {
+    const body = document.body;
+    if (!(body instanceof HTMLElement)) {
+      return false;
+    }
+    return Array.from(body.classList).some((className) =>
+      /(?:^|-)bootstrap-pending$/.test(String(className || "").trim()),
+    );
+  }
+
+  function hasVisibleBlockingOverlayExcludingLeaveGuard() {
+    if (typeof document === "undefined") {
+      return false;
+    }
+    return Array.from(document.querySelectorAll(".page-loading-overlay")).some(
+      (overlay) =>
+        overlay !== appPageLeaveOverlayElement &&
+        isVisibleBlockingLoadingOverlay(overlay),
+    );
+  }
+
+  function shouldKeepOverlayDuringNativeShellStateChange(nextShellState = {}) {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      return false;
+    }
+    if (nextShellState.active === false) {
+      return true;
+    }
+    if (nextShellState.transitionLoading === true) {
+      return true;
+    }
+    if (androidNativeBootstrapTransitionOverlayActive) {
+      return true;
+    }
+    return hasPageBootstrapPendingBodyState();
+  }
+
+  function syncAndroidNativeBootstrapTransitionOverlay() {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      androidNativeBootstrapTransitionOverlayActive = false;
+      return false;
+    }
+
+    const shouldBridgeBootstrapPending =
+      isShellPageActive() &&
+      hasPageBootstrapPendingBodyState() &&
+      !hasVisibleBlockingOverlayExcludingLeaveGuard();
+    if (!shouldBridgeBootstrapPending) {
+      if (androidNativeBootstrapTransitionOverlayActive) {
+        androidNativeBootstrapTransitionOverlayActive = false;
+        setAppPageLeaveOverlayState({
+          active: false,
+        });
+      }
+      return false;
+    }
+
+    androidNativeBootstrapTransitionOverlayActive = true;
+    setAppPageLeaveOverlayState({
+      active: true,
+      ...buildAppNavigationOverlayCopy(getCurrentAppNavigationItem()),
+      delayMs: 0,
+    });
+    return true;
   }
 
   function buildAppNavigationIntent(targetItem, targetHref) {
@@ -1289,22 +1385,59 @@
   }
 
   function reportNativePageReady() {
+    reportNativePageReadyWithOptions();
+  }
+
+  function resolveNativePageReadyReason(options = {}) {
+    const reason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "initial";
+    return reason || "initial";
+  }
+
+  function resolveNativePageReadyRoot() {
+    return (
+      document.querySelector(
+        ".app-main, .record-main, .stats-main, .plan-main, .todo-main, .diary-main, .settings-main",
+      ) || document.body
+    );
+  }
+
+  function reportNativePageReadyWithOptions(options = {}) {
     const electronApi = window.electronAPI;
+    const allowRepeat = options.allowRepeat === true;
+    const readyReason = resolveNativePageReadyReason(options);
     const shouldReportToReactNative = isReactNativeNavigationRuntime();
     const shouldReportToElectron =
-      !!electronApi?.isElectron && typeof electronApi.uiPageReady === "function";
+      !allowRepeat &&
+      !!electronApi?.isElectron &&
+      typeof electronApi.uiPageReady === "function";
     if (
-      nativePageReadyReported ||
+      (!allowRepeat && nativePageReadyReported) ||
       (!shouldReportToReactNative && !shouldReportToElectron)
     ) {
       return;
     }
-    nativePageReadyReported = true;
-    markPagePerfStage("page-ready-emitted");
+    if (!allowRepeat) {
+      nativePageReadyReported = true;
+    }
+    markPagePerfStage("page-ready-emitted", {
+      allowRepeat,
+      reason: readyReason,
+    });
     if (shouldReportToReactNative) {
       window.ControlerNativeBridge?.emitEvent?.("ui.page-ready", {
         href: window.location.href,
+        reason: readyReason,
+        allowRepeat,
         ...getLaunchPerfContext(),
+      });
+    }
+    if (!allowRepeat && androidNativeBootstrapTransitionOverlayActive) {
+      androidNativeBootstrapTransitionOverlayActive = false;
+      setAppPageLeaveOverlayState({
+        active: false,
       });
     }
     if (shouldReportToElectron) {
@@ -1313,7 +1446,63 @@
         page: resolveCurrentPagePerfKey(),
       });
     }
-    scheduleDesktopBootstrapPrewarm("page-ready");
+    if (!allowRepeat) {
+      scheduleDesktopBootstrapPrewarm("page-ready");
+    }
+  }
+
+  function scheduleNativeShellResumeReadyReport(reason = "shell-resume") {
+    if (
+      !nativeShellResumeReadyPending ||
+      !isReactNativeNavigationRuntime() ||
+      nativePageReadyReported !== true
+    ) {
+      return Promise.resolve(false);
+    }
+    const shellState = getShellVisibilityState();
+    if (shellState.active === false || shellState.transitionLoading !== true) {
+      return Promise.resolve(false);
+    }
+    if (nativeShellResumeReadyPromise) {
+      return nativeShellResumeReadyPromise;
+    }
+    const requestVersion = nativeShellResumeReadyVersion;
+    nativeShellResumeReadyPromise = Promise.resolve(
+      waitForVisualContentStability({
+        root: resolveNativePageReadyRoot(),
+        quietWindowMs: 72,
+        maxWaitMs: 960,
+        minQuietFrames: 3,
+      }),
+    )
+      .catch(() => false)
+      .then(() => {
+        if (
+          requestVersion !== nativeShellResumeReadyVersion ||
+          !nativeShellResumeReadyPending
+        ) {
+          return false;
+        }
+        const latestShellState = getShellVisibilityState();
+        if (
+          latestShellState.active === false ||
+          latestShellState.transitionLoading !== true
+        ) {
+          return false;
+        }
+        reportNativePageReadyWithOptions({
+          allowRepeat: true,
+          reason,
+        });
+        nativeShellResumeReadyPending = false;
+        return true;
+      })
+      .finally(() => {
+        if (requestVersion === nativeShellResumeReadyVersion) {
+          nativeShellResumeReadyPromise = null;
+        }
+      });
+    return nativeShellResumeReadyPromise;
   }
 
   function clearDesktopBootstrapPrewarmTimer() {
@@ -1542,6 +1731,18 @@
       { once: true },
     );
   }
+
+  window.addEventListener(SHELL_RESUME_SETTLED_EVENT_NAME, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    scheduleNativeShellResumeReadyReport(
+      typeof detail.reason === "string" && detail.reason.trim()
+        ? detail.reason.trim()
+        : "shell-resume",
+    );
+  });
 
   function scheduleInitialPagePerfReport() {
     const reportHtmlParsed = () => {
@@ -3102,7 +3303,6 @@
       active,
       mode: "fullscreen",
       lockNavigation: false,
-      delegateToNative: false,
       title:
         typeof options.title === "string" && options.title.trim()
           ? options.title.trim()
@@ -3320,6 +3520,7 @@
     }
     resetAppPageTransitionRuntimeState({ clearStoredState: false });
     clearAppPageTransitionState();
+    syncAndroidNativeBootstrapTransitionOverlay();
   }
 
   function startAppPageTransition(targetItem, options = {}) {
@@ -6323,9 +6524,21 @@
     menu.style.touchAction = "pan-y";
     menu.style.overscrollBehavior = "contain";
     menu.style.webkitOverflowScrolling = "touch";
+    let menuClickSuppressedUntil = 0;
+    const suppressMenuClicks = (windowMs = 280) => {
+      menuClickSuppressedUntil = Math.max(
+        menuClickSuppressedUntil,
+        Date.now() + Math.max(0, Number(windowMs) || 0),
+      );
+    };
+    const shouldSuppressMenuClick = () =>
+      Date.now() < (Number(menuClickSuppressedUntil) || 0);
     const stopScrollableMenuPropagation = (event) => {
       if (!wrapper.classList.contains("open")) {
         return;
+      }
+      if (event?.type === "touchmove") {
+        suppressMenuClicks(320);
       }
       event.stopPropagation();
     };
@@ -6335,6 +6548,18 @@
     menu.addEventListener("touchmove", stopScrollableMenuPropagation, {
       passive: true,
     });
+    menu.addEventListener(
+      "scroll",
+      () => {
+        if (!wrapper.classList.contains("open")) {
+          return;
+        }
+        suppressMenuClicks(220);
+      },
+      {
+        passive: true,
+      },
+    );
     let menuVerticalDragApi = null;
     const ensureMenuVerticalDrag = () => {
       if (
@@ -6491,33 +6716,6 @@
       optionButton.dataset.value = String(optionNode.value ?? "");
       optionButton.style.touchAction = "pan-y";
 
-      let pointerDragState = null;
-      let ignoreNextClick = false;
-      const TREE_SELECT_SCROLL_THRESHOLD_PX = 10;
-      const updatePointerDragState = (event) => {
-        if (
-          !pointerDragState ||
-          event.pointerId !== pointerDragState.pointerId
-        ) {
-          return;
-        }
-        const deltaX = Math.abs(event.clientX - pointerDragState.startX);
-        const deltaY = Math.abs(event.clientY - pointerDragState.startY);
-        if (
-          !pointerDragState.dragging &&
-          (deltaY >= TREE_SELECT_SCROLL_THRESHOLD_PX ||
-            deltaX >= TREE_SELECT_SCROLL_THRESHOLD_PX + 4)
-        ) {
-          pointerDragState.dragging = true;
-          ignoreNextClick = true;
-          emitTreeSelectScrollLog("drag-detected", {
-            pointerType: String(event.pointerType || "").trim() || "unknown",
-            deltaX: Math.round(deltaX),
-            deltaY: Math.round(deltaY),
-          });
-        }
-      };
-
       const label = document.createElement("span");
       label.className = "tree-select-option-label";
       label.textContent = readSelectText(optionNode, "未命名选项");
@@ -6527,33 +6725,8 @@
         optionButton.classList.add("is-disabled");
         optionButton.disabled = true;
       } else {
-        optionButton.addEventListener("pointerdown", (event) => {
-          pointerDragState = {
-            pointerId: event.pointerId,
-            startX: event.clientX,
-            startY: event.clientY,
-            dragging: false,
-          };
-        });
-        optionButton.addEventListener(
-          "pointermove",
-          (event) => {
-            updatePointerDragState(event);
-          },
-          {
-            passive: true,
-          },
-        );
-        optionButton.addEventListener("pointerup", (event) => {
-          updatePointerDragState(event);
-          pointerDragState = null;
-        });
-        optionButton.addEventListener("pointercancel", () => {
-          pointerDragState = null;
-        });
         optionButton.addEventListener("click", (event) => {
-          if (ignoreNextClick) {
-            ignoreNextClick = false;
+          if (shouldSuppressMenuClick()) {
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -6650,6 +6823,7 @@
       ignoreSelector = "button, input, select, textarea, a, label",
       startThreshold = 6,
       directionLockThreshold = 8,
+      clickSuppressionMs = 420,
       idleCursor = "grab",
       onRelease = null,
     } = options;
@@ -6660,7 +6834,7 @@
     let startScrollLeft = 0;
     let isPointerDown = false;
     let isDraggingHorizontally = false;
-    let suppressNextClick = false;
+    let suppressNextClickUntil = 0;
     let previousBodyUserSelect = "";
 
     if (!container.style.touchAction) {
@@ -6758,18 +6932,17 @@
 
       const didDrag = isDraggingHorizontally;
       if (didDrag) {
-        suppressNextClick = true;
-        window.setTimeout(() => {
-          suppressNextClick = false;
-        }, 0);
+        suppressNextClickUntil =
+          Date.now() + Math.max(0, Number(clickSuppressionMs) || 0);
       }
 
       resetDraggingState(didDrag);
     };
 
     const handleClickCapture = (event) => {
-      if (!suppressNextClick) return;
-      suppressNextClick = false;
+      if (Date.now() >= suppressNextClickUntil) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };
@@ -6811,6 +6984,7 @@
       directionLockThreshold = 8,
       pressDelay = 160,
       mouseLongPressMaxMove = 4,
+      clickSuppressionMs = 420,
       idleCursor = "grab",
     } = options;
 
@@ -6820,7 +6994,7 @@
     let startScrollTop = 0;
     let isPointerDown = false;
     let isDraggingVertically = false;
-    let suppressNextClick = false;
+    let suppressNextClickUntil = 0;
     let previousBodyUserSelect = "";
     let pressTimerId = null;
     let longPressReady = false;
@@ -6962,18 +7136,17 @@
 
       const didDrag = isDraggingVertically;
       if (didDrag) {
-        suppressNextClick = true;
-        window.setTimeout(() => {
-          suppressNextClick = false;
-        }, 0);
+        suppressNextClickUntil =
+          Date.now() + Math.max(0, Number(clickSuppressionMs) || 0);
       }
 
       resetDraggingState(didDrag);
     };
 
     const handleClickCapture = (event) => {
-      if (!suppressNextClick) return;
-      suppressNextClick = false;
+      if (Date.now() >= suppressNextClickUntil) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };

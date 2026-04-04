@@ -125,6 +125,10 @@ const desktopBootBundleEntries = {
       label: "pages/data-index.js",
       file: path.join(pagesSourceDir, "data-index.js"),
     },
+    {
+      label: "pages/index-record-persistence.js",
+      file: path.join(pagesSourceDir, "index-record-persistence.js"),
+    },
     { label: "pages/stats.js", file: path.join(pagesSourceDir, "stats.js") },
   ],
   "settings-boot.js": [
@@ -217,6 +221,10 @@ const mobileBootBundleEntries = {
     {
       label: "pages/data-index.js",
       file: path.join(pagesSourceDir, "data-index.js"),
+    },
+    {
+      label: "pages/index-record-persistence.js",
+      file: path.join(pagesSourceDir, "index-record-persistence.js"),
     },
     { label: "pages/stats.js", file: path.join(pagesSourceDir, "stats.js") },
   ],

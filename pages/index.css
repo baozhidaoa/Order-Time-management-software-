@@ -7393,6 +7393,27 @@ body.controler-ios-native {
   --controler-loading-spinner-shadow: none;
 }
 
+body.controler-android-native {
+  --controler-loading-overlay-sheen: transparent;
+  --controler-loading-overlay-bg: rgba(0, 0, 0, 0.84);
+  --controler-loading-overlay-bg-strong: rgba(0, 0, 0, 0.92);
+  --controler-loading-card-border: color-mix(
+    in srgb,
+    rgba(255, 255, 255, 0.08) 72%,
+    rgba(var(--accent-color-rgb), 0.22)
+  );
+  --controler-loading-card-highlight: rgba(255, 255, 255, 0.03);
+  --controler-loading-card-bg: color-mix(
+    in srgb,
+    rgba(13, 15, 18, 0.98) 90%,
+    var(--panel-strong-bg) 10%
+  );
+  --controler-loading-card-shadow:
+    0 24px 52px rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.02);
+  --controler-loading-spinner-track: rgba(255, 255, 255, 0.08);
+}
+
 html {
   scroll-behavior: auto !important;
 }
@@ -7675,6 +7696,16 @@ body.controler-ios-native .page-loading-overlay {
   -webkit-backdrop-filter: none !important;
 }
 
+body.controler-android-native .page-loading-overlay {
+  background:
+    radial-gradient(
+      circle at top,
+      rgba(var(--accent-color-rgb), 0.08),
+      transparent 32%
+    ),
+    var(--controler-loading-overlay-bg-strong) !important;
+}
+
 body.controler-mobile-runtime .page-loading-overlay[data-mode="inline"],
 body.controler-android-native .page-loading-overlay[data-mode="inline"],
 body.controler-ios-native .page-loading-overlay[data-mode="inline"] {
@@ -7688,6 +7719,26 @@ body.controler-ios-native .page-loading-card {
   padding: 24px 22px 24px !important;
   border-radius: 24px !important;
   gap: 12px !important;
+}
+
+body.controler-android-native .page-loading-card {
+  border-radius: 28px !important;
+  border: 1px solid var(--controler-loading-card-border) !important;
+  background:
+    linear-gradient(
+      180deg,
+      var(--controler-loading-card-highlight),
+      transparent
+    ),
+    var(--controler-loading-card-bg) !important;
+  box-shadow: var(--controler-loading-card-shadow) !important;
+}
+
+body.controler-android-native .page-loading-card::before {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 12px;
+  border-width: 3px;
 }
 
 .page-loading-overlay[hidden] {

@@ -15,6 +15,8 @@ const distDir = path.join(repoRoot, "dist");
 const expectedPrefix = `Order-${semverVersion}-win-`;
 const displayPrefix = `Order-${displayVersion}-win-`;
 const latestYmlPath = path.join(distDir, "latest.yml");
+const signingCertificatePath = path.join(repoRoot, "certs", "OrderInternal.cer");
+const distSigningCertificatePath = path.join(distDir, "OrderInternal.cer");
 
 if (!(await fs.pathExists(distDir))) {
   throw new Error(`未找到 dist 目录: ${distDir}`);
@@ -62,10 +64,16 @@ if (await fs.pathExists(latestYmlPath)) {
   }
 }
 
+if (await fs.pathExists(signingCertificatePath)) {
+  await fs.copy(signingCertificatePath, distSigningCertificatePath, { overwrite: true });
+  console.log(`已复制 Windows 签名证书到 ${distSigningCertificatePath}`);
+}
+
 const refreshedEntries = await fs.readdir(distDir);
 const staleWindowsArtifacts = refreshedEntries.filter(
   (entry) =>
-    /^Order-[\d.]+-win-[^.]+\.exe(?:\.blockmap)?$/.test(entry) &&
+    (/^Order-[\d.]+-win-[^.]+\.exe(?:\.blockmap)?$/.test(entry) ||
+      /^Order-[\d.]+-win-signing\.cer$/.test(entry)) &&
     !entry.startsWith(displayPrefix),
 );
 

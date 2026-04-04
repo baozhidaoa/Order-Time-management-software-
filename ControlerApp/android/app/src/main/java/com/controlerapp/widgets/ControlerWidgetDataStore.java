@@ -90,8 +90,6 @@ public final class ControlerWidgetDataStore {
     private static final String STORAGE_BINDING_KIND_RESET = "reset";
     private static final String STORAGE_BINDING_KIND_FILE = "file";
     private static final String STORAGE_BINDING_KIND_DIRECTORY = "directory";
-    private static final long BUNDLE_STORAGE_READY_CACHE_WINDOW_MS = 2500L;
-    private static final long STORAGE_BINDING_RESOLUTION_CACHE_WINDOW_MS = 2500L;
     private static final int PROJECT_DURATION_CACHE_VERSION = 1;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -159,6 +157,8 @@ public final class ControlerWidgetDataStore {
         public String repeatType = "daily";
         public List<Integer> repeatWeekdays = new ArrayList<>();
         public String color = "#4299e1";
+        public String status = "in_progress";
+        public String deletedAt = "";
     }
 
     public static final class DailyCheckinInfo {
@@ -883,8 +883,7 @@ public final class ControlerWidgetDataStore {
         ) {
             return false;
         }
-        return SystemClock.elapsedRealtime() - bundleStorageReadyVerifiedAt
-            <= BUNDLE_STORAGE_READY_CACHE_WINDOW_MS;
+        return true;
     }
 
     private static void markBundleStorageReadyVerified(Context context) {
@@ -2642,31 +2641,51 @@ public final class ControlerWidgetDataStore {
         inspection.manifestExists = bundlePathExists(context, BUNDLE_MANIFEST_FILE_NAME);
         inspection.coreExists = bundlePathExists(context, BUNDLE_CORE_FILE_NAME);
         inspection.recurringExists = bundlePathExists(context, BUNDLE_RECURRING_PLANS_FILE_NAME);
-        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
-            Uri directoryUri = getCustomStorageDirectoryUri(context);
-            inspection.legacyExists =
-                resolveDirectoryRelativeDocumentUri(
-                    context,
-                    directoryUri,
-                    "controler-data.json",
-                    false,
-                    false
-                ) != null;
-            inspection.partitionFiles.addAll(listBundlePartitionRelativePaths(context, directoryUri, null));
-        } else {
-            File legacyFile = getStorageFile(context);
-            inspection.legacyExists = legacyFile != null && legacyFile.exists();
-            inspection.partitionFiles.addAll(
-                listBundlePartitionRelativePaths(
-                    context,
-                    null,
-                    getDefaultBundleRootDirectory(context)
-                )
-            );
-        }
         if (inspection.manifestExists) {
             inspection.manifest = tryReadBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
             inspection.manifestInvalid = inspection.manifest == null;
+        }
+        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+            Uri directoryUri = getCustomStorageDirectoryUri(context);
+            if (!inspection.manifestExists || inspection.manifestInvalid) {
+                inspection.partitionFiles.addAll(
+                    listBundlePartitionRelativePaths(context, directoryUri, null)
+                );
+            }
+            boolean hasBundleArtifacts =
+                inspection.manifestExists
+                    || inspection.coreExists
+                    || inspection.recurringExists
+                    || !inspection.partitionFiles.isEmpty();
+            if (!hasBundleArtifacts) {
+                inspection.legacyExists =
+                    resolveDirectoryRelativeDocumentUri(
+                        context,
+                        directoryUri,
+                        "controler-data.json",
+                        false,
+                        false
+                    ) != null;
+            }
+        } else {
+            File legacyFile = getStorageFile(context);
+            if (!inspection.manifestExists || inspection.manifestInvalid) {
+                inspection.partitionFiles.addAll(
+                    listBundlePartitionRelativePaths(
+                        context,
+                        null,
+                        getDefaultBundleRootDirectory(context)
+                    )
+                );
+            }
+            boolean hasBundleArtifacts =
+                inspection.manifestExists
+                    || inspection.coreExists
+                    || inspection.recurringExists
+                    || !inspection.partitionFiles.isEmpty();
+            if (!hasBundleArtifacts) {
+                inspection.legacyExists = legacyFile != null && legacyFile.exists();
+            }
         }
         return inspection;
     }
@@ -5073,9 +5092,7 @@ public final class ControlerWidgetDataStore {
     }
 
     private static boolean canUseStorageBindingResolutionCache() {
-        return storageBindingResolvedAt > 0L
-            && SystemClock.elapsedRealtime() - storageBindingResolvedAt
-                <= STORAGE_BINDING_RESOLUTION_CACHE_WINDOW_MS;
+        return storageBindingResolvedAt > 0L;
     }
 
     private static void markStorageBindingResolved() {
@@ -6025,6 +6042,8 @@ public final class ControlerWidgetDataStore {
             return null;
         }
         try {
+            String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
+            Uri treeDocumentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId);
             Uri cachedDocumentUri = getCachedDirectoryDocumentUri(
                 context,
                 treeUri,
@@ -6034,12 +6053,14 @@ public final class ControlerWidgetDataStore {
                 if (queryDocumentExists(context, cachedDocumentUri)) {
                     return cachedDocumentUri;
                 }
+                if (createIfMissing) {
+                    return cachedDocumentUri;
+                }
                 removeDirectoryDocumentUriCacheEntry(context, treeUri, normalizedRelativePath);
             }
 
             String[] segments = normalizedRelativePath.split("/");
-            String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
-            Uri currentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId);
+            Uri currentUri = treeDocumentUri;
             for (int index = 0; index < segments.length; index += 1) {
                 String segment = segments[index];
                 if (TextUtils.isEmpty(segment)) {
@@ -6054,40 +6075,15 @@ public final class ControlerWidgetDataStore {
                 }
                 Uri childUri = findChildDocumentUri(context, treeUri, currentUri, segment);
                 if (childUri == null && createIfMissing) {
-                    Uri createdUri = DocumentsContract.createDocument(
-                        context.getContentResolver(),
-                        currentUri,
-                        shouldBeDirectory ? Document.MIME_TYPE_DIR : "application/json",
-                        segment
-                    );
-                    String createdName = queryDisplayName(context, createdUri);
-                    if (!TextUtils.isEmpty(createdName) && !segment.equals(createdName)) {
-                        Uri canonicalChildUri = buildDirectChildDocumentUri(treeUri, currentUri, segment);
-                        if (canonicalChildUri != null && queryDocumentExists(context, canonicalChildUri)) {
-                            deleteDocumentQuietly(context, createdUri);
-                            childUri = canonicalChildUri;
-                            Log.w(
-                                TAG,
-                                "[storage.directory-conflict] expected="
-                                    + segment
-                                    + " created="
-                                    + createdName
-                                    + " resolved=canonical"
-                            );
-                        } else {
-                            childUri = createdUri;
-                            Log.w(
-                                TAG,
-                                "[storage.directory-conflict] expected="
-                                    + segment
-                                    + " created="
-                                    + createdName
-                                    + " resolved=created"
-                            );
-                        }
-                    } else {
-                        childUri = createdUri;
-                    }
+                    childUri =
+                        createChildDocumentUri(
+                            context,
+                            treeUri,
+                            treeDocumentUri,
+                            currentUri,
+                            segment,
+                            shouldBeDirectory
+                        );
                 }
                 if (childUri == null) {
                     return null;
@@ -6103,6 +6099,130 @@ public final class ControlerWidgetDataStore {
             return currentUri;
         } catch (Exception error) {
             return null;
+        }
+    }
+
+    private static Uri createChildDocumentUri(
+        Context context,
+        Uri treeUri,
+        Uri treeDocumentUri,
+        Uri parentDocumentUri,
+        String childName,
+        boolean directory
+    ) {
+        Uri createdUri = tryCreateChildDocumentUri(
+            context,
+            parentDocumentUri,
+            childName,
+            directory
+        );
+        Uri resolvedUri = resolveCreatedChildDocumentUri(
+            context,
+            treeUri,
+            parentDocumentUri,
+            childName,
+            createdUri
+        );
+        if (resolvedUri != null) {
+            return resolvedUri;
+        }
+
+        if (isSameDocumentUri(parentDocumentUri, treeDocumentUri)) {
+            Uri rootCreatedUri = tryCreateChildDocumentUri(
+                context,
+                treeUri,
+                childName,
+                directory
+            );
+            resolvedUri = resolveCreatedChildDocumentUri(
+                context,
+                treeUri,
+                parentDocumentUri,
+                childName,
+                rootCreatedUri
+            );
+            if (resolvedUri != null) {
+                return resolvedUri;
+            }
+        }
+        return null;
+    }
+
+    private static Uri tryCreateChildDocumentUri(
+        Context context,
+        Uri parentDocumentUri,
+        String childName,
+        boolean directory
+    ) {
+        if (context == null || parentDocumentUri == null || TextUtils.isEmpty(childName)) {
+            return null;
+        }
+        try {
+            return DocumentsContract.createDocument(
+                context.getContentResolver(),
+                parentDocumentUri,
+                directory ? Document.MIME_TYPE_DIR : "application/json",
+                childName
+            );
+        } catch (Exception error) {
+            Log.w(
+                TAG,
+                "[storage.directory-create-failed] parent="
+                    + parentDocumentUri
+                    + " child="
+                    + childName
+                    + " dir="
+                    + directory,
+                error
+            );
+            return null;
+        }
+    }
+
+    private static Uri resolveCreatedChildDocumentUri(
+        Context context,
+        Uri treeUri,
+        Uri parentDocumentUri,
+        String childName,
+        Uri createdUri
+    ) {
+        Uri enumeratedChildUri = findChildDocumentUri(context, treeUri, parentDocumentUri, childName);
+        if (enumeratedChildUri != null) {
+            return enumeratedChildUri;
+        }
+
+        String createdName = queryDisplayName(context, createdUri);
+        if (createdUri != null && childName.equals(createdName)) {
+            return createdUri;
+        }
+        if (createdUri != null && !TextUtils.isEmpty(createdName) && !childName.equals(createdName)) {
+            Log.w(
+                TAG,
+                "[storage.directory-create-mismatch] expected="
+                    + childName
+                    + " created="
+                    + createdName
+                    + " parent="
+                    + parentDocumentUri
+            );
+        }
+        return null;
+    }
+
+    private static boolean isSameDocumentUri(Uri left, Uri right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        try {
+            return TextUtils.equals(
+                DocumentsContract.getDocumentId(left),
+                DocumentsContract.getDocumentId(right)
+            );
+        } catch (Exception ignored) {
+            return left.equals(right);
         }
     }
 
@@ -7817,25 +7937,37 @@ public final class ControlerWidgetDataStore {
         if (TextUtils.isEmpty(value)) {
             return "";
         }
-        return value.length() >= 10 ? value.substring(0, 10) : value;
+        String trimmedValue = value.trim();
+        Date parsedDate = parseDateTimeValue(trimmedValue);
+        if (parsedDate != null) {
+            Calendar calendar = Calendar.getInstance();
+            calendar.setTime(parsedDate);
+            return String.format(
+                Locale.US,
+                "%04d-%02d-%02d",
+                calendar.get(Calendar.YEAR),
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.DAY_OF_MONTH)
+            );
+        }
+        return trimmedValue.length() >= 10 ? trimmedValue.substring(0, 10) : trimmedValue;
     }
 
     public static int extractHour(String timestamp) {
         if (TextUtils.isEmpty(timestamp)) {
             return 0;
         }
-        try {
-            if (timestamp.length() >= 13) {
-                return Math.max(0, Math.min(23, Integer.parseInt(timestamp.substring(11, 13))));
-            }
-        } catch (Exception ignored) {
-        }
-
         Date parsedDate = parseDateTimeValue(timestamp);
         if (parsedDate != null) {
             Calendar calendar = Calendar.getInstance();
             calendar.setTime(parsedDate);
             return calendar.get(Calendar.HOUR_OF_DAY);
+        }
+        try {
+            if (timestamp.length() >= 13) {
+                return Math.max(0, Math.min(23, Integer.parseInt(timestamp.substring(11, 13))));
+            }
+        } catch (Exception ignored) {
         }
         return 0;
     }
@@ -7942,6 +8074,8 @@ public final class ControlerWidgetDataStore {
             checkinItem.repeatType = item.optString("repeatType", "daily");
             checkinItem.repeatWeekdays = parseIntArray(item.optJSONArray("repeatWeekdays"));
             checkinItem.color = item.optString("color", "#4299e1");
+            checkinItem.status = item.optString("status", "in_progress");
+            checkinItem.deletedAt = item.optString("deletedAt", "");
             state.checkinItems.add(checkinItem);
         }
     }

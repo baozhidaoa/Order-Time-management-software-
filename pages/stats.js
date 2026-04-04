@@ -6335,9 +6335,35 @@ function getStatsRecordNeighborBounds(locator) {
     return null;
   }
   const currentRecord = timelineRecords[currentIndex];
-  const previousRecord = currentIndex > 0 ? timelineRecords[currentIndex - 1] : null;
-  const nextRecord =
-    currentIndex < timelineRecords.length - 1 ? timelineRecords[currentIndex + 1] : null;
+  const currentStartTime = currentRecord.startTime.getTime();
+  const currentEndTime = currentRecord.endTime.getTime();
+  let previousRecord = null;
+  let nextRecord = null;
+
+  // 对已有重叠记录放宽边界，只用最近的非冲突记录约束编辑范围。
+  timelineRecords.forEach((record, index) => {
+    if (index === currentIndex) {
+      return;
+    }
+
+    const recordStartTime = record.startTime.getTime();
+    const recordEndTime = record.endTime.getTime();
+
+    if (
+      recordEndTime <= currentStartTime &&
+      (!previousRecord || recordEndTime > previousRecord.endTime.getTime())
+    ) {
+      previousRecord = record;
+    }
+
+    if (
+      recordStartTime >= currentEndTime &&
+      (!nextRecord || recordStartTime < nextRecord.startTime.getTime())
+    ) {
+      nextRecord = record;
+    }
+  });
+
   const minimumStart = previousRecord
     ? new Date(previousRecord.endTime.getTime())
     : getStatsDayStart(currentRecord.startTime);

@@ -65,6 +65,15 @@ function localizeIndexUiText(value) {
 }
 
 function waitForIndexStorageReady() {
+  if (
+    window.ControlerStorage?.isNativeApp === true &&
+    (
+      typeof window.ControlerStorage?.getPageBootstrapState === "function" ||
+      typeof window.ControlerStorage?.loadSectionRange === "function"
+    )
+  ) {
+    return Promise.resolve(true);
+  }
   if (typeof window.ControlerStorage?.whenReady !== "function") {
     return Promise.resolve(true);
   }
@@ -189,7 +198,7 @@ const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const INDEX_RECENT_SAVE_EMPTY_GUARD_MS = 8000;
 const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY =
   "migration:index:legacy-record-project-recovery:v1";
-const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION = 4;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION = 5;
 const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_IDLE_TIMEOUT_MS = 4000;
 const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME = "历史记录恢复";
 const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME = "旧记录项目";
@@ -493,9 +502,6 @@ function bindIndexShellVisibilityGate() {
       invalidateIndexDeferredWorkspaceHydration({
         pendingResume: !indexInitialDataValidated,
       });
-      if (clearIndexLegacyRecordProjectRecoverySchedule()) {
-        indexLegacyRecordProjectRecoveryPendingResume = true;
-      }
       return;
     }
 
@@ -519,10 +525,6 @@ function bindIndexShellVisibilityGate() {
     if (indexDeferredRuntimePendingResume) {
       indexDeferredRuntimePendingResume = false;
       void ensureIndexDeferredRuntimeLoaded();
-    }
-    if (indexLegacyRecordProjectRecoveryPendingResume) {
-      indexLegacyRecordProjectRecoveryPendingResume = false;
-      scheduleIndexLegacyRecordProjectRecovery();
     }
     if (indexThemeRefreshPending) {
       indexThemeRefreshPending = false;
@@ -5648,6 +5650,99 @@ async function replaceIndexPersistedRecordPartitions(recordList = [], options = 
   return true;
 }
 
+async function persistIndexAuthoritativeRecordsToStorage(
+  normalizedAllRecords = [],
+  options = {},
+) {
+  if (typeof window.ControlerStorage?.saveSectionRange !== "function") {
+    return {
+      strategy: "unsupported",
+      changedRecordCount: 0,
+      touchedPeriodIds: [],
+    };
+  }
+
+  const reason =
+    typeof options?.reason === "string" && options.reason.trim()
+      ? options.reason.trim()
+      : "index-record-persist";
+  const previousNormalizedRecords = Array.isArray(options?.previousNormalizedRecords)
+    ? options.previousNormalizedRecords
+    : null;
+
+  if (
+    Array.isArray(previousNormalizedRecords) &&
+    typeof indexRecordPersistenceApi?.persistRecordMutations === "function"
+  ) {
+    const mutations = buildIndexRecordMutationSet(
+      previousNormalizedRecords,
+      normalizedAllRecords,
+    );
+    emitIndexStructuredLog("index.record-persist", {
+      stage: "mutations",
+      reason,
+      changedRecordCount: mutations.changedRecordCount,
+      touchedPeriodCount: mutations.touchedPeriodIds.length,
+      touchedPeriodIds: mutations.touchedPeriodIds,
+    });
+    emitIndexDebugPerf("index-record-persist", {
+      stage: "mutations",
+      reason,
+      changedRecordCount: mutations.changedRecordCount,
+      touchedPeriodCount: mutations.touchedPeriodIds.length,
+      touchedPeriodIds: mutations.touchedPeriodIds,
+    });
+    if (mutations.touchedPeriodIds.length > 0) {
+      await indexRecordPersistenceApi.persistRecordMutations({
+        periodIds: mutations.touchedPeriodIds,
+        currentRecords: normalizedAllRecords,
+        upserts: mutations.upserts,
+        removedItems: mutations.removedItems,
+        allRecordsLoaded: true,
+        supportsPatch:
+          window.ControlerStorage?.capabilities?.recordPartitionPatch === true,
+        loadSectionRange: (section, scope) =>
+          window.ControlerStorage.loadSectionRange(section, scope),
+        saveSectionRange: (section, payload) =>
+          window.ControlerStorage.saveSectionRange(section, payload),
+        getPeriodId: getIndexRecordPeriodId,
+        getPeriodIds: getIndexRecordPeriodIdsForRecord,
+        buildMergeKey: buildIndexRecordPatchKey,
+        sortItems: sortIndexRecordPartitionItems,
+        cloneValue: cloneIndexValue,
+      });
+    }
+    return {
+      strategy: "mutations",
+      changedRecordCount: mutations.changedRecordCount,
+      touchedPeriodIds: mutations.touchedPeriodIds,
+    };
+  }
+
+  emitIndexStructuredLog("index.record-persist", {
+    stage: "full-replace",
+    reason,
+    totalRecordCount: Array.isArray(normalizedAllRecords)
+      ? normalizedAllRecords.length
+      : 0,
+  });
+  emitIndexDebugPerf("index-record-persist", {
+    stage: "full-replace",
+    reason,
+    totalRecordCount: Array.isArray(normalizedAllRecords)
+      ? normalizedAllRecords.length
+      : 0,
+  });
+  await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
+    reason,
+  });
+  return {
+    strategy: "full-replace",
+    changedRecordCount: null,
+    touchedPeriodIds: getIndexRecordPeriodIds(normalizedAllRecords),
+  };
+}
+
 function dedupeIndexLoadedRecords(recordList = []) {
   const orderedKeys = [];
   const dedupedByKey = new Map();
@@ -5961,8 +6056,9 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
         : "index-project-record-replace";
 
     if (hasRecordRangeStorage) {
-      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
+      await persistIndexAuthoritativeRecordsToStorage(normalizedAllRecords, {
         reason,
+        previousNormalizedRecords: options.previousNormalizedRecords,
       });
       await window.ControlerStorage.replaceCoreState(
         {
@@ -6092,8 +6188,9 @@ async function replaceIndexAuthoritativeRecords(
         : "index-record-replace";
 
     if (hasRecordRangeStorage) {
-      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
+      await persistIndexAuthoritativeRecordsToStorage(normalizedAllRecords, {
         reason,
+        previousNormalizedRecords: options.previousNormalizedRecords,
       });
     } else {
       await window.ControlerStorage.replaceCoreState(
@@ -9067,7 +9164,6 @@ async function handleIndexModalConfirmClick() {
         message: "正在写入新记录，请稍候后再切换页面。",
         delayMs: 0,
         lockNativeExit: false,
-        delegateToNative: false,
       });
       await waitForIndexUiPaint();
     }
@@ -11477,6 +11573,7 @@ function showProjectEditModal(project) {
                   records,
                   authoritativeProjects,
                 ),
+                previousNormalizedRecords: authoritativeNormalizedRecords,
               },
             );
             mergeRepairedDurations = true;
@@ -11496,6 +11593,7 @@ function showProjectEditModal(project) {
             {
               reason: "project-merge-full-history",
               visibleRecords: visibleMergeResult.items,
+              previousNormalizedRecords: authoritativeNormalizedRecords,
             },
           );
           updateProjectNameReferences(
@@ -12748,6 +12846,117 @@ function buildIndexRecordPatchKey(record = {}) {
   });
 }
 
+function createIndexRecordMutationSignature(record = {}) {
+  return JSON.stringify({
+    id: String(record?.id || "").trim(),
+    timestamp: String(record?.timestamp || "").trim(),
+    sptTime: String(record?.sptTime || "").trim(),
+    startTime: String(record?.startTime || "").trim(),
+    endTime: String(record?.endTime || "").trim(),
+    rawEndTime: String(record?.rawEndTime || "").trim(),
+    durationMs:
+      Number.isFinite(record?.durationMs) && record.durationMs >= 0
+        ? Math.round(record.durationMs)
+        : null,
+    spendtime: String(record?.spendtime || "").trim(),
+    name: String(record?.name || "").trim(),
+    projectId: String(record?.projectId || "").trim(),
+    nextProjectName: String(record?.nextProjectName || "").trim(),
+    nextProjectId: String(record?.nextProjectId || "").trim(),
+    durationMeta: normalizeRecordDurationMeta(record?.durationMeta),
+    clickCount:
+      Number.isFinite(record?.clickCount) && record.clickCount > 0
+        ? Math.max(1, Math.floor(record.clickCount))
+        : null,
+    timerRollbackState: normalizeTimerRollbackState(
+      record?.timerRollbackState,
+    ),
+  });
+}
+
+function buildIndexRecordMutationSet(previousRecords = [], nextRecords = []) {
+  const previousByKey = new Map();
+  const nextByKey = new Map();
+  (Array.isArray(previousRecords) ? previousRecords : []).forEach((record) => {
+    previousByKey.set(buildIndexRecordPatchKey(record), record);
+  });
+  (Array.isArray(nextRecords) ? nextRecords : []).forEach((record) => {
+    nextByKey.set(buildIndexRecordPatchKey(record), record);
+  });
+
+  const touchedPeriodIds = new Set();
+  const upserts = [];
+  const removedItems = [];
+  let changedRecordCount = 0;
+  const mutationKeys = new Set([
+    ...previousByKey.keys(),
+    ...nextByKey.keys(),
+  ]);
+
+  mutationKeys.forEach((mutationKey) => {
+    const previousRecord = previousByKey.get(mutationKey) || null;
+    const nextRecord = nextByKey.get(mutationKey) || null;
+    if (previousRecord && nextRecord) {
+      if (
+        createIndexRecordMutationSignature(previousRecord) ===
+        createIndexRecordMutationSignature(nextRecord)
+      ) {
+        return;
+      }
+      changedRecordCount += 1;
+      const previousPeriodIds = normalizeIndexRecordPeriodIdList(
+        getIndexRecordPeriodIdsForRecord(previousRecord),
+      );
+      const nextPeriodIds = normalizeIndexRecordPeriodIdList(
+        getIndexRecordPeriodIdsForRecord(nextRecord),
+      );
+      const periodIdsChanged =
+        previousPeriodIds.length !== nextPeriodIds.length ||
+        previousPeriodIds.some(
+          (periodId, index) => periodId !== nextPeriodIds[index],
+        );
+      if (periodIdsChanged) {
+        removedItems.push(cloneIndexValue(previousRecord));
+      }
+      upserts.push(cloneIndexValue(nextRecord));
+      [...previousPeriodIds, ...nextPeriodIds].forEach((periodId) => {
+        if (periodId) {
+          touchedPeriodIds.add(periodId);
+        }
+      });
+      return;
+    }
+    if (previousRecord) {
+      changedRecordCount += 1;
+      removedItems.push(cloneIndexValue(previousRecord));
+      getIndexRecordPeriodIdsForRecord(previousRecord).forEach((periodId) => {
+        if (periodId) {
+          touchedPeriodIds.add(periodId);
+        }
+      });
+      return;
+    }
+    if (nextRecord) {
+      changedRecordCount += 1;
+      upserts.push(cloneIndexValue(nextRecord));
+      getIndexRecordPeriodIdsForRecord(nextRecord).forEach((periodId) => {
+        if (periodId) {
+          touchedPeriodIds.add(periodId);
+        }
+      });
+    }
+  });
+
+  return {
+    upserts,
+    removedItems,
+    changedRecordCount,
+    touchedPeriodIds: normalizeIndexRecordPeriodIdList([
+      ...touchedPeriodIds,
+    ]),
+  };
+}
+
 function ensureIndexPendingRecordPatch(periodId) {
   if (!indexPendingRecordPatchByPeriod.has(periodId)) {
     indexPendingRecordPatchByPeriod.set(periodId, {
@@ -13169,6 +13378,10 @@ async function runIndexLegacyRecordProjectRecovery() {
         authoritative: true,
       }),
     ]);
+    const authoritativeNormalizedRecords = normalizeIndexLoadedRecords(
+      authoritativeRecords,
+      authoritativeProjects,
+    );
     const authoritativePeriodIds = getIndexRecordPeriodIds(
       Array.isArray(authoritativeRecords) ? authoritativeRecords : [],
     );
@@ -13236,6 +13449,7 @@ async function runIndexLegacyRecordProjectRecovery() {
       {
         reason: "legacy-record-project-recovery",
         visibleRecords: normalizeIndexLoadedRecords(records, recoveryPlan.projects),
+        previousNormalizedRecords: authoritativeNormalizedRecords,
       },
     );
 
@@ -13891,6 +14105,10 @@ async function updateRecordsProjectName(
   const authoritativeRecords = await loadAllIndexRecordsFromStorage({
     authoritative: true,
   });
+  const authoritativeNormalizedRecords = normalizeIndexLoadedRecords(
+    authoritativeRecords,
+    projectList,
+  );
   const fullRenameResult = renameProjectRecordsInList(
     authoritativeRecords,
     oldName,
@@ -13917,6 +14135,7 @@ async function updateRecordsProjectName(
       {
         reason: options.reason || "project-rename-history-repair",
         visibleRecords: visibleRenameResult.items,
+        previousNormalizedRecords: authoritativeNormalizedRecords,
       },
     );
   } else {
@@ -13925,6 +14144,7 @@ async function updateRecordsProjectName(
       visibleRecords: visibleRenameResult.items,
       projectList,
       refreshUi: options.refreshUi,
+      previousNormalizedRecords: authoritativeNormalizedRecords,
     });
   }
 
@@ -14250,7 +14470,6 @@ async function finalizeIndexInitialHydration(options = {}) {
   window.setTimeout(() => {
     reportIndexDebugInteractivityState("initial-hydration");
   }, 300);
-  scheduleIndexLegacyRecordProjectRecovery();
   if (scheduleDeferredRuntime) {
     if (!indexShellPageActive) {
       indexDeferredRuntimePendingResume = true;

@@ -6452,6 +6452,8 @@ public final class ControlerWidgetRenderer {
             signature.addString(item == null ? "" : item.endDate);
             signature.addString(item == null ? "" : item.repeatType);
             signature.addString(item == null ? "" : item.color);
+            signature.addString(item == null ? "" : item.status);
+            signature.addString(item == null ? "" : item.deletedAt);
             appendIntegerListSignature(signature, item == null ? null : item.repeatWeekdays);
         }
     }
@@ -6701,12 +6703,50 @@ public final class ControlerWidgetRenderer {
         return false;
     }
 
+    private static String normalizeCheckinStatus(String status) {
+        String normalized = safeText(status).toLowerCase(Locale.ROOT);
+        if ("stopped".equals(normalized) || "已停止".equals(normalized)) {
+            return "stopped";
+        }
+        if ("ended".equals(normalized) || "结束".equals(normalized)) {
+            return "ended";
+        }
+        return "in_progress";
+    }
+
+    private static boolean isCheckinDeleted(
+        ControlerWidgetDataStore.CheckinItemInfo item
+    ) {
+        return item != null && !TextUtils.isEmpty(safeText(item.deletedAt));
+    }
+
+    private static String getCheckinEffectiveStatus(
+        ControlerWidgetDataStore.CheckinItemInfo item,
+        String dayText
+    ) {
+        if (item == null || isCheckinDeleted(item)) {
+            return "deleted";
+        }
+        String storedStatus = normalizeCheckinStatus(item.status);
+        if ("stopped".equals(storedStatus) || "ended".equals(storedStatus)) {
+            return storedStatus;
+        }
+        String endDate = safeText(item.endDate);
+        if (!TextUtils.isEmpty(endDate) && !TextUtils.isEmpty(dayText) && dayText.compareTo(endDate) >= 0) {
+            return "stopped";
+        }
+        return "in_progress";
+    }
+
     private static boolean checkinScheduledOn(
         ControlerWidgetDataStore.CheckinItemInfo item,
         Calendar day,
         String dayText
     ) {
         if (item == null) {
+            return false;
+        }
+        if (!"in_progress".equals(getCheckinEffectiveStatus(item, dayText))) {
             return false;
         }
         if (!inDateRange(dayText, item.startDate, item.endDate)) {

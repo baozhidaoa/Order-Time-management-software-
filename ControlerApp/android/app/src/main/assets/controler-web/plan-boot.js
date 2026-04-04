@@ -727,6 +727,15 @@ function isPlanShellTransitionLoading() {
 }
 
 function waitForPlanStorageReady() {
+  if (
+    window.ControlerStorage?.isNativeApp === true &&
+    (
+      typeof window.ControlerStorage?.getPageBootstrapState === "function" ||
+      typeof window.ControlerStorage?.loadSectionRange === "function"
+    )
+  ) {
+    return Promise.resolve(true);
+  }
   if (typeof window.ControlerStorage?.whenReady !== "function") {
     return Promise.resolve(true);
   }
@@ -2809,14 +2818,34 @@ async function toggleLinkedPlanSourceCompletion(
       sourceType === "todo" &&
       typeof runtime?.toggleTodoCompletionById === "function"
     ) {
-      return !!runtime.toggleTodoCompletionById(sourceId, dateKey);
+      const toggled = !!runtime.toggleTodoCompletionById(sourceId, dateKey);
+      if (
+        toggled &&
+        typeof runtime?.flushPendingChanges === "function"
+      ) {
+        await runtime.flushPendingChanges({
+          kind: "todo",
+          targetId: sourceId,
+        });
+      }
+      return toggled;
     }
     if (
       sourceType === "checkin" &&
       dateKey &&
       typeof runtime?.toggleCheckinByIdOnDate === "function"
     ) {
-      return !!runtime.toggleCheckinByIdOnDate(sourceId, dateKey);
+      const toggled = !!runtime.toggleCheckinByIdOnDate(sourceId, dateKey);
+      if (
+        toggled &&
+        typeof runtime?.flushPendingChanges === "function"
+      ) {
+        await runtime.flushPendingChanges({
+          kind: "checkin",
+          targetId: sourceId,
+        });
+      }
+      return toggled;
     }
   } catch (error) {
     console.error("切换关联源事项完成状态失败:", error);

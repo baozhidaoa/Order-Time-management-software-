@@ -13,6 +13,15 @@ function formatOutput(prefix, value) {
   return `${prefix}${text}`;
 }
 
+function shouldRetryForFileLock(result) {
+  const combinedOutput = `${result?.stdout || ""}\n${result?.stderr || ""}`;
+  return /being used by another process|cannot access the file/i.test(combinedOutput);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function sign(configuration) {
   const cscInfo = configuration.cscInfo;
   if (!cscInfo || typeof cscInfo !== "object" || !("file" in cscInfo) || !cscInfo.file) {
@@ -48,29 +57,41 @@ if ($verification.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
 }
 `;
 
-  const result = spawnSync(
-    "pwsh.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      "-",
-    ],
-    {
-      input: script,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ORDER_SIGN_TARGET: configuration.path,
-        ORDER_SIGN_PFX: cscInfo.file,
-        ORDER_SIGN_PASSWORD: cscInfo.password || "",
-      },
-    },
-  );
+  let result;
+  const maxAttempts = 6;
 
-  if (result.status !== 0) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    result = spawnSync(
+      "pwsh.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "-",
+      ],
+      {
+        input: script,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ORDER_SIGN_TARGET: configuration.path,
+          ORDER_SIGN_PFX: cscInfo.file,
+          ORDER_SIGN_PASSWORD: cscInfo.password || "",
+        },
+      },
+    );
+
+    if (result.status === 0) {
+      return;
+    }
+
+    if (attempt < maxAttempts && shouldRetryForFileLock(result)) {
+      await delay(2000 * attempt);
+      continue;
+    }
+
     const stdout = formatOutput("stdout:\n", result.stdout);
     const stderr = formatOutput("stderr:\n", result.stderr);
     throw new Error(

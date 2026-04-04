@@ -1756,33 +1756,56 @@ function selectShellText(
 
 export function resolveShellBlockingOverlayPayload({
   transitionState,
-  webViewSlots,
-  activeSlot,
   activeBusyOverlay,
+  busyOverlayStates,
   shellLanguage,
 }: {
-  transitionState: Pick<TransitionState, 'status' | 'toSlot'> | null;
-  webViewSlots: Record<WebViewSlot, WebViewSlotState>;
-  activeSlot: WebViewSlot;
+  transitionState: Pick<TransitionState, 'status' | 'toSlot' | 'fromSlot'> | null;
   activeBusyOverlay: BusyOverlayState;
+  busyOverlayStates: Record<WebViewSlot, BusyOverlayState>;
   shellLanguage: UiLanguage;
 }): ShellBlockingOverlayPayload {
-  if (
-    activeBusyOverlay.active &&
-    activeBusyOverlay.presentation === 'native-fullscreen'
-  ) {
+  const resolveBusyOverlayPayload = (
+    busyOverlay: BusyOverlayState | null | undefined,
+  ): ShellBlockingOverlayPayload => {
+    if (
+      !busyOverlay?.active ||
+      busyOverlay.presentation !== 'native-fullscreen'
+    ) {
+      return null;
+    }
     return {
       title:
-        activeBusyOverlay.title ||
+        busyOverlay.title ||
         selectShellText(shellLanguage, '正在处理数据', 'Working on your data'),
       message:
-        activeBusyOverlay.message ||
+        busyOverlay.message ||
         selectShellText(
           shellLanguage,
           '正在准备当前页面，请稍候。',
           'Preparing the current page.',
         ),
     };
+  };
+
+  const activePayload = resolveBusyOverlayPayload(activeBusyOverlay);
+  if (activePayload) {
+    return activePayload;
+  }
+
+  if (transitionState?.status === 'loading') {
+    const targetPayload = resolveBusyOverlayPayload(
+      busyOverlayStates[transitionState.toSlot],
+    );
+    if (targetPayload) {
+      return targetPayload;
+    }
+    const sourcePayload = resolveBusyOverlayPayload(
+      busyOverlayStates[transitionState.fromSlot],
+    );
+    if (sourcePayload) {
+      return sourcePayload;
+    }
   }
 
   return null;
@@ -2283,6 +2306,18 @@ function buildBridgeBootstrapScript(
     .replace(/\u2029/g, '\\u2029');
   return `
     (function () {
+      const pendingNativeMessages = Array.isArray(
+        window.__CONTROLER_PENDING_NATIVE_MESSAGES__,
+      )
+        ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
+        : [];
+      window.__CONTROLER_PENDING_NATIVE_MESSAGES__ = pendingNativeMessages;
+      window.__controlerReceiveNativeMessage = function bootstrapReceive(
+        message,
+      ) {
+        pendingNativeMessages.push(message);
+        return true;
+      };
       window.__CONTROLER_RN_META__ = {
         ...${JSON.stringify(platformContract.getReactNativeRuntimeProfile(Platform.OS))},
         runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
@@ -2292,31 +2327,33 @@ function buildBridgeBootstrapScript(
       const themeBootstrapState = ${serializedThemeBootstrapState};
       try {
         const root = document.documentElement;
+        const localThemeMirrorPrefix = '__controler_local__:';
+        const selectedTheme =
+          typeof themeState?.selectedTheme === 'string' &&
+          themeState.selectedTheme.trim()
+            ? themeState.selectedTheme.trim()
+            : 'default';
+        const customThemes = Array.isArray(themeState?.customThemes)
+          ? themeState.customThemes
+          : [];
+        const builtInThemeOverrides =
+          themeState?.builtInThemeOverrides &&
+          typeof themeState.builtInThemeOverrides === 'object' &&
+          !Array.isArray(themeState.builtInThemeOverrides)
+            ? themeState.builtInThemeOverrides
+            : {};
         if (window.localStorage && typeof window.localStorage.setItem === 'function') {
           window.localStorage.setItem(
-            'selectedTheme',
-            typeof themeState?.selectedTheme === 'string' &&
-              themeState.selectedTheme.trim()
-              ? themeState.selectedTheme.trim()
-              : 'default',
+            localThemeMirrorPrefix + 'selectedTheme',
+            selectedTheme,
           );
           window.localStorage.setItem(
-            'customThemes',
-            JSON.stringify(
-              Array.isArray(themeState?.customThemes)
-                ? themeState.customThemes
-                : [],
-            ),
+            localThemeMirrorPrefix + 'customThemes',
+            JSON.stringify(customThemes),
           );
           window.localStorage.setItem(
-            'builtInThemeOverrides',
-            JSON.stringify(
-              themeState?.builtInThemeOverrides &&
-                typeof themeState.builtInThemeOverrides === 'object' &&
-                !Array.isArray(themeState.builtInThemeOverrides)
-                ? themeState.builtInThemeOverrides
-                : {},
-            ),
+            localThemeMirrorPrefix + 'builtInThemeOverrides',
+            JSON.stringify(builtInThemeOverrides),
           );
         }
         if (root && themeBootstrapState && typeof themeBootstrapState === 'object') {
@@ -2381,20 +2418,9 @@ function buildBridgeBootstrapScript(
               payload: {
                 name: 'ui.theme-applied',
                 href: window.location.href,
-                selectedTheme:
-                  typeof themeState?.selectedTheme === 'string' &&
-                  themeState.selectedTheme.trim()
-                    ? themeState.selectedTheme.trim()
-                    : 'default',
-                customThemes: Array.isArray(themeState?.customThemes)
-                  ? themeState.customThemes
-                  : [],
-                builtInThemeOverrides:
-                  themeState?.builtInThemeOverrides &&
-                  typeof themeState.builtInThemeOverrides === 'object' &&
-                  !Array.isArray(themeState.builtInThemeOverrides)
-                    ? themeState.builtInThemeOverrides
-                    : {},
+                selectedTheme,
+                customThemes,
+                builtInThemeOverrides,
               },
             }),
           );
@@ -2654,6 +2680,8 @@ function App({
   );
   const lastPresentedPageKeyRef = useRef<AppPageKey | ''>('');
   const lastVisiblePagePersistedRef = useRef<AppPageKey | ''>('');
+  const lastShellBlockingOverlayRef =
+    useRef<ShellBlockingOverlayPayload>(null);
   const postBridgeEventRef = useRef(
     (
       _slot: WebViewSlot,
@@ -3738,6 +3766,7 @@ function App({
   const prewarmNavigationPage = useCallback(
     (pageKey: AppPageKey) => {
       if (
+        IS_ANDROID ||
         transitionStateRef.current ||
         !isPageReadyRef.current ||
         isPageKeyHidden(pageKey)
@@ -3871,8 +3900,18 @@ function App({
       const transitionLoading =
         loadingTransition?.status === 'loading' &&
         slot === loadingTransition.toSlot;
+      const activeDuringAndroidTransition =
+        IS_ANDROID &&
+        loadingTransition?.status === 'loading' &&
+        slot === loadingTransition.toSlot;
+      const suspendSourceSlotDuringAndroidTransition =
+        IS_ANDROID &&
+        loadingTransition?.status === 'loading' &&
+        slot === loadingTransition.fromSlot;
       const payload = {
-        active: slot === presentedSlot,
+        active: suspendSourceSlotDuringAndroidTransition
+          ? false
+          : slot === presentedSlot || activeDuringAndroidTransition,
         slot,
         reason,
         page: slotState.pageKey,
@@ -4308,17 +4347,6 @@ function App({
     setTransitionState(null);
     transitionProgress.setValue(0);
     clearHiddenCachedSlots();
-    if (IS_ANDROID) {
-      requestAnimationFrame(() => {
-        if (
-          transitionStateRef.current ||
-          activeSlotRef.current !== nextActiveSlot
-        ) {
-          return;
-        }
-        clearInactiveCachedSlots();
-      });
-    }
     if (queuedNavigationRequestRef.current) {
       requestAnimationFrame(() => {
         flushQueuedNavigationRequestIfReady('transition-complete');
@@ -4548,12 +4576,17 @@ function App({
     const direction =
       normalizeNavigationDirection(payload.direction) ||
       getNavigationDirection(currentState.pageKey, target.pageKey);
+    const shouldAwaitFreshReadySignal =
+      IS_ANDROID && !nextSlotState.needsLoad && nextSlotState.slotReady;
 
     canGoBackBySlotRef.current[nextSlot] = false;
     modalOpenBySlotRef.current[nextSlot] = false;
     busyLockBySlotRef.current[nextSlot] = false;
     edgeBackSwipeExclusionBySlotRef.current[nextSlot] =
       createDefaultEdgeBackSwipeExclusionState();
+    if (shouldAwaitFreshReadySignal) {
+      slotPageReadyRef.current[nextSlot] = false;
+    }
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     const nextTransition: TransitionState = {
@@ -4594,7 +4627,15 @@ function App({
         },
       }));
     } else if (nextSlotState.slotReady) {
-      startLoadedTransition(nextSlot);
+      if (shouldAwaitFreshReadySignal) {
+        armTransitionWatchdog(
+          nextTransition,
+          target.uri,
+          PAGE_SWITCH_LOAD_TIMEOUT_MS,
+        );
+      } else {
+        startLoadedTransition(nextSlot);
+      }
     } else {
       armTransitionWatchdog(
         nextTransition,
@@ -6414,7 +6455,9 @@ function App({
     const transitionLoadingSlot =
       currentTransition?.status === 'loading' ? currentTransition.toSlot : null;
     const shellSlotActive =
-      currentTransition?.status === 'loading' ? false : slot === activeSlot;
+      currentTransition?.status === 'loading'
+        ? IS_ANDROID && slot === transitionLoadingSlot
+        : slot === activeSlot;
     const panelWidth = Math.max(webViewHostWidth, 1);
     const androidHiddenOffset = Math.max(Math.round(panelWidth * 1.35), 96);
     const enterDistance =
@@ -6678,13 +6721,22 @@ function App({
 
   const activeUri = webViewSlots[activeSlot].uri;
   const activeBusyOverlay = busyOverlayBySlotRef.current[activeSlot];
-  const shellBlockingOverlay = resolveShellBlockingOverlayPayload({
+  const liveShellBlockingOverlay = resolveShellBlockingOverlayPayload({
     transitionState,
-    webViewSlots,
-    activeSlot,
     activeBusyOverlay,
+    busyOverlayStates: busyOverlayBySlotRef.current,
     shellLanguage,
   });
+  if (liveShellBlockingOverlay) {
+    lastShellBlockingOverlayRef.current = liveShellBlockingOverlay;
+  } else if (transitionState?.status !== 'loading') {
+    lastShellBlockingOverlayRef.current = null;
+  }
+  const shellBlockingOverlay =
+    liveShellBlockingOverlay ||
+    (transitionState?.status === 'loading'
+      ? lastShellBlockingOverlayRef.current
+      : null);
   const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
   const shouldBlockTouchesDuringTransition =
     transitionState?.status === 'loading';

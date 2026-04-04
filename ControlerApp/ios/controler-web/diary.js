@@ -184,6 +184,15 @@ function shouldRefreshDiaryForExternalChange(detail = {}) {
 }
 
 function waitForDiaryStorageReady() {
+  if (
+    window.ControlerStorage?.isNativeApp === true &&
+    (
+      typeof window.ControlerStorage?.getPageBootstrapState === "function" ||
+      typeof window.ControlerStorage?.loadSectionRange === "function"
+    )
+  ) {
+    return Promise.resolve(true);
+  }
   if (typeof window.ControlerStorage?.whenReady !== "function") {
     return Promise.resolve(true);
   }

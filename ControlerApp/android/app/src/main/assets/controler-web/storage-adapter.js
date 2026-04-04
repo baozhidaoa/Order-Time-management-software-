@@ -1,6 +1,8 @@
 (() => {
   const CONTROLER_STORAGE_EVENT = "controler:storage-data-changed";
   const CONTROLER_STORAGE_ERROR_EVENT = "controler:storage-sync-error";
+  const CONTROLER_SHELL_RESUME_SETTLED_EVENT =
+    "controler:shell-resume-settled";
   const MOBILE_FILE_NAME = "bundle-manifest.json";
   const BROWSER_STATE_KEY = "__controler_browser_state__";
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
@@ -111,6 +113,27 @@
       });
     } catch (error) {
       console.info("[storage-perf]", String(stage || "").trim());
+    }
+  }
+
+  function dispatchShellResumeSettledEvent(reason, payload = {}) {
+    const normalizedReason =
+      typeof reason === "string" && reason.trim() ? reason.trim() : "";
+    if (normalizedReason !== "shell-resume") {
+      return;
+    }
+    try {
+      window.dispatchEvent(
+        new CustomEvent(CONTROLER_SHELL_RESUME_SETTLED_EVENT, {
+          detail: {
+            reason: normalizedReason,
+            href: typeof window.location?.href === "string" ? window.location.href : "",
+            ...(payload && typeof payload === "object" ? payload : {}),
+          },
+        }),
+      );
+    } catch (error) {
+      // Ignore dispatch failures.
     }
   }
   const resolvedRuntimeCapabilities =
@@ -1829,10 +1852,96 @@
       !Array.isArray(loaders.fallbackState)
         ? loaders.fallbackState
         : {};
-    const rawCoreState =
+    const coreStatePromise =
       typeof loaders?.getCoreState === "function"
-        ? (await loaders.getCoreState()) || {}
-        : {};
+        ? Promise.resolve().then(() => loaders.getCoreState())
+        : Promise.resolve({});
+    const shouldLoadStorageStatus = normalizedPage === "settings";
+    const shouldLoadAutoBackupStatus = normalizedPage === "settings";
+    const storageStatusPromise =
+      shouldLoadStorageStatus && typeof loaders?.getStorageStatus === "function"
+        ? Promise.resolve().then(() => loaders.getStorageStatus())
+        : Promise.resolve(null);
+    const autoBackupStatusPromise =
+      shouldLoadAutoBackupStatus &&
+      typeof loaders?.getAutoBackupStatus === "function"
+        ? Promise.resolve().then(() => loaders.getAutoBackupStatus())
+        : Promise.resolve(null);
+    let primaryRangePromise = null;
+    let secondaryRangePromise = null;
+    let indexRecordScope = null;
+    let planScope = null;
+    let todoDailyCheckinScope = null;
+    let todoCheckinScope = null;
+    let diaryScope = null;
+    let statsRecordScope = null;
+    if (typeof loaders?.loadSectionRange === "function") {
+      if (normalizedPage === "index") {
+        indexRecordScope =
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildRecentHoursBootstrapScope(48);
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("records", indexRecordScope),
+        );
+      } else if (normalizedPage === "plan") {
+        planScope =
+          options?.planScope && typeof options.planScope === "object"
+            ? options.planScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("plans", planScope),
+        );
+      } else if (normalizedPage === "todo") {
+        todoDailyCheckinScope =
+          options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+            ? options.dailyCheckinScope
+            : buildCurrentDayBootstrapScope();
+        todoCheckinScope =
+          options?.checkinScope && typeof options.checkinScope === "object"
+            ? options.checkinScope
+            : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("dailyCheckins", todoDailyCheckinScope),
+        );
+        secondaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("checkins", todoCheckinScope),
+        );
+      } else if (normalizedPage === "diary") {
+        diaryScope =
+          options?.diaryScope && typeof options.diaryScope === "object"
+            ? options.diaryScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("diaryEntries", diaryScope),
+        );
+      } else if (normalizedPage === "stats") {
+        statsRecordScope =
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("records", statsRecordScope),
+        );
+      }
+    }
+    const [
+      rawCoreState,
+      storageStatus,
+      autoBackupStatus,
+      primaryRange,
+      secondaryRange,
+    ] = await Promise.all([
+      coreStatePromise,
+      storageStatusPromise,
+      autoBackupStatusPromise,
+      primaryRangePromise || Promise.resolve(null),
+      secondaryRangePromise || Promise.resolve(null),
+    ]);
     const coreState = normalizeCorePayloadProjects(rawCoreState).payload;
     const mergedBaseState = {
       ...fallbackState,
@@ -1847,14 +1956,8 @@
           : "",
       builtAt:
         typeof loaders?.builtAt === "string" ? loaders.builtAt : undefined,
-      storageStatus:
-        typeof loaders?.getStorageStatus === "function"
-          ? await loaders.getStorageStatus()
-          : null,
-      autoBackupStatus:
-        typeof loaders?.getAutoBackupStatus === "function"
-          ? await loaders.getAutoBackupStatus()
-          : null,
+      storageStatus,
+      autoBackupStatus,
     };
     const fallback = buildPageBootstrapStateFromState(
       mergedBaseState,
@@ -1868,11 +1971,7 @@
     }
 
     if (normalizedPage === "index") {
-      const recordScope =
-        options?.recordScope && typeof options.recordScope === "object"
-          ? options.recordScope
-          : buildRecentHoursBootstrapScope(48);
-      const range = await loaders.loadSectionRange("records", recordScope);
+      const range = primaryRange;
       const projects = Array.isArray(coreState?.projects)
         ? coreState.projects
         : fallback.data.projects;
@@ -1889,13 +1988,7 @@
     }
 
     if (normalizedPage === "plan") {
-      const planScope =
-        options?.planScope && typeof options.planScope === "object"
-          ? options.planScope
-          : Array.isArray(options?.periodIds) && options.periodIds.length
-            ? { periodIds: options.periodIds }
-            : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("plans", planScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -1913,18 +2006,8 @@
     }
 
     if (normalizedPage === "todo") {
-      const dailyCheckinScope =
-        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
-          ? options.dailyCheckinScope
-          : buildCurrentDayBootstrapScope();
-      const checkinScope =
-        options?.checkinScope && typeof options.checkinScope === "object"
-          ? options.checkinScope
-          : buildCurrentMonthBootstrapScope();
-      const [dailyRange, checkinRange] = await Promise.all([
-        loaders.loadSectionRange("dailyCheckins", dailyCheckinScope),
-        loaders.loadSectionRange("checkins", checkinScope),
-      ]);
+      const dailyRange = primaryRange;
+      const checkinRange = secondaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds([
@@ -1944,13 +2027,7 @@
     }
 
     if (normalizedPage === "diary") {
-      const diaryScope =
-        options?.diaryScope && typeof options.diaryScope === "object"
-          ? options.diaryScope
-          : Array.isArray(options?.periodIds) && options.periodIds.length
-            ? { periodIds: options.periodIds }
-            : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("diaryEntries", diaryScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -1966,11 +2043,7 @@
     }
 
     if (normalizedPage === "stats") {
-      const recordScope =
-        options?.recordScope && typeof options.recordScope === "object"
-          ? options.recordScope
-          : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("records", recordScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -5091,13 +5164,44 @@
     }
 
     function normalizeManagedSectionRangeScope(scope = {}) {
-      return (
-        storageBundle?.normalizeRangeInput?.(scope) || {
-          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-          startDate: scope?.startDate || scope?.start || null,
-          endDate: scope?.endDate || scope?.end || null,
-        }
-      );
+      const source = scope && typeof scope === "object" ? scope : {};
+      const normalizedRange =
+        storageBundle?.normalizeRangeInput?.(source) || {
+          periodIds: Array.isArray(source?.periodIds) ? source.periodIds : [],
+          startDate: source?.startDate || source?.start || null,
+          endDate: source?.endDate || source?.end || null,
+        };
+      const rawStartDate = source?.startDate || source?.start || null;
+      const rawEndDate = source?.endDate || source?.end || null;
+
+      if (!rawStartDate && !rawEndDate) {
+        return normalizedRange;
+      }
+
+      const boundedRange =
+        storageBundle?.normalizeRangeInput?.({
+          startDate: rawStartDate,
+          endDate: rawEndDate,
+        }) || {
+          periodIds: Array.isArray(normalizedRange?.periodIds)
+            ? normalizedRange.periodIds
+            : [],
+          startDate: rawStartDate,
+          endDate: rawEndDate,
+        };
+      const normalizedPeriodIds =
+        storageBundle?.normalizeRangeInput?.({
+          periodIds: Array.isArray(source?.periodIds) ? source.periodIds : [],
+        })?.periodIds ||
+        (Array.isArray(normalizedRange?.periodIds)
+          ? normalizedRange.periodIds
+          : []);
+
+      return {
+        periodIds: normalizedPeriodIds,
+        startDate: boundedRange?.startDate || null,
+        endDate: boundedRange?.endDate || null,
+      };
     }
 
     function isFullManagedSectionRange(normalizedRange = {}) {
@@ -6517,6 +6621,9 @@
       const { resetWindow = true, allowProbeOnlyBypass = true } = options;
       const normalizedReason =
         typeof reason === "string" && reason.trim() ? reason.trim() : "";
+      const reportShellResumeSettled = (payload = {}) => {
+        dispatchShellResumeSettledEvent(normalizedReason, payload);
+      };
       if (normalizedReason === "shell-resume") {
         emitStoragePerfMetric("storage-sync-shell-resume-scheduled", {
           reason: normalizedReason,
@@ -6562,6 +6669,12 @@
           .then(() => runProbeOnlyShellResumeSync(reason || "shell-resume"))
           .catch((error) => {
             console.error("前台恢复轻量同步失败:", error);
+          })
+          .finally(() => {
+            reportShellResumeSettled({
+              path: "probe-only",
+              shellPageActive: shellPageActive === true,
+            });
           });
         return;
       }
@@ -6578,6 +6691,12 @@
           .then(() => runNativeVersionProbe(reason || "external-update"))
           .catch((error) => {
             console.error("前台恢复同步 React Native 存储失败:", error);
+          })
+          .finally(() => {
+            reportShellResumeSettled({
+              path: "version-probe",
+              shellPageActive: shellPageActive === true,
+            });
           });
       }, NATIVE_PROBE_DEBOUNCE_MS);
     }
@@ -6596,6 +6715,13 @@
         persistMirrorSnapshot(true);
         if (isManagedShellInactive()) {
           queueNativeForegroundSyncOnShellResume("shell-resume");
+          updateVersionBaseline(cachedStatus);
+          return;
+        }
+        if (reactNativeBridge?.platform === "android") {
+          // Same-session pending mirror data should be flushed in the background
+          // instead of forcing a blocking full-state read on every page switch.
+          scheduleManagedPendingNativeFlush();
           updateVersionBaseline(cachedStatus);
           return;
         }
@@ -7484,14 +7610,14 @@
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
-          if (isManagedShellInactive()) {
-            queueNativeForegroundSyncOnShellResume("shell-resume");
-            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
-          }
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             nativeBootstrapOptions,
           );
+          if (isManagedShellInactive()) {
+            queueNativeForegroundSyncOnShellResume("shell-resume");
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+          }
           const canUseManagedBootstrapFastPath =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
@@ -7518,14 +7644,7 @@
                 ? await reactNativeBridge.call("storage.getPageBootstrapState", {
                     pageKey: normalizedPage,
                     options: nativeBootstrapOptions,
-                  }).catch(async () =>
-                    reactNativeBridge.call("storage.getBootstrapState", {
-                      options: {
-                        ...nativeBootstrapOptions,
-                        page: normalizedPage,
-                      },
-                    }),
-                  )
+                  })
                 : null;
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {

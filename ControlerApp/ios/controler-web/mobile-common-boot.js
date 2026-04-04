@@ -625,7 +625,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  const pendingNativeMessages = Array.isArray(
+    window.__CONTROLER_PENDING_NATIVE_MESSAGES__,
+  )
+    ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
+    : [];
   window.__controlerReceiveNativeMessage = receive;
+  if (pendingNativeMessages.length > 0) {
+    pendingNativeMessages.splice(0).forEach((message) => {
+      receive(message);
+    });
+  }
   window.ControlerNativeBridge = {
     get isReactNativeApp() {
       return isReactNativeApp();
@@ -3274,6 +3284,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 (() => {
   const CONTROLER_STORAGE_EVENT = "controler:storage-data-changed";
   const CONTROLER_STORAGE_ERROR_EVENT = "controler:storage-sync-error";
+  const CONTROLER_SHELL_RESUME_SETTLED_EVENT =
+    "controler:shell-resume-settled";
   const MOBILE_FILE_NAME = "bundle-manifest.json";
   const BROWSER_STATE_KEY = "__controler_browser_state__";
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
@@ -3384,6 +3396,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     } catch (error) {
       console.info("[storage-perf]", String(stage || "").trim());
+    }
+  }
+
+  function dispatchShellResumeSettledEvent(reason, payload = {}) {
+    const normalizedReason =
+      typeof reason === "string" && reason.trim() ? reason.trim() : "";
+    if (normalizedReason !== "shell-resume") {
+      return;
+    }
+    try {
+      window.dispatchEvent(
+        new CustomEvent(CONTROLER_SHELL_RESUME_SETTLED_EVENT, {
+          detail: {
+            reason: normalizedReason,
+            href: typeof window.location?.href === "string" ? window.location.href : "",
+            ...(payload && typeof payload === "object" ? payload : {}),
+          },
+        }),
+      );
+    } catch (error) {
+      // Ignore dispatch failures.
     }
   }
   const resolvedRuntimeCapabilities =
@@ -5102,10 +5135,96 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !Array.isArray(loaders.fallbackState)
         ? loaders.fallbackState
         : {};
-    const rawCoreState =
+    const coreStatePromise =
       typeof loaders?.getCoreState === "function"
-        ? (await loaders.getCoreState()) || {}
-        : {};
+        ? Promise.resolve().then(() => loaders.getCoreState())
+        : Promise.resolve({});
+    const shouldLoadStorageStatus = normalizedPage === "settings";
+    const shouldLoadAutoBackupStatus = normalizedPage === "settings";
+    const storageStatusPromise =
+      shouldLoadStorageStatus && typeof loaders?.getStorageStatus === "function"
+        ? Promise.resolve().then(() => loaders.getStorageStatus())
+        : Promise.resolve(null);
+    const autoBackupStatusPromise =
+      shouldLoadAutoBackupStatus &&
+      typeof loaders?.getAutoBackupStatus === "function"
+        ? Promise.resolve().then(() => loaders.getAutoBackupStatus())
+        : Promise.resolve(null);
+    let primaryRangePromise = null;
+    let secondaryRangePromise = null;
+    let indexRecordScope = null;
+    let planScope = null;
+    let todoDailyCheckinScope = null;
+    let todoCheckinScope = null;
+    let diaryScope = null;
+    let statsRecordScope = null;
+    if (typeof loaders?.loadSectionRange === "function") {
+      if (normalizedPage === "index") {
+        indexRecordScope =
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildRecentHoursBootstrapScope(48);
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("records", indexRecordScope),
+        );
+      } else if (normalizedPage === "plan") {
+        planScope =
+          options?.planScope && typeof options.planScope === "object"
+            ? options.planScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("plans", planScope),
+        );
+      } else if (normalizedPage === "todo") {
+        todoDailyCheckinScope =
+          options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
+            ? options.dailyCheckinScope
+            : buildCurrentDayBootstrapScope();
+        todoCheckinScope =
+          options?.checkinScope && typeof options.checkinScope === "object"
+            ? options.checkinScope
+            : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("dailyCheckins", todoDailyCheckinScope),
+        );
+        secondaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("checkins", todoCheckinScope),
+        );
+      } else if (normalizedPage === "diary") {
+        diaryScope =
+          options?.diaryScope && typeof options.diaryScope === "object"
+            ? options.diaryScope
+            : Array.isArray(options?.periodIds) && options.periodIds.length
+              ? { periodIds: options.periodIds }
+              : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("diaryEntries", diaryScope),
+        );
+      } else if (normalizedPage === "stats") {
+        statsRecordScope =
+          options?.recordScope && typeof options.recordScope === "object"
+            ? options.recordScope
+            : buildCurrentMonthBootstrapScope();
+        primaryRangePromise = Promise.resolve().then(() =>
+          loaders.loadSectionRange("records", statsRecordScope),
+        );
+      }
+    }
+    const [
+      rawCoreState,
+      storageStatus,
+      autoBackupStatus,
+      primaryRange,
+      secondaryRange,
+    ] = await Promise.all([
+      coreStatePromise,
+      storageStatusPromise,
+      autoBackupStatusPromise,
+      primaryRangePromise || Promise.resolve(null),
+      secondaryRangePromise || Promise.resolve(null),
+    ]);
     const coreState = normalizeCorePayloadProjects(rawCoreState).payload;
     const mergedBaseState = {
       ...fallbackState,
@@ -5120,14 +5239,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           : "",
       builtAt:
         typeof loaders?.builtAt === "string" ? loaders.builtAt : undefined,
-      storageStatus:
-        typeof loaders?.getStorageStatus === "function"
-          ? await loaders.getStorageStatus()
-          : null,
-      autoBackupStatus:
-        typeof loaders?.getAutoBackupStatus === "function"
-          ? await loaders.getAutoBackupStatus()
-          : null,
+      storageStatus,
+      autoBackupStatus,
     };
     const fallback = buildPageBootstrapStateFromState(
       mergedBaseState,
@@ -5141,11 +5254,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (normalizedPage === "index") {
-      const recordScope =
-        options?.recordScope && typeof options.recordScope === "object"
-          ? options.recordScope
-          : buildRecentHoursBootstrapScope(48);
-      const range = await loaders.loadSectionRange("records", recordScope);
+      const range = primaryRange;
       const projects = Array.isArray(coreState?.projects)
         ? coreState.projects
         : fallback.data.projects;
@@ -5162,13 +5271,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (normalizedPage === "plan") {
-      const planScope =
-        options?.planScope && typeof options.planScope === "object"
-          ? options.planScope
-          : Array.isArray(options?.periodIds) && options.periodIds.length
-            ? { periodIds: options.periodIds }
-            : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("plans", planScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -5186,18 +5289,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (normalizedPage === "todo") {
-      const dailyCheckinScope =
-        options?.dailyCheckinScope && typeof options.dailyCheckinScope === "object"
-          ? options.dailyCheckinScope
-          : buildCurrentDayBootstrapScope();
-      const checkinScope =
-        options?.checkinScope && typeof options.checkinScope === "object"
-          ? options.checkinScope
-          : buildCurrentMonthBootstrapScope();
-      const [dailyRange, checkinRange] = await Promise.all([
-        loaders.loadSectionRange("dailyCheckins", dailyCheckinScope),
-        loaders.loadSectionRange("checkins", checkinScope),
-      ]);
+      const dailyRange = primaryRange;
+      const checkinRange = secondaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds([
@@ -5217,13 +5310,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (normalizedPage === "diary") {
-      const diaryScope =
-        options?.diaryScope && typeof options.diaryScope === "object"
-          ? options.diaryScope
-          : Array.isArray(options?.periodIds) && options.periodIds.length
-            ? { periodIds: options.periodIds }
-            : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("diaryEntries", diaryScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -5239,11 +5326,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (normalizedPage === "stats") {
-      const recordScope =
-        options?.recordScope && typeof options.recordScope === "object"
-          ? options.recordScope
-          : buildCurrentMonthBootstrapScope();
-      const range = await loaders.loadSectionRange("records", recordScope);
+      const range = primaryRange;
       return finalizeBootstrapEnvelopeWithProjectRepair({
         ...fallback,
         loadedPeriodIds: normalizeBootstrapPeriodIds(range?.periodIds || []),
@@ -8364,13 +8447,44 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function normalizeManagedSectionRangeScope(scope = {}) {
-      return (
-        storageBundle?.normalizeRangeInput?.(scope) || {
-          periodIds: Array.isArray(scope?.periodIds) ? scope.periodIds : [],
-          startDate: scope?.startDate || scope?.start || null,
-          endDate: scope?.endDate || scope?.end || null,
-        }
-      );
+      const source = scope && typeof scope === "object" ? scope : {};
+      const normalizedRange =
+        storageBundle?.normalizeRangeInput?.(source) || {
+          periodIds: Array.isArray(source?.periodIds) ? source.periodIds : [],
+          startDate: source?.startDate || source?.start || null,
+          endDate: source?.endDate || source?.end || null,
+        };
+      const rawStartDate = source?.startDate || source?.start || null;
+      const rawEndDate = source?.endDate || source?.end || null;
+
+      if (!rawStartDate && !rawEndDate) {
+        return normalizedRange;
+      }
+
+      const boundedRange =
+        storageBundle?.normalizeRangeInput?.({
+          startDate: rawStartDate,
+          endDate: rawEndDate,
+        }) || {
+          periodIds: Array.isArray(normalizedRange?.periodIds)
+            ? normalizedRange.periodIds
+            : [],
+          startDate: rawStartDate,
+          endDate: rawEndDate,
+        };
+      const normalizedPeriodIds =
+        storageBundle?.normalizeRangeInput?.({
+          periodIds: Array.isArray(source?.periodIds) ? source.periodIds : [],
+        })?.periodIds ||
+        (Array.isArray(normalizedRange?.periodIds)
+          ? normalizedRange.periodIds
+          : []);
+
+      return {
+        periodIds: normalizedPeriodIds,
+        startDate: boundedRange?.startDate || null,
+        endDate: boundedRange?.endDate || null,
+      };
     }
 
     function isFullManagedSectionRange(normalizedRange = {}) {
@@ -9790,6 +9904,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const { resetWindow = true, allowProbeOnlyBypass = true } = options;
       const normalizedReason =
         typeof reason === "string" && reason.trim() ? reason.trim() : "";
+      const reportShellResumeSettled = (payload = {}) => {
+        dispatchShellResumeSettledEvent(normalizedReason, payload);
+      };
       if (normalizedReason === "shell-resume") {
         emitStoragePerfMetric("storage-sync-shell-resume-scheduled", {
           reason: normalizedReason,
@@ -9835,6 +9952,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           .then(() => runProbeOnlyShellResumeSync(reason || "shell-resume"))
           .catch((error) => {
             console.error("前台恢复轻量同步失败:", error);
+          })
+          .finally(() => {
+            reportShellResumeSettled({
+              path: "probe-only",
+              shellPageActive: shellPageActive === true,
+            });
           });
         return;
       }
@@ -9851,6 +9974,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           .then(() => runNativeVersionProbe(reason || "external-update"))
           .catch((error) => {
             console.error("前台恢复同步 React Native 存储失败:", error);
+          })
+          .finally(() => {
+            reportShellResumeSettled({
+              path: "version-probe",
+              shellPageActive: shellPageActive === true,
+            });
           });
       }, NATIVE_PROBE_DEBOUNCE_MS);
     }
@@ -9869,6 +9998,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         persistMirrorSnapshot(true);
         if (isManagedShellInactive()) {
           queueNativeForegroundSyncOnShellResume("shell-resume");
+          updateVersionBaseline(cachedStatus);
+          return;
+        }
+        if (reactNativeBridge?.platform === "android") {
+          // Same-session pending mirror data should be flushed in the background
+          // instead of forcing a blocking full-state read on every page switch.
+          scheduleManagedPendingNativeFlush();
           updateVersionBaseline(cachedStatus);
           return;
         }
@@ -10757,14 +10893,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
-          if (isManagedShellInactive()) {
-            queueNativeForegroundSyncOnShellResume("shell-resume");
-            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
-          }
           const canUseManagedBootstrap = canServeManagedPageBootstrap(
             normalizedPage,
             nativeBootstrapOptions,
           );
+          if (isManagedShellInactive()) {
+            queueNativeForegroundSyncOnShellResume("shell-resume");
+            return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
+          }
           const canUseManagedBootstrapFastPath =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
@@ -10791,14 +10927,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
                 ? await reactNativeBridge.call("storage.getPageBootstrapState", {
                     pageKey: normalizedPage,
                     options: nativeBootstrapOptions,
-                  }).catch(async () =>
-                    reactNativeBridge.call("storage.getBootstrapState", {
-                      options: {
-                        ...nativeBootstrapOptions,
-                        page: normalizedPage,
-                      },
-                    }),
-                  )
+                  })
                 : null;
             const parsed = parseJsonSafely(rawPayload, null);
             if (parsed && typeof parsed === "object") {
@@ -15615,6 +15744,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "controler:blocking-overlay-state-changed";
   const SHELL_VISIBILITY_EVENT_NAME =
     "controler:shell-visibility-changed";
+  const SHELL_RESUME_SETTLED_EVENT_NAME =
+    "controler:shell-resume-settled";
   const EDGE_BACK_SWIPE_EXCLUSION_ATTR =
     "data-controler-edge-back-exclusion";
   const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
@@ -15985,6 +16116,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
+  let androidNativeBootstrapTransitionOverlayActive = false;
+  let nativeShellResumeReadyPending = false;
+  let nativeShellResumeReadyVersion = 0;
+  let nativeShellResumeReadyPromise = null;
   let desktopBootstrapPrewarmScheduled = false;
   let desktopBootstrapPrewarmRunning = false;
   let desktopBootstrapPrewarmTimerId = 0;
@@ -16478,6 +16613,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function applyShellVisibilityState(detail = {}) {
     const nextState = normalizeShellVisibilityState(detail);
+    const nextStateEnteringActiveTransitionLoading =
+      isReactNativeNavigationRuntime() &&
+      nextState.active !== false &&
+      nextState.transitionLoading === true &&
+      (shellVisibilityState.active === false ||
+        shellVisibilityState.transitionLoading !== true);
+    const nextStateLeavingActiveTransitionLoading =
+      isReactNativeNavigationRuntime() &&
+      shellVisibilityState.active !== false &&
+      shellVisibilityState.transitionLoading === true &&
+      (nextState.active === false || nextState.transitionLoading !== true);
     const nextSignature = JSON.stringify({
       active: nextState.active,
       slot: nextState.slot,
@@ -16499,7 +16645,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       resetAppPageTransitionRuntimeState({
         clearStoredState: false,
+        hideOverlay: !shouldKeepOverlayDuringNativeShellStateChange(nextState),
       });
+    }
+    if (nextStateEnteringActiveTransitionLoading) {
+      nativeShellResumeReadyPending = nativePageReadyReported === true;
+      nativeShellResumeReadyVersion += 1;
+      nativeShellResumeReadyPromise = null;
+    } else if (nextStateLeavingActiveTransitionLoading) {
+      nativeShellResumeReadyPending = false;
+      nativeShellResumeReadyVersion += 1;
+      nativeShellResumeReadyPromise = null;
     }
 
     lastShellVisibilityStateSignature = nextSignature;
@@ -16509,6 +16665,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       (!nextState.active || !pendingNativeNavigationRequest)
     ) {
       setAndroidReactNativeAppNavLocked(false);
+    }
+    if (nextState.active !== false) {
+      syncAndroidNativeBootstrapTransitionOverlay();
     }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
     markPagePerfStage(
@@ -16643,6 +16802,72 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       title: "正在加载数据中",
       message: "页面资源与本地数据正在就绪",
     };
+  }
+
+  function hasPageBootstrapPendingBodyState() {
+    const body = document.body;
+    if (!(body instanceof HTMLElement)) {
+      return false;
+    }
+    return Array.from(body.classList).some((className) =>
+      /(?:^|-)bootstrap-pending$/.test(String(className || "").trim()),
+    );
+  }
+
+  function hasVisibleBlockingOverlayExcludingLeaveGuard() {
+    if (typeof document === "undefined") {
+      return false;
+    }
+    return Array.from(document.querySelectorAll(".page-loading-overlay")).some(
+      (overlay) =>
+        overlay !== appPageLeaveOverlayElement &&
+        isVisibleBlockingLoadingOverlay(overlay),
+    );
+  }
+
+  function shouldKeepOverlayDuringNativeShellStateChange(nextShellState = {}) {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      return false;
+    }
+    if (nextShellState.active === false) {
+      return true;
+    }
+    if (nextShellState.transitionLoading === true) {
+      return true;
+    }
+    if (androidNativeBootstrapTransitionOverlayActive) {
+      return true;
+    }
+    return hasPageBootstrapPendingBodyState();
+  }
+
+  function syncAndroidNativeBootstrapTransitionOverlay() {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      androidNativeBootstrapTransitionOverlayActive = false;
+      return false;
+    }
+
+    const shouldBridgeBootstrapPending =
+      isShellPageActive() &&
+      hasPageBootstrapPendingBodyState() &&
+      !hasVisibleBlockingOverlayExcludingLeaveGuard();
+    if (!shouldBridgeBootstrapPending) {
+      if (androidNativeBootstrapTransitionOverlayActive) {
+        androidNativeBootstrapTransitionOverlayActive = false;
+        setAppPageLeaveOverlayState({
+          active: false,
+        });
+      }
+      return false;
+    }
+
+    androidNativeBootstrapTransitionOverlayActive = true;
+    setAppPageLeaveOverlayState({
+      active: true,
+      ...buildAppNavigationOverlayCopy(getCurrentAppNavigationItem()),
+      delayMs: 0,
+    });
+    return true;
   }
 
   function buildAppNavigationIntent(targetItem, targetHref) {
@@ -16888,22 +17113,59 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function reportNativePageReady() {
+    reportNativePageReadyWithOptions();
+  }
+
+  function resolveNativePageReadyReason(options = {}) {
+    const reason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "initial";
+    return reason || "initial";
+  }
+
+  function resolveNativePageReadyRoot() {
+    return (
+      document.querySelector(
+        ".app-main, .record-main, .stats-main, .plan-main, .todo-main, .diary-main, .settings-main",
+      ) || document.body
+    );
+  }
+
+  function reportNativePageReadyWithOptions(options = {}) {
     const electronApi = window.electronAPI;
+    const allowRepeat = options.allowRepeat === true;
+    const readyReason = resolveNativePageReadyReason(options);
     const shouldReportToReactNative = isReactNativeNavigationRuntime();
     const shouldReportToElectron =
-      !!electronApi?.isElectron && typeof electronApi.uiPageReady === "function";
+      !allowRepeat &&
+      !!electronApi?.isElectron &&
+      typeof electronApi.uiPageReady === "function";
     if (
-      nativePageReadyReported ||
+      (!allowRepeat && nativePageReadyReported) ||
       (!shouldReportToReactNative && !shouldReportToElectron)
     ) {
       return;
     }
-    nativePageReadyReported = true;
-    markPagePerfStage("page-ready-emitted");
+    if (!allowRepeat) {
+      nativePageReadyReported = true;
+    }
+    markPagePerfStage("page-ready-emitted", {
+      allowRepeat,
+      reason: readyReason,
+    });
     if (shouldReportToReactNative) {
       window.ControlerNativeBridge?.emitEvent?.("ui.page-ready", {
         href: window.location.href,
+        reason: readyReason,
+        allowRepeat,
         ...getLaunchPerfContext(),
+      });
+    }
+    if (!allowRepeat && androidNativeBootstrapTransitionOverlayActive) {
+      androidNativeBootstrapTransitionOverlayActive = false;
+      setAppPageLeaveOverlayState({
+        active: false,
       });
     }
     if (shouldReportToElectron) {
@@ -16912,7 +17174,63 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         page: resolveCurrentPagePerfKey(),
       });
     }
-    scheduleDesktopBootstrapPrewarm("page-ready");
+    if (!allowRepeat) {
+      scheduleDesktopBootstrapPrewarm("page-ready");
+    }
+  }
+
+  function scheduleNativeShellResumeReadyReport(reason = "shell-resume") {
+    if (
+      !nativeShellResumeReadyPending ||
+      !isReactNativeNavigationRuntime() ||
+      nativePageReadyReported !== true
+    ) {
+      return Promise.resolve(false);
+    }
+    const shellState = getShellVisibilityState();
+    if (shellState.active === false || shellState.transitionLoading !== true) {
+      return Promise.resolve(false);
+    }
+    if (nativeShellResumeReadyPromise) {
+      return nativeShellResumeReadyPromise;
+    }
+    const requestVersion = nativeShellResumeReadyVersion;
+    nativeShellResumeReadyPromise = Promise.resolve(
+      waitForVisualContentStability({
+        root: resolveNativePageReadyRoot(),
+        quietWindowMs: 72,
+        maxWaitMs: 960,
+        minQuietFrames: 3,
+      }),
+    )
+      .catch(() => false)
+      .then(() => {
+        if (
+          requestVersion !== nativeShellResumeReadyVersion ||
+          !nativeShellResumeReadyPending
+        ) {
+          return false;
+        }
+        const latestShellState = getShellVisibilityState();
+        if (
+          latestShellState.active === false ||
+          latestShellState.transitionLoading !== true
+        ) {
+          return false;
+        }
+        reportNativePageReadyWithOptions({
+          allowRepeat: true,
+          reason,
+        });
+        nativeShellResumeReadyPending = false;
+        return true;
+      })
+      .finally(() => {
+        if (requestVersion === nativeShellResumeReadyVersion) {
+          nativeShellResumeReadyPromise = null;
+        }
+      });
+    return nativeShellResumeReadyPromise;
   }
 
   function clearDesktopBootstrapPrewarmTimer() {
@@ -17141,6 +17459,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       { once: true },
     );
   }
+
+  window.addEventListener(SHELL_RESUME_SETTLED_EVENT_NAME, (event) => {
+    const detail =
+      event && typeof event.detail === "object" && event.detail
+        ? event.detail
+        : {};
+    scheduleNativeShellResumeReadyReport(
+      typeof detail.reason === "string" && detail.reason.trim()
+        ? detail.reason.trim()
+        : "shell-resume",
+    );
+  });
 
   function scheduleInitialPagePerfReport() {
     const reportHtmlParsed = () => {
@@ -18701,7 +19031,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       active,
       mode: "fullscreen",
       lockNavigation: false,
-      delegateToNative: false,
       title:
         typeof options.title === "string" && options.title.trim()
           ? options.title.trim()
@@ -18919,6 +19248,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     resetAppPageTransitionRuntimeState({ clearStoredState: false });
     clearAppPageTransitionState();
+    syncAndroidNativeBootstrapTransitionOverlay();
   }
 
   function startAppPageTransition(targetItem, options = {}) {
@@ -21922,9 +22252,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     menu.style.touchAction = "pan-y";
     menu.style.overscrollBehavior = "contain";
     menu.style.webkitOverflowScrolling = "touch";
+    let menuClickSuppressedUntil = 0;
+    const suppressMenuClicks = (windowMs = 280) => {
+      menuClickSuppressedUntil = Math.max(
+        menuClickSuppressedUntil,
+        Date.now() + Math.max(0, Number(windowMs) || 0),
+      );
+    };
+    const shouldSuppressMenuClick = () =>
+      Date.now() < (Number(menuClickSuppressedUntil) || 0);
     const stopScrollableMenuPropagation = (event) => {
       if (!wrapper.classList.contains("open")) {
         return;
+      }
+      if (event?.type === "touchmove") {
+        suppressMenuClicks(320);
       }
       event.stopPropagation();
     };
@@ -21934,6 +22276,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     menu.addEventListener("touchmove", stopScrollableMenuPropagation, {
       passive: true,
     });
+    menu.addEventListener(
+      "scroll",
+      () => {
+        if (!wrapper.classList.contains("open")) {
+          return;
+        }
+        suppressMenuClicks(220);
+      },
+      {
+        passive: true,
+      },
+    );
     let menuVerticalDragApi = null;
     const ensureMenuVerticalDrag = () => {
       if (
@@ -22090,33 +22444,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       optionButton.dataset.value = String(optionNode.value ?? "");
       optionButton.style.touchAction = "pan-y";
 
-      let pointerDragState = null;
-      let ignoreNextClick = false;
-      const TREE_SELECT_SCROLL_THRESHOLD_PX = 10;
-      const updatePointerDragState = (event) => {
-        if (
-          !pointerDragState ||
-          event.pointerId !== pointerDragState.pointerId
-        ) {
-          return;
-        }
-        const deltaX = Math.abs(event.clientX - pointerDragState.startX);
-        const deltaY = Math.abs(event.clientY - pointerDragState.startY);
-        if (
-          !pointerDragState.dragging &&
-          (deltaY >= TREE_SELECT_SCROLL_THRESHOLD_PX ||
-            deltaX >= TREE_SELECT_SCROLL_THRESHOLD_PX + 4)
-        ) {
-          pointerDragState.dragging = true;
-          ignoreNextClick = true;
-          emitTreeSelectScrollLog("drag-detected", {
-            pointerType: String(event.pointerType || "").trim() || "unknown",
-            deltaX: Math.round(deltaX),
-            deltaY: Math.round(deltaY),
-          });
-        }
-      };
-
       const label = document.createElement("span");
       label.className = "tree-select-option-label";
       label.textContent = readSelectText(optionNode, "未命名选项");
@@ -22126,33 +22453,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         optionButton.classList.add("is-disabled");
         optionButton.disabled = true;
       } else {
-        optionButton.addEventListener("pointerdown", (event) => {
-          pointerDragState = {
-            pointerId: event.pointerId,
-            startX: event.clientX,
-            startY: event.clientY,
-            dragging: false,
-          };
-        });
-        optionButton.addEventListener(
-          "pointermove",
-          (event) => {
-            updatePointerDragState(event);
-          },
-          {
-            passive: true,
-          },
-        );
-        optionButton.addEventListener("pointerup", (event) => {
-          updatePointerDragState(event);
-          pointerDragState = null;
-        });
-        optionButton.addEventListener("pointercancel", () => {
-          pointerDragState = null;
-        });
         optionButton.addEventListener("click", (event) => {
-          if (ignoreNextClick) {
-            ignoreNextClick = false;
+          if (shouldSuppressMenuClick()) {
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -22249,6 +22551,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ignoreSelector = "button, input, select, textarea, a, label",
       startThreshold = 6,
       directionLockThreshold = 8,
+      clickSuppressionMs = 420,
       idleCursor = "grab",
       onRelease = null,
     } = options;
@@ -22259,7 +22562,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let startScrollLeft = 0;
     let isPointerDown = false;
     let isDraggingHorizontally = false;
-    let suppressNextClick = false;
+    let suppressNextClickUntil = 0;
     let previousBodyUserSelect = "";
 
     if (!container.style.touchAction) {
@@ -22357,18 +22660,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       const didDrag = isDraggingHorizontally;
       if (didDrag) {
-        suppressNextClick = true;
-        window.setTimeout(() => {
-          suppressNextClick = false;
-        }, 0);
+        suppressNextClickUntil =
+          Date.now() + Math.max(0, Number(clickSuppressionMs) || 0);
       }
 
       resetDraggingState(didDrag);
     };
 
     const handleClickCapture = (event) => {
-      if (!suppressNextClick) return;
-      suppressNextClick = false;
+      if (Date.now() >= suppressNextClickUntil) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };
@@ -22410,6 +22712,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       directionLockThreshold = 8,
       pressDelay = 160,
       mouseLongPressMaxMove = 4,
+      clickSuppressionMs = 420,
       idleCursor = "grab",
     } = options;
 
@@ -22419,7 +22722,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let startScrollTop = 0;
     let isPointerDown = false;
     let isDraggingVertically = false;
-    let suppressNextClick = false;
+    let suppressNextClickUntil = 0;
     let previousBodyUserSelect = "";
     let pressTimerId = null;
     let longPressReady = false;
@@ -22561,18 +22864,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       const didDrag = isDraggingVertically;
       if (didDrag) {
-        suppressNextClick = true;
-        window.setTimeout(() => {
-          suppressNextClick = false;
-        }, 0);
+        suppressNextClickUntil =
+          Date.now() + Math.max(0, Number(clickSuppressionMs) || 0);
       }
 
       resetDraggingState(didDrag);
     };
 
     const handleClickCapture = (event) => {
-      if (!suppressNextClick) return;
-      suppressNextClick = false;
+      if (Date.now() >= suppressNextClickUntil) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };
