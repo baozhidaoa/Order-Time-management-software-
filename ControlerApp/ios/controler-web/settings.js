@@ -3669,6 +3669,15 @@ function normalizeAutoBackupStatus(status = null, fallback = null) {
     const trimmed = value.trim();
     return trimmed || defaultValue;
   };
+  const hasOwnStatusField = (fieldName) =>
+    !!source &&
+    typeof source === "object" &&
+    Object.prototype.hasOwnProperty.call(source, fieldName);
+  const resolveOptionalTextField = (fieldName, defaultValue = null) =>
+    normalizeOptionalText(
+      hasOwnStatusField(fieldName) ? source[fieldName] : base[fieldName],
+      defaultValue,
+    );
 
   return {
     enabled:
@@ -3684,37 +3693,23 @@ function normalizeAutoBackupStatus(status = null, fallback = null) {
       1,
       Math.floor(Number(source.maxBackups ?? base.maxBackups ?? 7) || 7),
     ),
-    backupDirectory: normalizeOptionalText(
-      source.backupDirectory ?? base.backupDirectory,
-      "",
-    ),
-    backupDirectoryKind: normalizeOptionalText(
-      source.backupDirectoryKind ?? base.backupDirectoryKind,
-      "file-path",
-    ),
+    backupDirectory: resolveOptionalTextField("backupDirectory", ""),
+    backupDirectoryKind: resolveOptionalTextField("backupDirectoryKind", "file-path"),
     backupCount: Math.max(
       0,
       Math.floor(Number(source.backupCount ?? base.backupCount ?? 0) || 0),
     ),
-    latestBackupFile: normalizeOptionalText(
-      source.latestBackupFile ?? base.latestBackupFile,
-    ),
-    latestBackupPath: normalizeOptionalText(
-      source.latestBackupPath ?? base.latestBackupPath,
-    ),
-    latestBackupAt: normalizeOptionalText(
-      source.latestBackupAt ?? base.latestBackupAt,
-    ),
+    latestBackupFile: resolveOptionalTextField("latestBackupFile"),
+    latestBackupPath: resolveOptionalTextField("latestBackupPath"),
+    latestBackupAt: resolveOptionalTextField("latestBackupAt"),
     latestBackupSize: Math.max(
       0,
       Number(source.latestBackupSize ?? base.latestBackupSize ?? 0) || 0,
     ),
-    lastAttemptAt: normalizeOptionalText(
-      source.lastAttemptAt ?? base.lastAttemptAt,
-    ),
-    lastError: normalizeOptionalText(source.lastError ?? base.lastError, ""),
-    lastBackedUpFingerprint: normalizeOptionalText(
-      source.lastBackedUpFingerprint ?? base.lastBackedUpFingerprint,
+    lastAttemptAt: resolveOptionalTextField("lastAttemptAt"),
+    lastError: resolveOptionalTextField("lastError", ""),
+    lastBackedUpFingerprint: resolveOptionalTextField(
+      "lastBackedUpFingerprint",
       "",
     ),
   };

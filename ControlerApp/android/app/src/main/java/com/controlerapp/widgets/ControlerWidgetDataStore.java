@@ -448,12 +448,15 @@ public final class ControlerWidgetDataStore {
             boolean needsRecentRecords =
                 normalizedKinds.contains(ControlerWidgetKinds.START_TIMER);
             if (needsWindowedRecords || needsRecentRecords) {
+                // Widget render sources are shared across all requested kinds in a batch,
+                // so records must cover the widest active widget window instead of the
+                // first matching kind.
                 JSONObject recordScope =
-                    normalizedKinds.contains(ControlerWidgetKinds.DAY_PIE)
-                        ? buildCurrentDayScope()
-                        : normalizedKinds.contains(ControlerWidgetKinds.WEEK_GRID)
-                            ? buildRelativeDateRangeScope(-6, 0)
-                        : buildDefaultRecordBootstrapScope();
+                    normalizedKinds.contains(ControlerWidgetKinds.WEEK_GRID)
+                        ? buildRelativeDateRangeScope(-6, 0)
+                        : normalizedKinds.contains(ControlerWidgetKinds.DAY_PIE)
+                            ? buildCurrentDayScope()
+                            : buildDefaultRecordBootstrapScope();
                 JSONObject recordRange = loadStorageSectionRange(
                     context,
                     "records",
@@ -4759,7 +4762,12 @@ public final class ControlerWidgetDataStore {
                         if (TextUtils.isEmpty(baseName)) {
                             continue;
                         }
-                        Uri canonicalUri = buildDirectChildDocumentUri(treeUri, rootDocumentUri, baseName);
+                        Uri canonicalUri = findChildDocumentUri(
+                            context,
+                            treeUri,
+                            rootDocumentUri,
+                            baseName
+                        );
                         if (canonicalUri == null || !queryDocumentExists(context, canonicalUri)) {
                             continue;
                         }
@@ -5018,7 +5026,7 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    private static void removeDirectoryDocumentUriCacheEntry(
+    public static void removeDirectoryDocumentUriCacheEntry(
         Context context,
         Uri treeUri,
         String relativePath
@@ -6114,6 +6122,42 @@ public final class ControlerWidgetDataStore {
         boolean createIfMissing,
         boolean directory
     ) {
+        return resolveDirectoryRelativeDocumentUriInternal(
+            context,
+            treeUri,
+            relativePath,
+            createIfMissing,
+            directory,
+            null
+        );
+    }
+
+    public static Uri resolveDirectoryRelativeDocumentUri(
+        Context context,
+        Uri treeUri,
+        String relativePath,
+        boolean createIfMissing,
+        boolean directory,
+        String fileMimeType
+    ) {
+        return resolveDirectoryRelativeDocumentUriInternal(
+            context,
+            treeUri,
+            relativePath,
+            createIfMissing,
+            directory,
+            fileMimeType
+        );
+    }
+
+    private static Uri resolveDirectoryRelativeDocumentUriInternal(
+        Context context,
+        Uri treeUri,
+        String relativePath,
+        boolean createIfMissing,
+        boolean directory,
+        String fileMimeType
+    ) {
         String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
         if (context == null || treeUri == null || TextUtils.isEmpty(normalizedRelativePath)) {
             return null;
@@ -6130,9 +6174,6 @@ public final class ControlerWidgetDataStore {
                 if (queryDocumentExists(context, cachedDocumentUri)) {
                     return cachedDocumentUri;
                 }
-                if (createIfMissing) {
-                    return cachedDocumentUri;
-                }
                 removeDirectoryDocumentUriCacheEntry(context, treeUri, normalizedRelativePath);
             }
 
@@ -6145,11 +6186,6 @@ public final class ControlerWidgetDataStore {
                 }
                 boolean isLast = index == segments.length - 1;
                 boolean shouldBeDirectory = isLast ? directory : true;
-                Uri directChildUri = buildDirectChildDocumentUri(treeUri, currentUri, segment);
-                if (directChildUri != null && queryDocumentExists(context, directChildUri)) {
-                    currentUri = directChildUri;
-                    continue;
-                }
                 Uri childUri = findChildDocumentUri(context, treeUri, currentUri, segment);
                 if (childUri == null && createIfMissing) {
                     childUri =
@@ -6159,7 +6195,8 @@ public final class ControlerWidgetDataStore {
                             treeDocumentUri,
                             currentUri,
                             segment,
-                            shouldBeDirectory
+                            shouldBeDirectory,
+                            shouldBeDirectory ? null : fileMimeType
                         );
                 }
                 if (childUri == null) {
@@ -6185,13 +6222,15 @@ public final class ControlerWidgetDataStore {
         Uri treeDocumentUri,
         Uri parentDocumentUri,
         String childName,
-        boolean directory
+        boolean directory,
+        String fileMimeType
     ) {
         Uri createdUri = tryCreateChildDocumentUri(
             context,
             parentDocumentUri,
             childName,
-            directory
+            directory,
+            fileMimeType
         );
         Uri resolvedUri = resolveCreatedChildDocumentUri(
             context,
@@ -6209,7 +6248,8 @@ public final class ControlerWidgetDataStore {
                 context,
                 treeUri,
                 childName,
-                directory
+                directory,
+                fileMimeType
             );
             resolvedUri = resolveCreatedChildDocumentUri(
                 context,
@@ -6229,7 +6269,8 @@ public final class ControlerWidgetDataStore {
         Context context,
         Uri parentDocumentUri,
         String childName,
-        boolean directory
+        boolean directory,
+        String fileMimeType
     ) {
         if (context == null || parentDocumentUri == null || TextUtils.isEmpty(childName)) {
             return null;
@@ -6238,7 +6279,9 @@ public final class ControlerWidgetDataStore {
             return DocumentsContract.createDocument(
                 context.getContentResolver(),
                 parentDocumentUri,
-                directory ? Document.MIME_TYPE_DIR : "application/json",
+                directory
+                    ? Document.MIME_TYPE_DIR
+                    : (TextUtils.isEmpty(fileMimeType) ? "application/json" : fileMimeType),
                 childName
             );
         } catch (Exception error) {
@@ -6269,7 +6312,11 @@ public final class ControlerWidgetDataStore {
         }
 
         String createdName = queryDisplayName(context, createdUri);
-        if (createdUri != null && childName.equals(createdName)) {
+        if (
+            createdUri != null
+                && childName.equals(createdName)
+                && queryDocumentExists(context, createdUri)
+        ) {
             return createdUri;
         }
         if (createdUri != null && !TextUtils.isEmpty(createdName) && !childName.equals(createdName)) {

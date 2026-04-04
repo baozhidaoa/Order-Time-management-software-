@@ -13,6 +13,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -114,6 +115,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
     private static final int DEFAULT_AUTO_BACKUP_INTERVAL_VALUE = 1;
     private static final int DEFAULT_AUTO_BACKUP_MAX_BACKUPS = 7;
+    private static final String AUTO_BACKUP_DIRECTORY_NAME = "backups";
+    private static final String AUTO_BACKUP_INDEX_FILE_NAME = "backup-index.json";
+    private static final int AUTO_BACKUP_INDEX_VERSION = 1;
+    private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
+        "directory-document-uri-cache.json";
     private static final long STORAGE_SIDE_EFFECT_DELAY_MS = 560L;
     private static final long STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS = 30_000L;
     private static final long STORAGE_AUTO_BACKUP_IDLE_DELAY_MS = 15_000L;
@@ -2639,6 +2645,26 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private String readTextFromFile(File file) throws Exception {
+        if (file == null || !file.exists()) {
+            return "";
+        }
+        BufferedReader reader =
+            new BufferedReader(
+                new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)
+            );
+        try {
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line).append('\n');
+            }
+            return builder.toString();
+        } finally {
+            reader.close();
+        }
+    }
+
     private void writeTextToUri(Context context, Uri uri, String content) throws Exception {
         if (context == null || uri == null) {
             throw new Exception("目标 JSON 文件不可用。");
@@ -3881,7 +3907,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         JSONObject manifest = ControlerWidgetDataStore.getStorageManifest(context);
         LinkedHashSet<String> relativePaths = collectBundleRelativePaths(manifest);
         for (String relativePath : relativePaths) {
-            Uri sourceUri = resolveDirectoryRelativeDocumentUri(
+            Uri sourceUri = ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
                 context,
                 treeUri,
                 relativePath,
@@ -3909,6 +3935,26 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             addDirectoryToZip(sourceDirectory, sourceDirectory, zipOutputStream);
         } finally {
             zipOutputStream.close();
+        }
+    }
+
+    private void validateBundleZipImportable(File zipFile) throws Exception {
+        if (zipFile == null || !zipFile.exists() || !zipFile.isFile()) {
+            throw new Exception("备份 ZIP 文件不可用。");
+        }
+        File validationRoot = new File(
+            ensureCacheChildDirectory("auto-backup-validate"),
+            "validate-" + System.currentTimeMillis()
+        );
+        try {
+            if (!validationRoot.exists() && !validationRoot.mkdirs()) {
+                throw new Exception("无法创建备份校验目录。");
+            }
+            unzipFileToDirectory(zipFile, validationRoot);
+            File bundleRoot = resolveExtractedBundleRoot(validationRoot);
+            ControlerWidgetDataStore.loadBundleSnapshotFromDirectory(bundleRoot);
+        } finally {
+            deleteRecursively(validationRoot);
         }
     }
 
@@ -4170,7 +4216,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private String getCurrentAutoBackupTargetKey(Context context) {
         Uri directoryUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
         if (directoryUri != null) {
-            return "content-uri:" + directoryUri.toString() + "/backups";
+            return "content-uri:" + directoryUri.toString() + "/" + AUTO_BACKUP_DIRECTORY_NAME;
         }
         return "file-path:" + getLocalAutoBackupDirectory(context).getAbsolutePath();
     }
@@ -4181,7 +4227,454 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (root == null) {
             root = new File(context.getFilesDir(), "Order/app_data");
         }
-        return new File(root, "backups");
+        return new File(root, AUTO_BACKUP_DIRECTORY_NAME);
+    }
+
+    private boolean isExternalStorageDocumentsTreeUri(Uri treeUri) {
+        return treeUri != null
+            && "com.android.externalstorage.documents".equals(treeUri.getAuthority());
+    }
+
+    private File resolveExternalStorageTreeDirectory(Uri treeUri) {
+        if (!isExternalStorageDocumentsTreeUri(treeUri)) {
+            return null;
+        }
+        try {
+            String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
+            if (TextUtils.isEmpty(treeDocumentId)) {
+                return null;
+            }
+            int separatorIndex = treeDocumentId.indexOf(':');
+            String volumeId = separatorIndex >= 0
+                ? treeDocumentId.substring(0, separatorIndex)
+                : treeDocumentId;
+            String relativePath = separatorIndex >= 0
+                ? treeDocumentId.substring(separatorIndex + 1)
+                : "";
+            File volumeRoot = "primary".equalsIgnoreCase(volumeId)
+                ? Environment.getExternalStorageDirectory()
+                : new File("/storage/" + volumeId);
+            if (volumeRoot == null || !volumeRoot.exists()) {
+                return null;
+            }
+            if (TextUtils.isEmpty(relativePath)) {
+                return volumeRoot;
+            }
+            return new File(volumeRoot, relativePath.replace("/", File.separator));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private File resolveCustomAutoBackupDirectoryFile(Context context) {
+        Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+        File storageDirectory = resolveExternalStorageTreeDirectory(treeUri);
+        if (storageDirectory == null) {
+            return null;
+        }
+        return new File(storageDirectory, AUTO_BACKUP_DIRECTORY_NAME);
+    }
+
+    private String getAutoBackupIndexRelativePath() {
+        return AUTO_BACKUP_DIRECTORY_NAME + "/" + AUTO_BACKUP_INDEX_FILE_NAME;
+    }
+
+    private File getAutoBackupIndexFile(Context context) {
+        return new File(getLocalAutoBackupDirectory(context), AUTO_BACKUP_INDEX_FILE_NAME);
+    }
+
+    private File getRuntimeSidecarBaseDirectory(Context context) {
+        File root =
+            context == null
+                ? null
+                : (
+                    context.getNoBackupFilesDir() != null
+                        ? context.getNoBackupFilesDir()
+                        : context.getFilesDir()
+                );
+        File target = new File(root == null ? new File(".") : root, "runtime-sidecar");
+        if (!target.exists()) {
+            target.mkdirs();
+        }
+        return target;
+    }
+
+    private File getDirectoryDocumentUriCacheFile(Context context) {
+        return new File(
+            getRuntimeSidecarBaseDirectory(context),
+            DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME
+        );
+    }
+
+    private JSONObject readRuntimeCacheJson(File file) {
+        if (file == null || !file.exists()) {
+            return new JSONObject();
+        }
+        try {
+            String raw = readTextFromFile(file).trim();
+            if (TextUtils.isEmpty(raw)) {
+                return new JSONObject();
+            }
+            return new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private String sanitizeAutoBackupFileName(String value) {
+        String normalized = String.valueOf(value == null ? "" : value).trim();
+        if (TextUtils.isEmpty(normalized) || normalized.contains("/") || normalized.contains("\\")) {
+            return "";
+        }
+        return normalized.toLowerCase(Locale.US).endsWith(".zip") ? normalized : "";
+    }
+
+    private String extractAutoBackupFileName(String relativePath) {
+        String normalized = String.valueOf(relativePath == null ? "" : relativePath).trim();
+        if (TextUtils.isEmpty(normalized)) {
+            return "";
+        }
+        int separatorIndex = normalized.lastIndexOf('/');
+        String fileName = separatorIndex >= 0 ? normalized.substring(separatorIndex + 1) : normalized;
+        return sanitizeAutoBackupFileName(fileName);
+    }
+
+    private void sortAutoBackupEntries(ArrayList<BackupEntry> entries) {
+        Collections.sort(
+            entries,
+            (left, right) ->
+                right.modifiedAt == left.modifiedAt
+                    ? String.valueOf(right.fileName).compareTo(String.valueOf(left.fileName))
+                    : Long.compare(right.modifiedAt, left.modifiedAt)
+        );
+    }
+
+    private JSONObject readAutoBackupIndexEnvelope(Context context) {
+        try {
+            String raw = "";
+            Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+            if (treeUri != null) {
+                Uri indexUri = ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
+                    context,
+                    treeUri,
+                    getAutoBackupIndexRelativePath(),
+                    false,
+                    false,
+                    "application/json"
+                );
+                if (indexUri == null) {
+                    return new JSONObject();
+                }
+                raw = readTextFromUri(context, indexUri).trim();
+            } else {
+                File indexFile = getAutoBackupIndexFile(context);
+                if (!indexFile.exists()) {
+                    return new JSONObject();
+                }
+                raw = readTextFromFile(indexFile).trim();
+            }
+            return TextUtils.isEmpty(raw) ? new JSONObject() : new JSONObject(raw);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private void writeAutoBackupIndexEntries(Context context, ArrayList<BackupEntry> entries)
+        throws Exception {
+        JSONArray payloadEntries = new JSONArray();
+        HashSet<String> seenNames = new HashSet<>();
+        ArrayList<BackupEntry> normalizedEntries = entries == null
+            ? new ArrayList<>()
+            : new ArrayList<>(entries);
+        sortAutoBackupEntries(normalizedEntries);
+        for (BackupEntry entry : normalizedEntries) {
+            String fileName = entry == null ? "" : sanitizeAutoBackupFileName(entry.fileName);
+            if (TextUtils.isEmpty(fileName) || seenNames.contains(fileName)) {
+                continue;
+            }
+            seenNames.add(fileName);
+            payloadEntries.put(
+                new JSONObject()
+                    .put("fileName", fileName)
+                    .put("size", Math.max(0L, entry.size))
+                    .put("modifiedAt", Math.max(0L, entry.modifiedAt))
+            );
+        }
+        JSONObject envelope =
+            new JSONObject()
+                .put("version", AUTO_BACKUP_INDEX_VERSION)
+                .put("updatedAt", isoNow())
+                .put("entries", payloadEntries);
+        Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+        if (treeUri != null) {
+            Uri indexUri = ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                getAutoBackupIndexRelativePath(),
+                true,
+                false,
+                "application/json"
+            );
+            if (indexUri == null) {
+                throw new Exception("无法写入自动备份索引。");
+            }
+            writeTextToUri(context, indexUri, envelope.toString(2));
+            return;
+        }
+        File indexFile = getAutoBackupIndexFile(context);
+        File parent = indexFile.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        writeTextToFile(indexFile, envelope.toString(2));
+    }
+
+    private BackupEntry resolveIndexedBackupEntry(
+        Context context,
+        String storedFileName,
+        long storedSize,
+        long storedModifiedAt
+    ) {
+        String fileName = sanitizeAutoBackupFileName(storedFileName);
+        if (context == null || TextUtils.isEmpty(fileName)) {
+            return null;
+        }
+        if (ControlerWidgetDataStore.getCustomStorageDirectoryUri(context) != null) {
+            Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+            Uri backupUri = ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                AUTO_BACKUP_DIRECTORY_NAME + "/" + fileName,
+                false,
+                false,
+                "application/zip"
+            );
+            if (backupUri == null) {
+                return null;
+            }
+            File backupDirectory = resolveCustomAutoBackupDirectoryFile(context);
+            String backupPath = backupDirectory == null
+                ? backupUri.toString()
+                : new File(backupDirectory, fileName).getAbsolutePath();
+            return queryAutoBackupEntryFromUri(
+                context,
+                backupUri,
+                fileName,
+                backupPath,
+                storedSize,
+                storedModifiedAt
+            );
+        }
+
+        File targetFile = new File(getLocalAutoBackupDirectory(context), fileName);
+        if (!targetFile.exists() || !targetFile.isFile()) {
+            return null;
+        }
+        return new BackupEntry(
+            fileName,
+            targetFile.getAbsolutePath(),
+            null,
+            Math.max(0L, targetFile.length()),
+            Math.max(
+                0L,
+                targetFile.lastModified() > 0L ? targetFile.lastModified() : storedModifiedAt
+            )
+        );
+    }
+
+    private BackupEntry queryAutoBackupEntryFromUri(
+        Context context,
+        Uri uri,
+        String fallbackFileName,
+        String fallbackPath,
+        long fallbackSize,
+        long fallbackModifiedAt
+    ) {
+        if (context == null || uri == null) {
+            return null;
+        }
+        Cursor cursor = null;
+        String fileName = sanitizeAutoBackupFileName(fallbackFileName);
+        long size = Math.max(0L, fallbackSize);
+        long modifiedAt = Math.max(0L, fallbackModifiedAt);
+        try {
+            cursor = context.getContentResolver().query(
+                uri,
+                new String[] {
+                    OpenableColumns.DISPLAY_NAME,
+                    OpenableColumns.SIZE,
+                    Document.COLUMN_LAST_MODIFIED,
+                },
+                null,
+                null,
+                null
+            );
+            if (cursor != null && cursor.moveToFirst()) {
+                String queriedName = cursor.isNull(0) ? "" : cursor.getString(0);
+                long queriedSize = cursor.isNull(1) ? size : cursor.getLong(1);
+                long queriedModifiedAt = cursor.isNull(2) ? modifiedAt : cursor.getLong(2);
+                String normalizedName = sanitizeAutoBackupFileName(queriedName);
+                if (!TextUtils.isEmpty(normalizedName)) {
+                    fileName = normalizedName;
+                }
+                size = Math.max(0L, queriedSize);
+                modifiedAt = Math.max(0L, queriedModifiedAt);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        if (TextUtils.isEmpty(fileName)) {
+            return null;
+        }
+        return new BackupEntry(fileName, fallbackPath, uri, size, modifiedAt);
+    }
+
+    private ArrayList<BackupEntry> scanLocalAutoBackupEntriesForIndex(Context context) {
+        ArrayList<BackupEntry> entries = new ArrayList<>();
+        File backupDirectory = getLocalAutoBackupDirectory(context);
+        File[] files = backupDirectory.listFiles();
+        if (files == null) {
+            return entries;
+        }
+        for (File file : files) {
+            if (file == null || !file.isFile()) {
+                continue;
+            }
+            String fileName = sanitizeAutoBackupFileName(file.getName());
+            if (TextUtils.isEmpty(fileName)) {
+                continue;
+            }
+            entries.add(
+                new BackupEntry(
+                    fileName,
+                    file.getAbsolutePath(),
+                    null,
+                    Math.max(0L, file.length()),
+                    Math.max(0L, file.lastModified())
+                )
+            );
+        }
+        sortAutoBackupEntries(entries);
+        return entries;
+    }
+
+    private ArrayList<BackupEntry> scanCachedDirectoryAutoBackupEntriesForIndex(Context context) {
+        ArrayList<BackupEntry> entries = new ArrayList<>();
+        Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+        if (context == null || treeUri == null) {
+            return entries;
+        }
+        JSONObject cache = readRuntimeCacheJson(getDirectoryDocumentUriCacheFile(context));
+        String prefix = treeUri.toString() + "|" + AUTO_BACKUP_DIRECTORY_NAME + "/";
+        HashSet<String> seenNames = new HashSet<>();
+        java.util.Iterator<String> iterator = cache.keys();
+        while (iterator.hasNext()) {
+            String key = iterator.next();
+            if (TextUtils.isEmpty(key) || !key.startsWith(prefix)) {
+                continue;
+            }
+            String relativePath = key.substring(treeUri.toString().length() + 1);
+            String fileName = extractAutoBackupFileName(relativePath);
+            if (TextUtils.isEmpty(fileName) || seenNames.contains(fileName)) {
+                continue;
+            }
+            BackupEntry resolvedEntry = resolveIndexedBackupEntry(context, fileName, 0L, 0L);
+            if (resolvedEntry == null) {
+                continue;
+            }
+            seenNames.add(fileName);
+            entries.add(resolvedEntry);
+        }
+        sortAutoBackupEntries(entries);
+        return entries;
+    }
+
+    private ArrayList<BackupEntry> loadIndexedAutoBackupEntries(Context context) {
+        ArrayList<BackupEntry> entries = new ArrayList<>();
+        HashSet<String> seenNames = new HashSet<>();
+        boolean changed = false;
+        JSONArray storedEntries = readAutoBackupIndexEnvelope(context).optJSONArray("entries");
+        if (storedEntries != null) {
+            for (int index = 0; index < storedEntries.length(); index += 1) {
+                JSONObject item = storedEntries.optJSONObject(index);
+                if (item == null) {
+                    changed = true;
+                    continue;
+                }
+                String fileName = sanitizeAutoBackupFileName(item.optString("fileName", ""));
+                if (TextUtils.isEmpty(fileName) || seenNames.contains(fileName)) {
+                    changed = true;
+                    continue;
+                }
+                BackupEntry resolvedEntry =
+                    resolveIndexedBackupEntry(
+                        context,
+                        fileName,
+                        Math.max(0L, item.optLong("size", 0L)),
+                        Math.max(0L, item.optLong("modifiedAt", 0L))
+                    );
+                if (resolvedEntry == null) {
+                    changed = true;
+                    continue;
+                }
+                entries.add(resolvedEntry);
+                seenNames.add(fileName);
+                if (
+                    resolvedEntry.size != Math.max(0L, item.optLong("size", 0L))
+                        || resolvedEntry.modifiedAt
+                            != Math.max(0L, item.optLong("modifiedAt", 0L))
+                ) {
+                    changed = true;
+                }
+            }
+        }
+
+        ArrayList<BackupEntry> discoveredEntries =
+            ControlerWidgetDataStore.getCustomStorageDirectoryUri(context) != null
+                ? scanCachedDirectoryAutoBackupEntriesForIndex(context)
+                : scanLocalAutoBackupEntriesForIndex(context);
+        for (BackupEntry entry : discoveredEntries) {
+            String fileName = entry == null ? "" : sanitizeAutoBackupFileName(entry.fileName);
+            if (TextUtils.isEmpty(fileName) || seenNames.contains(fileName)) {
+                continue;
+            }
+            seenNames.add(fileName);
+            entries.add(entry);
+            changed = true;
+        }
+
+        sortAutoBackupEntries(entries);
+        if (changed) {
+            try {
+                writeAutoBackupIndexEntries(context, entries);
+            } catch (Exception error) {
+                Log.w(TAG, "[auto-backup-index-write-failed]", error);
+            }
+        }
+        return entries;
+    }
+
+    private void upsertAutoBackupIndexEntry(Context context, BackupEntry targetEntry) throws Exception {
+        ArrayList<BackupEntry> entries = loadIndexedAutoBackupEntries(context);
+        String fileName = targetEntry == null ? "" : sanitizeAutoBackupFileName(targetEntry.fileName);
+        ArrayList<BackupEntry> nextEntries = new ArrayList<>();
+        for (BackupEntry entry : entries) {
+            if (entry == null) {
+                continue;
+            }
+            if (!TextUtils.isEmpty(fileName) && fileName.equals(entry.fileName)) {
+                continue;
+            }
+            nextEntries.add(entry);
+        }
+        if (targetEntry != null && !TextUtils.isEmpty(fileName)) {
+            nextEntries.add(targetEntry);
+        }
+        sortAutoBackupEntries(nextEntries);
+        writeAutoBackupIndexEntries(context, nextEntries);
     }
 
     private Uri resolveAutoBackupDirectoryUri(Context context, boolean createIfMissing) {
@@ -4189,10 +4682,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (treeUri == null) {
             return null;
         }
-        return resolveDirectoryRelativeDocumentUri(
+        ControlerWidgetDataStore.removeDirectoryDocumentUriCacheEntry(
             context,
             treeUri,
-            "backups",
+            AUTO_BACKUP_DIRECTORY_NAME
+        );
+        return ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
+            context,
+            treeUri,
+            AUTO_BACKUP_DIRECTORY_NAME,
             createIfMissing,
             true,
             Document.MIME_TYPE_DIR
@@ -4200,18 +4698,25 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     private String getAutoBackupDirectoryDisplay(Context context) {
+        File backupDirectoryFile = resolveCustomAutoBackupDirectoryFile(context);
+        if (backupDirectoryFile != null) {
+            return backupDirectoryFile.getAbsolutePath();
+        }
         Uri backupDirectoryUri = resolveAutoBackupDirectoryUri(context, false);
         if (backupDirectoryUri != null) {
             return backupDirectoryUri.toString();
         }
         Uri directoryUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
         if (directoryUri != null) {
-            return directoryUri.toString() + "/backups";
+            return directoryUri.toString() + "/" + AUTO_BACKUP_DIRECTORY_NAME;
         }
         return getLocalAutoBackupDirectory(context).getAbsolutePath();
     }
 
     private String getAutoBackupDirectoryKind(Context context) {
+        if (resolveCustomAutoBackupDirectoryFile(context) != null) {
+            return "file-path";
+        }
         return ControlerWidgetDataStore.getCustomStorageDirectoryUri(context) != null
             ? "content-uri"
             : "file-path";
@@ -4303,126 +4808,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         return new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
     }
 
-    private ArrayList<BackupEntry> listLocalAutoBackupEntries(Context context) {
-        ArrayList<BackupEntry> entries = new ArrayList<>();
-        File backupDirectory = getLocalAutoBackupDirectory(context);
-        File[] files = backupDirectory.listFiles();
-        if (files == null) {
-            return entries;
-        }
-        for (File file : files) {
-            if (file == null || !file.isFile()) {
-                continue;
-            }
-            String name = file.getName();
-            if (TextUtils.isEmpty(name) || !name.toLowerCase(Locale.US).endsWith(".zip")) {
-                continue;
-            }
-            entries.add(
-                new BackupEntry(
-                    name,
-                    file.getAbsolutePath(),
-                    null,
-                    Math.max(0L, file.length()),
-                    Math.max(0L, file.lastModified())
-                )
-            );
-        }
-        Collections.sort(
-            entries,
-            (left, right) ->
-                right.modifiedAt == left.modifiedAt
-                    ? String.valueOf(right.fileName).compareTo(String.valueOf(left.fileName))
-                    : Long.compare(right.modifiedAt, left.modifiedAt)
-        );
-        return entries;
-    }
-
-    private ArrayList<BackupEntry> listDirectoryAutoBackupEntries(Context context) {
-        ArrayList<BackupEntry> entries = new ArrayList<>();
-        Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
-        Uri backupDirectoryUri = resolveAutoBackupDirectoryUri(context, false);
-        if (treeUri == null || backupDirectoryUri == null) {
-            return entries;
-        }
-        Cursor cursor = null;
-        try {
-            String parentDocumentId = DocumentsContract.getDocumentId(backupDirectoryUri);
-            Uri childrenUri =
-                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId);
-            cursor = context.getContentResolver().query(
-                childrenUri,
-                new String[] {
-                    Document.COLUMN_DOCUMENT_ID,
-                    Document.COLUMN_DISPLAY_NAME,
-                    Document.COLUMN_SIZE,
-                    Document.COLUMN_LAST_MODIFIED,
-                    Document.COLUMN_MIME_TYPE,
-                },
-                null,
-                null,
-                null
-            );
-            if (cursor != null) {
-                while (cursor.moveToNext()) {
-                    String documentId = cursor.getString(0);
-                    String displayName = cursor.getString(1);
-                    long size = cursor.isNull(2) ? 0L : cursor.getLong(2);
-                    long modifiedAt = cursor.isNull(3) ? 0L : cursor.getLong(3);
-                    String mimeType = cursor.getString(4);
-                    if (Document.MIME_TYPE_DIR.equals(mimeType)) {
-                        continue;
-                    }
-                    if (TextUtils.isEmpty(displayName)
-                        || !displayName.toLowerCase(Locale.US).endsWith(".zip")) {
-                        continue;
-                    }
-                    Uri documentUri =
-                        DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    entries.add(
-                        new BackupEntry(
-                            displayName,
-                            documentUri.toString(),
-                            documentUri,
-                            Math.max(0L, size),
-                            Math.max(0L, modifiedAt)
-                        )
-                    );
-                }
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-        Collections.sort(
-            entries,
-            (left, right) ->
-                right.modifiedAt == left.modifiedAt
-                    ? String.valueOf(right.fileName).compareTo(String.valueOf(left.fileName))
-                    : Long.compare(right.modifiedAt, left.modifiedAt)
-        );
-        return entries;
-    }
-
-    private ArrayList<BackupEntry> listAutoBackupEntries(Context context) {
-        if (ControlerWidgetDataStore.getCustomStorageDirectoryUri(context) != null) {
-            return listDirectoryAutoBackupEntries(context);
-        }
-        return listLocalAutoBackupEntries(context);
-    }
-
     private void deleteBackupEntry(BackupEntry entry) {
         if (entry == null) {
             return;
         }
         try {
             if (entry.uri != null) {
-                DocumentsContract.deleteDocument(
-                    getReactApplicationContext().getContentResolver(),
-                    entry.uri
-                );
+                if ("media".equals(entry.uri.getAuthority())) {
+                    getReactApplicationContext().getContentResolver().delete(entry.uri, null, null);
+                } else {
+                    DocumentsContract.deleteDocument(
+                        getReactApplicationContext().getContentResolver(),
+                        entry.uri
+                    );
+                }
                 return;
             }
             if (!TextUtils.isEmpty(entry.path)) {
@@ -4433,10 +4832,34 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     private void pruneAutoBackups(Context context, int maxBackups) {
-        ArrayList<BackupEntry> entries = listAutoBackupEntries(context);
+        ArrayList<BackupEntry> entries = loadIndexedAutoBackupEntries(context);
         int keepCount = Math.max(1, maxBackups);
+        boolean changed = false;
         for (int index = keepCount; index < entries.size(); index += 1) {
-            deleteBackupEntry(entries.get(index));
+            BackupEntry entry = entries.get(index);
+            deleteBackupEntry(entry);
+            if (
+                resolveIndexedBackupEntry(context, entry == null ? "" : entry.fileName, 0L, 0L)
+                    == null
+            ) {
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return;
+        }
+        ArrayList<BackupEntry> survivingEntries = new ArrayList<>();
+        for (BackupEntry entry : entries) {
+            BackupEntry resolvedEntry =
+                resolveIndexedBackupEntry(context, entry == null ? "" : entry.fileName, 0L, 0L);
+            if (resolvedEntry != null) {
+                survivingEntries.add(resolvedEntry);
+            }
+        }
+        try {
+            writeAutoBackupIndexEntries(context, survivingEntries);
+        } catch (Exception error) {
+            Log.w(TAG, "[auto-backup-index-prune-write-failed]", error);
         }
     }
 
@@ -4471,7 +4894,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private JSONObject buildAutoBackupStatus(Context context) throws Exception {
         JSONObject settings = readAutoBackupSettings(context);
         String targetKey = getCurrentAutoBackupTargetKey(context);
-        ArrayList<BackupEntry> entries = listAutoBackupEntries(context);
+        ArrayList<BackupEntry> entries = loadIndexedAutoBackupEntries(context);
         BackupEntry latest = entries.isEmpty() ? null : entries.get(0);
         String lastAttemptAt = getStoredAutoBackupLastAttemptAt(context, targetKey);
         String lastError = getStoredAutoBackupLastError(context, targetKey);
@@ -4537,14 +4960,26 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             File zipFile = new File(tempRoot, "backup.zip");
             writeCurrentBundleSnapshotToDirectory(context, bundleDirectory);
             zipDirectoryContents(bundleDirectory, zipFile);
+            validateBundleZipImportable(zipFile);
 
             String backupFileName = "order-auto-backup-" + buildAutoBackupTimestampTag() + ".zip";
             if (ControlerWidgetDataStore.getCustomStorageDirectoryUri(context) != null) {
                 Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
-                Uri backupUri = resolveDirectoryRelativeDocumentUri(
+                String backupRelativePath = AUTO_BACKUP_DIRECTORY_NAME + "/" + backupFileName;
+                ControlerWidgetDataStore.removeDirectoryDocumentUriCacheEntry(
                     context,
                     treeUri,
-                    "backups/" + backupFileName,
+                    AUTO_BACKUP_DIRECTORY_NAME
+                );
+                ControlerWidgetDataStore.removeDirectoryDocumentUriCacheEntry(
+                    context,
+                    treeUri,
+                    backupRelativePath
+                );
+                Uri backupUri = ControlerWidgetDataStore.resolveDirectoryRelativeDocumentUri(
+                    context,
+                    treeUri,
+                    backupRelativePath,
                     true,
                     false,
                     "application/zip"
@@ -4561,6 +4996,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 copyFileToFile(zipFile, new File(backupDirectory, backupFileName));
             }
 
+            BackupEntry createdEntry =
+                resolveIndexedBackupEntry(
+                    context,
+                    backupFileName,
+                    Math.max(0L, zipFile.length()),
+                    System.currentTimeMillis()
+                );
+            if (createdEntry == null) {
+                throw new Exception("备份文件写入成功，但索引校验失败。");
+            }
+            upsertAutoBackupIndexEntry(context, createdEntry);
             saveAutoBackupState(context, targetKey, attemptedAt, "", fingerprint);
             pruneAutoBackups(context, settings.optInt("maxBackups", DEFAULT_AUTO_BACKUP_MAX_BACKUPS));
             return buildAutoBackupStatus(context);
@@ -4587,7 +5033,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     private JSONObject shareLatestAutoBackup(Context context) throws Exception {
-        ArrayList<BackupEntry> entries = listAutoBackupEntries(getReactApplicationContext());
+        ArrayList<BackupEntry> entries = loadIndexedAutoBackupEntries(getReactApplicationContext());
         BackupEntry latest = entries.isEmpty() ? null : entries.get(0);
         if (latest == null) {
             return new JSONObject()
@@ -4666,89 +5112,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             inputStream.close();
             outputStream.close();
         }
-    }
-
-    private Uri resolveDirectoryRelativeDocumentUri(
-        Context context,
-        Uri treeUri,
-        String relativePath,
-        boolean createIfMissing,
-        boolean directory,
-        String fileMimeType
-    ) {
-        if (context == null || treeUri == null || TextUtils.isEmpty(relativePath)) {
-            return null;
-        }
-        try {
-            String[] segments = relativePath.split("/");
-            String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
-            Uri currentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId);
-            for (int index = 0; index < segments.length; index += 1) {
-                String segment = segments[index];
-                if (TextUtils.isEmpty(segment)) {
-                    continue;
-                }
-                boolean isLast = index == segments.length - 1;
-                boolean shouldBeDirectory = isLast ? directory : true;
-                Uri childUri = findChildDocumentUri(context, treeUri, currentUri, segment);
-                if (childUri == null && createIfMissing) {
-                    childUri = DocumentsContract.createDocument(
-                        context.getContentResolver(),
-                        currentUri,
-                        shouldBeDirectory
-                            ? Document.MIME_TYPE_DIR
-                            : (TextUtils.isEmpty(fileMimeType) ? "application/octet-stream" : fileMimeType),
-                        segment
-                    );
-                }
-                if (childUri == null) {
-                    return null;
-                }
-                currentUri = childUri;
-            }
-            return currentUri;
-        } catch (Exception error) {
-            return null;
-        }
-    }
-
-    private Uri findChildDocumentUri(
-        Context context,
-        Uri treeUri,
-        Uri parentDocumentUri,
-        String childName
-    ) {
-        if (context == null || treeUri == null || parentDocumentUri == null) {
-            return null;
-        }
-        Cursor cursor = null;
-        try {
-            String parentDocumentId = DocumentsContract.getDocumentId(parentDocumentUri);
-            Uri childrenUri =
-                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId);
-            cursor = context.getContentResolver().query(
-                childrenUri,
-                new String[] { Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME },
-                null,
-                null,
-                null
-            );
-            if (cursor != null) {
-                while (cursor.moveToNext()) {
-                    String documentId = cursor.getString(0);
-                    String displayName = cursor.getString(1);
-                    if (childName.equals(displayName)) {
-                        return DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-        return null;
     }
 
     private void schedulePreciseStorageStatusRefresh() {

@@ -15989,7 +15989,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "__CONTROLER_APP_ENTER_TRANSITION__";
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
-  const APP_PAGE_ENTER_LOADING_OVERLAY_SUPPRESSION_MAX_MS = 6000;
+  const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
   const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
   const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
@@ -19253,7 +19253,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         startedAt: transitionStartedAt || Date.now(),
         loadingOverlaySuppressionActive: isDesktopThemeTransitionRuntime(),
         loadingOverlaySuppressionExpiresAt:
-          Date.now() + APP_PAGE_ENTER_LOADING_OVERLAY_SUPPRESSION_MAX_MS,
+          (transitionStartedAt || Date.now()) +
+          APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS,
       });
     } else {
       clearAppPageEnterTransitionState();
@@ -21163,6 +21164,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return true;
     };
 
+    const getAppPageEnterLoadingOverlayDelayMs = (visible, mode) => {
+      if (!visible || mode !== "fullscreen" || isLeaveGuardOverlay) {
+        return 0;
+      }
+      if (!isDesktopThemeTransitionRuntime()) {
+        return 0;
+      }
+      const enterTransitionState = getAppPageEnterTransitionState();
+      if (
+        !enterTransitionState.active ||
+        enterTransitionState.loadingOverlaySuppressionActive !== true
+      ) {
+        return 0;
+      }
+      const expiresAt = Math.max(
+        0,
+        Number.isFinite(Number(enterTransitionState.loadingOverlaySuppressionExpiresAt))
+          ? Number(enterTransitionState.loadingOverlaySuppressionExpiresAt)
+          : 0,
+      );
+      if (expiresAt <= 0) {
+        return 0;
+      }
+      const remainingMs = expiresAt - Date.now();
+      if (remainingMs <= 0) {
+        clearAppPageEnterTransitionState();
+        return 0;
+      }
+      return Math.max(0, Math.ceil(remainingMs) + 16);
+    };
+
     const syncFullscreenGeometry = () => {
       if (!(inlineHost instanceof HTMLElement)) {
         clearFullscreenGeometry();
@@ -21378,9 +21410,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             : messageNode instanceof HTMLElement
               ? messageNode.textContent || ""
               : "";
-        const delayMs = Number.isFinite(nextState.delayMs)
+        const requestedDelayMs = Number.isFinite(nextState.delayMs)
           ? Math.max(0, Math.round(Number(nextState.delayMs)))
           : 0;
+        const delayMs = Math.max(
+          requestedDelayMs,
+          getAppPageEnterLoadingOverlayDelayMs(active, mode),
+        );
         const lockNavigation =
           nextState.lockNavigation === true ||
           (nextState.lockNavigation !== false && active && mode === "fullscreen");

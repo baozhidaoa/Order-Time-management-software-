@@ -2267,7 +2267,7 @@
       if (typeof window.ControlerStorage?.dump === "function") {
         const snapshot = window.ControlerStorage.dump();
         if (snapshot && typeof snapshot === "object" && Array.isArray(snapshot.plans)) {
-          return cloneTodoValue(snapshot.plans);
+          return reconcileTodoLinkedPlanCollection(snapshot.plans);
         }
       }
     } catch (error) {
@@ -2275,7 +2275,9 @@
     }
     try {
       const savedPlans = JSON.parse(localStorage.getItem("plans") || "[]");
-      return Array.isArray(savedPlans) ? savedPlans : [];
+      return reconcileTodoLinkedPlanCollection(
+        Array.isArray(savedPlans) ? savedPlans : [],
+      );
     } catch (error) {
       console.error("读取本地计划镜像失败:", error);
       return [];
@@ -2304,6 +2306,115 @@
     const allPlans = readTodoLinkedPlanCollection();
     const index = findTodoLinkedPlanIndex(allPlans, sourceType, sourceId);
     return index >= 0 ? cloneTodoValue(allPlans[index]) : null;
+  }
+
+  function followResolvedCheckinLinkedSource(itemLike = null) {
+    let currentItem = itemLike && typeof itemLike === "object" ? itemLike : null;
+    const visitedIds = new Set();
+    while (currentItem) {
+      const currentId = String(currentItem?.id || "").trim();
+      if (!currentId || visitedIds.has(currentId)) {
+        break;
+      }
+      visitedIds.add(currentId);
+      const mergedIntoId = String(currentItem?.mergedIntoId || "").trim();
+      if (!mergedIntoId) {
+        break;
+      }
+      const mergedTarget =
+        checkinItems.find((item) => matchesId(item?.id, mergedIntoId)) || null;
+      if (!mergedTarget) {
+        break;
+      }
+      currentItem = mergedTarget;
+    }
+    return currentItem;
+  }
+
+  function resolveTodoLinkedPlanSource(sourceType = "", sourceId = "", options = {}) {
+    const normalizedSourceType = normalizeTodoLinkedPlanSourceType(sourceType);
+    const normalizedSourceId = String(sourceId || "").trim();
+    const titleKey = normalizeCheckinTitleKey(options?.title || options?.name || "");
+    if (!normalizedSourceType) {
+      return null;
+    }
+    if (normalizedSourceType === "todo") {
+      const exactTodo =
+        todos.find((todo) => matchesId(todo?.id, normalizedSourceId)) || null;
+      if (exactTodo) {
+        return {
+          sourceType: normalizedSourceType,
+          requestedId: normalizedSourceId,
+          resolvedId: String(exactTodo.id || "").trim(),
+          source: cloneTodoValue(exactTodo),
+          resolvedBy: "id",
+        };
+      }
+      if (titleKey) {
+        const matchedTodos = todos.filter(
+          (todo) => normalizeCheckinTitleKey(todo?.title) === titleKey,
+        );
+        if (matchedTodos.length === 1) {
+          return {
+            sourceType: normalizedSourceType,
+            requestedId: normalizedSourceId,
+            resolvedId: String(matchedTodos[0]?.id || "").trim(),
+            source: cloneTodoValue(matchedTodos[0]),
+            resolvedBy: "title",
+          };
+        }
+      }
+      return {
+        sourceType: normalizedSourceType,
+        requestedId: normalizedSourceId,
+        resolvedId: "",
+        source: null,
+        resolvedBy: "missing",
+      };
+    }
+    const exactItem =
+      checkinItems.find((item) => matchesId(item?.id, normalizedSourceId)) || null;
+    const mergedTarget = followResolvedCheckinLinkedSource(exactItem);
+    if (mergedTarget && !isCheckinItemDeleted(mergedTarget)) {
+      return {
+        sourceType: normalizedSourceType,
+        requestedId: normalizedSourceId,
+        resolvedId: String(mergedTarget.id || "").trim(),
+        source: cloneTodoValue(mergedTarget),
+        resolvedBy:
+          exactItem && matchesId(exactItem?.id, mergedTarget?.id) ? "id" : "merged",
+      };
+    }
+    if (titleKey) {
+      const visibleMatches = checkinItems.filter(
+        (item) =>
+          !isCheckinItemDeleted(item) &&
+          normalizeCheckinTitleKey(item?.title) === titleKey,
+      );
+      const activeMatches = visibleMatches.filter((item) => isCheckinItemActive(item));
+      const fallbackItem =
+        activeMatches.length === 1
+          ? activeMatches[0]
+          : visibleMatches.length === 1
+            ? visibleMatches[0]
+            : null;
+      if (fallbackItem) {
+        return {
+          sourceType: normalizedSourceType,
+          requestedId: normalizedSourceId,
+          resolvedId: String(fallbackItem.id || "").trim(),
+          source: cloneTodoValue(fallbackItem),
+          resolvedBy: "title",
+        };
+      }
+    }
+    return {
+      sourceType: normalizedSourceType,
+      requestedId: normalizedSourceId,
+      resolvedId: "",
+      source: null,
+      resolvedBy: "missing",
+    };
   }
 
   function doesTodoLinkedPlanOccurOnDate(planLike = null, dateText = "") {
@@ -3082,6 +3193,53 @@
     ]);
     merged.isCompleted = !!primary?.isCompleted || !!secondary?.isCompleted;
     return merged;
+  }
+
+  function reconcileTodoLinkedPlanCollection(planItems = []) {
+    if (!Array.isArray(planItems) || !planItems.length) {
+      return [];
+    }
+    const reconciledPlans = [];
+    planItems.forEach((rawPlan) => {
+      const nextPlan =
+        rawPlan && typeof rawPlan === "object" ? cloneTodoValue(rawPlan) : null;
+      if (!nextPlan) {
+        return;
+      }
+      const sourceType = normalizeTodoLinkedPlanSourceType(nextPlan?.linkedSourceType);
+      const sourceId = String(nextPlan?.linkedSourceId || "").trim();
+      if (sourceType && sourceId) {
+        const resolvedSource = resolveTodoLinkedPlanSource(sourceType, sourceId, {
+          title: nextPlan?.name || "",
+        });
+        const resolvedId = String(resolvedSource?.resolvedId || "").trim();
+        if (resolvedId) {
+          nextPlan.linkedSourceId = resolvedId;
+          nextPlan.id = buildTodoLinkedPlanId(sourceType, resolvedId);
+        }
+      }
+      const linkedSourceType = normalizeTodoLinkedPlanSourceType(
+        nextPlan?.linkedSourceType,
+      );
+      const linkedSourceId = String(nextPlan?.linkedSourceId || "").trim();
+      const existingIndex =
+        linkedSourceType && linkedSourceId
+          ? findTodoLinkedPlanIndex(
+              reconciledPlans,
+              linkedSourceType,
+              linkedSourceId,
+            )
+          : -1;
+      if (existingIndex === -1) {
+        reconciledPlans.push(nextPlan);
+        return;
+      }
+      reconciledPlans[existingIndex] = mergeTodoLinkedPlanDraftState(
+        reconciledPlans[existingIndex],
+        nextPlan,
+      );
+    });
+    return reconciledPlans.map((planLike) => cloneTodoValue(planLike));
   }
 
   function buildTodoLinkedPlanMergeMutation(
@@ -11248,6 +11406,23 @@
     return true;
   }
 
+  async function syncTodoFreshSnapshotNow(options = {}) {
+    if (hasTodoPendingLocalMutations()) {
+      await flushTodoPendingPersistence();
+    }
+    await waitForTodoStorageReady();
+    const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
+      fresh: true,
+    });
+    await applyTodoFreshSnapshot(freshSnapshot, {
+      reason: options?.reason || "runtime-explicit-fresh-sync",
+      perfStageReady: options?.perfStageReady || "todo-runtime-fresh-sync-ready",
+      perfStageApplied:
+        options?.perfStageApplied || "todo-runtime-fresh-sync-applied",
+    });
+    return captureTodoWorkspaceSnapshot();
+  }
+
   async function syncTodoFreshSnapshotInBackground() {
     const deferredGeneration = todoDeferredFreshSyncGeneration;
     if (todoInitialDataValidated) {
@@ -11631,6 +11806,13 @@
       });
       return toggleCheckinCompletionOnDate(itemId, dateText);
     },
+    resolveLinkedPlanSource(sourceType, sourceId, options = {}) {
+      initPlanSidebar({
+        initialView: sourceType === "checkin" ? "checkins" : "todos",
+        persistWidgetView: true,
+      });
+      return resolveTodoLinkedPlanSource(sourceType, sourceId, options);
+    },
     cleanupLinkedPlanSourceOccurrence(sourceType, sourceId, dateText) {
       initPlanSidebar({
         initialView: sourceType === "checkin" ? "checkins" : "todos",
@@ -11660,6 +11842,18 @@
         persistWidgetView: true,
       });
       openTodoCreateFlow(options);
+    },
+    async syncFreshSnapshot(options = {}) {
+      initPlanSidebar({
+        initialView:
+          typeof options?.initialView === "string"
+            ? options.initialView
+            : currentView,
+        persistWidgetView: true,
+      });
+      return syncTodoFreshSnapshotNow({
+        reason: options?.reason || "runtime-explicit-fresh-sync",
+      });
     },
     async flushPendingChanges(options = {}) {
       await flushTodoDeferredToggleCommits(options);

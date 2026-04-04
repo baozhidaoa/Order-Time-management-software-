@@ -2773,26 +2773,64 @@ function getLinkedPlanSourceLabel(planLike = null) {
   return "";
 }
 
-async function openLinkedPlanSourceEditor(planLike = null) {
+async function resolveLinkedPlanRuntimeTarget(planLike = null, options = {}) {
   const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
   const sourceId = String(planLike?.linkedSourceId || "").trim();
   if (!sourceType || !sourceId) {
+    return null;
+  }
+  const runtime = await ensureTodoSidebarRuntimeLoaded({
+    initialView: sourceType === "checkin" ? "checkins" : "todos",
+    persistWidgetView: true,
+    reason: options?.reason || "plan-linked-resolve",
+  });
+  if (typeof runtime?.syncFreshSnapshot === "function") {
+    await runtime.syncFreshSnapshot({
+      initialView: sourceType === "checkin" ? "checkins" : "todos",
+      reason: options?.reason || "plan-linked-resolve",
+    });
+  }
+  const resolvedSource =
+    typeof runtime?.resolveLinkedPlanSource === "function"
+      ? runtime.resolveLinkedPlanSource(sourceType, sourceId, {
+          title: planLike?.name || "",
+        })
+      : null;
+  const resolvedId = String(
+    resolvedSource?.resolvedId || resolvedSource?.source?.id || sourceId,
+  ).trim();
+  return {
+    runtime,
+    sourceType,
+    requestedId: sourceId,
+    resolvedId,
+    source: resolvedSource?.source || null,
+  };
+}
+
+async function openLinkedPlanSourceEditor(planLike = null) {
+  const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
+  if (!sourceType) {
     return false;
   }
   try {
-    const runtime = await ensureTodoSidebarRuntimeLoaded({
-      initialView: sourceType === "checkin" ? "checkins" : "todos",
-      persistWidgetView: true,
+    const target = await resolveLinkedPlanRuntimeTarget(planLike, {
       reason: "plan-linked-edit",
     });
-    if (sourceType === "todo" && typeof runtime?.editTodoById === "function") {
-      return !!runtime.editTodoById(sourceId);
+    if (!target?.runtime || !target?.resolvedId) {
+      return false;
+    }
+    if (
+      sourceType === "todo" &&
+      typeof target.runtime?.editTodoById === "function"
+    ) {
+      return !!target.runtime.editTodoById(target.resolvedId);
     }
     if (
       sourceType === "checkin" &&
-      typeof runtime?.editCheckinById === "function"
+      typeof target.runtime?.editCheckinById === "function"
     ) {
-      return !!runtime.editCheckinById(sourceId);
+      return !!target.runtime.editCheckinById(target.resolvedId);
     }
   } catch (error) {
     console.error("打开关联源事项编辑器失败:", error);
@@ -2805,29 +2843,32 @@ async function toggleLinkedPlanSourceCompletion(
   occurrenceDate = null,
 ) {
   const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
-  const sourceId = String(planLike?.linkedSourceId || "").trim();
   const dateKey = getPlanOccurrenceDateKey(planLike, occurrenceDate);
-  if (!sourceType || !sourceId) {
+  if (!sourceType) {
     return false;
   }
   try {
-    const runtime = await ensureTodoSidebarRuntimeLoaded({
-      initialView: sourceType === "checkin" ? "checkins" : "todos",
-      persistWidgetView: true,
+    const target = await resolveLinkedPlanRuntimeTarget(planLike, {
       reason: "plan-linked-toggle",
     });
+    if (!target?.runtime || !target?.resolvedId) {
+      return false;
+    }
     if (
       sourceType === "todo" &&
-      typeof runtime?.toggleTodoCompletionById === "function"
+      typeof target.runtime?.toggleTodoCompletionById === "function"
     ) {
-      const toggled = !!runtime.toggleTodoCompletionById(sourceId, dateKey);
+      const toggled = !!target.runtime.toggleTodoCompletionById(
+        target.resolvedId,
+        dateKey,
+      );
       if (
         toggled &&
-        typeof runtime?.flushPendingChanges === "function"
+        typeof target.runtime?.flushPendingChanges === "function"
       ) {
-        await runtime.flushPendingChanges({
+        await target.runtime.flushPendingChanges({
           kind: "todo",
-          targetId: sourceId,
+          targetId: target.resolvedId,
         });
       }
       return toggled;
@@ -2835,16 +2876,19 @@ async function toggleLinkedPlanSourceCompletion(
     if (
       sourceType === "checkin" &&
       dateKey &&
-      typeof runtime?.toggleCheckinByIdOnDate === "function"
+      typeof target.runtime?.toggleCheckinByIdOnDate === "function"
     ) {
-      const toggled = !!runtime.toggleCheckinByIdOnDate(sourceId, dateKey);
+      const toggled = !!target.runtime.toggleCheckinByIdOnDate(
+        target.resolvedId,
+        dateKey,
+      );
       if (
         toggled &&
-        typeof runtime?.flushPendingChanges === "function"
+        typeof target.runtime?.flushPendingChanges === "function"
       ) {
-        await runtime.flushPendingChanges({
+        await target.runtime.flushPendingChanges({
           kind: "checkin",
-          targetId: sourceId,
+          targetId: target.resolvedId,
         });
       }
       return toggled;
@@ -2860,24 +2904,26 @@ async function cleanupDeletedLinkedPlanSourceOccurrence(
   occurrenceDate = null,
 ) {
   const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
-  const sourceId = String(planLike?.linkedSourceId || "").trim();
   const dateKey = getPlanOccurrenceDateKey(planLike, occurrenceDate);
-  if (!sourceType || !sourceId || !dateKey) {
+  if (!sourceType || !dateKey) {
     return false;
   }
   try {
-    const runtime = await ensureTodoSidebarRuntimeLoaded({
-      initialView: sourceType === "checkin" ? "checkins" : "todos",
-      persistWidgetView: true,
+    const target = await resolveLinkedPlanRuntimeTarget(planLike, {
       reason: "plan-linked-delete-sync",
     });
-    if (typeof runtime?.cleanupLinkedPlanSourceOccurrence === "function") {
-      return !!(await runtime.cleanupLinkedPlanSourceOccurrence(
+    if (
+      !target?.runtime ||
+      !target?.resolvedId ||
+      typeof target.runtime?.cleanupLinkedPlanSourceOccurrence !== "function"
+    ) {
+      return false;
+    }
+    return !!(await target.runtime.cleanupLinkedPlanSourceOccurrence(
         sourceType,
-        sourceId,
+        target.resolvedId,
         dateKey,
       ));
-    }
   } catch (error) {
     console.error("同步删除后的关联源事项状态失败:", error);
   }
@@ -7606,6 +7652,8 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       if (opened) {
         return;
       }
+      alert(`未找到对应${linkedSourceLabel}源事项，无法编辑。`);
+      return;
     }
     openRegularPlanEditor();
   };
@@ -7628,6 +7676,8 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
         void refreshPlanFromExternalStorageChange();
         return;
       }
+      alert(`未找到对应${linkedSourceLabel}源事项，无法同步完成状态。`);
+      return;
     }
     const index = plans.findIndex((p) => matchesId(p.id, plan.id));
     if (index !== -1) {
