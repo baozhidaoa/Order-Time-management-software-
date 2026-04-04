@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>时间计划</title>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <script src="desktop-theme-preload.js"></script>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <script src="desktop-theme-preload.js"></script>
     <script defer src="offline-assets/offline-assets-manifest.js"></script>
     <script defer src="desktop-common-boot.js"></script>
     <script defer src="plan-boot.js"></script>
@@ -465,6 +465,18 @@
         display: flex;
         gap: 6px;
         align-items: center;
+        flex: 0 0 auto;
+      }
+
+      .plan-nav-buttons .bts {
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+
+      .plan-today-btn {
+        white-space: nowrap;
+        word-break: keep-all;
+        writing-mode: horizontal-tb;
       }
 
       #stats-container {
@@ -731,6 +743,8 @@
         .plan-nav-buttons .bts {
           margin: 0;
           font-size: 11px !important;
+          white-space: nowrap;
+          flex: 0 0 auto;
         }
 
         .plan-nav-arrow-btn {
@@ -739,6 +753,9 @@
 
         .plan-today-btn {
           padding: 6px 10px !important;
+          white-space: nowrap;
+          word-break: keep-all;
+          writing-mode: horizontal-tb;
         }
 
         .todo-item {

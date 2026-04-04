@@ -942,6 +942,11 @@
       syncAndroidNativeBootstrapTransitionOverlay();
     }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
+    if (nextStateEnteringActiveTransitionLoading) {
+      scheduleImmediateNativeShellResumeReadyReport(
+        nextState.reason || "shell-resume",
+      );
+    }
     markPagePerfStage(
       nextState.active ? "hidden-page-resumed" : "hidden-page-paused",
       {
@@ -1503,6 +1508,53 @@
         }
       });
     return nativeShellResumeReadyPromise;
+  }
+
+  function scheduleImmediateNativeShellResumeReadyReport(
+    reason = "shell-resume",
+  ) {
+    if (
+      !nativeShellResumeReadyPending ||
+      !isReactNativeNavigationRuntime() ||
+      nativePageReadyReported !== true
+    ) {
+      return false;
+    }
+    const shellState = getShellVisibilityState();
+    if (shellState.active === false || shellState.transitionLoading !== true) {
+      return false;
+    }
+    if (hasPageBootstrapPendingBodyState()) {
+      return false;
+    }
+    const requestVersion = nativeShellResumeReadyVersion;
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      schedule(() => {
+        if (
+          requestVersion !== nativeShellResumeReadyVersion ||
+          !nativeShellResumeReadyPending
+        ) {
+          return;
+        }
+        const latestShellState = getShellVisibilityState();
+        if (
+          latestShellState.active === false ||
+          latestShellState.transitionLoading !== true
+        ) {
+          return;
+        }
+        reportNativePageReadyWithOptions({
+          allowRepeat: true,
+          reason,
+        });
+        nativeShellResumeReadyPending = false;
+      });
+    });
+    return true;
   }
 
   function clearDesktopBootstrapPrewarmTimer() {

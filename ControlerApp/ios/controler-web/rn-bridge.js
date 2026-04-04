@@ -256,6 +256,8 @@
   )
     ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
     : [];
+  receive.__controlerReceiverKind = "runtime";
+  receive.__controlerBridgeEvalId = "runtime";
   window.__controlerReceiveNativeMessage = receive;
   if (pendingNativeMessages.length > 0) {
     pendingNativeMessages.splice(0).forEach((message) => {

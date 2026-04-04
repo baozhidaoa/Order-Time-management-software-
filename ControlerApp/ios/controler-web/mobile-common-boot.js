@@ -630,6 +630,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   )
     ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
     : [];
+  receive.__controlerReceiverKind = "runtime";
+  receive.__controlerBridgeEvalId = "runtime";
   window.__controlerReceiveNativeMessage = receive;
   if (pendingNativeMessages.length > 0) {
     pendingNativeMessages.splice(0).forEach((message) => {
@@ -16622,6 +16624,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       syncAndroidNativeBootstrapTransitionOverlay();
     }
     window.__CONTROLER_SHELL_VISIBILITY__ = getShellVisibilityState();
+    if (nextStateEnteringActiveTransitionLoading) {
+      scheduleImmediateNativeShellResumeReadyReport(
+        nextState.reason || "shell-resume",
+      );
+    }
     markPagePerfStage(
       nextState.active ? "hidden-page-resumed" : "hidden-page-paused",
       {
@@ -17183,6 +17190,53 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }
       });
     return nativeShellResumeReadyPromise;
+  }
+
+  function scheduleImmediateNativeShellResumeReadyReport(
+    reason = "shell-resume",
+  ) {
+    if (
+      !nativeShellResumeReadyPending ||
+      !isReactNativeNavigationRuntime() ||
+      nativePageReadyReported !== true
+    ) {
+      return false;
+    }
+    const shellState = getShellVisibilityState();
+    if (shellState.active === false || shellState.transitionLoading !== true) {
+      return false;
+    }
+    if (hasPageBootstrapPendingBodyState()) {
+      return false;
+    }
+    const requestVersion = nativeShellResumeReadyVersion;
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      schedule(() => {
+        if (
+          requestVersion !== nativeShellResumeReadyVersion ||
+          !nativeShellResumeReadyPending
+        ) {
+          return;
+        }
+        const latestShellState = getShellVisibilityState();
+        if (
+          latestShellState.active === false ||
+          latestShellState.transitionLoading !== true
+        ) {
+          return;
+        }
+        reportNativePageReadyWithOptions({
+          allowRepeat: true,
+          reason,
+        });
+        nativeShellResumeReadyPending = false;
+      });
+    });
+    return true;
   }
 
   function clearDesktopBootstrapPrewarmTimer() {

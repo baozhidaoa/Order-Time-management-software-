@@ -2335,12 +2335,27 @@ function buildBridgeBootstrapScript(
         ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
         : [];
       window.__CONTROLER_PENDING_NATIVE_MESSAGES__ = pendingNativeMessages;
-      window.__controlerReceiveNativeMessage = function bootstrapReceive(
-        message,
-      ) {
-        pendingNativeMessages.push(message);
-        return true;
-      };
+      const currentReceiver =
+        typeof window.__controlerReceiveNativeMessage === 'function'
+          ? window.__controlerReceiveNativeMessage
+          : null;
+      const currentReceiverKind =
+        currentReceiver &&
+        typeof currentReceiver.__controlerReceiverKind === 'string'
+          ? currentReceiver.__controlerReceiverKind
+          : '';
+      if (currentReceiverKind !== 'runtime') {
+        window.__controlerReceiveNativeMessage = function bootstrapReceive(
+          message,
+        ) {
+          pendingNativeMessages.push(message);
+          return true;
+        };
+        window.__controlerReceiveNativeMessage.__controlerReceiverKind =
+          'bootstrap';
+        window.__controlerReceiveNativeMessage.__controlerBridgeEvalId =
+          'bootstrap';
+      }
       window.__CONTROLER_RN_META__ = {
         ...${JSON.stringify(platformContract.getReactNativeRuntimeProfile(Platform.OS))},
         runtimeSessionId: ${JSON.stringify(runtimeSessionId)},
@@ -2470,76 +2485,6 @@ function buildBridgeBootstrapScript(
                 language: normalizedLanguage,
               },
             }),
-          );
-        }
-      } catch (_error) {}
-      try {
-        if (
-          window.ReactNativeWebView &&
-          typeof window.ReactNativeWebView.postMessage === 'function'
-        ) {
-          const describeTarget = (target) => {
-            if (!(target instanceof Element)) {
-              return {
-                tag: '',
-                id: '',
-                className: '',
-              };
-            }
-            return {
-              tag: target.tagName || '',
-              id: target.id || '',
-              className:
-                typeof target.className === 'string'
-                  ? target.className
-                  : target.className?.baseVal || '',
-            };
-          };
-          const emitBootstrapTouch = (name, event) => {
-            const touch =
-              event?.changedTouches?.[0] ||
-              event?.touches?.[0] ||
-              event ||
-              null;
-            window.ReactNativeWebView.postMessage(
-              JSON.stringify({
-                type: 'bridge-event',
-                payload: {
-                  name: 'ui.debug-bootstrap-touch',
-                  eventName: name,
-                  x:
-                    Number.isFinite(touch?.clientX) && touch.clientX >= 0
-                      ? Math.round(touch.clientX)
-                      : null,
-                  y:
-                    Number.isFinite(touch?.clientY) && touch.clientY >= 0
-                      ? Math.round(touch.clientY)
-                      : null,
-                  target: describeTarget(event?.target),
-                },
-              }),
-            );
-          };
-          document.addEventListener(
-            'touchstart',
-            (event) => {
-              emitBootstrapTouch('touchstart', event);
-            },
-            true,
-          );
-          document.addEventListener(
-            'pointerdown',
-            (event) => {
-              emitBootstrapTouch('pointerdown', event);
-            },
-            true,
-          );
-          document.addEventListener(
-            'click',
-            (event) => {
-              emitBootstrapTouch('click', event);
-            },
-            true,
           );
         }
       } catch (_error) {}
@@ -2700,6 +2645,28 @@ function App({
     tertiary: {
       revision: 0,
       messages: [],
+    },
+  });
+  const bridgeBootstrapScriptsBySlotRef = useRef<
+    Record<
+      WebViewSlot,
+      {
+        revision: number;
+        script: string;
+      }
+    >
+  >({
+    primary: {
+      revision: -1,
+      script: '',
+    },
+    secondary: {
+      revision: -1,
+      script: '',
+    },
+    tertiary: {
+      revision: -1,
+      script: '',
     },
   });
   const slotPageReadyRef = useRef<Record<WebViewSlot, boolean>>({
@@ -2894,6 +2861,26 @@ function App({
       transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(step);
     };
     transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(step);
+  }
+
+  function requestTransitionPresentation(slot: WebViewSlot) {
+    const pendingTransition = transitionStateRef.current;
+    if (
+      pendingTransition?.status !== 'loading' ||
+      pendingTransition.toSlot !== slot ||
+      !slotPageReadyRef.current[slot]
+    ) {
+      return;
+    }
+    if (slotThemeReadyRef.current[slot]) {
+      if (IS_ANDROID && slotLoadCompletedRef.current[slot]) {
+        finalizeTransition(pendingTransition);
+        return;
+      }
+      startLoadedTransition(slot);
+      return;
+    }
+    scheduleTransitionThemeFallback(slot);
   }
 
   useEffect(() => {
@@ -5930,7 +5917,7 @@ function App({
       if (!isCurrentSlotRevision(slot, revision)) {
         return;
       }
-      if (!slotLoadCompletedRef.current[slot]) {
+      if (!slotLoadCompletedRef.current[slot] && meta.kind !== 'bridge-response') {
         const pendingState = pendingBridgeMessagesBySlotRef.current[slot];
         if (pendingState.revision !== revision) {
           pendingBridgeMessagesBySlotRef.current[slot] = {
@@ -6098,13 +6085,7 @@ function App({
       if (eventName === 'ui.theme-applied') {
         if (isPayloadForCurrentSlot(slot, message.payload)) {
           slotThemeReadyRef.current[slot] = true;
-          if (
-            transitionStateRef.current?.status === 'loading' &&
-            transitionStateRef.current.toSlot === slot &&
-            slotPageReadyRef.current[slot]
-          ) {
-            scheduleTransitionThemeFallback(slot);
-          }
+          requestTransitionPresentation(slot);
         }
         const nextThemeState =
           message.payload && typeof message.payload === 'object'
@@ -6193,7 +6174,7 @@ function App({
         slotPageReadyRef.current[slot] = true;
         dispatchQueuedWidgetLaunchIfReady(slot, 'page-ready');
         if (transitionStateRef.current?.toSlot === slot) {
-          scheduleTransitionThemeFallback(slot);
+          requestTransitionPresentation(slot);
           return;
         }
         if (slot === activeSlotRef.current) {
@@ -6853,14 +6834,30 @@ function App({
           showsHorizontalScrollIndicator={false}
           bounces={false}
           overScrollMode="never"
-          injectedJavaScriptBeforeContentLoaded={buildBridgeBootstrapScript({
-            active: shellSlotActive,
-            slot,
-            reason: 'bootstrap',
-            page: slotState.pageKey,
-            href: slotState.uri,
-            transitionLoading: slot === transitionLoadingSlot,
-          }, launchThemeStateRef.current, runtimeSessionIdRef.current)}
+          injectedJavaScriptBeforeContentLoaded={(() => {
+            const cachedBootstrapScript =
+              bridgeBootstrapScriptsBySlotRef.current[slot];
+            if (cachedBootstrapScript.revision === slotState.revision) {
+              return cachedBootstrapScript.script;
+            }
+            const nextBootstrapScript = buildBridgeBootstrapScript(
+              {
+                active: shellSlotActive,
+                slot,
+                reason: 'bootstrap',
+                page: slotState.pageKey,
+                href: slotState.uri,
+                transitionLoading: slot === transitionLoadingSlot,
+              },
+              launchThemeStateRef.current,
+              runtimeSessionIdRef.current,
+            );
+            bridgeBootstrapScriptsBySlotRef.current[slot] = {
+              revision: slotState.revision,
+              script: nextBootstrapScript,
+            };
+            return nextBootstrapScript;
+          })()}
           onMessage={event => {
             handleWebViewMessage(slot, slotState.revision, event).catch(
               () => undefined,
