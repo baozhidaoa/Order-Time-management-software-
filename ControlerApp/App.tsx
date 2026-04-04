@@ -147,6 +147,11 @@ type WebViewSlotState = {
   revision: number;
 };
 
+type PendingBridgeMessagesState = {
+  revision: number;
+  messages: Record<string, unknown>[];
+};
+
 type TransitionState = {
   fromSlot: WebViewSlot;
   toSlot: WebViewSlot;
@@ -1615,10 +1620,28 @@ function buildInjectionScript(message: Record<string, unknown>): string {
   const serialized = JSON.stringify(message)
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
-  return (
-    'window.__controlerReceiveNativeMessage && ' +
-    `window.__controlerReceiveNativeMessage(${serialized}); true;`
-  );
+  return `
+    (function () {
+      const message = ${serialized};
+      const receiver =
+        typeof window.__controlerReceiveNativeMessage === 'function'
+          ? window.__controlerReceiveNativeMessage
+          : null;
+      if (receiver) {
+        receiver(message);
+        return true;
+      }
+      const pendingNativeMessages = Array.isArray(
+        window.__CONTROLER_PENDING_NATIVE_MESSAGES__,
+      )
+        ? window.__CONTROLER_PENDING_NATIVE_MESSAGES__
+        : [];
+      window.__CONTROLER_PENDING_NATIVE_MESSAGES__ = pendingNativeMessages;
+      pendingNativeMessages.push(message);
+      return true;
+    })();
+    true;
+  `;
 }
 
 function estimatePayloadSize(value: unknown): number {
@@ -2658,6 +2681,27 @@ function App({
     secondary: '',
     tertiary: '',
   });
+  const slotLoadCompletedRef = useRef<Record<WebViewSlot, boolean>>({
+    primary: false,
+    secondary: false,
+    tertiary: false,
+  });
+  const pendingBridgeMessagesBySlotRef = useRef<
+    Record<WebViewSlot, PendingBridgeMessagesState>
+  >({
+    primary: {
+      revision: 0,
+      messages: [],
+    },
+    secondary: {
+      revision: 0,
+      messages: [],
+    },
+    tertiary: {
+      revision: 0,
+      messages: [],
+    },
+  });
   const slotPageReadyRef = useRef<Record<WebViewSlot, boolean>>({
     primary: false,
     secondary: false,
@@ -2771,7 +2815,19 @@ function App({
     }
   }, []);
 
-  function resetSlotVisualReadiness(slot: WebViewSlot) {
+  function isCurrentSlotRevision(slot: WebViewSlot, revision: number) {
+    return webViewSlotsRef.current[slot].revision === revision;
+  }
+
+  function resetSlotVisualReadiness(slot: WebViewSlot, revision: number) {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
+    slotLoadCompletedRef.current[slot] = false;
+    pendingBridgeMessagesBySlotRef.current[slot] = {
+      revision,
+      messages: [],
+    };
     slotPageReadyRef.current[slot] = false;
     slotThemeReadyRef.current[slot] = false;
     cancelTransitionThemeFallback(slot);
@@ -4273,12 +4329,20 @@ function App({
     [logPerfMetric],
   );
 
-  const clearPendingTransition = (slot: WebViewSlot) => {
+  const clearPendingTransition = (slot: WebViewSlot, reason = '') => {
     const currentTransition = transitionStateRef.current;
     if (!currentTransition || currentTransition.toSlot !== slot) {
       return;
     }
 
+    logPerfMetric('perf.metric', {
+      stage: 'transition-cleared',
+      fromSlot: currentTransition.fromSlot,
+      toSlot: currentTransition.toSlot,
+      fromPage: webViewSlotsRef.current[currentTransition.fromSlot].pageKey,
+      toPage: webViewSlotsRef.current[currentTransition.toSlot].pageKey,
+      reason,
+    });
     transitionTokenRef.current += 1;
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
@@ -4356,6 +4420,7 @@ function App({
 
   const fallbackTransitionToDirectNavigation = (
     transition: TransitionState,
+    reason = '',
   ) => {
     const pendingState = webViewSlotsRef.current[transition.toSlot];
     const targetUri =
@@ -4366,12 +4431,21 @@ function App({
     const targetPageKey =
       pendingState.pageKey || getPageByHref(targetUri || '')?.key || '';
     if (!targetUri || !targetPageKey) {
-      clearPendingTransition(transition.toSlot);
+      clearPendingTransition(transition.toSlot, reason || 'fallback-missing-target');
       return;
     }
 
     const fallbackSlot = transition.fromSlot;
     const pendingSlot = transition.toSlot;
+    logPerfMetric('perf.metric', {
+      stage: 'transition-fallback',
+      fromSlot: transition.fromSlot,
+      toSlot: transition.toSlot,
+      fromPage: webViewSlotsRef.current[transition.fromSlot].pageKey,
+      toPage: pendingState.pageKey || targetPageKey,
+      activeSlot: activeSlotRef.current,
+      reason,
+    });
     resetWebViewPresentation();
     activeSlotRef.current = fallbackSlot;
     setActiveSlot(fallbackSlot);
@@ -4484,11 +4558,11 @@ function App({
             startLoadedTransition(transition.toSlot);
             return;
           }
-          fallbackTransitionToDirectNavigation(graceTransition);
+          finalizeTransition(graceTransition);
         }, PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS);
         return;
       }
-      fallbackTransitionToDirectNavigation(currentTransition);
+      finalizeTransition(currentTransition);
     }, timeoutMs);
   };
 
@@ -4563,11 +4637,17 @@ function App({
           return 'intercept';
         }
       } else {
-        clearPendingTransition(currentTransition.toSlot);
+        clearPendingTransition(
+          currentTransition.toSlot,
+          `superseded-navigation:${source}:${target.pageKey}`,
+        );
       }
 
       if (transitionStateRef.current) {
-        clearPendingTransition(currentTransition.toSlot);
+        clearPendingTransition(
+          currentTransition.toSlot,
+          `repeat-clear:${source}:${target.pageKey}`,
+        );
       }
     }
 
@@ -5774,27 +5854,121 @@ function App({
     }
   }
 
+  const injectBridgeMessage = useCallback(
+    (
+      slot: WebViewSlot,
+      message: Record<string, unknown>,
+      meta: {
+        kind: 'bridge-response' | 'bridge-event';
+        eventName?: string;
+      },
+    ) => {
+      const script = buildInjectionScript(message);
+      logPerfMetric('inject-javascript', {
+        slot,
+        page: getPageKeyForSlot(slot),
+        kind: meta.kind,
+        eventName: meta.eventName,
+        sizeBytes: script.length,
+      });
+      getWebViewRef(slot).current?.injectJavaScript(script);
+    },
+    [logPerfMetric],
+  );
+
+  const flushPendingBridgeMessagesForSlot = useCallback(
+    (slot: WebViewSlot, revision: number) => {
+      if (!isCurrentSlotRevision(slot, revision)) {
+        return;
+      }
+      if (!slotLoadCompletedRef.current[slot]) {
+        return;
+      }
+      const pendingState = pendingBridgeMessagesBySlotRef.current[slot];
+      if (
+        !pendingState ||
+        pendingState.revision !== revision ||
+        !Array.isArray(pendingState.messages) ||
+        pendingState.messages.length === 0
+      ) {
+        return;
+      }
+      const pendingMessages = pendingState.messages.slice();
+      pendingBridgeMessagesBySlotRef.current[slot] = {
+        revision,
+        messages: [],
+      };
+      pendingMessages.forEach(message => {
+        const type =
+          typeof message?.type === 'string' ? String(message.type) : '';
+        const payload =
+          message?.payload && typeof message.payload === 'object'
+            ? (message.payload as Record<string, unknown>)
+            : {};
+        injectBridgeMessage(slot, message, {
+          kind: type === 'bridge-event' ? 'bridge-event' : 'bridge-response',
+          eventName:
+            type === 'bridge-event' && typeof payload.name === 'string'
+              ? payload.name
+              : undefined,
+        });
+      });
+    },
+    [injectBridgeMessage],
+  );
+
+  const dispatchBridgeMessageToSlot = useCallback(
+    (
+      slot: WebViewSlot,
+      revision: number,
+      message: Record<string, unknown>,
+      meta: {
+        kind: 'bridge-response' | 'bridge-event';
+        eventName?: string;
+      },
+    ) => {
+      if (!isCurrentSlotRevision(slot, revision)) {
+        return;
+      }
+      if (!slotLoadCompletedRef.current[slot]) {
+        const pendingState = pendingBridgeMessagesBySlotRef.current[slot];
+        if (pendingState.revision !== revision) {
+          pendingBridgeMessagesBySlotRef.current[slot] = {
+            revision,
+            messages: [message],
+          };
+        } else {
+          pendingState.messages.push(message);
+        }
+        return;
+      }
+      injectBridgeMessage(slot, message, meta);
+    },
+    [injectBridgeMessage],
+  );
+
   function postBridgeResponse(
     slot: WebViewSlot,
+    revision: number,
     id: string,
     result: Record<string, unknown> | null,
     error?: string,
   ) {
-    const script = buildInjectionScript({
-      type: 'bridge-response',
-      payload: {
-        id,
-        result,
-        error: error || null,
-      },
-    });
-    logPerfMetric('inject-javascript', {
+    dispatchBridgeMessageToSlot(
       slot,
-      page: getPageKeyForSlot(slot),
-      kind: 'bridge-response',
-      sizeBytes: script.length,
-    });
-    getWebViewRef(slot).current?.injectJavaScript(script);
+      revision,
+      {
+        type: 'bridge-response',
+        payload: {
+          id,
+          result,
+          error: error || null,
+        },
+      },
+      {
+        kind: 'bridge-response',
+      },
+    );
   }
 
   function postBridgeEvent(
@@ -5802,21 +5976,21 @@ function App({
     name: string,
     payload: Record<string, unknown> = {},
   ) {
-    const script = buildInjectionScript({
-      type: 'bridge-event',
-      payload: {
-        name,
-        ...payload,
-      },
-    });
-    logPerfMetric('inject-javascript', {
+    dispatchBridgeMessageToSlot(
       slot,
-      page: getPageKeyForSlot(slot),
-      kind: 'bridge-event',
-      eventName: name,
-      sizeBytes: script.length,
-    });
-    getWebViewRef(slot).current?.injectJavaScript(script);
+      webViewSlotsRef.current[slot].revision,
+      {
+        type: 'bridge-event',
+        payload: {
+          name,
+          ...payload,
+        },
+      },
+      {
+        kind: 'bridge-event',
+        eventName: name,
+      },
+    );
   }
   postBridgeEventRef.current = postBridgeEvent;
 
@@ -5837,8 +6011,12 @@ function App({
 
   async function handleWebViewMessage(
     slot: WebViewSlot,
+    revision: number,
     event: WebViewMessageEvent,
   ) {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
     const message = parseBridgeJson(
       event.nativeEvent.data,
     ) as BridgeEnvelope | null;
@@ -6183,6 +6361,7 @@ function App({
         ? message.payload.payload
         : {};
     const startedAt = Date.now();
+    const requestPage = getPageKeyForSlot(slot);
 
     try {
       const result = await callNativeMethod(method, requestPayload);
@@ -6201,7 +6380,7 @@ function App({
       }
       logPerfMetric('native-bridge-call', {
         slot,
-        page: getPageKeyForSlot(slot),
+        page: requestPage,
         method,
         durationMs: Date.now() - startedAt,
         requestSizeBytes: estimatePayloadSize(requestPayload),
@@ -6211,11 +6390,14 @@ function App({
             ? requestPayload.section
             : undefined,
       });
-      postBridgeResponse(slot, requestId, result);
+      if (!isCurrentSlotRevision(slot, revision)) {
+        return;
+      }
+      postBridgeResponse(slot, revision, requestId, result);
     } catch (error) {
       logPerfMetric('native-bridge-call', {
         slot,
-        page: getPageKeyForSlot(slot),
+        page: requestPage,
         method,
         durationMs: Date.now() - startedAt,
         requestSizeBytes: estimatePayloadSize(requestPayload),
@@ -6225,8 +6407,12 @@ function App({
             : undefined,
         error: error instanceof Error ? error.message : String(error),
       });
+      if (!isCurrentSlotRevision(slot, revision)) {
+        return;
+      }
       postBridgeResponse(
         slot,
+        revision,
         requestId,
         null,
         error instanceof Error ? error.message : String(error),
@@ -6234,7 +6420,10 @@ function App({
     }
   }
 
-  const recoverWebView = (slot: WebViewSlot) => {
+  const recoverWebView = (slot: WebViewSlot, revision: number) => {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
     const currentTransition = transitionStateRef.current;
     if (
       currentTransition &&
@@ -6244,7 +6433,10 @@ function App({
         currentTransition.fromSlot,
         currentTransition.toSlot,
       ]);
-      fallbackTransitionToDirectNavigation(currentTransition);
+      fallbackTransitionToDirectNavigation(
+        currentTransition,
+        `render-process-gone:${slot}`,
+      );
       return;
     }
 
@@ -6298,7 +6490,12 @@ function App({
     );
   };
 
-  const handleSlotLoadEnd = (slot: WebViewSlot) => {
+  const handleSlotLoadEnd = (slot: WebViewSlot, revision: number) => {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
+    slotLoadCompletedRef.current[slot] = true;
+    flushPendingBridgeMessagesForSlot(slot, revision);
     if (
       slot === activeSlotRef.current &&
       !transitionStateRef.current &&
@@ -6308,7 +6505,14 @@ function App({
     }
   };
 
-  const handleSlotLoadProgress = (slot: WebViewSlot, progress: number) => {
+  const handleSlotLoadProgress = (
+    slot: WebViewSlot,
+    revision: number,
+    progress: number,
+  ) => {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
     if (
       slot === activeSlotRef.current &&
       progress >= 0.8 &&
@@ -6321,10 +6525,18 @@ function App({
 
   const handleSlotNavigationStateChange = (
     slot: WebViewSlot,
+    revision: number,
     loading: boolean,
     canGoBack: boolean,
   ) => {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
     canGoBackBySlotRef.current[slot] = canGoBack;
+    if (!loading) {
+      slotLoadCompletedRef.current[slot] = true;
+      flushPendingBridgeMessagesForSlot(slot, revision);
+    }
     if (
       slot === activeSlotRef.current &&
       !loading &&
@@ -6337,8 +6549,12 @@ function App({
 
   const handleSlotShouldStartLoad = (
     slot: WebViewSlot,
+    revision: number,
     requestUrl: string,
   ) => {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return false;
+    }
     if (!requestUrl) {
       return false;
     }
@@ -6646,22 +6862,30 @@ function App({
             transitionLoading: slot === transitionLoadingSlot,
           }, launchThemeStateRef.current, runtimeSessionIdRef.current)}
           onMessage={event => {
-            handleWebViewMessage(slot, event).catch(() => undefined);
+            handleWebViewMessage(slot, slotState.revision, event).catch(
+              () => undefined,
+            );
           }}
           onLoadStart={() => {
-            resetSlotVisualReadiness(slot);
+            resetSlotVisualReadiness(slot, slotState.revision);
           }}
           onLoadEnd={() => {
-            handleSlotLoadEnd(slot);
+            handleSlotLoadEnd(slot, slotState.revision);
             syncShellVisibility('load-end');
           }}
           onLoadProgress={event => {
-            handleSlotLoadProgress(slot, event.nativeEvent.progress);
+            handleSlotLoadProgress(slot, slotState.revision, event.nativeEvent.progress);
           }}
           onError={event => {
+            if (!isCurrentSlotRevision(slot, slotState.revision)) {
+              return;
+            }
             const pendingTransition = transitionStateRef.current;
             if (pendingTransition?.toSlot === slot) {
-              fallbackTransitionToDirectNavigation(pendingTransition);
+              fallbackTransitionToDirectNavigation(
+                pendingTransition,
+                `webview-error:${slot}:${event.nativeEvent.description || ''}`,
+              );
               return;
             }
             const description = event.nativeEvent.description;
@@ -6674,20 +6898,25 @@ function App({
             );
           }}
           onRenderProcessGone={
-            Platform.OS === 'android' ? () => recoverWebView(slot) : undefined
+            Platform.OS === 'android'
+              ? () => recoverWebView(slot, slotState.revision)
+              : undefined
           }
           onContentProcessDidTerminate={
-            Platform.OS === 'ios' ? () => recoverWebView(slot) : undefined
+            Platform.OS === 'ios'
+              ? () => recoverWebView(slot, slotState.revision)
+              : undefined
           }
           onNavigationStateChange={navigationState => {
             handleSlotNavigationStateChange(
               slot,
+              slotState.revision,
               !!navigationState.loading,
               !!navigationState.canGoBack,
             );
           }}
           onShouldStartLoadWithRequest={request =>
-            handleSlotShouldStartLoad(slot, request.url || '')
+            handleSlotShouldStartLoad(slot, slotState.revision, request.url || '')
           }
           style={[styles.webview, {backgroundColor: shellBootTheme.screenBg}]}
         />

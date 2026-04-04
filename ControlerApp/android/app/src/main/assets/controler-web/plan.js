@@ -664,7 +664,9 @@ function bootstrapPlanFromCachedSnapshot() {
     const snapshot = readPlanCachedSnapshotState();
     applyPlanWorkspaceState(snapshot);
     planInitialDataLoaded = true;
-    planInitialDataValidated = false;
+    planInitialDataValidated =
+      window.ControlerStorage?.isNativeApp === true &&
+      String(snapshot?.source || "").trim() === "page-bootstrap";
     markPlanInitialDataReady(snapshot);
     uiTools?.markPerfStage?.("plan-cache-bootstrap-hit", {
       periodIds: planLoadedPeriodIds.slice(),

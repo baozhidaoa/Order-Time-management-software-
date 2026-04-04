@@ -1192,7 +1192,8 @@
     const snapshot = bootstrapSnapshot || readTodoWorkspaceSnapshot();
     applyTodoWorkspaceSnapshot(snapshot);
     todoInitialDataLoaded = true;
-    todoInitialDataValidated = false;
+    todoInitialDataValidated =
+      window.ControlerStorage?.isNativeApp === true && !!bootstrapSnapshot;
     todoBootstrappedFromPageBootstrap = !!bootstrapSnapshot;
     return snapshot;
   }

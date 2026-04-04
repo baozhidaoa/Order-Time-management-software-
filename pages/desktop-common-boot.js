@@ -10974,54 +10974,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               error,
             );
           }
-          try {
-            const fallbackBootstrap = await buildPageBootstrapStateFromAsyncLoaders(
-              normalizedPage,
-              nativeBootstrapOptions,
-              {
-                fallbackState: buildCurrentMergedState(),
-                getCoreState: async () =>
-                  this.getCoreState({
-                    authoritative: forceAuthoritativeBootstrap,
-                  }),
-                loadSectionRange: async (section, scope = {}) => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.loadSectionRange",
-                    {
-                      section,
-                      scope,
-                    },
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
-                getStorageStatus: async () => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.getStatus",
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
-                getAutoBackupStatus: async () => {
-                  const rawPayload = await reactNativeBridge.call(
-                    "storage.getAutoBackupStatus",
-                  );
-                  return parseJsonSafely(rawPayload, null);
-                },
-              },
-            );
-            if (shouldHydrateManagedMirror) {
-              applyNativePageBootstrapToManagedMirror(
-                normalizedPage,
-                fallbackBootstrap,
-                nativeBootstrapOptions,
-              );
-            }
-            return fallbackBootstrap;
-          } catch (loaderError) {
-            console.error(
-              "拼装 React Native 页面引导状态失败，回退内存快照:",
-              loaderError,
-            );
-          }
           return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
         },
         async getDraft(key, options = {}) {

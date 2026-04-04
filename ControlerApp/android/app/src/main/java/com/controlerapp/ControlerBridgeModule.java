@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.AtomicFile;
@@ -81,6 +82,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final String TAG = "ControlerBridge";
+    private static final String STORAGE_TRACE_PREFIX = "[storage.trace.bridge]";
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static final int REQUEST_SELECT_STORAGE_FILE = 41021;
     private static final int REQUEST_SELECT_STORAGE_DIRECTORY = 41022;
@@ -105,6 +107,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final String KEY_AUTO_BACKUP_LAST_BACKED_UP_FINGERPRINT =
         "last_backed_up_fingerprint";
     private static final String KEY_AUTO_BACKUP_TARGET_KEY = "target_key";
+    private static final String BUNDLE_MANIFEST_FILE_NAME = "bundle-manifest.json";
+    private static final String BUNDLE_CORE_FILE_NAME = "core.json";
+    private static final String BUNDLE_RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
     private static final String DEFAULT_AUTO_BACKUP_INTERVAL_UNIT = "day";
     private static final String DEFAULT_UI_LANGUAGE = "zh-CN";
     private static final int DEFAULT_AUTO_BACKUP_INTERVAL_VALUE = 1;
@@ -112,6 +117,30 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final long STORAGE_SIDE_EFFECT_DELAY_MS = 560L;
     private static final long STORAGE_AUTO_BACKUP_MIN_INTERVAL_MS = 30_000L;
     private static final long STORAGE_AUTO_BACKUP_IDLE_DELAY_MS = 15_000L;
+
+    private static void logStorageBridgeTrace(
+        String operation,
+        String stage,
+        long startedAt,
+        String extra
+    ) {
+        long durationMs =
+            startedAt > 0L ? Math.max(0L, SystemClock.elapsedRealtime() - startedAt) : 0L;
+        Log.i(
+            TAG,
+            STORAGE_TRACE_PREFIX
+                + " op="
+                + String.valueOf(operation == null ? "" : operation)
+                + " stage="
+                + String.valueOf(stage == null ? "" : stage)
+                + " durationMs="
+                + durationMs
+                + " thread="
+                + Thread.currentThread().getName()
+                + " "
+                + String.valueOf(extra == null ? "" : extra)
+        );
+    }
 
     private static final class WidgetPinSupportState {
         final String kind;
@@ -921,6 +950,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void readStorageState(Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("readStorageState", "start", startedAt, "");
         try {
             JSONObject root = ControlerWidgetDataStore.loadRootStrict(getReactApplicationContext());
             JSONObject payload = new JSONObject();
@@ -929,11 +960,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(payload.toString());
         } catch (Exception error) {
             promise.reject("storage_read_failed", error);
+        } finally {
+            logStorageBridgeTrace("readStorageState", "finish", startedAt, "");
         }
     }
 
     @ReactMethod
     public void writeStorageState(String stateJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("writeStorageState", "start", startedAt, "");
         try {
             JSONObject root =
                 TextUtils.isEmpty(stateJson) ? new JSONObject() : new JSONObject(stateJson);
@@ -960,15 +995,21 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(payload.toString());
         } catch (Exception error) {
             promise.reject("storage_write_failed", error);
+        } finally {
+            logStorageBridgeTrace("writeStorageState", "finish", startedAt, "");
         }
     }
 
     @ReactMethod
     public void getStorageStatus(Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("getStorageStatus", "start", startedAt, "");
         try {
             promise.resolve(buildResponsiveStorageStatus(null).toString());
         } catch (Exception error) {
             promise.reject("storage_status_failed", error);
+        } finally {
+            logStorageBridgeTrace("getStorageStatus", "finish", startedAt, "");
         }
     }
 
@@ -1032,6 +1073,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void getStorageCoreState(Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("getStorageCoreState", "start", startedAt, "");
         try {
             promise.resolve(
                 ControlerWidgetDataStore
@@ -1040,6 +1083,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         } catch (Exception error) {
             promise.reject("storage_core_failed", error);
+        } finally {
+            logStorageBridgeTrace("getStorageCoreState", "finish", startedAt, "");
         }
     }
 
@@ -1060,9 +1105,16 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void getStoragePageBootstrapState(String optionsJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
         try {
             JSONObject options =
                 TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            logStorageBridgeTrace(
+                "getStoragePageBootstrapState",
+                "start",
+                startedAt,
+                "pageKey=" + options.optString("pageKey", options.optString("page", ""))
+            );
             promise.resolve(
                 ControlerWidgetDataStore
                     .getStoragePageBootstrapState(getReactApplicationContext(), options)
@@ -1070,11 +1122,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         } catch (Exception error) {
             promise.reject("storage_page_bootstrap_failed", error);
+        } finally {
+            logStorageBridgeTrace("getStoragePageBootstrapState", "finish", startedAt, "");
         }
     }
 
     @ReactMethod
     public void getStorageDraft(String optionsJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("getStorageDraft", "start", startedAt, "");
         try {
             JSONObject options =
                 TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
@@ -1083,6 +1139,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(result == null ? "null" : result.toString());
         } catch (Exception error) {
             promise.reject("storage_draft_get_failed", error);
+        } finally {
+            logStorageBridgeTrace("getStorageDraft", "finish", startedAt, "");
         }
     }
 
@@ -1479,6 +1537,13 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void loadStorageSectionRange(String section, String scopeJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace(
+            "loadStorageSectionRange",
+            "start",
+            startedAt,
+            "section=" + String.valueOf(section == null ? "" : section)
+        );
         try {
             JSONObject scope =
                 TextUtils.isEmpty(scopeJson) ? new JSONObject() : new JSONObject(scopeJson);
@@ -1489,11 +1554,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         } catch (Exception error) {
             promise.reject("storage_range_load_failed", error);
+        } finally {
+            logStorageBridgeTrace("loadStorageSectionRange", "finish", startedAt, "");
         }
     }
 
     @ReactMethod
     public void saveStorageSectionRange(String section, String payloadJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace(
+            "saveStorageSectionRange",
+            "start",
+            startedAt,
+            "section=" + String.valueOf(section == null ? "" : section)
+        );
         try {
             JSONObject payload =
                 TextUtils.isEmpty(payloadJson) ? new JSONObject() : new JSONObject(payloadJson);
@@ -1513,11 +1587,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_range_save_failed", error);
+        } finally {
+            logStorageBridgeTrace("saveStorageSectionRange", "finish", startedAt, "");
         }
     }
 
     @ReactMethod
     public void replaceStorageCoreState(String partialCoreJson, Promise promise) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logStorageBridgeTrace("replaceStorageCoreState", "start", startedAt, "");
         try {
             JSONObject partialCore =
                 TextUtils.isEmpty(partialCoreJson)
@@ -1538,6 +1616,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("storage_core_replace_failed", error);
+        } finally {
+            logStorageBridgeTrace("replaceStorageCoreState", "finish", startedAt, "");
         }
     }
 
@@ -1622,9 +1702,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                         "bundle-" + System.currentTimeMillis()
                     );
                 try {
-                    ControlerWidgetDataStore.writeBundleSnapshotToDirectory(
+                    writeCurrentBundleSnapshotToDirectory(
                         getReactApplicationContext(),
-                        ControlerWidgetDataStore.loadRoot(getReactApplicationContext()),
                         tempBundleDirectory
                     );
                     exportFile = new File(
@@ -3740,6 +3819,85 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private LinkedHashSet<String> collectBundleRelativePaths(JSONObject manifest) {
+        LinkedHashSet<String> relativePaths = new LinkedHashSet<>();
+        relativePaths.add(BUNDLE_MANIFEST_FILE_NAME);
+        relativePaths.add(BUNDLE_CORE_FILE_NAME);
+        relativePaths.add(BUNDLE_RECURRING_PLANS_FILE_NAME);
+
+        JSONObject sections =
+            manifest == null ? null : manifest.optJSONObject("sections");
+        if (sections == null) {
+            return relativePaths;
+        }
+
+        ArrayList<String> sectionKeys = new ArrayList<>();
+        for (java.util.Iterator<String> iterator = sections.keys(); iterator.hasNext();) {
+            sectionKeys.add(iterator.next());
+        }
+        Collections.sort(sectionKeys);
+
+        for (String sectionKey : sectionKeys) {
+            JSONObject section = sections.optJSONObject(sectionKey);
+            JSONArray partitions = section == null ? null : section.optJSONArray("partitions");
+            if (partitions == null) {
+                continue;
+            }
+            for (int index = 0; index < partitions.length(); index += 1) {
+                JSONObject partition = partitions.optJSONObject(index);
+                String relativePath =
+                    partition == null ? "" : partition.optString("file", "").trim();
+                if (!TextUtils.isEmpty(relativePath)) {
+                    relativePaths.add(relativePath);
+                }
+            }
+        }
+
+        return relativePaths;
+    }
+
+    private void writeCurrentBundleSnapshotToDirectory(
+        Context context,
+        File targetDirectory
+    ) throws Exception {
+        if (targetDirectory == null) {
+            throw new Exception("导出目录不可用。");
+        }
+        deleteRecursively(targetDirectory);
+        if (!targetDirectory.exists() && !targetDirectory.mkdirs()) {
+            throw new Exception("无法创建导出目录。");
+        }
+
+        Uri treeUri = ControlerWidgetDataStore.getCustomStorageDirectoryUri(context);
+        if (treeUri == null) {
+            ControlerWidgetDataStore.writeBundleSnapshotToDirectory(
+                context,
+                ControlerWidgetDataStore.loadRoot(context),
+                targetDirectory
+            );
+            return;
+        }
+
+        JSONObject manifest = ControlerWidgetDataStore.getStorageManifest(context);
+        LinkedHashSet<String> relativePaths = collectBundleRelativePaths(manifest);
+        for (String relativePath : relativePaths) {
+            Uri sourceUri = resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                relativePath,
+                false,
+                false,
+                null
+            );
+            if (sourceUri == null) {
+                throw new Exception("当前 bundle 文件缺失: " + relativePath);
+            }
+            File targetFile =
+                new File(targetDirectory, relativePath.replace('/', File.separatorChar));
+            copyUriToFile(context, sourceUri, targetFile);
+        }
+    }
+
     private void zipDirectoryContents(File sourceDirectory, File zipFile) throws Exception {
         File parent = zipFile == null ? null : zipFile.getParentFile();
         if (parent != null && !parent.exists()) {
@@ -4377,11 +4535,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
             File bundleDirectory = new File(tempRoot, "bundle");
             File zipFile = new File(tempRoot, "backup.zip");
-            ControlerWidgetDataStore.writeBundleSnapshotToDirectory(
-                context,
-                ControlerWidgetDataStore.loadRoot(context),
-                bundleDirectory
-            );
+            writeCurrentBundleSnapshotToDirectory(context, bundleDirectory);
             zipDirectoryContents(bundleDirectory, zipFile);
 
             String backupFileName = "order-auto-backup-" + buildAutoBackupTimestampTag() + ".zip";

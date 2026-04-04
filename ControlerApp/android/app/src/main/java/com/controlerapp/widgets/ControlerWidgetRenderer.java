@@ -619,8 +619,6 @@ public final class ControlerWidgetRenderer {
                 affectedKinds.add(ControlerWidgetKinds.START_TIMER);
                 affectedKinds.add(ControlerWidgetKinds.WEEK_GRID);
                 affectedKinds.add(ControlerWidgetKinds.DAY_PIE);
-                affectedKinds.add(ControlerWidgetKinds.WEEK_VIEW);
-                affectedKinds.add(ControlerWidgetKinds.YEAR_VIEW);
                 continue;
             }
             if ("records".equals(normalized) || "timerSessionState".equals(normalized)) {

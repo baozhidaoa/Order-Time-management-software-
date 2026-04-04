@@ -10073,9 +10073,12 @@ async function init() {
     const initialScope = getStatsLoadScope();
     const canPrepareInitialData =
       statsShellPageActive || isStatsShellTransitionLoading();
+    const shouldPreferBootstrapForInitialRender =
+      window.ControlerStorage?.isNativeApp === true && canPrepareInitialData;
     const bootstrappedFromSnapshot = bootstrapStatsFromCachedSnapshot(initialScope);
     if (!bootstrappedFromSnapshot) {
-      const initialLoadFresh = canPrepareInitialData;
+      const initialLoadFresh =
+        canPrepareInitialData && !shouldPreferBootstrapForInitialRender;
       await loadData(initialScope, {
         fresh: initialLoadFresh,
       });
@@ -10105,37 +10108,9 @@ async function init() {
       console.error("预加载统计视图资源失败:", error);
       return false;
     });
-    const shouldAwaitFreshStatsBeforeFirstRender =
-      !useWidgetLaunchFastPath &&
-      bootstrappedFromSnapshot &&
-      canPrepareInitialData &&
-      window.ControlerStorage?.isNativeApp === true;
-    if (shouldAwaitFreshStatsBeforeFirstRender) {
-      uiTools?.markPerfStage?.("stats-await-authoritative-range", {
-        fromCache: true,
-        source: statsBootstrappedFromPageBootstrap ? "page-bootstrap" : "cached-snapshot",
-        rangeUnit: statsRangeState.unit,
-      });
-      await refreshStatsRangeData(false, {
-        manageLoading: false,
-        message: "正在校准统计范围，请稍候",
-        fresh: true,
-      });
-    }
     renderCurrentView();
     await waitForStatsUiPaint();
     await queueStatsToolbarReveal();
-    if (
-      bootstrappedFromSnapshot &&
-      canPrepareInitialData &&
-      !shouldAwaitFreshStatsBeforeFirstRender
-    ) {
-      void refreshStatsRangeData(true, {
-        manageLoading: false,
-        message: "正在更新统计结果，请稍候",
-        fresh: true,
-      });
-    }
     statsInitialDataLoaded = true;
   } finally {
     await setStatsLoadingState({
