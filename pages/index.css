@@ -375,61 +375,61 @@ body.flex.row > div:nth-of-type(2) {
 }
 
 [data-theme="aurora-mist"] {
-  --bg-primary: #341d28;
-  --bg-secondary: rgba(73, 37, 52, 0.48);
-  --bg-tertiary: rgba(101, 56, 74, 0.58);
-  --bg-quaternary: rgba(243, 173, 196, 0.12);
-  --accent-color: #f3adc4;
-  --accent-color-rgb: 243, 173, 196;
-  --text-color: #fff4f8;
-  --muted-text-color: rgba(255, 244, 248, 0.74);
-  --delete-btn: #ff8fa0;
-  --delete-hover: #ff7488;
-  --border-color: #c492a7;
-  --panel-bg: rgba(40, 21, 30, 0.86);
-  --panel-strong-bg: rgba(48, 25, 36, 0.94);
-  --panel-border-color: rgba(243, 173, 196, 0.17);
-  --project-level-1: #e6a0b8;
-  --project-level-2: #c67d99;
-  --project-level-3: #8e4d67;
-  --button-bg: #f6b8cd;
-  --button-bg-hover: #fac8d9;
-  --button-text: #4a2433;
-  --button-border: rgba(243, 173, 196, 0.46);
-  --on-accent-text: #4a2433;
-  --bottom-nav-bg: rgba(34, 17, 25, 0.9);
-  --bottom-nav-button-bg: rgba(243, 173, 196, 0.08);
-  --bottom-nav-button-active-bg: rgba(170, 95, 123, 0.88);
-  --bottom-nav-active-text: #fff4f8;
+  --bg-primary: #362226;
+  --bg-secondary: rgba(86, 50, 54, 0.48);
+  --bg-tertiary: rgba(129, 81, 79, 0.58);
+  --bg-quaternary: rgba(255, 182, 142, 0.13);
+  --accent-color: #ffb68e;
+  --accent-color-rgb: 255, 182, 142;
+  --text-color: #fff6f1;
+  --muted-text-color: rgba(255, 246, 241, 0.74);
+  --delete-btn: #ff8e85;
+  --delete-hover: #ff736c;
+  --border-color: #ca9788;
+  --panel-bg: rgba(44, 28, 31, 0.86);
+  --panel-strong-bg: rgba(54, 34, 38, 0.94);
+  --panel-border-color: rgba(255, 182, 142, 0.18);
+  --project-level-1: #f0ad8b;
+  --project-level-2: #cf8669;
+  --project-level-3: #8f5849;
+  --button-bg: #ffc09a;
+  --button-bg-hover: #ffd0b3;
+  --button-text: #532f26;
+  --button-border: rgba(255, 182, 142, 0.46);
+  --on-accent-text: #532f26;
+  --bottom-nav-bg: rgba(36, 22, 25, 0.9);
+  --bottom-nav-button-bg: rgba(255, 182, 142, 0.08);
+  --bottom-nav-button-active-bg: rgba(182, 112, 89, 0.9);
+  --bottom-nav-active-text: #fff6f1;
 }
 
 [data-theme="amethyst-haze"] {
-  --bg-primary: #24192f;
-  --bg-secondary: rgba(48, 35, 64, 0.5);
-  --bg-tertiary: rgba(72, 52, 96, 0.58);
-  --bg-quaternary: rgba(190, 155, 255, 0.12);
-  --accent-color: #be9bff;
-  --accent-color-rgb: 190, 155, 255;
-  --text-color: #f7f2ff;
-  --muted-text-color: rgba(247, 242, 255, 0.74);
+  --bg-primary: #141826;
+  --bg-secondary: rgba(29, 34, 53, 0.5);
+  --bg-tertiary: rgba(50, 61, 96, 0.58);
+  --bg-quaternary: rgba(157, 176, 255, 0.14);
+  --accent-color: #9db0ff;
+  --accent-color-rgb: 157, 176, 255;
+  --text-color: #f5f7ff;
+  --muted-text-color: rgba(245, 247, 255, 0.74);
   --delete-btn: #ff8fa2;
   --delete-hover: #ff748c;
-  --border-color: #a78ccc;
-  --panel-bg: rgba(29, 21, 40, 0.86);
-  --panel-strong-bg: rgba(35, 25, 49, 0.94);
-  --panel-border-color: rgba(190, 155, 255, 0.18);
-  --project-level-1: #c2a1ff;
-  --project-level-2: #9672d6;
-  --project-level-3: #63459b;
-  --button-bg: #c5a8ff;
-  --button-bg-hover: #d3bcff;
-  --button-text: #312048;
-  --button-border: rgba(190, 155, 255, 0.48);
-  --on-accent-text: #312048;
-  --bottom-nav-bg: rgba(23, 16, 32, 0.9);
-  --bottom-nav-button-bg: rgba(190, 155, 255, 0.08);
-  --bottom-nav-button-active-bg: rgba(115, 83, 173, 0.88);
-  --bottom-nav-active-text: #f7f2ff;
+  --border-color: #8394c9;
+  --panel-bg: rgba(18, 22, 35, 0.86);
+  --panel-strong-bg: rgba(24, 29, 45, 0.94);
+  --panel-border-color: rgba(157, 176, 255, 0.18);
+  --project-level-1: #b1c2ff;
+  --project-level-2: #7488de;
+  --project-level-3: #46589d;
+  --button-bg: #b9c8ff;
+  --button-bg-hover: #ced8ff;
+  --button-text: #1f2742;
+  --button-border: rgba(157, 176, 255, 0.48);
+  --on-accent-text: #1f2742;
+  --bottom-nav-bg: rgba(15, 19, 31, 0.9);
+  --bottom-nav-button-bg: rgba(157, 176, 255, 0.09);
+  --bottom-nav-button-active-bg: rgba(92, 109, 183, 0.9);
+  --bottom-nav-active-text: #f5f7ff;
 }
 
 [data-theme="velvet-bordeaux"] {
@@ -493,32 +493,32 @@ body.flex.row > div:nth-of-type(2) {
 }
 
 [data-theme="midnight-indigo"] {
-  --bg-primary: #352211;
-  --bg-secondary: rgba(71, 45, 22, 0.48);
-  --bg-tertiary: rgba(102, 65, 31, 0.58);
-  --bg-quaternary: rgba(255, 196, 104, 0.12);
-  --accent-color: #ffc468;
-  --accent-color-rgb: 255, 196, 104;
-  --text-color: #fff7ea;
-  --muted-text-color: rgba(255, 247, 234, 0.74);
-  --delete-btn: #ff9a8a;
-  --delete-hover: #ff7f70;
-  --border-color: #c29a63;
-  --panel-bg: rgba(43, 27, 14, 0.86);
-  --panel-strong-bg: rgba(52, 33, 17, 0.94);
-  --panel-border-color: rgba(255, 196, 104, 0.18);
-  --project-level-1: #e3b25e;
-  --project-level-2: #bc8b3e;
-  --project-level-3: #7e5924;
-  --button-bg: #ffc970;
-  --button-bg-hover: #ffd58f;
-  --button-text: #4b2d11;
-  --button-border: rgba(255, 196, 104, 0.48);
-  --on-accent-text: #4b2d11;
-  --bottom-nav-bg: rgba(34, 22, 11, 0.9);
-  --bottom-nav-button-bg: rgba(255, 196, 104, 0.08);
-  --bottom-nav-button-active-bg: rgba(182, 128, 57, 0.88);
-  --bottom-nav-active-text: #4b2d11;
+  --bg-primary: #111722;
+  --bg-secondary: rgba(29, 37, 56, 0.5);
+  --bg-tertiary: rgba(48, 59, 84, 0.58);
+  --bg-quaternary: rgba(214, 195, 156, 0.13);
+  --accent-color: #d6c39c;
+  --accent-color-rgb: 214, 195, 156;
+  --text-color: #faf7f1;
+  --muted-text-color: rgba(250, 247, 241, 0.74);
+  --delete-btn: #ff9c86;
+  --delete-hover: #ff836f;
+  --border-color: #98876b;
+  --panel-bg: rgba(19, 24, 36, 0.86);
+  --panel-strong-bg: rgba(25, 31, 45, 0.94);
+  --panel-border-color: rgba(214, 195, 156, 0.18);
+  --project-level-1: #deccab;
+  --project-level-2: #a59372;
+  --project-level-3: #5f5542;
+  --button-bg: #e3d2af;
+  --button-bg-hover: #ecdfc3;
+  --button-text: #2a241b;
+  --button-border: rgba(214, 195, 156, 0.48);
+  --on-accent-text: #2a241b;
+  --bottom-nav-bg: rgba(16, 21, 32, 0.9);
+  --bottom-nav-button-bg: rgba(214, 195, 156, 0.08);
+  --bottom-nav-button-active-bg: rgba(128, 113, 83, 0.9);
+  --bottom-nav-active-text: #faf7f1;
 }
 
 /* 基础颜色 */
@@ -2956,6 +2956,17 @@ body.page-stats #stats-container,
 body.page-stats .resizable-panel,
 body.page-stats .weekly-glass-scroller {
   scrollbar-gutter: stable;
+}
+
+body.page-stats .stats-section-panel[data-view-key="weekly-grid"],
+body.page-stats .stats-section-body[data-view-key="weekly-grid"],
+body.page-stats .stats-view-shell[data-view-key="weekly-grid"] {
+  overflow: visible !important;
+}
+
+body.page-stats .stats-section-body[data-view-key="weekly-grid"],
+body.page-stats .stats-view-shell[data-view-key="weekly-grid"] {
+  border-radius: 0 !important;
 }
 
 body.page-stats .stats-shell,

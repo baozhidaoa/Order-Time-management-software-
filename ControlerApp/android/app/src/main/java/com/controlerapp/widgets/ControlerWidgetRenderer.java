@@ -1669,15 +1669,29 @@ public final class ControlerWidgetRenderer {
             firstNonEmpty(colors.get("buttonText"), colors.get("onAccentText"), colors.get("text")),
             palette.actionTextColor
         );
-        palette.actionFillColor = blendColors(
+        int actionBaseColor = resolveVisibleAccentColor(
+            parseColor(
+                firstNonEmpty(colors.get("buttonBg"), colors.get("accent")),
+                palette.accentColor
+            ),
             palette.surfaceColor,
-            palette.contrastReferenceColor,
-            palette.surfaceIsLight ? 0.12f : 36f / 255f
+            palette.accentColor
         );
-        palette.actionOutlineColor = blendColors(
-            palette.surfaceColor,
-            palette.contrastReferenceColor,
-            palette.surfaceIsLight ? 0.18f : 51f / 255f
+        palette.actionFillColor = resolveOpaqueColor(
+            blendColors(
+                palette.surfaceColor,
+                actionBaseColor,
+                palette.surfaceIsLight ? 0.14f : 0.20f
+            ),
+            palette.surfaceColor
+        );
+        palette.actionOutlineColor = resolveOpaqueColor(
+            blendColors(
+                palette.actionFillColor,
+                actionBaseColor,
+                palette.surfaceIsLight ? 0.28f : 0.34f
+            ),
+            palette.surfaceColor
         );
         palette.actionTextColor = resolveReadableTextColor(
             preferredActionTextColor,
@@ -1700,7 +1714,7 @@ public final class ControlerWidgetRenderer {
             palette.surfaceIsLight ? 0.10f : 0.14f
         );
         palette.cardGlossColor = Color.argb(
-            palette.surfaceIsLight ? 72 : 16,
+            palette.surfaceIsLight ? 58 : 12,
             255,
             255,
             255
@@ -1797,29 +1811,29 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonText", "#222832");
             colors.put("onAccentText", "#222832");
         } else if ("aurora-mist".equals(safeThemeId)) {
-            colors.put("primary", "#341d28");
-            colors.put("panel", "rgba(42, 23, 33, 0.66)");
-            colors.put("panelStrong", "rgba(48, 25, 36, 0.78)");
-            colors.put("accent", "#f3adc4");
-            colors.put("text", "#fff4f8");
-            colors.put("mutedText", "rgba(255, 244, 248, 0.74)");
-            colors.put("border", "#c492a7");
-            colors.put("panelBorder", "rgba(243, 173, 196, 0.26)");
-            colors.put("buttonBg", "#f6b8cd");
-            colors.put("buttonText", "#4a2433");
-            colors.put("onAccentText", "#4a2433");
+            colors.put("primary", "#362226");
+            colors.put("panel", "rgba(46, 29, 33, 0.66)");
+            colors.put("panelStrong", "rgba(54, 34, 38, 0.78)");
+            colors.put("accent", "#ffb68e");
+            colors.put("text", "#fff6f1");
+            colors.put("mutedText", "rgba(255, 246, 241, 0.74)");
+            colors.put("border", "#ca9788");
+            colors.put("panelBorder", "rgba(255, 182, 142, 0.26)");
+            colors.put("buttonBg", "#ffc09a");
+            colors.put("buttonText", "#532f26");
+            colors.put("onAccentText", "#532f26");
         } else if ("amethyst-haze".equals(safeThemeId)) {
-            colors.put("primary", "#24192f");
-            colors.put("panel", "rgba(32, 23, 44, 0.66)");
-            colors.put("panelStrong", "rgba(35, 25, 49, 0.78)");
-            colors.put("accent", "#be9bff");
-            colors.put("text", "#f7f2ff");
-            colors.put("mutedText", "rgba(247, 242, 255, 0.74)");
-            colors.put("border", "#a78ccc");
-            colors.put("panelBorder", "rgba(190, 155, 255, 0.26)");
-            colors.put("buttonBg", "#c5a8ff");
-            colors.put("buttonText", "#312048");
-            colors.put("onAccentText", "#312048");
+            colors.put("primary", "#141826");
+            colors.put("panel", "rgba(20, 24, 37, 0.66)");
+            colors.put("panelStrong", "rgba(24, 29, 45, 0.80)");
+            colors.put("accent", "#9db0ff");
+            colors.put("text", "#f5f7ff");
+            colors.put("mutedText", "rgba(245, 247, 255, 0.74)");
+            colors.put("border", "#8394c9");
+            colors.put("panelBorder", "rgba(157, 176, 255, 0.26)");
+            colors.put("buttonBg", "#b9c8ff");
+            colors.put("buttonText", "#1f2742");
+            colors.put("onAccentText", "#1f2742");
         } else if ("velvet-bordeaux".equals(safeThemeId)) {
             colors.put("primary", "#2f141d");
             colors.put("panel", "rgba(43, 20, 29, 0.68)");
@@ -1845,17 +1859,17 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonText", "#f8f3ec");
             colors.put("onAccentText", "#f8f3ec");
         } else if ("midnight-indigo".equals(safeThemeId)) {
-            colors.put("primary", "#352211");
-            colors.put("panel", "rgba(46, 29, 15, 0.68)");
-            colors.put("panelStrong", "rgba(52, 33, 17, 0.80)");
-            colors.put("accent", "#ffc468");
-            colors.put("text", "#fff7ea");
-            colors.put("mutedText", "rgba(255, 247, 234, 0.74)");
-            colors.put("border", "#c29a63");
-            colors.put("panelBorder", "rgba(255, 196, 104, 0.28)");
-            colors.put("buttonBg", "#ffc970");
-            colors.put("buttonText", "#4b2d11");
-            colors.put("onAccentText", "#4b2d11");
+            colors.put("primary", "#111722");
+            colors.put("panel", "rgba(18, 23, 34, 0.68)");
+            colors.put("panelStrong", "rgba(25, 31, 45, 0.80)");
+            colors.put("accent", "#d6c39c");
+            colors.put("text", "#faf7f1");
+            colors.put("mutedText", "rgba(250, 247, 241, 0.74)");
+            colors.put("border", "#98876b");
+            colors.put("panelBorder", "rgba(214, 195, 156, 0.28)");
+            colors.put("buttonBg", "#e3d2af");
+            colors.put("buttonText", "#2a241b");
+            colors.put("onAccentText", "#2a241b");
         }
 
         return colors;
@@ -1921,10 +1935,13 @@ public final class ControlerWidgetRenderer {
         if (palette == null) {
             return Color.parseColor("#2AFFFFFF");
         }
-        return blendColors(
-            palette.surfaceColor,
-            palette.contrastReferenceColor,
-            palette.surfaceIsLight ? 0.08f : 0.12f
+        return resolveOpaqueColor(
+            blendColors(
+                palette.cardFillColor,
+                palette.accentColor,
+                palette.surfaceIsLight ? 0.08f : 0.12f
+            ),
+            palette.surfaceColor
         );
     }
 
@@ -3345,8 +3362,8 @@ public final class ControlerWidgetRenderer {
         return resolveOpaqueColor(
             blendColors(
                 safePalette.cardFillColor,
-                safePalette.contrastReferenceColor,
-                safePalette.surfaceIsLight ? 0.08f : 0.10f
+                safePalette.accentColor,
+                safePalette.surfaceIsLight ? 0.06f : 0.10f
             ),
             safePalette.surfaceColor
         );

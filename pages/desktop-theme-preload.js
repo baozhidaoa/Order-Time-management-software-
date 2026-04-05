@@ -47,11 +47,11 @@
     "obsidian-mono": "#0d0f12",
     "ivory-light": "#eceff3",
     "graphite-mist": "#2a2d32",
-    "aurora-mist": "#341d28",
-    "amethyst-haze": "#24192f",
+    "aurora-mist": "#362226",
+    "amethyst-haze": "#141826",
     "velvet-bordeaux": "#2f141d",
     "champagne-sandstone": "#f1ebe2",
-    "midnight-indigo": "#352211",
+    "midnight-indigo": "#111722",
   });
 
   function isPlainObject(value) {

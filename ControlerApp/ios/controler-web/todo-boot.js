@@ -4484,6 +4484,20 @@
       min-height: 0 !important;
       overflow: hidden auto !important;
     }
+
+    body.desktop-widget-todo-page .modal-overlay {
+      padding: 12px;
+      box-sizing: border-box;
+      align-items: flex-start;
+      overflow: auto;
+    }
+
+    body.desktop-widget-todo-page .modal-content {
+      max-width: min(100%, 560px) !important;
+      width: min(100%, 560px) !important;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+    }
   `;
     document.head.appendChild(style);
   }
@@ -9826,29 +9840,21 @@
     modal.style.justifyContent = "center";
 
     modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 25px; border-radius: 15px; max-width: 400px; width: 90%;">
-      <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
-        创建项目类型
-      </h2>
-      
-      <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
-        <button class="bts" id="create-todo-btn" style="text-align: left; padding: 15px; font-size: 16px;">
-          📝 普通待办事项
-          <div style="font-size: 14px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg))); margin-top: 5px;">
-            有截止日期、优先级、标签的待办事项
-          </div>
+    <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100% - 32px)); max-width:min(420px, calc(100% - 32px));">
+      <div class="themed-dialog-title">创建项目类型</div>
+      <div class="themed-dialog-message">选择你现在要新建的内容，弹窗样式会跟随当前主题自动适配。</div>
+      <div class="themed-dialog-actions themed-dialog-actions-vertical">
+        <button class="bts themed-dialog-option-btn" id="create-todo-btn" type="button" style="margin:0;">
+          <span class="themed-dialog-option-label">📝 普通待办事项</span>
+          <span class="themed-dialog-option-desc">有截止日期、优先级、标签的待办事项</span>
         </button>
-        
-        <button class="bts" id="create-checkin-btn" style="text-align: left; padding: 15px; font-size: 16px;">
-          ✅ 打卡项目
-          <div style="font-size: 14px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg))); margin-top: 5px;">
-            每日打卡，记录连续打卡天数
-          </div>
+        <button class="bts themed-dialog-option-btn" id="create-checkin-btn" type="button" style="margin:0;">
+          <span class="themed-dialog-option-label">✅ 打卡项目</span>
+          <span class="themed-dialog-option-desc">每日打卡，记录连续打卡天数</span>
         </button>
       </div>
-      
-      <div style="display: flex; justify-content: flex-end;">
-        <button class="bts" id="cancel-type-btn">取消</button>
+      <div class="themed-dialog-actions">
+        <button class="bts themed-dialog-cancel-btn" id="cancel-type-btn" type="button" style="margin:0;">取消</button>
       </div>
     </div>
   `;

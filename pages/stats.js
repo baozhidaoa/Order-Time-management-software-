@@ -3018,6 +3018,15 @@ function applyResizableViewShell(container, viewKey, defaults = {}) {
 
   const shell = document.createElement("div");
   shell.className = "resizable-panel stats-view-shell";
+  const normalizedViewKey = String(viewKey || "").trim();
+  if (normalizedViewKey) {
+    container.dataset.viewKey = normalizedViewKey;
+    const sectionPanel = container.closest(".stats-section-panel");
+    if (sectionPanel instanceof HTMLElement) {
+      sectionPanel.dataset.viewKey = normalizedViewKey;
+    }
+    shell.dataset.viewKey = normalizedViewKey;
+  }
   shell.style.resize = "none";
   shell.style.overflow = "auto";
   shell.style.minHeight = `${minHeight}px`;
