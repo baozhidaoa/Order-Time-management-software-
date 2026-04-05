@@ -580,6 +580,35 @@
         overflow: visible;
       }
 
+      body.page-plan .planner-shell,
+      body.page-plan .planner-dashboard,
+      body.page-plan .planner-panel--plans,
+      body.page-plan #stats-container,
+      body.page-plan .calendar-container,
+      body.page-plan #calendar-content,
+      body.page-plan .plan-calendar-content-card,
+      body.page-plan .weekly-glass-shell {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        box-sizing: border-box;
+        align-self: stretch;
+        flex: 0 0 auto;
+      }
+
+      body.page-plan .planner-shell,
+      body.page-plan .planner-panel--plans,
+      body.page-plan #stats-container,
+      body.page-plan .calendar-container,
+      body.page-plan #calendar-content {
+        display: flex;
+        flex-direction: column;
+        overflow: visible !important;
+      }
+
       @media (min-width: 691px) {
         .planner-dashboard {
           align-items: stretch;
@@ -591,9 +620,9 @@
 
         body.page-plan .planner-panel--plans {
           padding: 0;
-          background: transparent;
-          border: none;
-          box-shadow: none;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
           border-radius: 0;
         }
 
@@ -698,6 +727,20 @@
           scroll-snap-align: start;
           scroll-snap-stop: always;
           contain: paint;
+        }
+
+        body.page-plan .planner-dashboard,
+        body.page-plan .planner-dashboard .planner-panel,
+        body.page-plan #stats-container,
+        body.page-plan #calendar-content,
+        body.page-plan .plan-calendar-content-card {
+          max-height: none !important;
+          overflow-y: visible !important;
+          contain: none !important;
+        }
+
+        body.page-plan .planner-dashboard {
+          overflow-x: auto !important;
         }
 
         body.page-plan

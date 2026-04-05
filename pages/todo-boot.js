@@ -8323,22 +8323,31 @@
       : "暂无进度，点右侧“＋”补一条";
     const reminderSummary =
       reminderTools?.describeTodoReminder?.(todo) || "不通知";
+    const showRepeatSummary =
+      todo.repeatType && todo.repeatType !== "none";
+    const showDueDateBadge = !showRepeatSummary;
 
     // 构建HTML
     todoElement.innerHTML = `
     <div class="todo-header">
       <h3 class="todo-title">${escapeHtml(todo.title)}</h3>
+      ${
+        showDueDateBadge
+          ? `
       <span class="todo-due-date ${todo.getDueDateClass()}">
         ${escapeHtml(todo.getDueDateDisplay())}
       </span>
+    `
+          : ""
+      }
     </div>
     
     <p class="todo-description">${escapeHtml(todo.description || "无描述")}</p>
     ${
-      todo.repeatType && todo.repeatType !== "none"
+      showRepeatSummary
         ? `
       <div class="todo-repeat-summary" style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 10px;">
-        🔁 ${escapeHtml(todo.getRepeatSummary())} · ${escapeHtml(todo.startDate || "-")} ${todo.endDate ? `至 ${escapeHtml(todo.endDate)}` : "起"}
+        ${escapeHtml(todo.getRepeatSummary())} · ${escapeHtml(todo.startDate || "-")} ${todo.endDate ? `至 ${escapeHtml(todo.endDate)}` : "起"}
       </div>
     `
         : ""

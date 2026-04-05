@@ -8,7 +8,7 @@
     <script defer src="offline-assets/offline-assets-manifest.js"></script>
     <script defer src="mobile-common-boot.js"></script>
     <script defer src="index-boot.js"></script>
-</head>
+  </head>
   <style>
     body {
       margin: 0;
@@ -23,30 +23,93 @@
       border: 1px solid transparent;
     } */
   </style>
-  <body class="app-layout page-record record-bootstrap-pending flex row bgs bkg">
+  <body
+    class="app-layout page-record record-bootstrap-pending flex row bgs bkg"
+  >
     <!-- 侧边栏 -->
     <div class="app-sidebar flex column mgt mgb">
-      <div class="app-sidebar-spacer flex ms">
-      </div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <!-- 导航栏 -->
       <div class="app-nav flex flex1 column ms mgt">
-        <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="index"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('index')) return false;
+            window.location.href = 'index.html';
+            return false;
+          "
+        >
           记录
         </button>
-        <button class="bts" type="button" data-nav-page="stats" onclick="if (window.ControlerUI?.navigateAppPage?.('stats')) return false; window.location.href = 'stats.html'; return false;">
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="stats"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('stats')) return false;
+            window.location.href = 'stats.html';
+            return false;
+          "
+        >
           统计
         </button>
-        <button class="bts" type="button" data-nav-page="plan" onclick="if (window.ControlerUI?.navigateAppPage?.('plan')) return false; window.location.href = 'plan.html'; return false;">计划</button>
-        <button class="bts" type="button" data-nav-page="todo" onclick="if (window.ControlerUI?.navigateAppPage?.('todo')) return false; window.location.href = 'todo.html'; return false;">待办</button>
-        <button class="bts" type="button" data-nav-page="diary" onclick="if (window.ControlerUI?.navigateAppPage?.('diary')) return false; window.location.href = 'diary.html'; return false;">日记</button>
-        <button class="bts" type="button" data-nav-page="settings" onclick="if (window.ControlerUI?.navigateAppPage?.('settings')) return false; window.location.href = 'settings.html'; return false;">
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="plan"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('plan')) return false;
+            window.location.href = 'plan.html';
+            return false;
+          "
+        >
+          计划
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="todo"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('todo')) return false;
+            window.location.href = 'todo.html';
+            return false;
+          "
+        >
+          待办
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="diary"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('diary')) return false;
+            window.location.href = 'diary.html';
+            return false;
+          "
+        >
+          日记
+        </button>
+        <button
+          class="bts"
+          type="button"
+          data-nav-page="settings"
+          onclick="
+            if (window.ControlerUI?.navigateAppPage?.('settings')) return false;
+            window.location.href = 'settings.html';
+            return false;
+          "
+        >
           设置
         </button>
       </div>
     </div>
     <!-- 主要内容区域 -->
     <div class="app-main record-main flex flex1 column mg ms">
-      <div class="record-topbar page-topbar flex juzhong ms mg"><h2 class="page-title">时间记录</h2></div>
+      <div class="record-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">时间记录</h2>
+      </div>
       <div id="record-guide-card" class="guide-card-host ms mg" hidden></div>
       <div
         id="record-loading-overlay"
@@ -57,13 +120,15 @@
         hidden
       >
         <div class="page-loading-card">
-          <div class="page-loading-title" data-loading-title>正在加载数据中</div>
+          <div class="page-loading-title" data-loading-title>
+            正在加载数据中
+          </div>
           <div class="page-loading-message" data-loading-message>
             正在读取记录与项目，请稍候
           </div>
         </div>
       </div>
-      
+
       <div class="record-shell page-shell page-shell--fill">
         <div class="page-shell-heading">
           <div class="page-shell-heading-copy">
@@ -71,26 +136,29 @@
           </div>
           <div class="page-shell-heading-actions">
             <button
-              class="bts"
+              class="bts record-create-project-btn"
               id="open-create-project-modal-btn"
-              style="margin: 0; padding: 10px 20px"
+              type="button"
             >
-              创建项目
+              <span class="record-create-project-btn__icon" aria-hidden="true"
+                >+</span
+              >
+              <span>创建项目</span>
             </button>
           </div>
         </div>
         <!-- 项目创建和展示区域 -->
-        <div
-          class="flex column resizable-panel"
-          id="project-container"
-        >
+        <div class="flex column resizable-panel" id="project-container">
           <section
             class="record-section-block"
             id="record-hierarchy-section"
             aria-label="三级分类系统"
           >
             <div class="record-section-body">
-              <div id="projects-table-container" style="display: block; margin-bottom: 0;">
+              <div
+                id="projects-table-container"
+                style="display: block; margin-bottom: 0"
+              >
                 <div
                   class="projects-table resizable-panel"
                   id="projects-table"
@@ -117,11 +185,7 @@
               <div
                 class="project-totals"
                 id="project-totals"
-                style="
-                  margin-top: 0;
-                  color: var(--text-color);
-                  font-size: 14px;
-                "
+                style="margin-top: 0; color: var(--text-color); font-size: 14px"
               >
                 <!-- 项目总用时将显示在这里 -->
               </div>
@@ -138,11 +202,13 @@
             class="record-output-surface"
             style="flex: 1 1 auto; overflow-y: auto"
           ></div>
-        </div>
-
-        <div class="record-action-bar flex juzhong">
-          <!-- 计时按钮 -->
-          <button class="bts" id="spend">开始计时</button>
+          <button
+            class="bts record-floating-timer-btn"
+            id="spend"
+            type="button"
+            aria-label="开始计时"
+            title="开始计时"
+          ></button>
         </div>
       </div>
     </div>
@@ -162,7 +228,12 @@
           <h2 style="margin-top: 0; color: var(--text-color)">配置计时</h2>
 
           <div class="form-group" style="margin-bottom: 15px">
-            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            <label
+              style="
+                color: var(--text-color);
+                display: block;
+                margin-bottom: 5px;
+              "
               >当前项目</label
             >
             <div class="input-with-suggestions">
@@ -180,12 +251,20 @@
                   font-size: 16px;
                 "
               />
-              <div id="project-name-suggestions" class="suggestion-popover"></div>
+              <div
+                id="project-name-suggestions"
+                class="suggestion-popover"
+              ></div>
             </div>
           </div>
 
           <div class="form-group" style="margin-bottom: 15px">
-            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            <label
+              style="
+                color: var(--text-color);
+                display: block;
+                margin-bottom: 5px;
+              "
               >用时</label
             >
             <div
@@ -208,7 +287,12 @@
           </div>
 
           <div class="form-group" style="margin-bottom: 15px">
-            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            <label
+              style="
+                color: var(--text-color);
+                display: block;
+                margin-bottom: 5px;
+              "
               >缩短时间</label
             >
             <div
@@ -219,7 +303,7 @@
                 margin-bottom: 10px;
               "
             >
-              <div style="display: flex; align-items: center; gap: 5px;">
+              <div style="display: flex; align-items: center; gap: 5px">
                 <input
                   type="number"
                   id="shorten-hours"
@@ -266,7 +350,12 @@
           </div>
 
           <div class="form-group" style="margin-bottom: 15px">
-            <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+            <label
+              style="
+                color: var(--text-color);
+                display: block;
+                margin-bottom: 5px;
+              "
               >下一个项目</label
             >
             <div class="input-with-suggestions">
@@ -284,7 +373,10 @@
                   font-size: 16px;
                 "
               />
-              <div id="next-project-suggestions" class="suggestion-popover"></div>
+              <div
+                id="next-project-suggestions"
+                class="suggestion-popover"
+              ></div>
             </div>
             <div
               class="existing-projects"
@@ -301,9 +393,6 @@
               "
             >
               <!-- 已创建项目将动态添加到这里 -->
-            </div>
-            <div style="margin-top: 5px; font-size: 12px; color: var(--muted-text-color)">
-              留空则沿用当前项目；输入二级/三级项目会自动显示完整路径
             </div>
           </div>
         </div>
@@ -330,7 +419,8 @@
         <h2 style="margin-top: 0; color: var(--text-color)">高级创建项目</h2>
 
         <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+          <label
+            style="color: var(--text-color); display: block; margin-bottom: 5px"
             >项目名称</label
           >
           <input
@@ -350,19 +440,38 @@
         </div>
 
         <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+          <label
+            style="color: var(--text-color); display: block; margin-bottom: 5px"
             >项目层级</label
           >
           <div style="display: flex; gap: 10px">
-            <label style="display: flex; align-items: center; color: var(--text-color)">
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                color: var(--text-color);
+              "
+            >
               <input type="radio" name="project-level" value="1" checked />
               <span style="margin-left: 5px">一级项目</span>
             </label>
-            <label style="display: flex; align-items: center; color: var(--text-color)">
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                color: var(--text-color);
+              "
+            >
               <input type="radio" name="project-level" value="2" />
               <span style="margin-left: 5px">二级项目</span>
             </label>
-            <label style="display: flex; align-items: center; color: var(--text-color)">
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                color: var(--text-color);
+              "
+            >
               <input type="radio" name="project-level" value="3" />
               <span style="margin-left: 5px">三级项目</span>
             </label>
@@ -370,17 +479,19 @@
         </div>
 
         <div class="form-group" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
-            >父级项目（仅二级和三级项目需要）</label
+          <label
+            style="color: var(--text-color); display: block; margin-bottom: 5px"
+            >父级项目</label
           >
           <select
             id="parent-project-select"
+            class="project-parent-select-native"
             style="
               width: 100%;
-              padding: 10px;
-              border-radius: 8px;
+              padding: 10px 14px;
+              border-radius: 16px;
               border: 1px solid var(--input-border-color);
-              background-color: var(--bg-quaternary);
+              background-color: var(--surface-control, var(--bg-quaternary));
               color: var(--text-color);
               font-size: 16px;
             "
@@ -391,7 +502,8 @@
         </div>
 
         <div class="form-group project-color-panel" style="margin-bottom: 15px">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px"
+          <label
+            style="color: var(--text-color); display: block; margin-bottom: 5px"
             >项目颜色</label
           >
           <div class="project-color-picker-row">
@@ -402,13 +514,14 @@
               style="width: 50px; height: 50px; cursor: pointer"
               value="#79af85"
             />
-            <button class="bts project-color-random-btn" id="project-color-random-btn" type="button">
+            <button
+              class="bts project-color-random-btn"
+              id="project-color-random-btn"
+              type="button"
+            >
               随机色
             </button>
             <div class="project-color-picker-copy">
-              <div style="color: var(--text-color); font-size: 14px">
-                可直接挑色，也可从推荐色板里选
-              </div>
               <div
                 id="project-color-current"
                 class="project-color-current-value"
@@ -424,9 +537,6 @@
             role="list"
             aria-label="项目颜色推荐色板"
           ></div>
-          <div class="project-color-note">
-            颜色会用于统计图表和记录卡片；一级项目决定整组色相，二级和三级会跟随一级色调推荐。
-          </div>
         </div>
 
         <div

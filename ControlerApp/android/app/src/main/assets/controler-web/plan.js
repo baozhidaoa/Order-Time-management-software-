@@ -1174,20 +1174,40 @@ function bindPlanFormModalEventShield(modal) {
     return modal;
   }
   modal.dataset.planFormShieldBound = "true";
-  const stopOverlayEvent = (event) => {
-    if (event?.target === modal) {
-      event.preventDefault();
-    }
+  const content = modal.querySelector(".modal-content");
+  if (!(content instanceof HTMLElement)) {
+    return modal;
+  }
+  const stopContentEvent = (event) => {
     event?.stopPropagation?.();
   };
-  modal.addEventListener("pointerdown", stopOverlayEvent);
-  modal.addEventListener("mousedown", stopOverlayEvent);
-  modal.addEventListener("click", stopOverlayEvent);
-  modal.addEventListener("touchstart", stopOverlayEvent, {
+  content.addEventListener("pointerdown", stopContentEvent);
+  content.addEventListener("mousedown", stopContentEvent);
+  content.addEventListener("click", stopContentEvent);
+  content.addEventListener("touchstart", stopContentEvent, {
     passive: false,
   });
-  modal.addEventListener("touchend", stopOverlayEvent, {
+  content.addEventListener("touchend", stopContentEvent, {
     passive: false,
+  });
+  return modal;
+}
+
+function bindPlanFormBackdropDismiss(modal, closeHandler) {
+  if (
+    !(modal instanceof HTMLElement) ||
+    typeof closeHandler !== "function" ||
+    modal.dataset.planFormBackdropDismissBound === "true"
+  ) {
+    return modal;
+  }
+  modal.dataset.planFormBackdropDismissBound = "true";
+  modal.addEventListener("click", (event) => {
+    if (event.target !== modal) {
+      return;
+    }
+    event.preventDefault();
+    closeHandler(event);
   });
   return modal;
 }
@@ -4639,7 +4659,7 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
   const isEditMode = !!editingGoal;
 
   const modal = document.createElement("div");
-  modal.className = "modal-overlay";
+  modal.className = "modal-overlay controler-form-modal-overlay";
   modal.style.display = "flex";
   modal.style.zIndex = "2100";
   modal.style.position = "fixed";
@@ -4652,11 +4672,11 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
   modal.style.justifyContent = "center";
 
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; max-width: 480px; width: 90%;">
+    <div class="modal-content ms controler-form-modal year-goal-form-modal" style="padding: 22px; border-radius: 15px;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 12px;">
         ${getYearGoalScopeTitle(year, normalizedScope)}
       </h2>
-      <div style="display:flex; flex-direction:column; gap:12px;">
+      <div class="controler-form-modal-body year-goal-form-modal-body" style="display:flex; flex-direction:column; gap:12px;">
         <div>
           <label style="display:block; color:var(--text-color); margin-bottom:5px; font-size:13px;">目标名称</label>
           <input id="year-goal-title-input" type="text" style="
@@ -4701,13 +4721,13 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       " placeholder="${getYearGoalScopeDescriptionPlaceholder(normalizedScope)}"></textarea>
         </div>
       </div>
-      <div style="display: flex; justify-content: space-between; margin-top: 16px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline year-goal-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 16px;">
         ${
           isEditMode
             ? '<button type="button" class="bts" id="delete-year-goal-btn" style="background-color: var(--delete-btn); margin: 0;">删除目标</button>'
-            : "<span></span>"
+            : ""
         }
-        <div style="display: flex; gap: 8px;">
+        <div class="controler-form-modal-footer-actions year-goal-form-modal-footer-actions" style="display: flex; gap: 8px;">
           <button type="button" class="bts" id="cancel-year-goal-btn" style="margin: 0;">取消</button>
           <button type="button" class="bts" id="save-year-goal-btn" style="margin: 0;">保存</button>
         </div>
@@ -4715,20 +4735,19 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
     </div>
   `;
 
-  const closeModal = () => {
-    if (modal.parentNode) {
-      document.body.removeChild(modal);
-    }
-  };
-
-  const closeModalSafely = () => {
+  const closeYearGoalModal = (options = {}) => {
     runWithYearGoalModalSuppressed(() => {
-      closeModal();
+      removePlanModalElement(modal);
+      if (typeof options.afterClose === "function") {
+        options.afterClose();
+      }
     });
   };
 
   preparePlanModalOverlay(modal, {
-    close: closeModalSafely,
+    close: () => {
+      closeYearGoalModal();
+    },
     zIndex: 2100,
   });
 
@@ -4771,9 +4790,10 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
     await persistYearGoalBlockingMutation({
       previousSnapshot,
       closeModal: () => {
-        runWithYearGoalModalSuppressed(() => {
-          closeModal();
-          renderCalendarContent();
+        closeYearGoalModal({
+          afterClose: () => {
+            renderCalendarContent();
+          },
         });
       },
       title: isEditMode ? "正在保存目标" : "正在创建目标",
@@ -4815,9 +4835,10 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       await persistYearGoalBlockingMutation({
         previousSnapshot,
         closeModal: () => {
-          runWithYearGoalModalSuppressed(() => {
-            closeModal();
-            renderCalendarContent();
+          closeYearGoalModal({
+            afterClose: () => {
+              renderCalendarContent();
+            },
           });
         },
         title: "正在删除目标",
@@ -4830,7 +4851,9 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
   };
 
   if (uiTools?.bindModalAction) {
-    uiTools.bindModalAction(modal, "#cancel-year-goal-btn", closeModalSafely);
+    uiTools.bindModalAction(modal, "#cancel-year-goal-btn", () => {
+      closeYearGoalModal();
+    });
     uiTools.bindModalAction(modal, "#save-year-goal-btn", saveYearGoalAction);
     if (deleteBtn) {
       uiTools.bindModalAction(
@@ -4842,7 +4865,9 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
   } else {
     modal
       .querySelector("#cancel-year-goal-btn")
-      .addEventListener("click", closeModalSafely);
+      .addEventListener("click", () => {
+        closeYearGoalModal();
+      });
     modal
       .querySelector("#save-year-goal-btn")
       .addEventListener("click", saveYearGoalAction);
@@ -4851,7 +4876,7 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
 
   modal.addEventListener("click", function (event) {
     if (event.target === this) {
-      closeModalSafely();
+      closeYearGoalModal();
     }
   });
 }
@@ -5447,7 +5472,6 @@ function renderWeeklyGridView(container) {
     Math.max(9, Math.round(11 * Math.max(scale, 0.78))) - 1,
   );
   const headerHeight = Math.max(40, Math.round(statsLikeHeaderFont * 3.35));
-  const helperFontSize = Math.max(11, Math.round(14 * scale));
   const timeLabelFont = Math.max(
     8,
     Math.min(
@@ -5464,13 +5488,6 @@ function renderWeeklyGridView(container) {
     ? Math.max(8, Math.min(statsLikeHeaderFont, timeLabelFont + 1))
     : statsLikeHeaderFont;
   const totalTimelineWidth = timeColumnWidth + dateGridWidth;
-  const controls = document.createElement("div");
-  controls.className = "plan-week-helper";
-  controls.style.setProperty("--plan-week-helper-font-size", `${helperFontSize}px`);
-  controls.innerHTML = `
-    <div class="plan-week-helper-text">点击空白时间位置创建事项</div>
-  `;
-  container.appendChild(controls);
 
   const weeklyShell = document.createElement("div");
   weeklyShell.className = "weekly-glass-shell";
@@ -5479,7 +5496,7 @@ function renderWeeklyGridView(container) {
   weeklyShell.style.minWidth = "0";
   weeklyShell.style.boxSizing = "border-box";
   weeklyShell.style.alignSelf = "stretch";
-  weeklyShell.style.overflow = "visible";
+  weeklyShell.style.overflow = "hidden";
 
   const weeklyScroller = document.createElement("div");
   weeklyScroller.className = "weekly-glass-scroller";
@@ -5487,7 +5504,7 @@ function renderWeeklyGridView(container) {
   weeklyScroller.style.minWidth = "0";
   weeklyScroller.style.boxSizing = "border-box";
   weeklyScroller.style.overflowX = "auto";
-  weeklyScroller.style.overflowY = "visible";
+  weeklyScroller.style.overflowY = "hidden";
   if (isCompactMobileLayout()) {
     weeklyScroller.style.overflowY = "hidden";
     weeklyScroller.style.webkitOverflowScrolling = "touch";
@@ -5496,6 +5513,7 @@ function renderWeeklyGridView(container) {
   }
 
   const timelineContainer = document.createElement("div");
+  timelineContainer.className = "weekly-glass-surface";
   timelineContainer.style.display = "grid";
   timelineContainer.style.gridTemplateColumns = `${timeColumnWidth}px ${dateGridWidth}px`;
   timelineContainer.style.width = `${totalTimelineWidth}px`;
@@ -6063,6 +6081,11 @@ function showWeeklyGridPlanModal(planData = null) {
     closeWeeklyPlanModal({
       discardDraft: true,
     });
+  bindPlanFormBackdropDismiss(modal, () =>
+    closeWeeklyPlanModal({
+      discardDraft: true,
+    }),
+  );
 
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(modal, "#weekly-cancel-plan-btn", () =>
@@ -6598,6 +6621,11 @@ function showPlanEditModal(planData = null) {
     closePlanModal({
       discardDraft: true,
     });
+  bindPlanFormBackdropDismiss(modal, () =>
+    closePlanModal({
+      discardDraft: true,
+    }),
+  );
 
   if (uiTools?.bindModalAction) {
     uiTools.bindModalAction(modal, "#cancel-plan-btn", () =>

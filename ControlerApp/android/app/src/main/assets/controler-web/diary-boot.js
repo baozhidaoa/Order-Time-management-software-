@@ -3256,7 +3256,7 @@ function showDiaryModal(dateText, entryId = null) {
   modal.style.zIndex = "2200";
 
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; max-width: 520px; width: 90%; max-height: 88vh; overflow-y: auto;">
+    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; max-width: 520px; width: 90%; max-height: calc(var(--controler-modal-overlay-height) - 24px); overflow-y: auto;">
       <h2 style="margin-top:0; color: var(--text-color); margin-bottom: 14px;">
         ${dateText} 日记
       </h2>

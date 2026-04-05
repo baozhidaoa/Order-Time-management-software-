@@ -7,7 +7,7 @@
     </style>
 
     <style name="AppThemeLaunchDefault" parent="@style/AppTheme">
-        <item name="android:windowBackground">#1F2F28</item>
+        <item name="android:windowBackground">#183524</item>
     </style>
 
     <style name="AppThemeLaunchBlueOcean" parent="@style/AppTheme">
@@ -19,7 +19,7 @@
     </style>
 
     <style name="AppThemeLaunchMinimalGray" parent="@style/AppTheme">
-        <item name="android:windowBackground">#1F252E</item>
+        <item name="android:windowBackground">#1C2734</item>
     </style>
 
     <style name="AppThemeLaunchObsidianMono" parent="@style/AppTheme">
@@ -35,7 +35,11 @@
     </style>
 
     <style name="AppThemeLaunchAuroraMist" parent="@style/AppTheme">
-        <item name="android:windowBackground">#162A2D</item>
+        <item name="android:windowBackground">#341D28</item>
+    </style>
+
+    <style name="AppThemeLaunchAmethystHaze" parent="@style/AppTheme">
+        <item name="android:windowBackground">#24192F</item>
     </style>
 
     <style name="AppThemeLaunchVelvetBordeaux" parent="@style/AppTheme">
@@ -47,7 +51,7 @@
     </style>
 
     <style name="AppThemeLaunchMidnightIndigo" parent="@style/AppTheme">
-        <item name="android:windowBackground">#111A35</item>
+        <item name="android:windowBackground">#352211</item>
     </style>
 
     <style name="ControlerWidgetQuickAddTheme" parent="Theme.AppCompat.DayNight.Dialog">

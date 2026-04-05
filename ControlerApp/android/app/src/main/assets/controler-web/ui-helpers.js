@@ -9,6 +9,7 @@
   const MODAL_EDGE_SWIPE_CLOSE_VELOCITY = 0.32;
   const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 96;
   const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
+  const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -305,6 +306,12 @@
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_ENTER_TRANSITION_STATE_KEY =
     "__CONTROLER_APP_ENTER_TRANSITION__";
+  const APP_PAGE_CUSTOM_TITLE_STORAGE_KEY =
+    "controler:page-custom-topbar-titles";
+  const APP_PAGE_CUSTOM_TITLE_IDLE_HINT = "";
+  const APP_PAGE_CUSTOM_TITLE_EDIT_HINT = "Enter 保存 · Esc 取消";
+  const APP_PAGE_CUSTOM_TITLE_PLACEHOLDER = "输入页面标题";
+  const APP_PAGE_CUSTOM_TITLE_MAX_LENGTH = 40;
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
   const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
@@ -3214,6 +3221,438 @@
     );
   }
 
+  function normalizeCustomPageTitleText(value, fallback = "") {
+    const normalized = String(value ?? "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, APP_PAGE_CUSTOM_TITLE_MAX_LENGTH);
+    if (normalized) {
+      return normalized;
+    }
+    return String(fallback || "").trim().slice(0, APP_PAGE_CUSTOM_TITLE_MAX_LENGTH);
+  }
+
+  function normalizeCustomPageTitleMap(source = {}) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      return {};
+    }
+    const nextMap = {};
+    Object.entries(source).forEach(([key, value]) => {
+      const normalizedKey = String(key || "").trim();
+      const normalizedValue = normalizeCustomPageTitleText(value, "");
+      if (normalizedKey && normalizedValue) {
+        nextMap[normalizedKey] = normalizedValue;
+      }
+    });
+    return nextMap;
+  }
+
+  function readStoredCustomPageTitles() {
+    try {
+      return normalizeCustomPageTitleMap(
+        JSON.parse(
+          localStorage.getItem(APP_PAGE_CUSTOM_TITLE_STORAGE_KEY) || "{}",
+        ),
+      );
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function writeStoredCustomPageTitles(nextTitles = {}) {
+    const normalizedTitles = normalizeCustomPageTitleMap(nextTitles);
+    try {
+      if (Object.keys(normalizedTitles).length) {
+        localStorage.setItem(
+          APP_PAGE_CUSTOM_TITLE_STORAGE_KEY,
+          JSON.stringify(normalizedTitles),
+        );
+      } else {
+        localStorage.removeItem(APP_PAGE_CUSTOM_TITLE_STORAGE_KEY);
+      }
+    } catch (_error) {
+      return normalizedTitles;
+    }
+    return normalizedTitles;
+  }
+
+  function getStoredCustomPageTitle(pageKey) {
+    const normalizedPageKey = String(pageKey || "").trim();
+    if (!normalizedPageKey) {
+      return "";
+    }
+    return readStoredCustomPageTitles()[normalizedPageKey] || "";
+  }
+
+  function setStoredCustomPageTitle(pageKey, titleText, defaultTitle = "") {
+    const normalizedPageKey = String(pageKey || "").trim();
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    const normalizedTitle = normalizeCustomPageTitleText(titleText, "");
+    if (!normalizedPageKey) {
+      return normalizedDefaultTitle || normalizedTitle;
+    }
+    const nextTitles = readStoredCustomPageTitles();
+    if (!normalizedTitle || normalizedTitle === normalizedDefaultTitle) {
+      delete nextTitles[normalizedPageKey];
+    } else {
+      nextTitles[normalizedPageKey] = normalizedTitle;
+    }
+    const persistedTitles = writeStoredCustomPageTitles(nextTitles);
+    return (
+      persistedTitles[normalizedPageKey] ||
+      normalizedDefaultTitle ||
+      normalizedTitle
+    );
+  }
+
+  function selectEditablePageTitleText(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    try {
+      const selection = window.getSelection?.();
+      if (!selection) {
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch (_error) {
+      // Ignore selection failures.
+    }
+  }
+
+  function getEditablePageTitleTextNode(titleElement) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return null;
+    }
+    return (
+      Array.from(titleElement.childNodes).find((node) => node instanceof Text) ||
+      null
+    );
+  }
+
+  function resolveEditablePageTitleI18nSource(titleElement, fallback = "") {
+    if (!(titleElement instanceof HTMLElement)) {
+      return normalizeCustomPageTitleText(fallback, "");
+    }
+
+    const storedSource = normalizeCustomPageTitleText(
+      titleElement.dataset.controlerTitleI18nSource,
+      "",
+    );
+    if (storedSource) {
+      return storedSource;
+    }
+
+    const textNode = getEditablePageTitleTextNode(titleElement);
+    const nodeSource = normalizeCustomPageTitleText(
+      textNode?.__controlerI18nText,
+      "",
+    );
+    return nodeSource || normalizeCustomPageTitleText(fallback, "");
+  }
+
+  function syncEditablePageTitleI18nState(
+    titleElement,
+    nextTitle,
+    { editing = false, defaultTitle = "" } = {},
+  ) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return false;
+    }
+
+    const normalizedTitle = normalizeCustomPageTitleText(nextTitle, "");
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    const normalizedI18nSource = resolveEditablePageTitleI18nSource(
+      titleElement,
+      normalizedDefaultTitle || normalizedTitle,
+    );
+    const isCustomTitle =
+      !!normalizedTitle &&
+      !!normalizedDefaultTitle &&
+      normalizedTitle !== normalizedDefaultTitle;
+    const shouldSkipI18n = editing || isCustomTitle;
+
+    titleElement.dataset.controlerTitleI18nSource = normalizedI18nSource;
+
+    if (shouldSkipI18n) {
+      titleElement.setAttribute("data-i18n-skip", "true");
+      return true;
+    }
+
+    titleElement.removeAttribute("data-i18n-skip");
+    const textNode = getEditablePageTitleTextNode(titleElement);
+    if (textNode instanceof Text && normalizedI18nSource) {
+      textNode.__controlerI18nText = normalizedI18nSource;
+    }
+
+    if (typeof window.ControlerI18n?.apply === "function") {
+      window.ControlerI18n.apply(titleElement);
+      return true;
+    }
+    return false;
+  }
+
+  function insertPlainTextAtCurrentSelection(text) {
+    const normalizedText = String(text || "");
+    if (!normalizedText) {
+      return;
+    }
+    try {
+      if (document.queryCommandSupported?.("insertText")) {
+        document.execCommand("insertText", false, normalizedText);
+        return;
+      }
+    } catch (_error) {
+      // Fall through to manual insertion.
+    }
+
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount <= 0) {
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const textNode = document.createTextNode(normalizedText);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.setEndAfter(textNode);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function updateEditablePageTitlePresentation(
+    titleElement,
+    nextTitle,
+    { editing = false, documentTitle = "", defaultTitle = "" } = {},
+  ) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return "";
+    }
+    const normalizedTitle = normalizeCustomPageTitleText(nextTitle, "");
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    if (titleElement.textContent !== normalizedTitle) {
+      titleElement.textContent = normalizedTitle;
+    }
+    titleElement.dataset.controlerTitleEmpty = normalizedTitle ? "false" : "true";
+    titleElement.dataset.editHint = editing
+      ? APP_PAGE_CUSTOM_TITLE_EDIT_HINT
+      : APP_PAGE_CUSTOM_TITLE_IDLE_HINT;
+    const appliedByI18n = syncEditablePageTitleI18nState(titleElement, normalizedTitle, {
+      editing,
+      defaultTitle: normalizedDefaultTitle,
+    });
+    if (!editing && documentTitle) {
+      const documentTitleText =
+        !editing &&
+        !titleElement.hasAttribute("data-i18n-skip") &&
+        typeof window.ControlerI18n?.translateText === "function"
+          ? normalizeCustomPageTitleText(
+              window.ControlerI18n.translateText(
+                resolveEditablePageTitleI18nSource(
+                  titleElement,
+                  normalizedDefaultTitle || normalizedTitle,
+                ),
+              ),
+              normalizedTitle || documentTitle,
+            )
+          : normalizedTitle;
+      document.title =
+        (!appliedByI18n && normalizedTitle) || documentTitleText || documentTitle;
+    }
+    return normalizedTitle;
+  }
+
+  function initEditablePageTitles() {
+    const bind = () => {
+      const pageKey =
+        getCurrentAppNavigationItem()?.key || resolveCurrentPagePerfKey();
+      document.querySelectorAll(".page-topbar .page-title").forEach((titleElement) => {
+        if (
+          !(titleElement instanceof HTMLElement) ||
+          titleElement.dataset.controlerEditableTitleBound === "true"
+        ) {
+          return;
+        }
+
+        const defaultTitle = normalizeCustomPageTitleText(
+          titleElement.textContent,
+          "",
+        );
+        if (!defaultTitle) {
+          return;
+        }
+
+        const defaultDocumentTitle = String(document.title || defaultTitle).trim();
+        const i18nSourceTitle = resolveEditablePageTitleI18nSource(
+          titleElement,
+          defaultTitle,
+        );
+        let committedTitle =
+          getStoredCustomPageTitle(pageKey) || defaultTitle;
+        let draftBeforeEdit = committedTitle;
+        let editing = false;
+
+        titleElement.dataset.controlerEditableTitleBound = "true";
+        titleElement.dataset.pageTitleKey = pageKey;
+        titleElement.dataset.placeholder = APP_PAGE_CUSTOM_TITLE_PLACEHOLDER;
+        titleElement.dataset.controlerTitleI18nSource = i18nSourceTitle;
+        titleElement.classList.add("page-title--editable");
+        titleElement.tabIndex = 0;
+        titleElement.setAttribute("spellcheck", "false");
+        titleElement.setAttribute("role", "button");
+        titleElement.setAttribute("aria-label", "页面标题，可编辑");
+        titleElement.removeAttribute("title");
+        titleElement.contentEditable = "false";
+
+        const applyCommittedTitle = () => {
+          committedTitle = updateEditablePageTitlePresentation(titleElement, committedTitle, {
+            editing: false,
+            documentTitle: defaultDocumentTitle,
+            defaultTitle,
+          });
+          return committedTitle;
+        };
+
+        const startEditing = () => {
+          if (editing) {
+            return;
+          }
+          editing = true;
+          draftBeforeEdit = committedTitle;
+          titleElement.classList.add("is-editing");
+          titleElement.contentEditable = "plaintext-only";
+          syncEditablePageTitleI18nState(titleElement, titleElement.textContent, {
+            editing: true,
+            defaultTitle,
+          });
+          if (titleElement.contentEditable !== "plaintext-only") {
+            titleElement.contentEditable = "true";
+          }
+          titleElement.dataset.editHint = APP_PAGE_CUSTOM_TITLE_EDIT_HINT;
+          titleElement.focus();
+          const selectAll = () => {
+            selectEditablePageTitleText(titleElement);
+          };
+          if (typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(selectAll);
+          } else {
+            window.setTimeout(selectAll, 0);
+          }
+        };
+
+        const finishEditing = (saveChanges = true) => {
+          if (!editing) {
+            return;
+          }
+          editing = false;
+          titleElement.classList.remove("is-editing");
+          titleElement.contentEditable = "false";
+          if (saveChanges) {
+            committedTitle =
+              setStoredCustomPageTitle(
+                pageKey,
+                titleElement.textContent,
+                defaultTitle,
+              ) || defaultTitle;
+          } else {
+            committedTitle = draftBeforeEdit || defaultTitle;
+          }
+          applyCommittedTitle();
+        };
+
+        applyCommittedTitle();
+
+        titleElement.addEventListener("click", (event) => {
+          if (editing) {
+            return;
+          }
+          event.preventDefault();
+          startEditing();
+        });
+
+        titleElement.addEventListener("keydown", (event) => {
+          if (!editing) {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              startEditing();
+            }
+            return;
+          }
+
+          if (event.key === "Enter") {
+            event.preventDefault();
+            finishEditing(true);
+            titleElement.blur();
+            return;
+          }
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            finishEditing(false);
+            titleElement.blur();
+          }
+        });
+
+        titleElement.addEventListener("blur", () => {
+          if (editing) {
+            finishEditing(true);
+          }
+        });
+
+        titleElement.addEventListener("paste", (event) => {
+          if (!editing) {
+            return;
+          }
+          event.preventDefault();
+          const pastedText = normalizeCustomPageTitleText(
+            event.clipboardData?.getData("text/plain") || "",
+            "",
+          );
+          if (!pastedText) {
+            return;
+          }
+          insertPlainTextAtCurrentSelection(pastedText);
+        });
+
+        titleElement.addEventListener("input", () => {
+          if (!editing) {
+            return;
+          }
+          const nextDraft = normalizeCustomPageTitleText(
+            titleElement.textContent,
+            "",
+          );
+          titleElement.dataset.controlerTitleEmpty = nextDraft ? "false" : "true";
+        });
+
+        window.addEventListener("storage", (event) => {
+          if (
+            editing ||
+            !event ||
+            event.key !== APP_PAGE_CUSTOM_TITLE_STORAGE_KEY
+          ) {
+            return;
+          }
+          committedTitle =
+            getStoredCustomPageTitle(pageKey) || defaultTitle;
+          applyCommittedTitle();
+        });
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bind, {
+        once: true,
+      });
+    } else {
+      bind();
+    }
+  }
+
   function getNavigationDirection(fromKey, toKey) {
     const fromIndex = APP_NAV_ITEMS.findIndex((item) => item.key === fromKey);
     const toIndex = APP_NAV_ITEMS.findIndex((item) => item.key === toKey);
@@ -6117,6 +6556,33 @@
     modal.__controlerContentViewportCleanup = null;
   }
 
+  function syncModalOverlayViewportMetrics(modal, width = 0, height = 0) {
+    if (!(modal instanceof HTMLElement)) {
+      return modal;
+    }
+    const resolvedWidth = Math.max(
+      0,
+      Number.isFinite(Number(width)) ? Number(width) : 0,
+    );
+    const resolvedHeight = Math.max(
+      0,
+      Number.isFinite(Number(height)) ? Number(height) : 0,
+    );
+    if (resolvedWidth > 0) {
+      modal.style.setProperty(
+        "--controler-modal-overlay-width",
+        `${Math.round(resolvedWidth)}px`,
+      );
+    }
+    if (resolvedHeight > 0) {
+      modal.style.setProperty(
+        "--controler-modal-overlay-height",
+        `${Math.round(resolvedHeight)}px`,
+      );
+    }
+    return modal;
+  }
+
   function syncContentScopedModalViewport(modal) {
     if (
       !(modal instanceof HTMLElement) ||
@@ -6133,6 +6599,7 @@
       0,
       host.clientHeight || host.offsetHeight || 0,
     );
+    syncModalOverlayViewportMetrics(modal, viewportWidth, viewportHeight);
     modal.style.setProperty("position", "absolute", "important");
     modal.style.setProperty("inset", "auto", "important");
     modal.style.setProperty(
@@ -6221,6 +6688,12 @@
     }
 
     if (modal instanceof HTMLElement) {
+      const cleanupKeyboardShortcuts =
+        modal.__controlerModalKeyboardShortcutsCleanup;
+      if (typeof cleanupKeyboardShortcuts === "function") {
+        modal.__controlerModalKeyboardShortcutsCleanup = null;
+        cleanupKeyboardShortcuts();
+      }
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
@@ -6268,6 +6741,395 @@
     });
   }
 
+  function shouldEnableDesktopModalKeyboardShortcuts() {
+    if (getNativeHostPlatform()) {
+      return false;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    return !(
+      root?.classList.contains("controler-mobile-runtime") ||
+      root?.classList.contains("controler-android-native") ||
+      root?.classList.contains("controler-ios-native") ||
+      body?.classList.contains("controler-mobile-runtime") ||
+      body?.classList.contains("controler-android-native") ||
+      body?.classList.contains("controler-ios-native")
+    );
+  }
+
+  function normalizeModalKeyboardShortcutToken(value) {
+    return String(value ?? "").replace(/\s+/g, "").trim().toLowerCase();
+  }
+
+  function isVisibleModalActionButton(button) {
+    if (!(button instanceof HTMLElement) || !button.isConnected) {
+      return false;
+    }
+    if (
+      button.hasAttribute("hidden") ||
+      button.getAttribute("aria-hidden") === "true"
+    ) {
+      return false;
+    }
+    const computed = window.getComputedStyle(button);
+    return (
+      computed.display !== "none" &&
+      computed.visibility !== "hidden" &&
+      button.getClientRects().length > 0
+    );
+  }
+
+  function getModalActionButtons(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return [];
+    }
+    return Array.from(
+      modal.querySelectorAll(
+        [
+          "button",
+          'input[type="button"]',
+          'input[type="submit"]',
+          'input[type="reset"]',
+          '[role="button"]',
+        ].join(", "),
+      ),
+    ).filter((button) => {
+      if (!(button instanceof HTMLElement) || !isVisibleModalActionButton(button)) {
+        return false;
+      }
+      if (
+        button.matches?.(":disabled") ||
+        button.getAttribute("aria-disabled") === "true"
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function resolveModalShortcutButtonBySelector(modal, selector) {
+    const normalizedSelector = String(selector || "").trim();
+    if (!normalizedSelector || !(modal instanceof HTMLElement)) {
+      return null;
+    }
+    try {
+      const matchedButton = modal.querySelector(normalizedSelector);
+      return isVisibleModalActionButton(matchedButton) ? matchedButton : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function buttonMatchesShortcutTokens(button, tokens = []) {
+    if (!(button instanceof HTMLElement) || !tokens.length) {
+      return false;
+    }
+    const sources = [
+      button.id,
+      button.getAttribute("name"),
+      button.getAttribute("class"),
+      button.getAttribute("data-controler-modal-action-role"),
+      button.getAttribute("data-controler-modal-action"),
+      button.getAttribute("data-todo-fallback-dialog-action"),
+      button.getAttribute("data-todo-choice-dialog-action"),
+      button.getAttribute("aria-label"),
+      button.getAttribute("title"),
+      button.textContent,
+      "value" in button ? button.value : "",
+    ]
+      .map((value) => normalizeModalKeyboardShortcutToken(value))
+      .filter(Boolean);
+    return tokens.some((token) =>
+      sources.some((source) => source.includes(token)),
+    );
+  }
+
+  function scoreModalActionButton(button, role) {
+    if (!(button instanceof HTMLElement)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    let score = 0;
+    if (role === "confirm") {
+      if (
+        button.matches?.(
+          [
+            ".themed-dialog-confirm-btn",
+            '[data-controler-modal-action-role="confirm"]',
+            '[data-todo-fallback-dialog-action="confirm"]',
+          ].join(", "),
+        )
+      ) {
+        score += 120;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "save",
+          "confirm",
+          "submit",
+          "create",
+          "apply",
+          "done",
+          "ok",
+          "commit",
+        ])
+      ) {
+        score += 70;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "保存",
+          "确定",
+          "确认",
+          "创建",
+          "添加",
+          "提交",
+          "应用",
+          "完成",
+          "知道了",
+        ])
+      ) {
+        score += 55;
+      }
+      if (
+        button instanceof HTMLInputElement &&
+        String(button.type || "").toLowerCase() === "submit"
+      ) {
+        score += 60;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "cancel",
+          "close",
+          "dismiss",
+          "delete",
+          "remove",
+          "danger",
+          "取消",
+          "关闭",
+          "删除",
+        ])
+      ) {
+        score -= 45;
+      }
+      return score;
+    }
+
+    if (
+      button.matches?.(
+        [
+          ".themed-dialog-cancel-btn",
+          '[data-controler-modal-action-role="cancel"]',
+          '[data-todo-fallback-dialog-action="cancel"]',
+          '[data-todo-choice-dialog-action="cancel"]',
+        ].join(", "),
+      )
+    ) {
+      score += 120;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, [
+        "cancel",
+        "close",
+        "dismiss",
+        "back",
+        "abort",
+      ])
+    ) {
+      score += 70;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, ["取消", "关闭", "返回", "放弃"])
+    ) {
+      score += 55;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, [
+        "save",
+        "confirm",
+        "submit",
+        "create",
+        "delete",
+        "保存",
+        "确定",
+        "确认",
+        "创建",
+        "删除",
+      ])
+    ) {
+      score -= 30;
+    }
+    return score;
+  }
+
+  function findModalActionButton(modal, role, options = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return null;
+    }
+    const explicitSelector =
+      role === "confirm"
+        ? options.confirmSelector
+        : options.cancelSelector;
+    const explicitButton = resolveModalShortcutButtonBySelector(
+      modal,
+      explicitSelector,
+    );
+    if (explicitButton) {
+      return explicitButton;
+    }
+
+    const candidates = getModalActionButtons(modal);
+    let bestMatch = null;
+    candidates.forEach((button, index) => {
+      const score = scoreModalActionButton(button, role);
+      if (score <= 0) {
+        return;
+      }
+      if (
+        !bestMatch ||
+        score > bestMatch.score ||
+        (score === bestMatch.score && index > bestMatch.index)
+      ) {
+        bestMatch = {
+          button,
+          score,
+          index,
+        };
+      }
+    });
+    return bestMatch?.button || null;
+  }
+
+  function resolveModalShortcutInteractiveTarget(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+    return target.closest(
+      [
+        "button",
+        "[role='button']",
+        "a[href]",
+        "select",
+        "summary",
+        'input[type="button"]',
+        'input[type="submit"]',
+        'input[type="reset"]',
+        'input[type="checkbox"]',
+        'input[type="radio"]',
+        'input[type="color"]',
+        'input[type="file"]',
+        'input[type="range"]',
+      ].join(", "),
+    );
+  }
+
+  function bindDesktopModalKeyboardShortcuts(modal, options = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return modal;
+    }
+
+    const shortcutOptions = {
+      confirmSelector:
+        typeof options.keyboardConfirmSelector === "string"
+          ? options.keyboardConfirmSelector.trim()
+          : "",
+      cancelSelector:
+        typeof options.keyboardCancelSelector === "string"
+          ? options.keyboardCancelSelector.trim()
+          : "",
+    };
+    modal.__controlerModalKeyboardShortcutOptions = shortcutOptions;
+
+    if (modal.__controlerModalKeyboardShortcutsBound === "true") {
+      return modal;
+    }
+
+    const handleKeydown = (event) => {
+      if (
+        !shouldEnableDesktopModalKeyboardShortcuts() ||
+        !isVisibleModalOverlay(modal) ||
+        getTopVisibleModal() !== modal ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        if (event.shiftKey) {
+          return;
+        }
+        const target = event.target instanceof Element ? event.target : null;
+        if (
+          target?.closest?.(
+            [
+              "textarea",
+              "select",
+              "[contenteditable='true']",
+              "[contenteditable]:not([contenteditable='false'])",
+            ].join(", "),
+          )
+        ) {
+          return;
+        }
+        const confirmButton = findModalActionButton(
+          modal,
+          "confirm",
+          modal.__controlerModalKeyboardShortcutOptions || {},
+        );
+        if (!(confirmButton instanceof HTMLElement)) {
+          return;
+        }
+        const interactiveTarget = resolveModalShortcutInteractiveTarget(target);
+        if (
+          interactiveTarget instanceof Element &&
+          interactiveTarget !== confirmButton &&
+          !confirmButton.contains(interactiveTarget)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        confirmButton.click?.();
+        return;
+      }
+
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      const cancelButton = findModalActionButton(
+        modal,
+        "cancel",
+        modal.__controlerModalKeyboardShortcutOptions || {},
+      );
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (cancelButton instanceof HTMLElement) {
+        cancelButton.click?.();
+        return;
+      }
+      closeModal(modal);
+    };
+
+    document.addEventListener("keydown", handleKeydown, true);
+    modal.__controlerModalKeyboardShortcutsBound = "true";
+    modal.__controlerModalKeyboardShortcutsCleanup = () => {
+      document.removeEventListener("keydown", handleKeydown, true);
+      modal.__controlerModalKeyboardShortcutsBound = "false";
+    };
+    return modal;
+  }
+
   function prepareModalOverlay(modal, options = {}) {
     if (!(modal instanceof HTMLElement)) return null;
 
@@ -6280,8 +7142,23 @@
         : "";
     const closeHandler =
       typeof options.close === "function" ? options.close : null;
-    const scopedHost = ensureDesktopContentOverlayHost(modal);
-    const scopeToContent = scopedHost instanceof HTMLElement;
+    const forceViewportScope =
+      options.scope === "viewport" ||
+      modal.classList.contains("controler-form-modal-overlay");
+    const scopedHost = forceViewportScope
+      ? null
+      : ensureDesktopContentOverlayHost(modal);
+    const scopeToContent = !forceViewportScope && scopedHost instanceof HTMLElement;
+    if (scopeToContent) {
+      syncModalOverlayViewportMetrics(
+        modal,
+        scopedHost.clientWidth || scopedHost.offsetWidth || 0,
+        scopedHost.clientHeight || scopedHost.offsetHeight || 0,
+      );
+    } else {
+      modal.style.removeProperty("--controler-modal-overlay-width");
+      modal.style.removeProperty("--controler-modal-overlay-height");
+    }
 
     modal.classList.add("modal-overlay");
     modal.dataset.controlerOverlayScope = scopeToContent ? "content" : "viewport";
@@ -6335,6 +7212,7 @@
     }
     bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
+    bindDesktopModalKeyboardShortcuts(modal, options);
     return modal;
   }
 
@@ -6352,6 +7230,16 @@
     } = options;
 
     button.addEventListener("click", (event) => {
+      const lastTriggeredAt = Number(button.dataset.controlerModalActionAt || 0);
+      if (Date.now() - lastTriggeredAt < MODAL_ACTION_DEDUP_WINDOW_MS) {
+        if (preventDefault) event.preventDefault();
+        if (stopPropagation) event.stopPropagation();
+        if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+      button.dataset.controlerModalActionAt = String(Date.now());
       if (preventDefault) event.preventDefault();
       if (stopPropagation) event.stopPropagation();
       if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
@@ -6514,21 +7402,8 @@
       }
 
       const cleanup = (result) => {
-        document.removeEventListener("keydown", handleKeydown, true);
         closeModal(modal);
         resolve(result);
-      };
-
-      const handleKeydown = (event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cleanup(false);
-          return;
-        }
-        if (event.key === "Enter") {
-          event.preventDefault();
-          cleanup(true);
-        }
       };
 
       confirmButton?.addEventListener("click", (event) => {
@@ -6548,9 +7423,10 @@
 
       prepareModalOverlay(modal, {
         zIndex: 4200,
+        keyboardConfirmSelector: ".themed-dialog-confirm-btn",
+        keyboardCancelSelector: ".themed-dialog-cancel-btn",
       });
       activateModalInteractionShield(180);
-      document.addEventListener("keydown", handleKeydown, true);
       setTimeout(() => {
         (confirmButton || cancelButton)?.focus?.();
       }, 0);
@@ -8469,6 +9345,7 @@
   initModalHistoryObserver();
   initAppNavigationVisibility();
   initAppPageTransitions();
+  initEditablePageTitles();
   initAndroidInteractiveTextAssist();
   initAndroidPressFeedback();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
@@ -8503,6 +9380,9 @@
     bindWindowMoveHandle,
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
+    initEditablePageTitles,
+    getStoredCustomPageTitle,
+    setStoredCustomPageTitle,
     mountDesktopWidgetScale,
     blockingOverlayStateEventName: BLOCKING_OVERLAY_STATE_EVENT_NAME,
     shellVisibilityEventName: SHELL_VISIBILITY_EVENT_NAME,

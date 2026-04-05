@@ -2310,8 +2310,7 @@
 ;/* pages/index.js */
 const uiTools = window.ControlerUI || null;
 const storageBundleApi = window.ControlerStorageBundle || null;
-const indexRecordPersistenceApi =
-  window.ControlerIndexRecordPersistence || null;
+const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
 let indexChartRuntimeLoader = null;
 let indexChartRuntimePreloadQueued = false;
 const INDEX_CHART_RUNTIME_KEY = "chart";
@@ -2350,7 +2349,10 @@ function ensureIndexChartRuntimeLoaded() {
 }
 
 function scheduleIndexChartRuntimePreload() {
-  if (indexChartRuntimePreloadQueued || typeof window.Chart !== "undefined") {
+  if (
+    indexChartRuntimePreloadQueued ||
+    typeof window.Chart !== "undefined"
+  ) {
     return;
   }
   indexChartRuntimePreloadQueued = true;
@@ -2369,20 +2371,10 @@ function scheduleIndexChartRuntimePreload() {
   window.setTimeout(startPreload, 120);
 }
 function localizeIndexUiText(value) {
-  return (
-    window.ControlerI18n?.translateUiText?.(String(value ?? "")) ||
-    String(value ?? "")
-  );
+  return window.ControlerI18n?.translateUiText?.(String(value ?? "")) || String(value ?? "");
 }
 
 function waitForIndexStorageReady() {
-  if (
-    window.ControlerStorage?.isNativeApp === true &&
-    (typeof window.ControlerStorage?.getPageBootstrapState === "function" ||
-      typeof window.ControlerStorage?.loadSectionRange === "function")
-  ) {
-    return Promise.resolve(true);
-  }
   if (typeof window.ControlerStorage?.whenReady !== "function") {
     return Promise.resolve(true);
   }
@@ -2505,6 +2497,12 @@ const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
 const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const INDEX_RECENT_SAVE_EMPTY_GUARD_MS = 8000;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY =
+  "migration:index:legacy-record-project-recovery:v1";
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION = 4;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_IDLE_TIMEOUT_MS = 4000;
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME = "历史记录恢复";
+const INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME = "旧记录项目";
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
 const MOBILE_TABLE_EXTRA_SHRINK_RATIO = 2 / 3;
 const INITIAL_RECORD_GROUP_RENDER_LIMIT = 24;
@@ -2532,8 +2530,7 @@ const RECORD_SECTION_COLLAPSE_DEFINITIONS = [
     label: "项目名称：总时长",
   },
 ];
-let projectHierarchyExpansionState =
-  createEmptyProjectHierarchyExpansionState();
+let projectHierarchyExpansionState = createEmptyProjectHierarchyExpansionState();
 let projectTotalsExpansionState = createEmptyProjectHierarchyExpansionState();
 let recordSectionCollapseState = createDefaultRecordSectionCollapseState();
 let timerSessionDraftSnapshot = null;
@@ -2566,10 +2563,7 @@ function applyIndexDesktopWidgetMode() {
     return;
   }
 
-  document.body.classList.add(
-    "desktop-widget-page",
-    "desktop-widget-index-page",
-  );
+  document.body.classList.add("desktop-widget-page", "desktop-widget-index-page");
   document.body.dataset.widgetKind = INDEX_WIDGET_CONTEXT.kind || "start-timer";
   document.body.dataset.widgetSection = INDEX_WIDGET_CONTEXT.section || "timer";
   document.title = localizeIndexUiText("开始计时 小组件");
@@ -2608,19 +2602,11 @@ function applyIndexDesktopWidgetMode() {
         margin: 0 !important;
       }
 
-      body.desktop-widget-index-page .record-shell {
-        padding-bottom: 12px !important;
-      }
-
-      body.desktop-widget-index-page .record-floating-timer-btn {
-        position: static !important;
-        right: auto !important;
-        bottom: auto !important;
-        margin: 0 auto !important;
-        width: 78px !important;
-        min-width: 78px !important;
-        height: 78px !important;
-        min-height: 78px !important;
+      body.desktop-widget-index-page .record-action-bar {
+        height: auto !important;
+        margin: 0 !important;
+        padding: 12px;
+        justify-content: center;
       }
 
       body.desktop-widget-index-page .modal-overlay {
@@ -2695,6 +2681,7 @@ let indexPendingWidgetLaunchAction = null;
 let indexDeferredHydrationPendingResume = false;
 let indexDeferredRuntimePendingResume = false;
 let indexExternalRefreshPendingResume = false;
+let indexLegacyRecordProjectRecoveryPendingResume = false;
 let indexShellVisibilityBound = false;
 let indexThemeRefreshBound = false;
 let indexThemeRefreshPending = false;
@@ -2707,6 +2694,9 @@ let indexVisibleRecordGroupLimit = INITIAL_RECORD_GROUP_RENDER_LIMIT;
 let indexRenderedRecordGroupSignature = "";
 let indexRecordListLazyLoadBound = false;
 let indexRecordListLazyLoadScheduled = false;
+let indexLegacyRecordProjectRecoveryScheduled = false;
+let indexLegacyRecordProjectRecoveryRunning = false;
+let indexLegacyRecordProjectRecoveryTimerId = 0;
 const indexExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -2725,10 +2715,7 @@ function flushDeferredIndexExternalRefreshIfNeeded() {
   if (isIndexSaveTransactionActive()) {
     return;
   }
-  if (
-    indexPendingPersistenceTasks.size > 0 ||
-    indexExternalStorageRefreshQueued
-  ) {
+  if (indexPendingPersistenceTasks.size > 0 || indexExternalStorageRefreshQueued) {
     return;
   }
   indexExternalStorageRefreshQueued = true;
@@ -2816,6 +2803,9 @@ function bindIndexShellVisibilityGate() {
       invalidateIndexDeferredWorkspaceHydration({
         pendingResume: !indexInitialDataValidated,
       });
+      if (clearIndexLegacyRecordProjectRecoverySchedule()) {
+        indexLegacyRecordProjectRecoveryPendingResume = true;
+      }
       return;
     }
 
@@ -2839,6 +2829,10 @@ function bindIndexShellVisibilityGate() {
     if (indexDeferredRuntimePendingResume) {
       indexDeferredRuntimePendingResume = false;
       void ensureIndexDeferredRuntimeLoaded();
+    }
+    if (indexLegacyRecordProjectRecoveryPendingResume) {
+      indexLegacyRecordProjectRecoveryPendingResume = false;
+      scheduleIndexLegacyRecordProjectRecovery();
     }
     if (indexThemeRefreshPending) {
       indexThemeRefreshPending = false;
@@ -2894,12 +2888,8 @@ function filterIndexRecordsByScope(items = [], scope = null) {
 }
 
 function buildIndexWorkspacePerfDetail(snapshot = {}) {
-  const snapshotProjects = Array.isArray(snapshot.projects)
-    ? snapshot.projects
-    : [];
-  const snapshotRecords = Array.isArray(snapshot.records)
-    ? snapshot.records
-    : [];
+  const snapshotProjects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const snapshotRecords = Array.isArray(snapshot.records) ? snapshot.records : [];
   const snapshotPeriodIds = normalizeIndexRecordPeriodIdList(
     Array.isArray(snapshot.loadedPeriodIds)
       ? snapshot.loadedPeriodIds
@@ -2926,8 +2916,7 @@ function markIndexInitialDataReady(snapshot = {}) {
 
 function buildIndexWorkspaceSnapshotFromRaw(parts = {}, options = {}) {
   const recordScope =
-    cloneIndexRecordLoadScope(options.recordScope) ||
-    getIndexDefaultRecordScope();
+    cloneIndexRecordLoadScope(options.recordScope) || getIndexDefaultRecordScope();
   const rawProjects = Array.isArray(parts.projects) ? parts.projects : [];
   const normalizedProjects = normalizeStoredProjects(rawProjects);
   const rawRecords = filterIndexRecordsByScope(parts.records, recordScope);
@@ -2948,19 +2937,13 @@ function buildIndexWorkspaceSnapshotFromRaw(parts = {}, options = {}) {
 function readIndexWorkspaceSnapshotFromTrustedCache(recordScope = null) {
   try {
     if (
-      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !==
-      "function"
+      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !== "function"
     ) {
       return null;
     }
-    const bootstrap = window.ControlerStorage.peekTrustedRecordBootstrapState(
-      "index",
-      {
-        recordScope:
-          cloneIndexRecordLoadScope(recordScope) ||
-          getIndexDefaultRecordScope(),
-      },
-    );
+    const bootstrap = window.ControlerStorage.peekTrustedRecordBootstrapState("index", {
+      recordScope: cloneIndexRecordLoadScope(recordScope) || getIndexDefaultRecordScope(),
+    });
     if (!bootstrap || typeof bootstrap !== "object") {
       return null;
     }
@@ -2988,12 +2971,8 @@ function hasUsableIndexRecordSnapshot(snapshot = null) {
   if (!snapshot || typeof snapshot !== "object") {
     return false;
   }
-  const snapshotProjects = Array.isArray(snapshot.projects)
-    ? snapshot.projects
-    : [];
-  const snapshotRecords = Array.isArray(snapshot.records)
-    ? snapshot.records
-    : [];
+  const snapshotProjects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const snapshotRecords = Array.isArray(snapshot.records) ? snapshot.records : [];
   const snapshotLoadedPeriodIds = Array.isArray(snapshot.loadedPeriodIds)
     ? snapshot.loadedPeriodIds
     : [];
@@ -3007,8 +2986,7 @@ function hasUsableIndexRecordSnapshot(snapshot = null) {
 function readIndexWorkspaceSnapshot() {
   const recordLoadOptions = getIndexCurrentRecordLoadOptions();
   const recordScope =
-    cloneIndexRecordLoadScope(recordLoadOptions.recordScope) ||
-    getIndexDefaultRecordScope();
+    cloneIndexRecordLoadScope(recordLoadOptions.recordScope) || getIndexDefaultRecordScope();
   return readIndexWorkspaceSnapshotFromTrustedCache(recordScope);
 }
 
@@ -3016,15 +2994,13 @@ async function persistIndexTrustedRecordBootstrap(options = {}) {
   const recordLoadOptions = getIndexCurrentRecordLoadOptions();
   if (
     recordLoadOptions.recordLoadMode !== INDEX_RECORD_LOAD_MODE_RECENT_RANGE ||
-    typeof window.ControlerStorage?.setTrustedRecordBootstrapState !==
-      "function"
+    typeof window.ControlerStorage?.setTrustedRecordBootstrapState !== "function"
   ) {
     return null;
   }
   const recordScope =
-    cloneIndexRecordLoadScope(
-      options.recordScope || recordLoadOptions.recordScope,
-    ) || getIndexDefaultRecordScope();
+    cloneIndexRecordLoadScope(options.recordScope || recordLoadOptions.recordScope) ||
+    getIndexDefaultRecordScope();
   const scopedRecords = filterIndexRecordsByScope(
     Array.isArray(options.records) ? options.records : records,
     recordScope,
@@ -3138,22 +3114,15 @@ function getIndexNormalizedChangedSections(changedSections = []) {
   );
 }
 
-function hasIndexChangedPeriodOverlap(
-  changedPeriodIds = [],
-  currentPeriodIds = [],
-) {
+function hasIndexChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
   if (typeof uiTools?.hasPeriodOverlap === "function") {
     return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
   }
   const normalizedChanged = Array.isArray(changedPeriodIds)
-    ? changedPeriodIds
-        .map((periodId) => String(periodId || "").trim())
-        .filter(Boolean)
+    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
     : [];
   const normalizedCurrent = Array.isArray(currentPeriodIds)
-    ? currentPeriodIds
-        .map((periodId) => String(periodId || "").trim())
-        .filter(Boolean)
+    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
     : [];
   if (!normalizedChanged.length || !normalizedCurrent.length) {
     return true;
@@ -3184,17 +3153,13 @@ function isIndexOwnStorageChange(detail = {}) {
     typeof detail?.originPageInstanceId === "string"
       ? detail.originPageInstanceId.trim()
       : "";
-  return (
-    !!originPageInstanceId &&
-    originPageInstanceId === getIndexStoragePageInstanceId()
-  );
+  return !!originPageInstanceId && originPageInstanceId === getIndexStoragePageInstanceId();
 }
 
 function isIndexInitialStorageBootstrapChange(detail = {}) {
-  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const changedSections = getIndexNormalizedChangedSections(
-    detail?.changedSections,
-  );
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
   return reason === "initial-sync" && !changedSections.length;
 }
 
@@ -3202,14 +3167,14 @@ function isIndexAmbiguousNativeExternalChange(detail = {}) {
   if (window.ControlerStorage?.isNativeApp !== true) {
     return false;
   }
-  const changedSections = getIndexNormalizedChangedSections(
-    detail?.changedSections,
-  );
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
   if (changedSections.length) {
     return false;
   }
-  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const source = typeof detail?.source === "string" ? detail.source.trim() : "";
+  const reason =
+    typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source =
+    typeof detail?.source === "string" ? detail.source.trim() : "";
   return !source && (reason === "external-update" || reason === "shell-resume");
 }
 
@@ -3233,9 +3198,7 @@ function shouldRefreshIndexForExternalChange(detail = {}) {
   if (isIndexAmbiguousNativeExternalChange(detail)) {
     return false;
   }
-  const changedSections = getIndexNormalizedChangedSections(
-    detail?.changedSections,
-  );
+  const changedSections = getIndexNormalizedChangedSections(detail?.changedSections);
   if (!changedSections.length) {
     return true;
   }
@@ -3368,12 +3331,11 @@ function getIndexLoadingOverlayController() {
   if (!(overlay instanceof HTMLElement)) {
     return null;
   }
-  indexLoadingOverlayController =
-    uiTools?.createPageLoadingOverlayController?.({
-      overlay,
-      inlineHost: ".record-main",
-      scopeFullscreenToInlineHost: false,
-    }) || null;
+  indexLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
+    overlay,
+    inlineHost: ".record-main",
+    scopeFullscreenToInlineHost: false,
+  }) || null;
   return indexLoadingOverlayController;
 }
 
@@ -3461,9 +3423,7 @@ function getIndexRecordGroupSignature(recordGroups) {
     return "0";
   }
   const firstKey = String(recordGroups[0]?.key || "").trim();
-  const lastKey = String(
-    recordGroups[recordGroups.length - 1]?.key || "",
-  ).trim();
+  const lastKey = String(recordGroups[recordGroups.length - 1]?.key || "").trim();
   return `${recordGroups.length}:${firstKey}:${lastKey}`;
 }
 
@@ -3520,9 +3480,7 @@ function bindIndexRecordListLazyLoad(output, getTotalGroups) {
     "scroll",
     () => {
       const totalGroups =
-        typeof getTotalGroups === "function"
-          ? Number(getTotalGroups()) || 0
-          : 0;
+        typeof getTotalGroups === "function" ? Number(getTotalGroups()) || 0 : 0;
       if (totalGroups <= indexVisibleRecordGroupLimit) {
         return;
       }
@@ -3625,22 +3583,17 @@ function emitIndexDebugAction(reason, target = null, extra = {}) {
   });
 }
 
-function reportIndexDebugInteractivityState(
-  reason = "manual",
-  interaction = null,
-) {
+function reportIndexDebugInteractivityState(reason = "manual", interaction = null) {
   const spendButton = document.getElementById("spend");
   const statsButton = document.querySelector('[data-nav-page="stats"]');
   const hierarchyToggle = document.querySelector(
-    "#record-hierarchy-section .record-section-toggle",
+    '#record-hierarchy-section .record-section-toggle',
   );
   const recordList = document.getElementById("output");
   const modalOverlay = document.getElementById("modal-overlay");
   const modalConfirmButton = document.getElementById("modal-confirm");
   const projectNameInput = document.getElementById("project-name-input");
-  const firstProjectOption = document.querySelector(
-    "#existing-projects .project-option",
-  );
+  const firstProjectOption = document.querySelector("#existing-projects .project-option");
   const renderedRecordCardCount =
     recordList instanceof Element
       ? recordList.querySelectorAll(".record-item").length
@@ -3715,7 +3668,8 @@ function bindIndexDebugInteractivityProbe() {
   document.addEventListener(
     "click",
     (event) => {
-      const target = event.target instanceof Element ? event.target : null;
+      const target =
+        event.target instanceof Element ? event.target : null;
       if (!(target instanceof Element)) {
         return;
       }
@@ -3799,9 +3753,10 @@ function setIndexLoadingState(options = {}) {
     delayMs = 0,
     lockNativeExit = false,
     delegateToNative = true,
-    message = mode === "fullscreen"
-      ? "正在读取记录与项目，请稍候"
-      : "正在刷新当前内容，请稍候",
+    message =
+      mode === "fullscreen"
+        ? "正在读取记录与项目，请稍候"
+        : "正在刷新当前内容，请稍候",
   } = options;
   const loadingController = getIndexLoadingOverlayController();
   syncIndexNativeBusyLock(
@@ -3858,9 +3813,7 @@ function waitForIndexUiPaint() {
 }
 
 function normalizeIndexRecordLoadMode(mode) {
-  if (
-    typeof indexRecordPersistenceApi?.normalizeRecordLoadMode === "function"
-  ) {
+  if (typeof indexRecordPersistenceApi?.normalizeRecordLoadMode === "function") {
     return indexRecordPersistenceApi.normalizeRecordLoadMode(mode);
   }
   return String(mode || "").trim() === INDEX_RECORD_LOAD_MODE_FULL_HISTORY
@@ -3887,14 +3840,10 @@ function cloneIndexRecordLoadScope(scope = null) {
     return null;
   }
   const clonedScope = {};
-  const normalizedStartDate = String(
-    scope.startDate || scope.start || "",
-  ).trim();
+  const normalizedStartDate = String(scope.startDate || scope.start || "").trim();
   const normalizedEndDate = String(scope.endDate || scope.end || "").trim();
   const normalizedPeriodIds = Array.isArray(scope.periodIds)
-    ? scope.periodIds
-        .map((periodId) => String(periodId || "").trim())
-        .filter(Boolean)
+    ? scope.periodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
     : [];
   if (normalizedStartDate) {
     clonedScope.startDate = normalizedStartDate;
@@ -3950,9 +3899,7 @@ function getIndexRecordLoadScopeKey(scope = null) {
   return JSON.stringify({
     startDate: String(normalizedScope.startDate || "").trim(),
     endDate: String(normalizedScope.endDate || "").trim(),
-    periodIds: normalizeIndexRecordPeriodIdList(
-      normalizedScope.periodIds,
-    ).sort(),
+    periodIds: normalizeIndexRecordPeriodIdList(normalizedScope.periodIds).sort(),
   });
 }
 
@@ -3960,8 +3907,7 @@ function getIndexActiveRecentSaveGuard(loadMode, recordScope = null) {
   if (!indexRecentSuccessfulSaveGuard) {
     return null;
   }
-  const ageMs =
-    Date.now() - Number(indexRecentSuccessfulSaveGuard.armedAtMs || 0);
+  const ageMs = Date.now() - Number(indexRecentSuccessfulSaveGuard.armedAtMs || 0);
   if (
     !Number.isFinite(ageMs) ||
     ageMs < 0 ||
@@ -3970,10 +3916,7 @@ function getIndexActiveRecentSaveGuard(loadMode, recordScope = null) {
     indexRecentSuccessfulSaveGuard = null;
     return null;
   }
-  if (
-    normalizeIndexRecordLoadMode(loadMode) !==
-    INDEX_RECORD_LOAD_MODE_RECENT_RANGE
-  ) {
+  if (normalizeIndexRecordLoadMode(loadMode) !== INDEX_RECORD_LOAD_MODE_RECENT_RANGE) {
     return null;
   }
   const nextScopeKey = getIndexRecordLoadScopeKey(recordScope);
@@ -4109,7 +4052,9 @@ function isIndexSaveTransactionActive(transactionId = 0) {
   if (!indexActiveSaveTransactionId) {
     return false;
   }
-  return transactionId ? indexActiveSaveTransactionId === transactionId : true;
+  return transactionId
+    ? indexActiveSaveTransactionId === transactionId
+    : true;
 }
 
 function finishIndexSaveTransaction(transactionId = 0) {
@@ -4160,8 +4105,7 @@ async function hydrateIndexWorkspace(options = {}) {
   const recordLoadMode = normalizeIndexRecordLoadMode(options.recordLoadMode);
   const recordScope =
     recordLoadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE
-      ? cloneIndexRecordLoadScope(options.recordScope) ||
-        getIndexDefaultRecordScope()
+      ? cloneIndexRecordLoadScope(options.recordScope) || getIndexDefaultRecordScope()
       : null;
   emitIndexDebugPerf("hydrate-workspace-start", {
     includeProjects,
@@ -4177,17 +4121,12 @@ async function hydrateIndexWorkspace(options = {}) {
     recordLoadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE &&
     typeof window.ControlerStorage?.getPageBootstrapState === "function"
   ) {
-    const bootstrap = await window.ControlerStorage.getPageBootstrapState(
-      "index",
-      {
-        recordScope,
-        fresh: options.freshBootstrap === true,
-      },
-    );
+    const bootstrap = await window.ControlerStorage.getPageBootstrapState("index", {
+      recordScope,
+      fresh: options.freshBootstrap === true,
+    });
     const data =
-      bootstrap?.data && typeof bootstrap.data === "object"
-        ? bootstrap.data
-        : null;
+      bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
     if (data) {
       const sourceProjects = Array.isArray(data.projects) ? data.projects : [];
       projects = normalizeStoredProjects(sourceProjects);
@@ -4200,17 +4139,13 @@ async function hydrateIndexWorkspace(options = {}) {
         projects,
       );
       const nextLoadedPeriodIds = normalizeIndexRecordPeriodIdList(
-        Array.isArray(bootstrap.loadedPeriodIds) &&
-          bootstrap.loadedPeriodIds.length
+        Array.isArray(bootstrap.loadedPeriodIds) && bootstrap.loadedPeriodIds.length
           ? bootstrap.loadedPeriodIds
           : getIndexRecordPeriodIds(nextRecords),
       );
       records = normalizeIndexLoadedRecords(nextRecords, projects);
       indexAllHistoricalRecordsLoaded = false;
-      rememberIndexRecordLoadWindow(
-        INDEX_RECORD_LOAD_MODE_RECENT_RANGE,
-        recordScope,
-      );
+      rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_RECENT_RANGE, recordScope);
       indexLoadedRecordPeriodIds = nextLoadedPeriodIds.slice();
       loadProjectHierarchyExpansionStateFromStorage();
       projectTotalsExpansionState = normalizeVisibleProjectTotalsExpansionState(
@@ -4299,7 +4234,8 @@ async function commitIndexWorkspaceSnapshot(options = {}) {
         durationMs: Math.round(uiCommitDuration),
       });
       syncIndexRawRecordMirror(records, {
-        write: records.length > 0 || indexLoadedRecordPeriodIds.length > 0,
+        write:
+          records.length > 0 || indexLoadedRecordPeriodIds.length > 0,
       });
       if (markFirstCommit) {
         uiTools?.markPerfStage?.("first-data-commit", {
@@ -4343,14 +4279,9 @@ async function refreshIndexFromExternalStorageChange() {
     indexExternalStorageRefreshRequested = true;
     return;
   }
-  const forceTimerSessionSync =
-    indexExternalStorageRefreshForceTimerSessionSync;
-  const changedSections = Array.from(
-    indexExternalStorageRefreshChangedSections,
-  );
-  const changedRecordPeriods = Array.from(
-    indexExternalStorageRefreshChangedRecordPeriods,
-  );
+  const forceTimerSessionSync = indexExternalStorageRefreshForceTimerSessionSync;
+  const changedSections = Array.from(indexExternalStorageRefreshChangedSections);
+  const changedRecordPeriods = Array.from(indexExternalStorageRefreshChangedRecordPeriods);
   const refreshReason = indexExternalStorageRefreshLastReason;
   const refreshSource = indexExternalStorageRefreshLastSource;
   const recordLoadOptions = getIndexCurrentRecordLoadOptions();
@@ -4448,13 +4379,13 @@ function bindIndexExternalStorageRefresh() {
   indexExternalStorageRefreshBound = true;
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
-    const changedSections = getIndexNormalizedChangedSections(
-      detail.changedSections,
-    );
+    const changedSections = getIndexNormalizedChangedSections(detail.changedSections);
     if (changedSections.includes("guideState")) {
       renderRecordGuideCard();
     }
-    if (!shouldRefreshIndexForExternalChange(detail)) {
+    if (
+      !shouldRefreshIndexForExternalChange(detail)
+    ) {
       uiTools?.markPerfStage?.("refresh-skipped", {
         reason: "index-storage-change-irrelevant",
       });
@@ -4500,10 +4431,7 @@ function bindIndexExternalStorageRefresh() {
       recentSaveGuardAgeMs: activeRecentSaveGuard?.ageMs || 0,
     });
     indexExternalStorageRefreshRequested = true;
-    if (
-      indexPendingPersistenceTasks.size > 0 ||
-      isIndexSaveTransactionActive()
-    ) {
+    if (indexPendingPersistenceTasks.size > 0 || isIndexSaveTransactionActive()) {
       return;
     }
     if (indexExternalStorageRefreshQueued) {
@@ -4690,9 +4618,7 @@ function normalizeRecordSectionCollapseState(rawState = null) {
 }
 
 function saveRecordSectionCollapseState() {
-  const normalized = normalizeRecordSectionCollapseState(
-    recordSectionCollapseState,
-  );
+  const normalized = normalizeRecordSectionCollapseState(recordSectionCollapseState);
   recordSectionCollapseState = normalized;
   try {
     localStorage.setItem(
@@ -4711,8 +4637,7 @@ function loadRecordSectionCollapseStateFromStorage() {
   let rawSerialized = "";
   let parsedState = null;
   try {
-    rawSerialized =
-      localStorage.getItem(RECORD_SECTION_COLLAPSE_STORAGE_KEY) || "";
+    rawSerialized = localStorage.getItem(RECORD_SECTION_COLLAPSE_STORAGE_KEY) || "";
     const parsed = rawSerialized ? JSON.parse(rawSerialized) : null;
     parsedState =
       parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -4838,13 +4763,10 @@ function normalizeVisibleProjectHierarchyExpansionState(
   projectList = projects,
   options = {},
 ) {
-  const normalized = normalizeProjectHierarchyExpansionState(
-    rawState,
-    projectList,
+  const normalized = normalizeProjectHierarchyExpansionState(rawState, projectList);
+  const hasNestedProjects = (Array.isArray(projectList) ? projectList : []).some(
+    (project) => normalizeProjectLevel(project?.level) >= 2,
   );
-  const hasNestedProjects = (
-    Array.isArray(projectList) ? projectList : []
-  ).some((project) => normalizeProjectLevel(project?.level) >= 2);
 
   if (!hasNestedProjects || hasExpandedProjectHierarchyState(normalized)) {
     return normalized;
@@ -4942,10 +4864,7 @@ function setProjectHierarchyExpanded(project, expanded) {
   }
 
   const previousSerialized = JSON.stringify(
-    normalizeProjectHierarchyExpansionState(
-      projectHierarchyExpansionState,
-      projects,
-    ),
+    normalizeProjectHierarchyExpansionState(projectHierarchyExpansionState, projects),
   );
   projectHierarchyExpansionState = {
     ...createEmptyProjectHierarchyExpansionState(),
@@ -4954,10 +4873,7 @@ function setProjectHierarchyExpanded(project, expanded) {
   };
 
   const nextSerialized = JSON.stringify(
-    normalizeProjectHierarchyExpansionState(
-      projectHierarchyExpansionState,
-      projects,
-    ),
+    normalizeProjectHierarchyExpansionState(projectHierarchyExpansionState, projects),
   );
   if (previousSerialized === nextSerialized) {
     return false;
@@ -4984,10 +4900,7 @@ function setProjectTotalsExpanded(project, expanded) {
   }
 
   const previousSerialized = JSON.stringify(
-    normalizeProjectHierarchyExpansionState(
-      projectTotalsExpansionState,
-      projects,
-    ),
+    normalizeProjectHierarchyExpansionState(projectTotalsExpansionState, projects),
   );
   const nextLevelState = {
     ...(projectTotalsExpansionState[levelKey] || {}),
@@ -5010,10 +4923,7 @@ function setProjectTotalsExpanded(project, expanded) {
   return (
     previousSerialized !==
     JSON.stringify(
-      normalizeProjectHierarchyExpansionState(
-        projectTotalsExpansionState,
-        projects,
-      ),
+      normalizeProjectHierarchyExpansionState(projectTotalsExpansionState, projects),
     )
   );
 }
@@ -5030,7 +4940,11 @@ function createProjectTablePlaceholder(text, padding = "10px") {
 function applyProjectTableHeaderContent(
   header,
   project,
-  { expanded = false, fontSize = 14, align = "left" } = {},
+  {
+    expanded = false,
+    fontSize = 14,
+    align = "left",
+  } = {},
 ) {
   if (!(header instanceof HTMLElement)) {
     return;
@@ -5103,7 +5017,10 @@ function bindProjectTableHeaderClickActions(header, project, toggleExpanded) {
 function renderProjectTotalTreeNode(
   projectNode,
   statsContext,
-  { summaryScale = 1, depth = 1 } = {},
+  {
+    summaryScale = 1,
+    depth = 1,
+  } = {},
 ) {
   if (!projectNode || !statsContext?.getStat) {
     return null;
@@ -5142,12 +5059,11 @@ function renderProjectTotalTreeNode(
     card.style.borderRadius = `${Math.max(9, Math.round(11 * summaryScale))}px`;
     card.style.background =
       depth === 1
-        ? "color-mix(in srgb, var(--surface-panel-muted) 94%, var(--surface-panel) 6%)"
-        : "color-mix(in srgb, var(--surface-control) 92%, var(--surface-panel) 8%)";
-    card.style.border = `1px solid ${getProjectColorShadow(levelColor, depth === 1 ? 0.16 : 0.12)}`;
+        ? "color-mix(in srgb, var(--bg-tertiary) 88%, transparent)"
+        : "color-mix(in srgb, var(--bg-quaternary) 92%, transparent)";
+    card.style.border = `1px solid ${getProjectColorShadow(levelColor, 0.24)}`;
     card.style.boxSizing = "border-box";
     card.style.minWidth = "0";
-    card.style.overflow = "visible";
     if (depth > 1) {
       card.style.marginLeft = `${Math.max(4, Math.round(4 * summaryScale))}px`;
     }
@@ -5194,10 +5110,6 @@ function renderProjectTotalTreeNode(
     colorDot.style.backgroundColor = levelColor;
     colorDot.style.flex = "0 0 auto";
     colorDot.style.marginTop = `${Math.max(3, Math.round(3 * summaryScale))}px`;
-    colorDot.style.position = "relative";
-    colorDot.style.zIndex = "1";
-    colorDot.style.boxShadow =
-      "0 0 0 2px color-mix(in srgb, var(--surface-panel) 92%, transparent)";
 
     const compactTextFontSize = `${Math.max(
       projectLevel === 1 ? 9 : 8,
@@ -5243,10 +5155,7 @@ function renderProjectTotalTreeNode(
 
     if (expandable) {
       const toggleExpanded = () => {
-        setProjectTotalsExpanded(
-          projectNode,
-          !isProjectTotalsExpanded(projectNode),
-        );
+        setProjectTotalsExpanded(projectNode, !isProjectTotalsExpanded(projectNode));
         updateProjectTotals();
       };
       header.addEventListener("click", (event) => {
@@ -5270,17 +5179,13 @@ function renderProjectTotalTreeNode(
       childrenContainer.style.gap = `${gap}px`;
       childrenContainer.style.minWidth = "0";
       childrenContainer.style.paddingLeft = `${Math.max(3, Math.round(4 * summaryScale))}px`;
-      childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
+      childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.28)}`;
 
       children.forEach((childNode) => {
-        const childElement = renderProjectTotalTreeNode(
-          childNode,
-          statsContext,
-          {
-            summaryScale,
-            depth: depth + 1,
-          },
-        );
+        const childElement = renderProjectTotalTreeNode(childNode, statsContext, {
+          summaryScale,
+          depth: depth + 1,
+        });
         if (childElement) {
           childrenContainer.appendChild(childElement);
         }
@@ -5302,13 +5207,10 @@ function renderProjectTotalTreeNode(
   card.style.padding = `${cardPadding}px`;
   card.style.borderRadius = `${borderRadius}px`;
   card.style.background =
-    projectLevel === 1
-      ? "color-mix(in srgb, var(--surface-panel-muted) 94%, var(--surface-panel) 6%)"
-      : "color-mix(in srgb, var(--surface-control) 92%, var(--surface-panel) 8%)";
-  card.style.border = `1px solid ${getProjectColorShadow(levelColor, projectLevel === 1 ? 0.16 : 0.12)}`;
+    projectLevel === 1 ? "var(--bg-tertiary)" : "var(--bg-quaternary)";
+  card.style.border = `1px solid ${getProjectColorShadow(levelColor, 0.24)}`;
   card.style.boxSizing = "border-box";
   card.style.minWidth = "0";
-  card.style.overflow = "visible";
   if (depth > 1) {
     card.style.marginLeft = `${Math.max(8, Math.round(10 * summaryScale))}px`;
   }
@@ -5344,10 +5246,6 @@ function renderProjectTotalTreeNode(
   colorDot.style.backgroundColor = levelColor;
   colorDot.style.flex = "0 0 auto";
   colorDot.style.marginTop = `${Math.max(2, Math.round(2 * summaryScale))}px`;
-  colorDot.style.position = "relative";
-  colorDot.style.zIndex = "1";
-  colorDot.style.boxShadow =
-    "0 0 0 2px color-mix(in srgb, var(--surface-panel) 92%, transparent)";
 
   const label = document.createElement("span");
   label.style.color = "var(--text-color)";
@@ -5390,10 +5288,7 @@ function renderProjectTotalTreeNode(
   if (expandable) {
     header.addEventListener("click", (event) => {
       event.stopPropagation();
-      setProjectTotalsExpanded(
-        projectNode,
-        !isProjectTotalsExpanded(projectNode),
-      );
+      setProjectTotalsExpanded(projectNode, !isProjectTotalsExpanded(projectNode));
       updateProjectTotals();
     });
   }
@@ -5405,7 +5300,7 @@ function renderProjectTotalTreeNode(
     childrenContainer.style.gap = `${gap}px`;
     childrenContainer.style.minWidth = "0";
     childrenContainer.style.paddingLeft = `${Math.max(6, Math.round(8 * summaryScale))}px`;
-    childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
+    childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.28)}`;
 
     children.forEach((childNode) => {
       const childElement = renderProjectTotalTreeNode(childNode, statsContext, {
@@ -5424,8 +5319,7 @@ function renderProjectTotalTreeNode(
 }
 
 function formatRecordCardTime(recordDate, compact = false) {
-  const resolvedDate =
-    recordDate instanceof Date ? recordDate : new Date(recordDate);
+  const resolvedDate = recordDate instanceof Date ? recordDate : new Date(recordDate);
   if (Number.isNaN(resolvedDate.getTime())) {
     return "";
   }
@@ -5486,18 +5380,14 @@ function bindTableScaleLiveRefresh() {
     if (target.isContentEditable === true) {
       return true;
     }
-    const tagName = String(target.tagName || "")
-      .trim()
-      .toLowerCase();
+    const tagName = String(target.tagName || "").trim().toLowerCase();
     if (tagName === "textarea") {
       return true;
     }
     if (tagName !== "input") {
       return false;
     }
-    const inputType = String(target.type || "")
-      .trim()
-      .toLowerCase();
+    const inputType = String(target.type || "").trim().toLowerCase();
     return ![
       "button",
       "checkbox",
@@ -5533,8 +5423,9 @@ function bindTableScaleLiveRefresh() {
   const rerenderForResize = () => {
     const activeElement = document.activeElement;
     const isInlineRecordEditActive = !!editingRecordId;
-    const isRecordNameInputFocused =
-      activeElement?.classList?.contains("record-name-input");
+    const isRecordNameInputFocused = activeElement?.classList?.contains(
+      "record-name-input",
+    );
     const isAndroidMobileRuntime =
       document.body?.classList.contains("controler-mobile-runtime") &&
       document.body?.classList.contains("controler-android-native");
@@ -5625,9 +5516,7 @@ function normalizeDurationCarryoverState(rawState) {
   return {
     carryoverMs,
     sourceRecordId:
-      typeof rawState.sourceRecordId === "string"
-        ? rawState.sourceRecordId
-        : "",
+      typeof rawState.sourceRecordId === "string" ? rawState.sourceRecordId : "",
     sourceProject:
       typeof rawState.sourceProject === "string"
         ? rawState.sourceProject.trim()
@@ -5704,8 +5593,7 @@ function findLatestRecordByClickCount(clickCount) {
     [...records]
       .reverse()
       .find(
-        (record) =>
-          normalizeClickCount(record?.clickCount) === targetClickCount,
+        (record) => normalizeClickCount(record?.clickCount) === targetClickCount,
       ) || null
   );
 }
@@ -5741,8 +5629,7 @@ function resolveCarryoverAnchorFromRecord(record) {
   }
 
   return new Date(
-    rawEndTime.getTime() -
-      Math.round(pendingDurationCarryoverState.carryoverMs),
+    rawEndTime.getTime() - Math.round(pendingDurationCarryoverState.carryoverMs),
   );
 }
 
@@ -5808,9 +5695,7 @@ function restoreIndexSpendModalInteractivityIfIdle(reason = "manual") {
   pendingSpendModalState = null;
   lastSpendButtonAcceptedAt = 0;
   requestAnimationFrame(() => {
-    reportIndexDebugInteractivityState(
-      `spend-interactivity-restored:${reason}`,
-    );
+    reportIndexDebugInteractivityState(`spend-interactivity-restored:${reason}`);
   });
   return true;
 }
@@ -5825,7 +5710,8 @@ function getPendingSpendModalBaseState() {
 
 function captureTimerCoreState() {
   return {
-    ptn: Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
+    ptn:
+      Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
     fpt: serializeTimerDate(fpt),
     spt: serializeTimerDate(spt),
     lastspt: serializeTimerDate(lastspt),
@@ -5904,34 +5790,28 @@ function createRecordEntry(name, spendtime, options = {}) {
 
   const recordStartTime =
     resolveDateOption(options.startTime) ||
-    (fpt instanceof Date && !Number.isNaN(fpt.getTime())
-      ? new Date(fpt)
-      : null);
+    (fpt instanceof Date && !Number.isNaN(fpt.getTime()) ? new Date(fpt) : null);
   const rawEndTime =
     resolveDateOption(options.rawEndTime) ||
-    (spt instanceof Date && !Number.isNaN(spt.getTime())
-      ? new Date(spt)
-      : null) ||
+    (spt instanceof Date && !Number.isNaN(spt.getTime()) ? new Date(spt) : null) ||
     new Date();
-  const recordEndTime =
-    resolveDateOption(options.endTime) || new Date(rawEndTime);
+  const recordEndTime = resolveDateOption(options.endTime) || new Date(rawEndTime);
 
   const boundedDurationMs =
     recordStartTime instanceof Date && !Number.isNaN(recordStartTime.getTime())
       ? Math.max(recordEndTime.getTime() - recordStartTime.getTime(), 0)
       : null;
-  const recordedDurationMs = Number.isFinite(boundedDurationMs)
-    ? Math.round(boundedDurationMs)
-    : Number.isFinite(options.durationMs) && options.durationMs >= 0
-      ? Math.round(options.durationMs)
-      : Number.isFinite(durationMeta?.recordedMs) &&
-          durationMeta.recordedMs >= 0
-        ? Math.round(durationMeta.recordedMs)
-        : parseSpendtimeToMs(spendtime);
+  const recordedDurationMs =
+    Number.isFinite(boundedDurationMs)
+      ? Math.round(boundedDurationMs)
+      : Number.isFinite(options.durationMs) && options.durationMs >= 0
+        ? Math.round(options.durationMs)
+        : Number.isFinite(durationMeta?.recordedMs) && durationMeta.recordedMs >= 0
+          ? Math.round(durationMeta.recordedMs)
+          : parseSpendtimeToMs(spendtime);
   const normalizedSpendtime = formatDurationFromMs(recordedDurationMs);
 
-  const recordTime =
-    serializeTimerDate(recordEndTime) || new Date().toISOString();
+  const recordTime = serializeTimerDate(recordEndTime) || new Date().toISOString();
   const recordStartTimeText = serializeTimerDate(recordStartTime);
   const rawEndTimeText = serializeTimerDate(rawEndTime) || recordTime;
   const normalizedNextProjectName = resolveRecordNextProjectName(
@@ -5946,33 +5826,28 @@ function createRecordEntry(name, spendtime, options = {}) {
   const normalizedNextProjectId =
     typeof options.nextProjectId === "string" && options.nextProjectId.trim()
       ? options.nextProjectId.trim()
-      : projects.find((project) => project.name === normalizedNextProjectName)
-          ?.id || null;
-  return decorateIndexRecordProjectState(
-    {
-      id: generateRecordId(),
-      timestamp: recordTime,
-      sptTime: recordTime,
-      name: normalizedName,
-      spendtime: normalizedSpendtime,
-      projectId: matchedProject?.id || null,
-      nextProjectName: normalizedNextProjectName,
-      nextProjectId: normalizedNextProjectId,
-      startTime: recordStartTimeText,
-      endTime: recordTime,
-      rawEndTime: rawEndTimeText,
-      durationMs: Number.isFinite(recordedDurationMs)
-        ? recordedDurationMs
-        : null,
-      clickCount:
-        Number.isFinite(ptn) && ptn > 0 ? Math.max(1, Math.floor(ptn)) : null,
-      timerRollbackState: pendingRecordRollbackState
-        ? { ...pendingRecordRollbackState }
-        : null,
-      durationMeta,
-    },
-    projects,
-  );
+      : projects.find((project) => project.name === normalizedNextProjectName)?.id ||
+        null;
+  return decorateIndexRecordProjectState({
+    id: generateRecordId(),
+    timestamp: recordTime,
+    sptTime: recordTime,
+    name: normalizedName,
+    spendtime: normalizedSpendtime,
+    projectId: matchedProject?.id || null,
+    nextProjectName: normalizedNextProjectName,
+    nextProjectId: normalizedNextProjectId,
+    startTime: recordStartTimeText,
+    endTime: recordTime,
+    rawEndTime: rawEndTimeText,
+    durationMs: Number.isFinite(recordedDurationMs) ? recordedDurationMs : null,
+    clickCount:
+      Number.isFinite(ptn) && ptn > 0 ? Math.max(1, Math.floor(ptn)) : null,
+    timerRollbackState: pendingRecordRollbackState
+      ? { ...pendingRecordRollbackState }
+      : null,
+    durationMeta,
+  }, projects);
 }
 
 function formatDurationHoursOnlyFromMs(ms) {
@@ -6125,6 +6000,27 @@ function isIndexProjectWithinSubtree(
   return false;
 }
 
+function isIndexLegacyRecoverySubtreeProject(project, projectList = projects) {
+  const recoveryRootId = String(
+    findIndexLegacyRecordProjectRecoveryRootProject(projectList)?.id || "",
+  ).trim();
+  if (!recoveryRootId) {
+    return false;
+  }
+  return isIndexProjectWithinSubtree(project, recoveryRootId, projectList);
+}
+
+function isIndexLegacyPathRecoveryAliasProject(
+  project,
+  projectList = projects,
+) {
+  return (
+    !!project &&
+    isIndexProjectPathLikeName(project?.name) &&
+    isIndexLegacyRecoverySubtreeProject(project, projectList)
+  );
+}
+
 function findProjectByNameInList(projectName, projectList = projects) {
   const normalizedName = String(projectName || "").trim();
   if (!normalizedName) {
@@ -6160,7 +6056,11 @@ function findProjectByNameInList(projectName, projectList = projects) {
     : null;
 
   return (
-    exactPreferred || exactMatch || preferredLeafMatch || leafMatch || null
+    exactPreferred ||
+    exactMatch ||
+    preferredLeafMatch ||
+    leafMatch ||
+    null
   );
 }
 
@@ -6194,8 +6094,7 @@ function resolveCanonicalRecordProjectName(
     return matchedProjectName;
   }
   return (
-    normalizeIndexProjectReferenceName(fallbackProjectName, fallback) ||
-    fallback
+    normalizeIndexProjectReferenceName(fallbackProjectName, fallback) || fallback
   );
 }
 
@@ -6212,9 +6111,7 @@ function resolveRecordProjectColor(record, projectList = projects) {
 }
 
 function normalizeRecordCardColorMode(mode, fallback = "project") {
-  const normalizedMode = String(mode || "")
-    .trim()
-    .toLowerCase();
+  const normalizedMode = String(mode || "").trim().toLowerCase();
   if (normalizedMode === "theme" || normalizedMode === "custom") {
     return "theme";
   }
@@ -6226,10 +6123,7 @@ function normalizeRecordCardColorMode(mode, fallback = "project") {
 
 function resolveThemeRecordCardStyle() {
   const root = document.documentElement;
-  if (
-    !(root instanceof HTMLElement) ||
-    typeof window.getComputedStyle !== "function"
-  ) {
+  if (!(root instanceof HTMLElement) || typeof window.getComputedStyle !== "function") {
     return {
       mode: "project",
       color: "",
@@ -6291,28 +6185,17 @@ function syncTimerSessionStateWithLatestRecord(options = {}) {
   }
 
   const latestEndTime = resolveRecordTime(latestRecord);
-  if (
-    !(latestEndTime instanceof Date) ||
-    Number.isNaN(latestEndTime.getTime())
-  ) {
+  if (!(latestEndTime instanceof Date) || Number.isNaN(latestEndTime.getTime())) {
     return false;
   }
 
-  const currentAnchor =
-    [lastspt, spt, fpt]
-      .filter(
-        (value) => value instanceof Date && !Number.isNaN(value.getTime()),
-      )
-      .sort((left, right) => right.getTime() - left.getTime())[0] || null;
-  const hasProjectContext = [
-    selectedProject,
-    nextProject,
-    lastEnteredProjectName,
-  ].some((value) => typeof value === "string" && value.trim());
-  const latestProjectName = resolveRecordNextProjectName(
-    latestRecord,
-    projects,
+  const currentAnchor = [lastspt, spt, fpt]
+    .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+    .sort((left, right) => right.getTime() - left.getTime())[0] || null;
+  const hasProjectContext = [selectedProject, nextProject, lastEnteredProjectName].some(
+    (value) => typeof value === "string" && value.trim(),
   );
+  const latestProjectName = resolveRecordNextProjectName(latestRecord, projects);
   const shouldRestore =
     force ||
     !currentAnchor ||
@@ -6403,7 +6286,8 @@ function buildTimerSessionSnapshotForPersistence() {
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   return {
     sessionVersion: TIMER_STATE_STORAGE_VERSION,
-    ptn: Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
+    ptn:
+      Number.isFinite(ptn) && ptn >= 0 ? Math.max(0, Math.floor(ptn)) : 0,
     fpt: serializeTimerDate(fpt),
     spt: serializeTimerDate(spt),
     lastspt: serializeTimerDate(lastspt),
@@ -6416,7 +6300,9 @@ function buildTimerSessionSnapshotForPersistence() {
       : null,
     modalOpen: isModalOpen,
     projectInputValue:
-      isModalOpen && modalProjectInput ? modalProjectInput.value || "" : "",
+      isModalOpen && modalProjectInput
+        ? modalProjectInput.value || ""
+        : "",
     nextProjectInputValue:
       isModalOpen && modalNextProjectInput
         ? modalNextProjectInput.value || ""
@@ -6467,8 +6353,7 @@ function applyTimerSessionSnapshot(snapshot) {
     Number.isFinite(source.diffMs) && source.diffMs >= 0 ? source.diffMs : null;
   selectedProject =
     typeof source.selectedProject === "string" ? source.selectedProject : "";
-  nextProject =
-    typeof source.nextProject === "string" ? source.nextProject : "";
+  nextProject = typeof source.nextProject === "string" ? source.nextProject : "";
   lastEnteredProjectName =
     typeof source.lastEnteredProjectName === "string"
       ? source.lastEnteredProjectName
@@ -6495,9 +6380,7 @@ function applyTimerSessionSnapshot(snapshot) {
       : null,
     modalOpen: source.modalOpen === true,
     projectInputValue:
-      typeof source.projectInputValue === "string"
-        ? source.projectInputValue
-        : "",
+      typeof source.projectInputValue === "string" ? source.projectInputValue : "",
     nextProjectInputValue:
       typeof source.nextProjectInputValue === "string"
         ? source.nextProjectInputValue
@@ -6638,7 +6521,10 @@ function persistTimerSessionState() {
   try {
     const snapshot = buildTimerSessionSnapshotForPersistence();
     timerSessionDraftSnapshot = { ...snapshot };
-    localStorage.setItem(TIMER_STATE_STORAGE_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(
+      TIMER_STATE_STORAGE_KEY,
+      JSON.stringify(snapshot),
+    );
     scheduleTimerSessionDraftPersist();
   } catch (error) {
     console.error("保存计时状态失败:", error);
@@ -6654,11 +6540,9 @@ function repairLegacyTimerSessionState(rawState) {
     return false;
   }
 
-  const hasProjectContext = [
-    selectedProject,
-    nextProject,
-    lastEnteredProjectName,
-  ].some((value) => typeof value === "string" && value.trim());
+  const hasProjectContext = [selectedProject, nextProject, lastEnteredProjectName].some(
+    (value) => typeof value === "string" && value.trim(),
+  );
   const latestRecordedClickCount = getLatestRecordedClickCount();
 
   if (ptn >= 2) {
@@ -6684,9 +6568,7 @@ function repairLegacyTimerSessionState(rawState) {
     if (hasProjectContext) {
       const fallbackAnchor =
         [fpt, spt, lastspt]
-          .filter(
-            (value) => value instanceof Date && !Number.isNaN(value.getTime()),
-          )
+          .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
           .sort((left, right) => left.getTime() - right.getTime())[0] || null;
       if (fallbackAnchor) {
         ptn = 1;
@@ -6960,7 +6842,8 @@ function hslColorToHex(hue, saturation, lightness) {
   const safeHue = normalizeProjectHue(hue);
   const safeSaturation = clampProjectColorNumber(saturation, 0, 100) / 100;
   const safeLightness = clampProjectColorNumber(lightness, 0, 100) / 100;
-  const chroma = (1 - Math.abs(2 * safeLightness - 1)) * safeSaturation;
+  const chroma =
+    (1 - Math.abs(2 * safeLightness - 1)) * safeSaturation;
   const huePrime = safeHue / 60;
   const secondary = chroma * (1 - Math.abs((huePrime % 2) - 1));
   let red = 0;
@@ -6997,9 +6880,7 @@ function hslColorToHex(hue, saturation, lightness) {
 }
 
 function hexColorToRgb(color) {
-  const normalized = String(color || "")
-    .trim()
-    .toLowerCase();
+  const normalized = String(color || "").trim().toLowerCase();
   const hexMatch = normalized.match(/^#([0-9a-f]{6})$/i);
   if (!hexMatch) return null;
   return {
@@ -7095,7 +6976,8 @@ function hexColorToHsl(color) {
     };
   }
 
-  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  const saturation =
+    delta / (1 - Math.abs(2 * lightness - 1));
   let hue = 0;
 
   if (maxChannel === red) {
@@ -7114,9 +6996,7 @@ function hexColorToHsl(color) {
 }
 
 function normalizeProjectColorMode(mode, fallback = "auto") {
-  const normalizedMode = String(mode || "")
-    .trim()
-    .toLowerCase();
+  const normalizedMode = String(mode || "").trim().toLowerCase();
   if (normalizedMode === "manual") {
     return "manual";
   }
@@ -7140,7 +7020,11 @@ function findProjectByIdInList(projectId, projectList = projects) {
 
 function getProjectRootAncestorFromContext(
   level = 1,
-  { parentId = null, projectId = null, projectList = projects } = {},
+  {
+    parentId = null,
+    projectId = null,
+    projectList = projects,
+  } = {},
 ) {
   const normalizedLevel = normalizeProjectLevel(level);
   if (normalizedLevel === 1) {
@@ -7159,10 +7043,7 @@ function getProjectRootAncestorFromContext(
     if (!currentProject.parentId) {
       break;
     }
-    currentProject = findProjectByIdInList(
-      currentProject.parentId,
-      projectList,
-    );
+    currentProject = findProjectByIdInList(currentProject.parentId, projectList);
     safety += 1;
   }
 
@@ -7175,7 +7056,8 @@ function createProjectColorProfileFromAnchor(
   profileName = "当前色调",
 ) {
   const normalizedLevel = normalizeProjectLevel(level);
-  const anchorHsl = hexColorToHsl(anchorColor) ||
+  const anchorHsl =
+    hexColorToHsl(anchorColor) ||
     hexColorToHsl(getDefaultProjectColorByLevel(1)) || {
       hue: 146,
       saturation: 48,
@@ -7183,11 +7065,7 @@ function createProjectColorProfileFromAnchor(
     };
 
   if (normalizedLevel === 1) {
-    const baseSaturation = clampProjectColorNumber(
-      anchorHsl.saturation,
-      24,
-      78,
-    );
+    const baseSaturation = clampProjectColorNumber(anchorHsl.saturation, 24, 78);
     const baseLightness = clampProjectColorNumber(anchorHsl.lightness, 24, 74);
     return {
       name: profileName,
@@ -7263,7 +7141,11 @@ function buildDynamicProjectColorProfiles(level = 1, options = {}) {
   if (normalizedLevel === 1) {
     if (options.preferCurrentHueForLevel1 && currentColor) {
       return [
-        createProjectColorProfileFromAnchor(1, currentColor, "当前一级色调"),
+        createProjectColorProfileFromAnchor(
+          1,
+          currentColor,
+          "当前一级色调",
+        ),
       ];
     }
     return [];
@@ -7284,7 +7166,11 @@ function buildDynamicProjectColorProfiles(level = 1, options = {}) {
       ? `${rootProject.name} 同调`
       : "一级同调";
   return [
-    createProjectColorProfileFromAnchor(normalizedLevel, rootColor, rootLabel),
+    createProjectColorProfileFromAnchor(
+      normalizedLevel,
+      rootColor,
+      rootLabel,
+    ),
   ];
 }
 
@@ -7422,7 +7308,8 @@ function buildResolvedProjectColorPresetOptions(context = {}) {
 function getProjectColorTextColor(color, fallback = "var(--text-color)") {
   const rgb = hexColorToRgb(normalizeProjectColorToHex(color, ""));
   if (!rgb) return fallback;
-  const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  const luminance =
+    (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
   return luminance >= 0.62 ? "#17212b" : "#f7fbff";
 }
 
@@ -7433,11 +7320,7 @@ function getProjectColorShadow(color, alpha = 0.22) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${safeAlpha})`;
 }
 
-function syncProjectColorValueText(
-  labelElement,
-  colorValue,
-  fallbackColor = "",
-) {
+function syncProjectColorValueText(labelElement, colorValue, fallbackColor = "") {
   if (!(labelElement instanceof HTMLElement)) {
     return;
   }
@@ -7453,18 +7336,20 @@ function syncProjectColorSwatchSelection(container, selectedColor) {
     return;
   }
   const normalizedSelected = normalizeProjectColorToHex(selectedColor, "");
-  container.querySelectorAll(".project-color-swatch").forEach((swatch) => {
-    const swatchColor = normalizeProjectColorToHex(
-      swatch.dataset.color || "",
-      "",
-    );
-    swatch.classList.toggle(
-      "is-selected",
-      !!normalizedSelected &&
-        !!swatchColor &&
-        normalizedSelected === swatchColor,
-    );
-  });
+  container
+    .querySelectorAll(".project-color-swatch")
+    .forEach((swatch) => {
+      const swatchColor = normalizeProjectColorToHex(
+        swatch.dataset.color || "",
+        "",
+      );
+      swatch.classList.toggle(
+        "is-selected",
+        !!normalizedSelected &&
+          !!swatchColor &&
+          normalizedSelected === swatchColor,
+      );
+    });
 }
 
 function renderProjectColorSwatches(
@@ -7652,7 +7537,9 @@ class Project {
     this.name = name;
     this.level = level; // 1, 2, 3
     this.parentId = parentId; // 父级项目ID（如果是2级或3级）
-    this.color = normalizeProjectColorToHex(color, "") || this.generateColor();
+    this.color =
+      normalizeProjectColorToHex(color, "") ||
+      this.generateColor();
     this.description = description; // 项目描述
     this.colorMode = normalizeProjectColorMode(colorMode, "auto");
     this.createdAt = new Date().toISOString();
@@ -7853,19 +7740,14 @@ function getIndexProjectHierarchyIndex(projectList = projects) {
   if (typeof statsApi?.buildProjectHierarchyIndex === "function") {
     const hierarchyIndex = statsApi.buildProjectHierarchyIndex(safeProjects);
     const orderById = new Map(
-      safeProjects.map((project, index) => [
-        String(project?.id || "").trim(),
-        index,
-      ]),
+      safeProjects.map((project, index) => [String(project?.id || "").trim(), index]),
     );
     const sortNodesByProjectOrder = (nodes = []) =>
       nodes.slice().sort((left, right) => {
         const leftId = String(left?.raw?.id || left?.id || "").trim();
         const rightId = String(right?.raw?.id || right?.id || "").trim();
-        return (
-          (orderById.get(leftId) ?? Number.MAX_SAFE_INTEGER) -
-          (orderById.get(rightId) ?? Number.MAX_SAFE_INTEGER)
-        );
+        return (orderById.get(leftId) ?? Number.MAX_SAFE_INTEGER) -
+          (orderById.get(rightId) ?? Number.MAX_SAFE_INTEGER);
       });
     const childrenByParent = new Map();
     hierarchyIndex?.childrenByParent?.forEach((nodes, parentId) => {
@@ -7898,7 +7780,11 @@ function getIndexProjectHierarchyIndex(projectList = projects) {
   });
 
   byId.forEach((node) => {
-    if (node.parentId && node.parentId !== node.id && byId.has(node.parentId)) {
+    if (
+      node.parentId &&
+      node.parentId !== node.id &&
+      byId.has(node.parentId)
+    ) {
       if (!childrenByParent.has(node.parentId)) {
         childrenByParent.set(node.parentId, []);
       }
@@ -7930,9 +7816,7 @@ function cloneProjectDurationSnapshot(projectList = projects) {
 }
 
 function applyIndexProjectRecordDurationChanges(changes = {}) {
-  if (
-    typeof storageBundleApi?.applyProjectRecordDurationChanges !== "function"
-  ) {
+  if (typeof storageBundleApi?.applyProjectRecordDurationChanges !== "function") {
     return false;
   }
   projects = normalizeStoredProjects(
@@ -7958,10 +7842,7 @@ async function loadAllIndexRecordsFromStorage(options = {}) {
     requestScope.authoritative = true;
   }
   if (typeof window.ControlerStorage?.loadSectionRange === "function") {
-    const range = await window.ControlerStorage.loadSectionRange(
-      "records",
-      requestScope,
-    );
+    const range = await window.ControlerStorage.loadSectionRange("records", requestScope);
     return Array.isArray(range?.items) ? range.items : [];
   }
   const localSnapshot = readIndexLocalRecordSnapshot();
@@ -7973,9 +7854,7 @@ async function loadAllIndexRecordsFromStorage(options = {}) {
 
 async function loadAuthoritativeIndexProjectsFromStorage(options = {}) {
   const fallbackProjects = normalizeStoredProjects(
-    Array.isArray(options?.fallbackProjects)
-      ? options.fallbackProjects
-      : projects,
+    Array.isArray(options?.fallbackProjects) ? options.fallbackProjects : projects,
   );
   if (typeof window.ControlerStorage?.getCoreState !== "function") {
     return fallbackProjects;
@@ -8008,9 +7887,7 @@ async function loadPersistedIndexRecordPeriodIdsFromStorage() {
     const periodIds =
       Array.isArray(range?.periodIds) && range.periodIds.length
         ? range.periodIds
-        : getIndexRecordPeriodIds(
-            Array.isArray(range?.items) ? range.items : [],
-          );
+        : getIndexRecordPeriodIds(Array.isArray(range?.items) ? range.items : []);
     return normalizeIndexRecordPeriodIdList(periodIds);
   } catch (error) {
     console.error("读取记录分区列表失败，回退当前工作区分区信息:", error);
@@ -8018,10 +7895,7 @@ async function loadPersistedIndexRecordPeriodIdsFromStorage() {
   }
 }
 
-async function replaceIndexPersistedRecordPartitions(
-  recordList = [],
-  options = {},
-) {
+async function replaceIndexPersistedRecordPartitions(recordList = [], options = {}) {
   if (typeof window.ControlerStorage?.saveSectionRange !== "function") {
     return false;
   }
@@ -8084,101 +7958,6 @@ async function replaceIndexPersistedRecordPartitions(
   return true;
 }
 
-async function persistIndexAuthoritativeRecordsToStorage(
-  normalizedAllRecords = [],
-  options = {},
-) {
-  if (typeof window.ControlerStorage?.saveSectionRange !== "function") {
-    return {
-      strategy: "unsupported",
-      changedRecordCount: 0,
-      touchedPeriodIds: [],
-    };
-  }
-
-  const reason =
-    typeof options?.reason === "string" && options.reason.trim()
-      ? options.reason.trim()
-      : "index-record-persist";
-  const previousNormalizedRecords = Array.isArray(
-    options?.previousNormalizedRecords,
-  )
-    ? options.previousNormalizedRecords
-    : null;
-
-  if (
-    Array.isArray(previousNormalizedRecords) &&
-    typeof indexRecordPersistenceApi?.persistRecordMutations === "function"
-  ) {
-    const mutations = buildIndexRecordMutationSet(
-      previousNormalizedRecords,
-      normalizedAllRecords,
-    );
-    emitIndexStructuredLog("index.record-persist", {
-      stage: "mutations",
-      reason,
-      changedRecordCount: mutations.changedRecordCount,
-      touchedPeriodCount: mutations.touchedPeriodIds.length,
-      touchedPeriodIds: mutations.touchedPeriodIds,
-    });
-    emitIndexDebugPerf("index-record-persist", {
-      stage: "mutations",
-      reason,
-      changedRecordCount: mutations.changedRecordCount,
-      touchedPeriodCount: mutations.touchedPeriodIds.length,
-      touchedPeriodIds: mutations.touchedPeriodIds,
-    });
-    if (mutations.touchedPeriodIds.length > 0) {
-      await indexRecordPersistenceApi.persistRecordMutations({
-        periodIds: mutations.touchedPeriodIds,
-        currentRecords: normalizedAllRecords,
-        upserts: mutations.upserts,
-        removedItems: mutations.removedItems,
-        allRecordsLoaded: true,
-        supportsPatch:
-          window.ControlerStorage?.capabilities?.recordPartitionPatch === true,
-        loadSectionRange: (section, scope) =>
-          window.ControlerStorage.loadSectionRange(section, scope),
-        saveSectionRange: (section, payload) =>
-          window.ControlerStorage.saveSectionRange(section, payload),
-        getPeriodId: getIndexRecordPeriodId,
-        getPeriodIds: getIndexRecordPeriodIdsForRecord,
-        buildMergeKey: buildIndexRecordPatchKey,
-        sortItems: sortIndexRecordPartitionItems,
-        cloneValue: cloneIndexValue,
-      });
-    }
-    return {
-      strategy: "mutations",
-      changedRecordCount: mutations.changedRecordCount,
-      touchedPeriodIds: mutations.touchedPeriodIds,
-    };
-  }
-
-  emitIndexStructuredLog("index.record-persist", {
-    stage: "full-replace",
-    reason,
-    totalRecordCount: Array.isArray(normalizedAllRecords)
-      ? normalizedAllRecords.length
-      : 0,
-  });
-  emitIndexDebugPerf("index-record-persist", {
-    stage: "full-replace",
-    reason,
-    totalRecordCount: Array.isArray(normalizedAllRecords)
-      ? normalizedAllRecords.length
-      : 0,
-  });
-  await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
-    reason,
-  });
-  return {
-    strategy: "full-replace",
-    changedRecordCount: null,
-    touchedPeriodIds: getIndexRecordPeriodIds(normalizedAllRecords),
-  };
-}
-
 function dedupeIndexLoadedRecords(recordList = []) {
   const orderedKeys = [];
   const dedupedByKey = new Map();
@@ -8232,14 +8011,15 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
       !Number.isNaN(explicitStartDate.getTime())
         ? Math.max(canonicalEndDate.getTime() - explicitStartDate.getTime(), 0)
         : null;
-    const normalizedDurationMs = Number.isFinite(boundedDurationMs)
-      ? Math.round(boundedDurationMs)
-      : Number.isFinite(record?.durationMs) && record.durationMs >= 0
-        ? Math.round(record.durationMs)
-        : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
-            normalizedDurationMeta.recordedMs >= 0
-          ? Math.round(normalizedDurationMeta.recordedMs)
-          : parseSpendtimeToMs(record?.spendtime);
+    const normalizedDurationMs =
+      Number.isFinite(boundedDurationMs)
+        ? Math.round(boundedDurationMs)
+        : Number.isFinite(record?.durationMs) && record.durationMs >= 0
+          ? Math.round(record.durationMs)
+          : Number.isFinite(normalizedDurationMeta?.recordedMs) &&
+              normalizedDurationMeta.recordedMs >= 0
+            ? Math.round(normalizedDurationMeta.recordedMs)
+            : parseSpendtimeToMs(record?.spendtime);
     const startDate =
       explicitStartDate ||
       (normalizedDurationMs > 0
@@ -8248,12 +8028,9 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
     const rawEndDate =
       deserializeTimerDate(record?.rawEndTime) || canonicalEndDate;
     const normalizedSpendtime = formatDurationFromMs(normalizedDurationMs);
-    const normalizedNextProjectIdText = String(
-      record?.nextProjectId || "",
-    ).trim();
+    const normalizedNextProjectIdText = String(record?.nextProjectId || "").trim();
     const normalizedProjectId =
-      String(normalizedProject?.id || normalizedProjectIdText || "").trim() ||
-      null;
+      String(normalizedProject?.id || normalizedProjectIdText || "").trim() || null;
     const normalizedRecordReference = {
       ...record,
       name: normalizedName,
@@ -8275,36 +8052,33 @@ function normalizeIndexLoadedRecords(recordList = [], projectList = projects) {
       },
       normalizedProjects,
     );
-    return decorateIndexRecordProjectState(
-      {
-        ...record,
-        timestamp: canonicalEndText,
-        sptTime: canonicalEndText,
-        endTime: canonicalEndText,
-        rawEndTime: rawEndDate.toISOString(),
-        startTime: serializeTimerDate(startDate),
-        durationMs: Number.isFinite(normalizedDurationMs)
-          ? normalizedDurationMs
+    return decorateIndexRecordProjectState({
+      ...record,
+      timestamp: canonicalEndText,
+      sptTime: canonicalEndText,
+      endTime: canonicalEndText,
+      rawEndTime: rawEndDate.toISOString(),
+      startTime: serializeTimerDate(startDate),
+      durationMs: Number.isFinite(normalizedDurationMs)
+        ? normalizedDurationMs
+        : null,
+      spendtime: normalizedSpendtime,
+      name: normalizedName,
+      projectId: normalizedProjectId,
+      nextProjectName: normalizedNextProjectName,
+      nextProjectId:
+        String(
+          normalizedNextProject?.id || normalizedNextProjectIdText || "",
+        ).trim() || null,
+      clickCount:
+        Number.isFinite(record.clickCount) && record.clickCount > 0
+          ? Math.max(1, Math.floor(record.clickCount))
           : null,
-        spendtime: normalizedSpendtime,
-        name: normalizedName,
-        projectId: normalizedProjectId,
-        nextProjectName: normalizedNextProjectName,
-        nextProjectId:
-          String(
-            normalizedNextProject?.id || normalizedNextProjectIdText || "",
-          ).trim() || null,
-        clickCount:
-          Number.isFinite(record.clickCount) && record.clickCount > 0
-            ? Math.max(1, Math.floor(record.clickCount))
-            : null,
-        timerRollbackState: normalizeTimerRollbackState(
-          record.timerRollbackState,
-        ),
-        durationMeta: normalizedDurationMeta,
-      },
-      normalizedProjects,
-    );
+      timerRollbackState: normalizeTimerRollbackState(
+        record.timerRollbackState,
+      ),
+      durationMeta: normalizedDurationMeta,
+    }, normalizedProjects);
   });
   return dedupeIndexLoadedRecords(normalizedRecords);
 }
@@ -8348,10 +8122,7 @@ function scheduleIndexHistoricalRecordHydration(options = {}) {
           return;
         }
 
-        const normalizedRecords = normalizeIndexLoadedRecords(
-          allRecords,
-          projects,
-        );
+        const normalizedRecords = normalizeIndexLoadedRecords(allRecords, projects);
         const nextPeriodIds = getIndexRecordPeriodIds(normalizedRecords);
         const shouldRefreshUi =
           normalizedRecords.length !== records.length ||
@@ -8462,8 +8233,7 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
     "记录页数据保存失败",
   );
 
-  const wasAllHistoricalRecordsLoaded =
-    indexAllHistoricalRecordsLoaded === true;
+  const wasAllHistoricalRecordsLoaded = indexAllHistoricalRecordsLoaded === true;
   const preservedLoadedPeriodIds = Array.isArray(indexLoadedRecordPeriodIds)
     ? indexLoadedRecordPeriodIds.slice()
     : [];
@@ -8492,9 +8262,7 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
     const normalizedVisibleRecords = wasAllHistoricalRecordsLoaded
       ? normalizedAllRecords
       : normalizeIndexLoadedRecords(
-          Array.isArray(options.visibleRecords)
-            ? options.visibleRecords
-            : records,
+          Array.isArray(options.visibleRecords) ? options.visibleRecords : records,
           rebuiltProjects,
         );
     const reason =
@@ -8503,9 +8271,8 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
         : "index-project-record-replace";
 
     if (hasRecordRangeStorage) {
-      await persistIndexAuthoritativeRecordsToStorage(normalizedAllRecords, {
+      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
         reason,
-        previousNormalizedRecords: options.previousNormalizedRecords,
       });
       await window.ControlerStorage.replaceCoreState(
         {
@@ -8550,8 +8317,7 @@ async function replaceIndexProjectsAndAuthoritativeRecords(
 
     if (wasAllHistoricalRecordsLoaded) {
       indexAllHistoricalRecordsLoaded = true;
-      indexLoadedRecordPeriodIds =
-        getIndexRecordPeriodIds(normalizedAllRecords);
+      indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(normalizedAllRecords);
       rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_FULL_HISTORY);
     } else {
       indexAllHistoricalRecordsLoaded = false;
@@ -8605,8 +8371,7 @@ async function replaceIndexAuthoritativeRecords(
     "记录页数据保存失败",
   );
 
-  const wasAllHistoricalRecordsLoaded =
-    indexAllHistoricalRecordsLoaded === true;
+  const wasAllHistoricalRecordsLoaded = indexAllHistoricalRecordsLoaded === true;
   const preservedLoadedPeriodIds = Array.isArray(indexLoadedRecordPeriodIds)
     ? indexLoadedRecordPeriodIds.slice()
     : [];
@@ -8628,9 +8393,7 @@ async function replaceIndexAuthoritativeRecords(
     const normalizedVisibleRecords = wasAllHistoricalRecordsLoaded
       ? normalizedAllRecords
       : normalizeIndexLoadedRecords(
-          Array.isArray(options.visibleRecords)
-            ? options.visibleRecords
-            : records,
+          Array.isArray(options.visibleRecords) ? options.visibleRecords : records,
           recordProjects,
         );
     const reason =
@@ -8639,9 +8402,8 @@ async function replaceIndexAuthoritativeRecords(
         : "index-record-replace";
 
     if (hasRecordRangeStorage) {
-      await persistIndexAuthoritativeRecordsToStorage(normalizedAllRecords, {
+      await replaceIndexPersistedRecordPartitions(normalizedAllRecords, {
         reason,
-        previousNormalizedRecords: options.previousNormalizedRecords,
       });
     } else {
       await window.ControlerStorage.replaceCoreState(
@@ -8666,8 +8428,7 @@ async function replaceIndexAuthoritativeRecords(
     records = normalizedVisibleRecords;
     if (wasAllHistoricalRecordsLoaded) {
       indexAllHistoricalRecordsLoaded = true;
-      indexLoadedRecordPeriodIds =
-        getIndexRecordPeriodIds(normalizedAllRecords);
+      indexLoadedRecordPeriodIds = getIndexRecordPeriodIds(normalizedAllRecords);
       rememberIndexRecordLoadWindow(INDEX_RECORD_LOAD_MODE_FULL_HISTORY);
     } else {
       indexAllHistoricalRecordsLoaded = false;
@@ -8720,7 +8481,8 @@ function resolveAutoProjectColorForProject(project, projectList = projects) {
   return getAutoProjectColor(projectLevel, {
     parentId: project.parentId || null,
     projectId: project.id || null,
-    currentColor: projectLevel === 1 ? getProjectColorInputValue(project) : "",
+    currentColor:
+      projectLevel === 1 ? getProjectColorInputValue(project) : "",
     preferCurrentHueForLevel1: projectLevel === 1,
     projectList,
   });
@@ -8763,11 +8525,7 @@ function buildProjectMergeHierarchyPlan(
   const safeProjects = Array.isArray(projectList)
     ? cloneProjectDurationSnapshot(projectList)
     : [];
-  if (
-    !sourceProjectId ||
-    !targetProjectId ||
-    sourceProjectId === targetProjectId
-  ) {
+  if (!sourceProjectId || !targetProjectId || sourceProjectId === targetProjectId) {
     return {
       supported: false,
       reason: "当前项目与目标项目无效，无法执行合并。",
@@ -8782,8 +8540,7 @@ function buildProjectMergeHierarchyPlan(
   if (sourceDescendantIds.has(targetProjectId)) {
     return {
       supported: false,
-      reason:
-        "目标项目位于当前项目的子项目树中，暂不支持直接合并到自己的子项目。",
+      reason: "目标项目位于当前项目的子项目树中，暂不支持直接合并到自己的子项目。",
       nextProjects: safeProjects,
       reassignedProjectCount: 0,
     };
@@ -8791,7 +8548,8 @@ function buildProjectMergeHierarchyPlan(
 
   const normalizedTargetLevel = normalizeProjectLevel(targetProject?.level);
   const directChildren = safeProjects.filter(
-    (candidate) => String(candidate?.parentId || "").trim() === sourceProjectId,
+    (candidate) =>
+      String(candidate?.parentId || "").trim() === sourceProjectId,
   );
   const levelUpdates = new Map();
   const parentUpdates = new Map();
@@ -8809,20 +8567,15 @@ function buildProjectMergeHierarchyPlan(
       normalizedTargetLevel + 1 - normalizeProjectLevel(childProject?.level);
 
     for (const subtreeProjectId of childSubtreeIds) {
-      const subtreeProject = findProjectByIdInList(
-        subtreeProjectId,
-        safeProjects,
-      );
+      const subtreeProject = findProjectByIdInList(subtreeProjectId, safeProjects);
       if (!subtreeProject) {
         continue;
       }
-      const nextLevel =
-        normalizeProjectLevel(subtreeProject.level) + levelDelta;
+      const nextLevel = normalizeProjectLevel(subtreeProject.level) + levelDelta;
       if (nextLevel < 1 || nextLevel > 3) {
         return {
           supported: false,
-          reason:
-            "合并后会让子项目层级超出三级范围，当前组合暂不支持直接合并。",
+          reason: "合并后会让子项目层级超出三级范围，当前组合暂不支持直接合并。",
           nextProjects: safeProjects,
           reassignedProjectCount: 0,
         };
@@ -8835,9 +8588,7 @@ function buildProjectMergeHierarchyPlan(
 
   const nextProjects = normalizeStoredProjects(
     safeProjects
-      .filter(
-        (candidate) => String(candidate?.id || "").trim() !== sourceProjectId,
-      )
+      .filter((candidate) => String(candidate?.id || "").trim() !== sourceProjectId)
       .map((candidate) => {
         const candidateId = String(candidate?.id || "").trim();
         if (!candidateId) {
@@ -8848,9 +8599,7 @@ function buildProjectMergeHierarchyPlan(
         }
         return {
           ...candidate,
-          level:
-            levelUpdates.get(candidateId) ||
-            normalizeProjectLevel(candidate.level),
+          level: levelUpdates.get(candidateId) || normalizeProjectLevel(candidate.level),
           parentId: parentUpdates.has(candidateId)
             ? parentUpdates.get(candidateId)
             : candidate.parentId || null,
@@ -8879,7 +8628,10 @@ function buildProjectMergeHierarchyPlan(
 
 function syncAutoProjectColorsInSubtree(
   projectId,
-  { includeSelf = false, projectList = projects } = {},
+  {
+    includeSelf = false,
+    projectList = projects,
+  } = {},
 ) {
   const normalizedProjectId = String(projectId || "").trim();
   if (!normalizedProjectId || !Array.isArray(projectList)) {
@@ -8887,10 +8639,7 @@ function syncAutoProjectColorsInSubtree(
   }
 
   const targetIds = includeSelf
-    ? [
-        normalizedProjectId,
-        ...collectProjectDescendantIds(normalizedProjectId, projectList),
-      ]
+    ? [normalizedProjectId, ...collectProjectDescendantIds(normalizedProjectId, projectList)]
     : collectProjectDescendantIds(normalizedProjectId, projectList);
 
   targetIds.forEach((targetId) => {
@@ -8898,10 +8647,7 @@ function syncAutoProjectColorsInSubtree(
     if (!targetProject || getProjectStoredColorMode(targetProject) !== "auto") {
       return;
     }
-    targetProject.color = resolveAutoProjectColorForProject(
-      targetProject,
-      projectList,
-    );
+    targetProject.color = resolveAutoProjectColorForProject(targetProject, projectList);
   });
 }
 
@@ -8978,6 +8724,63 @@ function findAnotherProjectWithName(
         String(project?.name || "").trim() === normalizedName
       );
     }) || null
+  );
+}
+
+function isIndexLegacyRecoveryScopedProjectName(projectName, expectedName) {
+  const normalizedProjectName = String(projectName || "").trim();
+  const normalizedExpectedName = String(expectedName || "").trim();
+  return (
+    !!normalizedProjectName &&
+    !!normalizedExpectedName &&
+    (normalizedProjectName === normalizedExpectedName ||
+      normalizedProjectName.startsWith(`${normalizedExpectedName}-`))
+  );
+}
+
+function findIndexLegacyRecordProjectRecoveryRootProject(projectList = projects) {
+  const safeProjects = Array.isArray(projectList) ? projectList : [];
+  return (
+    safeProjects.find((project) => {
+      if (
+        normalizeProjectLevel(project?.level) !== 1 ||
+        !isIndexLegacyRecoveryScopedProjectName(
+          project?.name,
+          INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME,
+        )
+      ) {
+        return false;
+      }
+      const projectId = String(project?.id || "").trim();
+      if (!projectId) {
+        return false;
+      }
+      return safeProjects.some((childProject) => {
+        return (
+          normalizeProjectLevel(childProject?.level) === 2 &&
+          String(childProject?.parentId || "").trim() === projectId &&
+          isIndexLegacyRecoveryScopedProjectName(
+            childProject?.name,
+            INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME,
+          )
+        );
+      });
+    }) || null
+  );
+}
+
+function isIndexLegacyRecordProjectRecoveryRootProject(
+  project,
+  projectList = projects,
+) {
+  const normalizedProjectId = String(project?.id || "").trim();
+  if (!normalizedProjectId) {
+    return false;
+  }
+  return (
+    String(
+      findIndexLegacyRecordProjectRecoveryRootProject(projectList)?.id || "",
+    ).trim() === normalizedProjectId
   );
 }
 
@@ -9081,9 +8884,7 @@ function commitPrimaryModalProjectInput(options = {}) {
   }
 
   const resolvedName = resolveProjectNameFromInput(rawValue);
-  let matchedProject = projects.find(
-    (project) => project.name === resolvedName,
-  );
+  let matchedProject = projects.find((project) => project.name === resolvedName);
   if (!matchedProject && allowCreate === true) {
     const creatableName = resolvedName || rawValue;
     if (!ensureProjectExists(creatableName)) {
@@ -9161,9 +8962,7 @@ function getActiveTimerModalTextEntry() {
 function blurActiveTimerModalTextEntry(options = {}) {
   const activeTextEntry = getActiveTimerModalTextEntry();
   const fallbackTarget =
-    options?.fallbackTarget instanceof HTMLElement
-      ? options.fallbackTarget
-      : null;
+    options?.fallbackTarget instanceof HTMLElement ? options.fallbackTarget : null;
   const blurTarget =
     activeTextEntry instanceof HTMLElement ? activeTextEntry : fallbackTarget;
   if (!(blurTarget instanceof HTMLElement)) {
@@ -9220,13 +9019,10 @@ function scheduleModalProjectSuggestionHide(inputId, delayMs = 120) {
     return;
   }
   clearModalProjectSuggestionHideTimer(inputId);
-  modalProjectSuggestionHideTimerIds[inputId] = window.setTimeout(
-    () => {
-      modalProjectSuggestionHideTimerIds[inputId] = 0;
-      hideProjectSuggestions(inputId);
-    },
-    Math.max(0, Number(delayMs) || 0),
-  );
+  modalProjectSuggestionHideTimerIds[inputId] = window.setTimeout(() => {
+    modalProjectSuggestionHideTimerIds[inputId] = 0;
+    hideProjectSuggestions(inputId);
+  }, Math.max(0, Number(delayMs) || 0));
 }
 
 function suppressModalProjectSelectionClickFallback(inputId, windowMs = 0) {
@@ -9273,12 +9069,14 @@ function markTimerModalProjectOptionInteraction(inputId) {
   return startedAt;
 }
 
-function hasRecentTimerModalProjectOptionInteraction(inputId, windowMs = 420) {
+function hasRecentTimerModalProjectOptionInteraction(
+  inputId,
+  windowMs = 420,
+) {
   if (!isTimerModalProjectInputId(inputId)) {
     return false;
   }
-  const startedAt =
-    Number(modalProjectOptionInteractionStartedAt[inputId]) || 0;
+  const startedAt = Number(modalProjectOptionInteractionStartedAt[inputId]) || 0;
   if (!startedAt) {
     return false;
   }
@@ -9377,8 +9175,7 @@ function bindTimerModalProjectSelectionTarget(
       return false;
     }
     const elapsedMs =
-      (Number(event?.timeStamp) || Date.now()) -
-      pressSelectionPending.startedAt;
+      (Number(event?.timeStamp) || Date.now()) - pressSelectionPending.startedAt;
     return elapsedMs <= maxTapDurationMs;
   };
 
@@ -9548,12 +9345,11 @@ function applyTimerModalProjectSelection(
 
   input.value = selectedPath;
   input.dispatchEvent(new Event("change"));
-  const followupSuggestionsKeyword =
-    getTimerModalSelectionFollowupSuggestionsKeyword(
-      targetInputId,
-      selectedProject,
-      selectedPath,
-    );
+  const followupSuggestionsKeyword = getTimerModalSelectionFollowupSuggestionsKeyword(
+    targetInputId,
+    selectedProject,
+    selectedPath,
+  );
 
   setModalProjectInputTarget(targetInputId, {
     manual:
@@ -9841,9 +9637,8 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
       return;
     }
 
-    const visiblePopover = anchorContainer.querySelector?.(
-      ".suggestion-popover.visible",
-    );
+    const visiblePopover =
+      anchorContainer.querySelector?.(".suggestion-popover.visible");
     const modalBodyRect = modalBody.getBoundingClientRect();
     const anchorRect = revealAnchor.getBoundingClientRect();
     const currentScrollTop = modalBody.scrollTop;
@@ -9853,12 +9648,13 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
     const shouldReservePopoverHeight =
       visiblePopover instanceof HTMLElement &&
       window.getComputedStyle(visiblePopover).position === "absolute";
-    const visiblePopoverHeight = shouldReservePopoverHeight
-      ? Math.min(
-          Math.max(visiblePopover.offsetHeight || 0, 0),
-          Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
-        )
-      : 0;
+    const visiblePopoverHeight =
+      shouldReservePopoverHeight
+        ? Math.min(
+            Math.max(visiblePopover.offsetHeight || 0, 0),
+            Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
+          )
+        : 0;
     const keyboardInsetPx = isAndroidNativeTimerModalKeyboardRuntime()
       ? getTimerModalKeyboardInsetPx()
       : 0;
@@ -9942,10 +9738,7 @@ function getPendingSpendPreviewDurationMs() {
         deserializeTimerDate(baseState.spt) ||
         deserializeTimerDate(baseState.fpt);
 
-  if (
-    !(previewStartTime instanceof Date) ||
-    Number.isNaN(previewStartTime.getTime())
-  ) {
+  if (!(previewStartTime instanceof Date) || Number.isNaN(previewStartTime.getTime())) {
     return 0;
   }
 
@@ -10054,11 +9847,6 @@ function showProjectCreateModal() {
   modal.style.display = "flex";
   modal.style.zIndex = "2100";
   modal.style.pointerEvents = "auto";
-  window.requestAnimationFrame(() => {
-    uiTools?.refreshEnhancedSelect?.(
-      document.getElementById("parent-project-select"),
-    );
-  });
 
   // 添加点击外部关闭事件（确保每次都会工作）
   const handleOutsideClick = function (e) {
@@ -10157,8 +9945,7 @@ async function handleCreateProjectConfirm() {
     "",
     colorMode,
   );
-  const previousProjectsForDurationCache =
-    cloneProjectDurationSnapshot(projects);
+  const previousProjectsForDurationCache = cloneProjectDurationSnapshot(projects);
   projects = [...projects, newProject];
   reconcileIndexProjectDurationCaches(previousProjectsForDurationCache);
 
@@ -10219,7 +10006,13 @@ function ensureProjectExists(projectName, options = {}) {
 }
 
 // 添加项目（高级，带层级）
-function addProjectAdvanced(name, level, parentId, color, colorMode = "auto") {
+function addProjectAdvanced(
+  name,
+  level,
+  parentId,
+  color,
+  colorMode = "auto",
+) {
   if (!name || name.trim() === "") {
     alert("请输入项目名称");
     return false;
@@ -10342,31 +10135,25 @@ function focusRecordNameInput(input, recordId, options = {}) {
     return;
   }
 
-  window.setTimeout(
-    () => {
-      if (String(editingRecordId || "").trim() !== normalizedRecordId) {
-        return;
-      }
+  window.setTimeout(() => {
+    if (String(editingRecordId || "").trim() !== normalizedRecordId) {
+      return;
+    }
 
-      const latestInput = getRecordNameInputElement(normalizedRecordId);
-      if (
-        !(latestInput instanceof HTMLElement) ||
-        document.activeElement === latestInput
-      ) {
-        return;
-      }
+    const latestInput = getRecordNameInputElement(normalizedRecordId);
+    if (!(latestInput instanceof HTMLElement) || document.activeElement === latestInput) {
+      return;
+    }
 
-      latestInput.closest(".record-item")?.scrollIntoView?.({
-        block: "center",
-        inline: "nearest",
-      });
-      focusRecordNameInput(latestInput, normalizedRecordId, {
-        retry: true,
-        attempt: attempt + 1,
-      });
-    },
-    120 + attempt * 120,
-  );
+    latestInput.closest(".record-item")?.scrollIntoView?.({
+      block: "center",
+      inline: "nearest",
+    });
+    focusRecordNameInput(latestInput, normalizedRecordId, {
+      retry: true,
+      attempt: attempt + 1,
+    });
+  }, 120 + attempt * 120);
 }
 
 function setRecordNameFocus(recordId) {
@@ -10433,8 +10220,7 @@ async function saveRecordNameEdit(recordId) {
     return false;
   }
 
-  const nextProjectId =
-    projects.find((project) => project.name === nextName)?.id || null;
+  const nextProjectId = projects.find((project) => project.name === nextName)?.id || null;
   const previousRecord = {
     ...records[recordIndex],
   };
@@ -10493,17 +10279,14 @@ function rollbackTimerAfterDeletingLastRecord(deletedRecord, remainingRecords) {
     const previousClickCount = ptn > 0 ? ptn : null;
     const previousRecord =
       previousClickCount && Array.isArray(remainingRecords)
-        ? [...remainingRecords].reverse().find((record) => {
-            if (
-              !Number.isFinite(record?.clickCount) ||
-              record.clickCount <= 0
-            ) {
-              return false;
-            }
-            return (
-              Math.max(1, Math.floor(record.clickCount)) === previousClickCount
-            );
-          })
+        ? [...remainingRecords]
+            .reverse()
+            .find((record) => {
+              if (!Number.isFinite(record?.clickCount) || record.clickCount <= 0) {
+                return false;
+              }
+              return Math.max(1, Math.floor(record.clickCount)) === previousClickCount;
+            })
         : null;
     const fallbackClickTime =
       resolveRecordTime(previousRecord) || resolveRecordTime(deletedRecord);
@@ -10564,7 +10347,8 @@ function applyShortenCarryoverToNextInterval(shortenMs) {
 // 更新显示
 function updateDisplay(options = {}) {
   const renderStart =
-    typeof performance !== "undefined" && typeof performance.now === "function"
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
       ? performance.now()
       : Date.now();
   const output = document.getElementById("output");
@@ -10579,10 +10363,7 @@ function updateDisplay(options = {}) {
   const recordScale = getRecordSurfaceScale(output);
   const compactMeta = recordScale < 0.8 || isMobileViewport();
   const gridGap = Math.max(6, Math.round(10 * recordScale));
-  const gridMinWidth = Math.max(
-    132,
-    Math.round(180 * Math.min(recordScale, 1)),
-  );
+  const gridMinWidth = Math.max(132, Math.round(180 * Math.min(recordScale, 1)));
   const cardPadding = Math.max(6, Math.round(10 * recordScale));
   const cardRadius = Math.max(8, Math.round(10 * recordScale));
   const titleFontSize = Math.max(12, Math.round(17 * recordScale));
@@ -10604,7 +10385,9 @@ function updateDisplay(options = {}) {
   const visibleRecords = records
     .filter((record) => {
       const recordDate = resolveRecordTime(record);
-      return recordDate instanceof Date && !Number.isNaN(recordDate.getTime());
+      return (
+        recordDate instanceof Date && !Number.isNaN(recordDate.getTime())
+      );
     })
     .sort((left, right) => {
       const leftTime = resolveRecordTime(left)?.getTime() || 0;
@@ -10872,10 +10655,7 @@ function updateDisplay(options = {}) {
     });
   });
 
-  const remainingGroupCount = Math.max(
-    recordGroups.length - visibleGroupCount,
-    0,
-  );
+  const remainingGroupCount = Math.max(recordGroups.length - visibleGroupCount, 0);
   const renderedRecordCount = visibleRecordGroups.reduce((total, group) => {
     return total + (Array.isArray(group.records) ? group.records.length : 0);
   }, 0);
@@ -10908,7 +10688,8 @@ function updateDisplay(options = {}) {
   }
 
   const renderDurationMs =
-    (typeof performance !== "undefined" && typeof performance.now === "function"
+    (typeof performance !== "undefined" &&
+    typeof performance.now === "function"
       ? performance.now()
       : Date.now()) - renderStart;
   if (visibleRecords.length >= 120 || renderDurationMs >= 48) {
@@ -11116,8 +10897,9 @@ function updateExistingProjectsList() {
   container.innerHTML = "";
 
   const hierarchyIndex = getIndexProjectHierarchyIndex(projects);
-  const level1Projects = (
-    Array.isArray(hierarchyIndex?.roots) ? hierarchyIndex.roots : []
+  const level1Projects = (Array.isArray(hierarchyIndex?.roots)
+    ? hierarchyIndex.roots
+    : []
   )
     .map((node) => node?.raw || node)
     .filter(Boolean);
@@ -11238,8 +11020,7 @@ function setIndexModalConfirmPending(pending) {
 // 点击计算循环
 function spend(options = {}) {
   const resolvedClickTime =
-    options.clickTime instanceof Date &&
-    !Number.isNaN(options.clickTime.getTime())
+    options.clickTime instanceof Date && !Number.isNaN(options.clickTime.getTime())
       ? new Date(options.clickTime)
       : deserializeTimerDate(options.clickTime) || new Date();
   const baseState = normalizeTimerRollbackState(options.baseState);
@@ -11596,6 +11377,7 @@ async function handleIndexModalConfirmClick() {
         message: "正在写入新记录，请稍候后再切换页面。",
         delayMs: 0,
         lockNativeExit: false,
+        delegateToNative: false,
       });
       await waitForIndexUiPaint();
     }
@@ -11617,9 +11399,7 @@ async function handleIndexModalConfirmClick() {
       currentProjectName,
       resolvedNextProjectName,
     ]) {
-      const normalizedRequiredProjectName = String(
-        requiredProjectName || "",
-      ).trim();
+      const normalizedRequiredProjectName = String(requiredProjectName || "").trim();
       if (!normalizedRequiredProjectName) {
         continue;
       }
@@ -11660,13 +11440,9 @@ async function handleIndexModalConfirmClick() {
     let savedRecord = null;
     if (willPersistRecord) {
       const rawEndTime =
-        spt instanceof Date && !Number.isNaN(spt.getTime())
-          ? new Date(spt)
-          : new Date();
+        spt instanceof Date && !Number.isNaN(spt.getTime()) ? new Date(spt) : new Date();
       const startTime =
-        fpt instanceof Date && !Number.isNaN(fpt.getTime())
-          ? new Date(fpt)
-          : null;
+        fpt instanceof Date && !Number.isNaN(fpt.getTime()) ? new Date(fpt) : null;
       const adjustedEndTime = new Date(
         rawEndTime.getTime() - shortenResult.shortenMs,
       );
@@ -11689,9 +11465,9 @@ async function handleIndexModalConfirmClick() {
           appliedCarryover,
         },
         nextProjectName: resolvedNextProjectName,
-        nextProjectId:
-          projects.find((project) => project.name === resolvedNextProjectName)
-            ?.id || null,
+        nextProjectId: projects.find(
+          (project) => project.name === resolvedNextProjectName,
+        )?.id || null,
       });
       pendingDurationCarryoverState = null;
 
@@ -13540,9 +13316,6 @@ function updateParentProjectSelect(selectedLevel) {
     }
   }
 
-  window.requestAnimationFrame(() => {
-    uiTools?.refreshEnhancedSelect?.(select);
-  });
 }
 
 function updateProjectsList() {
@@ -13670,13 +13443,13 @@ function showProjectEditModal(project) {
         </div>
 
         <div class="form-group" id="edit-parent-project-group" style="margin-bottom: 15px; display: none">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px">父级项目</label>
-          <select id="edit-parent-project-select" class="project-parent-select-native" style="
+          <label style="color: var(--text-color); display: block; margin-bottom: 5px">父级项目（仅二级/三级项目）</label>
+          <select id="edit-parent-project-select" style="
             width: 100%;
-            padding: 10px 14px;
-            border-radius: 16px;
+            padding: 10px;
+            border-radius: 8px;
             border: 1px solid var(--input-border-color);
-            background-color: var(--surface-control, var(--bg-quaternary));
+            background-color: var(--bg-quaternary);
             color: var(--text-color);
             font-size: 16px;
           "></select>
@@ -13688,10 +13461,12 @@ function showProjectEditModal(project) {
             <input type="color" id="edit-project-color" class="project-color-input" value="${safeProjectColor}" style="width: 50px; height: 50px; cursor: pointer">
             <button class="bts project-color-random-btn" id="edit-project-color-random" type="button">随机色</button>
             <div class="project-color-picker-copy">
+              <div style="color: var(--text-color); font-size: 14px">可手动挑色，也可直接点推荐色板</div>
               <div id="edit-project-color-current" class="project-color-current-value">${safeProjectColor.toUpperCase()}</div>
             </div>
           </div>
           <div class="project-color-palette" id="edit-project-color-presets" role="list" aria-label="编辑项目颜色推荐色板"></div>
+          <div class="project-color-note">颜色会用于统计图表和记录卡片；一级项目改色时，只会联动仍处于自动色模式的子级。</div>
         </div>
         
         <div style="display: flex; justify-content: space-between; margin-top: 20px">
@@ -13731,11 +13506,6 @@ function showProjectEditModal(project) {
   const editColorPresets = modal.querySelector("#edit-project-color-presets");
   const editColorCurrent = modal.querySelector("#edit-project-color-current");
   const editColorRandomBtn = modal.querySelector("#edit-project-color-random");
-  const refreshParentSelectUi = () => {
-    window.requestAnimationFrame(() => {
-      uiTools?.refreshEnhancedSelect?.(parentSelect);
-    });
-  };
 
   const updateParentEditOptions = (level) => {
     if (!parentGroup || !parentSelect) return;
@@ -13744,7 +13514,6 @@ function showProjectEditModal(project) {
 
     if (level === 1) {
       parentGroup.style.display = "none";
-      refreshParentSelectUi();
       return;
     }
 
@@ -13763,7 +13532,6 @@ function showProjectEditModal(project) {
       option.disabled = true;
       option.selected = true;
       parentSelect.appendChild(option);
-      refreshParentSelectUi();
       return;
     }
 
@@ -13784,8 +13552,6 @@ function showProjectEditModal(project) {
     } else {
       parentSelect.value = "";
     }
-
-    refreshParentSelectUi();
   };
 
   if (editColorInput) {
@@ -13802,8 +13568,8 @@ function showProjectEditModal(project) {
     randomButton: editColorRandomBtn,
     getLevel: () =>
       parseInt(
-        modal.querySelector('input[name="edit-project-level"]:checked')
-          ?.value || String(projectLevel),
+        modal.querySelector('input[name="edit-project-level"]:checked')?.value ||
+          String(projectLevel),
         10,
       ),
     getParentId: () => parentSelect?.value || null,
@@ -13819,7 +13585,6 @@ function showProjectEditModal(project) {
     fullWidth: true,
     minWidth: 240,
   });
-  refreshParentSelectUi();
 
   modal
     .querySelectorAll('input[name="edit-project-level"]')
@@ -13870,8 +13635,7 @@ function showProjectEditModal(project) {
     }
 
     const liveProject = projects[liveProjectIndex];
-    const previousProjectsForDurationCache =
-      cloneProjectDurationSnapshot(projects);
+    const previousProjectsForDurationCache = cloneProjectDurationSnapshot(projects);
     const oldName = liveProject.name;
     const mergeTargetProject =
       oldName !== newName
@@ -13894,8 +13658,7 @@ function showProjectEditModal(project) {
       );
       if (!mergeHierarchyPlan.supported) {
         await showIndexAlert(
-          mergeHierarchyPlan.reason ||
-            "当前项目暂不支持这样合并，请调整层级后再重试。",
+          mergeHierarchyPlan.reason || "当前项目暂不支持这样合并，请调整层级后再重试。",
           {
             title: "无法合并项目",
             danger: true,
@@ -13937,21 +13700,17 @@ function showProjectEditModal(project) {
         lockNativeExit: true,
       });
       try {
-        const authoritativeProjects =
-          await loadAuthoritativeIndexProjectsFromStorage({
-            authoritative: true,
-            fallbackProjects: projects,
-          });
+        const authoritativeProjects = await loadAuthoritativeIndexProjectsFromStorage({
+          authoritative: true,
+          fallbackProjects: projects,
+        });
         const authoritativeLiveProject =
           findProjectByIdInList(liveProject.id, authoritativeProjects) ||
           findProjectByNameInList(liveProject.name, authoritativeProjects) ||
           liveProject;
         const authoritativeMergeTargetProject =
           findProjectByIdInList(mergeTargetProject.id, authoritativeProjects) ||
-          findProjectByNameInList(
-            mergeTargetProject.name,
-            authoritativeProjects,
-          ) ||
+          findProjectByNameInList(mergeTargetProject.name, authoritativeProjects) ||
           mergeTargetProject;
         const authoritativeMergeHierarchyPlan = buildProjectMergeHierarchyPlan(
           authoritativeLiveProject,
@@ -14012,12 +13771,11 @@ function showProjectEditModal(project) {
                 )
               : null;
           const storedTotalMs = Number(
-            storedStatsContext?.getStat?.(authoritativeLiveProject.id)
-              ?.totalMs || 0,
+            storedStatsContext?.getStat?.(authoritativeLiveProject.id)?.totalMs || 0,
           );
           const authoritativeTotalMs = Number(
-            authoritativeStatsContext?.getStat?.(authoritativeLiveProject.id)
-              ?.totalMs || 0,
+            authoritativeStatsContext?.getStat?.(authoritativeLiveProject.id)?.totalMs ||
+              0,
           );
           if (storedTotalMs !== authoritativeTotalMs) {
             await replaceIndexProjectsAndAuthoritativeRecords(
@@ -14029,7 +13787,6 @@ function showProjectEditModal(project) {
                   records,
                   authoritativeProjects,
                 ),
-                previousNormalizedRecords: authoritativeNormalizedRecords,
               },
             );
             mergeRepairedDurations = true;
@@ -14049,7 +13806,6 @@ function showProjectEditModal(project) {
             {
               reason: "project-merge-full-history",
               visibleRecords: visibleMergeResult.items,
-              previousNormalizedRecords: authoritativeNormalizedRecords,
             },
           );
           updateProjectNameReferences(
@@ -14392,8 +14148,7 @@ function showProjectEditModal(project) {
       applyIndexProjectRecordDurationChanges({
         removedRecords,
       });
-      const deletedDurationBaseProjects =
-        cloneProjectDurationSnapshot(projects);
+      const deletedDurationBaseProjects = cloneProjectDurationSnapshot(projects);
       const updatedNextProjectBeforeRecords = [];
       const updatedNextProjectAfterRecords = [];
 
@@ -14406,18 +14161,11 @@ function showProjectEditModal(project) {
           return !matchByProjectId && !matchByProjectName;
         })
         .map((record) => {
-          const recordNextProjectId = String(
-            record?.nextProjectId || "",
-          ).trim();
-          const recordNextProjectName = resolveRecordNextProjectName(
-            record,
-            projects,
-          );
+          const recordNextProjectId = String(record?.nextProjectId || "").trim();
+          const recordNextProjectName = resolveRecordNextProjectName(record, projects);
           const nextProjectDeleted =
-            (recordNextProjectId &&
-              projectIdsToDelete.has(recordNextProjectId)) ||
-            (recordNextProjectName &&
-              projectNameSet.has(recordNextProjectName));
+            (recordNextProjectId && projectIdsToDelete.has(recordNextProjectId)) ||
+            (recordNextProjectName && projectNameSet.has(recordNextProjectName));
           if (!nextProjectDeleted) {
             return record;
           }
@@ -14589,11 +14337,7 @@ function updateProjectTotals() {
       : `${Math.max(1, Math.round(2 * summaryScale))}px`,
     stylePriority,
   );
-  container.style.setProperty(
-    "font-size",
-    `${containerFontSize}px`,
-    stylePriority,
-  );
+  container.style.setProperty("font-size", `${containerFontSize}px`, stylePriority);
 
   if (projects.length === 0) {
     container.innerHTML = "<div>暂无项目数据</div>";
@@ -14613,12 +14357,19 @@ function updateProjectTotals() {
     projectTotalsExpansionState,
     projects,
   );
-  const visibleRootNodes =
+  const rootNodes =
     typeof statsContext.getOrderedRoots === "function"
       ? statsContext.getOrderedRoots()
       : Array.isArray(statsContext.hierarchy?.roots)
         ? statsContext.hierarchy.roots
         : [];
+  const visibleRootNodes = rootNodes.filter((rootNode) => {
+    if (!isIndexLegacyRecordProjectRecoveryRootProject(rootNode, projects)) {
+      return true;
+    }
+    const totalMs = Number(statsContext.getStat(rootNode.id)?.totalMs || 0);
+    return totalMs > 0;
+  });
 
   if (visibleRootNodes.length === 0) {
     container.innerHTML = "<div>暂无项目数据</div>";
@@ -14669,9 +14420,7 @@ function scheduleIndexPersistenceRetry(reason = "index-persist-retry") {
   }, INDEX_PERSISTENCE_RETRY_DELAY_MS);
 }
 
-function cloneIndexRecordPatchSnapshot(
-  source = indexPendingRecordPatchByPeriod,
-) {
+function cloneIndexRecordPatchSnapshot(source = indexPendingRecordPatchByPeriod) {
   const snapshot = new Map();
   if (!(source instanceof Map)) {
     return snapshot;
@@ -14731,9 +14480,7 @@ function captureIndexWorkspacePersistenceSnapshot() {
     projects: cloneIndexValue(projects),
     loadedRecordPeriodIds: indexLoadedRecordPeriodIds.slice(),
     loadedRecordWindowMode: indexLoadedRecordWindowMode,
-    loadedRecordWindowScope: cloneIndexRecordLoadScope(
-      indexLoadedRecordWindowScope,
-    ),
+    loadedRecordWindowScope: cloneIndexRecordLoadScope(indexLoadedRecordWindowScope),
     dirtyRecordPeriodIds: [...indexDirtyRecordPeriodIds],
     pendingRecordPatchByPeriod: cloneIndexRecordPatchSnapshot(),
     forceReplaceRecordPeriods: [...indexForceReplaceRecordPeriods],
@@ -14782,8 +14529,7 @@ function restoreIndexWorkspacePersistenceSnapshot(snapshot) {
       }
     });
   }
-  indexAllHistoricalRecordsLoaded =
-    snapshot.allHistoricalRecordsLoaded === true;
+  indexAllHistoricalRecordsLoaded = snapshot.allHistoricalRecordsLoaded === true;
   indexPendingRecordSaveIds.clear();
   if (Array.isArray(snapshot.pendingRecordSaveIds)) {
     snapshot.pendingRecordSaveIds.forEach((recordId) => {
@@ -14860,11 +14606,8 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
 
   result = typeof ui.result === "string" ? ui.result : result;
   selectedProject =
-    typeof ui.selectedProject === "string"
-      ? ui.selectedProject
-      : selectedProject;
-  nextProject =
-    typeof ui.nextProject === "string" ? ui.nextProject : nextProject;
+    typeof ui.selectedProject === "string" ? ui.selectedProject : selectedProject;
+  nextProject = typeof ui.nextProject === "string" ? ui.nextProject : nextProject;
   lastEnteredProjectName =
     typeof ui.lastEnteredProjectName === "string"
       ? ui.lastEnteredProjectName
@@ -14942,9 +14685,7 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
   return true;
 }
 
-async function recoverIndexWorkspaceAfterPersistenceFailure(
-  fallbackSnapshot = null,
-) {
+async function recoverIndexWorkspaceAfterPersistenceFailure(fallbackSnapshot = null) {
   if (typeof window.ControlerStorage?.syncFromSource !== "function") {
     if (restoreIndexWorkspacePersistenceSnapshot(fallbackSnapshot)) {
       clearIndexPersistenceError();
@@ -14968,8 +14709,7 @@ async function recoverIndexWorkspaceAfterPersistenceFailure(
       includeProjects: true,
       includeRecords: true,
       freshBootstrap:
-        recordLoadOptions.recordLoadMode ===
-        INDEX_RECORD_LOAD_MODE_RECENT_RANGE,
+        recordLoadOptions.recordLoadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE,
       recordLoadMode: recordLoadOptions.recordLoadMode,
       recordScope: recordLoadOptions.recordScope,
     });
@@ -15318,110 +15058,6 @@ function buildIndexRecordPatchKey(record = {}) {
   });
 }
 
-function createIndexRecordMutationSignature(record = {}) {
-  return JSON.stringify({
-    id: String(record?.id || "").trim(),
-    timestamp: String(record?.timestamp || "").trim(),
-    sptTime: String(record?.sptTime || "").trim(),
-    startTime: String(record?.startTime || "").trim(),
-    endTime: String(record?.endTime || "").trim(),
-    rawEndTime: String(record?.rawEndTime || "").trim(),
-    durationMs:
-      Number.isFinite(record?.durationMs) && record.durationMs >= 0
-        ? Math.round(record.durationMs)
-        : null,
-    spendtime: String(record?.spendtime || "").trim(),
-    name: String(record?.name || "").trim(),
-    projectId: String(record?.projectId || "").trim(),
-    nextProjectName: String(record?.nextProjectName || "").trim(),
-    nextProjectId: String(record?.nextProjectId || "").trim(),
-    durationMeta: normalizeRecordDurationMeta(record?.durationMeta),
-    clickCount:
-      Number.isFinite(record?.clickCount) && record.clickCount > 0
-        ? Math.max(1, Math.floor(record.clickCount))
-        : null,
-    timerRollbackState: normalizeTimerRollbackState(record?.timerRollbackState),
-  });
-}
-
-function buildIndexRecordMutationSet(previousRecords = [], nextRecords = []) {
-  const previousByKey = new Map();
-  const nextByKey = new Map();
-  (Array.isArray(previousRecords) ? previousRecords : []).forEach((record) => {
-    previousByKey.set(buildIndexRecordPatchKey(record), record);
-  });
-  (Array.isArray(nextRecords) ? nextRecords : []).forEach((record) => {
-    nextByKey.set(buildIndexRecordPatchKey(record), record);
-  });
-
-  const touchedPeriodIds = new Set();
-  const upserts = [];
-  const removedItems = [];
-  let changedRecordCount = 0;
-  const mutationKeys = new Set([...previousByKey.keys(), ...nextByKey.keys()]);
-
-  mutationKeys.forEach((mutationKey) => {
-    const previousRecord = previousByKey.get(mutationKey) || null;
-    const nextRecord = nextByKey.get(mutationKey) || null;
-    if (previousRecord && nextRecord) {
-      if (
-        createIndexRecordMutationSignature(previousRecord) ===
-        createIndexRecordMutationSignature(nextRecord)
-      ) {
-        return;
-      }
-      changedRecordCount += 1;
-      const previousPeriodIds = normalizeIndexRecordPeriodIdList(
-        getIndexRecordPeriodIdsForRecord(previousRecord),
-      );
-      const nextPeriodIds = normalizeIndexRecordPeriodIdList(
-        getIndexRecordPeriodIdsForRecord(nextRecord),
-      );
-      const periodIdsChanged =
-        previousPeriodIds.length !== nextPeriodIds.length ||
-        previousPeriodIds.some(
-          (periodId, index) => periodId !== nextPeriodIds[index],
-        );
-      if (periodIdsChanged) {
-        removedItems.push(cloneIndexValue(previousRecord));
-      }
-      upserts.push(cloneIndexValue(nextRecord));
-      [...previousPeriodIds, ...nextPeriodIds].forEach((periodId) => {
-        if (periodId) {
-          touchedPeriodIds.add(periodId);
-        }
-      });
-      return;
-    }
-    if (previousRecord) {
-      changedRecordCount += 1;
-      removedItems.push(cloneIndexValue(previousRecord));
-      getIndexRecordPeriodIdsForRecord(previousRecord).forEach((periodId) => {
-        if (periodId) {
-          touchedPeriodIds.add(periodId);
-        }
-      });
-      return;
-    }
-    if (nextRecord) {
-      changedRecordCount += 1;
-      upserts.push(cloneIndexValue(nextRecord));
-      getIndexRecordPeriodIdsForRecord(nextRecord).forEach((periodId) => {
-        if (periodId) {
-          touchedPeriodIds.add(periodId);
-        }
-      });
-    }
-  });
-
-  return {
-    upserts,
-    removedItems,
-    changedRecordCount,
-    touchedPeriodIds: normalizeIndexRecordPeriodIdList([...touchedPeriodIds]),
-  };
-}
-
 function ensureIndexPendingRecordPatch(periodId) {
   if (!indexPendingRecordPatchByPeriod.has(periodId)) {
     indexPendingRecordPatchByPeriod.set(periodId, {
@@ -15548,6 +15184,448 @@ function removeIndexRawLocalMirrorItem(key) {
     return;
   }
   localStorage.removeItem(key);
+}
+
+function readIndexLegacyRecordProjectRecoveryState() {
+  try {
+    const raw = getIndexRawLocalMirrorItem(
+      INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY,
+    );
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    console.error("读取历史记录项目恢复标记失败:", error);
+    return null;
+  }
+}
+
+function hasCompletedIndexLegacyRecordProjectRecovery() {
+  const state = readIndexLegacyRecordProjectRecoveryState();
+  return (
+    Number(state?.version) === INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION &&
+    state?.completed === true
+  );
+}
+
+function markIndexLegacyRecordProjectRecoveryCompleted(summary = {}) {
+  setIndexRawLocalMirrorItem(
+    INDEX_LEGACY_RECORD_PROJECT_RECOVERY_FLAG_KEY,
+    JSON.stringify({
+      version: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_VERSION,
+      completed: true,
+      completedAt: new Date().toISOString(),
+      summary:
+        summary && typeof summary === "object" && !Array.isArray(summary)
+          ? cloneIndexValue(summary)
+          : {},
+    }),
+  );
+}
+
+function ensureIndexScopedProjectInList(
+  projectList = [],
+  {
+    preferredName = "",
+    level = 1,
+    parentId = null,
+    reservedNames = [],
+  } = {},
+) {
+  const normalizedName = String(preferredName || "").trim();
+  const normalizedLevel = normalizeProjectLevel(level);
+  const normalizedParentId = String(parentId || "").trim() || null;
+  const reservedNameSet = new Set(
+    (Array.isArray(reservedNames) ? reservedNames : [])
+      .map((name) => String(name || "").trim())
+      .filter(Boolean),
+  );
+  if (!normalizedName) {
+    return {
+      projects: Array.isArray(projectList) ? projectList.slice() : [],
+      project: null,
+      created: false,
+    };
+  }
+
+  const safeProjects = Array.isArray(projectList) ? projectList.slice() : [];
+  const exactMatch =
+    safeProjects.find((project) => {
+      return (
+        String(project?.name || "").trim() === normalizedName &&
+        normalizeProjectLevel(project?.level) === normalizedLevel &&
+        (String(project?.parentId || "").trim() || null) === normalizedParentId
+      );
+    }) || null;
+  if (exactMatch) {
+    return {
+      projects: safeProjects,
+      project: exactMatch,
+      created: false,
+    };
+  }
+
+  let candidateName = normalizedName;
+  let suffix = 2;
+  while (
+    reservedNameSet.has(candidateName) ||
+    safeProjects.some(
+      (project) => String(project?.name || "").trim() === candidateName,
+    )
+  ) {
+    candidateName = `${normalizedName}-${suffix}`;
+    suffix += 1;
+  }
+
+  const createdProject = new Project(
+    candidateName,
+    normalizedLevel,
+    normalizedParentId,
+    null,
+    "",
+    "auto",
+  );
+  return {
+    projects: [...safeProjects, createdProject],
+    project: createdProject,
+    created: true,
+  };
+}
+
+function countIndexRecordProjectReferenceChanges(
+  beforeRecords = [],
+  afterRecords = [],
+) {
+  const beforeList = Array.isArray(beforeRecords) ? beforeRecords : [];
+  const afterList = Array.isArray(afterRecords) ? afterRecords : [];
+  const length = Math.max(beforeList.length, afterList.length);
+  let changedCount = 0;
+  for (let index = 0; index < length; index += 1) {
+    const beforeRecord = beforeList[index];
+    const afterRecord = afterList[index];
+    if (
+      String(beforeRecord?.name || "").trim() !==
+        String(afterRecord?.name || "").trim() ||
+      String(beforeRecord?.projectId || "").trim() !==
+        String(afterRecord?.projectId || "").trim() ||
+      String(beforeRecord?.nextProjectName || "").trim() !==
+        String(afterRecord?.nextProjectName || "").trim() ||
+      String(beforeRecord?.nextProjectId || "").trim() !==
+        String(afterRecord?.nextProjectId || "").trim()
+    ) {
+      changedCount += 1;
+    }
+  }
+  return changedCount;
+}
+
+function buildIndexLegacyRecordProjectRecoveryPlan(
+  recordList = [],
+  projectList = projects,
+) {
+  const normalizedProjects = normalizeStoredProjects(projectList);
+  const pathRepairResult =
+    typeof storageBundleApi?.repairPathNamedRecordProjects === "function"
+      ? storageBundleApi.repairPathNamedRecordProjects(
+          normalizedProjects,
+          recordList,
+        )
+      : null;
+  const repairedProjects = normalizeStoredProjects(
+    Array.isArray(pathRepairResult?.projects)
+      ? pathRepairResult.projects
+      : normalizedProjects,
+  );
+  const repairedRecordSource = Array.isArray(pathRepairResult?.records)
+    ? pathRepairResult.records
+    : Array.isArray(recordList)
+      ? recordList
+      : [];
+  const missingRecordNames = Array.from(
+    new Set(
+      repairedRecordSource
+        .map((record) =>
+          normalizeIndexProjectReferenceName(record?.name, ""),
+        )
+        .filter(
+          (name) =>
+            name &&
+            name !== "未命名项目" &&
+            !findProjectByNameInList(name, repairedProjects),
+        ),
+    ),
+  ).sort((left, right) => left.localeCompare(right, "zh-CN"));
+
+  if (!missingRecordNames.length) {
+    const normalizedRecords = normalizeIndexLoadedRecords(
+      repairedRecordSource,
+      repairedProjects,
+    );
+    const repairedRecordCount = countIndexRecordProjectReferenceChanges(
+      repairedRecordSource,
+      normalizedRecords,
+    );
+    return {
+      projects: repairedProjects,
+      records: normalizedRecords,
+      createdProjectNames: [],
+      repairedRecordCount,
+      mergedProjectCount: Number(pathRepairResult?.mergedProjectCount || 0),
+      renamedProjectCount: Number(pathRepairResult?.renamedProjectCount || 0),
+      changed:
+        repairedRecordCount > 0 ||
+        pathRepairResult?.changed === true,
+    };
+  }
+
+  let nextProjects = repairedProjects.slice();
+  const rootResult = ensureIndexScopedProjectInList(nextProjects, {
+    preferredName: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_ROOT_NAME,
+    level: 1,
+    reservedNames: missingRecordNames,
+  });
+  nextProjects = rootResult.projects;
+  const groupResult = ensureIndexScopedProjectInList(nextProjects, {
+    preferredName: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_GROUP_NAME,
+    level: 2,
+    parentId: rootResult.project?.id || null,
+    reservedNames: missingRecordNames,
+  });
+  nextProjects = groupResult.projects;
+  const createdProjectNames = [];
+
+  missingRecordNames.forEach((name) => {
+    const projectResult = ensureIndexScopedProjectInList(nextProjects, {
+      preferredName: name,
+      level: 3,
+      parentId: groupResult.project?.id || null,
+    });
+    nextProjects = projectResult.projects;
+    if (projectResult.created) {
+      createdProjectNames.push(String(projectResult.project?.name || "").trim());
+    }
+  });
+
+  const normalizedRecords = normalizeIndexLoadedRecords(
+    repairedRecordSource,
+    nextProjects,
+  );
+  const repairedRecordCount = countIndexRecordProjectReferenceChanges(
+    repairedRecordSource,
+    normalizedRecords,
+  );
+
+  return {
+    projects: nextProjects,
+    records: normalizedRecords,
+    createdProjectNames,
+    repairedRecordCount,
+    mergedProjectCount: Number(pathRepairResult?.mergedProjectCount || 0),
+    renamedProjectCount: Number(pathRepairResult?.renamedProjectCount || 0),
+    changed:
+      createdProjectNames.length > 0 ||
+      repairedRecordCount > 0 ||
+      pathRepairResult?.changed === true,
+  };
+}
+
+async function runIndexLegacyRecordProjectRecovery() {
+  if (
+    INDEX_WIDGET_CONTEXT.enabled ||
+    indexLegacyRecordProjectRecoveryRunning ||
+    hasCompletedIndexLegacyRecordProjectRecovery()
+  ) {
+    return false;
+  }
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+    indexLegacyRecordProjectRecoveryPendingResume = true;
+    return false;
+  }
+  if (
+    isIndexSaveTransactionActive() ||
+    indexPendingPersistenceTasks.size > 0 ||
+    isModalOpen
+  ) {
+    scheduleIndexLegacyRecordProjectRecovery();
+    return false;
+  }
+
+  indexLegacyRecordProjectRecoveryRunning = true;
+  try {
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "start",
+      projectCount: Array.isArray(projects) ? projects.length : 0,
+      visibleRecordCount: Array.isArray(records) ? records.length : 0,
+    });
+    await ensureIndexForegroundBootstrapReady();
+    await flushIndexPendingPersistenceOrThrow(
+      {
+        allowDeferredBarrier: false,
+      },
+      "记录页数据保存失败",
+    );
+    if (!indexShellPageActive) {
+      indexLegacyRecordProjectRecoveryPendingResume = true;
+      return false;
+    }
+    const [authoritativeProjects, authoritativeRecords] = await Promise.all([
+      loadAuthoritativeIndexProjectsFromStorage({
+        authoritative: true,
+        fallbackProjects: projects,
+      }),
+      loadAllIndexRecordsFromStorage({
+        authoritative: true,
+      }),
+    ]);
+    const authoritativePeriodIds = getIndexRecordPeriodIds(
+      Array.isArray(authoritativeRecords) ? authoritativeRecords : [],
+    );
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "authoritative-loaded",
+      authoritativeProjectCount: Array.isArray(authoritativeProjects)
+        ? authoritativeProjects.length
+        : 0,
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      authoritativePeriodCount: authoritativePeriodIds.length,
+      authoritativeFirstPeriods: authoritativePeriodIds.slice(0, 6),
+      authoritativeLastPeriods: authoritativePeriodIds.slice(-6),
+    });
+    emitIndexDebugPerf("index-path-repair", {
+      stage: "authoritative-loaded",
+      authoritativeProjectCount: Array.isArray(authoritativeProjects)
+        ? authoritativeProjects.length
+        : 0,
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      authoritativePeriodCount: authoritativePeriodIds.length,
+      authoritativeFirstPeriods: authoritativePeriodIds.slice(0, 6),
+      authoritativeLastPeriods: authoritativePeriodIds.slice(-6),
+    });
+    if (
+      !indexShellPageActive ||
+      isIndexSaveTransactionActive() ||
+      indexPendingPersistenceTasks.size > 0 ||
+      isModalOpen
+    ) {
+      if (!indexShellPageActive) {
+        indexLegacyRecordProjectRecoveryPendingResume = true;
+      } else {
+        scheduleIndexLegacyRecordProjectRecovery();
+      }
+      return false;
+    }
+    const recoveryPlan = buildIndexLegacyRecordProjectRecoveryPlan(
+      authoritativeRecords,
+      authoritativeProjects,
+    );
+    if (!recoveryPlan.changed) {
+      markIndexLegacyRecordProjectRecoveryCompleted({
+        createdProjectCount: 0,
+        repairedRecordCount: recoveryPlan.repairedRecordCount,
+      });
+      emitIndexStructuredLog("index.path-repair", {
+        stage: "no-op",
+        authoritativeRecordCount: Array.isArray(authoritativeRecords)
+          ? authoritativeRecords.length
+          : 0,
+        repairedRecordCount: recoveryPlan.repairedRecordCount,
+        mergedProjectCount: recoveryPlan.mergedProjectCount,
+        renamedProjectCount: recoveryPlan.renamedProjectCount,
+      });
+      return false;
+    }
+
+    await replaceIndexProjectsAndAuthoritativeRecords(
+      recoveryPlan.projects,
+      recoveryPlan.records,
+      {
+        reason: "legacy-record-project-recovery",
+        visibleRecords: normalizeIndexLoadedRecords(records, recoveryPlan.projects),
+      },
+    );
+
+    markIndexLegacyRecordProjectRecoveryCompleted({
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      createdProjectNames: recoveryPlan.createdProjectNames,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+    });
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "applied",
+      authoritativeRecordCount: Array.isArray(authoritativeRecords)
+        ? authoritativeRecords.length
+        : 0,
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+      mergedProjectCount: recoveryPlan.mergedProjectCount,
+      renamedProjectCount: recoveryPlan.renamedProjectCount,
+    });
+    emitIndexDebugPerf("legacy-record-project-recovery", {
+      createdProjectCount: recoveryPlan.createdProjectNames.length,
+      repairedRecordCount: recoveryPlan.repairedRecordCount,
+    });
+    return true;
+  } catch (error) {
+    console.error("执行历史记录项目恢复失败:", error);
+    emitIndexStructuredLog("index.path-repair", {
+      stage: "error",
+      message: error instanceof Error ? error.message : String(error || ""),
+    });
+    return false;
+  } finally {
+    indexLegacyRecordProjectRecoveryRunning = false;
+  }
+}
+
+function clearIndexLegacyRecordProjectRecoverySchedule() {
+  if (!indexLegacyRecordProjectRecoveryTimerId) {
+    indexLegacyRecordProjectRecoveryScheduled = false;
+    return false;
+  }
+  if (typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(indexLegacyRecordProjectRecoveryTimerId);
+  } else {
+    window.clearTimeout(indexLegacyRecordProjectRecoveryTimerId);
+  }
+  indexLegacyRecordProjectRecoveryTimerId = 0;
+  indexLegacyRecordProjectRecoveryScheduled = false;
+  return true;
+}
+
+function scheduleIndexLegacyRecordProjectRecovery() {
+  if (
+    INDEX_WIDGET_CONTEXT.enabled ||
+    indexLegacyRecordProjectRecoveryScheduled ||
+    indexLegacyRecordProjectRecoveryRunning ||
+    hasCompletedIndexLegacyRecordProjectRecovery()
+  ) {
+    return false;
+  }
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+    indexLegacyRecordProjectRecoveryPendingResume = true;
+    return false;
+  }
+
+  const run = () => {
+    indexLegacyRecordProjectRecoveryTimerId = 0;
+    indexLegacyRecordProjectRecoveryScheduled = false;
+    void runIndexLegacyRecordProjectRecovery();
+  };
+
+  indexLegacyRecordProjectRecoveryScheduled = true;
+  if (typeof window.requestIdleCallback === "function") {
+    indexLegacyRecordProjectRecoveryTimerId = window.requestIdleCallback(run, {
+      timeout: INDEX_LEGACY_RECORD_PROJECT_RECOVERY_IDLE_TIMEOUT_MS,
+    });
+    return true;
+  }
+
+  indexLegacyRecordProjectRecoveryTimerId = window.setTimeout(run, 320);
+  return true;
 }
 
 function syncIndexRawRecordMirror(recordList = [], options = {}) {
@@ -15695,33 +15773,26 @@ function saveRecordsToStorage() {
   const saveRevision = indexRecordMutationRevision;
   const recordsSnapshot = cloneIndexValue(records);
   const projectsSnapshot = cloneIndexValue(projects);
-  const allHistoricalRecordsLoadedSnapshot =
-    indexAllHistoricalRecordsLoaded === true;
+  const allHistoricalRecordsLoadedSnapshot = indexAllHistoricalRecordsLoaded === true;
   const loadedPeriodIdsSnapshot = getIndexRecordPeriodIds(recordsSnapshot);
   const periodIds = indexDirtyRecordPeriodIds.size
     ? [...indexDirtyRecordPeriodIds]
     : loadedPeriodIdsSnapshot.length
       ? loadedPeriodIdsSnapshot.slice()
-      : [
-          ...new Set(
-            recordsSnapshot.map((record) => getIndexRecordPeriodId(record)),
-          ),
-        ];
+      : [...new Set(recordsSnapshot.map((record) => getIndexRecordPeriodId(record)))];
   const forceReplacePeriods = new Set(indexForceReplaceRecordPeriods);
   const patchSnapshotByPeriod = new Map(
-    Array.from(indexPendingRecordPatchByPeriod.entries()).map(
-      ([periodId, patch]) => [
-        periodId,
-        {
-          upserts: Array.from(patch?.upserts?.values?.() || []).map((record) =>
-            cloneIndexValue(record),
-          ),
-          removed: Array.from(patch?.removed?.values?.() || []).map((record) =>
-            cloneIndexValue(record),
-          ),
-        },
-      ],
-    ),
+    Array.from(indexPendingRecordPatchByPeriod.entries()).map(([periodId, patch]) => [
+      periodId,
+      {
+        upserts: Array.from(patch?.upserts?.values?.() || []).map((record) =>
+          cloneIndexValue(record),
+        ),
+        removed: Array.from(patch?.removed?.values?.() || []).map((record) =>
+          cloneIndexValue(record),
+        ),
+      },
+    ]),
   );
 
   return trackIndexPersistenceTask(
@@ -15748,10 +15819,7 @@ function saveRecordsToStorage() {
         }
 
         if (periodIds.length > 0) {
-          if (
-            typeof indexRecordPersistenceApi?.persistRecordMutations !==
-            "function"
-          ) {
+          if (typeof indexRecordPersistenceApi?.persistRecordMutations !== "function") {
             throw new Error("首页记录持久化模块未加载");
           }
           const mutationUpserts = [];
@@ -15912,7 +15980,10 @@ function renameProjectRecordsInList(
       nextReference,
       sourceProjectIdentity,
     );
-    if (!matchesCurrentProject && !matchesNextProject) {
+    if (
+      !matchesCurrentProject &&
+      !matchesNextProject
+    ) {
       return record;
     }
 
@@ -15922,29 +15993,35 @@ function renameProjectRecordsInList(
     };
     const nextRecord = {
       ...record,
-      name: matchesCurrentProject
-        ? newName
-        : currentReference.rawName ||
-          String(currentReference.resolvedProject?.name || "").trim() ||
-          "未命名项目",
-      projectId: matchesCurrentProject
-        ? nextProjectId
-        : String(
-            currentReference.rawProjectId ||
-              currentReference.resolvedProject?.id ||
-              "",
-          ).trim() || null,
-      nextProjectName: matchesNextProject
-        ? newName
-        : nextReference.rawName ||
-          String(nextReference.resolvedProject?.name || "").trim(),
-      nextProjectId: matchesNextProject
-        ? nextProjectId
-        : String(
-            nextReference.rawProjectId ||
-              nextReference.resolvedProject?.id ||
-              "",
-          ).trim() || null,
+      name:
+        matchesCurrentProject
+          ? newName
+          : currentReference.rawName ||
+            String(currentReference.resolvedProject?.name || "").trim() ||
+            "未命名项目",
+      projectId:
+        matchesCurrentProject
+          ? nextProjectId
+          : String(
+              currentReference.rawProjectId ||
+                currentReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
+            null,
+      nextProjectName:
+        matchesNextProject
+          ? newName
+          : nextReference.rawName ||
+            String(nextReference.resolvedProject?.name || "").trim(),
+      nextProjectId:
+        matchesNextProject
+          ? nextProjectId
+          : String(
+              nextReference.rawProjectId ||
+                nextReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
+            null,
     };
     const decoratedNextRecord = decorateIndexRecordProjectState(
       nextRecord,
@@ -16010,7 +16087,10 @@ function mergeProjectRecordsInList(
       sourceProject,
     );
 
-    if (!matchesCurrentProject && !matchesNextProject) {
+    if (
+      !matchesCurrentProject &&
+      !matchesNextProject
+    ) {
       return record;
     }
 
@@ -16022,29 +16102,35 @@ function mergeProjectRecordsInList(
     };
     const nextRecord = {
       ...record,
-      name: matchesCurrentProject
-        ? targetProjectName
-        : currentReference.rawName ||
-          String(currentReference.resolvedProject?.name || "").trim() ||
-          "未命名项目",
-      projectId: matchesCurrentProject
-        ? targetProjectId
-        : String(
-            currentReference.rawProjectId ||
-              currentReference.resolvedProject?.id ||
-              "",
-          ).trim() || null,
-      nextProjectName: matchesNextProject
-        ? targetProjectName
-        : nextReference.rawName ||
-          String(nextReference.resolvedProject?.name || "").trim(),
-      nextProjectId: matchesNextProject
-        ? targetProjectId
-        : String(
-            nextReference.rawProjectId ||
-              nextReference.resolvedProject?.id ||
-              "",
-          ).trim() || null,
+      name:
+        matchesCurrentProject
+          ? targetProjectName
+          : currentReference.rawName ||
+            String(currentReference.resolvedProject?.name || "").trim() ||
+            "未命名项目",
+      projectId:
+        matchesCurrentProject
+          ? targetProjectId
+          : String(
+              currentReference.rawProjectId ||
+                currentReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
+            null,
+      nextProjectName:
+        matchesNextProject
+          ? targetProjectName
+          : nextReference.rawName ||
+            String(nextReference.resolvedProject?.name || "").trim(),
+      nextProjectId:
+        matchesNextProject
+          ? targetProjectId
+          : String(
+              nextReference.rawProjectId ||
+                nextReference.resolvedProject?.id ||
+                "",
+            ).trim() ||
+            null,
     };
     const decoratedNextRecord = decorateIndexRecordProjectState(
       nextRecord,
@@ -16115,10 +16201,6 @@ async function updateRecordsProjectName(
   const authoritativeRecords = await loadAllIndexRecordsFromStorage({
     authoritative: true,
   });
-  const authoritativeNormalizedRecords = normalizeIndexLoadedRecords(
-    authoritativeRecords,
-    projectList,
-  );
   const fullRenameResult = renameProjectRecordsInList(
     authoritativeRecords,
     oldName,
@@ -16145,7 +16227,6 @@ async function updateRecordsProjectName(
       {
         reason: options.reason || "project-rename-history-repair",
         visibleRecords: visibleRenameResult.items,
-        previousNormalizedRecords: authoritativeNormalizedRecords,
       },
     );
   } else {
@@ -16154,7 +16235,6 @@ async function updateRecordsProjectName(
       visibleRecords: visibleRenameResult.items,
       projectList,
       refreshUi: options.refreshUi,
-      previousNormalizedRecords: authoritativeNormalizedRecords,
     });
   }
 
@@ -16211,12 +16291,9 @@ async function loadRecordsFromStorage(options = {}) {
     const loadMode = normalizeIndexRecordLoadMode(options.mode);
     const recordScope =
       loadMode === INDEX_RECORD_LOAD_MODE_RECENT_RANGE
-        ? cloneIndexRecordLoadScope(options.scope) ||
-          getIndexDefaultRecordScope()
+        ? cloneIndexRecordLoadScope(options.scope) || getIndexDefaultRecordScope()
         : null;
-    const existingRecordsSnapshot = Array.isArray(records)
-      ? records.slice()
-      : [];
+    const existingRecordsSnapshot = Array.isArray(records) ? records.slice() : [];
     let fallbackRecords = [];
     let loadedPeriodIds = [];
 
@@ -16285,9 +16362,7 @@ async function loadRecordsFromStorage(options = {}) {
     }
     const nextRecords = normalizeIndexLoadedRecords(fallbackRecords, projects);
     const nextLoadedPeriodIds = normalizeIndexRecordPeriodIdList(
-      loadedPeriodIds.length > 0
-        ? loadedPeriodIds
-        : getIndexRecordPeriodIds(nextRecords),
+      loadedPeriodIds.length > 0 ? loadedPeriodIds : getIndexRecordPeriodIds(nextRecords),
     );
     records = normalizeIndexLoadedRecords(nextRecords, projects);
     indexAllHistoricalRecordsLoaded =
@@ -16341,11 +16416,6 @@ function openAdvancedProjectModal() {
 
   // 显示弹窗
   modal.style.display = "flex";
-  window.requestAnimationFrame(() => {
-    uiTools?.refreshEnhancedSelect?.(
-      document.getElementById("parent-project-select"),
-    );
-  });
 }
 
 // 关闭高级创建项目弹窗
@@ -16376,18 +16446,6 @@ function initIndexSecondaryBindings() {
     preferCurrentHueForLevel1: false,
   });
   refreshCreateProjectColorPalette({ forceSuggestion: true });
-  uiTools?.enhanceNativeSelect?.(
-    document.getElementById("parent-project-select"),
-    {
-      fullWidth: true,
-      minWidth: 240,
-    },
-  );
-  window.requestAnimationFrame(() => {
-    uiTools?.refreshEnhancedSelect?.(
-      document.getElementById("parent-project-select"),
-    );
-  });
 
   const openCreateProjectBtn = document.getElementById(
     "open-create-project-modal-btn",
@@ -16502,6 +16560,7 @@ async function finalizeIndexInitialHydration(options = {}) {
   window.setTimeout(() => {
     reportIndexDebugInteractivityState("initial-hydration");
   }, 300);
+  scheduleIndexLegacyRecordProjectRecovery();
   if (scheduleDeferredRuntime) {
     if (!indexShellPageActive) {
       indexDeferredRuntimePendingResume = true;
@@ -16555,7 +16614,8 @@ async function hydrateIndexInitialForegroundWorkspace() {
   } catch (error) {
     emitIndexDebugPerf("hydrate-index-error", {
       stage: "hydrateIndexInitialForegroundWorkspace",
-      errorName: error instanceof Error ? error.name : typeof error,
+      errorName:
+        error instanceof Error ? error.name : typeof error,
       errorMessage:
         error instanceof Error ? error.message : String(error || "未知错误"),
       errorStackTop:
@@ -16656,15 +16716,12 @@ function scheduleIndexDeferredWorkspaceHydration() {
     };
 
     if (typeof window.requestIdleCallback === "function") {
-      indexDeferredWorkspaceHydrationIdleId = window.requestIdleCallback(
-        () => {
-          indexDeferredWorkspaceHydrationIdleId = 0;
-          startHydration();
-        },
-        {
-          timeout: 160,
-        },
-      );
+      indexDeferredWorkspaceHydrationIdleId = window.requestIdleCallback(() => {
+        indexDeferredWorkspaceHydrationIdleId = 0;
+        startHydration();
+      }, {
+        timeout: 160,
+      });
       return;
     }
 
@@ -16912,10 +16969,8 @@ function attachTableLongPressDrag(element) {
 
     if (!touchReorderActive) {
       if (
-        Math.abs(touch.clientX - touchStartX) >
-          TABLE_TOUCH_REORDER_CANCEL_DISTANCE_PX ||
-        Math.abs(touch.clientY - touchStartY) >
-          TABLE_TOUCH_REORDER_CANCEL_DISTANCE_PX
+        Math.abs(touch.clientX - touchStartX) > TABLE_TOUCH_REORDER_CANCEL_DISTANCE_PX ||
+        Math.abs(touch.clientY - touchStartY) > TABLE_TOUCH_REORDER_CANCEL_DISTANCE_PX
       ) {
         cleanupTouchReorder();
       }
@@ -17043,7 +17098,8 @@ function attachTableLongPressDrag(element) {
 // 渲染项目表格视图
 function renderProjectsTable() {
   const renderStart =
-    typeof performance !== "undefined" && typeof performance.now === "function"
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
       ? performance.now()
       : Date.now();
   const tableContainer = document.getElementById("projects-table");
@@ -17072,8 +17128,9 @@ function renderProjectsTable() {
     ? 0
     : Math.max(96, Math.round(36 * tableScale) * 3);
   const hierarchyIndex = getIndexProjectHierarchyIndex(projects);
-  const level1Projects = (
-    Array.isArray(hierarchyIndex?.roots) ? hierarchyIndex.roots : []
+  const level1Projects = (Array.isArray(hierarchyIndex?.roots)
+    ? hierarchyIndex.roots
+    : []
   )
     .map((node) => node?.raw || node)
     .filter(Boolean);
@@ -17095,15 +17152,12 @@ function renderProjectsTable() {
     const column = document.createElement("div");
     column.className = "table-column";
     column.dataset.projectId = level1Project.id;
-    column.style.background =
-      "color-mix(in srgb, var(--surface-soft) 90%, var(--surface-panel) 10%)";
-    column.style.border = "1px solid var(--surface-border-hidden)";
-    column.style.borderRadius = "12px";
+    column.style.background = "var(--bg-tertiary)";
+    column.style.borderRadius = "10px";
     column.style.padding = `${level2Padding}px`;
     column.style.display = "flex";
     column.style.flexDirection = "column";
     column.style.gap = `${Math.max(4, Math.round(8 * tableScale))}px`;
-    column.style.boxSizing = "border-box";
 
     const level1Expanded = isProjectHierarchyExpanded(level1Project);
 
@@ -17168,17 +17222,14 @@ function renderProjectsTable() {
           level2Section.className = "level2-section";
           level2Section.dataset.projectId = level2Project.id;
           level2Section.dataset.parentId = level2Project.parentId;
-          level2Section.style.background =
-            "color-mix(in srgb, var(--surface-control) 92%, var(--surface-panel) 8%)";
-          level2Section.style.border = "1px solid var(--surface-border-hidden)";
-          level2Section.style.borderRadius = "10px";
+          level2Section.style.background = "var(--bg-quaternary)";
+          level2Section.style.borderRadius = "6px";
           level2Section.style.padding = `${level2Padding}px`;
           level2Section.style.flex = "1";
           level2Section.style.display = "flex";
           level2Section.style.flexDirection = "column";
           level2Section.style.gap = `${Math.max(4, Math.round(8 * tableScale))}px`;
           level2Section.style.minWidth = "0";
-          level2Section.style.boxSizing = "border-box";
 
           const level2Expanded = isProjectHierarchyExpanded(level2Project);
 
@@ -17205,17 +17256,13 @@ function renderProjectsTable() {
           level2Header.addEventListener("dragover", handleTableDragOver);
           level2Header.addEventListener("drop", handleTableDrop);
           level2Header.addEventListener("dragend", handleTableDragEnd);
-          bindProjectTableHeaderClickActions(
-            level2Header,
-            level2Project,
-            () => {
-              setProjectHierarchyExpanded(
-                level2Project,
-                !isProjectHierarchyExpanded(level2Project),
-              );
-              renderProjectsTable();
-            },
-          );
+          bindProjectTableHeaderClickActions(level2Header, level2Project, () => {
+            setProjectHierarchyExpanded(
+              level2Project,
+              !isProjectHierarchyExpanded(level2Project),
+            );
+            renderProjectsTable();
+          });
 
           level2Section.appendChild(level2Header);
 
@@ -17316,7 +17363,8 @@ function renderProjectsTable() {
   });
 
   const renderDurationMs =
-    (typeof performance !== "undefined" && typeof performance.now === "function"
+    (typeof performance !== "undefined" &&
+    typeof performance.now === "function"
       ? performance.now()
       : Date.now()) - renderStart;
   if (level1Projects.length >= 20 || renderDurationMs >= 48) {
@@ -17331,8 +17379,7 @@ function renderProjectsTable() {
 // 表格拖拽相关函数
 let draggedTableItem = null;
 let dragType = null; // "level1", "level2", "level3"
-const TABLE_TOUCH_REORDER_SELECTOR =
-  ".level1-header, .level2-header, .level3-item";
+const TABLE_TOUCH_REORDER_SELECTOR = ".level1-header, .level2-header, .level3-item";
 const TABLE_TOUCH_REORDER_CANCEL_DISTANCE_PX = 18;
 const TABLE_TOUCH_REORDER_HOLD_MS = 380;
 
@@ -17388,15 +17435,13 @@ function captureProjectTableLayout() {
   }
 
   const layout = new Map();
-  tableContainer
-    .querySelectorAll(TABLE_TOUCH_REORDER_SELECTOR)
-    .forEach((element) => {
-      const key = getTableReorderKey(element);
-      if (!key) {
-        return;
-      }
-      layout.set(key, element.getBoundingClientRect());
-    });
+  tableContainer.querySelectorAll(TABLE_TOUCH_REORDER_SELECTOR).forEach((element) => {
+    const key = getTableReorderKey(element);
+    if (!key) {
+      return;
+    }
+    layout.set(key, element.getBoundingClientRect());
+  });
   return layout;
 }
 
@@ -17404,11 +17449,7 @@ function animateProjectTableReorder(previousLayout) {
   return;
 }
 
-function createTableTouchDragGhost(
-  sourceElement,
-  clientX = null,
-  clientY = null,
-) {
+function createTableTouchDragGhost(sourceElement, clientX = null, clientY = null) {
   if (!(sourceElement instanceof HTMLElement)) {
     return null;
   }
@@ -17475,14 +17516,8 @@ function positionTableTouchDragGhost(ghost, clientX, clientY) {
   const anchorY = Number.isFinite(ghost.__touchAnchorY)
     ? ghost.__touchAnchorY
     : 18;
-  ghost.style.setProperty(
-    "--touch-ghost-x",
-    `${Math.round(clientX - anchorX)}px`,
-  );
-  ghost.style.setProperty(
-    "--touch-ghost-y",
-    `${Math.round(clientY - anchorY)}px`,
-  );
+  ghost.style.setProperty("--touch-ghost-x", `${Math.round(clientX - anchorX)}px`);
+  ghost.style.setProperty("--touch-ghost-y", `${Math.round(clientY - anchorY)}px`);
 }
 
 function removeTableTouchDragGhost(ghost) {
@@ -17550,12 +17585,8 @@ function performTableReorderFromElements(sourceElement, targetElement) {
     return false;
   }
 
-  const draggedProject = projects.find(
-    (project) => project.id === sourceProjectId,
-  );
-  const targetProject = projects.find(
-    (project) => project.id === targetProjectId,
-  );
+  const draggedProject = projects.find((project) => project.id === sourceProjectId);
+  const targetProject = projects.find((project) => project.id === targetProjectId);
   if (!draggedProject || !targetProject) {
     return false;
   }
@@ -17565,12 +17596,8 @@ function performTableReorderFromElements(sourceElement, targetElement) {
   let changed = false;
 
   if (sourceType === "level1") {
-    const draggedIndex = projects.findIndex(
-      (project) => project.id === sourceProjectId,
-    );
-    const targetIndex = projects.findIndex(
-      (project) => project.id === targetProjectId,
-    );
+    const draggedIndex = projects.findIndex((project) => project.id === sourceProjectId);
+    const targetIndex = projects.findIndex((project) => project.id === targetProjectId);
     if (
       draggedIndex !== -1 &&
       targetIndex !== -1 &&
@@ -17591,12 +17618,8 @@ function performTableReorderFromElements(sourceElement, targetElement) {
       changed = true;
     } else if (normalizeProjectLevel(targetProject.level) === 2) {
       if (draggedProject.parentId === targetProject.parentId) {
-        const draggedIndex = projects.findIndex(
-          (project) => project.id === sourceProjectId,
-        );
-        const targetIndex = projects.findIndex(
-          (project) => project.id === targetProjectId,
-        );
+        const draggedIndex = projects.findIndex((project) => project.id === sourceProjectId);
+        const targetIndex = projects.findIndex((project) => project.id === targetProjectId);
         if (draggedIndex !== -1 && targetIndex !== -1) {
           [projects[draggedIndex], projects[targetIndex]] = [
             projects[targetIndex],
@@ -17618,12 +17641,8 @@ function performTableReorderFromElements(sourceElement, targetElement) {
       changed = true;
     } else if (normalizeProjectLevel(targetProject.level) === 3) {
       if (draggedProject.parentId === targetProject.parentId) {
-        const draggedIndex = projects.findIndex(
-          (project) => project.id === sourceProjectId,
-        );
-        const targetIndex = projects.findIndex(
-          (project) => project.id === targetProjectId,
-        );
+        const draggedIndex = projects.findIndex((project) => project.id === sourceProjectId);
+        const targetIndex = projects.findIndex((project) => project.id === targetProjectId);
         if (draggedIndex !== -1 && targetIndex !== -1) {
           [projects[draggedIndex], projects[targetIndex]] = [
             projects[targetIndex],
@@ -17672,7 +17691,10 @@ function handleTableDragStart(e) {
 
   this.style.opacity = "0.7";
   e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", getTableReorderProjectId(this));
+  e.dataTransfer.setData(
+    "text/plain",
+    getTableReorderProjectId(this),
+  );
 }
 
 function handleTableDragOver(e) {
@@ -17754,10 +17776,7 @@ function scheduleIndexWidgetLaunchHandled(
     if (options.clearQuery === true) {
       clearIndexWidgetLaunchQuery();
     }
-    if (
-      !launchId ||
-      typeof window.ControlerNativeBridge?.emitEvent !== "function"
-    ) {
+    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
       return true;
     }
     window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
@@ -17879,17 +17898,14 @@ function initIndexWidgetLaunchAction() {
       return;
     }
     consumedQuery = true;
-    handleIndexWidgetLaunchAction(
-      {
-        action,
-        widgetKind: params.get("widgetKind") || "",
-        source: params.get("widgetSource") || "query",
-        launchId: params.get("widgetLaunchId") || "",
-      },
-      {
-        clearQuery: true,
-      },
-    );
+    handleIndexWidgetLaunchAction({
+      action,
+      widgetKind: params.get("widgetKind") || "",
+      source: params.get("widgetSource") || "query",
+      launchId: params.get("widgetLaunchId") || "",
+    }, {
+      clearQuery: true,
+    });
   };
 
   window.addEventListener(eventName, (event) => {

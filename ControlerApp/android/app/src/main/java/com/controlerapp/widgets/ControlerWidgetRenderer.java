@@ -147,7 +147,7 @@ public final class ControlerWidgetRenderer {
         String actionLabel = "";
         String command = "";
         String targetId = "";
-        int accentColor = Color.parseColor("#8ED6A4");
+        int accentColor = Color.parseColor("#6FD08D");
         String badgeText = "";
         boolean completed = false;
         boolean pending = false;
@@ -155,17 +155,17 @@ public final class ControlerWidgetRenderer {
     }
 
     static final class ThemePalette {
-        int backgroundColor = Color.parseColor("#243B2B");
-        int surfaceColor = Color.parseColor("#20362B");
-        int borderColor = Color.parseColor("#5F7D6A");
-        int titleColor = Color.parseColor("#F2FFF5");
-        int subtitleColor = Color.parseColor("#D2E4D7");
-        int bodyColor = Color.parseColor("#EAF6ED");
+        int backgroundColor = Color.parseColor("#183524");
+        int surfaceColor = Color.parseColor("#1C402B");
+        int borderColor = Color.parseColor("#5FA878");
+        int titleColor = Color.parseColor("#F4FFF7");
+        int subtitleColor = Color.parseColor("#D6EFDE");
+        int bodyColor = Color.parseColor("#ECFAF0");
         int actionFillColor = Color.parseColor("#24FFFFFF");
         int actionOutlineColor = Color.parseColor("#33FFFFFF");
         int actionTextColor = Color.parseColor("#FFFFFF");
-        int accentColor = Color.parseColor("#8ED6A4");
-        int accentTextColor = Color.parseColor("#173326");
+        int accentColor = Color.parseColor("#6FD08D");
+        int accentTextColor = Color.parseColor("#133120");
         int contrastReferenceColor = Color.WHITE;
         int cardFillColor = Color.parseColor("#20362B");
         int cardBorderColor = Color.parseColor("#5F7D6A");
@@ -183,7 +183,7 @@ public final class ControlerWidgetRenderer {
     private static final class PreviewSegment {
         String label = "";
         String detail = "";
-        int color = Color.parseColor("#8ED6A4");
+        int color = Color.parseColor("#6FD08D");
         int startMinutes = 0;
         int endMinutes = 0;
     }
@@ -197,7 +197,7 @@ public final class ControlerWidgetRenderer {
     private static final class PreviewLegendEntry {
         String label = "";
         int minutes = 0;
-        int color = Color.parseColor("#8ED6A4");
+        int color = Color.parseColor("#6FD08D");
     }
 
     private static final class PreviewTimeRange {
@@ -267,14 +267,14 @@ public final class ControlerWidgetRenderer {
 
     private static final class RecordSummaryAccumulator {
         String title = "";
-        int accentColor = Color.parseColor("#8ED6A4");
+        int accentColor = Color.parseColor("#6FD08D");
         int totalMinutes = 0;
         final Map<String, Integer> dayMinutes = new HashMap<>();
     }
 
     private static final class PlanSummaryAccumulator {
         String title = "";
-        int accentColor = Color.parseColor("#79AF85");
+        int accentColor = Color.parseColor("#72C28A");
         int totalMinutes = 0;
         int planCount = 0;
         final Map<String, Integer> dayMinutes = new HashMap<>();
@@ -1712,17 +1712,17 @@ public final class ControlerWidgetRenderer {
         Map<String, String> colors = new HashMap<>();
         String safeThemeId = TextUtils.isEmpty(themeId) ? "default" : themeId;
 
-        colors.put("primary", "#1f2f28");
-        colors.put("panel", "rgba(24, 41, 33, 0.62)");
-        colors.put("panelStrong", "rgba(31, 53, 42, 0.74)");
-        colors.put("accent", "#8ed6a4");
-        colors.put("text", "#f5fff8");
-        colors.put("mutedText", "rgba(245, 255, 248, 0.72)");
-        colors.put("border", "#6ea283");
-        colors.put("panelBorder", "rgba(142, 214, 164, 0.28)");
-        colors.put("buttonBg", "#8ed6a4");
-        colors.put("buttonText", "#173326");
-        colors.put("onAccentText", "#173326");
+        colors.put("primary", "#183524");
+        colors.put("panel", "rgba(15, 32, 22, 0.62)");
+        colors.put("panelStrong", "rgba(24, 52, 36, 0.74)");
+        colors.put("accent", "#6fd08d");
+        colors.put("text", "#f4fff7");
+        colors.put("mutedText", "rgba(244, 255, 247, 0.74)");
+        colors.put("border", "#5fa878");
+        colors.put("panelBorder", "rgba(111, 208, 141, 0.28)");
+        colors.put("buttonBg", "#76d694");
+        colors.put("buttonText", "#133120");
+        colors.put("onAccentText", "#133120");
 
         if ("blue-ocean".equals(safeThemeId)) {
             colors.put("primary", "#12263f");
@@ -1749,17 +1749,17 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonText", "#522a1c");
             colors.put("onAccentText", "#522a1c");
         } else if ("minimal-gray".equals(safeThemeId)) {
-            colors.put("primary", "#1f252e");
-            colors.put("panel", "rgba(33, 39, 49, 0.66)");
-            colors.put("panelStrong", "rgba(40, 47, 58, 0.78)");
-            colors.put("accent", "#d1d9e3");
-            colors.put("text", "#f6f8fb");
-            colors.put("mutedText", "rgba(246, 248, 251, 0.72)");
-            colors.put("border", "#bebebe");
-            colors.put("panelBorder", "rgba(209, 217, 227, 0.30)");
-            colors.put("buttonBg", "#d9e1ec");
-            colors.put("buttonText", "#262f3d");
-            colors.put("onAccentText", "#262f3d");
+            colors.put("primary", "#1c2734");
+            colors.put("panel", "rgba(22, 34, 46, 0.66)");
+            colors.put("panelStrong", "rgba(31, 45, 60, 0.78)");
+            colors.put("accent", "#b7cde6");
+            colors.put("text", "#f5f9ff");
+            colors.put("mutedText", "rgba(245, 249, 255, 0.74)");
+            colors.put("border", "#89a1bc");
+            colors.put("panelBorder", "rgba(183, 205, 230, 0.30)");
+            colors.put("buttonBg", "#c2d7ee");
+            colors.put("buttonText", "#1f3246");
+            colors.put("onAccentText", "#1f3246");
         } else if ("obsidian-mono".equals(safeThemeId)) {
             colors.put("primary", "#0d0f12");
             colors.put("panel", "rgba(16, 18, 22, 0.72)");
@@ -1797,17 +1797,29 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonText", "#222832");
             colors.put("onAccentText", "#222832");
         } else if ("aurora-mist".equals(safeThemeId)) {
-            colors.put("primary", "#162a2d");
-            colors.put("panel", "rgba(20, 39, 42, 0.66)");
-            colors.put("panelStrong", "rgba(26, 49, 52, 0.78)");
-            colors.put("accent", "#8fd3d1");
-            colors.put("text", "#effcfb");
-            colors.put("mutedText", "rgba(239, 252, 251, 0.74)");
-            colors.put("border", "#7ca8aa");
-            colors.put("panelBorder", "rgba(143, 211, 209, 0.26)");
-            colors.put("buttonBg", "#96dcda");
-            colors.put("buttonText", "#133235");
-            colors.put("onAccentText", "#133235");
+            colors.put("primary", "#341d28");
+            colors.put("panel", "rgba(42, 23, 33, 0.66)");
+            colors.put("panelStrong", "rgba(48, 25, 36, 0.78)");
+            colors.put("accent", "#f3adc4");
+            colors.put("text", "#fff4f8");
+            colors.put("mutedText", "rgba(255, 244, 248, 0.74)");
+            colors.put("border", "#c492a7");
+            colors.put("panelBorder", "rgba(243, 173, 196, 0.26)");
+            colors.put("buttonBg", "#f6b8cd");
+            colors.put("buttonText", "#4a2433");
+            colors.put("onAccentText", "#4a2433");
+        } else if ("amethyst-haze".equals(safeThemeId)) {
+            colors.put("primary", "#24192f");
+            colors.put("panel", "rgba(32, 23, 44, 0.66)");
+            colors.put("panelStrong", "rgba(35, 25, 49, 0.78)");
+            colors.put("accent", "#be9bff");
+            colors.put("text", "#f7f2ff");
+            colors.put("mutedText", "rgba(247, 242, 255, 0.74)");
+            colors.put("border", "#a78ccc");
+            colors.put("panelBorder", "rgba(190, 155, 255, 0.26)");
+            colors.put("buttonBg", "#c5a8ff");
+            colors.put("buttonText", "#312048");
+            colors.put("onAccentText", "#312048");
         } else if ("velvet-bordeaux".equals(safeThemeId)) {
             colors.put("primary", "#2f141d");
             colors.put("panel", "rgba(43, 20, 29, 0.68)");
@@ -1833,17 +1845,17 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonText", "#f8f3ec");
             colors.put("onAccentText", "#f8f3ec");
         } else if ("midnight-indigo".equals(safeThemeId)) {
-            colors.put("primary", "#111a35");
-            colors.put("panel", "rgba(16, 26, 52, 0.68)");
-            colors.put("panelStrong", "rgba(21, 33, 64, 0.80)");
-            colors.put("accent", "#9cb8ff");
-            colors.put("text", "#eef3ff");
-            colors.put("mutedText", "rgba(238, 243, 255, 0.74)");
-            colors.put("border", "#7d91c9");
-            colors.put("panelBorder", "rgba(156, 184, 255, 0.28)");
-            colors.put("buttonBg", "#9cb8ff");
-            colors.put("buttonText", "#162447");
-            colors.put("onAccentText", "#162447");
+            colors.put("primary", "#352211");
+            colors.put("panel", "rgba(46, 29, 15, 0.68)");
+            colors.put("panelStrong", "rgba(52, 33, 17, 0.80)");
+            colors.put("accent", "#ffc468");
+            colors.put("text", "#fff7ea");
+            colors.put("mutedText", "rgba(255, 247, 234, 0.74)");
+            colors.put("border", "#c29a63");
+            colors.put("panelBorder", "rgba(255, 196, 104, 0.28)");
+            colors.put("buttonBg", "#ffc970");
+            colors.put("buttonText", "#4b2d11");
+            colors.put("onAccentText", "#4b2d11");
         }
 
         return colors;

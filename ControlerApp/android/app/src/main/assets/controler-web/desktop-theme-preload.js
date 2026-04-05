@@ -40,17 +40,18 @@
   });
 
   const BUILT_IN_THEME_PRIMARY_MAP = Object.freeze({
-    default: "#1f2f28",
+    default: "#183524",
     "blue-ocean": "#12263f",
     "sunset-orange": "#4b261b",
-    "minimal-gray": "#1f252e",
+    "minimal-gray": "#1c2734",
     "obsidian-mono": "#0d0f12",
     "ivory-light": "#eceff3",
     "graphite-mist": "#2a2d32",
-    "aurora-mist": "#162a2d",
+    "aurora-mist": "#341d28",
+    "amethyst-haze": "#24192f",
     "velvet-bordeaux": "#2f141d",
     "champagne-sandstone": "#f1ebe2",
-    "midnight-indigo": "#111a35",
+    "midnight-indigo": "#352211",
   });
 
   function isPlainObject(value) {

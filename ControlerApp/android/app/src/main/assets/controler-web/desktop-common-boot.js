@@ -12883,8 +12883,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
 
 ;/* pages/i18n.js */
-(()=>{const K="appLanguage",D="zh-CN",E="controler:language-changed",A={zh:"zh-CN","zh-CN":"zh-CN",en:"en-US","en-US":"en-US"},W={日:"Sun",一:"Mon",二:"Tue",三:"Wed",四:"Thu",五:"Fri",六:"Sat",周日:"Sun",周一:"Mon",周二:"Tue",周三:"Wed",周四:"Thu",周五:"Fri",周六:"Sat"},M={"时间跟踪器":"Time Tracker","时间记录":"Time Record","时间统计":"Time Stats","时间计划":"Planning","计划待办":"Plans & Todos","日记":"Diary","其他设置":"Settings","记录":"Record","统计":"Stats","计划":"Plan","设置":"Settings","主题配色":"Theme Colors","视图尺寸":"View Size","数据管理":"Data Management","导出数据":"Export Data","导入数据":"Import Data","清除所有数据":"Clear All Data","当前存储状态:":"Current storage status:","正在加载...":"Loading...","存储路径管理":"Storage Path","当前存储路径:":"Current storage path:","路径类型:":"Path type:","更改存储路径":"Change Storage Path","重置为默认路径":"Reset to Default Path","显示存储数据路径":"Show Storage Data Path","清除数据预览":"Clear Data Preview","以下数据将被清除:":"The following data will be removed:","此操作不可撤销！请确认是否继续。":"This action cannot be undone. Please confirm to continue.","取消":"Cancel","保存":"Save","删除":"Delete","编辑":"Edit","确认清除":"Confirm Clear","显示语言":"Display Language","界面语言":"Interface Language","切换应用界面语言，默认简体中文。":"Switch the app language. The default is Simplified Chinese.","简体中文":"Simplified Chinese","选择您喜欢的主题配色，设置将自动保存。":"Choose your preferred theme palette. Changes save automatically.","添加自定义主题":"Add Custom Theme","最小可调到 10%。":"The minimum adjustable size is 10%.","重置为默认 100%":"Reset to Default 100%","管理您的项目和时间记录数据。":"Manage your projects and time-tracking data.","选择时间范围并使用上方折叠按钮查看统计":"Select a date range and use the controls above to view stats","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","统计视图":"Stats View","表格视图":"Table View","饼状图和折线图":"Pie & Line Charts","日历热图":"Calendar Heatmap","开始日期":"Start Date","结束日期":"End Date","显示层级":"Level","全部":"All","时间":"Time","今天":"Today","明天":"Tomorrow","昨天":"Yesterday","图例：":"Legend:","创建项目":"Create Project","开始计时":"Start Timer","配置计时":"Configure Timer","当前项目（本次记录）":"Current Project (This Record)","输入或选择本次计时项目":"Type or select a project","高级创建项目":"Advanced Project Creation","项目层级":"Project Level","一级项目":"Level 1 Project","二级项目":"Level 2 Project","三级项目":"Level 3 Project","请选择父级项目":"Select a parent project","项目颜色":"Project Color","待办事项":"Todos","📝 待办事项":"📝 Todos","✅ 打卡项目":"✅ Check-in Items","➕ 添加项目":"➕ Add Item","进行中":"In Progress","已完成":"Completed","未完成":"Incomplete","已过期":"Overdue","今天到期":"Due Today","列表视图":"List View","四象限视图":"Quadrant View","按截止日期排序":"Sort by Due Date","按优先级排序":"Sort by Priority","按创建时间排序":"Sort by Created Time","按标题排序":"Sort by Title","搜索待办事项...":"Search todos...","今日打卡统计：":"Today's check-ins:","连续打卡最长：":"Longest streak:","暂无待办事项":"No todos yet",'点击"添加项目"按钮开始创建':'Click "Add Item" to start creating',"创建第一个待办事项":"Create Your First Todo","待办事项统计":"Todo Stats","打卡统计":"Check-in Stats","总计":"Total","打卡项目数":"Check-in Items","今日应打卡":"Scheduled Today","今日已打卡":"Checked In Today","最长连续天数":"Longest Streak","无描述":"No description","无截止日期":"No due date","每天":"Repeats Daily","不重复":"No Repeat","每周":"Specific Weekdays","编辑待办事项":"Edit Todo","创建待办事项":"Create Todo","标题 *":"Title *","描述":"Description","截止日期":"Due Date","重复规则":"Repeat Rule","输入待办事项标题":"Enter a todo title","输入待办事项描述（可选）":"Enter a todo description (optional)","低":"Low","中":"Medium","高":"High","低优先级":"Low Priority","中优先级":"Medium Priority","高优先级":"High Priority","保存更改":"Save Changes","编辑打卡项目":"Edit Check-in Item","创建打卡项目":"Create Check-in Item","输入打卡项目标题":"Enter a check-in title","输入打卡项目描述（可选）":"Enter a check-in description (optional)","结束日期（可选）":"End Date (Optional)","蓝色":"Blue","绿色":"Green","橙色":"Orange","紫色":"Purple","删除打卡项目":"Delete Check-in Item","年视图":"Year View","月视图":"Month View","周视图":"Week View","➕ 添加新计划":"➕ Add Plan","正在加载计划视图...":"Loading plan view...","请输入计划名称":"Please enter a plan name","请选择日期":"Please choose a date","请选择开始和结束时间":"Please choose start and end times","结束时间必须晚于开始时间":"End time must be later than start time","编辑计划":"Edit Plan","添加新计划":"Add New Plan","创建新计划":"Create New Plan","计划名称":"Plan Name","重复设置":"Repeat Settings","删除计划":"Delete Plan","创建计划":"Create Plan","标记为已完成":"Mark as Completed","标记为未完成":"Mark as Incomplete","重要且紧急":"Important & Urgent","重要不紧急":"Important, Not Urgent","紧急不重要":"Urgent, Not Important","不重要不紧急":"Neither Important nor Urgent","日记视图":"Diary View","点击写日记":"Click to write a diary","未命名日记":"Untitled Diary","删除日记内容":"Delete Diary Content","输入日记标题":"Enter a diary title","写下今天...":"Write about today...","日记分类管理":"Diary Category Management","请输入分类名称":"Please enter a category name","分类名称已存在":"That category name already exists","未分类":"Uncategorized","默认":"Default","森林磨砂":"Forest Frost","海蓝磨砂":"Ocean Frost","落日暖橙":"Sunset Orange","中性磨砂灰":"Neutral Frost Gray","曜石黑":"Obsidian Black","象牙白":"Ivory Light","主背景":"Primary Background","次背景":"Secondary Background","三级背景":"Tertiary Background","浅层背景":"Surface Background","强调色":"Accent Color","文字颜色":"Text Color","次级文字":"Muted Text","通用描边":"Border Color","主按钮":"Primary Button","按钮悬停":"Button Hover","按钮文字":"Button Text","按钮描边":"Button Border","强调底文字":"Accent Text","删除按钮":"Delete Button","删除悬停":"Delete Hover","面板底色":"Panel Background","强化面板":"Strong Panel","面板描边":"Panel Border","遮罩颜色":"Overlay Color","时间记录 · 项目表格":"Time Record · Project Table","时间统计 · 时间表格":"Time Stats · Time Grid","时间统计 · 日历热图":"Time Stats · Calendar Heatmap","时间计划 · 年视图":"Planning · Year View","时间计划 · 月视图":"Planning · Month View","时间计划 · 周视图":"Planning · Week View","待办事项 · 列表视图":"Todos · List View","待办事项 · 四象限视图":"Todos · Quadrant View","表格与热图尺寸已重置为 100%":"Table and heatmap sizes reset to 100%","请输入项目名称":"Please enter a project name","项目名称已存在，请使用其他名称":"That project name already exists. Please choose another one.","选择的父级项目不存在":"The selected parent project does not exist","二级项目的父级必须是一级项目":"A level 2 project must use a level 1 parent","三级项目的父级必须是二级项目":"A level 3 project must use a level 2 parent","项目创建成功！":"Project created successfully!","请先创建一级项目":"Please create a level 1 project first","请先创建二级项目":"Please create a level 2 project first","暂无一级项目，请先创建一级项目":"No level 1 projects yet. Please create one first.","暂无二级项目":"No level 2 projects","暂无三级项目":"No level 3 projects","表格视图将根据项目层级自动组织":"The table view is organized by project level","请输入待办事项标题":"Please enter a todo title","请选择每周重复的日期":"Please choose weekdays for repetition","结束日期不能早于开始日期":"End date cannot be earlier than start date","请输入进度内容":"Please enter progress details","保存失败，请刷新后重试":"Save failed. Please refresh and try again.","暂无打卡项目":"No check-in items yet",'点击"添加项目"按钮创建打卡项目':'Click "Add Item" to create a check-in item','确定要删除这个打卡项目吗？此操作不可撤销！':'Delete this check-in item? This action cannot be undone!','删除失败：未找到该打卡项目，请刷新后重试。':'Delete failed: the check-in item was not found. Please refresh and try again.','确定要删除这个待办事项吗？此操作不可撤销！':'Delete this todo item? This action cannot be undone!','删除失败：未找到该待办事项，请刷新后重试。':'Delete failed: the todo item was not found. Please refresh and try again.',"确定删除这条进度记录吗？":"Delete this progress entry?","删除进度记录":"Delete Progress Entry","记录你的进度或想法...":"Record your progress or ideas...","请输入打卡项目标题":"Please enter a check-in title","请选择开始日期":"Please choose a start date","今日不在打卡周期":"Not scheduled today","今日未打卡":"Not checked in today","点击写日记":"Click to write a diary","请至少输入标题或正文":"Please enter at least a title or content","确定删除该日记吗？":"Delete this diary entry?","确定删除该分类吗？相关日记将转为未分类。":"Delete this category? Related diary entries will become uncategorized.","数据已导出！":"Data exported successfully!","导出数据失败，请重试。":"Failed to export data. Please try again.","数据导入成功！请刷新页面查看变化。":"Data imported successfully! Please refresh to see the changes.","导入数据失败，请确保文件格式正确。":"Failed to import data. Please make sure the file format is correct.","所有数据已清除！页面将自动刷新。":"All data has been cleared. The page will refresh automatically.","清除数据失败，请重试。":"Failed to clear data. Please try again.","确定要清除所有数据吗？此操作不可撤销！":"Clear all data? This action cannot be undone!","预览失败，确定要清除所有数据吗？此操作不可撤销！":"Preview failed. Clear all data anyway? This action cannot be undone!","在浏览器环境中无法更改存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","选择文件夹失败，请重试。":"Failed to choose a folder. Please try again.","在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","确定要重置存储路径为默认值吗？":"Reset the storage path to the default value?","未知":"Unknown","自定义路径":"Custom Path","默认路径":"Default Path","浏览器localStorage":"Browser localStorage","没有可清除的数据":"No data to clear","天":"Day","周":"Week","月":"Month","年":"Year"},P=[[/^显示:\s*(.+?)\s*至\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b,c)=>`Showing: ${a} to ${b} · ${x(c)} range`],[/^显示:\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b)=>`Showing: ${a} · ${x(b)} range`],[/^(.+?)\s+暂无日记$/,(_,a)=>`No diary entries for ${a}`],[/^分类：(.+)$/,(_,a)=>`Category: ${a}`],[/^路径:\s+(.+)$/,(_,a)=>`Path: ${a}`],[/^记录数量:\s+(.+)$/,(_,a)=>`Record count: ${a}`],[/^项目数量:\s+(.+)$/,(_,a)=>`Project count: ${a}`],[/^第(\d+)周$/,(_,a)=>`Week ${a}`],[/^(\d+(?:\.\d+)?)小时$/,(_,a)=>`${a} h`],[/^(\d+)分钟$/,(_,a)=>`${a} min`],[/^(\d+)天$/,(_,a)=>`${a} days`],[/^(\d+) 项$/,(_,a)=>`${a} items`],[/^(\d{4})年(\d{1,2})月$/,(_,a,b)=>`${a}-${b}`],[/^(\d{1,2})月(\d{1,2})日$/,(_,a,b)=>`${a}/${b}`],[/^(\d{1,2})月(\d{1,2})日\s+(周[日一二三四五六])$/,(_,a,b,c)=>`${a}/${b} ${w(c)}`],[/^(\d{1,2})月(\d{1,2})日\s*-\s*(\d{1,2})月(\d{1,2})日$/,(_,a,b,c,d)=>`${a}/${b} - ${c}/${d}`],[/^🔥\s*(\d+)天$/,(_,a)=>`🔥 ${a} days`],[/^📝 为"(.+)"添加进度$/,(_,a)=>`📝 Add progress for "${a}"`],[/^📝 编辑"(.+)"的进度$/,(_,a)=>`📝 Edit progress for "${a}"`],[/^已将 "(.+)" 移动到 (\d+)\/(\d+)\s+(\d+):00$/,(_,a,b,c,d)=>`Moved "${a}" to ${b}/${c} ${d}:00`],[/^每周\s+(.+)$/,(_,a)=>`Weekly ${w(a)}`],[/^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*至\s*(.+)$/,(_,a,b,c)=>`🔁 Weekly ${w(a)} · ${b} to ${c}`],[/^🔁\s*每周\s+(.+?)\s*·\s*(.+?)\s*起$/,(_,a,b)=>`🔁 Weekly ${w(a)} · from ${b}`],[/^🔁\s*每天重复\s*·\s*(.+?)\s*至\s*(.+)$/,(_,a,b)=>`🔁 Repeats daily · ${a} to ${b}`],[/^🔁\s*每天重复\s*·\s*(.+?)\s*起$/,(_,a)=>`🔁 Repeats daily · from ${a}`],[/^一次性\s*·\s*截止\s*(.+)$/,(_,a)=>`One-time · Due ${a}`],[/^(.+?)（汇总）$/,(_,a)=>`${a} (Summary)`]];let L=r(v()),O,B=!1,U=!1;function r(s){return A[String(s||"").trim()]||D}function v(){try{const s=localStorage.getItem(K);if(!s)localStorage.setItem(K,D);return s||D}catch{return D}}function e(){return L==="en-US"}function w(s){return String(s||"").split("、").map(t=>W[t.trim()]||t.trim()).join(", ")}function c(s){if(!e()||!/[\u4e00-\u9fff]/.test(s))return s;let t=M[s]??s;P.forEach(([p,f])=>t=t.replace(p,f));return t}function x(s){return typeof s==="string"?c(s):s}function t(s){if(typeof s!=="string"||!e())return s;return s.split("\n").map(n=>{const a=n.match(/^\s*/)?.[0]||"",b=n.match(/\s*$/)?.[0]||"",m=n.trim();return m?`${a}${c(m)}${b}`:n}).join("\n")}function y(){if(window.__controlerI18nDialogs)return;window.__controlerI18nDialogs=!0;const a=window.alert.bind(window),b=window.confirm.bind(window),m=typeof window.prompt==="function"?window.prompt.bind(window):null;window.alert=s=>a(t(String(s)));window.confirm=s=>b(t(String(s)));if(m)window.prompt=(s,d)=>m(t(String(s)),d)}function z(o={}){if(!e())return o;const n={...o};["title","message","confirmText","cancelText"].forEach(k=>{if(typeof n[k]==="string")n[k]=t(n[k])});return n}function C(){if(U||!window.ControlerUI)return;U=!0;if(typeof window.ControlerUI.confirmDialog==="function"){const a=window.ControlerUI.confirmDialog.bind(window.ControlerUI);window.ControlerUI.confirmDialog=o=>a(z(o))}if(typeof window.ControlerUI.alertDialog==="function"){const a=window.ControlerUI.alertDialog.bind(window.ControlerUI);window.ControlerUI.alertDialog=o=>a(z(o))}}function G(el){return el instanceof HTMLInputElement&&["button","submit","reset"].includes(String(el.type||"").toLowerCase())}function H(el,a){el.__controlerI18nAttrs??={};if(!(a in el.__controlerI18nAttrs))el.__controlerI18nAttrs[a]=el.getAttribute(a);return el.__controlerI18nAttrs[a]}function I(el){if(!(el instanceof Element))return;["placeholder","title","aria-label"].forEach(a=>{if(!el.hasAttribute(a))return;const o=H(el,a);if(o==null)return;const n=e()?t(o):o;if(el.getAttribute(a)!==n)el.setAttribute(a,n)});if(G(el)&&el.hasAttribute("value")){const o=H(el,"value");if(o==null)return;const n=e()?t(o):o;if(el.value!==n)el.value=n;if(el.getAttribute("value")!==n)el.setAttribute("value",n)}}function J(n){const p=n?.parentElement;if(!(p instanceof Element))return!0;return p.tagName==="SCRIPT"||p.tagName==="STYLE"||p.closest("[data-i18n-skip='true']")}function N(n){if(!(n instanceof Text)||J(n))return;if(n.__controlerI18nText===void 0)n.__controlerI18nText=n.nodeValue;const o=n.__controlerI18nText,m=e()?t(o):o;if(n.nodeValue!==m)n.nodeValue=m}function S(root=document.documentElement){if(!root||B)return;B=!0;try{if(root instanceof Element)I(root);const q=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);for(let n=q.currentNode;n;n=q.nextNode())n.nodeType===Node.TEXT_NODE?N(n):I(n);document.documentElement.lang=e()?"en":"zh-CN";R();C()}finally{B=!1}}function F(ms){if(B)return;ms.forEach(m=>{if(m.type==="characterData"){N(m.target);return}if(m.type==="attributes"){if(m.target instanceof Element)I(m.target);return}m.addedNodes.forEach(n=>{if(n.nodeType===Node.TEXT_NODE)N(n);else if(n.nodeType===Node.ELEMENT_NODE)S(n)})})}function T(){if(O||!document.documentElement)return;O=new MutationObserver(F);O.observe(document.documentElement,{childList:!0,subtree:!0,characterData:!0,attributes:!0,attributeFilter:["placeholder","title","aria-label","value"]})}function R(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(el instanceof HTMLSelectElement&&el.value!==L)el.value=L})}function Q(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(!(el instanceof HTMLSelectElement)||el.dataset.i18nBound)return;el.dataset.i18nBound="true";el.value=L;el.addEventListener("change",()=>j(el.value))})}function j(lang,{persist=!0,dispatch=!0}={}){L=r(lang);if(persist)try{localStorage.setItem(K,L)}catch{}S();if(dispatch)window.dispatchEvent(new CustomEvent(E,{detail:{language:L}}))}y();window.addEventListener("storage",e2=>{if(e2.key===K)j(e2.newValue||D,{persist:!1,dispatch:!1})});document.addEventListener("DOMContentLoaded",()=>{Q();T();S()});window.ControlerI18n={getLanguage:()=>L,setLanguage:j,t,translateText:t,apply:S,eventName:E}})();
-
+(()=>{const K="appLanguage",D="zh-CN",E="controler:language-changed",A={zh:"zh-CN","zh-CN":"zh-CN",en:"en-US","en-US":"en-US"},W={日:"Sun",一:"Mon",二:"Tue",三:"Wed",四:"Thu",五:"Fri",六:"Sat",周日:"Sun",周一:"Mon",周二:"Tue",周三:"Wed",周四:"Thu",周五:"Fri",周六:"Sat"},M={"时间跟踪器":"Time Tracker","时间记录":"Time Record","时间统计":"Time Stats","时间计划":"Planning","计划待办":"Plans & Todos","日记":"Diary","其他设置":"Settings","记录":"Record","统计":"Stats","计划":"Plan","设置":"Settings","主题配色":"Theme Colors","视图尺寸":"View Size","数据管理":"Data Management","导出数据":"Export Data","导入数据":"Import Data","清除所有数据":"Clear All Data","当前存储状态:":"Current storage status:","正在加载...":"Loading...","存储路径管理":"Storage Path","当前存储路径:":"Current storage path:","路径类型:":"Path type:","更改存储路径":"Change Storage Path","重置为默认路径":"Reset to Default Path","显示存储数据路径":"Show Storage Data Path","清除数据预览":"Clear Data Preview","以下数据将被清除:":"The following data will be removed:","此操作不可撤销！请确认是否继续。":"This action cannot be undone. Please confirm to continue.","取消":"Cancel","保存":"Save","删除":"Delete","编辑":"Edit","确认清除":"Confirm Clear","显示语言":"Display Language","界面语言":"Interface Language","切换应用界面语言，默认简体中文。":"Switch the app language. The default is Simplified Chinese.","简体中文":"Simplified Chinese","选择您喜欢的主题配色，设置将自动保存。":"Choose your preferred theme palette. Changes save automatically.","添加自定义主题":"Add Custom Theme","最小可调到 10%。":"The minimum adjustable size is 10%.","重置为默认 100%":"Reset to Default 100%","管理您的项目和时间记录数据。":"Manage your projects and time-tracking data.","选择时间范围并使用上方折叠按钮查看统计":"Select a date range and use the controls above to view stats","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","请选择合适的时间范围（表格视图最低显示 7 天，最多显示 14 天）":"Please choose a suitable range (table view supports 7 to 14 days)","月视图需要至少28天的时间范围，请选择更长的时间范围":"The monthly view needs at least 28 days. Please choose a longer range.","月视图最多支持90天，请选择更短的时间范围":"The monthly view supports up to 90 days. Please choose a shorter range.","每个色块代表一个时间段，鼠标悬停可查看详情":"Each color block represents a time slot. Hover for details.","统计视图":"Stats View","表格视图":"Table View","饼状图和折线图":"Pie & Line Charts","日历热图":"Calendar Heatmap","开始日期":"Start Date","结束日期":"End Date","显示层级":"Level","全部":"All","时间":"Time","今天":"Today","明天":"Tomorrow","昨天":"Yesterday","图例：":"Legend:","创建项目":"Create Project","开始计时":"Start Timer","配置计时":"Configure Timer","当前项目（本次记录）":"Current Project (This Record)","输入或选择本次计时项目":"Type or select a project","高级创建项目":"Advanced Project Creation","项目层级":"Project Level","一级项目":"Level 1 Project","二级项目":"Level 2 Project","三级项目":"Level 3 Project","请选择父级项目":"Select a parent project","项目颜色":"Project Color","待办事项":"Todos","📝 待办事项":"📝 Todos","✅ 打卡项目":"✅ Check-in Items","➕ 添加项目":"➕ Add Item","进行中":"In Progress","已完成":"Completed","未完成":"Incomplete","已过期":"Overdue","今天到期":"Due Today","列表视图":"List View","四象限视图":"Quadrant View","按截止日期排序":"Sort by Due Date","按优先级排序":"Sort by Priority","按创建时间排序":"Sort by Created Time","按标题排序":"Sort by Title","搜索待办事项...":"Search todos...","今日打卡统计：":"Today's check-ins:","连续打卡最长：":"Longest streak:","暂无待办事项":"No todos yet",'点击"添加项目"按钮开始创建':'Click "Add Item" to start creating',"创建第一个待办事项":"Create Your First Todo","待办事项统计":"Todo Stats","打卡统计":"Check-in Stats","总计":"Total","打卡项目数":"Check-in Items","今日应打卡":"Scheduled Today","今日已打卡":"Checked In Today","最长连续天数":"Longest Streak","无描述":"No description","无截止日期":"No due date","每天":"Repeats Daily","不重复":"No Repeat","每周":"Specific Weekdays","编辑待办事项":"Edit Todo","创建待办事项":"Create Todo","标题 *":"Title *","描述":"Description","截止日期":"Due Date","重复规则":"Repeat Rule","输入待办事项标题":"Enter a todo title","输入待办事项描述（可选）":"Enter a todo description (optional)","低":"Low","中":"Medium","高":"High","低优先级":"Low Priority","中优先级":"Medium Priority","高优先级":"High Priority","保存更改":"Save Changes","编辑打卡项目":"Edit Check-in Item","创建打卡项目":"Create Check-in Item","输入打卡项目标题":"Enter a check-in title","输入打卡项目描述（可选）":"Enter a check-in description (optional)","结束日期（可选）":"End Date (Optional)","蓝色":"Blue","绿色":"Green","橙色":"Orange","紫色":"Purple","删除打卡项目":"Delete Check-in Item","年视图":"Year View","月视图":"Month View","周视图":"Week View","➕ 添加新计划":"➕ Add Plan","正在加载计划视图...":"Loading plan view...","请输入计划名称":"Please enter a plan name","请选择日期":"Please choose a date","请选择开始和结束时间":"Please choose start and end times","结束时间必须晚于开始时间":"End time must be later than start time","编辑计划":"Edit Plan","添加新计划":"Add New Plan","创建新计划":"Create New Plan","计划名称":"Plan Name","重复设置":"Repeat Settings","删除计划":"Delete Plan","创建计划":"Create Plan","标记为已完成":"Mark as Completed","标记为未完成":"Mark as Incomplete","重要且紧急":"Important & Urgent","重要不紧急":"Important, Not Urgent","紧急不重要":"Urgent, Not Important","不重要不紧急":"Neither Important nor Urgent","日记视图":"Diary View","点击写日记":"Click to write a diary","未命名日记":"Untitled Diary","删除日记内容":"Delete Diary Content","输入日记标题":"Enter a diary title","写下今天...":"Write about today...","日记分类管理":"Diary Category Management","请输入分类名称":"Please enter a category name","分类名称已存在":"That category name already exists","未分类":"Uncategorized","默认":"Default","森林磨砂":"Forest Frost","海蓝磨砂":"Ocean Frost","落日暖橙":"Sunset Orange","中性磨砂灰":"Neutral Frost Gray","曜石黑":"Obsidian Black","象牙白":"Ivory Light","主背景":"Primary Background","次背景":"Secondary Background","三级背景":"Tertiary Background","浅层背景":"Surface Background","强调色":"Accent Color","文字颜色":"Text Color","次级文字":"Muted Text","通用描边":"Border Color","主按钮":"Primary Button","按钮悬停":"Button Hover","按钮文字":"Button Text","按钮描边":"Button Border","强调底文字":"Accent Text","删除按钮":"Delete Button","删除悬停":"Delete Hover","面板底色":"Panel Background","强化面板":"Strong Panel","面板描边":"Panel Border","遮罩颜色":"Overlay Color","时间记录 · 项目表格":"Time Record · Project Table","时间统计 · 时间表格":"Time Stats · Time Grid","时间统计 · 日历热图":"Time Stats · Calendar Heatmap","时间计划 · 年视图":"Planning · Year View","时间计划 · 月视图":"Planning · Month View","时间计划 · 周视图":"Planning · Week View","待办事项 · 列表视图":"Todos · List View","待办事项 · 四象限视图":"Todos · Quadrant View","表格与热图尺寸已重置为 100%":"Table and heatmap sizes reset to 100%","请输入项目名称":"Please enter a project name","项目名称已存在，请使用其他名称":"That project name already exists. Please choose another one.","选择的父级项目不存在":"The selected parent project does not exist","二级项目的父级必须是一级项目":"A level 2 project must use a level 1 parent","三级项目的父级必须是二级项目":"A level 3 project must use a level 2 parent","项目创建成功！":"Project created successfully!","请先创建一级项目":"Please create a level 1 project first","请先创建二级项目":"Please create a level 2 project first","暂无一级项目，请先创建一级项目":"No level 1 projects yet. Please create one first.","暂无二级项目":"No level 2 projects","暂无三级项目":"No level 3 projects","表格视图将根据项目层级自动组织":"The table view is organized by project level","请输入待办事项标题":"Please enter a todo title","请选择每周重复的日期":"Please choose weekdays for repetition","结束日期不能早于开始日期":"End date cannot be earlier than start date","请输入进度内容":"Please enter progress details","保存失败，请刷新后重试":"Save failed. Please refresh and try again.","暂无打卡项目":"No check-in items yet",'点击"添加项目"按钮创建打卡项目':'Click "Add Item" to create a check-in item','确定要删除这个打卡项目吗？此操作不可撤销！':'Delete this check-in item? This action cannot be undone!','删除失败：未找到该打卡项目，请刷新后重试。':'Delete failed: the check-in item was not found. Please refresh and try again.','确定要删除这个待办事项吗？此操作不可撤销！':'Delete this todo item? This action cannot be undone!','删除失败：未找到该待办事项，请刷新后重试。':'Delete failed: the todo item was not found. Please refresh and try again.',"确定删除这条进度记录吗？":"Delete this progress entry?","删除进度记录":"Delete Progress Entry","记录你的进度或想法...":"Record your progress or ideas...","请输入打卡项目标题":"Please enter a check-in title","请选择开始日期":"Please choose a start date","今日不在打卡周期":"Not scheduled today","今日未打卡":"Not checked in today","点击写日记":"Click to write a diary","请至少输入标题或正文":"Please enter at least a title or content","确定删除该日记吗？":"Delete this diary entry?","确定删除该分类吗？相关日记将转为未分类。":"Delete this category? Related diary entries will become uncategorized.","数据已导出！":"Data exported successfully!","导出数据失败，请重试。":"Failed to export data. Please try again.","数据导入成功！请刷新页面查看变化。":"Data imported successfully! Please refresh to see the changes.","导入数据失败，请确保文件格式正确。":"Failed to import data. Please make sure the file format is correct.","所有数据已清除！页面将自动刷新。":"All data has been cleared. The page will refresh automatically.","清除数据失败，请重试。":"Failed to clear data. Please try again.","确定要清除所有数据吗？此操作不可撤销！":"Clear all data? This action cannot be undone!","预览失败，确定要清除所有数据吗？此操作不可撤销！":"Preview failed. Clear all data anyway? This action cannot be undone!","在浏览器环境中无法更改存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","选择文件夹失败，请重试。":"Failed to choose a folder. Please try again.","在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":"This feature is only available in the Electron app.","确定要重置存储路径为默认值吗？":"Reset the storage path to the default value?","未知":"Unknown","自定义路径":"Custom Path","默认路径":"Default Path","浏览器localStorage":"Browser localStorage","没有可清除的数据":"No data to clear","天":"Day","周":"Week","月":"Month","年":"Year"},P=[[/^显示:\s*(.+?)\s*至\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b,c)=>`Showing: ${a} to ${b} · ${x(c)} range`],[/^显示:\s*(.+?)\s*·\s*(.+?)范围$/,(_,a,b)=>`Showing: ${a} · ${x(b)} range`],[/^(.+?)\s+暂无日记$/,(_,a)=>`No diary entries for ${a}`],[/^分类：(.+)$/,(_,a)=>`Category: ${a}`],[/^路径:\s+(.+)$/,(_,a)=>`Path: ${a}`],[/^记录数量:\s+(.+)$/,(_,a)=>`Record count: ${a}`],[/^项目数量:\s+(.+)$/,(_,a)=>`Project count: ${a}`],[/^第(\d+)周$/,(_,a)=>`Week ${a}`],[/^(\d+(?:\.\d+)?)小时$/,(_,a)=>`${a} h`],[/^(\d+)分钟$/,(_,a)=>`${a} min`],[/^(\d+)天$/,(_,a)=>`${a} days`],[/^(\d+) 项$/,(_,a)=>`${a} items`],[/^(\d{4})年(\d{1,2})月$/,(_,a,b)=>`${a}-${b}`],[/^(\d{1,2})月(\d{1,2})日$/,(_,a,b)=>`${a}/${b}`],[/^(\d{1,2})月(\d{1,2})日\s+(周[日一二三四五六])$/,(_,a,b,c)=>`${a}/${b} ${w(c)}`],[/^(\d{1,2})月(\d{1,2})日\s*-\s*(\d{1,2})月(\d{1,2})日$/,(_,a,b,c,d)=>`${a}/${b} - ${c}/${d}`],[/^🔥\s*(\d+)天$/,(_,a)=>`🔥 ${a} days`],[/^📝 为"(.+)"添加进度$/,(_,a)=>`📝 Add progress for "${a}"`],[/^📝 编辑"(.+)"的进度$/,(_,a)=>`📝 Edit progress for "${a}"`],[/^已将 "(.+)" 移动到 (\d+)\/(\d+)\s+(\d+):00$/,(_,a,b,c,d)=>`Moved "${a}" to ${b}/${c} ${d}:00`],[/^每周\s+(.+)$/,(_,a)=>`Weekly ${w(a)}`],[/^(🔁\s*)?每周\s+(.+?)\s*·\s*(.+?)\s*至\s*(.+)$/,(_,icon,a,b,c)=>`${icon?"🔁 ":""}Weekly ${w(a)} · ${b} to ${c}`],[/^(🔁\s*)?每周\s+(.+?)\s*·\s*(.+?)\s*起$/,(_,icon,a,b)=>`${icon?"🔁 ":""}Weekly ${w(a)} · from ${b}`],[/^(🔁\s*)?每天重复\s*·\s*(.+?)\s*至\s*(.+)$/,(_,icon,a,b)=>`${icon?"🔁 ":""}Repeats daily · ${a} to ${b}`],[/^(🔁\s*)?每天重复\s*·\s*(.+?)\s*起$/,(_,icon,a)=>`${icon?"🔁 ":""}Repeats daily · from ${a}`],[/^一次性\s*·\s*截止\s*(.+)$/,(_,a)=>`One-time · Due ${a}`],[/^(.+?)（汇总）$/,(_,a)=>`${a} (Summary)`]];let L=r(v()),O,B=!1,U=!1;function r(s){return A[String(s||"").trim()]||D}function v(){try{const s=localStorage.getItem(K);if(!s)localStorage.setItem(K,D);return s||D}catch{return D}}function e(){return L==="en-US"}function w(s){return String(s||"").split("、").map(t=>W[t.trim()]||t.trim()).join(", ")}function c(s){if(!e()||!/[\u4e00-\u9fff]/.test(s))return s;let t=M[s]??s;P.forEach(([p,f])=>t=t.replace(p,f));return t}function x(s){return typeof s==="string"?c(s):s}function t(s){if(typeof s!=="string"||!e())return s;return s.split("\n").map(n=>{const a=n.match(/^\s*/)?.[0]||"",b=n.match(/\s*$/)?.[0]||"",m=n.trim();return m?`${a}${c(m)}${b}`:n}).join("\n")}function y(){if(window.__controlerI18nDialogs)return;window.__controlerI18nDialogs=!0;const a=window.alert.bind(window),b=window.confirm.bind(window),m=typeof window.prompt==="function"?window.prompt.bind(window):null;window.alert=s=>a(t(String(s)));window.confirm=s=>b(t(String(s)));if(m)window.prompt=(s,d)=>m(t(String(s)),d)}function z(o={}){if(!e())return o;const n={...o};["title","message","confirmText","cancelText"].forEach(k=>{if(typeof n[k]==="string")n[k]=t(n[k])});return n}function C(){if(U||!window.ControlerUI)return;U=!0;if(typeof window.ControlerUI.confirmDialog==="function"){const a=window.ControlerUI.confirmDialog.bind(window.ControlerUI);window.ControlerUI.confirmDialog=o=>a(z(o))}if(typeof window.ControlerUI.alertDialog==="function"){const a=window.ControlerUI.alertDialog.bind(window.ControlerUI);window.ControlerUI.alertDialog=o=>a(z(o))}}function G(el){return el instanceof HTMLInputElement&&["button","submit","reset"].includes(String(el.type||"").toLowerCase())}function H(el,a){el.__controlerI18nAttrs??={};if(!(a in el.__controlerI18nAttrs))el.__controlerI18nAttrs[a]=el.getAttribute(a);return el.__controlerI18nAttrs[a]}function I(el){if(!(el instanceof Element))return;["placeholder","title","aria-label"].forEach(a=>{if(!el.hasAttribute(a))return;const o=H(el,a);if(o==null)return;const n=e()?t(o):o;if(el.getAttribute(a)!==n)el.setAttribute(a,n)});if(G(el)&&el.hasAttribute("value")){const o=H(el,"value");if(o==null)return;const n=e()?t(o):o;if(el.value!==n)el.value=n;if(el.getAttribute("value")!==n)el.setAttribute("value",n)}}function J(n){const p=n?.parentElement;if(!(p instanceof Element))return!0;return p.tagName==="SCRIPT"||p.tagName==="STYLE"||p.closest("[data-i18n-skip='true']")}function N(n){if(!(n instanceof Text)||J(n))return;if(n.__controlerI18nText===void 0)n.__controlerI18nText=n.nodeValue;const o=n.__controlerI18nText,m=e()?t(o):o;if(n.nodeValue!==m)n.nodeValue=m}function S(root=document.documentElement){if(!root||B)return;B=!0;try{if(root instanceof Element)I(root);const q=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);for(let n=q.currentNode;n;n=q.nextNode())n.nodeType===Node.TEXT_NODE?N(n):I(n);document.documentElement.lang=e()?"en":"zh-CN";R();C()}finally{B=!1}}function F(ms){if(B)return;ms.forEach(m=>{if(m.type==="characterData"){N(m.target);return}if(m.type==="attributes"){if(m.target instanceof Element)I(m.target);return}m.addedNodes.forEach(n=>{if(n.nodeType===Node.TEXT_NODE)N(n);else if(n.nodeType===Node.ELEMENT_NODE)S(n)})})}function T(){if(O||!document.documentElement)return;O=new MutationObserver(F);O.observe(document.documentElement,{childList:!0,subtree:!0,characterData:!0,attributes:!0,attributeFilter:["placeholder","title","aria-label","value"]})}function R(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(el instanceof HTMLSelectElement&&el.value!==L)el.value=L})}function Q(){document.querySelectorAll("#language-select,[data-language-select='true']").forEach(el=>{if(!(el instanceof HTMLSelectElement)||el.dataset.i18nBound)return;el.dataset.i18nBound="true";el.value=L;el.addEventListener("change",()=>j(el.value))})}function j(lang,{persist=!0,dispatch=!0}={}){L=r(lang);if(persist)try{localStorage.setItem(K,L)}catch{}S();if(dispatch)window.dispatchEvent(new CustomEvent(E,{detail:{language:L}}))}y();window.addEventListener("storage",e2=>{if(e2.key===K)j(e2.newValue||D,{persist:!1,dispatch:!1})});document.addEventListener("DOMContentLoaded",()=>{Q();T();S()});window.ControlerI18n={getLanguage:()=>L,setLanguage:j,t,translateText:t,apply:S,eventName:E}})();
 
 
 
@@ -13255,11 +13254,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "支持输入": "Supports",
     "删除自定义主题": "Delete Custom Theme",
     "恢复默认主题": "Reset Built-in Theme",
+    "冰川银蓝": "Glacier Steel Blue",
     "石墨灰": "Graphite Mist",
-    "极光青雾": "Aurora Mist",
+    "玫瑰晨雾": "Rose Dawn Mist",
+    "紫晶暮雾": "Amethyst Haze",
     "酒红夜幕": "Velvet Bordeaux",
     "香槟砂岩": "Champagne Sandstone",
-    "深海靛影": "Midnight Indigo",
+    "琥珀暮影": "Amber Dusk",
     "自定义路径": "Custom Path",
     "浏览器内置存储": "Browser Built-in Storage",
     "在浏览器环境中无法重置存储路径，此功能仅在Electron应用中可用。":
@@ -14134,41 +14135,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const THEME_WINDOW_NAME_PREFIX = "__CONTROLER_THEME_BOOTSTRAP__:";
   const THEME_APPLIED_EVENT_NAME = "controler:theme-applied";
+  const DESKTOP_THEME_PRELOAD_STYLE_ELEMENT_ID =
+    "controler-desktop-theme-preload-style";
   const DEFAULT_THEME_ID = "obsidian-mono";
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
     /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
 
   const DEFAULT_THEME_COLORS = {
-    primary: "#1f2f28",
-    secondary: "rgba(53, 96, 71, 0.42)",
-    tertiary: "rgba(83, 132, 101, 0.5)",
-    quaternary: "rgba(121, 175, 133, 0.2)",
-    accent: "#8ed6a4",
-    text: "#f5fff8",
-    mutedText: "rgba(245, 255, 248, 0.72)",
-    border: "#6ea283",
-    delete: "#ff7e7e",
-    deleteHover: "#ff6464",
-    projectLevel1: "#79af85",
-    projectLevel2: "#5a7f68",
-    projectLevel3: "#3a5d48",
-    panel: "rgba(24, 41, 33, 0.62)",
-    panelStrong: "rgba(31, 53, 42, 0.74)",
-    panelBorder: "rgba(142, 214, 164, 0.28)",
-    buttonBg: "#8ed6a4",
-    buttonBgHover: "#9ee2b3",
-    buttonText: "#173326",
-    buttonBorder: "rgba(142, 214, 164, 0.42)",
-    onAccentText: "#173326",
-    navBarBg: "rgba(17, 29, 23, 0.84)",
-    navButtonBg: "rgba(142, 214, 164, 0.12)",
-    navButtonActiveBg: "rgba(135, 196, 153, 0.86)",
+    primary: "#183524",
+    secondary: "rgba(23, 53, 36, 0.5)",
+    tertiary: "rgba(41, 84, 54, 0.58)",
+    quaternary: "rgba(111, 208, 141, 0.12)",
+    accent: "#6fd08d",
+    text: "#f4fff7",
+    mutedText: "rgba(244, 255, 247, 0.74)",
+    border: "#5fa878",
+    delete: "#ff8686",
+    deleteHover: "#ff6b6b",
+    projectLevel1: "#72c28a",
+    projectLevel2: "#4c9966",
+    projectLevel3: "#2f6945",
+    panel: "rgba(15, 32, 22, 0.86)",
+    panelStrong: "rgba(18, 40, 27, 0.94)",
+    panelBorder: "rgba(111, 208, 141, 0.18)",
+    buttonBg: "#76d694",
+    buttonBgHover: "#8ae0a6",
+    buttonText: "#133120",
+    buttonBorder: "rgba(111, 208, 141, 0.46)",
+    onAccentText: "#133120",
+    navBarBg: "rgba(11, 25, 17, 0.9)",
+    navButtonBg: "rgba(111, 208, 141, 0.08)",
+    navButtonActiveBg: "rgba(98, 189, 125, 0.88)",
     overlay: "rgba(8, 10, 12, 0.45)",
   };
   const DEFAULT_THEME_RECORD_CARD = {
     mode: "project",
-    color: "#79af85",
+    color: "#72c28a",
   };
 
   function buildThemeDefinition(id, name, colorOverrides = {}, options = {}) {
@@ -14193,9 +14196,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     buildThemeDefinition("default", "森林磨砂"),
     buildThemeDefinition("blue-ocean", "海蓝磨砂", {
       primary: "#12263f",
-      secondary: "rgba(33, 63, 96, 0.46)",
-      tertiary: "rgba(57, 101, 151, 0.52)",
-      quaternary: "rgba(94, 163, 230, 0.22)",
+      secondary: "rgba(24, 43, 69, 0.5)",
+      tertiary: "rgba(39, 63, 96, 0.58)",
+      quaternary: "rgba(126, 198, 255, 0.12)",
       accent: "#7ec6ff",
       text: "#eef6ff",
       mutedText: "rgba(238, 246, 255, 0.72)",
@@ -14205,23 +14208,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       projectLevel1: "#63b3ed",
       projectLevel2: "#4299e1",
       projectLevel3: "#2c5282",
-      panel: "rgba(17, 37, 61, 0.65)",
-      panelStrong: "rgba(22, 45, 73, 0.76)",
-      panelBorder: "rgba(126, 198, 255, 0.28)",
+      panel: "rgba(15, 30, 50, 0.86)",
+      panelStrong: "rgba(19, 36, 58, 0.94)",
+      panelBorder: "rgba(126, 198, 255, 0.16)",
       buttonBg: "#7ec6ff",
       buttonBgHover: "#95d2ff",
       buttonText: "#123052",
       buttonBorder: "rgba(126, 198, 255, 0.48)",
       onAccentText: "#123052",
-      navBarBg: "rgba(12, 28, 47, 0.86)",
-      navButtonBg: "rgba(126, 198, 255, 0.12)",
+      navBarBg: "rgba(11, 23, 39, 0.9)",
+      navButtonBg: "rgba(126, 198, 255, 0.08)",
       navButtonActiveBg: "rgba(119, 182, 235, 0.84)",
     }),
     buildThemeDefinition("sunset-orange", "落日暖橙", {
       primary: "#4b261b",
-      secondary: "rgba(122, 61, 38, 0.48)",
-      tertiary: "rgba(163, 88, 47, 0.52)",
-      quaternary: "rgba(237, 137, 54, 0.2)",
+      secondary: "rgba(101, 50, 31, 0.48)",
+      tertiary: "rgba(129, 67, 42, 0.58)",
+      quaternary: "rgba(255, 191, 120, 0.12)",
       accent: "#ffbf78",
       text: "#fff5ea",
       mutedText: "rgba(255, 245, 234, 0.74)",
@@ -14231,75 +14234,75 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       projectLevel1: "#f6ad55",
       projectLevel2: "#ed8936",
       projectLevel3: "#c05621",
-      panel: "rgba(70, 37, 26, 0.68)",
-      panelStrong: "rgba(88, 46, 31, 0.76)",
-      panelBorder: "rgba(255, 191, 120, 0.3)",
+      panel: "rgba(59, 31, 22, 0.86)",
+      panelStrong: "rgba(70, 37, 26, 0.94)",
+      panelBorder: "rgba(255, 191, 120, 0.18)",
       buttonBg: "#ffc78a",
       buttonBgHover: "#ffd3a5",
       buttonText: "#522a1c",
       buttonBorder: "rgba(255, 191, 120, 0.48)",
       onAccentText: "#522a1c",
-      navBarBg: "rgba(55, 29, 21, 0.86)",
-      navButtonBg: "rgba(255, 191, 120, 0.14)",
+      navBarBg: "rgba(46, 25, 18, 0.9)",
+      navButtonBg: "rgba(255, 191, 120, 0.08)",
       navButtonActiveBg: "rgba(243, 181, 112, 0.88)",
     }),
-    buildThemeDefinition("minimal-gray", "中性磨砂灰", {
-      primary: "#1f252e",
-      secondary: "rgba(63, 73, 88, 0.45)",
-      tertiary: "rgba(91, 105, 126, 0.52)",
-      quaternary: "rgba(160, 174, 192, 0.2)",
-      accent: "#d1d9e3",
-      text: "#f6f8fb",
-      mutedText: "rgba(246, 248, 251, 0.72)",
-      border: "#bebebe",
-      delete: "#ff8383",
-      deleteHover: "#ff6464",
-      projectLevel1: "#d4dce7",
-      projectLevel2: "#a0aec0",
-      projectLevel3: "#718096",
-      panel: "rgba(33, 39, 49, 0.66)",
-      panelStrong: "rgba(40, 47, 58, 0.78)",
-      panelBorder: "rgba(209, 217, 227, 0.3)",
-      buttonBg: "#d9e1ec",
-      buttonBgHover: "#e7edf6",
-      buttonText: "#262f3d",
-      buttonBorder: "rgba(209, 217, 227, 0.56)",
-      onAccentText: "#262f3d",
-      navBarBg: "rgba(28, 33, 41, 0.86)",
-      navButtonBg: "rgba(209, 217, 227, 0.12)",
-      navButtonActiveBg: "rgba(186, 197, 210, 0.84)",
+    buildThemeDefinition("minimal-gray", "冰川银蓝", {
+      primary: "#1c2734",
+      secondary: "rgba(35, 49, 64, 0.5)",
+      tertiary: "rgba(54, 73, 95, 0.58)",
+      quaternary: "rgba(183, 205, 230, 0.12)",
+      accent: "#b7cde6",
+      text: "#f5f9ff",
+      mutedText: "rgba(245, 249, 255, 0.74)",
+      border: "#89a1bc",
+      delete: "#ff8d8d",
+      deleteHover: "#ff7070",
+      projectLevel1: "#a9c1de",
+      projectLevel2: "#7e9bbd",
+      projectLevel3: "#55718f",
+      panel: "rgba(20, 31, 42, 0.86)",
+      panelStrong: "rgba(25, 38, 51, 0.94)",
+      panelBorder: "rgba(183, 205, 230, 0.18)",
+      buttonBg: "#c2d7ee",
+      buttonBgHover: "#d3e3f5",
+      buttonText: "#1f3246",
+      buttonBorder: "rgba(183, 205, 230, 0.5)",
+      onAccentText: "#1f3246",
+      navBarBg: "rgba(15, 24, 34, 0.9)",
+      navButtonBg: "rgba(183, 205, 230, 0.08)",
+      navButtonActiveBg: "rgba(108, 133, 162, 0.88)",
     }),
     buildThemeDefinition("obsidian-mono", "曜石黑", {
       primary: "#0d0f12",
-      secondary: "rgba(24, 27, 32, 0.6)",
-      tertiary: "rgba(46, 50, 59, 0.56)",
-      quaternary: "rgba(106, 113, 128, 0.2)",
+      secondary: "rgba(20, 23, 28, 0.52)",
+      tertiary: "rgba(32, 36, 43, 0.6)",
+      quaternary: "rgba(241, 244, 250, 0.1)",
       accent: "#f1f4fa",
       text: "#f4f6fb",
       mutedText: "rgba(244, 246, 251, 0.76)",
-      border: "rgba(215, 221, 232, 0.32)",
+      border: "rgba(215, 221, 232, 0.24)",
       delete: "#ff7b7b",
       deleteHover: "#ff5f5f",
       projectLevel1: "#d6dde8",
       projectLevel2: "#a2adbd",
       projectLevel3: "#667084",
-      panel: "rgba(16, 18, 22, 0.72)",
-      panelStrong: "rgba(20, 23, 28, 0.82)",
-      panelBorder: "rgba(215, 221, 232, 0.22)",
+      panel: "rgba(15, 17, 21, 0.88)",
+      panelStrong: "rgba(19, 22, 27, 0.95)",
+      panelBorder: "rgba(215, 221, 232, 0.14)",
       buttonBg: "#f1f4fa",
       buttonBgHover: "#ffffff",
       buttonText: "#10141d",
       buttonBorder: "rgba(241, 244, 250, 0.68)",
       onAccentText: "#10141d",
-      navBarBg: "rgba(10, 12, 16, 0.9)",
-      navButtonBg: "rgba(129, 140, 155, 0.14)",
+      navBarBg: "rgba(10, 12, 15, 0.92)",
+      navButtonBg: "rgba(241, 244, 250, 0.06)",
       navButtonActiveBg: "rgba(72, 79, 92, 0.92)",
     }),
     buildThemeDefinition("ivory-light", "象牙白", {
       primary: "#eceff3",
-      secondary: "rgba(255, 255, 255, 0.65)",
-      tertiary: "rgba(240, 244, 250, 0.78)",
-      quaternary: "rgba(222, 229, 238, 0.65)",
+      secondary: "rgba(255, 255, 255, 0.72)",
+      tertiary: "rgba(240, 244, 250, 0.82)",
+      quaternary: "rgba(63, 73, 95, 0.08)",
       accent: "#3f495f",
       text: "#202633",
       mutedText: "rgba(32, 38, 51, 0.7)",
@@ -14309,76 +14312,102 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       projectLevel1: "#8b94a5",
       projectLevel2: "#a2abbb",
       projectLevel3: "#c0c7d3",
-      panel: "rgba(255, 255, 255, 0.74)",
-      panelStrong: "rgba(249, 252, 255, 0.86)",
-      panelBorder: "rgba(110, 122, 143, 0.24)",
+      panel: "rgba(255, 255, 255, 0.88)",
+      panelStrong: "rgba(250, 252, 255, 0.96)",
+      panelBorder: "rgba(110, 122, 143, 0.14)",
       buttonBg: "#3f495f",
       buttonBgHover: "#56607a",
       buttonText: "#f4f7ff",
       buttonBorder: "rgba(63, 73, 95, 0.58)",
       onAccentText: "#f4f7ff",
-      navBarBg: "rgba(244, 247, 251, 0.9)",
-      navButtonBg: "rgba(63, 73, 95, 0.08)",
+      navBarBg: "rgba(246, 249, 252, 0.92)",
+      navButtonBg: "rgba(63, 73, 95, 0.05)",
       navButtonActiveBg: "rgba(74, 85, 109, 0.88)",
       overlay: "rgba(27, 31, 38, 0.22)",
     }),
     buildThemeDefinition("graphite-mist", "石墨灰", {
       primary: "#2a2d32",
-      secondary: "rgba(63, 66, 72, 0.52)",
-      tertiary: "rgba(88, 93, 102, 0.56)",
-      quaternary: "rgba(149, 156, 168, 0.2)",
+      secondary: "rgba(58, 62, 69, 0.5)",
+      tertiary: "rgba(76, 81, 90, 0.58)",
+      quaternary: "rgba(240, 243, 250, 0.1)",
       accent: "#f0f3fa",
       text: "#f8f9fc",
       mutedText: "rgba(248, 249, 252, 0.74)",
-      border: "rgba(224, 227, 234, 0.34)",
+      border: "rgba(224, 227, 234, 0.24)",
       delete: "#ff8787",
       deleteHover: "#ff6b6b",
       projectLevel1: "#d8dde7",
       projectLevel2: "#aeb5c2",
       projectLevel3: "#808897",
-      panel: "rgba(43, 46, 52, 0.66)",
-      panelStrong: "rgba(53, 57, 64, 0.78)",
-      panelBorder: "rgba(224, 227, 234, 0.26)",
+      panel: "rgba(39, 42, 48, 0.86)",
+      panelStrong: "rgba(45, 49, 56, 0.94)",
+      panelBorder: "rgba(224, 227, 234, 0.15)",
       buttonBg: "#f0f3fa",
       buttonBgHover: "#ffffff",
       buttonText: "#222832",
       buttonBorder: "rgba(240, 243, 250, 0.56)",
       onAccentText: "#222832",
-      navBarBg: "rgba(35, 39, 45, 0.88)",
-      navButtonBg: "rgba(240, 243, 250, 0.12)",
+      navBarBg: "rgba(33, 36, 41, 0.9)",
+      navButtonBg: "rgba(240, 243, 250, 0.06)",
       navButtonActiveBg: "rgba(124, 134, 149, 0.82)",
     }),
-    buildThemeDefinition("aurora-mist", "极光青雾", {
-      primary: "#162a2d",
-      secondary: "rgba(31, 63, 68, 0.46)",
-      tertiary: "rgba(67, 110, 116, 0.52)",
-      quaternary: "rgba(120, 171, 176, 0.2)",
-      accent: "#8fd3d1",
-      text: "#effcfb",
-      mutedText: "rgba(239, 252, 251, 0.74)",
-      border: "#7ca8aa",
-      delete: "#ff8d8d",
-      deleteHover: "#ff7070",
-      projectLevel1: "#7fc6c3",
-      projectLevel2: "#5ea6a4",
-      projectLevel3: "#356c70",
-      panel: "rgba(20, 39, 42, 0.66)",
-      panelStrong: "rgba(26, 49, 52, 0.78)",
-      panelBorder: "rgba(143, 211, 209, 0.26)",
-      buttonBg: "#96dcda",
-      buttonBgHover: "#a9e6e4",
-      buttonText: "#133235",
-      buttonBorder: "rgba(143, 211, 209, 0.46)",
-      onAccentText: "#133235",
-      navBarBg: "rgba(15, 32, 35, 0.88)",
-      navButtonBg: "rgba(143, 211, 209, 0.12)",
-      navButtonActiveBg: "rgba(112, 174, 173, 0.88)",
+    buildThemeDefinition("aurora-mist", "玫瑰晨雾", {
+      primary: "#341d28",
+      secondary: "rgba(73, 37, 52, 0.48)",
+      tertiary: "rgba(101, 56, 74, 0.58)",
+      quaternary: "rgba(243, 173, 196, 0.12)",
+      accent: "#f3adc4",
+      text: "#fff4f8",
+      mutedText: "rgba(255, 244, 248, 0.74)",
+      border: "#c492a7",
+      delete: "#ff8fa0",
+      deleteHover: "#ff7488",
+      projectLevel1: "#e6a0b8",
+      projectLevel2: "#c67d99",
+      projectLevel3: "#8e4d67",
+      panel: "rgba(40, 21, 30, 0.86)",
+      panelStrong: "rgba(48, 25, 36, 0.94)",
+      panelBorder: "rgba(243, 173, 196, 0.17)",
+      buttonBg: "#f6b8cd",
+      buttonBgHover: "#fac8d9",
+      buttonText: "#4a2433",
+      buttonBorder: "rgba(243, 173, 196, 0.46)",
+      onAccentText: "#4a2433",
+      navBarBg: "rgba(34, 17, 25, 0.9)",
+      navButtonBg: "rgba(243, 173, 196, 0.08)",
+      navButtonActiveBg: "rgba(170, 95, 123, 0.88)",
+    }),
+    buildThemeDefinition("amethyst-haze", "紫晶暮雾", {
+      primary: "#24192f",
+      secondary: "rgba(48, 35, 64, 0.5)",
+      tertiary: "rgba(72, 52, 96, 0.58)",
+      quaternary: "rgba(190, 155, 255, 0.12)",
+      accent: "#be9bff",
+      text: "#f7f2ff",
+      mutedText: "rgba(247, 242, 255, 0.74)",
+      border: "#a78ccc",
+      delete: "#ff8fa2",
+      deleteHover: "#ff748c",
+      projectLevel1: "#c2a1ff",
+      projectLevel2: "#9672d6",
+      projectLevel3: "#63459b",
+      panel: "rgba(29, 21, 40, 0.86)",
+      panelStrong: "rgba(35, 25, 49, 0.94)",
+      panelBorder: "rgba(190, 155, 255, 0.18)",
+      buttonBg: "#c5a8ff",
+      buttonBgHover: "#d3bcff",
+      buttonText: "#312048",
+      buttonBorder: "rgba(190, 155, 255, 0.48)",
+      onAccentText: "#312048",
+      navBarBg: "rgba(23, 16, 32, 0.9)",
+      navButtonBg: "rgba(190, 155, 255, 0.08)",
+      navButtonActiveBg: "rgba(115, 83, 173, 0.88)",
     }),
     buildThemeDefinition("velvet-bordeaux", "酒红夜幕", {
       primary: "#2f141d",
-      secondary: "rgba(83, 29, 44, 0.48)",
-      tertiary: "rgba(121, 49, 67, 0.54)",
-      quaternary: "rgba(183, 92, 111, 0.18)",
+      secondary: "rgba(68, 24, 37, 0.48)",
+      tertiary: "rgba(94, 37, 52, 0.58)",
+      quaternary: "rgba(216, 166, 184, 0.12)",
       accent: "#d8a6b8",
       text: "#fff3f6",
       mutedText: "rgba(255, 243, 246, 0.74)",
@@ -14388,23 +14417,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       projectLevel1: "#c58da2",
       projectLevel2: "#a6607a",
       projectLevel3: "#6c3348",
-      panel: "rgba(43, 20, 29, 0.68)",
-      panelStrong: "rgba(57, 26, 37, 0.8)",
-      panelBorder: "rgba(216, 166, 184, 0.26)",
+      panel: "rgba(36, 17, 24, 0.86)",
+      panelStrong: "rgba(43, 20, 29, 0.94)",
+      panelBorder: "rgba(216, 166, 184, 0.16)",
       buttonBg: "#e2b0c2",
       buttonBgHover: "#ebc1cf",
       buttonText: "#421d2a",
       buttonBorder: "rgba(216, 166, 184, 0.46)",
       onAccentText: "#421d2a",
-      navBarBg: "rgba(38, 16, 25, 0.9)",
-      navButtonBg: "rgba(216, 166, 184, 0.12)",
+      navBarBg: "rgba(31, 14, 21, 0.9)",
+      navButtonBg: "rgba(216, 166, 184, 0.08)",
       navButtonActiveBg: "rgba(142, 77, 99, 0.88)",
     }),
     buildThemeDefinition("champagne-sandstone", "香槟砂岩", {
       primary: "#f1ebe2",
-      secondary: "rgba(255, 250, 243, 0.7)",
-      tertiary: "rgba(234, 222, 205, 0.82)",
-      quaternary: "rgba(220, 203, 181, 0.62)",
+      secondary: "rgba(255, 250, 244, 0.72)",
+      tertiary: "rgba(238, 228, 214, 0.84)",
+      quaternary: "rgba(139, 111, 87, 0.08)",
       accent: "#8b6f57",
       text: "#2f261f",
       mutedText: "rgba(47, 38, 31, 0.68)",
@@ -14414,49 +14443,49 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       projectLevel1: "#bca087",
       projectLevel2: "#cfb59a",
       projectLevel3: "#e0d0bf",
-      panel: "rgba(255, 251, 246, 0.78)",
-      panelStrong: "rgba(250, 245, 239, 0.9)",
-      panelBorder: "rgba(143, 119, 95, 0.22)",
+      panel: "rgba(255, 252, 248, 0.9)",
+      panelStrong: "rgba(252, 247, 241, 0.96)",
+      panelBorder: "rgba(143, 119, 95, 0.14)",
       buttonBg: "#8b6f57",
       buttonBgHover: "#a28267",
       buttonText: "#f8f3ec",
       buttonBorder: "rgba(139, 111, 87, 0.44)",
       onAccentText: "#f8f3ec",
-      navBarBg: "rgba(248, 241, 232, 0.92)",
-      navButtonBg: "rgba(139, 111, 87, 0.08)",
+      navBarBg: "rgba(249, 243, 235, 0.92)",
+      navButtonBg: "rgba(139, 111, 87, 0.05)",
       navButtonActiveBg: "rgba(145, 118, 92, 0.88)",
       overlay: "rgba(40, 34, 28, 0.18)",
     }),
-    buildThemeDefinition("midnight-indigo", "深海靛影", {
-      primary: "#111a35",
-      secondary: "rgba(26, 39, 76, 0.48)",
-      tertiary: "rgba(51, 70, 124, 0.54)",
-      quaternary: "rgba(105, 130, 208, 0.18)",
-      accent: "#9cb8ff",
-      text: "#eef3ff",
-      mutedText: "rgba(238, 243, 255, 0.74)",
-      border: "#7d91c9",
-      delete: "#ff8d9a",
-      deleteHover: "#ff717f",
-      projectLevel1: "#86a2eb",
-      projectLevel2: "#617bc5",
-      projectLevel3: "#334678",
-      panel: "rgba(16, 26, 52, 0.68)",
-      panelStrong: "rgba(21, 33, 64, 0.8)",
-      panelBorder: "rgba(156, 184, 255, 0.28)",
-      buttonBg: "#9cb8ff",
-      buttonBgHover: "#b0c6ff",
-      buttonText: "#162447",
-      buttonBorder: "rgba(156, 184, 255, 0.46)",
-      onAccentText: "#162447",
-      navBarBg: "rgba(12, 20, 43, 0.88)",
-      navButtonBg: "rgba(156, 184, 255, 0.12)",
-      navButtonActiveBg: "rgba(91, 114, 186, 0.9)",
+    buildThemeDefinition("midnight-indigo", "琥珀暮影", {
+      primary: "#352211",
+      secondary: "rgba(71, 45, 22, 0.48)",
+      tertiary: "rgba(102, 65, 31, 0.58)",
+      quaternary: "rgba(255, 196, 104, 0.12)",
+      accent: "#ffc468",
+      text: "#fff7ea",
+      mutedText: "rgba(255, 247, 234, 0.74)",
+      border: "#c29a63",
+      delete: "#ff9a8a",
+      deleteHover: "#ff7f70",
+      projectLevel1: "#e3b25e",
+      projectLevel2: "#bc8b3e",
+      projectLevel3: "#7e5924",
+      panel: "rgba(43, 27, 14, 0.86)",
+      panelStrong: "rgba(52, 33, 17, 0.94)",
+      panelBorder: "rgba(255, 196, 104, 0.18)",
+      buttonBg: "#ffc970",
+      buttonBgHover: "#ffd58f",
+      buttonText: "#4b2d11",
+      buttonBorder: "rgba(255, 196, 104, 0.48)",
+      onAccentText: "#4b2d11",
+      navBarBg: "rgba(34, 22, 11, 0.9)",
+      navButtonBg: "rgba(255, 196, 104, 0.08)",
+      navButtonActiveBg: "rgba(182, 128, 57, 0.88)",
     }),
   ];
 
   const builtInThemeMap = new Map(BUILT_IN_THEMES.map((theme) => [theme.id, theme]));
-  const lightThemeIds = new Set(["ivory-light"]);
+  const lightThemeIds = new Set(["ivory-light", "champagne-sandstone"]);
   let lastThemeStorageSignature = null;
   let lastLaunchThemeSyncSignature = null;
   let lastDesktopThemeDebugApplySignature = null;
@@ -14925,6 +14954,48 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function syncDocumentThemeSurface(resolvedColors = {}) {
+    const backgroundColor = firstNonEmpty(
+      resolvedColors?.primary,
+      DEFAULT_THEME_COLORS.primary,
+    );
+    const textColor = firstNonEmpty(
+      resolvedColors?.text,
+      DEFAULT_THEME_COLORS.text,
+    );
+    const root = document.documentElement;
+    if (root instanceof HTMLElement) {
+      root.style.backgroundColor = backgroundColor;
+      root.style.color = textColor;
+    }
+
+    const applyBodySurface = () => {
+      if (!(document.body instanceof HTMLElement)) {
+        return;
+      }
+      document.body.style.backgroundColor = backgroundColor;
+      document.body.style.color = textColor;
+    };
+    applyBodySurface();
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", applyBodySurface, {
+        once: true,
+      });
+    }
+
+    const preloadStyle = document.getElementById(
+      DESKTOP_THEME_PRELOAD_STYLE_ELEMENT_ID,
+    );
+    if (preloadStyle instanceof HTMLStyleElement) {
+      preloadStyle.textContent = `html, body { background-color: ${backgroundColor}; color: ${textColor}; }`;
+    }
+
+    return {
+      backgroundColor,
+      textColor,
+    };
+  }
+
   function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD.mode) {
     const normalizedMode = String(mode || "").trim().toLowerCase();
     if (normalizedMode === "theme" || normalizedMode === "custom") {
@@ -15289,6 +15360,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "--widget-color-chip-outline",
       widgetColors.colorChipOutline,
     );
+    syncDocumentThemeSurface(resolvedColors);
     return {
       resolvedColors,
       resolvedRecordCard,
@@ -15675,6 +15747,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     themeAppliedEventName: THEME_APPLIED_EVENT_NAME,
     ensureReadableShapeColor,
     resolveThemeRecordCard,
+    syncDocumentThemeSurface,
     getReadableTextColorForBackground(
       backgroundColor,
       preferredTextColor = "",
@@ -15705,6 +15778,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MODAL_EDGE_SWIPE_CLOSE_VELOCITY = 0.32;
   const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 96;
   const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
+  const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -16001,6 +16075,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_PAGE_TRANSITION_SESSION_KEY = "controler:page-transition";
   const APP_PAGE_ENTER_TRANSITION_STATE_KEY =
     "__CONTROLER_APP_ENTER_TRANSITION__";
+  const APP_PAGE_CUSTOM_TITLE_STORAGE_KEY =
+    "controler:page-custom-topbar-titles";
+  const APP_PAGE_CUSTOM_TITLE_IDLE_HINT = "";
+  const APP_PAGE_CUSTOM_TITLE_EDIT_HINT = "Enter 保存 · Esc 取消";
+  const APP_PAGE_CUSTOM_TITLE_PLACEHOLDER = "输入页面标题";
+  const APP_PAGE_CUSTOM_TITLE_MAX_LENGTH = 40;
   const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
   const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
@@ -18910,6 +18990,438 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
+  function normalizeCustomPageTitleText(value, fallback = "") {
+    const normalized = String(value ?? "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, APP_PAGE_CUSTOM_TITLE_MAX_LENGTH);
+    if (normalized) {
+      return normalized;
+    }
+    return String(fallback || "").trim().slice(0, APP_PAGE_CUSTOM_TITLE_MAX_LENGTH);
+  }
+
+  function normalizeCustomPageTitleMap(source = {}) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      return {};
+    }
+    const nextMap = {};
+    Object.entries(source).forEach(([key, value]) => {
+      const normalizedKey = String(key || "").trim();
+      const normalizedValue = normalizeCustomPageTitleText(value, "");
+      if (normalizedKey && normalizedValue) {
+        nextMap[normalizedKey] = normalizedValue;
+      }
+    });
+    return nextMap;
+  }
+
+  function readStoredCustomPageTitles() {
+    try {
+      return normalizeCustomPageTitleMap(
+        JSON.parse(
+          localStorage.getItem(APP_PAGE_CUSTOM_TITLE_STORAGE_KEY) || "{}",
+        ),
+      );
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function writeStoredCustomPageTitles(nextTitles = {}) {
+    const normalizedTitles = normalizeCustomPageTitleMap(nextTitles);
+    try {
+      if (Object.keys(normalizedTitles).length) {
+        localStorage.setItem(
+          APP_PAGE_CUSTOM_TITLE_STORAGE_KEY,
+          JSON.stringify(normalizedTitles),
+        );
+      } else {
+        localStorage.removeItem(APP_PAGE_CUSTOM_TITLE_STORAGE_KEY);
+      }
+    } catch (_error) {
+      return normalizedTitles;
+    }
+    return normalizedTitles;
+  }
+
+  function getStoredCustomPageTitle(pageKey) {
+    const normalizedPageKey = String(pageKey || "").trim();
+    if (!normalizedPageKey) {
+      return "";
+    }
+    return readStoredCustomPageTitles()[normalizedPageKey] || "";
+  }
+
+  function setStoredCustomPageTitle(pageKey, titleText, defaultTitle = "") {
+    const normalizedPageKey = String(pageKey || "").trim();
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    const normalizedTitle = normalizeCustomPageTitleText(titleText, "");
+    if (!normalizedPageKey) {
+      return normalizedDefaultTitle || normalizedTitle;
+    }
+    const nextTitles = readStoredCustomPageTitles();
+    if (!normalizedTitle || normalizedTitle === normalizedDefaultTitle) {
+      delete nextTitles[normalizedPageKey];
+    } else {
+      nextTitles[normalizedPageKey] = normalizedTitle;
+    }
+    const persistedTitles = writeStoredCustomPageTitles(nextTitles);
+    return (
+      persistedTitles[normalizedPageKey] ||
+      normalizedDefaultTitle ||
+      normalizedTitle
+    );
+  }
+
+  function selectEditablePageTitleText(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    try {
+      const selection = window.getSelection?.();
+      if (!selection) {
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch (_error) {
+      // Ignore selection failures.
+    }
+  }
+
+  function getEditablePageTitleTextNode(titleElement) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return null;
+    }
+    return (
+      Array.from(titleElement.childNodes).find((node) => node instanceof Text) ||
+      null
+    );
+  }
+
+  function resolveEditablePageTitleI18nSource(titleElement, fallback = "") {
+    if (!(titleElement instanceof HTMLElement)) {
+      return normalizeCustomPageTitleText(fallback, "");
+    }
+
+    const storedSource = normalizeCustomPageTitleText(
+      titleElement.dataset.controlerTitleI18nSource,
+      "",
+    );
+    if (storedSource) {
+      return storedSource;
+    }
+
+    const textNode = getEditablePageTitleTextNode(titleElement);
+    const nodeSource = normalizeCustomPageTitleText(
+      textNode?.__controlerI18nText,
+      "",
+    );
+    return nodeSource || normalizeCustomPageTitleText(fallback, "");
+  }
+
+  function syncEditablePageTitleI18nState(
+    titleElement,
+    nextTitle,
+    { editing = false, defaultTitle = "" } = {},
+  ) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return false;
+    }
+
+    const normalizedTitle = normalizeCustomPageTitleText(nextTitle, "");
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    const normalizedI18nSource = resolveEditablePageTitleI18nSource(
+      titleElement,
+      normalizedDefaultTitle || normalizedTitle,
+    );
+    const isCustomTitle =
+      !!normalizedTitle &&
+      !!normalizedDefaultTitle &&
+      normalizedTitle !== normalizedDefaultTitle;
+    const shouldSkipI18n = editing || isCustomTitle;
+
+    titleElement.dataset.controlerTitleI18nSource = normalizedI18nSource;
+
+    if (shouldSkipI18n) {
+      titleElement.setAttribute("data-i18n-skip", "true");
+      return true;
+    }
+
+    titleElement.removeAttribute("data-i18n-skip");
+    const textNode = getEditablePageTitleTextNode(titleElement);
+    if (textNode instanceof Text && normalizedI18nSource) {
+      textNode.__controlerI18nText = normalizedI18nSource;
+    }
+
+    if (typeof window.ControlerI18n?.apply === "function") {
+      window.ControlerI18n.apply(titleElement);
+      return true;
+    }
+    return false;
+  }
+
+  function insertPlainTextAtCurrentSelection(text) {
+    const normalizedText = String(text || "");
+    if (!normalizedText) {
+      return;
+    }
+    try {
+      if (document.queryCommandSupported?.("insertText")) {
+        document.execCommand("insertText", false, normalizedText);
+        return;
+      }
+    } catch (_error) {
+      // Fall through to manual insertion.
+    }
+
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount <= 0) {
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const textNode = document.createTextNode(normalizedText);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.setEndAfter(textNode);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function updateEditablePageTitlePresentation(
+    titleElement,
+    nextTitle,
+    { editing = false, documentTitle = "", defaultTitle = "" } = {},
+  ) {
+    if (!(titleElement instanceof HTMLElement)) {
+      return "";
+    }
+    const normalizedTitle = normalizeCustomPageTitleText(nextTitle, "");
+    const normalizedDefaultTitle = normalizeCustomPageTitleText(defaultTitle, "");
+    if (titleElement.textContent !== normalizedTitle) {
+      titleElement.textContent = normalizedTitle;
+    }
+    titleElement.dataset.controlerTitleEmpty = normalizedTitle ? "false" : "true";
+    titleElement.dataset.editHint = editing
+      ? APP_PAGE_CUSTOM_TITLE_EDIT_HINT
+      : APP_PAGE_CUSTOM_TITLE_IDLE_HINT;
+    const appliedByI18n = syncEditablePageTitleI18nState(titleElement, normalizedTitle, {
+      editing,
+      defaultTitle: normalizedDefaultTitle,
+    });
+    if (!editing && documentTitle) {
+      const documentTitleText =
+        !editing &&
+        !titleElement.hasAttribute("data-i18n-skip") &&
+        typeof window.ControlerI18n?.translateText === "function"
+          ? normalizeCustomPageTitleText(
+              window.ControlerI18n.translateText(
+                resolveEditablePageTitleI18nSource(
+                  titleElement,
+                  normalizedDefaultTitle || normalizedTitle,
+                ),
+              ),
+              normalizedTitle || documentTitle,
+            )
+          : normalizedTitle;
+      document.title =
+        (!appliedByI18n && normalizedTitle) || documentTitleText || documentTitle;
+    }
+    return normalizedTitle;
+  }
+
+  function initEditablePageTitles() {
+    const bind = () => {
+      const pageKey =
+        getCurrentAppNavigationItem()?.key || resolveCurrentPagePerfKey();
+      document.querySelectorAll(".page-topbar .page-title").forEach((titleElement) => {
+        if (
+          !(titleElement instanceof HTMLElement) ||
+          titleElement.dataset.controlerEditableTitleBound === "true"
+        ) {
+          return;
+        }
+
+        const defaultTitle = normalizeCustomPageTitleText(
+          titleElement.textContent,
+          "",
+        );
+        if (!defaultTitle) {
+          return;
+        }
+
+        const defaultDocumentTitle = String(document.title || defaultTitle).trim();
+        const i18nSourceTitle = resolveEditablePageTitleI18nSource(
+          titleElement,
+          defaultTitle,
+        );
+        let committedTitle =
+          getStoredCustomPageTitle(pageKey) || defaultTitle;
+        let draftBeforeEdit = committedTitle;
+        let editing = false;
+
+        titleElement.dataset.controlerEditableTitleBound = "true";
+        titleElement.dataset.pageTitleKey = pageKey;
+        titleElement.dataset.placeholder = APP_PAGE_CUSTOM_TITLE_PLACEHOLDER;
+        titleElement.dataset.controlerTitleI18nSource = i18nSourceTitle;
+        titleElement.classList.add("page-title--editable");
+        titleElement.tabIndex = 0;
+        titleElement.setAttribute("spellcheck", "false");
+        titleElement.setAttribute("role", "button");
+        titleElement.setAttribute("aria-label", "页面标题，可编辑");
+        titleElement.removeAttribute("title");
+        titleElement.contentEditable = "false";
+
+        const applyCommittedTitle = () => {
+          committedTitle = updateEditablePageTitlePresentation(titleElement, committedTitle, {
+            editing: false,
+            documentTitle: defaultDocumentTitle,
+            defaultTitle,
+          });
+          return committedTitle;
+        };
+
+        const startEditing = () => {
+          if (editing) {
+            return;
+          }
+          editing = true;
+          draftBeforeEdit = committedTitle;
+          titleElement.classList.add("is-editing");
+          titleElement.contentEditable = "plaintext-only";
+          syncEditablePageTitleI18nState(titleElement, titleElement.textContent, {
+            editing: true,
+            defaultTitle,
+          });
+          if (titleElement.contentEditable !== "plaintext-only") {
+            titleElement.contentEditable = "true";
+          }
+          titleElement.dataset.editHint = APP_PAGE_CUSTOM_TITLE_EDIT_HINT;
+          titleElement.focus();
+          const selectAll = () => {
+            selectEditablePageTitleText(titleElement);
+          };
+          if (typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(selectAll);
+          } else {
+            window.setTimeout(selectAll, 0);
+          }
+        };
+
+        const finishEditing = (saveChanges = true) => {
+          if (!editing) {
+            return;
+          }
+          editing = false;
+          titleElement.classList.remove("is-editing");
+          titleElement.contentEditable = "false";
+          if (saveChanges) {
+            committedTitle =
+              setStoredCustomPageTitle(
+                pageKey,
+                titleElement.textContent,
+                defaultTitle,
+              ) || defaultTitle;
+          } else {
+            committedTitle = draftBeforeEdit || defaultTitle;
+          }
+          applyCommittedTitle();
+        };
+
+        applyCommittedTitle();
+
+        titleElement.addEventListener("click", (event) => {
+          if (editing) {
+            return;
+          }
+          event.preventDefault();
+          startEditing();
+        });
+
+        titleElement.addEventListener("keydown", (event) => {
+          if (!editing) {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              startEditing();
+            }
+            return;
+          }
+
+          if (event.key === "Enter") {
+            event.preventDefault();
+            finishEditing(true);
+            titleElement.blur();
+            return;
+          }
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            finishEditing(false);
+            titleElement.blur();
+          }
+        });
+
+        titleElement.addEventListener("blur", () => {
+          if (editing) {
+            finishEditing(true);
+          }
+        });
+
+        titleElement.addEventListener("paste", (event) => {
+          if (!editing) {
+            return;
+          }
+          event.preventDefault();
+          const pastedText = normalizeCustomPageTitleText(
+            event.clipboardData?.getData("text/plain") || "",
+            "",
+          );
+          if (!pastedText) {
+            return;
+          }
+          insertPlainTextAtCurrentSelection(pastedText);
+        });
+
+        titleElement.addEventListener("input", () => {
+          if (!editing) {
+            return;
+          }
+          const nextDraft = normalizeCustomPageTitleText(
+            titleElement.textContent,
+            "",
+          );
+          titleElement.dataset.controlerTitleEmpty = nextDraft ? "false" : "true";
+        });
+
+        window.addEventListener("storage", (event) => {
+          if (
+            editing ||
+            !event ||
+            event.key !== APP_PAGE_CUSTOM_TITLE_STORAGE_KEY
+          ) {
+            return;
+          }
+          committedTitle =
+            getStoredCustomPageTitle(pageKey) || defaultTitle;
+          applyCommittedTitle();
+        });
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bind, {
+        once: true,
+      });
+    } else {
+      bind();
+    }
+  }
+
   function getNavigationDirection(fromKey, toKey) {
     const fromIndex = APP_NAV_ITEMS.findIndex((item) => item.key === fromKey);
     const toIndex = APP_NAV_ITEMS.findIndex((item) => item.key === toKey);
@@ -21813,6 +22325,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     modal.__controlerContentViewportCleanup = null;
   }
 
+  function syncModalOverlayViewportMetrics(modal, width = 0, height = 0) {
+    if (!(modal instanceof HTMLElement)) {
+      return modal;
+    }
+    const resolvedWidth = Math.max(
+      0,
+      Number.isFinite(Number(width)) ? Number(width) : 0,
+    );
+    const resolvedHeight = Math.max(
+      0,
+      Number.isFinite(Number(height)) ? Number(height) : 0,
+    );
+    if (resolvedWidth > 0) {
+      modal.style.setProperty(
+        "--controler-modal-overlay-width",
+        `${Math.round(resolvedWidth)}px`,
+      );
+    }
+    if (resolvedHeight > 0) {
+      modal.style.setProperty(
+        "--controler-modal-overlay-height",
+        `${Math.round(resolvedHeight)}px`,
+      );
+    }
+    return modal;
+  }
+
   function syncContentScopedModalViewport(modal) {
     if (
       !(modal instanceof HTMLElement) ||
@@ -21829,6 +22368,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       0,
       host.clientHeight || host.offsetHeight || 0,
     );
+    syncModalOverlayViewportMetrics(modal, viewportWidth, viewportHeight);
     modal.style.setProperty("position", "absolute", "important");
     modal.style.setProperty("inset", "auto", "important");
     modal.style.setProperty(
@@ -21917,6 +22457,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (modal instanceof HTMLElement) {
+      const cleanupKeyboardShortcuts =
+        modal.__controlerModalKeyboardShortcutsCleanup;
+      if (typeof cleanupKeyboardShortcuts === "function") {
+        modal.__controlerModalKeyboardShortcutsCleanup = null;
+        cleanupKeyboardShortcuts();
+      }
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
@@ -21964,6 +22510,395 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  function shouldEnableDesktopModalKeyboardShortcuts() {
+    if (getNativeHostPlatform()) {
+      return false;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    return !(
+      root?.classList.contains("controler-mobile-runtime") ||
+      root?.classList.contains("controler-android-native") ||
+      root?.classList.contains("controler-ios-native") ||
+      body?.classList.contains("controler-mobile-runtime") ||
+      body?.classList.contains("controler-android-native") ||
+      body?.classList.contains("controler-ios-native")
+    );
+  }
+
+  function normalizeModalKeyboardShortcutToken(value) {
+    return String(value ?? "").replace(/\s+/g, "").trim().toLowerCase();
+  }
+
+  function isVisibleModalActionButton(button) {
+    if (!(button instanceof HTMLElement) || !button.isConnected) {
+      return false;
+    }
+    if (
+      button.hasAttribute("hidden") ||
+      button.getAttribute("aria-hidden") === "true"
+    ) {
+      return false;
+    }
+    const computed = window.getComputedStyle(button);
+    return (
+      computed.display !== "none" &&
+      computed.visibility !== "hidden" &&
+      button.getClientRects().length > 0
+    );
+  }
+
+  function getModalActionButtons(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return [];
+    }
+    return Array.from(
+      modal.querySelectorAll(
+        [
+          "button",
+          'input[type="button"]',
+          'input[type="submit"]',
+          'input[type="reset"]',
+          '[role="button"]',
+        ].join(", "),
+      ),
+    ).filter((button) => {
+      if (!(button instanceof HTMLElement) || !isVisibleModalActionButton(button)) {
+        return false;
+      }
+      if (
+        button.matches?.(":disabled") ||
+        button.getAttribute("aria-disabled") === "true"
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function resolveModalShortcutButtonBySelector(modal, selector) {
+    const normalizedSelector = String(selector || "").trim();
+    if (!normalizedSelector || !(modal instanceof HTMLElement)) {
+      return null;
+    }
+    try {
+      const matchedButton = modal.querySelector(normalizedSelector);
+      return isVisibleModalActionButton(matchedButton) ? matchedButton : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function buttonMatchesShortcutTokens(button, tokens = []) {
+    if (!(button instanceof HTMLElement) || !tokens.length) {
+      return false;
+    }
+    const sources = [
+      button.id,
+      button.getAttribute("name"),
+      button.getAttribute("class"),
+      button.getAttribute("data-controler-modal-action-role"),
+      button.getAttribute("data-controler-modal-action"),
+      button.getAttribute("data-todo-fallback-dialog-action"),
+      button.getAttribute("data-todo-choice-dialog-action"),
+      button.getAttribute("aria-label"),
+      button.getAttribute("title"),
+      button.textContent,
+      "value" in button ? button.value : "",
+    ]
+      .map((value) => normalizeModalKeyboardShortcutToken(value))
+      .filter(Boolean);
+    return tokens.some((token) =>
+      sources.some((source) => source.includes(token)),
+    );
+  }
+
+  function scoreModalActionButton(button, role) {
+    if (!(button instanceof HTMLElement)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    let score = 0;
+    if (role === "confirm") {
+      if (
+        button.matches?.(
+          [
+            ".themed-dialog-confirm-btn",
+            '[data-controler-modal-action-role="confirm"]',
+            '[data-todo-fallback-dialog-action="confirm"]',
+          ].join(", "),
+        )
+      ) {
+        score += 120;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "save",
+          "confirm",
+          "submit",
+          "create",
+          "apply",
+          "done",
+          "ok",
+          "commit",
+        ])
+      ) {
+        score += 70;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "保存",
+          "确定",
+          "确认",
+          "创建",
+          "添加",
+          "提交",
+          "应用",
+          "完成",
+          "知道了",
+        ])
+      ) {
+        score += 55;
+      }
+      if (
+        button instanceof HTMLInputElement &&
+        String(button.type || "").toLowerCase() === "submit"
+      ) {
+        score += 60;
+      }
+      if (
+        buttonMatchesShortcutTokens(button, [
+          "cancel",
+          "close",
+          "dismiss",
+          "delete",
+          "remove",
+          "danger",
+          "取消",
+          "关闭",
+          "删除",
+        ])
+      ) {
+        score -= 45;
+      }
+      return score;
+    }
+
+    if (
+      button.matches?.(
+        [
+          ".themed-dialog-cancel-btn",
+          '[data-controler-modal-action-role="cancel"]',
+          '[data-todo-fallback-dialog-action="cancel"]',
+          '[data-todo-choice-dialog-action="cancel"]',
+        ].join(", "),
+      )
+    ) {
+      score += 120;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, [
+        "cancel",
+        "close",
+        "dismiss",
+        "back",
+        "abort",
+      ])
+    ) {
+      score += 70;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, ["取消", "关闭", "返回", "放弃"])
+    ) {
+      score += 55;
+    }
+    if (
+      buttonMatchesShortcutTokens(button, [
+        "save",
+        "confirm",
+        "submit",
+        "create",
+        "delete",
+        "保存",
+        "确定",
+        "确认",
+        "创建",
+        "删除",
+      ])
+    ) {
+      score -= 30;
+    }
+    return score;
+  }
+
+  function findModalActionButton(modal, role, options = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return null;
+    }
+    const explicitSelector =
+      role === "confirm"
+        ? options.confirmSelector
+        : options.cancelSelector;
+    const explicitButton = resolveModalShortcutButtonBySelector(
+      modal,
+      explicitSelector,
+    );
+    if (explicitButton) {
+      return explicitButton;
+    }
+
+    const candidates = getModalActionButtons(modal);
+    let bestMatch = null;
+    candidates.forEach((button, index) => {
+      const score = scoreModalActionButton(button, role);
+      if (score <= 0) {
+        return;
+      }
+      if (
+        !bestMatch ||
+        score > bestMatch.score ||
+        (score === bestMatch.score && index > bestMatch.index)
+      ) {
+        bestMatch = {
+          button,
+          score,
+          index,
+        };
+      }
+    });
+    return bestMatch?.button || null;
+  }
+
+  function resolveModalShortcutInteractiveTarget(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+    return target.closest(
+      [
+        "button",
+        "[role='button']",
+        "a[href]",
+        "select",
+        "summary",
+        'input[type="button"]',
+        'input[type="submit"]',
+        'input[type="reset"]',
+        'input[type="checkbox"]',
+        'input[type="radio"]',
+        'input[type="color"]',
+        'input[type="file"]',
+        'input[type="range"]',
+      ].join(", "),
+    );
+  }
+
+  function bindDesktopModalKeyboardShortcuts(modal, options = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return modal;
+    }
+
+    const shortcutOptions = {
+      confirmSelector:
+        typeof options.keyboardConfirmSelector === "string"
+          ? options.keyboardConfirmSelector.trim()
+          : "",
+      cancelSelector:
+        typeof options.keyboardCancelSelector === "string"
+          ? options.keyboardCancelSelector.trim()
+          : "",
+    };
+    modal.__controlerModalKeyboardShortcutOptions = shortcutOptions;
+
+    if (modal.__controlerModalKeyboardShortcutsBound === "true") {
+      return modal;
+    }
+
+    const handleKeydown = (event) => {
+      if (
+        !shouldEnableDesktopModalKeyboardShortcuts() ||
+        !isVisibleModalOverlay(modal) ||
+        getTopVisibleModal() !== modal ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        if (event.shiftKey) {
+          return;
+        }
+        const target = event.target instanceof Element ? event.target : null;
+        if (
+          target?.closest?.(
+            [
+              "textarea",
+              "select",
+              "[contenteditable='true']",
+              "[contenteditable]:not([contenteditable='false'])",
+            ].join(", "),
+          )
+        ) {
+          return;
+        }
+        const confirmButton = findModalActionButton(
+          modal,
+          "confirm",
+          modal.__controlerModalKeyboardShortcutOptions || {},
+        );
+        if (!(confirmButton instanceof HTMLElement)) {
+          return;
+        }
+        const interactiveTarget = resolveModalShortcutInteractiveTarget(target);
+        if (
+          interactiveTarget instanceof Element &&
+          interactiveTarget !== confirmButton &&
+          !confirmButton.contains(interactiveTarget)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        confirmButton.click?.();
+        return;
+      }
+
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      const cancelButton = findModalActionButton(
+        modal,
+        "cancel",
+        modal.__controlerModalKeyboardShortcutOptions || {},
+      );
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (cancelButton instanceof HTMLElement) {
+        cancelButton.click?.();
+        return;
+      }
+      closeModal(modal);
+    };
+
+    document.addEventListener("keydown", handleKeydown, true);
+    modal.__controlerModalKeyboardShortcutsBound = "true";
+    modal.__controlerModalKeyboardShortcutsCleanup = () => {
+      document.removeEventListener("keydown", handleKeydown, true);
+      modal.__controlerModalKeyboardShortcutsBound = "false";
+    };
+    return modal;
+  }
+
   function prepareModalOverlay(modal, options = {}) {
     if (!(modal instanceof HTMLElement)) return null;
 
@@ -21976,8 +22911,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : "";
     const closeHandler =
       typeof options.close === "function" ? options.close : null;
-    const scopedHost = ensureDesktopContentOverlayHost(modal);
-    const scopeToContent = scopedHost instanceof HTMLElement;
+    const forceViewportScope =
+      options.scope === "viewport" ||
+      modal.classList.contains("controler-form-modal-overlay");
+    const scopedHost = forceViewportScope
+      ? null
+      : ensureDesktopContentOverlayHost(modal);
+    const scopeToContent = !forceViewportScope && scopedHost instanceof HTMLElement;
+    if (scopeToContent) {
+      syncModalOverlayViewportMetrics(
+        modal,
+        scopedHost.clientWidth || scopedHost.offsetWidth || 0,
+        scopedHost.clientHeight || scopedHost.offsetHeight || 0,
+      );
+    } else {
+      modal.style.removeProperty("--controler-modal-overlay-width");
+      modal.style.removeProperty("--controler-modal-overlay-height");
+    }
 
     modal.classList.add("modal-overlay");
     modal.dataset.controlerOverlayScope = scopeToContent ? "content" : "viewport";
@@ -22031,6 +22981,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
     bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
+    bindDesktopModalKeyboardShortcuts(modal, options);
     return modal;
   }
 
@@ -22048,6 +22999,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } = options;
 
     button.addEventListener("click", (event) => {
+      const lastTriggeredAt = Number(button.dataset.controlerModalActionAt || 0);
+      if (Date.now() - lastTriggeredAt < MODAL_ACTION_DEDUP_WINDOW_MS) {
+        if (preventDefault) event.preventDefault();
+        if (stopPropagation) event.stopPropagation();
+        if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+      button.dataset.controlerModalActionAt = String(Date.now());
       if (preventDefault) event.preventDefault();
       if (stopPropagation) event.stopPropagation();
       if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
@@ -22210,21 +23171,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const cleanup = (result) => {
-        document.removeEventListener("keydown", handleKeydown, true);
         closeModal(modal);
         resolve(result);
-      };
-
-      const handleKeydown = (event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cleanup(false);
-          return;
-        }
-        if (event.key === "Enter") {
-          event.preventDefault();
-          cleanup(true);
-        }
       };
 
       confirmButton?.addEventListener("click", (event) => {
@@ -22244,9 +23192,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       prepareModalOverlay(modal, {
         zIndex: 4200,
+        keyboardConfirmSelector: ".themed-dialog-confirm-btn",
+        keyboardCancelSelector: ".themed-dialog-cancel-btn",
       });
       activateModalInteractionShield(180);
-      document.addEventListener("keydown", handleKeydown, true);
       setTimeout(() => {
         (confirmButton || cancelButton)?.focus?.();
       }, 0);
@@ -24165,6 +25114,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   initModalHistoryObserver();
   initAppNavigationVisibility();
   initAppPageTransitions();
+  initEditablePageTitles();
   initAndroidInteractiveTextAssist();
   initAndroidPressFeedback();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
@@ -24199,6 +25149,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     bindWindowMoveHandle,
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
+    initEditablePageTitles,
+    getStoredCustomPageTitle,
+    setStoredCustomPageTitle,
     mountDesktopWidgetScale,
     blockingOverlayStateEventName: BLOCKING_OVERLAY_STATE_EVENT_NAME,
     shellVisibilityEventName: SHELL_VISIBILITY_EVENT_NAME,

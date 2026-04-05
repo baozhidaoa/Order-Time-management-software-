@@ -351,7 +351,7 @@ public class MainActivity extends ReactActivity {
       case "sunset-orange":
         return Color.parseColor("#4B261B");
       case "minimal-gray":
-        return Color.parseColor("#1F252E");
+        return Color.parseColor("#1C2734");
       case "obsidian-mono":
         return Color.parseColor("#0D0F12");
       case "ivory-light":
@@ -359,15 +359,17 @@ public class MainActivity extends ReactActivity {
       case "graphite-mist":
         return Color.parseColor("#2A2D32");
       case "aurora-mist":
-        return Color.parseColor("#162A2D");
+        return Color.parseColor("#341D28");
+      case "amethyst-haze":
+        return Color.parseColor("#24192F");
       case "velvet-bordeaux":
         return Color.parseColor("#2F141D");
       case "champagne-sandstone":
         return Color.parseColor("#F1EBE2");
       case "midnight-indigo":
-        return Color.parseColor("#111A35");
+        return Color.parseColor("#352211");
       default:
-        return Color.parseColor("#1F2F28");
+        return Color.parseColor("#183524");
     }
   }
 
@@ -448,6 +450,8 @@ public class MainActivity extends ReactActivity {
         return R.style.AppThemeLaunchGraphiteMist;
       case "aurora-mist":
         return R.style.AppThemeLaunchAuroraMist;
+      case "amethyst-haze":
+        return R.style.AppThemeLaunchAmethystHaze;
       case "velvet-bordeaux":
         return R.style.AppThemeLaunchVelvetBordeaux;
       case "champagne-sandstone":

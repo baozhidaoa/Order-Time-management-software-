@@ -9,7 +9,8 @@ let statsLastPersistenceError = null;
 let statsBeforePageLeaveGuardBound = false;
 const uiTools = window.ControlerUI || null;
 const projectStatsApi = window.ControlerProjectStats || null;
-const indexRecordPersistenceApi = window.ControlerIndexRecordPersistence || null;
+const indexRecordPersistenceApi =
+  window.ControlerIndexRecordPersistence || null;
 const statsRecordDomainApi = window.ControlerRecordDomain || null;
 const statsStorageBundleApi = window.ControlerStorageBundle || null;
 const statsDataIndex = window.ControlerDataIndex?.createStore?.() || null;
@@ -360,7 +361,9 @@ function findStatsProjectByName(projectName, projectList = projects) {
         (project) => String(project?.name || "").trim() === leafName,
       ) || null
     : null;
-  return exactPreferred || preferredLeafMatch || exactMatch || leafMatch || null;
+  return (
+    exactPreferred || preferredLeafMatch || exactMatch || leafMatch || null
+  );
 }
 
 function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
@@ -377,7 +380,10 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
       parseStatsFlexibleDate(record?.rawEndTime) ||
       parseStatsFlexibleDate(record?.startTime) ||
       new Date();
-    const durationMs = resolveStatsRecordDurationMs(record, normalizedDurationMeta);
+    const durationMs = resolveStatsRecordDurationMs(
+      record,
+      normalizedDurationMeta,
+    );
     const explicitStartDate = parseStatsFlexibleDate(record?.startTime);
     const startDate =
       explicitStartDate ||
@@ -403,7 +409,8 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
     const matchedNextProject =
       findStatsProjectByName(normalizedNextProjectName, safeProjects) ||
       safeProjects.find(
-        (project) => String(project?.id || "").trim() === normalizedNextProjectId,
+        (project) =>
+          String(project?.id || "").trim() === normalizedNextProjectId,
       ) ||
       null;
 
@@ -416,8 +423,9 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
         matchedNextProject?.name || normalizedNextProjectName || "",
       ).trim(),
       nextProjectId:
-        String(matchedNextProject?.id || normalizedNextProjectId || "").trim() ||
-        null,
+        String(
+          matchedNextProject?.id || normalizedNextProjectId || "",
+        ).trim() || null,
       timestamp: canonicalEndDate.toISOString(),
       sptTime: canonicalEndDate.toISOString(),
       endTime: canonicalEndDate.toISOString(),
@@ -472,10 +480,7 @@ function dedupeStatsLoadedRecords(recordList = []) {
     .filter(Boolean);
 }
 
-function queueStatsPersistenceTask(
-  task,
-  errorLabel = "保存统计记录失败:",
-) {
+function queueStatsPersistenceTask(task, errorLabel = "保存统计记录失败:") {
   statsLastPersistenceError = null;
   statsPendingPersistenceCount += 1;
   const queuedTask = statsPersistChain
@@ -574,7 +579,9 @@ function rebuildStatsProjectDurationCaches(
   projectList = projects,
   recordList = records,
 ) {
-  if (typeof statsStorageBundleApi?.rebuildProjectDurationCaches !== "function") {
+  if (
+    typeof statsStorageBundleApi?.rebuildProjectDurationCaches !== "function"
+  ) {
     return null;
   }
   const nextProjects = statsStorageBundleApi.rebuildProjectDurationCaches(
@@ -589,7 +596,10 @@ function rebuildStatsProjectDurationCaches(
 }
 
 function applyStatsProjectRecordDurationChanges(changes = {}) {
-  if (typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !== "function") {
+  if (
+    typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !==
+    "function"
+  ) {
     return null;
   }
   const nextProjects = statsStorageBundleApi.applyProjectRecordDurationChanges(
@@ -622,7 +632,9 @@ async function persistStatsProjectsSnapshot(projectList = projects) {
 function captureStatsWorkspaceSnapshot(snapshot = {}) {
   return {
     preferences: cloneStatsValue(
-      normalizeStatsPreferences(snapshot?.preferences || statsPreferencesState || {}),
+      normalizeStatsPreferences(
+        snapshot?.preferences || statsPreferencesState || {},
+      ),
     ),
     records: Array.isArray(snapshot?.records)
       ? cloneStatsRecordSnapshotList(snapshot.records)
@@ -732,8 +744,7 @@ const DISABLE_ELECTRON_STATS_BLOCK_DRAG =
   IS_ELECTRON_DESKTOP || HAS_COARSE_POINTER;
 const DISABLE_ELECTRON_STATS_GLASS_EFFECT = IS_ELECTRON_DESKTOP;
 const DISABLE_ELECTRON_STATS_BLOCK_HOVER_EFFECT = IS_ELECTRON_DESKTOP;
-const STATS_ELECTRON_COMPAT_STYLE_ID =
-  "controler-stats-electron-compat-style";
+const STATS_ELECTRON_COMPAT_STYLE_ID = "controler-stats-electron-compat-style";
 const STATS_WIDGET_CONTEXT = (() => {
   let params = null;
   try {
@@ -770,7 +781,8 @@ function renderStatsRuntimeMessage(container, title, message) {
   const body = document.createElement("div");
   body.className = "stats-section-body";
   const isError =
-    String(message || "").includes("失败") || String(message || "").includes("错误");
+    String(message || "").includes("失败") ||
+    String(message || "").includes("错误");
   if (isError) {
     const statusMessage = document.createElement("div");
     statusMessage.textContent =
@@ -902,10 +914,7 @@ function ensureStatsViewRuntimeLoaded(viewMode = statsViewMode) {
 function scheduleStatsVisualizationRuntimePreload() {
   if (
     statsVisualizationRuntimePreloadQueued ||
-    (
-      typeof window.Chart !== "undefined" &&
-      typeof window.d3 !== "undefined"
-    )
+    (typeof window.Chart !== "undefined" && typeof window.d3 !== "undefined")
   ) {
     return;
   }
@@ -952,15 +961,22 @@ function getStatsNormalizedChangedSections(changedSections = []) {
   );
 }
 
-function hasStatsChangedPeriodOverlap(changedPeriodIds = [], currentPeriodIds = []) {
+function hasStatsChangedPeriodOverlap(
+  changedPeriodIds = [],
+  currentPeriodIds = [],
+) {
   if (typeof uiTools?.hasPeriodOverlap === "function") {
     return uiTools.hasPeriodOverlap(changedPeriodIds, currentPeriodIds);
   }
   const normalizedChanged = Array.isArray(changedPeriodIds)
-    ? changedPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    ? changedPeriodIds
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean)
     : [];
   const normalizedCurrent = Array.isArray(currentPeriodIds)
-    ? currentPeriodIds.map((periodId) => String(periodId || "").trim()).filter(Boolean)
+    ? currentPeriodIds
+        .map((periodId) => String(periodId || "").trim())
+        .filter(Boolean)
     : [];
   if (!normalizedChanged.length || !normalizedCurrent.length) {
     return true;
@@ -998,9 +1014,10 @@ function isStatsOwnStorageChange(detail = {}) {
 }
 
 function isStatsInitialStorageBootstrapChange(detail = {}) {
-  const reason =
-    typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const changedSections = getStatsNormalizedChangedSections(
+    detail?.changedSections,
+  );
   return reason === "initial-sync" && !changedSections.length;
 }
 
@@ -1008,14 +1025,14 @@ function isStatsAmbiguousNativeExternalChange(detail = {}) {
   if (window.ControlerStorage?.isNativeApp !== true) {
     return false;
   }
-  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getStatsNormalizedChangedSections(
+    detail?.changedSections,
+  );
   if (changedSections.length) {
     return false;
   }
-  const reason =
-    typeof detail?.reason === "string" ? detail.reason.trim() : "";
-  const source =
-    typeof detail?.source === "string" ? detail.source.trim() : "";
+  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source = typeof detail?.source === "string" ? detail.source.trim() : "";
   return !source && (reason === "external-update" || reason === "shell-resume");
 }
 
@@ -1039,7 +1056,9 @@ function shouldRefreshStatsForExternalChange(detail = {}) {
   if (isStatsAmbiguousNativeExternalChange(detail)) {
     return false;
   }
-  const changedSections = getStatsNormalizedChangedSections(detail?.changedSections);
+  const changedSections = getStatsNormalizedChangedSections(
+    detail?.changedSections,
+  );
   if (!changedSections.length) {
     return true;
   }
@@ -1192,13 +1211,12 @@ function normalizeStatsHeatmapDataType(dataType) {
 function normalizeStatsUiState(rawUiState) {
   const baseUiState = createDefaultStatsPreferences().uiState;
   const source = rawUiState && typeof rawUiState === "object" ? rawUiState : {};
-  const pieState = source.pie && typeof source.pie === "object" ? source.pie : {};
+  const pieState =
+    source.pie && typeof source.pie === "object" ? source.pie : {};
   const lineState =
     source.line && typeof source.line === "object" ? source.line : {};
   const heatmapUiState =
-    source.heatmap && typeof source.heatmap === "object"
-      ? source.heatmap
-      : {};
+    source.heatmap && typeof source.heatmap === "object" ? source.heatmap : {};
 
   return {
     ...baseUiState,
@@ -1219,8 +1237,10 @@ function normalizeStatsUiState(rawUiState) {
     heatmap: {
       ...baseUiState.heatmap,
       dataType: normalizeStatsHeatmapDataType(heatmapUiState.dataType),
-      projectFilter: String(heatmapUiState.projectFilter || "all").trim() || "all",
-      checkinItemId: String(heatmapUiState.checkinItemId || "all").trim() || "all",
+      projectFilter:
+        String(heatmapUiState.projectFilter || "all").trim() || "all",
+      checkinItemId:
+        String(heatmapUiState.checkinItemId || "all").trim() || "all",
       monthCount: clamp(parseInt(heatmapUiState.monthCount, 10) || 1, 1, 12),
     },
   };
@@ -1281,7 +1301,9 @@ function readStatsPreferencesFromStorage() {
     const savedPreferences = localStorage.getItem(
       STATS_PREFERENCES_STORAGE_KEY,
     );
-    return normalizeStatsPreferences(savedPreferences ? JSON.parse(savedPreferences) : {});
+    return normalizeStatsPreferences(
+      savedPreferences ? JSON.parse(savedPreferences) : {},
+    );
   } catch (error) {
     console.error("加载统计偏好配置失败:", error);
     return createDefaultStatsPreferences();
@@ -1463,11 +1485,12 @@ function getStatsLoadingOverlayController() {
   if (!(overlay instanceof HTMLElement)) {
     return null;
   }
-  statsLoadingOverlayController = uiTools?.createPageLoadingOverlayController?.({
-    overlay,
-    inlineHost: ".stats-main",
-    scopeFullscreenToInlineHost: false,
-  }) || null;
+  statsLoadingOverlayController =
+    uiTools?.createPageLoadingOverlayController?.({
+      overlay,
+      inlineHost: ".stats-main",
+      scopeFullscreenToInlineHost: false,
+    }) || null;
   return statsLoadingOverlayController;
 }
 
@@ -2191,7 +2214,8 @@ function syncStatsDateInputBounds() {
 }
 
 function refreshStatsAvailableRecordDateBounds(recordList = records) {
-  statsAvailableRecordDateBounds = getStatsAvailableRecordDateBounds(recordList);
+  statsAvailableRecordDateBounds =
+    getStatsAvailableRecordDateBounds(recordList);
   syncStatsDateInputBounds();
   return statsAvailableRecordDateBounds;
 }
@@ -2253,14 +2277,22 @@ function getNormalizedStatsInputRange(
   };
 }
 
-function getWidgetLaunchAnchorDate(payload = {}, fallbackDate = getDateOnly(new Date())) {
+function getWidgetLaunchAnchorDate(
+  payload = {},
+  fallbackDate = getDateOnly(new Date()),
+) {
   const rawAnchorDate =
-    typeof payload?.widgetAnchorDate === "string" && payload.widgetAnchorDate.trim()
+    typeof payload?.widgetAnchorDate === "string" &&
+    payload.widgetAnchorDate.trim()
       ? payload.widgetAnchorDate.trim()
       : typeof payload?.anchorDate === "string" && payload.anchorDate.trim()
         ? payload.anchorDate.trim()
         : "";
-  return getDateOnly(rawAnchorDate) || getDateOnly(fallbackDate) || getDateOnly(new Date());
+  return (
+    getDateOnly(rawAnchorDate) ||
+    getDateOnly(fallbackDate) ||
+    getDateOnly(new Date())
+  );
 }
 
 function normalizeStatsAnchorForView(
@@ -2289,7 +2321,10 @@ function normalizeStatsAnchorForView(
   }
 
   if (safeUnit === "year") {
-    return getHeatmapYearAnchor(baseAnchor.getFullYear(), getSafeHeatmapMonthCount());
+    return getHeatmapYearAnchor(
+      baseAnchor.getFullYear(),
+      getSafeHeatmapMonthCount(),
+    );
   }
 
   return new Date(baseAnchor.getFullYear(), baseAnchor.getMonth(), 1);
@@ -2297,8 +2332,13 @@ function normalizeStatsAnchorForView(
 
 function reconcileStatsRangeStateWithAvailableData(viewMode = statsViewMode) {
   const safeUnit = isHeatmapToolbarViewMode(viewMode)
-    ? normalizeHeatmapRangeUnit(statsRangeState.unit || statsRememberedHeatmapRangeUnit)
-    : normalizeStatsRangeUnit(statsRangeState.unit || statsRememberedGeneralRangeUnit, "day");
+    ? normalizeHeatmapRangeUnit(
+        statsRangeState.unit || statsRememberedHeatmapRangeUnit,
+      )
+    : normalizeStatsRangeUnit(
+        statsRangeState.unit || statsRememberedGeneralRangeUnit,
+        "day",
+      );
   if (hasCustomStatsDateRange(viewMode)) {
     const { start, end } = setStatsCustomDateRange(
       statsRangeState.customStartDate,
@@ -2370,7 +2410,9 @@ function syncStatsTimeUnitOptions(select = null) {
     const optionValue = String(optionNode?.value || "").trim();
     optionNode.disabled =
       heatmapView &&
-      (optionValue === "today" || optionValue === "day" || optionValue === "week");
+      (optionValue === "today" ||
+        optionValue === "day" ||
+        optionValue === "week");
   });
 
   const expectedUnit = heatmapView
@@ -2455,7 +2497,7 @@ function hasCustomStatsDateRange(viewMode = statsViewMode) {
   }
   return Boolean(
     getDateOnly(statsRangeState.customStartDate) &&
-      getDateOnly(statsRangeState.customEndDate),
+    getDateOnly(statsRangeState.customEndDate),
   );
 }
 
@@ -2485,7 +2527,9 @@ function resolveStatsCustomRangeAnchor(
       ? getDateOnly(startDateValue) || getDateOnly(endDateValue)
       : getDateOnly(endDateValue) || getDateOnly(startDateValue);
   const safeReferenceDate =
-    referenceDate || getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView();
+    referenceDate ||
+    getDateOnly(statsRangeState.anchorDate) ||
+    getInitialStatsAnchorForView();
 
   switch (safeUnit) {
     case "today":
@@ -2517,8 +2561,16 @@ function getShiftedStatsDateByUnit(dateValue, unit, amount) {
       const targetYear = nextDate.getFullYear();
       const targetMonth = nextDate.getMonth() + amount;
       const targetDay = nextDate.getDate();
-      const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-      return new Date(targetYear, targetMonth, Math.min(targetDay, lastDayOfTargetMonth));
+      const lastDayOfTargetMonth = new Date(
+        targetYear,
+        targetMonth + 1,
+        0,
+      ).getDate();
+      return new Date(
+        targetYear,
+        targetMonth,
+        Math.min(targetDay, lastDayOfTargetMonth),
+      );
     }
     case "year": {
       const targetYear = nextDate.getFullYear() + amount;
@@ -2529,7 +2581,11 @@ function getShiftedStatsDateByUnit(dateValue, unit, amount) {
         targetMonth + 1,
         0,
       ).getDate();
-      return new Date(targetYear, targetMonth, Math.min(targetDay, lastDayOfTargetMonth));
+      return new Date(
+        targetYear,
+        targetMonth,
+        Math.min(targetDay, lastDayOfTargetMonth),
+      );
     }
     case "day":
     default:
@@ -2717,27 +2773,22 @@ function resolveStatsAnchorFromInputs(unit, changeSource = "end") {
   return new Date(referenceDate);
 }
 
-function applyStatsCustomRange(
-  startDateValue,
-  endDateValue,
-  options = {},
-) {
+function applyStatsCustomRange(startDateValue, endDateValue, options = {}) {
   if (isHeatmapToolbarViewMode()) {
     const nextAnchor =
       options.anchorDate ||
-      resolveStatsAnchorFromInputs(options.unit || statsRangeState.unit, options.changeSource) ||
+      resolveStatsAnchorFromInputs(
+        options.unit || statsRangeState.unit,
+        options.changeSource,
+      ) ||
       getInitialStatsAnchorForView();
-    return applyStatsRange(
-      options.unit || statsRangeState.unit,
-      nextAnchor,
-      {
-        shouldRender: options.shouldRender !== false,
-        refreshOptions:
-          options.refreshOptions && typeof options.refreshOptions === "object"
-            ? options.refreshOptions
-            : {},
-      },
-    );
+    return applyStatsRange(options.unit || statsRangeState.unit, nextAnchor, {
+      shouldRender: options.shouldRender !== false,
+      refreshOptions:
+        options.refreshOptions && typeof options.refreshOptions === "object"
+          ? options.refreshOptions
+          : {},
+    });
   }
 
   const {
@@ -2788,7 +2839,8 @@ function applyStatsRange(unit, anchorDateValue, shouldRenderOrOptions = true) {
       : { shouldRender: shouldRenderOrOptions !== false };
   const shouldRender = applyOptions.shouldRender !== false;
   const refreshOptions =
-    applyOptions.refreshOptions && typeof applyOptions.refreshOptions === "object"
+    applyOptions.refreshOptions &&
+    typeof applyOptions.refreshOptions === "object"
       ? applyOptions.refreshOptions
       : {};
   const safeUnit = isHeatmapToolbarViewMode()
@@ -2828,9 +2880,7 @@ function applyStatsRange(unit, anchorDateValue, shouldRenderOrOptions = true) {
   return Promise.resolve(null);
 }
 
-function applyStatsUiStateFromPreferences(
-  preferences = statsPreferencesState,
-) {
+function applyStatsUiStateFromPreferences(preferences = statsPreferencesState) {
   const uiState = normalizeStatsUiState(preferences?.uiState);
 
   statsViewMode = uiState.viewMode;
@@ -3135,14 +3185,19 @@ function statsRecordOverlapsScope(record = {}, scope = getStatsLoadScope()) {
   }
 
   const range = getNormalizedStatsFilterRange(startValue, endValue);
-  const normalizedDurationMeta = normalizeStatsRecordDurationMeta(record?.durationMeta);
+  const normalizedDurationMeta = normalizeStatsRecordDurationMeta(
+    record?.durationMeta,
+  );
   const rawEnd =
     parseStatsFlexibleDate(record?.endTime) ||
     parseStatsFlexibleDate(record?.timestamp) ||
     parseStatsFlexibleDate(record?.rawEndTime) ||
     parseStatsFlexibleDate(record?.startTime) ||
     null;
-  const durationMs = resolveStatsRecordDurationMs(record, normalizedDurationMeta);
+  const durationMs = resolveStatsRecordDurationMs(
+    record,
+    normalizedDurationMeta,
+  );
   const rawStart =
     parseStatsFlexibleDate(record?.startTime) ||
     (durationMs > 0 && rawEnd
@@ -3164,7 +3219,9 @@ function statsRecordOverlapsScope(record = {}, scope = getStatsLoadScope()) {
     endTime = swapped;
   }
 
-  return endTime > range.start.getTime() && startTime < range.endExclusive.getTime();
+  return (
+    endTime > range.start.getTime() && startTime < range.endExclusive.getTime()
+  );
 }
 
 function buildStatsLoadedRecordPeriodIds(scope = {}, recordList = []) {
@@ -3180,7 +3237,9 @@ function buildStatsLoadedRecordPeriodIds(scope = {}, recordList = []) {
   const actualPeriodIds = Array.isArray(recordList)
     ? [
         ...new Set(
-          recordList.flatMap((record) => getStatsRecordPeriodIds(record)).filter(Boolean),
+          recordList
+            .flatMap((record) => getStatsRecordPeriodIds(record))
+            .filter(Boolean),
         ),
       ]
     : [];
@@ -3193,17 +3252,24 @@ function buildStatsLoadedRecordPeriodIds(scope = {}, recordList = []) {
   return [...new Set([...logicalPeriodIds, ...actualPeriodIds])];
 }
 
-function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStatsLoadScope()) {
+function buildStatsWorkspaceSnapshotFromState(
+  sourceState = {},
+  scope = getStatsLoadScope(),
+) {
   const recordScope = getExpandedStatsRecordLoadScope(scope);
   const periodSet = new Set(expandStatsScopedRecordPeriodIds(scope));
-  const sourceRecords = Array.isArray(sourceState?.records) ? sourceState.records : [];
+  const sourceRecords = Array.isArray(sourceState?.records)
+    ? sourceState.records
+    : [];
   const nextRecords =
     recordScope?.all === true
       ? sourceRecords.slice()
       : sourceRecords.filter((record) => {
           if (
             periodSet.size > 0 &&
-            !getStatsRecordPeriodIds(record).some((periodId) => periodSet.has(periodId))
+            !getStatsRecordPeriodIds(record).some((periodId) =>
+              periodSet.has(periodId),
+            )
           ) {
             return false;
           }
@@ -3211,9 +3277,11 @@ function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStats
         });
   return {
     preferences:
-      sourceState?.statsPreferences && typeof sourceState.statsPreferences === "object"
+      sourceState?.statsPreferences &&
+      typeof sourceState.statsPreferences === "object"
         ? sourceState.statsPreferences
-        : sourceState?.preferences && typeof sourceState.preferences === "object"
+        : sourceState?.preferences &&
+            typeof sourceState.preferences === "object"
           ? sourceState.preferences
           : readStatsPreferencesFromStorage(),
     records: nextRecords,
@@ -3223,15 +3291,22 @@ function buildStatsWorkspaceSnapshotFromState(sourceState = {}, scope = getStats
 }
 
 function getStatsWorkspaceSnapshotWeight(snapshot = {}) {
-  const recordCount = Array.isArray(snapshot?.records) ? snapshot.records.length : 0;
-  const projectCount = Array.isArray(snapshot?.projects) ? snapshot.projects.length : 0;
+  const recordCount = Array.isArray(snapshot?.records)
+    ? snapshot.records.length
+    : 0;
+  const projectCount = Array.isArray(snapshot?.projects)
+    ? snapshot.projects.length
+    : 0;
   const loadedPeriodCount = Array.isArray(snapshot?.loadedRecordPeriodIds)
     ? snapshot.loadedRecordPeriodIds.length
     : 0;
   return recordCount * 4 + projectCount * 2 + loadedPeriodCount;
 }
 
-function pickPreferredStatsWorkspaceSnapshot(primarySnapshot = null, fallbackSnapshot = null) {
+function pickPreferredStatsWorkspaceSnapshot(
+  primarySnapshot = null,
+  fallbackSnapshot = null,
+) {
   if (!primarySnapshot) {
     return fallbackSnapshot;
   }
@@ -3265,21 +3340,25 @@ function buildStatsWorkspaceSnapshotFromTrustedEnvelope(
   };
 }
 
-function readStatsWorkspaceSnapshotFromTrustedCache(scope = getStatsLoadScope()) {
+function readStatsWorkspaceSnapshotFromTrustedCache(
+  scope = getStatsLoadScope(),
+) {
   try {
     if (
-      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !== "function"
+      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !==
+      "function"
     ) {
       return null;
     }
     const recordScope = getExpandedStatsRecordLoadScope(scope);
-    const cachedEnvelope = window.ControlerStorage.peekTrustedRecordBootstrapState(
-      "stats",
-      {
+    const cachedEnvelope =
+      window.ControlerStorage.peekTrustedRecordBootstrapState("stats", {
         recordScope,
-      },
+      });
+    return buildStatsWorkspaceSnapshotFromTrustedEnvelope(
+      cachedEnvelope,
+      scope,
     );
-    return buildStatsWorkspaceSnapshotFromTrustedEnvelope(cachedEnvelope, scope);
   } catch (error) {
     console.error("读取统计页精确范围缓存失败:", error);
     return null;
@@ -3290,12 +3369,17 @@ async function persistStatsTrustedRecordBootstrap(
   scope = getStatsLoadScope(),
   snapshot = {},
 ) {
-  if (typeof window.ControlerStorage?.setTrustedRecordBootstrapState !== "function") {
+  if (
+    typeof window.ControlerStorage?.setTrustedRecordBootstrapState !==
+    "function"
+  ) {
     return null;
   }
   const recordScope = getExpandedStatsRecordLoadScope(scope);
   const normalizedSnapshot =
-    snapshot && typeof snapshot === "object" ? snapshot : captureStatsWorkspaceSnapshot();
+    snapshot && typeof snapshot === "object"
+      ? snapshot
+      : captureStatsWorkspaceSnapshot();
   const recordSnapshot = Array.isArray(normalizedSnapshot.records)
     ? cloneStatsRecordSnapshotList(normalizedSnapshot.records)
     : cloneStatsRecordSnapshotList(records);
@@ -3381,7 +3465,10 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
               : preferences,
           records: nextRecords,
           projects: Array.isArray(data.projects) ? data.projects : [],
-          loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
+          loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(
+            scope,
+            nextRecords,
+          ),
         };
         emitStatsRangeLoad("page-bootstrap", {
           rangeUnit: statsRangeState.unit,
@@ -3392,9 +3479,11 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           projectCount: snapshot.projects.length,
           loadedPeriodCount: snapshot.loadedRecordPeriodIds.length,
         });
-        await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
-          console.error("写入统计页精确范围缓存失败:", error);
-        });
+        await persistStatsTrustedRecordBootstrap(scope, snapshot).catch(
+          (error) => {
+            console.error("写入统计页精确范围缓存失败:", error);
+          },
+        );
         return snapshot;
       }
     }
@@ -3420,12 +3509,17 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           authoritative: forceAuthoritativeRead,
         }),
       ]);
-      const nextRecords = Array.isArray(recordsResult?.items) ? recordsResult.items : [];
+      const nextRecords = Array.isArray(recordsResult?.items)
+        ? recordsResult.items
+        : [];
       const snapshot = {
         preferences,
         records: nextRecords,
         projects: Array.isArray(coreState?.projects) ? coreState.projects : [],
-        loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(scope, nextRecords),
+        loadedRecordPeriodIds: buildStatsLoadedRecordPeriodIds(
+          scope,
+          nextRecords,
+        ),
       };
       emitStatsRangeLoad("section-range", {
         rangeUnit: statsRangeState.unit,
@@ -3438,9 +3532,11 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           ? recordsResult.periodIds.length
           : snapshot.loadedRecordPeriodIds.length,
       });
-      await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
-        console.error("写入统计页精确范围缓存失败:", error);
-      });
+      await persistStatsTrustedRecordBootstrap(scope, snapshot).catch(
+        (error) => {
+          console.error("写入统计页精确范围缓存失败:", error);
+        },
+      );
       return snapshot;
     }
 
@@ -3631,7 +3727,6 @@ function getStatsRangeNavigationRefreshOptions(
   };
 }
 
-
 function initTimeSelector() {
   const startDate = document.getElementById("start-date-select");
   const endDate = document.getElementById("end-date-select");
@@ -3727,10 +3822,7 @@ function initTimeSelector() {
         return;
       }
       void runStatsRangeNavigationAction(() =>
-        shiftCurrentStatsRange(
-          amount,
-          getStatsRangeNavigationRefreshOptions(),
-        ),
+        shiftCurrentStatsRange(amount, getStatsRangeNavigationRefreshOptions()),
       );
     };
 
@@ -3758,9 +3850,10 @@ function initTimeSelector() {
         getInitialStatsAnchorForView();
       void runStatsRangeNavigationAction(() =>
         applyStatsRange(statsRangeState.unit, nextAnchor, {
-          refreshOptions: getStatsRangeNavigationRefreshOptions(
-            "正在切换统计日期范围，请稍候",
-          ),
+          refreshOptions:
+            getStatsRangeNavigationRefreshOptions(
+              "正在切换统计日期范围，请稍候",
+            ),
         }),
       );
       return;
@@ -3777,9 +3870,8 @@ function initTimeSelector() {
         unit: effectiveUnit,
         anchorDate: nextAnchor,
         changeSource,
-        refreshOptions: getStatsRangeNavigationRefreshOptions(
-          "正在切换统计日期范围，请稍候",
-        ),
+        refreshOptions:
+          getStatsRangeNavigationRefreshOptions("正在切换统计日期范围，请稍候"),
       }),
     );
   };
@@ -3874,7 +3966,9 @@ function renderWidgetRecordList(container) {
     .slice()
     .sort((left, right) => {
       const leftTime = new Date(getStatsRecordAnchorValue(left) || 0).getTime();
-      const rightTime = new Date(getStatsRecordAnchorValue(right) || 0).getTime();
+      const rightTime = new Date(
+        getStatsRecordAnchorValue(right) || 0,
+      ).getTime();
       return rightTime - leftTime;
     });
 
@@ -3951,7 +4045,11 @@ function renderWidgetRecordList(container) {
 
 function getNormalizedStatsFilterRange(startDate, endDate) {
   const { start: normalizedStartDate, end: normalizedEndDate } =
-    getNormalizedStatsInputRange(startDate, endDate, statsRangeState.anchorDate);
+    getNormalizedStatsInputRange(
+      startDate,
+      endDate,
+      statsRangeState.anchorDate,
+    );
   const normalizedStart = new Date(normalizedStartDate);
   const normalizedEnd = new Date(normalizedEndDate);
   normalizedStart.setHours(0, 0, 0, 0);
@@ -4002,7 +4100,10 @@ function getExpandedStatsRecordLoadScope(scope = {}) {
 function getFilteredStatsTimeRecords(startDate, endDate) {
   const range = getNormalizedStatsFilterRange(startDate, endDate);
   return convertToTimeRecords().filter((record) => {
-    if (!(record?.startTime instanceof Date) || !(record?.endTime instanceof Date)) {
+    if (
+      !(record?.startTime instanceof Date) ||
+      !(record?.endTime instanceof Date)
+    ) {
       return false;
     }
     return (
@@ -4252,7 +4353,9 @@ function sanitizeBreakdownTreeForDisplay(tree) {
     const nextNode = {
       ...node,
       subtreeIds:
-        node.subtreeIds instanceof Set ? new Set(node.subtreeIds) : node.subtreeIds,
+        node.subtreeIds instanceof Set
+          ? new Set(node.subtreeIds)
+          : node.subtreeIds,
       children: [],
     };
     const nextChildren = Array.isArray(node.children)
@@ -4269,7 +4372,9 @@ function sanitizeBreakdownTreeForDisplay(tree) {
 }
 
 function compareStatsDurationDesc(left, right) {
-  const leftValue = Number(left?.valueMs || left?.totalHours || left?.hours || 0);
+  const leftValue = Number(
+    left?.valueMs || left?.totalHours || left?.hours || 0,
+  );
   const rightValue = Number(
     right?.valueMs || right?.totalHours || right?.hours || 0,
   );
@@ -4290,7 +4395,9 @@ function compareStatsDurationDesc(left, right) {
 }
 
 function sortStatsLegendItemsByDuration(items = []) {
-  return (Array.isArray(items) ? items : []).slice().sort(compareStatsDurationDesc);
+  return (Array.isArray(items) ? items : [])
+    .slice()
+    .sort(compareStatsDurationDesc);
 }
 
 function createStatsPeriodSummaryCard(summaryData, options = {}) {
@@ -4389,7 +4496,10 @@ function buildStatsLegendItemIndex(items = []) {
     if (!itemKey || !parentKey || !itemsByKey.has(parentKey)) {
       return;
     }
-    childCountByParent.set(parentKey, (childCountByParent.get(parentKey) || 0) + 1);
+    childCountByParent.set(
+      parentKey,
+      (childCountByParent.get(parentKey) || 0) + 1,
+    );
   });
 
   return {
@@ -4414,7 +4524,9 @@ function getVisibleStatsLegendItems(items = [], stateKey = "line") {
   const { itemsByKey } = buildStatsLegendItemIndex(items);
   return items.filter((item) => {
     const itemKey = String(item?.key || "").trim();
-    return !!itemKey && !hasCollapsedLegendAncestor(item, itemsByKey, collapsedKeys);
+    return (
+      !!itemKey && !hasCollapsedLegendAncestor(item, itemsByKey, collapsedKeys)
+    );
   });
 }
 
@@ -4452,7 +4564,8 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
     return;
   }
 
-  const { variant = "pie", stateKey = variant === "pie" ? "pie" : "line" } = options;
+  const { variant = "pie", stateKey = variant === "pie" ? "pie" : "line" } =
+    options;
   const { childCountByParent } = buildStatsLegendItemIndex(items);
   const collapsedKeys = getStatsLegendCollapseSet(stateKey);
   const visibleItems = getVisibleStatsLegendItems(items, stateKey);
@@ -4472,7 +4585,10 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
       row.tabIndex = 0;
       row.setAttribute("role", "button");
       row.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      row.setAttribute("title", `${item.pathLabel || item.label || ""}\n单击折叠或展开子项目`);
+      row.setAttribute(
+        "title",
+        `${item.pathLabel || item.label || ""}\n单击折叠或展开子项目`,
+      );
     } else {
       row.title = item.pathLabel || item.label || "";
     }
@@ -4577,15 +4693,11 @@ function createLineChartLegend(container, datasets = [], options = {}) {
             : dataset?.borderColor || dataset?.backgroundColor) ||
           "var(--accent-color)",
       }));
-  renderStatsHierarchyLegend(
-    container,
-    legendItems,
-    {
-      ...options,
-      stateKey: "line",
-      variant: "line",
-    },
-  );
+  renderStatsHierarchyLegend(container, legendItems, {
+    ...options,
+    stateKey: "line",
+    variant: "line",
+  });
 }
 
 function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
@@ -4811,7 +4923,9 @@ function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
 
   svgHost.appendChild(svg.node());
 
-  const legendItems = Array.isArray(options?.legendItems) ? options.legendItems : [];
+  const legendItems = Array.isArray(options?.legendItems)
+    ? options.legendItems
+    : [];
 
   renderStatsHierarchyLegend(legendHost, legendItems, {
     onToggle: options?.onToggle,
@@ -4977,21 +5091,24 @@ function getLineChartProjectsByTotal(rangeMeta, options = {}) {
       subtree && projectId
         ? collectProjectSubtreeIds(projectId, hierarchy)
         : null;
-    const total = accumulateLineChartValues(rangeMeta, (record, linkedProject) => {
-      if (!linkedProject) return false;
-      if (subtreeIds) {
-        const linkedProjectId = String(linkedProject.id || "");
-        if (linkedProjectId && subtreeIds.has(linkedProjectId)) {
-          return true;
+    const total = accumulateLineChartValues(
+      rangeMeta,
+      (record, linkedProject) => {
+        if (!linkedProject) return false;
+        if (subtreeIds) {
+          const linkedProjectId = String(linkedProject.id || "");
+          if (linkedProjectId && subtreeIds.has(linkedProjectId)) {
+            return true;
+          }
+          return !linkedProjectId && linkedProject.name === project.name;
         }
-        return !linkedProjectId && linkedProject.name === project.name;
-      }
-      const linkedProjectId = String(linkedProject.id || "");
-      if (projectId && linkedProjectId) {
-        return linkedProjectId === projectId;
-      }
-      return linkedProject.name === project.name;
-    }).reduce((sum, value) => sum + value, 0);
+        const linkedProjectId = String(linkedProject.id || "");
+        if (projectId && linkedProjectId) {
+          return linkedProjectId === projectId;
+        }
+        return linkedProject.name === project.name;
+      },
+    ).reduce((sum, value) => sum + value, 0);
 
     if (total > 0) {
       totals.push({
@@ -5076,7 +5193,11 @@ function renderCurrentView() {
 
   const widgetRenderer = getStatsWidgetRendererConfig();
   if (widgetRenderer) {
-    renderStatsSectionPanel(container, widgetRenderer.title, widgetRenderer.render);
+    renderStatsSectionPanel(
+      container,
+      widgetRenderer.title,
+      widgetRenderer.render,
+    );
     return;
   }
 
@@ -5577,6 +5698,7 @@ function renderWeeklyTimeGrid(container) {
   });
   const columnTemplate = `${timeColumnWidth}px repeat(${daysDiff}, ${colWidth}px)`;
   const surface = document.createElement("div");
+  surface.className = "weekly-glass-surface";
   surface.style.width = `${totalTableWidth}px`;
   surface.style.minWidth = `${totalTableWidth}px`;
   surface.style.display = "flex";
@@ -5719,7 +5841,12 @@ function renderWeeklyTimeGrid(container) {
           : "1px solid color-mix(in srgb, var(--panel-border-color) 72%, transparent)";
       if (!widgetMode) {
         bindStatsGridGapActivation(cell, (event) => {
-          const clickedAt = resolveStatsWeeklyGridClickTime(dayDate, hour, cell, event);
+          const clickedAt = resolveStatsWeeklyGridClickTime(
+            dayDate,
+            hour,
+            cell,
+            event,
+          );
           const gap = findStatsGapAtTime(dayDate, clickedAt);
           if (!gap || gap.endTime.getTime() <= gap.startTime.getTime()) {
             return;
@@ -5758,9 +5885,6 @@ function renderWeeklyTimeGrid(container) {
   legend.style.padding = "15px 0 0";
   legend.style.flex = "0 0 auto";
   legend.innerHTML = `
-    <p style="margin: 0 0 10px 0; color: var(--text-color); font-size: 14px">
-      <strong>图例：</strong> 每个色块代表一个时间段，鼠标悬停可查看详情，双击记录可编辑，双击过去空白区可新增
-    </p>
     <div style="display: flex; gap: 10px; flex-wrap: wrap">
       ${getProjectColorsLegend({
         startDate,
@@ -5950,13 +6074,17 @@ function saveStatsRecordsToStorage() {
     if (typeof window.ControlerStorage?.saveSectionRange === "function") {
       const periodIds = statsLoadedRecordPeriodIds.length
         ? statsLoadedRecordPeriodIds.slice()
-        : [...new Set(records.flatMap((record) => getStatsRecordPeriodIds(record)))];
+        : [
+            ...new Set(
+              records.flatMap((record) => getStatsRecordPeriodIds(record)),
+            ),
+          ];
       await Promise.all(
         periodIds.map((periodId) =>
           window.ControlerStorage.saveSectionRange("records", {
             periodId,
-            items: records.filter(
-              (record) => getStatsRecordPeriodIds(record).includes(periodId),
+            items: records.filter((record) =>
+              getStatsRecordPeriodIds(record).includes(periodId),
             ),
             mode: "replace",
           }),
@@ -5993,7 +6121,9 @@ function persistStatsRecordMutationsToStorage({
 } = {}) {
   return queueStatsPersistenceTask(async () => {
     if (typeof window.ControlerStorage?.saveSectionRange === "function") {
-      if (typeof indexRecordPersistenceApi?.persistRecordMutations !== "function") {
+      if (
+        typeof indexRecordPersistenceApi?.persistRecordMutations !== "function"
+      ) {
         throw new Error("缺少统一 records 分区持久化能力。");
       }
       await indexRecordPersistenceApi.persistRecordMutations({
@@ -6015,7 +6145,8 @@ function persistStatsRecordMutationsToStorage({
         cloneValue: cloneStatsValue,
       });
     } else {
-      const authoritativeRecords = await loadAllStatsRecordsFromStorage(recordsSnapshot);
+      const authoritativeRecords =
+        await loadAllStatsRecordsFromStorage(recordsSnapshot);
       const nextAllRecords =
         typeof indexRecordPersistenceApi?.applyRecordMutations === "function"
           ? indexRecordPersistenceApi.applyRecordMutations(
@@ -6072,10 +6203,15 @@ function deleteStatsRecordFromStorage(
 }
 
 function getStatsRecordPeriodId(record) {
-  if (typeof window.ControlerStorageBundle?.getPeriodIdForSectionItem === "function") {
+  if (
+    typeof window.ControlerStorageBundle?.getPeriodIdForSectionItem ===
+    "function"
+  ) {
     return (
-      window.ControlerStorageBundle.getPeriodIdForSectionItem("records", record) ||
-      "undated"
+      window.ControlerStorageBundle.getPeriodIdForSectionItem(
+        "records",
+        record,
+      ) || "undated"
     );
   }
   const anchor =
@@ -6084,7 +6220,10 @@ function getStatsRecordPeriodId(record) {
 }
 
 function getStatsRecordPeriodIds(record) {
-  if (typeof window.ControlerStorageBundle?.getPeriodIdsForSectionItem === "function") {
+  if (
+    typeof window.ControlerStorageBundle?.getPeriodIdsForSectionItem ===
+    "function"
+  ) {
     const periodIds = window.ControlerStorageBundle.getPeriodIdsForSectionItem(
       "records",
       record,
@@ -6166,11 +6305,27 @@ function parseStatsDateTimeLocalValue(value) {
 }
 
 function getStatsDayStart(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
 }
 
 function getStatsDayEndExclusive(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + 1,
+    0,
+    0,
+    0,
+    0,
+  );
 }
 
 function clampStatsFutureBoundary(boundary, referenceDate = boundary) {
@@ -6223,12 +6378,17 @@ function buildStatsRecordEditorPayload({
         projectList: safeProjectList,
       },
     );
-    return normalizeStatsLoadedRecords([builtRecord], safeProjectList)[0] || builtRecord;
+    return (
+      normalizeStatsLoadedRecords([builtRecord], safeProjectList)[0] ||
+      builtRecord
+    );
   }
   return normalizeStatsLoadedRecords(
     [
       {
-        ...(existingRecord && typeof existingRecord === "object" ? existingRecord : {}),
+        ...(existingRecord && typeof existingRecord === "object"
+          ? existingRecord
+          : {}),
         id:
           String(existingRecord?.id || "").trim() ||
           `stats-record-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -6238,7 +6398,9 @@ function buildStatsRecordEditorPayload({
         endTime: endTime.toISOString(),
         rawEndTime: endTime.toISOString(),
         name: normalizedName,
-        spendtime: formatMergedSpendtime(endTime.getTime() - startTime.getTime()),
+        spendtime: formatMergedSpendtime(
+          endTime.getTime() - startTime.getTime(),
+        ),
         durationMs: Math.max(0, endTime.getTime() - startTime.getTime()),
       },
     ],
@@ -6246,7 +6408,10 @@ function buildStatsRecordEditorPayload({
   )[0];
 }
 
-function ensureStatsProjectSnapshotForName(projectName, projectList = projects) {
+function ensureStatsProjectSnapshotForName(
+  projectName,
+  projectList = projects,
+) {
   const normalizedName = resolveStatsProjectNameFromInput(projectName);
   const safeProjectList = cloneStatsProjectSnapshot(projectList);
   if (!normalizedName) {
@@ -6256,7 +6421,10 @@ function ensureStatsProjectSnapshotForName(projectName, projectList = projects) 
       created: false,
     };
   }
-  const existingProject = findStatsProjectByName(normalizedName, safeProjectList);
+  const existingProject = findStatsProjectByName(
+    normalizedName,
+    safeProjectList,
+  );
   if (existingProject) {
     return {
       projects: safeProjectList,
@@ -6294,7 +6462,10 @@ function applyStatsProjectDurationChangesToSnapshot(
   changes = {},
 ) {
   const baseProjects = cloneStatsProjectSnapshot(projectList);
-  if (typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !== "function") {
+  if (
+    typeof statsStorageBundleApi?.applyProjectRecordDurationChanges !==
+    "function"
+  ) {
     return baseProjects;
   }
   const nextProjects = statsStorageBundleApi.applyProjectRecordDurationChanges(
@@ -6322,7 +6493,9 @@ function commitStatsMutationState(nextRecords = [], nextProjects = projects) {
 function getStatsSortedTimelineRecords() {
   return convertToTimeRecords()
     .slice()
-    .sort((left, right) => left.startTime.getTime() - right.startTime.getTime());
+    .sort(
+      (left, right) => left.startTime.getTime() - right.startTime.getTime(),
+    );
 }
 
 function getStatsRecordNeighborBounds(locator) {
@@ -6394,10 +6567,17 @@ function buildStatsDayTimeline(date) {
     )
     .map((record) => ({
       ...record,
-      clippedStart: new Date(Math.max(record.startTime.getTime(), dayStart.getTime())),
-      clippedEnd: new Date(Math.min(record.endTime.getTime(), dayEnd.getTime())),
+      clippedStart: new Date(
+        Math.max(record.startTime.getTime(), dayStart.getTime()),
+      ),
+      clippedEnd: new Date(
+        Math.min(record.endTime.getTime(), dayEnd.getTime()),
+      ),
     }))
-    .sort((left, right) => left.clippedStart.getTime() - right.clippedStart.getTime());
+    .sort(
+      (left, right) =>
+        left.clippedStart.getTime() - right.clippedStart.getTime(),
+    );
   return {
     dayStart,
     dayEnd,
@@ -6407,11 +6587,15 @@ function buildStatsDayTimeline(date) {
 
 function findStatsGapAtTime(date, clickedAt) {
   const timeline = buildStatsDayTimeline(date);
-  const clickTime = clickedAt instanceof Date ? clickedAt.getTime() : Number.NaN;
+  const clickTime =
+    clickedAt instanceof Date ? clickedAt.getTime() : Number.NaN;
   if (!Number.isFinite(clickTime)) {
     return null;
   }
-  if (clickTime < timeline.dayStart.getTime() || clickTime > timeline.dayEnd.getTime()) {
+  if (
+    clickTime < timeline.dayStart.getTime() ||
+    clickTime > timeline.dayEnd.getTime()
+  ) {
     return null;
   }
   let cursorTime = timeline.dayStart.getTime();
@@ -6425,7 +6609,11 @@ function findStatsGapAtTime(date, clickedAt) {
       }
       continue;
     }
-    if (itemStart > cursorTime && clickTime >= cursorTime && clickTime < itemStart) {
+    if (
+      itemStart > cursorTime &&
+      clickTime >= cursorTime &&
+      clickTime < itemStart
+    ) {
       return {
         startTime: new Date(cursorTime),
         endTime: new Date(itemStart),
@@ -6459,8 +6647,14 @@ function resolveStatsWeeklyGridClickTime(date, hour, cell, event) {
   ) {
     const rect = cell.getBoundingClientRect();
     if (rect.height > 0) {
-      const offsetY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
-      minute = Math.min(59, Math.max(0, Math.floor((offsetY / rect.height) * 60)));
+      const offsetY = Math.max(
+        0,
+        Math.min(rect.height, event.clientY - rect.top),
+      );
+      minute = Math.min(
+        59,
+        Math.max(0, Math.floor((offsetY / rect.height) * 60)),
+      );
     }
   }
   return new Date(
@@ -6481,7 +6675,9 @@ function getStatsRecordInputDisplayValue(record) {
 
 async function openStatsRecordEditModal(locator) {
   const request =
-    locator && typeof locator === "object" && ("mode" in locator || "gap" in locator)
+    locator &&
+    typeof locator === "object" &&
+    ("mode" in locator || "gap" in locator)
       ? locator
       : {
           mode: "edit",
@@ -6565,9 +6761,12 @@ async function openStatsRecordEditModal(locator) {
     Number.isNaN(normalizedMaximumEnd.getTime()) ||
     normalizedMaximumEnd.getTime() <= normalizedMinimumStart.getTime()
   ) {
-    await showStatsPersistenceFailureAlert("当前时间范围不可编辑，请调整后重试。", {
-      title: isCreateMode ? "无法新增记录" : "无法编辑记录",
-    });
+    await showStatsPersistenceFailureAlert(
+      "当前时间范围不可编辑，请调整后重试。",
+      {
+        title: isCreateMode ? "无法新增记录" : "无法编辑记录",
+      },
+    );
     return;
   }
 
@@ -6642,7 +6841,9 @@ async function openStatsRecordEditModal(locator) {
   const deleteBtn = modal.querySelector("#stats-record-delete-btn");
 
   if (nameInput) {
-    nameInput.value = isCreateMode ? "" : getStatsRecordInputDisplayValue(sourceRecord);
+    nameInput.value = isCreateMode
+      ? ""
+      : getStatsRecordInputDisplayValue(sourceRecord);
     window.setTimeout(() => {
       nameInput.focus();
       nameInput.select?.();
@@ -6716,9 +6917,12 @@ async function openStatsRecordEditModal(locator) {
       !(endDate instanceof Date) ||
       Number.isNaN(endDate.getTime())
     ) {
-      await showStatsPersistenceFailureAlert("请输入有效的开始时间和结束时间。", {
-        title: isCreateMode ? "无法新增记录" : "无法保存记录",
-      });
+      await showStatsPersistenceFailureAlert(
+        "请输入有效的开始时间和结束时间。",
+        {
+          title: isCreateMode ? "无法新增记录" : "无法保存记录",
+        },
+      );
       return null;
     }
     if (endDate.getTime() <= startDate.getTime()) {
@@ -6779,7 +6983,9 @@ async function openStatsRecordEditModal(locator) {
         void refreshStatsRangeData(true);
         return;
       }
-      previousRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
+      previousRecordSnapshot = cloneStatsRecordSnapshot(
+        records[liveRecordIndex],
+      );
       const nextRecordSnapshot = buildStatsRecordEditorPayload({
         existingRecord: previousRecordSnapshot,
         projectName: formState.nextName,
@@ -6874,12 +7080,17 @@ async function openStatsRecordEditModal(locator) {
       return;
     }
 
-    const deletedRecordSnapshot = cloneStatsRecordSnapshot(records[liveRecordIndex]);
+    const deletedRecordSnapshot = cloneStatsRecordSnapshot(
+      records[liveRecordIndex],
+    );
     const nextRecordsSnapshot = cloneStatsRecordSnapshotList(records);
     nextRecordsSnapshot.splice(liveRecordIndex, 1);
-    const nextProjectsSnapshot = applyStatsProjectDurationChangesToSnapshot(projects, {
-      removedRecords: [deletedRecordSnapshot],
-    });
+    const nextProjectsSnapshot = applyStatsProjectDurationChangesToSnapshot(
+      projects,
+      {
+        removedRecords: [deletedRecordSnapshot],
+      },
+    );
     commitStatsMutationState(nextRecordsSnapshot, nextProjectsSnapshot);
     const committedRecordsSnapshot = cloneStatsRecordSnapshotList(records);
     const persistPromise = deleteStatsRecordFromStorage(
@@ -7014,8 +7225,7 @@ function compareWeeklyGridSegmentsByStart(left, right) {
   if (!left || !right) {
     return 0;
   }
-  const startDiff =
-    left.displayStart.getTime() - right.displayStart.getTime();
+  const startDiff = left.displayStart.getTime() - right.displayStart.getTime();
   if (startDiff !== 0) {
     return startDiff;
   }
@@ -7108,7 +7318,11 @@ function getWeeklyGridElementWidth(element) {
     return 0;
   }
   const rectWidth = Math.round(element.getBoundingClientRect().width || 0);
-  return Math.max(rectWidth, element.offsetWidth || 0, element.clientWidth || 0);
+  return Math.max(
+    rectWidth,
+    element.offsetWidth || 0,
+    element.clientWidth || 0,
+  );
 }
 
 function getWeeklyGridElementHeight(element) {
@@ -7215,8 +7429,12 @@ function bindWeeklyGridOverlayLifecycle(renderOptions) {
     if (!nextTable.isConnected) {
       return;
     }
-    const pendingFrameId = Number(nextTable.__controlerWeeklyGridOverlayFrameId) || 0;
-    if (pendingFrameId > 0 && typeof window.cancelAnimationFrame === "function") {
+    const pendingFrameId =
+      Number(nextTable.__controlerWeeklyGridOverlayFrameId) || 0;
+    if (
+      pendingFrameId > 0 &&
+      typeof window.cancelAnimationFrame === "function"
+    ) {
       window.cancelAnimationFrame(pendingFrameId);
     }
     nextTable.__controlerWeeklyGridOverlayFrameId = schedule(() => {
@@ -7249,7 +7467,8 @@ function bindWeeklyGridOverlayLifecycle(renderOptions) {
 }
 
 function clearWeeklyGridBlocksOverlayRetryTimer(table) {
-  const retryTimerId = Number(table?.__controlerWeeklyGridOverlayRetryTimer) || 0;
+  const retryTimerId =
+    Number(table?.__controlerWeeklyGridOverlayRetryTimer) || 0;
   if (retryTimerId > 0) {
     window.clearTimeout(retryTimerId);
   }
@@ -7425,10 +7644,9 @@ function renderWeeklyGridBlocksOverlay({
     timeBlock.style.border = "1px solid rgba(255,255,255,0.18)";
     timeBlock.style.borderRadius = `${Math.max(6, Math.round(10 * scale))}px`;
     timeBlock.style.cursor = "pointer";
-    timeBlock.style.transition =
-      DISABLE_ELECTRON_STATS_BLOCK_HOVER_EFFECT
-        ? "none"
-        : "transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, filter 0.2s ease";
+    timeBlock.style.transition = DISABLE_ELECTRON_STATS_BLOCK_HOVER_EFFECT
+      ? "none"
+      : "transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, filter 0.2s ease";
     timeBlock.style.overflow = "hidden";
     timeBlock.style.userSelect = "none";
     timeBlock.style.webkitUserSelect = "none";
@@ -7481,16 +7699,12 @@ function renderWeeklyGridBlocksOverlay({
       }
     }
 
-    bindStatsHoverPreview(
-      timeBlock,
-      tooltipText,
-      {
-        baseZIndex: "6",
-        hoverZIndex: "10",
-        hoverScale: "1.012",
-        hoverShadow: "0 10px 24px rgba(0,0,0,0.18)",
-      },
-    );
+    bindStatsHoverPreview(timeBlock, tooltipText, {
+      baseZIndex: "6",
+      hoverZIndex: "10",
+      hoverScale: "1.012",
+      hoverShadow: "0 10px 24px rgba(0,0,0,0.18)",
+    });
     timeBlock.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
@@ -7581,8 +7795,7 @@ function resolveWeeklyGridSegmentMetrics(segment, cellRefs, table = null) {
         tableRect && tableRect.height > 0
           ? Math.round(lastHourRect.top - tableRect.top)
           : lastHourCell.offsetTop;
-      bottom =
-        lastHourTop + getWeeklyGridElementHeight(lastHourCell);
+      bottom = lastHourTop + getWeeklyGridElementHeight(lastHourCell);
     }
   } else {
     const endDayKey = formatDateInputValue(segment.displayEnd);
@@ -7596,8 +7809,7 @@ function resolveWeeklyGridSegmentMetrics(segment, cellRefs, table = null) {
           : endCell.offsetTop;
       const endCellHeight = getWeeklyGridElementHeight(endCell);
       bottom =
-        endCellTop +
-        (segment.displayEnd.getMinutes() / 60) * endCellHeight;
+        endCellTop + (segment.displayEnd.getMinutes() / 60) * endCellHeight;
     }
   }
 
@@ -7683,8 +7895,7 @@ function convertToTimeRecords() {
       const sourceIndex = Number.isInteger(record?.sourceIndex)
         ? record.sourceIndex
         : records.indexOf(record);
-      const rawRecord =
-        records[sourceIndex] || record.rawRecord || record;
+      const rawRecord = records[sourceIndex] || record.rawRecord || record;
       const project = findProjectForRecord(rawRecord);
       const sourceLocator = buildStatsRecordLocator(rawRecord, sourceIndex);
 
@@ -7703,7 +7914,9 @@ function convertToTimeRecords() {
         spendtime:
           rawRecord.spendtime ||
           record.spendtime ||
-          formatMergedSpendtime(record.endTime.getTime() - record.startTime.getTime()),
+          formatMergedSpendtime(
+            record.endTime.getTime() - record.startTime.getTime(),
+          ),
         color: project?.color || "#79af85",
       };
     })
@@ -7762,9 +7975,7 @@ function getProjectsWithRecordedTimeInRange({
       return;
     }
 
-    const projectKey = project?.id
-      ? `id:${project.id}`
-      : `name:${projectName}`;
+    const projectKey = project?.id ? `id:${project.id}` : `name:${projectName}`;
     if (!legendProjects.has(projectKey)) {
       legendProjects.set(projectKey, {
         key: projectKey,
@@ -8427,7 +8638,8 @@ function getLineChartData(
 function readStatsThemeCssVar(propertyName, fallback = "") {
   try {
     return (
-      window.getComputedStyle(document.documentElement)
+      window
+        .getComputedStyle(document.documentElement)
         .getPropertyValue(propertyName)
         ?.trim() || fallback
     );
@@ -8572,14 +8784,20 @@ function resolveStatsChartSurfaceColor(surfaceElement = null) {
   return formatStatsOpaqueCssColor(composedLayer);
 }
 
-function resolveStatsReadableTextColor(backgroundColor, preferredTextColor = "") {
+function resolveStatsReadableTextColor(
+  backgroundColor,
+  preferredTextColor = "",
+) {
   const safePreferredTextColor =
     preferredTextColor ||
     readStatsThemeCssVar("--text-color") ||
     readStatsThemeCssVar("--muted-text-color") ||
     "#f5fff8";
 
-  if (typeof window.ControlerTheme?.getReadableTextColorForBackground === "function") {
+  if (
+    typeof window.ControlerTheme?.getReadableTextColorForBackground ===
+    "function"
+  ) {
     return window.ControlerTheme.getReadableTextColorForBackground(
       backgroundColor,
       safePreferredTextColor,
@@ -9544,7 +9762,8 @@ function initViewSelector(options = {}) {
     applyStatsRange(
       statsRangeState.unit,
       shouldRestoreMainViewRange
-        ? getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView()
+        ? getDateOnly(statsRangeState.anchorDate) ||
+            getInitialStatsAnchorForView()
         : statsRangeState.anchorDate,
       shouldRender,
     );
@@ -9583,7 +9802,8 @@ function initViewSelector(options = {}) {
   applyStatsRange(
     statsRangeState.unit,
     shouldRestoreMainViewRange
-      ? getDateOnly(statsRangeState.anchorDate) || getInitialStatsAnchorForView()
+      ? getDateOnly(statsRangeState.anchorDate) ||
+          getInitialStatsAnchorForView()
       : statsRangeState.anchorDate,
     shouldRender,
   );
@@ -9782,7 +10002,10 @@ function scheduleStatsWidgetLaunchHandled(
     if (options.clearQuery === true) {
       clearStatsWidgetLaunchQuery();
     }
-    if (!launchId || typeof window.ControlerNativeBridge?.emitEvent !== "function") {
+    if (
+      !launchId ||
+      typeof window.ControlerNativeBridge?.emitEvent !== "function"
+    ) {
       return true;
     }
     window.ControlerNativeBridge.emitEvent("widgets.launchHandled", {
@@ -9897,14 +10120,17 @@ function initStatsWidgetLaunchAction() {
       return;
     }
     consumedQuery = true;
-    handleStatsWidgetLaunchAction({
-      action,
-      source: params.get("widgetSource") || "query",
-      launchId: params.get("widgetLaunchId") || "",
-      widgetAnchorDate: params.get("widgetAnchorDate") || "",
-    }, {
-      clearQuery: true,
-    });
+    handleStatsWidgetLaunchAction(
+      {
+        action,
+        source: params.get("widgetSource") || "query",
+        launchId: params.get("widgetLaunchId") || "",
+        widgetAnchorDate: params.get("widgetAnchorDate") || "",
+      },
+      {
+        clearQuery: true,
+      },
+    );
   };
 
   window.addEventListener(eventName, (event) => {
@@ -9926,7 +10152,8 @@ async function init() {
   try {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
-    statsInitialViewRuntimePromise = ensureStatsViewRuntimeLoaded(statsViewMode);
+    statsInitialViewRuntimePromise =
+      ensureStatsViewRuntimeLoaded(statsViewMode);
     initStatsWidgetLaunchAction();
     registerStatsBeforePageLeaveGuard();
     if (useWidgetLaunchFastPath) {
@@ -9937,7 +10164,8 @@ async function init() {
       statsShellPageActive || isStatsShellTransitionLoading();
     const shouldPreferBootstrapForInitialRender =
       window.ControlerStorage?.isNativeApp === true && canPrepareInitialData;
-    const bootstrappedFromSnapshot = bootstrapStatsFromCachedSnapshot(initialScope);
+    const bootstrappedFromSnapshot =
+      bootstrapStatsFromCachedSnapshot(initialScope);
     if (!bootstrappedFromSnapshot) {
       const initialLoadFresh =
         canPrepareInitialData && !shouldPreferBootstrapForInitialRender;
@@ -10049,9 +10277,8 @@ function renderHeatmap(container) {
   const weekdayLabelWidth = clamp(Math.round(26 * heatmapScale), 18, 40);
   const palette = getHeatmapPalette();
   const checkinData = loadCheckinHeatmapData();
-  const selectableCheckinItems = (Array.isArray(checkinData?.items)
-    ? checkinData.items
-    : []
+  const selectableCheckinItems = (
+    Array.isArray(checkinData?.items) ? checkinData.items : []
   ).filter((item) => !isStatsCheckinItemDeleted(item));
   const projectSelectorTree = buildProjectSelectorTree("全部项目（汇总）");
   const validProjectFilters = flattenProjectSelectorTree(
@@ -10486,11 +10713,18 @@ function renderHeatmap(container) {
   viewRoot.appendChild(root);
 
   monthCountSelect.addEventListener("change", () => {
-    heatmapState.monthCount = clamp(parseInt(monthCountSelect.value, 10) || 1, 1, 12);
+    heatmapState.monthCount = clamp(
+      parseInt(monthCountSelect.value, 10) || 1,
+      1,
+      12,
+    );
     saveStatsUiStateToPreferences();
     const nextAnchor =
       statsRangeState.unit === "year"
-        ? getHeatmapYearAnchor(rangeStart.getFullYear(), heatmapState.monthCount)
+        ? getHeatmapYearAnchor(
+            rangeStart.getFullYear(),
+            heatmapState.monthCount,
+          )
         : new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
     applyStatsRange(statsRangeState.unit, nextAnchor);
   });
@@ -10652,12 +10886,14 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
 
   const target = document.createElement("div");
   target.className = "stats-period-summary-target";
-  const selectableItems = (Array.isArray(checkinData?.items) ? checkinData.items : []).filter(
-    (item) => !isStatsCheckinItemDeleted(item),
-  );
+  const selectableItems = (
+    Array.isArray(checkinData?.items) ? checkinData.items : []
+  ).filter((item) => !isStatsCheckinItemDeleted(item));
   const selectedItem =
     selectedItemId !== "all"
-      ? selectableItems.find((item) => String(item?.id || "") === String(selectedItemId || ""))
+      ? selectableItems.find(
+          (item) => String(item?.id || "") === String(selectedItemId || ""),
+        )
       : null;
   target.textContent =
     selectedItem?.title ||
@@ -10680,10 +10916,12 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
                 : label,
           })),
         )
-      : getStatsCheckinRangeLabels(selectedItem || {}).map((label, index, all) => ({
-          label: all.length > 1 ? `时间段 ${index + 1}` : "时间段",
-          value: label,
-        }));
+      : getStatsCheckinRangeLabels(selectedItem || {}).map(
+          (label, index, all) => ({
+            label: all.length > 1 ? `时间段 ${index + 1}` : "时间段",
+            value: label,
+          }),
+        );
 
   if (!entries.length) {
     const empty = document.createElement("div");
@@ -10857,13 +11095,15 @@ function buildProjectHierarchyIndex() {
   if (statsDataIndex?.getProjectHierarchyIndex) {
     return statsDataIndex.getProjectHierarchyIndex();
   }
-  return projectStatsApi?.buildProjectHierarchyIndex?.(projects) || {
-    allNodes: [],
-    byId: new Map(),
-    byName: new Map(),
-    childrenByParent: new Map(),
-    roots: [],
-  };
+  return (
+    projectStatsApi?.buildProjectHierarchyIndex?.(projects) || {
+      allNodes: [],
+      byId: new Map(),
+      byName: new Map(),
+      childrenByParent: new Map(),
+      roots: [],
+    }
+  );
 }
 
 function collectProjectSubtreeIds(projectId, hierarchyIndex) {
