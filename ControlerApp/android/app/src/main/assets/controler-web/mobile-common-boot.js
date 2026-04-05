@@ -16086,6 +16086,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let androidAppNavFocusSuppressionInitialized = false;
   let androidInteractiveTextAssistInitialized = false;
   let androidInteractiveActionFocusBypassInitialized = false;
+  let androidInteractiveActionReplayGuard = null;
   let androidModalAutofocusQueued = false;
   let androidReactNativeAppNavLocked = false;
   let lastAndroidSoftInputRequestAt = 0;
@@ -16158,6 +16159,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "[data-controler-pressable='true']",
   ].join(", ");
   const ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS = 420;
+  const ANDROID_INTERACTIVE_ACTION_REPLAY_DISTANCE_PX = 48;
   function resetAndroidModalAutofocusState(target) {
     if (!(target instanceof HTMLElement)) {
       return;
@@ -18203,27 +18205,75 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
-  function suppressAndroidInteractiveActionFocusTarget(target) {
+  function armAndroidInteractiveActionReplayGuard(target) {
     if (!(target instanceof HTMLElement)) {
+      androidInteractiveActionReplayGuard = null;
       return;
     }
-    const suppressUntil =
-      Date.now() + ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS;
-    target.__controlerAndroidInteractiveActionSuppressUntil = suppressUntil;
+    const rect =
+      typeof target.getBoundingClientRect === "function"
+        ? target.getBoundingClientRect()
+        : null;
+    const centerX =
+      rect && Number.isFinite(rect.left) && Number.isFinite(rect.width)
+        ? rect.left + rect.width / 2
+        : null;
+    const centerY =
+      rect && Number.isFinite(rect.top) && Number.isFinite(rect.height)
+        ? rect.top + rect.height / 2
+        : null;
+    androidInteractiveActionReplayGuard = {
+      until: Date.now() + ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS,
+      remainingClicks: 1,
+      x: centerX,
+      y: centerY,
+    };
   }
 
-  function shouldSuppressAndroidInteractiveActionReplayEvent(event) {
+  function isAndroidInteractiveActionReplayClickNearGuard(
+    event,
+    guard = null,
+  ) {
+    if (!guard) {
+      return false;
+    }
+    if (!Number.isFinite(guard.x) || !Number.isFinite(guard.y)) {
+      return true;
+    }
+    const clientX = Number(event?.clientX);
+    const clientY = Number(event?.clientY);
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+      return true;
+    }
+    return (
+      Math.abs(clientX - guard.x) <= ANDROID_INTERACTIVE_ACTION_REPLAY_DISTANCE_PX &&
+      Math.abs(clientY - guard.y) <= ANDROID_INTERACTIVE_ACTION_REPLAY_DISTANCE_PX
+    );
+  }
+
+  function shouldSuppressAndroidInteractiveActionClick(event) {
     if (!event?.isTrusted) {
       return false;
     }
-    const actionTarget = resolveAndroidInteractiveActionTarget(event.target);
-    if (!(actionTarget instanceof HTMLElement)) {
+    const guard = androidInteractiveActionReplayGuard;
+    if (!guard) {
       return false;
     }
-    return (
-      Number(actionTarget.__controlerAndroidInteractiveActionSuppressUntil) >
-      Date.now()
-    );
+    if (Number(guard.until) <= Date.now()) {
+      androidInteractiveActionReplayGuard = null;
+      return false;
+    }
+    if (
+      Number(guard.remainingClicks) <= 0 ||
+      !isAndroidInteractiveActionReplayClickNearGuard(event, guard)
+    ) {
+      return false;
+    }
+    guard.remainingClicks -= 1;
+    if (guard.remainingClicks <= 0) {
+      androidInteractiveActionReplayGuard = null;
+    }
+    return true;
   }
 
   function dispatchAndroidInteractiveActionAfterKeyboardRelease(target) {
@@ -18231,7 +18281,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
 
-    suppressAndroidInteractiveActionFocusTarget(target);
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? (callback) =>
@@ -18245,6 +18294,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       clearAndroidNavButtonFocus(target, true);
+      armAndroidInteractiveActionReplayGuard(target);
       target.click?.();
     });
     return true;
@@ -18403,23 +18453,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         true,
       );
       document.addEventListener(
-        "pointerup",
-        (event) => {
-          if (!shouldSuppressAndroidInteractiveActionReplayEvent(event)) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          if (typeof event.stopImmediatePropagation === "function") {
-            event.stopImmediatePropagation();
-          }
-        },
-        true,
-      );
-      document.addEventListener(
         "click",
         (event) => {
-          if (!shouldSuppressAndroidInteractiveActionReplayEvent(event)) {
+          if (!shouldSuppressAndroidInteractiveActionClick(event)) {
             return;
           }
           event.preventDefault();

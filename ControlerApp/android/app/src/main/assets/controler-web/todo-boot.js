@@ -38,7 +38,6 @@
   const MOBILE_SWIPE_DELETE_OPEN_THRESHOLD = 0.45;
   const MOBILE_SWIPE_DELETE_OPEN_VELOCITY = -0.32;
   const MOBILE_SWIPE_DELETE_CLOSE_VELOCITY = 0.32;
-  const TODO_ACTION_TOUCH_DEDUP_WINDOW_MS = 420;
   const TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS = 420;
   let todoSearchTimer = 0;
   let cachedTodoFilterKey = "";
@@ -6650,30 +6649,11 @@
       return () => {};
     }
 
-    let lastTouchHandledAt = 0;
     const listener = (event) => {
-      if (event.type === "pointerup" && event.pointerType === "mouse") {
-        return;
-      }
-      if (
-        event.type === "click" &&
-        Date.now() - lastTouchHandledAt < TODO_ACTION_TOUCH_DEDUP_WINDOW_MS
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === "function") {
-          event.stopImmediatePropagation();
-        }
-        return;
-      }
-
       event.preventDefault();
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === "function") {
         event.stopImmediatePropagation();
-      }
-      if (event.type === "pointerup") {
-        lastTouchHandledAt = Date.now();
       }
       button.blur?.();
       Promise.resolve(handler(event)).catch((error) => {
@@ -6681,10 +6661,8 @@
       });
     };
 
-    button.addEventListener("pointerup", listener);
     button.addEventListener("click", listener);
     return () => {
-      button.removeEventListener("pointerup", listener);
       button.removeEventListener("click", listener);
     };
   }

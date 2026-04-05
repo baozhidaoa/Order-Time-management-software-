@@ -1124,7 +1124,20 @@ function bindPlanShellVisibilityGate() {
 
     if (planExternalStorageRefreshPendingResume) {
       planExternalStorageRefreshPendingResume = false;
-      refreshPlanFromExternalStorageChange();
+      refreshPlanFromExternalStorageChange({
+        fresh:
+          window.ControlerStorage?.isNativeApp === true &&
+          planInitialDataLoaded &&
+          !planInitialDataLoadPromise,
+      });
+    } else if (
+      window.ControlerStorage?.isNativeApp === true &&
+      planInitialDataLoaded &&
+      !planInitialDataLoadPromise
+    ) {
+      refreshPlanFromExternalStorageChange({
+        fresh: true,
+      });
     }
     if (planDeferredBootstrapPendingResume) {
       planDeferredBootstrapPendingResume = false;
@@ -2356,7 +2369,9 @@ let planExternalStorageRefreshQueued = false;
 const planExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
-      await refreshPlanFromExternalStorageChange();
+      await refreshPlanFromExternalStorageChange({
+        fresh: window.ControlerStorage?.isNativeApp === true,
+      });
     },
   }) || null;
 
@@ -2548,13 +2563,14 @@ function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
   return true;
 }
 
-function refreshPlanFromExternalStorageChange() {
+function refreshPlanFromExternalStorageChange(options = {}) {
   if (!planShellPageActive && !isPlanShellTransitionLoading()) {
     planExternalStorageRefreshPendingResume = true;
     planExternalStorageRefreshQueued = false;
     return;
   }
   planExternalStorageRefreshQueued = false;
+  const readOptions = options?.fresh === true ? { fresh: true } : {};
   const requestId = ++planLoadRequestId;
   const runRefresh = async () => {
     const shouldManageRefreshLoading = !planInitialDataLoaded;
@@ -2572,7 +2588,7 @@ function refreshPlanFromExternalStorageChange() {
         });
       }
       try {
-        const snapshot = await readPlanWorkspace();
+        const snapshot = await readPlanWorkspace(readOptions);
         if (requestId !== planLoadRequestId) {
           return;
         }
@@ -2591,7 +2607,7 @@ function refreshPlanFromExternalStorageChange() {
       return;
     }
 
-    await planRefreshController.run(() => readPlanWorkspace(), {
+    await planRefreshController.run(() => readPlanWorkspace(readOptions), {
       manageLoading: shouldManageRefreshLoading,
       delayMs: getPlanLoadingDelayMs({
         blocking: true,
@@ -2649,7 +2665,11 @@ function bindPlanExternalStorageRefresh() {
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
         : (callback) => window.setTimeout(callback, 16);
-    schedule(refreshPlanFromExternalStorageChange);
+    schedule(() =>
+      refreshPlanFromExternalStorageChange({
+        fresh: window.ControlerStorage?.isNativeApp === true,
+      }),
+    );
   });
 }
 
@@ -3371,6 +3391,7 @@ async function readPlanWorkspace(options = {}) {
   });
   try {
     const bootstrapOptions = {
+      fresh: options?.fresh === true,
       includeYearlyGoals: options.includeYearlyGoals !== false,
       includeRecurringPlans:
         shouldLoadPlans && options.includeRecurringPlans !== false,
