@@ -2165,7 +2165,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       diaryCategories: [],
       customThemes: [],
       builtInThemeOverrides: {},
-      selectedTheme: "default",
+      selectedTheme: "obsidian-mono",
       todoSortPreference: "dueDate",
       createdAt: now,
       lastModified: now,
@@ -2713,7 +2713,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       selectedTheme:
         typeof source.selectedTheme === "string" && source.selectedTheme.trim()
           ? source.selectedTheme.trim()
-          : "default",
+          : "obsidian-mono",
       todoSortPreference: normalizeTodoSortPreference(source.todoSortPreference),
       createdAt:
         typeof source.createdAt === "string" && source.createdAt
@@ -2882,7 +2882,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof nextState.selectedTheme === "string" &&
       nextState.selectedTheme.trim()
         ? nextState.selectedTheme.trim()
-        : "default";
+        : "obsidian-mono";
     nextState.todoSortPreference = normalizeTodoSortPreference(
       nextState.todoSortPreference,
     );
@@ -3624,7 +3624,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     guideState: getDefaultGuideStateFallback(),
     customThemes: [],
     builtInThemeOverrides: {},
-    selectedTheme: "default",
+    selectedTheme: "obsidian-mono",
     createdAt: null,
     lastModified: null,
     storagePath: null,
@@ -3850,7 +3850,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       case "selectedTheme": {
         const normalizedValue =
           typeof value === "string" ? value.trim() : String(value || "").trim();
-        return normalizedValue || "default";
+        return normalizedValue || "obsidian-mono";
       }
       case "customThemes":
         return Array.isArray(value) ? value : [];
@@ -4275,7 +4275,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof base.selectedTheme !== "string" ||
       !base.selectedTheme.trim()
     ) {
-      base.selectedTheme = "default";
+      base.selectedTheme = "obsidian-mono";
     } else {
       base.selectedTheme = base.selectedTheme.trim();
     }
@@ -4792,7 +4792,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       selectedTheme:
         typeof state?.selectedTheme === "string" && state.selectedTheme.trim()
           ? state.selectedTheme.trim()
-          : "default",
+          : "obsidian-mono",
       customThemeCount: customThemes.length,
       hasBuiltInOverrides: Object.keys(builtInThemeOverrides).length > 0,
     };
@@ -10252,7 +10252,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           typeof sourceState?.selectedTheme === "string" &&
           sourceState.selectedTheme.trim()
             ? sourceState.selectedTheme.trim()
-            : "default",
+            : "obsidian-mono",
         createdAt: sourceState?.createdAt || null,
         lastModified: sourceState?.lastModified || null,
         storagePath: sourceState?.storagePath || null,
@@ -14134,6 +14134,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const THEME_WINDOW_NAME_PREFIX = "__CONTROLER_THEME_BOOTSTRAP__:";
   const THEME_APPLIED_EVENT_NAME = "controler:theme-applied";
+  const DEFAULT_THEME_ID = "obsidian-mono";
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
     /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
@@ -14591,7 +14592,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           themeId:
             typeof themeId === "string" && themeId.trim()
               ? themeId.trim()
-              : "default",
+              : DEFAULT_THEME_ID,
           colors,
           recordCard:
             isPlainObject(recordCard)
@@ -14845,9 +14846,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     return {
       surfaceReference,
-      windowGlow: toRgbaColor("#FFFFFF", isLightSurface ? 0.22 : 0.08),
-      controlBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.14),
-      controlBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
+      windowGlow: toRgbaColor(accentBase, isLightSurface ? 0.14 : 0.12),
+      controlBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.18),
+      controlBorder: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.22),
       controlText: ensureReadableTextColor(
         surfaceReference,
         resolvedColors.text,
@@ -14857,7 +14858,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ),
       cardBg: toRgbaColor(
         mixThemeColors(surfaceReference, resolvedColors.primary, 0.12),
-        isLightSurface ? 0.92 : 0.88,
+        isLightSurface ? 0.94 : 0.92,
       ),
       cardBorder: toRgbaColor(
         mixThemeColors(
@@ -14865,37 +14866,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           firstNonEmpty(resolvedColors.panelBorder, resolvedColors.border, accentBase),
           0.36,
         ),
-        isLightSurface ? 0.3 : 0.26,
+        isLightSurface ? 0.34 : 0.3,
       ),
       cardShadow: toRgbaColor(
         isLightSurface ? "#556274" : "#02060A",
-        isLightSurface ? 0.14 : 0.24,
+        isLightSurface ? 0.12 : 0.28,
       ),
       cardGlossStart: toRgbaColor("#FFFFFF", isLightSurface ? 0.22 : 0.08),
-      subtleSurface: toRgbaColor(contrastReference, isLightSurface ? 0.05 : 0.08),
+      subtleSurface: toRgbaColor(contrastReference, isLightSurface ? 0.06 : 0.1),
       subtleSurfaceStrong: toRgbaColor(
         contrastReference,
-        isLightSurface ? 0.08 : 0.12,
+        isLightSurface ? 0.1 : 0.16,
       ),
-      subtleBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.16),
-      trackBg: toRgbaColor(contrastReference, isLightSurface ? 0.06 : 0.08),
-      trackBorder: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.14),
-      gridColor: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
+      subtleBorder: toRgbaColor(contrastReference, isLightSurface ? 0.16 : 0.2),
+      trackBg: toRgbaColor(contrastReference, isLightSurface ? 0.07 : 0.1),
+      trackBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
+      gridColor: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.18),
       placeholderColor: toRgbaColor(
         contrastReference,
-        isLightSurface ? 0.22 : 0.28,
+        isLightSurface ? 0.22 : 0.3,
       ),
-      chartTrackBg: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.14),
+      chartTrackBg: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
       pieCenterBg: toRgbaColor(
         mixThemeColors(surfaceReference, resolvedColors.primary, 0.18),
-        isLightSurface ? 0.96 : 0.92,
+        isLightSurface ? 0.96 : 0.94,
       ),
-      badgeBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.12),
+      badgeBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
       badgeText: resolvedColors.mutedText,
-      actionMutedBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.14),
+      actionMutedBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
       actionMutedBorder: toRgbaColor(
         contrastReference,
-        isLightSurface ? 0.14 : 0.18,
+        isLightSurface ? 0.16 : 0.22,
       ),
       actionMutedText: ensureReadableTextColor(
         surfaceReference,
@@ -14907,7 +14908,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       accentActionBg,
       accentActionBorder: toRgbaColor(
         accentActionBg,
-        isLightSurface ? 0.38 : 0.32,
+        isLightSurface ? 0.4 : 0.36,
       ),
       accentActionText: ensureReadableTextColor(
         accentActionBg,
@@ -14916,11 +14917,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         "#F7FAFF",
         4.4,
       ),
-      goalAnnualBg: toRgbaColor(accentBase, isLightSurface ? 0.18 : 0.16),
+      goalAnnualBg: toRgbaColor(accentBase, isLightSurface ? 0.2 : 0.18),
       goalAnnualAccent: accentBase,
-      goalMonthBg: toRgbaColor(contrastReference, isLightSurface ? 0.08 : 0.12),
-      goalMonthAccent: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.2),
-      colorChipOutline: toRgbaColor(contrastReference, isLightSurface ? 0.16 : 0.18),
+      goalMonthBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
+      goalMonthAccent: toRgbaColor(contrastReference, isLightSurface ? 0.2 : 0.24),
+      colorChipOutline: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.22),
     };
   }
 
@@ -15091,9 +15092,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       navButtonActiveText,
       overlay: isValidThemeColorValue(source.overlay)
         ? source.overlay.trim()
-        : isLightSurface
-          ? "rgba(27, 31, 38, 0.22)"
-          : DEFAULT_THEME_COLORS.overlay,
+        : toRgbaColor(
+            mixThemeColors(
+              primary,
+              isLightSurface ? "#17212B" : "#04070B",
+              isLightSurface ? 0.76 : 0.68,
+            ),
+            isLightSurface ? 0.24 : 0.62,
+          ),
     };
   }
 
@@ -15320,7 +15326,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
         href: window.location.href,
         themeId,
-        selectedTheme: themeId || "default",
+        selectedTheme: themeId || DEFAULT_THEME_ID,
         customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
         builtInThemeOverrides: selectedOverride
           ? {
@@ -15335,7 +15341,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         recordCard: { ...recordCard },
       });
       const launchThemeState = {
-        selectedTheme: themeId || "default",
+        selectedTheme: themeId || DEFAULT_THEME_ID,
         customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
         builtInThemeOverrides: selectedOverride
           ? {
@@ -15351,7 +15357,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.ControlerNativeBridge?.emitEvent?.("ui.debug-launch-theme-sync", {
         href: window.location.href,
         themeId,
-        selectedTheme: themeId || "default",
+        selectedTheme: themeId || DEFAULT_THEME_ID,
         customThemeCount: matchedCustomTheme ? 1 : 0,
         builtInOverrideCount: selectedOverride ? 1 : 0,
         signatureChanged:
@@ -15377,7 +15383,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const storedTheme =
       typeof selectedThemeEntry.rawValue === "string" && selectedThemeEntry.rawValue.trim()
         ? selectedThemeEntry.rawValue.trim()
-        : "default";
+        : DEFAULT_THEME_ID;
     const builtInThemeOverrides = loadBuiltInThemeOverrides();
     const rawCustomThemes = readJsonStorage(CUSTOM_THEMES_STORAGE_KEY, []);
     const customTheme = Array.isArray(rawCustomThemes)
@@ -15416,8 +15422,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       customTheme ||
       mergedBuiltInTheme ||
       builtInThemeMap.get(storedTheme) ||
+      builtInThemeMap.get(DEFAULT_THEME_ID) ||
       builtInThemeMap.get("default");
-    const themeId = activeTheme?.id || "default";
+    const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
       activeTheme,
@@ -15440,7 +15447,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const selectedTheme =
       typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
         ? detail.selectedTheme.trim()
-        : "default";
+        : DEFAULT_THEME_ID;
     const customThemes = Array.isArray(detail.customThemes)
       ? detail.customThemes
           .map((theme) => normalizeCustomTheme(theme))
@@ -15456,13 +15463,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       selectedTheme,
       builtInThemeOverrides[selectedTheme],
     );
-    const fallbackTheme = builtInThemeMap.get("default");
+    const fallbackTheme =
+      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
     const activeTheme =
       matchedCustomTheme ||
       normalizedBuiltInOverride ||
       builtInThemeMap.get(selectedTheme) ||
       fallbackTheme;
-    const themeId = activeTheme?.id || "default";
+    const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
       themeId,
@@ -15514,7 +15522,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (
-      (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || "default") !== themeId
+      (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || DEFAULT_THEME_ID) !== themeId
     ) {
       localStorage.setItem(SELECTED_THEME_STORAGE_KEY, themeId);
     }
@@ -15554,14 +15562,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       applyThemeState(themeId, activeTheme, options);
     } catch (error) {
       lastThemeStorageSignature = "__fallback__";
-      const fallbackTheme = builtInThemeMap.get("default");
+      const fallbackTheme =
+        builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
       appendDesktopThemeDebugLog("apply-from-storage-fallback", {
         message: error instanceof Error ? error.message : String(error || ""),
       });
-      document.documentElement.setAttribute("data-theme", "default");
+      document.documentElement.setAttribute("data-theme", DEFAULT_THEME_ID);
       applyThemeColors(fallbackTheme);
       document.documentElement.style.colorScheme = "dark";
-      dispatchThemeApplied("default", resolveThemeColors(fallbackTheme), options);
+      dispatchThemeApplied(
+        DEFAULT_THEME_ID,
+        resolveThemeColors(fallbackTheme),
+        options,
+      );
     }
   }
 
@@ -15570,7 +15583,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
     const resolvedThemeState = resolveThemeStateFromBridgeDetail(detail);
-    const selectedTheme = resolvedThemeState.themeId || "default";
+    const selectedTheme = resolvedThemeState.themeId || DEFAULT_THEME_ID;
     const customThemes = resolvedThemeState.customThemes;
     const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
     const sharedThemeState = {
@@ -15650,11 +15663,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       applyThemeFromStorage();
     }
   } catch (error) {
-    const fallbackTheme = builtInThemeMap.get("default");
-    document.documentElement.setAttribute("data-theme", "default");
+    const fallbackTheme =
+      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
+    document.documentElement.setAttribute("data-theme", DEFAULT_THEME_ID);
     applyThemeColors(fallbackTheme);
     document.documentElement.style.colorScheme = "dark";
-    dispatchThemeApplied("default", resolveThemeColors(fallbackTheme));
+    dispatchThemeApplied(DEFAULT_THEME_ID, resolveThemeColors(fallbackTheme));
   }
 
   window.ControlerTheme = {
@@ -24220,5 +24234,3 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     alertDialog,
   };
 })();
-
-

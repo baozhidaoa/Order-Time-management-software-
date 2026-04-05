@@ -14,9 +14,8 @@
     <!-- 侧边栏 -->
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <!-- 导航栏 -->
       <div class="app-nav flex flex1 column ms mgt">
         <button
@@ -96,16 +95,9 @@
     <!-- 主要内容区域 -->
     <div
       class="app-main settings-main flex flex1 column ms mg"
-      style="
-        min-height: 100vh;
-        height: auto;
-        width: auto;
-        overflow-y: auto;
-        overflow-x: hidden;
-      "
     >
-      <div class="settings-topbar flex" style="margin-bottom: 30px">
-        <h1 style="color: var(--text-color)" class="mgb mgl">其他设置</h1>
+      <div class="settings-topbar page-topbar flex">
+        <h1 class="page-title">其他设置</h1>
       </div>
       <div
         id="settings-backup-overlay"

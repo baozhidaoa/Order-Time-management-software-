@@ -25,35 +25,49 @@
       }
 
       .todo-shell {
-        margin: 15px;
-        padding: 15px;
-        background-color: var(--bg-secondary);
-        border-radius: 15px;
+        margin: 0 20px 20px;
+        width: calc(100% - 40px);
+        max-width: var(--page-shell-max-width);
+        align-self: center;
+        padding: 20px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--panel-strong-bg) 92%, transparent);
+        border: 1px solid
+          color-mix(in srgb, var(--panel-border-color) 84%, rgba(255, 255, 255, 0.04));
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 18px 38px rgba(0, 0, 0, 0.16);
+        border-radius: 24px;
         display: flex;
         flex-direction: column;
-        gap: 15px;
-        min-height: auto;
-        width: auto;
+        gap: 18px;
+        min-height: 0;
+        height: auto;
         flex: 0 0 auto;
-        align-self: stretch;
       }
 
       .todo-panel-stack {
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-        min-height: auto;
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.72fr);
+        grid-template-areas:
+          "toolbar toolbar"
+          "controls controls"
+          "content stats";
+        gap: 16px 18px;
+        min-height: 0;
         width: 100%;
-        flex: 0 0 auto;
+        flex: 1 1 auto;
         align-items: stretch;
       }
 
       .todo-primary-toolbar {
+        grid-area: toolbar;
         display: flex;
         justify-content: space-between;
         align-items: center;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 12px;
       }
 
       .todo-primary-actions,
@@ -72,7 +86,13 @@
       .todo-control-strip {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
+      }
+
+      #todo-view-controls,
+      #checkin-view-controls {
+        grid-area: controls;
+        min-width: 0;
       }
 
       .todo-dropdown-row {
@@ -90,7 +110,7 @@
       .todo-tools-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 15px;
+        gap: 12px;
       }
 
       .todo-tools-input {
@@ -105,32 +125,32 @@
       }
 
       .todo-content-card {
-        padding: 15px;
-        background-color: color-mix(
-          in srgb,
-          var(--bg-tertiary) 84%,
-          transparent
-        );
-        border: 1px solid var(--bg-tertiary);
-        border-radius: 15px;
+        padding: 16px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+        border: 1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent);
+        border-radius: 20px;
         min-height: 150px;
         height: auto;
         width: 100%;
-        flex: 0 0 auto;
+        flex: 1 1 auto;
         overflow: visible;
       }
 
       .todo-stats-shell {
-        padding: 15px;
-        background-color: color-mix(
-          in srgb,
-          var(--bg-tertiary) 84%,
-          transparent
-        );
-        border: 1px solid var(--bg-tertiary);
-        border-radius: 15px;
+        grid-area: stats;
+        position: sticky;
+        top: 0;
+        padding: 16px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+        border: 1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent);
+        border-radius: 20px;
         width: 100%;
         flex: 0 0 auto;
+        align-self: start;
       }
 
       .todo-item {
@@ -535,8 +555,10 @@
       #todo-list-container,
       #todo-quadrant-container,
       #checkin-list-container {
+        grid-area: content;
         width: 100%;
         height: auto;
+        min-height: 240px;
         flex: 0 0 auto;
       }
 
@@ -554,9 +576,21 @@
         }
 
         .todo-shell {
-          margin: 10px 6px 6px;
+          margin: 6px;
+          width: calc(100% - 12px);
+          max-width: none;
           padding: 12px;
           border-radius: 12px;
+          gap: 10px;
+        }
+
+        .todo-panel-stack {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas:
+            "toolbar"
+            "controls"
+            "content"
+            "stats";
           gap: 10px;
         }
 
@@ -630,15 +664,18 @@
           padding: 5px 10px !important;
           font-size: 11px !important;
         }
+
+        .todo-stats-shell {
+          position: static;
+        }
       }
     </style>
   </head>
   <body class="app-layout page-todo todo-bootstrap-pending bgs bkg flex row">
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
           记录
@@ -661,9 +698,9 @@
       </div>
     </div>
 
-    <div class="app-main todo-main flex flex1 column mg ms" style="overflow-y: auto">
-      <div class="todo-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">待办与打卡</h2>
+    <div class="app-main todo-main flex flex1 column mg ms">
+      <div class="todo-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">待办与打卡</h2>
       </div>
       <div
         id="todo-loading-overlay"

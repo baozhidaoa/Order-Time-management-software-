@@ -20,8 +20,8 @@
     }
   </style>
   <body class="app-layout page-diary diary-bootstrap-pending bkg flex row">
-    <div class="app-sidebar flex column ms mgt mgb" style="height: 100vh; width: 11%">
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+    <div class="app-sidebar flex column ms mgt mgb">
+      <div class="app-sidebar-spacer flex ms"></div>
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
           记录
@@ -44,9 +44,9 @@
       </div>
     </div>
 
-    <div class="app-main diary-main flex flex1 column mg ms" style="overflow-y: auto">
-      <div class="diary-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">日记</h2>
+    <div class="app-main diary-main flex flex1 column mg ms">
+      <div class="diary-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">日记</h2>
       </div>
       <div
         id="diary-loading-overlay"
@@ -65,13 +65,7 @@
       </div>
 
       <div
-        class="diary-shell"
-        style="
-          margin: 15px;
-          padding: 15px;
-          background-color: var(--bg-secondary);
-          border-radius: 15px;
-        "
+        class="diary-shell page-shell page-shell--fill"
       >
         <div id="diary-guide-card" class="guide-card-host" hidden></div>
         <h3 style="margin: 0 0 15px 0; color: var(--text-color)">日记视图</h3>
@@ -153,13 +147,16 @@
           id="diary-view-container"
           class="resizable-panel"
           style="
-            min-height: 620px;
-            overflow: auto;
+            min-height: 320px;
+            height: auto;
+            overflow: hidden;
             position: relative;
             border-radius: 12px;
             border: 1px solid var(--bg-tertiary);
             background-color: var(--bg-secondary);
             padding: 12px;
+            min-width: 0;
+            max-width: 100%;
           "
         ></div>
       </div>

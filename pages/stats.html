@@ -23,9 +23,8 @@
     <!-- 侧边栏 -->
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <!-- 导航栏 -->
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
@@ -51,10 +50,9 @@
     <!-- 主要内容区域 -->
     <div
       class="app-main stats-main flex flex1 column mg ms"
-      style="overflow-y: auto"
     >
-      <div class="stats-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">时间统计</h2>
+      <div class="stats-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">时间统计</h2>
       </div>
       <div
         id="stats-loading-overlay"
@@ -73,17 +71,7 @@
       </div>
 
       <div
-        class="stats-shell"
-        style="
-          margin: 15px;
-          padding: 15px;
-          background-color: var(--bg-quaternary);
-          border-radius: 15px;
-          display: flex;
-          flex-direction: column;
-          flex: 1;
-          min-height: auto;
-        "
+        class="stats-shell page-shell page-shell--fill"
       >
         <h3 style="margin: 0 0 15px 0; color: var(--text-color)">统计视图</h3>
         <div id="stats-toolbar" class="stats-toolbar">
@@ -143,14 +131,13 @@
           id="stats-container"
           class="resizable-panel"
           style="
-            min-height: auto;
-            overflow: visible;
             position: relative;
             display: flex;
             flex-direction: column;
-            flex: 0 0 auto;
             gap: 16px;
             width: 100%;
+            min-width: 0;
+            max-width: 100%;
           "
         >
           <div

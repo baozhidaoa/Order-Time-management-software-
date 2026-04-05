@@ -9796,81 +9796,6 @@
     updateStatsPanel();
   }
 
-  // 创建测试待办事项
-  function createTestTodos() {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(today.getDate() + 7);
-
-    // 创建测试待办事项
-    const testTodos = [
-      new Todo(
-        "完成项目报告",
-        "撰写项目总结报告，包括成果和遇到的问题",
-        today.toISOString().split("T")[0],
-        "high",
-        ["工作", "报告", "项目"],
-      ),
-      new Todo(
-        "学习React Hooks",
-        "深入学习useState, useEffect, useContext等Hook",
-        tomorrow.toISOString().split("T")[0],
-        "medium",
-        ["学习", "编程", "React"],
-        null,
-        "weekly",
-        [1, 3, 5],
-        [],
-        today.toISOString().split("T")[0],
-        nextWeek.toISOString().split("T")[0],
-      ),
-      new Todo(
-        "健身锻炼",
-        "完成今日的健身计划，包括有氧和力量训练",
-        today.toISOString().split("T")[0],
-        "low",
-        ["健康", "健身", "日常"],
-      ),
-      new Todo(
-        "团队会议准备",
-        "准备下周一团队会议的演示材料",
-        nextWeek.toISOString().split("T")[0],
-        "medium",
-        ["工作", "会议", "演示"],
-      ),
-      new Todo(
-        "阅读技术文章",
-        "阅读最新的前端技术文章，了解行业动态",
-        null,
-        "low",
-        ["学习", "阅读", "技术"],
-      ),
-    ];
-
-    // 标记一个为已完成
-    testTodos[0].completed = true;
-    testTodos[0].completedAt = new Date().toISOString();
-
-    // 创建一些测试打卡记录
-    const testCheckins = [
-      new Checkin(testTodos[0].id, "已完成项目报告的初稿，等待评审"),
-      new Checkin(testTodos[0].id, "报告已根据反馈进行修改"),
-      new Checkin(testTodos[1].id, "学习了useState和useEffect的基本用法"),
-    ];
-
-    // 设置数据
-    todos = testTodos;
-    checkins = testCheckins;
-    createDemoCheckinItems();
-
-    // 保存数据
-    saveData();
-
-    console.log("测试待办事项数据创建成功，共", todos.length, "个待办事项");
-  }
-
   // 显示类型选择弹窗
   function showTodoTypeModal() {
     const modal = document.createElement("div");
@@ -12041,5 +11966,4 @@
     }
   }
 })();
-
 
