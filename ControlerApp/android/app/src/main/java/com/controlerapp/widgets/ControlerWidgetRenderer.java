@@ -168,9 +168,12 @@ public final class ControlerWidgetRenderer {
         int accentTextColor = Color.parseColor("#133120");
         int contrastReferenceColor = Color.WHITE;
         int cardFillColor = Color.parseColor("#20362B");
+        int itemFillColor = Color.parseColor("#263C30");
         int cardBorderColor = Color.parseColor("#5F7D6A");
         int cardGlossColor = Color.argb(18, 255, 255, 255);
         boolean surfaceIsLight = false;
+        boolean hasCustomTextColor = false;
+        boolean hasCustomActionTextColor = false;
     }
 
     private static final class WidgetMetrics {
@@ -1301,7 +1304,7 @@ public final class ControlerWidgetRenderer {
         views.setTextColor(R.id.widget_subtitle, palette.subtitleColor);
         views.setTextColor(
             R.id.widget_header_summary,
-            resolveReadableTextColor(palette.bodyColor, palette.surfaceColor, 4.1d)
+            resolveWidgetBodyTextColor(palette, palette.cardFillColor, 4.1d)
         );
         views.setTextColor(R.id.widget_line1, palette.bodyColor);
         views.setTextColor(R.id.widget_line2, palette.bodyColor);
@@ -1410,8 +1413,8 @@ public final class ControlerWidgetRenderer {
             );
             views.setTextColor(
                 R.id.widget_collection_empty,
-                resolveReadableTextColor(
-                    palette.subtitleColor,
+                resolveWidgetSubtitleTextColor(
+                    palette,
                     resolveCollectionRowSurfaceColor(palette),
                     3.0d
                 )
@@ -1420,8 +1423,8 @@ public final class ControlerWidgetRenderer {
         if (useYearGoalLayout) {
             views.setTextViewText(R.id.widget_year_annual_empty, "暂无年度目标");
             views.setTextViewText(R.id.widget_year_month_empty, "暂无本月目标");
-            int emptyTextColor = resolveReadableTextColor(
-                palette.subtitleColor,
+            int emptyTextColor = resolveWidgetSubtitleTextColor(
+                palette,
                 resolveCollectionRowSurfaceColor(palette),
                 3.0d
             );
@@ -1647,66 +1650,100 @@ public final class ControlerWidgetRenderer {
             palette.accentColor
         );
         int preferredTitleColor = parseColor(colors.get("text"), palette.titleColor);
-        palette.titleColor = resolveReadableTextColor(
-            preferredTitleColor,
-            palette.surfaceColor,
-            4.5d
-        );
-        palette.subtitleColor = resolveReadableTextColor(
-            parseColor(
-                firstNonEmpty(colors.get("mutedText"), colors.get("text")),
-                palette.subtitleColor
-            ),
-            palette.surfaceColor,
-            2.8d
-        );
-        palette.bodyColor = resolveReadableTextColor(
-            preferredTitleColor,
-            palette.surfaceColor,
-            4.2d
-        );
+        int widgetCardOverride = parseColor(colors.get("widgetCardBg"), Integer.MIN_VALUE);
+        palette.cardFillColor =
+            widgetCardOverride != Integer.MIN_VALUE
+                ? widgetCardOverride
+                : resolveOpaqueColor(
+                    blendColors(
+                        palette.surfaceColor,
+                        palette.backgroundColor,
+                        palette.surfaceIsLight ? 0.18f : 0.30f
+                    ),
+                    palette.surfaceColor
+                );
+        int widgetItemOverride = parseColor(colors.get("widgetItemBg"), Integer.MIN_VALUE);
+        palette.itemFillColor =
+            widgetItemOverride != Integer.MIN_VALUE
+                ? widgetItemOverride
+                : resolveOpaqueColor(
+                    blendColors(
+                        palette.cardFillColor,
+                        palette.contrastReferenceColor,
+                        palette.surfaceIsLight ? 0.03f : 0.05f
+                    ),
+                    palette.cardFillColor
+                );
+        int widgetTextOverride = parseColor(colors.get("widgetText"), Integer.MIN_VALUE);
+        palette.hasCustomTextColor = widgetTextOverride != Integer.MIN_VALUE;
+        palette.titleColor =
+            widgetTextOverride != Integer.MIN_VALUE
+                ? widgetTextOverride
+                : resolveReadableTextColor(
+                    preferredTitleColor,
+                    palette.cardFillColor,
+                    4.5d
+                );
+        palette.bodyColor =
+            widgetTextOverride != Integer.MIN_VALUE
+                ? widgetTextOverride
+                : resolveReadableTextColor(
+                    preferredTitleColor,
+                    palette.cardFillColor,
+                    4.2d
+                );
+        palette.subtitleColor =
+            widgetTextOverride != Integer.MIN_VALUE
+                ? applyAlpha(widgetTextOverride, palette.surfaceIsLight ? 176 : 194)
+                : resolveReadableTextColor(
+                    parseColor(
+                        firstNonEmpty(colors.get("mutedText"), colors.get("text")),
+                        palette.subtitleColor
+                    ),
+                    palette.cardFillColor,
+                    2.8d
+                );
         int preferredActionTextColor = parseColor(
             firstNonEmpty(colors.get("buttonText"), colors.get("onAccentText"), colors.get("text")),
             palette.actionTextColor
         );
-        int actionBaseColor = resolveVisibleAccentColor(
-            parseColor(
-                firstNonEmpty(colors.get("buttonBg"), colors.get("accent")),
+        int actionBaseColor = parseColor(colors.get("widgetButtonBg"), Integer.MIN_VALUE);
+        if (actionBaseColor == Integer.MIN_VALUE) {
+            actionBaseColor = resolveVisibleAccentColor(
+                parseColor(
+                    firstNonEmpty(colors.get("buttonBg"), colors.get("accent")),
+                    palette.accentColor
+                ),
+                palette.cardFillColor,
                 palette.accentColor
-            ),
-            palette.surfaceColor,
-            palette.accentColor
-        );
-        palette.actionFillColor = resolveOpaqueColor(
-            blendColors(
-                palette.surfaceColor,
-                actionBaseColor,
-                palette.surfaceIsLight ? 0.14f : 0.20f
-            ),
-            palette.surfaceColor
-        );
+            );
+        }
+        palette.actionFillColor = resolveOpaqueColor(actionBaseColor, palette.cardFillColor);
         palette.actionOutlineColor = resolveOpaqueColor(
             blendColors(
                 palette.actionFillColor,
-                actionBaseColor,
-                palette.surfaceIsLight ? 0.28f : 0.34f
+                palette.contrastReferenceColor,
+                palette.surfaceIsLight ? 0.12f : 0.10f
             ),
-            palette.surfaceColor
+            palette.cardFillColor
         );
-        palette.actionTextColor = resolveReadableTextColor(
-            preferredActionTextColor,
-            palette.actionFillColor,
-            4.1d
+        int widgetButtonTextOverride = parseColor(
+            colors.get("widgetButtonText"),
+            Integer.MIN_VALUE
         );
+        palette.hasCustomActionTextColor = widgetButtonTextOverride != Integer.MIN_VALUE;
+        palette.actionTextColor =
+            widgetButtonTextOverride != Integer.MIN_VALUE
+                ? widgetButtonTextOverride
+                : resolveReadableTextColor(
+                    preferredActionTextColor,
+                    palette.actionFillColor,
+                    4.1d
+                );
         palette.accentTextColor = resolveReadableTextColor(
             preferredActionTextColor,
             palette.accentColor,
             4.2d
-        );
-        palette.cardFillColor = blendColors(
-            palette.surfaceColor,
-            palette.backgroundColor,
-            palette.surfaceIsLight ? 0.10f : 0.18f
         );
         palette.cardBorderColor = blendColors(
             palette.borderColor,
@@ -1891,7 +1928,12 @@ public final class ControlerWidgetRenderer {
             "panelBorder",
             "buttonBg",
             "buttonText",
-            "onAccentText"
+            "onAccentText",
+            "widgetCardBg",
+            "widgetItemBg",
+            "widgetText",
+            "widgetButtonBg",
+            "widgetButtonText"
         };
 
         for (String key : keys) {
@@ -1935,25 +1977,67 @@ public final class ControlerWidgetRenderer {
         if (palette == null) {
             return Color.parseColor("#2AFFFFFF");
         }
-        return resolveOpaqueColor(
-            blendColors(
-                palette.cardFillColor,
-                palette.accentColor,
-                palette.surfaceIsLight ? 0.08f : 0.12f
-            ),
-            palette.surfaceColor
-        );
+        return resolveWidgetPanelSurfaceColor(palette);
     }
 
     private static int resolveStatTextColor(ThemePalette palette) {
         if (palette == null) {
             return Color.parseColor("#F7FAFF");
         }
-        return resolveReadableTextColor(
-            palette.bodyColor,
-            resolveStatSurfaceColor(palette),
-            4.1d
-        );
+        return resolveWidgetBodyTextColor(palette, resolveStatSurfaceColor(palette), 4.1d);
+    }
+
+    private static int resolveWidgetPanelSurfaceColor(ThemePalette palette) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        return resolveOpaqueColor(safePalette.itemFillColor, safePalette.cardFillColor);
+    }
+
+    private static int resolveWidgetTitleTextColor(
+        ThemePalette palette,
+        int backgroundColor,
+        double minContrast
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (safePalette.hasCustomTextColor) {
+            return safePalette.titleColor;
+        }
+        return resolveReadableTextColor(safePalette.titleColor, backgroundColor, minContrast);
+    }
+
+    private static int resolveWidgetBodyTextColor(
+        ThemePalette palette,
+        int backgroundColor,
+        double minContrast
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (safePalette.hasCustomTextColor) {
+            return safePalette.bodyColor;
+        }
+        return resolveReadableTextColor(safePalette.bodyColor, backgroundColor, minContrast);
+    }
+
+    private static int resolveWidgetSubtitleTextColor(
+        ThemePalette palette,
+        int backgroundColor,
+        double minContrast
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (safePalette.hasCustomTextColor) {
+            return safePalette.subtitleColor;
+        }
+        return resolveReadableTextColor(safePalette.subtitleColor, backgroundColor, minContrast);
+    }
+
+    private static int resolveWidgetActionTextColor(
+        ThemePalette palette,
+        int backgroundColor,
+        double minContrast
+    ) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (safePalette.hasCustomActionTextColor) {
+            return safePalette.actionTextColor;
+        }
+        return resolveReadableTextColor(safePalette.actionTextColor, backgroundColor, minContrast);
     }
 
     private static boolean isLightColor(int color) {
@@ -2987,6 +3071,7 @@ public final class ControlerWidgetRenderer {
         signature.addInt(palette.accentTextColor);
         signature.addInt(palette.contrastReferenceColor);
         signature.addInt(palette.cardFillColor);
+        signature.addInt(palette.itemFillColor);
         signature.addInt(palette.cardBorderColor);
         signature.addInt(palette.cardGlossColor);
         signature.addBoolean(palette.surfaceIsLight);
@@ -3178,13 +3263,13 @@ public final class ControlerWidgetRenderer {
 
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
         int rowSurfaceColor = resolveCollectionRowSurfaceColor(palette);
-        int rowTitleColor = resolveReadableTextColor(
-            safePalette.bodyColor,
+        int rowTitleColor = resolveWidgetBodyTextColor(
+            safePalette,
             rowSurfaceColor,
             4.2d
         );
-        int rowMetaColor = resolveReadableTextColor(
-            safePalette.subtitleColor,
+        int rowMetaColor = resolveWidgetSubtitleTextColor(
+            safePalette,
             rowSurfaceColor,
             3.0d
         );
@@ -3260,8 +3345,8 @@ public final class ControlerWidgetRenderer {
                 item.accentColor,
                 rowSurfaceColor
             );
-            int badgeTextColor = resolveReadableTextColor(
-                Color.WHITE,
+            int badgeTextColor = resolveWidgetActionTextColor(
+                safePalette,
                 badgeColor,
                 4.2d
             );
@@ -3276,11 +3361,18 @@ public final class ControlerWidgetRenderer {
                 completionFillColor,
                 item.completed
             );
-            int completionTextColor = resolveReadableTextColor(
-                item.completed ? safePalette.accentTextColor : safePalette.bodyColor,
-                completionFillColor,
-                4.2d
-            );
+            int completionTextColor =
+                item.completed
+                    ? resolveWidgetActionTextColor(
+                        safePalette,
+                        completionFillColor,
+                        4.2d
+                    )
+                    : resolveWidgetBodyTextColor(
+                        safePalette,
+                        completionFillColor,
+                        4.2d
+                    );
             ControlerWidgetCollectionStore.RowData row = new ControlerWidgetCollectionStore.RowData();
             row.title = safeText(item.title);
             row.meta = "";
@@ -3358,15 +3450,7 @@ public final class ControlerWidgetRenderer {
     }
 
     private static int resolveCollectionRowSurfaceColor(ThemePalette palette) {
-        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
-        return resolveOpaqueColor(
-            blendColors(
-                safePalette.cardFillColor,
-                safePalette.accentColor,
-                safePalette.surfaceIsLight ? 0.06f : 0.10f
-            ),
-            safePalette.surfaceColor
-        );
+        return resolveWidgetPanelSurfaceColor(palette);
     }
 
     private static int resolveYearGoalRowSurfaceColor(
@@ -3376,36 +3460,22 @@ public final class ControlerWidgetRenderer {
         boolean completed
     ) {
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
-        int visibleAccent = resolveVisibleAccentColor(
-            accentColor,
-            safePalette.cardFillColor,
+        int baseSurfaceColor = resolveWidgetPanelSurfaceColor(safePalette);
+        if (!completed) {
+            return baseSurfaceColor;
+        }
+        int completedAccent = resolveVisibleAccentColor(
+            safePalette.accentColor,
+            baseSurfaceColor,
             safePalette.accentColor
-        );
-        int baseSurfaceColor = resolveOpaqueColor(
-            blendColors(
-                safePalette.cardFillColor,
-                safePalette.backgroundColor,
-                safePalette.surfaceIsLight ? 0.18f : 0.24f
-            ),
-            safePalette.surfaceColor
         );
         return resolveOpaqueColor(
             blendColors(
                 baseSurfaceColor,
-                completed
-                    ? resolveVisibleAccentColor(
-                        safePalette.accentColor,
-                        baseSurfaceColor,
-                        visibleAccent
-                    )
-                    : visibleAccent,
-                completed
-                    ? (safePalette.surfaceIsLight ? 0.12f : 0.20f)
-                    : safePalette.surfaceIsLight
-                        ? (annual ? 0.08f : 0.05f)
-                        : (annual ? 0.14f : 0.09f)
+                completedAccent,
+                safePalette.surfaceIsLight ? 0.08f : 0.14f
             ),
-            safePalette.surfaceColor
+            safePalette.cardFillColor
         );
     }
 
@@ -3459,6 +3529,9 @@ public final class ControlerWidgetRenderer {
         boolean completed
     ) {
         ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        if (safePalette.hasCustomTextColor) {
+            return safePalette.bodyColor;
+        }
         int preferredTitleColor =
             completed
                 ? blendColors(
@@ -5198,7 +5271,7 @@ public final class ControlerWidgetRenderer {
             arcStrokeWidth
         );
         Paint holePaint = createPaint(
-            blendColors(palette.backgroundColor, palette.surfaceColor, 0.45f),
+            palette.cardFillColor,
             Paint.Style.FILL,
             0f
         );
@@ -5797,15 +5870,31 @@ public final class ControlerWidgetRenderer {
             (outerBottom - outerTop - rowGap * (rows.size() - 1)) / Math.max(1, rows.size());
         float rowRadius = Math.max(1f, Math.min(dp(context, 4f), rowHeight / 2f));
 
-        Paint rowFillPaint = createPaint(applyAlpha(palette.bodyColor, 14), Paint.Style.FILL, 0f);
+        int rowSurfaceColor = resolveWidgetPanelSurfaceColor(palette);
+        Paint rowFillPaint = createPaint(rowSurfaceColor, Paint.Style.FILL, 0f);
         Paint rowBorderPaint = createPaint(
-            applyAlpha(palette.bodyColor, 34),
+            applyAlpha(
+                blendColors(
+                    rowSurfaceColor,
+                    palette.contrastReferenceColor,
+                    palette.surfaceIsLight ? 0.12f : 0.16f
+                ),
+                186
+            ),
             Paint.Style.STROKE,
             Math.max(1f, dp(context, 0.8f))
         );
-        Paint todayFillPaint = createPaint(applyAlpha(palette.accentColor, 34), Paint.Style.FILL, 0f);
+        Paint todayFillPaint = createPaint(rowSurfaceColor, Paint.Style.FILL, 0f);
         Paint todayBorderPaint = createPaint(
-            blendColors(palette.accentColor, palette.contrastReferenceColor, 0.16f),
+            resolveVisibleAccentColor(
+                blendColors(
+                    palette.accentColor,
+                    palette.contrastReferenceColor,
+                    palette.surfaceIsLight ? 0.10f : 0.06f
+                ),
+                rowSurfaceColor,
+                palette.accentColor
+            ),
             Paint.Style.STROKE,
             Math.max(1f, dp(context, 1.1f))
         );
@@ -6039,13 +6128,13 @@ public final class ControlerWidgetRenderer {
 
         float radius = dp(context, 8f);
         float borderWidth = Math.max(1f, dp(context, 1f));
-        int cardFillColor = blendColors(palette.surfaceColor, accentColor, 0.14f);
+        int cardFillColor = palette.cardFillColor;
         int cardBorderColor = applyAlpha(
             resolveVisibleAccentColor(
                 blendColors(
-                    accentColor,
+                    palette.borderColor,
                     palette.contrastReferenceColor,
-                    palette.surfaceIsLight ? 0.08f : 0.16f
+                    palette.surfaceIsLight ? 0.08f : 0.12f
                 ),
                 cardFillColor,
                 palette.borderColor
@@ -6059,17 +6148,19 @@ public final class ControlerWidgetRenderer {
         );
         Paint borderPaint = createPaint(cardBorderColor, Paint.Style.STROKE, borderWidth);
         Paint titlePaint = createPaint(
-            resolveReadableTextColor(palette.titleColor, cardFillColor, 4.2d),
+            resolveWidgetTitleTextColor(palette, cardFillColor, 4.2d),
             Paint.Style.FILL,
             0f
         );
         titlePaint.setTextSize(sp(context, rect.height() < dp(context, 52f) ? 7.9f : 8.6f));
         Paint bodyPaint = createPaint(
-            resolveReadableTextColor(
-                blendColors(palette.bodyColor, accentColor, 0.16f),
-                cardFillColor,
-                4.2d
-            ),
+            palette.hasCustomTextColor
+                ? palette.bodyColor
+                : resolveReadableTextColor(
+                    blendColors(palette.bodyColor, accentColor, 0.16f),
+                    cardFillColor,
+                    4.2d
+                ),
             Paint.Style.FILL,
             0f
         );
@@ -6118,21 +6209,13 @@ public final class ControlerWidgetRenderer {
             dp(context, rect.height() < dp(context, 52f) ? 17f : 19f),
             bodyPaint.getTextSize() + dp(context, 9f)
         );
-        int itemFillColor = blendColors(
-            blendColors(
-                cardFillColor,
-                palette.contrastReferenceColor,
-                palette.surfaceIsLight ? 0.05f : 0.12f
-            ),
-            accentColor,
-            0.07f
-        );
+        int itemFillColor = resolveWidgetPanelSurfaceColor(palette);
         int itemBorderColor = applyAlpha(
             resolveVisibleAccentColor(
                 blendColors(
-                    accentColor,
+                    palette.borderColor,
                     palette.contrastReferenceColor,
-                    palette.surfaceIsLight ? 0.08f : 0.18f
+                    palette.surfaceIsLight ? 0.08f : 0.12f
                 ),
                 itemFillColor,
                 palette.bodyColor
@@ -6146,7 +6229,9 @@ public final class ControlerWidgetRenderer {
             Math.max(1f, dp(context, 0.9f))
         );
         Paint itemTextPaint = createPaint(
-            resolveReadableTextColor(bodyPaint.getColor(), itemFillColor, 4.4d),
+            palette.hasCustomTextColor
+                ? palette.bodyColor
+                : resolveReadableTextColor(bodyPaint.getColor(), itemFillColor, 4.4d),
             Paint.Style.FILL,
             0f
         );

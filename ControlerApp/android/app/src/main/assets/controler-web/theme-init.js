@@ -38,6 +38,11 @@
     navButtonBg: "rgba(111, 208, 141, 0.08)",
     navButtonActiveBg: "rgba(98, 189, 125, 0.88)",
     overlay: "rgba(8, 10, 12, 0.45)",
+    widgetCardBg: "",
+    widgetItemBg: "",
+    widgetText: "",
+    widgetButtonBg: "",
+    widgetButtonText: "",
   };
   const DEFAULT_THEME_RECORD_CARD = {
     mode: "project",
@@ -719,11 +724,15 @@
   }
 
   function resolveWidgetThemeColors(resolvedColors = {}) {
+    const primarySurface = firstNonEmpty(
+      resolvedColors.primary,
+      DEFAULT_THEME_COLORS.primary,
+    );
     const surfaceReference = firstNonEmpty(
       resolvedColors.panelStrong,
       resolvedColors.panel,
       resolvedColors.secondary,
-      resolvedColors.primary,
+      primarySurface,
       DEFAULT_THEME_COLORS.panelStrong,
     );
     const surfaceLuminance = getRelativeLuminance(surfaceReference);
@@ -736,109 +745,184 @@
       DEFAULT_THEME_COLORS.accent,
       2.1,
     );
-    const accentActionBg = ensureReadableShapeColor(
-      resolvedColors.buttonBg,
-      surfaceReference,
-      accentBase,
-      2.1,
-    );
-    const windowSurface = mixThemeColors(
-      firstNonEmpty(resolvedColors.primary, DEFAULT_THEME_COLORS.primary),
-      surfaceReference,
-      isLightSurface ? 0.1 : 0.26,
-    );
-    const cardBase = mixThemeColors(
-      surfaceReference,
-      accentBase,
-      isLightSurface ? 0.05 : 0.08,
-    );
-    const subtleBase = mixThemeColors(
-      surfaceReference,
-      accentBase,
-      isLightSurface ? 0.08 : 0.14,
-    );
-    const subtleStrongBase = mixThemeColors(
-      surfaceReference,
-      accentBase,
-      isLightSurface ? 0.12 : 0.18,
-    );
-
-    return {
-      surfaceReference,
-      windowSurface: toRgbaColor(windowSurface, 1),
-      windowGlow: toRgbaColor(accentBase, isLightSurface ? 0.14 : 0.12),
-      controlBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.18),
-      controlBorder: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.22),
-      controlText: ensureReadableTextColor(
+    const widgetCardOverride = isValidThemeColorValue(resolvedColors.widgetCardBg)
+      ? resolvedColors.widgetCardBg.trim()
+      : "";
+    const cardBase = firstNonEmpty(
+      widgetCardOverride,
+      mixThemeColors(
         surfaceReference,
+        primarySurface,
+        isLightSurface ? 0.18 : 0.3,
+      ),
+    );
+    const widgetItemOverride = isValidThemeColorValue(resolvedColors.widgetItemBg)
+      ? resolvedColors.widgetItemBg.trim()
+      : "";
+    const itemCardBase = firstNonEmpty(
+      widgetItemOverride,
+      mixThemeColors(
+        cardBase,
+        contrastReference,
+        isLightSurface ? 0.03 : 0.05,
+      ),
+    );
+    const panelSurfaceBase = itemCardBase;
+    const panelSurfaceStrongBase = mixThemeColors(
+      itemCardBase,
+      contrastReference,
+      widgetItemOverride
+        ? isLightSurface
+          ? 0.02
+          : 0.04
+        : isLightSurface
+          ? 0.04
+          : 0.06,
+    );
+    const widgetTextOverride = isValidThemeColorValue(resolvedColors.widgetText)
+      ? resolvedColors.widgetText.trim()
+      : "";
+    const textColor = firstNonEmpty(
+      widgetTextOverride,
+      ensureReadableTextColor(
+        cardBase,
         resolvedColors.text,
         "#17212B",
         "#F7FAFF",
         4.4,
       ),
-      cardBg: toRgbaColor(cardBase, isLightSurface ? 0.96 : 0.94),
+    );
+    const mutedTextColor = widgetTextOverride
+      ? toRgbaColor(widgetTextOverride, isLightSurface ? 0.68 : 0.76)
+      : ensureReadableTextColor(
+          cardBase,
+          firstNonEmpty(resolvedColors.mutedText, resolvedColors.text),
+          "#17212B",
+          "#F7FAFF",
+          2.8,
+        );
+    const widgetButtonOverride = isValidThemeColorValue(resolvedColors.widgetButtonBg)
+      ? resolvedColors.widgetButtonBg.trim()
+      : "";
+    const buttonBg = firstNonEmpty(
+      widgetButtonOverride,
+      ensureReadableShapeColor(
+        resolvedColors.buttonBg,
+        cardBase,
+        accentBase,
+        2.1,
+      ),
+    );
+    const buttonBorderBase = mixThemeColors(
+      buttonBg,
+      contrastReference,
+      isLightSurface ? 0.14 : 0.1,
+    );
+    const widgetButtonTextOverride = isValidThemeColorValue(
+      resolvedColors.widgetButtonText,
+    )
+      ? resolvedColors.widgetButtonText.trim()
+      : "";
+    const buttonText = firstNonEmpty(
+      widgetButtonTextOverride,
+      ensureReadableTextColor(
+        buttonBg,
+        firstNonEmpty(
+          resolvedColors.buttonText,
+          resolvedColors.onAccentText,
+          resolvedColors.text,
+        ),
+        "#17212B",
+        "#F7FAFF",
+        4.2,
+      ),
+    );
+    const actionMutedText = widgetTextOverride
+      ? widgetTextOverride
+      : ensureReadableTextColor(
+          panelSurfaceBase,
+          resolvedColors.text,
+          "#17212B",
+          "#F7FAFF",
+          4.2,
+        );
+    const windowSurface = mixThemeColors(
+      primarySurface,
+      surfaceReference,
+      isLightSurface ? 0.1 : 0.26,
+    );
+    const cardSurfaceAlpha = widgetCardOverride ? 1 : isLightSurface ? 0.98 : 0.96;
+    const itemSurfaceAlpha = widgetItemOverride ? 1 : isLightSurface ? 0.92 : 0.9;
+    const itemSurfaceStrongAlpha = widgetItemOverride ? 1 : isLightSurface ? 0.96 : 0.94;
+
+    return {
+      surfaceReference: cardBase,
+      windowSurface: toRgbaColor(windowSurface, 1),
+      windowGlow: toRgbaColor(accentBase, isLightSurface ? 0.14 : 0.12),
+      controlBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.84 : 0.92),
+      controlBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.28 : 0.24),
+      controlText: textColor,
+      cardBase,
+      itemCardBase,
+      textColor,
+      mutedTextColor,
+      textOverride: widgetTextOverride,
+      buttonBg,
+      buttonBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.46 : 0.36),
+      buttonText,
+      buttonTextOverride: widgetButtonTextOverride,
+      cardBg: toRgbaColor(cardBase, cardSurfaceAlpha),
       cardBorder: toRgbaColor(
         mixThemeColors(
-          firstNonEmpty(resolvedColors.panelBorder, resolvedColors.border, accentBase),
-          accentBase,
-          0.28,
+          firstNonEmpty(
+            resolvedColors.panelBorder,
+            resolvedColors.border,
+            buttonBorderBase,
+          ),
+          contrastReference,
+          isLightSurface ? 0.08 : 0.12,
         ),
-        isLightSurface ? 0.38 : 0.32,
+        isLightSurface ? 0.28 : 0.22,
       ),
       cardShadow: toRgbaColor(
         isLightSurface ? "#556274" : "#02060A",
         isLightSurface ? 0.12 : 0.28,
       ),
       cardGlossStart: toRgbaColor("#FFFFFF", isLightSurface ? 0.22 : 0.08),
-      subtleSurface: toRgbaColor(subtleBase, isLightSurface ? 0.42 : 0.34),
+      subtleSurface: toRgbaColor(panelSurfaceBase, itemSurfaceAlpha),
       subtleSurfaceStrong: toRgbaColor(
-        subtleStrongBase,
-        isLightSurface ? 0.52 : 0.44,
+        panelSurfaceStrongBase,
+        itemSurfaceStrongAlpha,
       ),
-      subtleBorder: toRgbaColor(contrastReference, isLightSurface ? 0.16 : 0.2),
-      trackBg: toRgbaColor(contrastReference, isLightSurface ? 0.07 : 0.1),
-      trackBorder: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
+      subtleBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.34 : 0.28),
+      trackBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.62 : 0.56),
+      trackBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.24 : 0.22),
       gridColor: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.18),
       placeholderColor: toRgbaColor(
         contrastReference,
         isLightSurface ? 0.22 : 0.3,
       ),
-      chartTrackBg: toRgbaColor(contrastReference, isLightSurface ? 0.14 : 0.18),
-      pieCenterBg: toRgbaColor(
-        mixThemeColors(surfaceReference, resolvedColors.primary, 0.18),
-        isLightSurface ? 0.96 : 0.94,
+      chartTrackBg: toRgbaColor(
+        panelSurfaceBase,
+        isLightSurface ? 0.74 : 0.68,
       ),
-      badgeBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
-      badgeText: resolvedColors.mutedText,
-      actionMutedBg: toRgbaColor(contrastReference, isLightSurface ? 0.1 : 0.16),
-      actionMutedBorder: toRgbaColor(
-        contrastReference,
-        isLightSurface ? 0.16 : 0.22,
-      ),
-      actionMutedText: ensureReadableTextColor(
-        surfaceReference,
-        resolvedColors.text,
-        "#17212B",
-        "#F7FAFF",
-        4.2,
-      ),
-      accentActionBg,
+      pieCenterBg: toRgbaColor(cardBase, isLightSurface ? 0.98 : 0.96),
+      badgeBg: toRgbaColor(panelSurfaceStrongBase, isLightSurface ? 0.96 : 0.94),
+      badgeText: mutedTextColor,
+      actionMutedBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.92 : 0.88),
+      actionMutedBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.38 : 0.32),
+      actionMutedText,
+      accentActionBg: toRgbaColor(buttonBg, 1),
       accentActionBorder: toRgbaColor(
-        accentActionBg,
-        isLightSurface ? 0.4 : 0.36,
+        buttonBorderBase,
+        isLightSurface ? 0.46 : 0.36,
       ),
-      accentActionText: ensureReadableTextColor(
-        accentActionBg,
-        firstNonEmpty(resolvedColors.buttonText, resolvedColors.onAccentText),
-        "#17212B",
-        "#F7FAFF",
-        4.4,
-      ),
-      goalAnnualBg: toRgbaColor(accentBase, isLightSurface ? 0.2 : 0.18),
+      accentActionText: buttonText,
+      goalAnnualBg: toRgbaColor(panelSurfaceStrongBase, itemSurfaceStrongAlpha),
       goalAnnualAccent: accentBase,
-      goalMonthBg: toRgbaColor(subtleStrongBase, isLightSurface ? 0.48 : 0.4),
+      goalMonthBg: toRgbaColor(panelSurfaceBase, itemSurfaceAlpha),
       goalMonthAccent: toRgbaColor(contrastReference, isLightSurface ? 0.2 : 0.24),
-      colorChipOutline: toRgbaColor(contrastReference, isLightSurface ? 0.18 : 0.22),
+      colorChipOutline: toRgbaColor(buttonBorderBase, isLightSurface ? 0.4 : 0.3),
     };
   }
 
@@ -1049,6 +1133,21 @@
       navButtonBg,
       navButtonActiveBg,
       navButtonActiveText,
+      widgetCardBg: isValidThemeColorValue(source.widgetCardBg)
+        ? source.widgetCardBg.trim()
+        : "",
+      widgetItemBg: isValidThemeColorValue(source.widgetItemBg)
+        ? source.widgetItemBg.trim()
+        : "",
+      widgetText: isValidThemeColorValue(source.widgetText)
+        ? source.widgetText.trim()
+        : "",
+      widgetButtonBg: isValidThemeColorValue(source.widgetButtonBg)
+        ? source.widgetButtonBg.trim()
+        : "",
+      widgetButtonText: isValidThemeColorValue(source.widgetButtonText)
+        ? source.widgetButtonText.trim()
+        : "",
       overlay: isValidThemeColorValue(source.overlay)
         ? source.overlay.trim()
         : toRgbaColor(
@@ -1193,6 +1292,18 @@
     root.style.setProperty("--widget-control-bg", widgetColors.controlBg);
     root.style.setProperty("--widget-control-border", widgetColors.controlBorder);
     root.style.setProperty("--widget-control-text", widgetColors.controlText);
+    root.style.setProperty("--widget-item-card-bg", widgetColors.subtleSurface);
+    root.style.setProperty("--widget-item-card-border", widgetColors.subtleBorder);
+    root.style.setProperty("--widget-text-color", widgetColors.textColor);
+    root.style.setProperty("--widget-muted-text-color", widgetColors.mutedTextColor);
+    root.style.setProperty("--widget-button-bg", widgetColors.buttonBg);
+    root.style.setProperty("--widget-button-border", widgetColors.buttonBorder);
+    root.style.setProperty("--widget-button-text", widgetColors.buttonText);
+    root.style.setProperty("--widget-text-override", widgetColors.textOverride);
+    root.style.setProperty(
+      "--widget-button-text-override",
+      widgetColors.buttonTextOverride,
+    );
     root.style.setProperty("--widget-card-bg", widgetColors.cardBg);
     root.style.setProperty("--widget-card-border", widgetColors.cardBorder);
     root.style.setProperty("--widget-card-shadow", widgetColors.cardShadow);

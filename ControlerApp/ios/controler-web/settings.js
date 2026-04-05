@@ -27,6 +27,11 @@ const DEFAULT_THEME_COLORS = {
   navButtonBg: "rgba(111, 208, 141, 0.08)",
   navButtonActiveBg: "rgba(98, 189, 125, 0.88)",
   overlay: "rgba(8, 10, 12, 0.45)",
+  widgetCardBg: "",
+  widgetItemBg: "",
+  widgetText: "",
+  widgetButtonBg: "",
+  widgetButtonText: "",
 };
 const DEFAULT_THEME_RECORD_CARD = {
   mode: "project",
@@ -533,6 +538,45 @@ const THEME_COLOR_FIELDS = [
   { key: "projectLevel3", label: "三级项目" },
   { key: "overlay", label: "遮罩颜色" },
 ];
+const THEME_WIDGET_COLOR_FIELDS = [
+  {
+    key: "widgetCardBg",
+    label: "小组件外层底板",
+    description: "控制最外层整张小组件的底板颜色；留空时会按当前主题自动生成。",
+    placeholder: "留空则跟随当前主题外层底板颜色",
+  },
+  {
+    key: "widgetItemBg",
+    label: "小组件内容卡片",
+    description: "控制列表卡片、目标卡片、周视图底部卡片等内层内容卡片颜色；会接入其他小组件里的同类卡片。",
+    placeholder: "留空则跟随当前主题内容卡片颜色",
+  },
+  {
+    key: "widgetText",
+    label: "小组件文字",
+    description: "留空时会重新启用小组件文字的自动对比度。",
+    placeholder: "留空则自动计算可读文字颜色",
+  },
+  {
+    key: "widgetButtonBg",
+    label: "小组件按钮",
+    description: "留空时跟随主题按钮/强调色。",
+    placeholder: "留空则跟随主题按钮颜色",
+  },
+  {
+    key: "widgetButtonText",
+    label: "小组件按钮文字",
+    description: "留空时会重新启用按钮文字的自动对比度。",
+    placeholder: "留空则自动计算按钮文字颜色",
+  },
+];
+const ALL_THEME_COLOR_FIELDS = [
+  ...THEME_COLOR_FIELDS,
+  ...THEME_WIDGET_COLOR_FIELDS,
+];
+const OPTIONAL_THEME_COLOR_FIELD_KEYS = new Set(
+  THEME_WIDGET_COLOR_FIELDS.map(({ key }) => key),
+);
 
 const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
@@ -1447,6 +1491,62 @@ function ensureReadableTextColor(
     : fallbackTextColor;
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function resolveOptionalThemeColorValue(color) {
+  return isValidThemeColorValue(color) ? color.trim() : "";
+}
+
+function resolveThemeEditorWidgetColorFallbacks(colors = {}) {
+  const resolvedColors = resolveThemeColors({
+    colors: {
+      ...DEFAULT_THEME_COLORS,
+      ...(colors && typeof colors === "object" ? colors : {}),
+    },
+  });
+  const widgetColors =
+    typeof window.ControlerTheme?.resolveWidgetThemeColors === "function"
+      ? window.ControlerTheme.resolveWidgetThemeColors(resolvedColors)
+      : null;
+  return {
+    widgetCardBg: firstNonEmpty(
+      widgetColors?.cardBase,
+      resolvedColors.panelStrong,
+      resolvedColors.panel,
+      DEFAULT_THEME_COLORS.panelStrong,
+    ),
+    widgetItemBg: firstNonEmpty(
+      widgetColors?.itemCardBase,
+      widgetColors?.subtleSurface,
+      resolvedColors.panel,
+      DEFAULT_THEME_COLORS.panel,
+    ),
+    widgetText: firstNonEmpty(
+      widgetColors?.textColor,
+      resolvedColors.text,
+      DEFAULT_THEME_COLORS.text,
+    ),
+    widgetButtonBg: firstNonEmpty(
+      widgetColors?.buttonBg,
+      widgetColors?.accentActionBg,
+      resolvedColors.buttonBg,
+      DEFAULT_THEME_COLORS.buttonBg,
+    ),
+    widgetButtonText: firstNonEmpty(
+      widgetColors?.buttonText,
+      resolvedColors.buttonText,
+      DEFAULT_THEME_COLORS.buttonText,
+    ),
+  };
+}
+
 function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD.mode) {
   const normalizedMode = String(mode || "").trim().toLowerCase();
   if (normalizedMode === "theme" || normalizedMode === "custom") {
@@ -1594,6 +1694,11 @@ function resolveThemeColors(theme = null) {
     navButtonBg,
     navButtonActiveBg,
     navButtonActiveText,
+    widgetCardBg: resolveOptionalThemeColorValue(source.widgetCardBg),
+    widgetItemBg: resolveOptionalThemeColorValue(source.widgetItemBg),
+    widgetText: resolveOptionalThemeColorValue(source.widgetText),
+    widgetButtonBg: resolveOptionalThemeColorValue(source.widgetButtonBg),
+    widgetButtonText: resolveOptionalThemeColorValue(source.widgetButtonText),
     overlay: isValidThemeColorValue(source.overlay)
       ? source.overlay.trim()
       : isLightSurface
@@ -1789,8 +1894,10 @@ function buildThemeDraft(baseTheme = null) {
   const source = resolveThemeColors(baseTheme || BUILT_IN_THEMES[0]);
   const recordCard = resolveThemeRecordCard(baseTheme || BUILT_IN_THEMES[0], source);
   const draftColors = {};
-  THEME_COLOR_FIELDS.forEach(({ key }) => {
-    draftColors[key] = source[key] || DEFAULT_THEME_COLORS[key] || "#000000";
+  ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
+    draftColors[key] = OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)
+      ? source[key] || ""
+      : source[key] || DEFAULT_THEME_COLORS[key] || "#000000";
   });
   return {
     id: baseTheme?.id || "",
@@ -2623,6 +2730,7 @@ function showThemeEditorModal(theme = null) {
   );
   const initialRecordCardColor =
     draft.recordCard?.color || DEFAULT_THEME_RECORD_CARD.color;
+  const initialWidgetFallbacks = resolveThemeEditorWidgetColorFallbacks(draft.colors);
 
   const fieldsHtml = THEME_COLOR_FIELDS.map(
     ({ key, label }) => `
@@ -2640,6 +2748,43 @@ function showThemeEditorModal(theme = null) {
         />
       </label>
     `,
+  ).join("");
+  const widgetFieldsHtml = THEME_WIDGET_COLOR_FIELDS.map(
+    ({ key, label, description, placeholder }) => {
+      const fieldValue = String(draft.colors[key] || "").trim();
+      const fallbackValue = firstNonEmpty(
+        initialWidgetFallbacks[key],
+        DEFAULT_THEME_COLORS.buttonBg,
+      );
+      return `
+        <label class="theme-editor-row">
+          <span class="theme-editor-row-label">${escapeHtml(label)}</span>
+          <input type="color" data-theme-color="${key}" value="${toHexColor(fieldValue || fallbackValue, "#000000")}" />
+          <input
+            type="text"
+            class="time-input theme-editor-row-input"
+            data-theme-color-text="${key}"
+            value="${escapeHtml(fieldValue)}"
+            placeholder="${escapeHtml(placeholder)}"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <span
+              data-widget-theme-default-label="${key}"
+              style="color: var(--muted-text-color); font-size: 11px; line-height: 1.35;"
+            >默认：${escapeHtml(fallbackValue)}</span>
+            <button
+              type="button"
+              class="bts"
+              data-widget-theme-reset="${key}"
+              style="margin:0; min-height:30px; padding:0 12px;"
+            >恢复默认</button>
+          </div>
+          <div style="color: var(--muted-text-color); font-size: 11px; line-height: 1.4;">${escapeHtml(description)}</div>
+        </label>
+      `;
+    },
   ).join("");
 
   modal.innerHTML = `
@@ -2700,6 +2845,13 @@ function showThemeEditorModal(theme = null) {
         </label>
       </div>
       <div class="theme-editor-grid">${fieldsHtml}</div>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">小组件卡片与配件颜色</div>
+          <div style="color: var(--muted-text-color); font-size: 12px;">这里可以分开编辑桌面端与安卓小组件的外层底板、内容卡片、按钮和文字颜色。其中“内容卡片”对应列表卡片、目标卡片、周视图底部卡片等你圈出来的那类内层卡片；留空即恢复默认，文字类恢复默认后会重新启用自动对比度。</div>
+        </div>
+        <div class="theme-editor-grid">${widgetFieldsHtml}</div>
+      </div>
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:18px;">
         <div>
           ${
@@ -2736,6 +2888,44 @@ function showThemeEditorModal(theme = null) {
     if (pickerInput && /^#([0-9a-fA-F]{6})$/.test(value)) {
       pickerInput.value = value;
     }
+  };
+
+  const collectDraftThemeColors = () => {
+    const nextColors = {
+      ...draft.colors,
+    };
+    ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
+      const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
+      if (textInput) {
+        nextColors[key] = textInput.value.trim();
+      }
+    });
+    return nextColors;
+  };
+
+  const updateWidgetThemeFallbackUi = () => {
+    const currentColors = collectDraftThemeColors();
+    THEME_WIDGET_COLOR_FIELDS.forEach(({ key }) => {
+      const fallbackColors = resolveThemeEditorWidgetColorFallbacks({
+        ...currentColors,
+        [key]: "",
+      });
+      const fallbackValue = firstNonEmpty(
+        fallbackColors[key],
+        DEFAULT_THEME_COLORS.buttonBg,
+      );
+      const defaultLabel = modal.querySelector(
+        `[data-widget-theme-default-label="${key}"]`,
+      );
+      if (defaultLabel) {
+        defaultLabel.textContent = `默认：${fallbackValue}`;
+      }
+      const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
+      const pickerInput = modal.querySelector(`[data-theme-color="${key}"]`);
+      if (textInput && pickerInput && !textInput.value.trim()) {
+        pickerInput.value = toHexColor(fallbackValue, pickerInput.value || "#000000");
+      }
+    });
   };
 
   const syncRecordCardTextWithPicker = (value) => {
@@ -2778,12 +2968,25 @@ function showThemeEditorModal(theme = null) {
   modal.querySelectorAll("[data-theme-color]").forEach((input) => {
     input.addEventListener("input", () => {
       syncTextWithPicker(input.dataset.themeColor, input.value);
+      updateWidgetThemeFallbackUi();
     });
   });
 
   modal.querySelectorAll("[data-theme-color-text]").forEach((input) => {
     input.addEventListener("input", () => {
       syncPickerWithText(input.dataset.themeColorText, input.value.trim());
+      updateWidgetThemeFallbackUi();
+    });
+  });
+
+  modal.querySelectorAll("[data-widget-theme-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.widgetThemeReset;
+      const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
+      if (textInput) {
+        textInput.value = "";
+      }
+      updateWidgetThemeFallbackUi();
     });
   });
 
@@ -2806,6 +3009,7 @@ function showThemeEditorModal(theme = null) {
     });
 
   updateRecordCardModeUi();
+  updateWidgetThemeFallbackUi();
 
   modal
     .querySelector("#cancel-custom-theme-btn")
@@ -2842,12 +3046,15 @@ function showThemeEditorModal(theme = null) {
       };
 
       let hasInvalidColor = false;
-      THEME_COLOR_FIELDS.forEach(({ key }) => {
+      ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
         const textInput = modal.querySelector(
           `[data-theme-color-text="${key}"]`,
         );
         const colorValue = textInput?.value?.trim() || "";
-        if (!isValidThemeColorValue(colorValue)) {
+        if (
+          (OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) && colorValue && !isValidThemeColorValue(colorValue)) ||
+          (!OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) && !isValidThemeColorValue(colorValue))
+        ) {
           hasInvalidColor = true;
         }
         nextDraft.colors[key] = colorValue;
@@ -2858,7 +3065,7 @@ function showThemeEditorModal(theme = null) {
 
       if (hasInvalidColor) {
         await showSettingsAlert(
-          "请为每个颜色项和记录卡片颜色填写合法颜色值，例如 #79AF85 或 rgba(121, 175, 133, 0.42)。",
+          "请为主题颜色和记录卡片颜色填写合法颜色值；小组件配件颜色可以留空，若填写则也需要是合法颜色，例如 #79AF85 或 rgba(121, 175, 133, 0.42)。",
           {
             title: "颜色格式无效",
             danger: true,

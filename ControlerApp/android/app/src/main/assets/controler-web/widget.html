@@ -27,7 +27,7 @@
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
           sans-serif;
         background: var(--widget-window-surface, var(--bg-primary, #1f2522));
-        color: var(--text-color, #f5fff8);
+        color: var(--widget-text-color, var(--text-color, #f5fff8));
       }
 
       body {
@@ -106,7 +106,10 @@
         border: 1px solid var(--widget-control-border, rgba(255, 255, 255, 0.12));
         border-radius: 999px;
         background: var(--widget-control-bg, rgba(18, 24, 20, 0.42));
-        color: var(--widget-control-text, var(--text-color, #f5fff8));
+        color: var(
+          --widget-control-text,
+          var(--widget-text-color, var(--text-color, #f5fff8))
+        );
         font-size: 12px;
         font-weight: 700;
         cursor: pointer;
@@ -279,14 +282,20 @@
         margin-top: 3px;
         font-size: 11px;
         line-height: 1.35;
-        color: var(--muted-text-color, rgba(245, 255, 248, 0.74));
+        color: var(
+          --widget-muted-text-color,
+          var(--muted-text-color, rgba(245, 255, 248, 0.74))
+        );
       }
 
       .widget-card-summary {
         margin-top: 4px;
         font-size: 10px;
         line-height: 1.35;
-        color: var(--widget-control-text, var(--text-color, #f5fff8));
+        color: var(
+          --widget-control-text,
+          var(--widget-text-color, var(--text-color, #f5fff8))
+        );
         opacity: 0.88;
       }
 
@@ -325,7 +334,10 @@
         border-radius: 10px;
         background: var(--widget-subtle-surface-strong, rgba(255, 255, 255, 0.1));
         border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.14));
-        color: var(--widget-control-text, var(--text-color, #f5fff8));
+        color: var(
+          --widget-control-text,
+          var(--widget-text-color, var(--text-color, #f5fff8))
+        );
         font-size: 11px;
         font-weight: 700;
         line-height: 1.2;
@@ -340,7 +352,7 @@
       .widget-line {
         font-size: 12px;
         line-height: 1.35;
-        color: var(--text-color, #f5fff8);
+        color: var(--widget-text-color, var(--text-color, #f5fff8));
       }
 
       .widget-preview {
@@ -376,7 +388,10 @@
         min-width: 24px;
         font-size: 10px;
         line-height: 1;
-        color: var(--muted-text-color, rgba(245, 255, 248, 0.72));
+        color: var(
+          --widget-muted-text-color,
+          var(--muted-text-color, rgba(245, 255, 248, 0.72))
+        );
       }
 
       .widget-preview--timeline.is-spacious .widget-timeline-label {
@@ -645,11 +660,17 @@
         padding: 10px 12px;
         border-radius: 14px;
         background: var(
-          --widget-subtle-surface,
-          color-mix(in srgb, var(--bg-secondary, rgba(255, 255, 255, 0.1)) 88%, transparent)
+          --widget-item-card-bg,
+          var(
+            --widget-subtle-surface,
+            color-mix(in srgb, var(--bg-secondary, rgba(255, 255, 255, 0.1)) 88%, transparent)
+          )
         );
-        border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.1));
-        color: var(--text-color, #f5fff8);
+        border: 1px solid var(
+          --widget-item-card-border,
+          var(--widget-subtle-border, rgba(255, 255, 255, 0.1))
+        );
+        color: var(--widget-text-color, var(--text-color, #f5fff8));
       }
 
       .widget-goal-card .widget-item-top {
@@ -677,7 +698,7 @@
         min-width: 0;
         font-size: 13px;
         line-height: 1.35;
-        color: var(--text-color, #f5fff8);
+        color: var(--widget-text-color, var(--text-color, #f5fff8));
         white-space: normal;
         overflow: hidden;
         display: -webkit-box;
@@ -689,7 +710,10 @@
         margin-top: 4px;
         font-size: 11px;
         line-height: 1.35;
-        color: var(--muted-text-color, rgba(245, 255, 248, 0.72));
+        color: var(
+          --widget-muted-text-color,
+          var(--muted-text-color, rgba(245, 255, 248, 0.72))
+        );
         white-space: normal;
         overflow: hidden;
         display: -webkit-box;
@@ -730,8 +754,12 @@
         padding: 9px 10px;
         min-height: 72px;
         border-radius: 10px;
-        background: var(--widget-subtle-surface, rgba(255, 255, 255, 0.09));
-        border: 1px solid var(--widget-subtle-border, rgba(255, 255, 255, 0.12));
+        background: var(
+          --widget-item-card-bg,
+          var(--widget-subtle-surface, rgba(255, 255, 255, 0.09))
+        );
+        border: 1px solid
+          var(--widget-item-card-border, var(--widget-subtle-border, rgba(255, 255, 255, 0.12)));
         box-sizing: border-box;
       }
 
@@ -864,7 +892,10 @@
         background: var(--widget-badge-bg, rgba(255, 255, 255, 0.12));
         color: var(
           --widget-badge-text,
-          var(--muted-text-color, rgba(245, 255, 248, 0.76))
+          var(
+            --widget-muted-text-color,
+            var(--muted-text-color, rgba(245, 255, 248, 0.76))
+          )
         );
         white-space: nowrap;
         overflow: hidden;
@@ -876,7 +907,10 @@
         margin-top: 3px;
         font-size: 10px;
         line-height: 1.25;
-        color: var(--muted-text-color, rgba(245, 255, 248, 0.76));
+        color: var(
+          --widget-muted-text-color,
+          var(--muted-text-color, rgba(245, 255, 248, 0.76))
+        );
         display: -webkit-box;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -907,7 +941,10 @@
       }
 
       .widget-item-action[data-tone="muted"] {
-        color: var(--widget-action-muted-text, var(--text-color, #f5fff8));
+        color: var(
+          --widget-action-muted-text,
+          var(--widget-text-color, var(--text-color, #f5fff8))
+        );
         background: var(--widget-action-muted-bg, rgba(255, 255, 255, 0.16));
         box-shadow: inset 0 0 0 1px
           var(--widget-action-muted-border, rgba(255, 255, 255, 0.14));
@@ -979,7 +1016,10 @@
       .widget-preview-empty {
         font-size: 11px;
         line-height: 1.35;
-        color: var(--muted-text-color, rgba(245, 255, 248, 0.74));
+        color: var(
+          --widget-muted-text-color,
+          var(--muted-text-color, rgba(245, 255, 248, 0.74))
+        );
       }
 
       .widget-state-actions {
@@ -993,7 +1033,10 @@
         border: 1px solid var(--widget-action-muted-border, rgba(255, 255, 255, 0.14));
         border-radius: 999px;
         background: var(--widget-action-muted-bg, rgba(255, 255, 255, 0.1));
-        color: var(--widget-action-muted-text, var(--text-color, #f5fff8));
+        color: var(
+          --widget-action-muted-text,
+          var(--widget-text-color, var(--text-color, #f5fff8))
+        );
         font-size: 11px;
         cursor: pointer;
       }

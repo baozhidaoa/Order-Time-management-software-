@@ -163,7 +163,30 @@ function resolveWidgetShapeColor(color, fallback = "") {
   return safeColor;
 }
 
-function resolveWidgetReadableTextColor(backgroundColor, preferredTextColor = "") {
+function getWidgetTextOverrideColor() {
+  return firstNonEmpty(readWidgetThemeCssVar("--widget-text-override"));
+}
+
+function getWidgetButtonTextOverrideColor() {
+  return firstNonEmpty(readWidgetThemeCssVar("--widget-button-text-override"));
+}
+
+function resolveWidgetReadableTextColor(
+  backgroundColor,
+  preferredTextColor = "",
+  options = {},
+) {
+  const role =
+    options && typeof options === "object" && typeof options.role === "string"
+      ? options.role.trim()
+      : "";
+  const explicitOverride =
+    role === "action"
+      ? getWidgetButtonTextOverrideColor()
+      : getWidgetTextOverrideColor();
+  if (explicitOverride) {
+    return explicitOverride;
+  }
   if (typeof window.ControlerTheme?.getReadableTextColorForBackground === "function") {
     return window.ControlerTheme.getReadableTextColorForBackground(
       backgroundColor,
@@ -173,6 +196,8 @@ function resolveWidgetReadableTextColor(backgroundColor, preferredTextColor = ""
   }
   return firstNonEmpty(
     preferredTextColor,
+    role === "action" ? readWidgetThemeCssVar("--widget-button-text") : "",
+    readWidgetThemeCssVar("--widget-text-color"),
     readWidgetThemeCssVar("--widget-control-text"),
     readWidgetThemeCssVar("--text-color"),
     "#f5fff8",
@@ -2671,7 +2696,10 @@ function buildStatsRow(content) {
   );
   const statTextColor = resolveWidgetReadableTextColor(
     statSurfaceColor,
-    readWidgetThemeCssVar("--text-color", "#f5fff8"),
+    readWidgetThemeCssVar("--widget-text-color", "#f5fff8"),
+    {
+      role: "text",
+    },
   );
   const appendPill = (text) => {
     const pill = createElement("div", "widget-stat-pill", text);
@@ -2805,6 +2833,9 @@ function buildTimelinePreviewNode(preview, metrics) {
       segmentNode.style.color = resolveWidgetReadableTextColor(
         segmentColor,
         readWidgetThemeCssVar("--widget-accent-action-text"),
+        {
+          role: "text",
+        },
       );
       const segmentText = getSegmentText(segment, metrics);
       if (segmentText) {
@@ -2999,6 +3030,9 @@ function buildGoalPreviewNode(preview, metrics) {
         priorityBadge.style.color = resolveWidgetReadableTextColor(
           priorityColor,
           readWidgetThemeCssVar("--widget-accent-action-text"),
+          {
+            role: "action",
+          },
         );
         goalItem.appendChild(priorityBadge);
         list.appendChild(goalItem);

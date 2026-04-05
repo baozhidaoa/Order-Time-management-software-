@@ -5500,6 +5500,13 @@
       );
     }
 
+    function isAndroidTransitionLoadingShellState() {
+      return (
+        reactNativeBridge?.platform === "android" &&
+        readCurrentShellVisibilityState()?.transitionLoading === true
+      );
+    }
+
     function shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
       triggerName = "",
     ) {
@@ -6651,6 +6658,24 @@
           reason: reason || "shell-resume",
           resetWindow: false,
         };
+        return;
+      }
+      if (
+        isAndroidTransitionLoadingShellState() &&
+        !hasPendingStateChanges
+      ) {
+        pendingForegroundSyncRequest = {
+          reason: reason || "shell-resume",
+          resetWindow:
+            resetWindow || pendingForegroundSyncRequest?.resetWindow === true,
+        };
+        emitStoragePerfMetric("storage-sync-shell-resume-deferred", {
+          reason: normalizedReason || "shell-resume",
+          resetWindow: resetWindow === true,
+          transitionLoading: true,
+          hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
+          hasPendingStateChanges: false,
+        });
         return;
       }
       if (!nativeInitializationSettled) {
@@ -8665,6 +8690,9 @@
         return;
       }
 
+      const previousShellVisibilityState = readCurrentShellVisibilityState();
+      const previousTransitionLoading =
+        previousShellVisibilityState?.transitionLoading === true;
       const nextActive = detail.active !== false;
       const shouldArmProbeOnlyOnHiddenTransitionLoad =
         nextActive === false &&
@@ -8693,6 +8721,18 @@
         receivedAt: Date.now(),
       };
       if (shellPageActive === nextActive) {
+        if (
+          nextActive &&
+          previousTransitionLoading &&
+          detail.transitionLoading !== true &&
+          pendingForegroundSyncRequest
+        ) {
+          const queuedForegroundSync = pendingForegroundSyncRequest;
+          pendingForegroundSyncRequest = null;
+          scheduleNativeForegroundSync(queuedForegroundSync.reason, {
+            resetWindow: queuedForegroundSync.resetWindow === true,
+          });
+        }
         return;
       }
 

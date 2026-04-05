@@ -5199,17 +5199,25 @@ function renderProjectTotalTreeNode(
     colorDot.style.boxShadow =
       "0 0 0 2px color-mix(in srgb, var(--surface-panel) 92%, transparent)";
 
-    const compactTextFontSize = `${Math.max(
-      projectLevel === 1 ? 9 : 8,
-      Math.round(
-        (projectLevel === 1 ? 11 : projectLevel === 2 ? 10 : 9) * summaryScale,
-      ),
-    )}px`;
+    const compactLabelFontSizeValue =
+      projectLevel === 1
+        ? Math.max(10, Math.round(12 * summaryScale))
+        : projectLevel === 2
+          ? Math.max(9, Math.round(10.5 * summaryScale))
+          : Math.max(8, Math.round(9.5 * summaryScale));
+    const compactValueFontSizeValue =
+      projectLevel === 1
+        ? Math.max(10, Math.round(11.5 * summaryScale))
+        : Math.max(9, Math.round(10 * summaryScale));
 
     const label = document.createElement("span");
     label.style.color = "var(--text-color)";
     label.style.fontWeight = projectLevel === 3 ? "600" : "700";
-    label.style.setProperty("font-size", compactTextFontSize, "important");
+    label.style.setProperty(
+      "font-size",
+      `${compactLabelFontSizeValue}px`,
+      "important",
+    );
     label.style.lineHeight = "1.28";
     label.style.minWidth = "0";
     label.style.flex = "1 1 auto";
@@ -5229,8 +5237,17 @@ function renderProjectTotalTreeNode(
     value.style.lineHeight = "1.3";
     value.style.color =
       totalMs > 0 ? "var(--text-color)" : "var(--muted-text-color)";
-    value.style.setProperty("font-size", compactTextFontSize, "important");
-    value.style.fontWeight = totalMs > 0 ? "700" : "600";
+    value.style.setProperty(
+      "font-size",
+      `${compactValueFontSizeValue}px`,
+      "important",
+    );
+    value.style.fontWeight =
+      totalMs > 0
+        ? projectLevel === 1
+          ? "700"
+          : "600"
+        : "500";
     value.style.whiteSpace = "normal";
     value.textContent =
       totalMs > 0
@@ -5349,13 +5366,16 @@ function renderProjectTotalTreeNode(
   colorDot.style.boxShadow =
     "0 0 0 2px color-mix(in srgb, var(--surface-panel) 92%, transparent)";
 
+  const labelFontSizeValue =
+    projectLevel === 1
+      ? Math.max(13, Math.round(14 * summaryScale))
+      : projectLevel === 2
+        ? Math.max(12, Math.round(13 * summaryScale))
+        : Math.max(11, Math.round(12 * summaryScale));
   const label = document.createElement("span");
   label.style.color = "var(--text-color)";
   label.style.fontWeight = projectLevel === 3 ? "500" : "600";
-  label.style.fontSize = `${Math.max(
-    11,
-    Math.round((projectLevel === 1 ? 14 : 13) * summaryScale),
-  )}px`;
+  label.style.fontSize = `${labelFontSizeValue}px`;
   label.style.lineHeight = "1.28";
   label.style.minWidth = "0";
   label.style.overflow = "hidden";
@@ -5371,8 +5391,17 @@ function renderProjectTotalTreeNode(
   const value = document.createElement("span");
   value.style.color =
     totalMs > 0 ? "var(--text-color)" : "var(--muted-text-color)";
-  value.style.fontSize = `${Math.max(10, Math.round(12 * summaryScale))}px`;
-  value.style.fontWeight = totalMs > 0 ? "600" : "400";
+  value.style.fontSize = `${
+    projectLevel === 1
+      ? Math.max(11, Math.round(12.5 * summaryScale))
+      : Math.max(10, Math.round(11.5 * summaryScale))
+  }px`;
+  value.style.fontWeight =
+    totalMs > 0
+      ? projectLevel === 1
+        ? "700"
+        : "600"
+      : "400";
   value.style.lineHeight = "1.25";
   value.style.textAlign = "right";
   value.style.maxWidth = "100%";
@@ -14587,6 +14616,11 @@ function updateProjectTotals() {
     compactProjectTotals
       ? "0"
       : `${Math.max(1, Math.round(2 * summaryScale))}px`,
+    stylePriority,
+  );
+  container.style.setProperty(
+    "padding-top",
+    `${Math.max(compactProjectTotals ? 2 : 8, Math.round((compactProjectTotals ? 3 : 10) * summaryScale))}px`,
     stylePriority,
   );
   container.style.setProperty(
