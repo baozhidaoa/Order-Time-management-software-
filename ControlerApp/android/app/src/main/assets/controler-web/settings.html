@@ -4,68 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>其他设置</title>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <script defer src="offline-assets/offline-assets-manifest.js"></script>
+    <link rel="stylesheet" href="index.css" />
+    <script defer src="offline-assets/offline-assets-manifest.js"></script>
     <script defer src="mobile-common-boot.js"></script>
     <script defer src="settings-boot.js"></script>
-<link rel="stylesheet" href="index.css" />
-    <style>
-      body {
-        margin: 0;
-        height: 100vh;
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-          sans-serif;
-      }
-
-      .settings-card {
-        padding: 25px;
-        border-radius: 15px;
-        resize: none;
-        overflow: visible;
-        flex: 0 0 auto;
-        height: auto;
-      }
-
-      #widget-type-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-      }
-
-      #widget-type-grid > * {
-        min-width: 0;
-      }
-
-      @media (max-width: 760px) {
-        #widget-type-grid {
-          gap: 8px;
-        }
-
-        #widget-type-grid .widget-action-card {
-          padding: 8px !important;
-          border-radius: 10px !important;
-          gap: 6px !important;
-        }
-
-        #widget-type-grid .widget-action-card-title {
-          font-size: 12px !important;
-          line-height: 1.25 !important;
-        }
-
-        #widget-type-grid .widget-action-card-description {
-          font-size: 10px !important;
-          line-height: 1.35 !important;
-          margin-top: 2px !important;
-        }
-
-        #widget-type-grid .widget-action-card-button {
-          width: 100% !important;
-          padding: 6px 8px !important;
-          font-size: 11px !important;
-        }
-      }
-    </style>
-  </head>
+</head>
   <body class="app-layout page-settings settings-bootstrap-pending bkg flex row">
     <!-- 侧边栏 -->
     <div

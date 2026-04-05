@@ -2530,7 +2530,7 @@
     target.__controlerAndroidInteractiveActionSuppressUntil = suppressUntil;
   }
 
-  function shouldSuppressAndroidInteractiveActionClick(event) {
+  function shouldSuppressAndroidInteractiveActionReplayEvent(event) {
     if (!event?.isTrusted) {
       return false;
     }
@@ -2721,9 +2721,23 @@
         true,
       );
       document.addEventListener(
+        "pointerup",
+        (event) => {
+          if (!shouldSuppressAndroidInteractiveActionReplayEvent(event)) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof event.stopImmediatePropagation === "function") {
+            event.stopImmediatePropagation();
+          }
+        },
+        true,
+      );
+      document.addEventListener(
         "click",
         (event) => {
-          if (!shouldSuppressAndroidInteractiveActionClick(event)) {
+          if (!shouldSuppressAndroidInteractiveActionReplayEvent(event)) {
             return;
           }
           event.preventDefault();

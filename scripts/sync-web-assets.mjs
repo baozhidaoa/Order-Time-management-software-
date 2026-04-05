@@ -411,12 +411,60 @@ async function writeBootBundles(targetDir, bundles) {
   }
 }
 
+function escapeRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeHeadTagLine(sourceText, tagPattern) {
+  return sourceText.replace(
+    new RegExp(`(?:\\r?\\n)?[ \\t]*${tagPattern}[ \\t]*(?:\\r?\\n)?`, "gi"),
+    "\n",
+  );
+}
+
+function stripBootstrapHeadContent(
+  headContent,
+  pageKey,
+  { commonBundleName, preloadScripts = [] } = {},
+) {
+  let preservedContent = headContent;
+  const bootScriptSources = Array.from(
+    new Set([
+      ...preloadScripts,
+      desktopThemePreloadFileName,
+      `offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}`,
+      "desktop-common-boot.js",
+      "mobile-common-boot.js",
+      `${pageKey}-boot.js`,
+    ]),
+  );
+
+  for (const scriptSource of bootScriptSources) {
+    preservedContent = removeHeadTagLine(
+      preservedContent,
+      `<script\\s+(?:defer\\s+)?src="${escapeRegExp(scriptSource)}"\\s*><\\/script>`,
+    );
+  }
+
+  preservedContent = removeHeadTagLine(
+    preservedContent,
+    `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
+  );
+  preservedContent = removeHeadTagLine(
+    preservedContent,
+    `<link\\s+rel="stylesheet"\\s+href="index\\.css"\\s*\\/>`,
+  );
+
+  return preservedContent.replace(/^(?:[ \t]*\r?\n)+/, "");
+}
+
 async function rewriteBootstrapHtml(
   targetDir,
   pageKey,
   {
     commonBundleName,
     preloadScripts = [],
+    preferStylesheetBeforeScripts = false,
   } = {},
 ) {
   const htmlPath = path.join(targetDir, `${pageKey}.html`);
@@ -426,18 +474,13 @@ async function rewriteBootstrapHtml(
 
   const html = await fs.readFile(htmlPath, "utf8");
   const titleEndIndex = html.indexOf("</title>");
-  const firstScriptIndex =
-    titleEndIndex === -1 ? -1 : html.indexOf("<script", titleEndIndex);
-  const stylesheetIndex =
-    titleEndIndex === -1
-      ? -1
-      : html.indexOf('<link rel="stylesheet"', titleEndIndex);
+  const headEndIndex =
+    titleEndIndex === -1 ? -1 : html.indexOf("</head>", titleEndIndex);
 
   if (
     titleEndIndex === -1 ||
-    firstScriptIndex === -1 ||
-    stylesheetIndex === -1 ||
-    firstScriptIndex >= stylesheetIndex
+    headEndIndex === -1 ||
+    !html.includes('<link rel="stylesheet" href="index.css" />')
   ) {
     throw new Error(
       `无法识别移动端 HTML 启动脚本区域: ${formatRelativeRepoPath(htmlPath)}`,
@@ -452,15 +495,21 @@ async function rewriteBootstrapHtml(
     `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="${commonBundleName}"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
-  const pageScriptPattern = new RegExp(
-    `\\s*<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>\\s*`,
-    "i",
-  );
-  const rewrittenHtml = (
-    html.slice(0, firstScriptIndex) +
-    bootstrapScripts +
-    html.slice(stylesheetIndex)
-  ).replace(pageScriptPattern, "\n");
+  const stylesheetMarkup = '    <link rel="stylesheet" href="index.css" />\n';
+  const headContent = html.slice(titleEndIndex + "</title>".length, headEndIndex);
+  const preservedHeadContent = stripBootstrapHeadContent(headContent, pageKey, {
+    commonBundleName,
+    preloadScripts,
+  });
+  const bootRegion =
+    preferStylesheetBeforeScripts === true
+      ? `${stylesheetMarkup}${bootstrapScripts}`
+      : `${bootstrapScripts}${stylesheetMarkup}`;
+  const rewrittenHtml =
+    `${html.slice(0, titleEndIndex + "</title>".length)}\n` +
+    bootRegion +
+    preservedHeadContent +
+    html.slice(headEndIndex);
 
   await fs.writeFile(htmlPath, rewrittenHtml, "utf8");
 }
@@ -550,6 +599,7 @@ for (const pageKey of desktopBootstrapPages) {
   await rewriteBootstrapHtml(pagesSourceDir, pageKey, {
     commonBundleName: "desktop-common-boot.js",
     preloadScripts: [desktopThemePreloadFileName],
+    preferStylesheetBeforeScripts: false,
   });
   await validateBootstrapHtml(pagesSourceDir, pageKey, {
     commonBundleName: "desktop-common-boot.js",
@@ -583,6 +633,7 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
     for (const pageKey of mobileBootstrapPages) {
       await rewriteBootstrapHtml(mobileWebDir, pageKey, {
         commonBundleName: "mobile-common-boot.js",
+        preferStylesheetBeforeScripts: true,
       });
       await validateBootstrapHtml(mobileWebDir, pageKey, {
         commonBundleName: "mobile-common-boot.js",

@@ -1323,9 +1323,7 @@ function bootstrapPlanFromCachedSnapshot() {
     const snapshot = readPlanCachedSnapshotState();
     applyPlanWorkspaceState(snapshot);
     planInitialDataLoaded = true;
-    planInitialDataValidated =
-      window.ControlerStorage?.isNativeApp === true &&
-      String(snapshot?.source || "").trim() === "page-bootstrap";
+    planInitialDataValidated = false;
     markPlanInitialDataReady(snapshot);
     uiTools?.markPerfStage?.("plan-cache-bootstrap-hit", {
       periodIds: planLoadedPeriodIds.slice(),
@@ -2844,6 +2842,7 @@ async function toggleLinkedPlanSourceCompletion(
 ) {
   const sourceType = normalizeLinkedPlanSourceType(planLike?.linkedSourceType);
   const dateKey = getPlanOccurrenceDateKey(planLike, occurrenceDate);
+  const nextCompleted = !getPlanCompletionState(planLike, dateKey);
   if (!sourceType) {
     return false;
   }
@@ -2856,14 +2855,15 @@ async function toggleLinkedPlanSourceCompletion(
     }
     if (
       sourceType === "todo" &&
-      typeof target.runtime?.toggleTodoCompletionById === "function"
+      typeof target.runtime?.setTodoCompletionById === "function"
     ) {
-      const toggled = !!target.runtime.toggleTodoCompletionById(
+      const updated = !!target.runtime.setTodoCompletionById(
         target.resolvedId,
+        nextCompleted,
         dateKey,
       );
       if (
-        toggled &&
+        updated &&
         typeof target.runtime?.flushPendingChanges === "function"
       ) {
         await target.runtime.flushPendingChanges({
@@ -2871,19 +2871,20 @@ async function toggleLinkedPlanSourceCompletion(
           targetId: target.resolvedId,
         });
       }
-      return toggled;
+      return updated;
     }
     if (
       sourceType === "checkin" &&
       dateKey &&
-      typeof target.runtime?.toggleCheckinByIdOnDate === "function"
+      typeof target.runtime?.setCheckinCompletionByIdOnDate === "function"
     ) {
-      const toggled = !!target.runtime.toggleCheckinByIdOnDate(
+      const updated = !!target.runtime.setCheckinCompletionByIdOnDate(
         target.resolvedId,
+        nextCompleted,
         dateKey,
       );
       if (
-        toggled &&
+        updated &&
         typeof target.runtime?.flushPendingChanges === "function"
       ) {
         await target.runtime.flushPendingChanges({
@@ -2891,7 +2892,7 @@ async function toggleLinkedPlanSourceCompletion(
           targetId: target.resolvedId,
         });
       }
-      return toggled;
+      return updated;
     }
   } catch (error) {
     console.error("切换关联源事项完成状态失败:", error);
@@ -8445,8 +8446,11 @@ async function init() {
     ) {
       scheduleDeferredPlanBootstrap();
     } else if (bootstrappedFromSnapshot && !planInitialDataValidated) {
-      await queuePlanInitialReveal();
-      scheduleDeferredPlanBootstrap();
+      if (planShellPageActive || isPlanShellTransitionLoading()) {
+        await hydratePlanData();
+      } else {
+        scheduleDeferredPlanBootstrap();
+      }
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
     } else {

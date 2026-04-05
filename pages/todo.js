@@ -37,6 +37,7 @@
   const MOBILE_SWIPE_DELETE_OPEN_THRESHOLD = 0.45;
   const MOBILE_SWIPE_DELETE_OPEN_VELOCITY = -0.32;
   const MOBILE_SWIPE_DELETE_CLOSE_VELOCITY = 0.32;
+  const TODO_ACTION_TOUCH_DEDUP_WINDOW_MS = 420;
   const TODO_MODAL_TOUCH_ACTION_DEDUP_WINDOW_MS = 420;
   let todoSearchTimer = 0;
   let cachedTodoFilterKey = "";
@@ -71,7 +72,8 @@
   let todoDeferredFreshSyncGeneration = 0;
   let todoDeferredFreshSyncTimerId = 0;
   let todoDeferredFreshSyncIdleId = 0;
-  const TODO_TOGGLE_PERSIST_DEBOUNCE_MS = 180;
+  const TODO_TOGGLE_PERSIST_DEBOUNCE_MS =
+    window.ControlerStorage?.isNativeApp === true ? 0 : 180;
   const todoDeferredToggleCommits = {
     checkin: new Map(),
     todo: new Map(),
@@ -1845,6 +1847,20 @@
     }
   }
 
+  function invalidateTodoDeferredFreshSyncForLocalToggle(reason = "") {
+    if (todoInitialDataValidated) {
+      return false;
+    }
+    invalidateTodoDeferredFreshSync();
+    uiTools?.markPerfStage?.("todo-fresh-sync-deferred", {
+      reason:
+        typeof reason === "string" && reason.trim()
+          ? reason.trim()
+          : "local-toggle-mutation",
+    });
+    return true;
+  }
+
   function bindTodoShellVisibilityGate() {
     if (todoShellVisibilityBound) {
       return;
@@ -2272,6 +2288,9 @@
       }
     } catch (error) {
       console.error("读取关联计划快照失败，回退本地计划镜像:", error);
+    }
+    if (!shouldPersistTodoSharedLocalMirror()) {
+      return [];
     }
     try {
       const savedPlans = JSON.parse(localStorage.getItem("plans") || "[]");
@@ -3712,6 +3731,9 @@
   }
 
   function persistTodoLinkedPlanLocalMirror(allPlans = []) {
+    if (!shouldPersistTodoSharedLocalMirror()) {
+      return;
+    }
     try {
       localStorage.setItem("plans", JSON.stringify(allPlans));
     } catch (error) {
@@ -4122,6 +4144,9 @@
       };
       commitMap.set(normalizedId, controller);
     }
+    invalidateTodoDeferredFreshSyncForLocalToggle(
+      `${kind === "checkin" ? "checkin" : "todo"}-toggle-local-mutation`,
+    );
     controller.pending = true;
     controller.buildCommitPlan = buildCommitPlan;
     if (!controller.rollbackSnapshot && rollbackSnapshot) {
@@ -4129,6 +4154,11 @@
     }
     if (controller.timer) {
       window.clearTimeout(controller.timer);
+    }
+    if (TODO_TOGGLE_PERSIST_DEBOUNCE_MS <= 0) {
+      controller.timer = 0;
+      void flushTodoToggleCommit(kind, normalizedId);
+      return true;
     }
     controller.timer = window.setTimeout(() => {
       controller.timer = 0;
@@ -4184,6 +4214,9 @@
         commitMap.delete(targetId);
       }
       flushTodoDeferredExternalRefreshIfNeeded();
+      if (!todoInitialDataValidated && !hasTodoPendingLocalMutations()) {
+        scheduleTodoDeferredFreshSync();
+      }
     }
   }
 
@@ -5015,9 +5048,10 @@
       if (event.pointerType === "mouse" && event.button !== 0) {
         return;
       }
+      const eventTarget = getTodoEventTargetElement(event);
       if (
-        event.target instanceof Element &&
-        event.target.closest(
+        eventTarget &&
+        eventTarget.closest(
           "button, input, select, textarea, a, label, [role='button'], [data-checkin-id]",
         )
       ) {
@@ -6608,6 +6642,65 @@
       modalContent.removeEventListener("pointerup", listener);
       modalContent.removeEventListener("click", listener);
     };
+  }
+
+  function bindTodoActionButton(button, handler) {
+    if (!(button instanceof HTMLElement) || typeof handler !== "function") {
+      return () => {};
+    }
+
+    let lastTouchHandledAt = 0;
+    const listener = (event) => {
+      if (event.type === "pointerup" && event.pointerType === "mouse") {
+        return;
+      }
+      if (
+        event.type === "click" &&
+        Date.now() - lastTouchHandledAt < TODO_ACTION_TOUCH_DEDUP_WINDOW_MS
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (event.type === "pointerup") {
+        lastTouchHandledAt = Date.now();
+      }
+      button.blur?.();
+      Promise.resolve(handler(event)).catch((error) => {
+        console.error("待办动作按钮处理失败:", error);
+      });
+    };
+
+    button.addEventListener("pointerup", listener);
+    button.addEventListener("click", listener);
+    return () => {
+      button.removeEventListener("pointerup", listener);
+      button.removeEventListener("click", listener);
+    };
+  }
+
+  function getTodoEventTargetElement(event) {
+    const rawTarget = event?.target || null;
+    if (rawTarget instanceof Element) {
+      return rawTarget;
+    }
+    if (
+      rawTarget &&
+      typeof rawTarget === "object" &&
+      rawTarget.parentElement instanceof Element
+    ) {
+      return rawTarget.parentElement;
+    }
+    return null;
   }
 
   function getTodoListContentWidth(listScale, baseWidth = 980) {
@@ -8503,9 +8596,7 @@
           : completedToday
             ? "取消这次完成状态"
             : "标记这次为完成";
-      completeButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      bindTodoActionButton(completeButton, () => {
         toggleTodoCompletion(todo.id);
       });
     }
@@ -8520,9 +8611,7 @@
       progressButton.style.lineHeight = "1";
       progressButton.style.textAlign = "center";
       progressButton.style.flexShrink = "0";
-      progressButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      bindTodoActionButton(progressButton, () => {
         showCheckinModal(todo.id);
       });
     }
@@ -8555,20 +8644,12 @@
     });
 
     todoElement.addEventListener("click", (event) => {
-      const actionButton =
-        event.target instanceof Element
-          ? event.target.closest("[data-action]")
-          : null;
-      if (actionButton?.dataset.action === "complete") {
+      const actionButton = getTodoEventTargetElement(event)?.closest(
+        "[data-action]",
+      );
+      if (actionButton) {
         event.preventDefault();
         event.stopPropagation();
-        toggleTodoCompletion(todo.id);
-        return;
-      }
-      if (actionButton?.dataset.action === "add-progress") {
-        event.preventDefault();
-        event.stopPropagation();
-        showCheckinModal(todo.id);
         return;
       }
 
@@ -11148,17 +11229,13 @@
         : proxyCheckedDate
           ? `取消 ${proxyCheckedDate} 这次补记`
           : "今天未安排，点击后可选择补记今天、下一次或上一次未完成";
-      toggleBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      bindTodoActionButton(toggleBtn, () => {
         item.toggleTodayCheckin();
       });
     }
 
     if (continueBtn instanceof HTMLButtonElement) {
-      continueBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+      bindTodoActionButton(continueBtn, () => {
         showCheckinItemModal(item, {
           resumeMode: true,
         });
@@ -11799,12 +11876,60 @@
       });
       return toggleTodoCompletion(todoId, dateText);
     },
+    setTodoCompletionById(
+      todoId,
+      nextCompleted,
+      dateText = getLocalDateText(),
+    ) {
+      initPlanSidebar({
+        initialView: "todos",
+        persistWidgetView: true,
+      });
+      const targetTodo =
+        todos.find((todo) => matchesId(todo.id, todoId)) || null;
+      if (!targetTodo) {
+        return false;
+      }
+      const normalizedDate =
+        normalizeTodoOccurrenceDateKey(dateText) || getLocalDateText();
+      if (
+        getTodoCompletionStateOnDate(targetTodo, normalizedDate) ===
+        !!nextCompleted
+      ) {
+        return true;
+      }
+      return commitTodoCompletionForDate(targetTodo, normalizedDate, {
+        nextCompleted: !!nextCompleted,
+      });
+    },
     toggleCheckinByIdOnDate(itemId, dateText) {
       initPlanSidebar({
         initialView: "checkins",
         persistWidgetView: true,
       });
       return toggleCheckinCompletionOnDate(itemId, dateText);
+    },
+    setCheckinCompletionByIdOnDate(itemId, nextChecked, dateText) {
+      initPlanSidebar({
+        initialView: "checkins",
+        persistWidgetView: true,
+      });
+      const targetItem =
+        checkinItems.find((item) => matchesId(item.id, itemId)) || null;
+      if (!targetItem) {
+        return false;
+      }
+      const normalizedDate =
+        normalizeTodoOccurrenceDateKey(dateText) || getLocalDateText();
+      if (
+        getCheckinCompletionStateOnDate(targetItem, normalizedDate) ===
+        !!nextChecked
+      ) {
+        return true;
+      }
+      return commitCheckinCompletionOnDate(targetItem, normalizedDate, {
+        nextChecked: !!nextChecked,
+      });
     },
     resolveLinkedPlanSource(sourceType, sourceId, options = {}) {
       initPlanSidebar({

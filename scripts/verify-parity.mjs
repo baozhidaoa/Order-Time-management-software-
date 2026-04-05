@@ -200,40 +200,82 @@ async function listRelativeFiles(rootDir, excludedRelativePrefixes = []) {
   return output;
 }
 
+function removeHeadTagLine(sourceText, tagPattern) {
+  return sourceText.replace(
+    new RegExp(`(?:\\r?\\n)?[ \\t]*${tagPattern}[ \\t]*(?:\\r?\\n)?`, "gi"),
+    "\n",
+  );
+}
+
+function escapeRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripMobileBootstrapHeadContent(headContent, pageKey) {
+  let preservedContent = headContent;
+  const bootScriptSources = [
+    "desktop-theme-preload.js",
+    `offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}`,
+    "desktop-common-boot.js",
+    "mobile-common-boot.js",
+    `${pageKey}-boot.js`,
+  ];
+
+  for (const scriptSource of bootScriptSources) {
+    preservedContent = removeHeadTagLine(
+      preservedContent,
+      `<script\\s+(?:defer\\s+)?src="${escapeRegExp(scriptSource)}"\\s*><\\/script>`,
+    );
+  }
+
+  preservedContent = removeHeadTagLine(
+    preservedContent,
+    `<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>`,
+  );
+  preservedContent = removeHeadTagLine(
+    preservedContent,
+    `<link\\s+rel="stylesheet"\\s+href="index\\.css"\\s*\\/>`,
+  );
+
+  return preservedContent.replace(/^(?:[ \t]*\r?\n)+/, "");
+}
+
 function rewriteMobileBootstrapHtml(sourceText, relativePath) {
   const pageKey = path.basename(relativePath, ".html");
   const titleEndIndex = sourceText.indexOf("</title>");
-  const firstScriptIndex =
-    titleEndIndex === -1 ? -1 : sourceText.indexOf("<script", titleEndIndex);
-  const stylesheetIndex =
-    titleEndIndex === -1
-      ? -1
-      : sourceText.indexOf('<link rel="stylesheet"', titleEndIndex);
+  const headEndIndex =
+    titleEndIndex === -1 ? -1 : sourceText.indexOf("</head>", titleEndIndex);
 
   if (
     titleEndIndex === -1 ||
-    firstScriptIndex === -1 ||
-    stylesheetIndex === -1 ||
-    firstScriptIndex >= stylesheetIndex
+    headEndIndex === -1 ||
+    !sourceText.includes('<link rel="stylesheet" href="index.css" />')
   ) {
     recordFailure(`无法识别移动端 HTML 启动脚本区域: ${relativePath}`);
     return sourceText;
   }
 
+  const stylesheetMarkup = '    <link rel="stylesheet" href="index.css" />\n';
+  const headContent = sourceText.slice(
+    titleEndIndex + "</title>".length,
+    headEndIndex,
+  );
+  const preservedHeadContent = stripMobileBootstrapHeadContent(
+    headContent,
+    pageKey,
+  );
   const bootstrapScripts =
     `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="mobile-common-boot.js"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
-  const pageScriptPattern = new RegExp(
-    `\\s*<script\\s+src="${pageKey}\\.js(?:\\?[^"]*)?"\\s*><\\/script>\\s*`,
-    "i",
-  );
 
   return (
-    sourceText.slice(0, firstScriptIndex) +
+    `${sourceText.slice(0, titleEndIndex + "</title>".length)}\n` +
+    stylesheetMarkup +
     bootstrapScripts +
-    sourceText.slice(stylesheetIndex)
-  ).replace(pageScriptPattern, "\n");
+    preservedHeadContent +
+    sourceText.slice(headEndIndex)
+  );
 }
 
 async function compareDirectories(sourceDir, targetDir, label, options = {}) {
