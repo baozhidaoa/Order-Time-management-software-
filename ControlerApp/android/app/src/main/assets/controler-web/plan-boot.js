@@ -4456,7 +4456,7 @@ function ensurePlanShellStructure() {
   calendarContainer.className = "calendar-container";
 
   const calendarHeader = document.createElement("div");
-  calendarHeader.className = "plan-calendar-header plan-calendar-header-card";
+  calendarHeader.className = "plan-calendar-header page-control-card";
 
   const viewButtons = document.createElement("div");
   viewButtons.className = "plan-view-buttons";

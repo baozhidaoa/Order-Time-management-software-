@@ -33,8 +33,7 @@
         display: grid;
         grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.72fr);
         grid-template-areas:
-          "toolbar toolbar"
-          "controls controls"
+          "control-shell control-shell"
           "content stats";
         gap: 16px 18px;
         min-height: 0;
@@ -43,8 +42,15 @@
         align-items: stretch;
       }
 
+      .todo-control-shell {
+        grid-area: control-shell;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 0;
+      }
+
       .todo-primary-toolbar {
-        grid-area: toolbar;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -73,8 +79,15 @@
 
       #todo-view-controls,
       #checkin-view-controls {
-        grid-area: controls;
         min-width: 0;
+      }
+
+      .todo-control-shell #checkin-view-controls > .checkin-toolbar-card {
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
       }
 
       .todo-dropdown-row {
@@ -586,8 +599,7 @@
         .todo-panel-stack {
           grid-template-columns: minmax(0, 1fr);
           grid-template-areas:
-            "toolbar"
-            "controls"
+            "control-shell"
             "content"
             "stats";
           gap: 14px;
@@ -654,8 +666,7 @@
         .todo-panel-stack {
           grid-template-columns: minmax(0, 1fr);
           grid-template-areas:
-            "toolbar"
-            "controls"
+            "control-shell"
             "content"
             "stats";
           gap: 10px;
@@ -786,72 +797,79 @@
       </div>
 
       <div class="todo-shell page-shell page-shell--fill">
+        <div class="page-shell-heading">
+          <div class="page-shell-heading-copy">
+            <h3 class="page-shell-heading-title">待办与打卡</h3>
+          </div>
+        </div>
         <div class="todo-panel-stack">
-          <div class="todo-primary-toolbar">
-            <div class="todo-view-toggle">
-              <button class="bts active" id="todo-view-btn">📝 待办事项</button>
-              <button class="bts" id="checkin-view-btn">✅ 打卡项目</button>
-            </div>
-            <div class="todo-primary-actions">
-              <button class="bts" id="add-todo-btn">➕ 添加项目</button>
-            </div>
-          </div>
-
-          <div id="todo-view-controls" style="display: block">
-            <div class="todo-control-strip">
-              <div class="todo-dropdown-row">
-                <div class="todo-dropdown-field">
-                  <select id="todo-filter-select" class="todo-tools-input">
-                    <option value="all">全部</option>
-                    <option value="pending">进行中</option>
-                    <option value="completed">已完成</option>
-                    <option value="overdue">已过期</option>
-                    <option value="today">今天到期</option>
-                  </select>
-                </div>
-                <div class="todo-dropdown-field">
-                  <select id="todo-layout-select" class="todo-tools-input">
-                    <option value="list">列表视图</option>
-                    <option value="quadrant">四象限视图</option>
-                  </select>
-                </div>
-                <div class="todo-dropdown-field">
-                  <select id="todo-sort" class="todo-tools-input">
-                    <option value="dueDate">按截止日期排序</option>
-                    <option value="priority">按优先级排序</option>
-                    <option value="createdAt">按创建时间排序</option>
-                    <option value="title">按标题排序</option>
-                  </select>
-                </div>
+          <div class="todo-control-shell page-control-card">
+            <div class="todo-primary-toolbar">
+              <div class="todo-view-toggle">
+                <button class="bts active" id="todo-view-btn">📝 待办事项</button>
+                <button class="bts" id="checkin-view-btn">✅ 打卡项目</button>
               </div>
-
-              <div class="todo-tools-row">
-                <div class="todo-tools-field">
-                  <input
-                    type="text"
-                    id="todo-search"
-                    class="todo-tools-input"
-                    placeholder="搜索待办事项..."
-                  />
-                </div>
+              <div class="todo-primary-actions">
+                <button class="bts" id="add-todo-btn">➕ 添加项目</button>
               </div>
             </div>
-          </div>
 
-          <div id="checkin-view-controls" style="display: none">
-            <div
-              class="todo-content-card todo-content-card--compact checkin-toolbar-card"
-            >
-              <div class="checkin-toolbar-summary">
-                <span>今日打卡统计：</span>
-                <span id="today-checkin-count">0</span>/<span id="total-checkin-count">0</span>
+            <div id="todo-view-controls" style="display: block">
+              <div class="todo-control-strip">
+                <div class="todo-dropdown-row">
+                  <div class="todo-dropdown-field">
+                    <select id="todo-filter-select" class="todo-tools-input">
+                      <option value="all">全部</option>
+                      <option value="pending">进行中</option>
+                      <option value="completed">已完成</option>
+                      <option value="overdue">已过期</option>
+                      <option value="today">今天到期</option>
+                    </select>
+                  </div>
+                  <div class="todo-dropdown-field">
+                    <select id="todo-layout-select" class="todo-tools-input">
+                      <option value="list">列表视图</option>
+                      <option value="quadrant">四象限视图</option>
+                    </select>
+                  </div>
+                  <div class="todo-dropdown-field">
+                    <select id="todo-sort" class="todo-tools-input">
+                      <option value="dueDate">按截止日期排序</option>
+                      <option value="priority">按优先级排序</option>
+                      <option value="createdAt">按创建时间排序</option>
+                      <option value="title">按标题排序</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="todo-tools-row">
+                  <div class="todo-tools-field">
+                    <input
+                      type="text"
+                      id="todo-search"
+                      class="todo-tools-input"
+                      placeholder="搜索待办事项..."
+                    />
+                  </div>
+                </div>
               </div>
-              <div class="checkin-toolbar-filter">
-                <select id="checkin-status-filter-select">
-                  <option value="in_progress">进行中</option>
-                  <option value="stopped">已停止</option>
-                  <option value="ended">结束</option>
-                </select>
+            </div>
+
+            <div id="checkin-view-controls" style="display: none">
+              <div
+                class="todo-content-card todo-content-card--compact checkin-toolbar-card"
+              >
+                <div class="checkin-toolbar-summary">
+                  <span>今日打卡统计：</span>
+                  <span id="today-checkin-count">0</span>/<span id="total-checkin-count">0</span>
+                </div>
+                <div class="checkin-toolbar-filter">
+                  <select id="checkin-status-filter-select">
+                    <option value="in_progress">进行中</option>
+                    <option value="stopped">已停止</option>
+                    <option value="ended">结束</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>

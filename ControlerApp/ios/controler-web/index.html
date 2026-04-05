@@ -65,34 +65,25 @@
       </div>
       
       <div class="record-shell page-shell page-shell--fill">
+        <div class="page-shell-heading">
+          <div class="page-shell-heading-copy">
+            <h3 class="page-shell-heading-title">时间记录</h3>
+          </div>
+          <div class="page-shell-heading-actions">
+            <button
+              class="bts"
+              id="open-create-project-modal-btn"
+              style="margin: 0; padding: 10px 20px"
+            >
+              创建项目
+            </button>
+          </div>
+        </div>
         <!-- 项目创建和展示区域 -->
         <div
           class="flex column resizable-panel"
           id="project-container"
         >
-          <div
-            style="
-              display: flex;
-              flex-direction: column;
-              gap: 10px;
-              margin-bottom: 15px;
-            "
-          >
-            <!-- 基础项目信息 -->
-            <div
-              class="record-create-project-row"
-              style="display: flex; gap: 10px; align-items: center; justify-content: center"
-            >
-              <button
-                class="bts"
-                id="open-create-project-modal-btn"
-                style="margin: 0; padding: 10px 20px"
-              >
-                创建项目
-              </button>
-            </div>
-          </div>
-
           <section
             class="record-section-block"
             id="record-hierarchy-section"

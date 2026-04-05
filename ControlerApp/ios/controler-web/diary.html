@@ -68,8 +68,12 @@
         class="diary-shell page-shell page-shell--fill"
       >
         <div id="diary-guide-card" class="guide-card-host" hidden></div>
-        <h3 style="margin: 0 0 15px 0; color: var(--text-color)">日记视图</h3>
-        <div class="diary-filter-shell">
+        <div class="page-shell-heading">
+          <div class="page-shell-heading-copy">
+            <h3 class="page-shell-heading-title">日记</h3>
+          </div>
+        </div>
+        <div class="diary-filter-shell page-control-card">
           <div class="diary-filter-row">
             <div class="diary-filter-field diary-filter-field--year">
               <label for="diary-year-select" style="color: var(--text-color)"
@@ -127,19 +131,7 @@
         </div>
         <div
           id="diary-view-container"
-          class="resizable-panel"
-          style="
-            min-height: 320px;
-            height: auto;
-            overflow: hidden;
-            position: relative;
-            border-radius: 12px;
-            border: 1px solid var(--bg-tertiary);
-            background-color: var(--bg-secondary);
-            padding: 12px;
-            min-width: 0;
-            max-width: 100%;
-          "
+          class="resizable-panel diary-view-surface"
         ></div>
       </div>
     </div>

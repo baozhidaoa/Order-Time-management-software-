@@ -79,54 +79,60 @@
       <div
         class="stats-shell page-shell page-shell--fill"
       >
-        <h3 class="stats-shell-title">统计视图</h3>
-        <div id="stats-toolbar" class="stats-toolbar">
-          <div class="stats-toolbar-group stats-toolbar-group--sections">
-            <select id="stats-section-select">
-              <option value="table">表格视图</option>
-              <option value="charts">饼状图和折线图</option>
-              <option value="heatmap">日历热图</option>
-            </select>
+        <div class="page-shell-heading">
+          <div class="page-shell-heading-copy">
+            <h3 class="page-shell-heading-title">统计</h3>
           </div>
-
-          <div class="stats-toolbar-group stats-toolbar-group--range">
-            <div class="stats-range-control-strip">
-              <button
-                class="bts time-quick-btn"
-                id="stats-range-prev"
-                type="button"
-                aria-label="上一时间范围"
-              >
-                &lt;
-              </button>
-              <select id="stats-range-unit-select">
-                <option value="today">今天</option>
-                <option value="day">天</option>
-                <option value="week">周</option>
-                <option value="month">月</option>
-                <option value="year">年</option>
+        </div>
+        <div class="stats-toolbar-shell page-control-card">
+          <div id="stats-toolbar" class="stats-toolbar">
+            <div class="stats-toolbar-group stats-toolbar-group--sections">
+              <select id="stats-section-select">
+                <option value="table">表格视图</option>
+                <option value="charts">饼状图和折线图</option>
+                <option value="heatmap">日历热图</option>
               </select>
-              <button
-                class="bts time-quick-btn"
-                id="stats-range-next"
-                type="button"
-                aria-label="下一时间范围"
-              >
-                &gt;
-              </button>
             </div>
-          </div>
 
-          <div class="stats-toolbar-group stats-toolbar-group--dates">
-            <label class="stats-date-field" for="start-date-select">
-              <span>开始日期</span>
-              <input type="date" id="start-date-select" class="date-input" />
-            </label>
+            <div class="stats-toolbar-group stats-toolbar-group--range">
+              <div class="stats-range-control-strip">
+                <button
+                  class="bts time-quick-btn"
+                  id="stats-range-prev"
+                  type="button"
+                  aria-label="上一时间范围"
+                >
+                  &lt;
+                </button>
+                <select id="stats-range-unit-select">
+                  <option value="today">今天</option>
+                  <option value="day">天</option>
+                  <option value="week">周</option>
+                  <option value="month">月</option>
+                  <option value="year">年</option>
+                </select>
+                <button
+                  class="bts time-quick-btn"
+                  id="stats-range-next"
+                  type="button"
+                  aria-label="下一时间范围"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
 
-            <label class="stats-date-field" for="end-date-select">
-              <span>结束日期</span>
-              <input type="date" id="end-date-select" class="date-input" />
-            </label>
+            <div class="stats-toolbar-group stats-toolbar-group--dates">
+              <label class="stats-date-field" for="start-date-select">
+                <span>开始日期</span>
+                <input type="date" id="start-date-select" class="date-input" />
+              </label>
+
+              <label class="stats-date-field" for="end-date-select">
+                <span>结束日期</span>
+                <input type="date" id="end-date-select" class="date-input" />
+              </label>
+            </div>
           </div>
         </div>
 
