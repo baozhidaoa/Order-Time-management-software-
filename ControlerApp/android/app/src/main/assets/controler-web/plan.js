@@ -3795,52 +3795,22 @@ function ensurePlanShellStructure() {
 
   const calendarContainer = document.createElement("div");
   calendarContainer.className = "calendar-container";
-  calendarContainer.style.padding = "0";
-  calendarContainer.style.width = "100%";
-  calendarContainer.style.maxWidth = "100%";
-  calendarContainer.style.minWidth = "0";
-  calendarContainer.style.boxSizing = "border-box";
 
   const calendarHeader = document.createElement("div");
-  calendarHeader.className = "plan-calendar-header";
-  calendarHeader.style.display = "flex";
-  calendarHeader.style.justifyContent = "space-between";
-  calendarHeader.style.alignItems = "center";
-  calendarHeader.style.marginBottom = "16px";
-  calendarHeader.style.padding = "14px 16px";
-  calendarHeader.style.background = `
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
-    color-mix(in srgb, var(--panel-bg) 76%, transparent)
-  `;
-  calendarHeader.style.border = "1px solid color-mix(in srgb, var(--panel-border-color) 70%, transparent)";
-  calendarHeader.style.boxShadow =
-    "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.1)";
-  calendarHeader.style.borderRadius = "18px";
-  calendarHeader.style.flexWrap = "wrap";
-  calendarHeader.style.gap = "12px";
-  calendarHeader.style.width = "100%";
-  calendarHeader.style.boxSizing = "border-box";
+  calendarHeader.className = "plan-calendar-header plan-calendar-header-card";
 
   const viewButtons = document.createElement("div");
   viewButtons.className = "plan-view-buttons";
-  viewButtons.style.display = "flex";
-  viewButtons.style.gap = "10px";
-  viewButtons.style.flexWrap = "wrap";
   viewButtons.appendChild(createViewButton("周视图", "weekly-grid"));
   viewButtons.appendChild(createViewButton("月视图", "month"));
   viewButtons.appendChild(createViewButton("年视图", "year"));
 
   const currentDateDisplay = document.createElement("div");
   currentDateDisplay.className = "plan-current-date-display";
-  currentDateDisplay.style.color = "var(--text-color)";
-  currentDateDisplay.style.fontWeight = "bold";
-  currentDateDisplay.style.fontSize = "18px";
   currentDateDisplay.id = "current-date-display";
 
   const navButtons = document.createElement("div");
   navButtons.className = "plan-nav-buttons";
-  navButtons.style.display = "flex";
-  navButtons.style.gap = "6px";
 
   const prevBtn = document.createElement("button");
   prevBtn.className = "bts";
@@ -3881,26 +3851,7 @@ function ensurePlanShellStructure() {
 
   const calendarContent = document.createElement("div");
   calendarContent.id = "calendar-content";
-  calendarContent.className = "resizable-panel";
-  calendarContent.style.resize = "none";
-  calendarContent.style.overflow = "visible";
-  calendarContent.style.minHeight = "auto";
-  calendarContent.style.minWidth = "0";
-  calendarContent.style.width = "100%";
-  calendarContent.style.maxWidth = "100%";
-  calendarContent.style.flex = "0 0 auto";
-  calendarContent.style.display = "flex";
-  calendarContent.style.flexDirection = "column";
-  calendarContent.style.background = `
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
-    color-mix(in srgb, var(--bg-tertiary) 78%, transparent)
-  `;
-  calendarContent.style.border =
-    "1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent)";
-  calendarContent.style.boxShadow =
-    "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 30px rgba(0, 0, 0, 0.12)";
-  calendarContent.style.borderRadius = "20px";
-  calendarContent.style.padding = "16px";
+  calendarContent.className = "resizable-panel plan-calendar-content-card";
 
   calendarContainer.appendChild(calendarContent);
   container.appendChild(calendarContainer);
@@ -5514,16 +5465,10 @@ function renderWeeklyGridView(container) {
     : statsLikeHeaderFont;
   const totalTimelineWidth = timeColumnWidth + dateGridWidth;
   const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.justifyContent = "flex-start";
-  controls.style.alignItems = "center";
-  controls.style.gap = "12px";
-  controls.style.flexWrap = "wrap";
-  controls.style.marginBottom = "12px";
+  controls.className = "plan-week-helper";
+  controls.style.setProperty("--plan-week-helper-font-size", `${helperFontSize}px`);
   controls.innerHTML = `
-    <div style="color: var(--text-color); font-size: ${helperFontSize}px;">
-      点击空白时间位置创建事项
-    </div>
+    <div class="plan-week-helper-text">点击空白时间位置创建事项</div>
   `;
   container.appendChild(controls);
 
