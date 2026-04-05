@@ -4454,7 +4454,7 @@ function ensurePlanShellStructure() {
 
   const calendarContainer = document.createElement("div");
   calendarContainer.className = "calendar-container";
-  calendarContainer.style.padding = "15px";
+  calendarContainer.style.padding = "0";
   calendarContainer.style.width = "100%";
   calendarContainer.style.maxWidth = "100%";
   calendarContainer.style.minWidth = "0";
@@ -4465,10 +4465,16 @@ function ensurePlanShellStructure() {
   calendarHeader.style.display = "flex";
   calendarHeader.style.justifyContent = "space-between";
   calendarHeader.style.alignItems = "center";
-  calendarHeader.style.marginBottom = "20px";
-  calendarHeader.style.padding = "10px 15px";
-  calendarHeader.style.backgroundColor = "var(--bg-secondary)";
-  calendarHeader.style.borderRadius = "10px";
+  calendarHeader.style.marginBottom = "16px";
+  calendarHeader.style.padding = "14px 16px";
+  calendarHeader.style.background = `
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+    color-mix(in srgb, var(--panel-bg) 76%, transparent)
+  `;
+  calendarHeader.style.border = "1px solid color-mix(in srgb, var(--panel-border-color) 70%, transparent)";
+  calendarHeader.style.boxShadow =
+    "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.1)";
+  calendarHeader.style.borderRadius = "18px";
   calendarHeader.style.flexWrap = "wrap";
   calendarHeader.style.gap = "12px";
   calendarHeader.style.width = "100%";
@@ -4544,9 +4550,16 @@ function ensurePlanShellStructure() {
   calendarContent.style.flex = "0 0 auto";
   calendarContent.style.display = "flex";
   calendarContent.style.flexDirection = "column";
-  calendarContent.style.backgroundColor = "var(--bg-secondary)";
-  calendarContent.style.borderRadius = "10px";
-  calendarContent.style.padding = "15px";
+  calendarContent.style.background = `
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    color-mix(in srgb, var(--bg-tertiary) 78%, transparent)
+  `;
+  calendarContent.style.border =
+    "1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent)";
+  calendarContent.style.boxShadow =
+    "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 30px rgba(0, 0, 0, 0.12)";
+  calendarContent.style.borderRadius = "20px";
+  calendarContent.style.padding = "16px";
 
   calendarContainer.appendChild(calendarContent);
   container.appendChild(calendarContainer);
@@ -7753,72 +7766,6 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       closeDetailModal();
     }
   });
-}
-
-// 创建测试计划
-function createTestPlans() {
-  const today = new Date();
-
-  // 创建一些测试计划
-  const testPlans = [
-    new Plan(
-      "团队会议",
-      today.toISOString().split("T")[0],
-      "10:00",
-      "11:30",
-      "#4299e1",
-      "weekly",
-    ),
-    new Plan(
-      "项目开发",
-      today.toISOString().split("T")[0],
-      "14:00",
-      "17:00",
-      "#79af85",
-    ),
-    new Plan(
-      "健身时间",
-      today.toISOString().split("T")[0],
-      "19:00",
-      "20:00",
-      "#f56565",
-      "daily",
-    ),
-  ];
-
-  // 创建一些未来几天的计划
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  testPlans.push(
-    new Plan(
-      "客户会议",
-      tomorrow.toISOString().split("T")[0],
-      "09:00",
-      "10:30",
-      "#ed8936",
-    ),
-  );
-
-  const nextWeek = new Date(today);
-  nextWeek.setDate(today.getDate() + 7);
-  testPlans.push(
-    new Plan(
-      "月度报告",
-      nextWeek.toISOString().split("T")[0],
-      "13:00",
-      "15:00",
-      "#9f7aea",
-      "monthly",
-    ),
-  );
-
-  // 添加到计划列表
-  plans = testPlans;
-
-  // 保存到localStorage
-  savePlans();
-
-  console.log("测试计划数据创建成功，共", plans.length, "个计划");
 }
 
 // 加载主题设置

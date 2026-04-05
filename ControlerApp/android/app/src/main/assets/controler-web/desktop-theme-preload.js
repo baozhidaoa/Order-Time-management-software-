@@ -4,10 +4,10 @@
   const BUILT_IN_THEME_OVERRIDES_STORAGE_KEY = "builtInThemeOverrides";
   const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
   const THEME_WINDOW_NAME_PREFIX = "__CONTROLER_THEME_BOOTSTRAP__:";
-  const DEFAULT_THEME_ID = "default";
-  const DEFAULT_PRIMARY_COLOR = "#1f2f28";
-  const DEFAULT_TEXT_COLOR = "#f5fff8";
-  const DEFAULT_ACCENT_COLOR = "#8ed6a4";
+  const DEFAULT_THEME_ID = "obsidian-mono";
+  const DEFAULT_PRIMARY_COLOR = "#0d0f12";
+  const DEFAULT_TEXT_COLOR = "#f4f6fb";
+  const DEFAULT_ACCENT_COLOR = "#f1f4fa";
   const PRELOAD_STYLE_ELEMENT_ID = "controler-desktop-theme-preload-style";
 
   const COLOR_VARIABLE_MAP = Object.freeze({

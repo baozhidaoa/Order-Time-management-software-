@@ -11,21 +11,29 @@
     <style>
       body {
         margin: 0;
-        height: 100vh;
+        min-height: 100vh;
+        height: auto;
         font-family:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
           sans-serif;
       }
 
+      .plan-main {
+        min-height: 0;
+        overflow-x: hidden;
+      }
+
       .planner-dashboard {
         display: grid;
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
         gap: 18px;
-        padding: 0 15px 15px;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        padding: 0;
         align-items: start;
         min-height: 0;
         height: auto;
-        width: 100%;
         flex: 0 0 auto;
         overflow: visible;
         box-sizing: border-box;
@@ -33,11 +41,19 @@
 
       .planner-panel {
         min-width: 0;
-        padding: 15px;
-        background-color: var(--bg-secondary);
-        border-radius: 15px;
+        padding: 20px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--panel-strong-bg) 92%, transparent);
+        border: 1px solid
+          color-mix(in srgb, var(--panel-border-color) 84%, rgba(255, 255, 255, 0.04));
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 18px 38px rgba(0, 0, 0, 0.16);
+        border-radius: 24px;
         display: flex;
         flex-direction: column;
+        gap: 16px;
         min-height: 0;
         height: auto;
         flex-shrink: 0;
@@ -54,8 +70,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 10px;
-        margin-bottom: 15px;
+        gap: 12px;
+        margin-bottom: 0;
         flex-wrap: wrap;
       }
 
@@ -478,19 +494,31 @@
         writing-mode: horizontal-tb;
       }
 
+      .plan-panel-placeholder {
+        color: var(--text-color);
+        padding: 20px;
+        text-align: center;
+        min-height: auto;
+      }
+
       #stats-container {
         display: flex;
         flex-direction: column;
-        min-height: 0 !important;
+        min-height: auto !important;
         height: auto;
         overflow: visible;
+        gap: 16px;
+        border-radius: 20px;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
       }
 
       #todo-list-container,
       #todo-quadrant-container,
       #checkin-list-container {
         flex: 0 0 auto;
-        min-height: 0 !important;
+        min-height: auto !important;
         width: 100%;
         overflow: visible;
       }
@@ -522,6 +550,37 @@
         }
       }
 
+      @media (max-width: 980px) and (min-width: 691px) {
+        .plan-calendar-header {
+          align-items: stretch;
+        }
+
+        .plan-view-buttons {
+          flex: 1 1 100%;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .plan-view-buttons .bts {
+          flex: 1 1 0;
+          min-width: 0;
+        }
+
+        .plan-date-nav-group {
+          width: 100%;
+          min-width: 0;
+          margin-left: 0;
+          justify-content: space-between;
+        }
+
+        .plan-current-date-display {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
       @media (max-width: 760px) {
         .todo-tools-row {
           grid-template-columns: 1fr;
@@ -533,7 +592,10 @@
           display: flex;
           flex-direction: row;
           gap: 0;
-          padding: 0 6px 6px;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding: 0 0 6px;
           min-height: 0;
           height: auto;
           overflow-x: auto;
@@ -827,9 +889,8 @@
   <body class="app-layout page-plan plan-bootstrap-pending bgs bkg flex row">
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
           记录
@@ -854,10 +915,9 @@
     <!-- 计划部分 -->
     <div
       class="app-main plan-main flex flex1 column mg ms"
-      style="overflow-y: auto"
     >
-      <div class="plan-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">时间计划</h2>
+      <div class="plan-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">时间计划</h2>
       </div>
       <div id="plan-guide-card" class="guide-card-host ms mg" hidden></div>
       <div
@@ -876,34 +936,28 @@
         </div>
       </div>
 
-      <div class="planner-dashboard" id="planner-dashboard">
-        <section
-          class="planner-panel planner-panel--plans"
-          data-mobile-panel="plans"
-        >
-          <div class="planner-panel-header planner-panel-header--plan">
-            <h3 class="planner-panel-title">计划</h3>
-            <button class="bts planner-inline-action" id="add-plan-btn-inline">
-              ➕ 添加新计划
-            </button>
-          </div>
-          <div
-            id="stats-container"
-            class="resizable-panel"
-            style="min-height: auto; overflow: visible; flex: 0 0 auto"
+      <div class="planner-shell page-shell page-shell--fill">
+        <div class="planner-dashboard" id="planner-dashboard">
+          <section
+            class="planner-panel planner-panel--plans"
+            data-mobile-panel="plans"
           >
-            <div
-              style="
-                color: var(--text-color);
-                padding: 20px;
-                text-align: center;
-                min-height: auto;
-              "
-            >
-              正在加载计划视图...
+            <div class="planner-panel-header planner-panel-header--plan">
+              <h3 class="planner-panel-title">计划</h3>
+              <button class="bts planner-inline-action" id="add-plan-btn-inline">
+                ➕ 添加新计划
+              </button>
             </div>
-          </div>
-        </section>
+            <div
+              id="stats-container"
+              class="resizable-panel"
+            >
+              <div class="plan-panel-placeholder">
+                正在加载计划视图...
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
 </body>

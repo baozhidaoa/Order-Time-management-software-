@@ -2347,6 +2347,37 @@ select optgroup {
   isolation: isolate;
 }
 
+.stats-shell-title {
+  margin: 0;
+  color: var(--text-color);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+#stats-section-select {
+  min-width: 136px;
+}
+
+#stats-range-unit-select {
+  min-width: 0;
+}
+
+.stats-content-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stats-placeholder {
+  color: var(--text-color);
+  padding: 20px;
+  text-align: center;
+}
+
 .stats-toolbar-group,
 .stats-toolbar-status,
 .stats-section-panel {
@@ -2711,6 +2742,47 @@ body.page-stats .weekly-glass-table {
 
 body.page-stats #stats-container {
   background-color: transparent;
+}
+
+@media (max-width: 1080px) and (min-width: 691px) {
+  body.page-stats .stats-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "sections"
+      "range"
+      "dates";
+    gap: 10px;
+  }
+
+  body.page-stats .stats-toolbar-group,
+  body.page-stats .stats-toolbar-status,
+  body.page-stats .stats-section-panel {
+    width: 100%;
+  }
+
+  body.page-stats .stats-toolbar-group--range {
+    width: 100%;
+    justify-self: stretch;
+    justify-content: flex-start;
+    padding-inline: 12px;
+  }
+
+  body.page-stats .stats-range-control-strip {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 860px) and (min-width: 691px) {
+  body.page-stats .stats-toolbar-group--dates {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  body.page-stats .stats-date-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: stretch;
+  }
 }
 
 .stats-dual-grid {
@@ -5018,6 +5090,13 @@ body.page-diary .diary-filter-row {
   align-items: end;
 }
 
+body.page-diary .diary-filter-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 body.page-diary .diary-filter-row > .diary-filter-field {
   min-width: 0;
   grid-column: span 2;
@@ -5041,6 +5120,28 @@ body.page-diary
   :is(select, input, .tree-select, .native-select-enhancer, .tree-select-button) {
   width: 100% !important;
   min-width: 0 !important;
+}
+
+body.page-diary #diary-year-select {
+  min-width: 120px;
+}
+
+body.page-diary #diary-month-select {
+  min-width: 110px;
+}
+
+body.page-diary #diary-category-filter {
+  min-width: 140px;
+}
+
+body.page-diary .diary-view-toggle-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+body.page-diary .diary-view-toggle-row .bts {
+  margin: 0 !important;
 }
 
 body.page-settings .settings-main {
@@ -5136,6 +5237,42 @@ body.page-todo #checkin-list-container {
   flex: 0 0 auto !important;
   min-height: 0 !important;
   align-self: stretch !important;
+}
+
+@media (min-width: 691px) {
+  body.page-plan.flex.row {
+    height: auto !important;
+    min-height: 100dvh !important;
+    align-items: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.page-plan.flex.row > div:first-of-type {
+    position: sticky;
+    top: var(--app-shell-padding);
+    align-self: flex-start;
+  }
+
+  body.page-plan.flex.row > div:nth-of-type(2),
+  body.page-plan .plan-main {
+    height: auto !important;
+    min-height: calc(100dvh - (var(--app-shell-padding) * 2)) !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+    align-self: stretch;
+  }
+
+  body.page-plan .planner-shell,
+  body.page-plan .planner-dashboard,
+  body.page-plan .planner-panel,
+  body.page-plan #stats-container {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+  }
 }
 
 body.page-stats #stats-container > *,
@@ -7933,7 +8070,7 @@ body.controler-android-native.app-page-transition-leave
 }
 
 body.page-diary .diary-filter-field--search {
-  flex: 2 1 280px;
+  min-width: 0;
 }
 
 body.page-diary #diary-search-input {
@@ -7942,8 +8079,14 @@ body.page-diary #diary-search-input {
 }
 
 @media (max-width: 760px) {
-  body.page-diary .diary-filter-field--search {
-    flex-basis: 100% !important;
+  body.page-diary .diary-view-toggle-row .bts {
+    flex: 1 1 0;
+  }
+
+  body.page-diary #diary-year-select,
+  body.page-diary #diary-month-select,
+  body.page-diary #diary-category-filter {
+    min-width: 0 !important;
   }
 }
 

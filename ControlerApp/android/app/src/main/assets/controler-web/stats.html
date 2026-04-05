@@ -9,22 +9,27 @@
     <script defer src="mobile-common-boot.js"></script>
     <script defer src="stats-boot.js"></script>
 </head>
-  <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-        sans-serif;
-    }
-  </style>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        height: auto;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          sans-serif;
+      }
+
+      .stats-main {
+        min-height: 0;
+        overflow-x: hidden;
+      }
+    </style>
   <body class="app-layout page-stats stats-toolbar-bootstrap-pending bkg flex row">
     <!-- 侧边栏 -->
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <!-- 导航栏 -->
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
@@ -50,10 +55,9 @@
     <!-- 主要内容区域 -->
     <div
       class="app-main stats-main flex flex1 column mg ms"
-      style="overflow-y: auto"
     >
-      <div class="stats-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">时间统计</h2>
+      <div class="stats-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">时间统计</h2>
       </div>
       <div
         id="stats-loading-overlay"
@@ -72,22 +76,12 @@
       </div>
 
       <div
-        class="stats-shell"
-        style="
-          margin: 15px;
-          padding: 15px;
-          background-color: var(--bg-quaternary);
-          border-radius: 15px;
-          display: flex;
-          flex-direction: column;
-          flex: 1;
-          min-height: auto;
-        "
+        class="stats-shell page-shell page-shell--fill"
       >
-        <h3 style="margin: 0 0 15px 0; color: var(--text-color)">统计视图</h3>
+        <h3 class="stats-shell-title">统计视图</h3>
         <div id="stats-toolbar" class="stats-toolbar">
           <div class="stats-toolbar-group stats-toolbar-group--sections">
-            <select id="stats-section-select" style="min-width: 136px">
+            <select id="stats-section-select">
               <option value="table">表格视图</option>
               <option value="charts">饼状图和折线图</option>
               <option value="heatmap">日历热图</option>
@@ -101,11 +95,10 @@
                 id="stats-range-prev"
                 type="button"
                 aria-label="上一时间范围"
-                style="margin: 0"
               >
                 &lt;
               </button>
-              <select id="stats-range-unit-select" style="min-width: 0">
+              <select id="stats-range-unit-select">
                 <option value="today">今天</option>
                 <option value="day">天</option>
                 <option value="week">周</option>
@@ -117,7 +110,6 @@
                 id="stats-range-next"
                 type="button"
                 aria-label="下一时间范围"
-                style="margin: 0"
               >
                 &gt;
               </button>
@@ -140,21 +132,9 @@
         <!-- 统计内容容器 -->
         <div
           id="stats-container"
-          class="resizable-panel"
-          style="
-            min-height: auto;
-            overflow: visible;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            flex: 0 0 auto;
-            gap: 16px;
-            width: 100%;
-          "
+          class="resizable-panel stats-content-shell"
         >
-          <div
-            style="color: var(--text-color); padding: 20px; text-align: center"
-          >
+          <div class="stats-placeholder">
             选择时间范围并使用上方折叠按钮查看统计
           </div>
         </div>

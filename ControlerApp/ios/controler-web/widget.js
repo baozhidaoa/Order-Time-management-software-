@@ -199,7 +199,7 @@ function createEmptyAppState() {
     yearlyGoals: {},
     customThemes: [],
     tableScaleSettings: {},
-    selectedTheme: "default",
+    selectedTheme: "obsidian-mono",
     todoSortPreference: "dueDate",
   };
 }
@@ -1105,7 +1105,7 @@ function createWidgetStateFromCore(coreState = {}) {
     selectedTheme:
       typeof coreState?.selectedTheme === "string" && coreState.selectedTheme.trim()
         ? coreState.selectedTheme.trim()
-        : "default",
+        : "obsidian-mono",
     todoSortPreference: normalizeTodoWidgetSortPreference(
       coreState?.todoSortPreference,
     ),

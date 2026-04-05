@@ -2937,17 +2937,34 @@ function scheduleSettingsCollapsibleRefresh() {
   settingsCollapsibleRefreshFrame = window.requestAnimationFrame(() => {
     settingsCollapsibleRefreshFrame = null;
     settingsCollapsibleSections.forEach((section) => {
-      if (!section?.expanded) {
+      if (!section?.card || !section?.content || !section?.body || !section?.inner) {
         return;
       }
-      const nextHeight = section.inner.scrollHeight;
-      section.body.style.maxHeight = `${nextHeight}px`;
+      section.card.style.display = "block";
+      section.card.style.height = "";
+      section.card.style.maxHeight = "";
+      section.card.style.overflow = "visible";
+      section.content.style.display = "flex";
+      section.content.style.flexDirection = "column";
+      section.content.style.alignItems = "stretch";
+      section.content.style.width = "100%";
+      section.body.hidden = false;
+      section.body.style.display = section.expanded ? "block" : "none";
+      section.body.style.height = section.expanded ? "auto" : "0px";
+      section.body.style.maxHeight = section.expanded ? "none" : "0px";
+      section.body.style.overflow = section.expanded ? "visible" : "hidden";
+      section.body.style.pointerEvents = section.expanded ? "auto" : "none";
+      section.body.style.opacity = section.expanded ? "1" : "0";
+      section.inner.style.display = "block";
+      section.inner.style.height = "auto";
+      section.inner.style.maxHeight = "none";
+      section.inner.style.overflow = "visible";
     });
   });
 }
 
 function setSettingsCollapsibleExpanded(section, expanded, { immediate = false } = {}) {
-  if (!section?.card || !section?.header || !section?.body || !section?.inner) {
+  if (!section?.card || !section?.content || !section?.header || !section?.body || !section?.inner) {
     return;
   }
 
@@ -2955,33 +2972,25 @@ function setSettingsCollapsibleExpanded(section, expanded, { immediate = false }
   section.card.classList.toggle("is-expanded", section.expanded);
   section.card.classList.toggle("is-collapsed", !section.expanded);
   section.header.setAttribute("aria-expanded", section.expanded ? "true" : "false");
+  section.card.style.display = "block";
+  section.card.style.height = "";
+  section.card.style.maxHeight = "";
+  section.card.style.overflow = "visible";
+  section.content.style.display = "flex";
+  section.content.style.flexDirection = "column";
+  section.content.style.alignItems = "stretch";
+  section.content.style.width = "100%";
+  section.body.hidden = false;
+  section.body.style.display = section.expanded ? "block" : "none";
+  section.body.style.height = section.expanded ? "auto" : "0px";
+  section.body.style.maxHeight = section.expanded ? "none" : "0px";
+  section.body.style.overflow = section.expanded ? "visible" : "hidden";
   section.body.style.pointerEvents = section.expanded ? "auto" : "none";
-
-  if (immediate) {
-    section.body.style.transition = "none";
-  } else {
-    section.body.style.transition = "";
-  }
-
-  if (section.expanded) {
-    section.body.hidden = false;
-    section.body.style.opacity = "1";
-    section.body.style.maxHeight = `${section.inner.scrollHeight}px`;
-  } else {
-    if (!immediate) {
-      section.body.style.maxHeight = `${section.inner.scrollHeight}px`;
-      section.body.style.opacity = "1";
-      void section.body.offsetHeight;
-    }
-    section.body.style.maxHeight = "0px";
-    section.body.style.opacity = "0";
-  }
-
-  if (immediate) {
-    window.requestAnimationFrame(() => {
-      section.body.style.transition = "";
-    });
-  }
+  section.body.style.opacity = section.expanded ? "1" : "0";
+  section.inner.style.display = "block";
+  section.inner.style.height = "auto";
+  section.inner.style.maxHeight = "none";
+  section.inner.style.overflow = "visible";
 }
 
 function initSettingsCollapsibleSections() {
@@ -3015,6 +3024,20 @@ function initSettingsCollapsibleSections() {
 
     card.dataset.settingsCollapsibleReady = "true";
     card.classList.add("settings-card--collapsible");
+    content.style.display = "flex";
+    content.style.flexDirection = "column";
+    content.style.alignItems = "stretch";
+    content.style.width = "100%";
+    body.style.display = "none";
+    body.style.width = "100%";
+    body.style.height = "0px";
+    body.style.maxHeight = "0px";
+    body.style.overflow = "hidden";
+    inner.style.display = "block";
+    inner.style.width = "100%";
+    inner.style.height = "auto";
+    inner.style.maxHeight = "none";
+    inner.style.overflow = "visible";
 
     const nodesToMove = Array.from(content.childNodes).filter((node) => node !== heading);
     nodesToMove.forEach((node) => {
@@ -3027,6 +3050,7 @@ function initSettingsCollapsibleSections() {
 
     const section = {
       card,
+      content,
       header: toggle,
       body,
       inner,
@@ -3206,17 +3230,17 @@ function loadTheme(options = {}) {
       });
       return savedTheme;
     }
-    applyTheme("default", {
+    applyTheme("obsidian-mono", {
       updateSelector: shouldUpdateSelector,
     });
-    saveTheme("default");
-    return "default";
+    saveTheme("obsidian-mono");
+    return "obsidian-mono";
   } catch (e) {
     console.error("加载主题失败:", e);
-    applyTheme("default", {
+    applyTheme("obsidian-mono", {
       updateSelector: shouldUpdateSelector,
     });
-    return "default";
+    return "obsidian-mono";
   }
 }
 
@@ -3428,7 +3452,7 @@ function updateThemeSelector(selectedThemeId) {
     window.ControlerUI?.markPerfStage?.("settings-theme-selector-ready", {
       themeCount: themes.length,
       durationMs,
-      selectedThemeId: String(selectedThemeId || "").trim() || "default",
+      selectedThemeId: String(selectedThemeId || "").trim() || "obsidian-mono",
     });
   }
 }
@@ -3509,10 +3533,10 @@ function deleteCustomTheme(themeId) {
   syncThemeCatalog();
 
   if (localStorage.getItem("selectedTheme") === themeId) {
-    applyTheme("default");
-    saveTheme("default");
+    applyTheme("obsidian-mono");
+    saveTheme("obsidian-mono");
   } else {
-    updateThemeSelector(localStorage.getItem("selectedTheme") || "default");
+    updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
   }
 }
 
@@ -3526,7 +3550,7 @@ function resetBuiltInThemeOverride(themeId) {
     applyTheme(themeId);
     saveTheme(themeId);
   } else {
-    updateThemeSelector(localStorage.getItem("selectedTheme") || "default");
+    updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
   }
 }
 
@@ -4095,7 +4119,7 @@ function buildLocalOnlyBackupPayload() {
     appNavigationVisibility: normalizeNavigationVisibilityState(
       getNavigationState(),
     ),
-    selectedTheme: localStorage.getItem("selectedTheme") || "default",
+    selectedTheme: localStorage.getItem("selectedTheme") || "obsidian-mono",
     timerSessionState: JSON.parse(
       localStorage.getItem("timerSessionState") || "null",
     ),
@@ -4185,7 +4209,7 @@ function normalizeImportedBackupPayload(data) {
 
   const hasOwn = (key) => Object.prototype.hasOwnProperty.call(data, key);
   const currentSelectedTheme =
-    localStorage.getItem("selectedTheme") || "default";
+    localStorage.getItem("selectedTheme") || "obsidian-mono";
   const currentCustomThemes = loadCustomThemes();
   const currentBuiltInThemeOverrides = loadBuiltInThemeOverrides();
 
@@ -7286,7 +7310,7 @@ async function performClearData() {
     await flushStorageWrites();
 
     syncThemeCatalog();
-    applyTheme("default");
+    applyTheme("obsidian-mono");
     updateStorageStatus();
     updateStoragePathInfo();
     renderNavigationVisibilitySettings();
@@ -8013,7 +8037,7 @@ let settingsExternalStorageRefreshQueued = false;
 function refreshSettingsFromStorage() {
   settingsExternalStorageRefreshQueued = false;
   syncThemeCatalog();
-  const currentThemeId = localStorage.getItem("selectedTheme") || "default";
+  const currentThemeId = localStorage.getItem("selectedTheme") || "obsidian-mono";
   updateThemeSelector(currentThemeId);
   ensureThemeSelectorVisible(currentThemeId);
   updateStorageStatus();

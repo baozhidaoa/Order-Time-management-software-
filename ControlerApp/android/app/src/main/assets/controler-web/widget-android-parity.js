@@ -130,7 +130,7 @@ function createEmptyAppState() {
     yearlyGoals: {},
     customThemes: [],
     tableScaleSettings: {},
-    selectedTheme: "default",
+    selectedTheme: "obsidian-mono",
     todoSortPreference: "dueDate",
   };
 }
@@ -315,7 +315,7 @@ function readAppState() {
     yearlyGoals: readObject("yearlyGoals"),
     customThemes: readArray("customThemes"),
     tableScaleSettings: readObject("tableScaleSettings"),
-    selectedTheme: window.localStorage.getItem("selectedTheme") || "default",
+    selectedTheme: window.localStorage.getItem("selectedTheme") || "obsidian-mono",
     todoSortPreference:
       window.localStorage.getItem("todoSortPreference") || "dueDate",
   };
@@ -360,7 +360,7 @@ function persistAppState(nextState) {
     });
     window.localStorage.setItem(
       "selectedTheme",
-      String(safeState.selectedTheme || "default"),
+      String(safeState.selectedTheme || "obsidian-mono"),
     );
     window.localStorage.setItem(
       "todoSortPreference",

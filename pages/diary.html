@@ -13,7 +13,8 @@
   <style>
     body {
       margin: 0;
-      height: 100vh;
+      min-height: 100vh;
+      height: auto;
       font-family:
         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
         sans-serif;
@@ -69,53 +70,35 @@
       >
         <div id="diary-guide-card" class="guide-card-host" hidden></div>
         <h3 style="margin: 0 0 15px 0; color: var(--text-color)">日记视图</h3>
-        <div
-          style="
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-bottom: 12px;
-          "
-        >
-          <div
-            class="diary-filter-row"
-            style="
-              display: flex;
-              gap: 12px;
-              flex-wrap: wrap;
-              align-items: center;
-            "
-          >
-            <div class="diary-filter-field" style="display: flex; gap: 8px; align-items: center">
+        <div class="diary-filter-shell">
+          <div class="diary-filter-row">
+            <div class="diary-filter-field diary-filter-field--year">
               <label for="diary-year-select" style="color: var(--text-color)"
                 >年份</label
               >
-              <select id="diary-year-select" style="min-width: 120px">
+              <select id="diary-year-select">
                 <option value="">加载中...</option>
               </select>
             </div>
-            <div class="diary-filter-field" style="display: flex; gap: 8px; align-items: center">
+            <div class="diary-filter-field diary-filter-field--month">
               <label for="diary-month-select" style="color: var(--text-color)"
                 >月份</label
               >
-              <select id="diary-month-select" style="min-width: 110px">
+              <select id="diary-month-select">
                 <option value="">加载中...</option>
               </select>
             </div>
-            <div class="diary-filter-field diary-filter-field--category" style="display: flex; gap: 8px; align-items: center">
+            <div class="diary-filter-field diary-filter-field--category">
               <label
                 for="diary-category-filter"
                 style="color: var(--text-color)"
                 >分类</label
               >
-              <select
-                id="diary-category-filter"
-                style="min-width: 140px"
-              >
+              <select id="diary-category-filter">
                 <option value="all">全部</option>
               </select>
             </div>
-            <div class="diary-filter-field diary-filter-field--search" style="display: flex; gap: 8px; align-items: center">
+            <div class="diary-filter-field diary-filter-field--search">
               <label for="diary-search-input" style="color: var(--text-color)"
                 >搜索</label
               >
@@ -137,7 +120,7 @@
               />
             </div>
           </div>
-          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <div class="diary-view-toggle-row">
             <button class="bts" id="diary-month-view-btn">月视图</button>
             <button class="bts" id="diary-list-view-btn">列表视图</button>
             <button class="bts" id="diary-category-btn">分类管理</button>

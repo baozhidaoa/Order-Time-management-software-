@@ -25,23 +25,6 @@
       }
 
       .todo-shell {
-        margin: 0 20px 20px;
-        width: calc(100% - 40px);
-        max-width: var(--page-shell-max-width);
-        align-self: center;
-        padding: 20px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
-          color-mix(in srgb, var(--panel-strong-bg) 92%, transparent);
-        border: 1px solid
-          color-mix(in srgb, var(--panel-border-color) 84%, rgba(255, 255, 255, 0.04));
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.05),
-          0 18px 38px rgba(0, 0, 0, 0.16);
-        border-radius: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
         min-height: 0;
         height: auto;
         flex: 0 0 auto;
@@ -492,6 +475,33 @@
         align-self: stretch;
       }
 
+      .checkin-toolbar-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 12px;
+      }
+
+      .checkin-toolbar-summary {
+        color: var(--text-color);
+        font-size: 14px;
+        line-height: 1.4;
+        flex: 1 1 220px;
+        min-width: 0;
+      }
+
+      .checkin-toolbar-filter {
+        flex: 0 1 148px;
+        min-width: 136px;
+        max-width: 100%;
+      }
+
+      .checkin-toolbar-filter select {
+        width: 100% !important;
+      }
+
       .checkin-record {
         background-color: color-mix(
           in srgb,
@@ -566,6 +576,69 @@
         .todo-tools-row {
           grid-template-columns: 1fr;
         }
+
+        .checkin-toolbar-filter {
+          flex: 1 1 100%;
+          min-width: 0;
+        }
+      }
+
+      @media (max-width: 1180px) and (min-width: 691px) {
+        .todo-panel-stack {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas:
+            "toolbar"
+            "controls"
+            "content"
+            "stats";
+          gap: 14px;
+        }
+
+        .todo-primary-toolbar {
+          align-items: stretch;
+          gap: 8px;
+        }
+
+        .todo-view-toggle {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+
+        .todo-view-toggle .bts {
+          flex: 1 1 0;
+          margin: 0 !important;
+        }
+
+        .todo-primary-actions {
+          flex: 0 0 auto;
+        }
+
+        .todo-primary-actions .bts {
+          margin: 0 !important;
+        }
+
+        .todo-dropdown-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .todo-dropdown-field,
+        .todo-tools-field {
+          flex: 1 1 100%;
+          width: 100%;
+        }
+
+        .todo-dropdown-field .tree-select,
+        .todo-dropdown-field .native-select-enhancer,
+        .todo-dropdown-field select,
+        .todo-tools-input {
+          width: 100% !important;
+        }
+
+        .todo-stats-shell {
+          position: static;
+        }
       }
 
       @media (max-width: 690px) {
@@ -576,11 +649,6 @@
         }
 
         .todo-shell {
-          margin: 6px;
-          width: calc(100% - 12px);
-          max-width: none;
-          padding: 12px;
-          border-radius: 12px;
           gap: 10px;
         }
 
@@ -718,7 +786,7 @@
         </div>
       </div>
 
-      <div class="todo-shell">
+      <div class="todo-shell page-shell page-shell--fill">
         <div class="todo-panel-stack">
           <div class="todo-primary-toolbar">
             <div class="todo-view-toggle">
@@ -773,30 +841,14 @@
 
           <div id="checkin-view-controls" style="display: none">
             <div
-              class="todo-content-card todo-content-card--compact"
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 8px;
-                flex-wrap: nowrap;
-                padding: 10px;
-              "
+              class="todo-content-card todo-content-card--compact checkin-toolbar-card"
             >
-              <div
-                style="
-                  color: var(--text-color);
-                  font-size: 14px;
-                  flex: 1 1 auto;
-                  min-width: 0;
-                  white-space: nowrap;
-                "
-              >
+              <div class="checkin-toolbar-summary">
                 <span>今日打卡统计：</span>
                 <span id="today-checkin-count">0</span>/<span id="total-checkin-count">0</span>
               </div>
-              <div style="min-width: 0; flex: 0 0 132px">
-                <select id="checkin-status-filter-select" style="width: 100%">
+              <div class="checkin-toolbar-filter">
+                <select id="checkin-status-filter-select">
                   <option value="in_progress">进行中</option>
                   <option value="stopped">已停止</option>
                   <option value="ended">结束</option>

@@ -339,7 +339,7 @@
     guideState: getDefaultGuideStateFallback(),
     customThemes: [],
     builtInThemeOverrides: {},
-    selectedTheme: "default",
+    selectedTheme: "obsidian-mono",
     createdAt: null,
     lastModified: null,
     storagePath: null,
@@ -565,7 +565,7 @@
       case "selectedTheme": {
         const normalizedValue =
           typeof value === "string" ? value.trim() : String(value || "").trim();
-        return normalizedValue || "default";
+        return normalizedValue || "obsidian-mono";
       }
       case "customThemes":
         return Array.isArray(value) ? value : [];
@@ -990,7 +990,7 @@
       typeof base.selectedTheme !== "string" ||
       !base.selectedTheme.trim()
     ) {
-      base.selectedTheme = "default";
+      base.selectedTheme = "obsidian-mono";
     } else {
       base.selectedTheme = base.selectedTheme.trim();
     }
@@ -1507,7 +1507,7 @@
       selectedTheme:
         typeof state?.selectedTheme === "string" && state.selectedTheme.trim()
           ? state.selectedTheme.trim()
-          : "default",
+          : "obsidian-mono",
       customThemeCount: customThemes.length,
       hasBuiltInOverrides: Object.keys(builtInThemeOverrides).length > 0,
     };
@@ -6967,7 +6967,7 @@
           typeof sourceState?.selectedTheme === "string" &&
           sourceState.selectedTheme.trim()
             ? sourceState.selectedTheme.trim()
-            : "default",
+            : "obsidian-mono",
         createdAt: sourceState?.createdAt || null,
         lastModified: sourceState?.lastModified || null,
         storagePath: sourceState?.storagePath || null,

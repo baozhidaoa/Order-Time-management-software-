@@ -1256,7 +1256,7 @@
       diaryCategories: [],
       customThemes: [],
       builtInThemeOverrides: {},
-      selectedTheme: "default",
+      selectedTheme: "obsidian-mono",
       todoSortPreference: "dueDate",
       createdAt: now,
       lastModified: now,
@@ -1804,7 +1804,7 @@
       selectedTheme:
         typeof source.selectedTheme === "string" && source.selectedTheme.trim()
           ? source.selectedTheme.trim()
-          : "default",
+          : "obsidian-mono",
       todoSortPreference: normalizeTodoSortPreference(source.todoSortPreference),
       createdAt:
         typeof source.createdAt === "string" && source.createdAt
@@ -1973,7 +1973,7 @@
       typeof nextState.selectedTheme === "string" &&
       nextState.selectedTheme.trim()
         ? nextState.selectedTheme.trim()
-        : "default";
+        : "obsidian-mono";
     nextState.todoSortPreference = normalizeTodoSortPreference(
       nextState.todoSortPreference,
     );

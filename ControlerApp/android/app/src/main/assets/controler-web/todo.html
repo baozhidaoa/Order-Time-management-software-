@@ -24,35 +24,32 @@
       }
 
       .todo-shell {
-        margin: 15px;
-        padding: 15px;
-        background-color: var(--bg-secondary);
-        border-radius: 15px;
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-        min-height: auto;
-        width: auto;
+        min-height: 0;
+        height: auto;
         flex: 0 0 auto;
-        align-self: stretch;
       }
 
       .todo-panel-stack {
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-        min-height: auto;
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.72fr);
+        grid-template-areas:
+          "toolbar toolbar"
+          "controls controls"
+          "content stats";
+        gap: 16px 18px;
+        min-height: 0;
         width: 100%;
-        flex: 0 0 auto;
+        flex: 1 1 auto;
         align-items: stretch;
       }
 
       .todo-primary-toolbar {
+        grid-area: toolbar;
         display: flex;
         justify-content: space-between;
         align-items: center;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 12px;
       }
 
       .todo-primary-actions,
@@ -71,7 +68,13 @@
       .todo-control-strip {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
+      }
+
+      #todo-view-controls,
+      #checkin-view-controls {
+        grid-area: controls;
+        min-width: 0;
       }
 
       .todo-dropdown-row {
@@ -89,7 +92,7 @@
       .todo-tools-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 15px;
+        gap: 12px;
       }
 
       .todo-tools-input {
@@ -104,32 +107,32 @@
       }
 
       .todo-content-card {
-        padding: 15px;
-        background-color: color-mix(
-          in srgb,
-          var(--bg-tertiary) 84%,
-          transparent
-        );
-        border: 1px solid var(--bg-tertiary);
-        border-radius: 15px;
+        padding: 16px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+        border: 1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent);
+        border-radius: 20px;
         min-height: 150px;
         height: auto;
         width: 100%;
-        flex: 0 0 auto;
+        flex: 1 1 auto;
         overflow: visible;
       }
 
       .todo-stats-shell {
-        padding: 15px;
-        background-color: color-mix(
-          in srgb,
-          var(--bg-tertiary) 84%,
-          transparent
-        );
-        border: 1px solid var(--bg-tertiary);
-        border-radius: 15px;
+        grid-area: stats;
+        position: sticky;
+        top: 0;
+        padding: 16px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+          color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+        border: 1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent);
+        border-radius: 20px;
         width: 100%;
         flex: 0 0 auto;
+        align-self: start;
       }
 
       .todo-item {
@@ -471,6 +474,33 @@
         align-self: stretch;
       }
 
+      .checkin-toolbar-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 12px;
+      }
+
+      .checkin-toolbar-summary {
+        color: var(--text-color);
+        font-size: 14px;
+        line-height: 1.4;
+        flex: 1 1 220px;
+        min-width: 0;
+      }
+
+      .checkin-toolbar-filter {
+        flex: 0 1 148px;
+        min-width: 136px;
+        max-width: 100%;
+      }
+
+      .checkin-toolbar-filter select {
+        width: 100% !important;
+      }
+
       .checkin-record {
         background-color: color-mix(
           in srgb,
@@ -534,14 +564,79 @@
       #todo-list-container,
       #todo-quadrant-container,
       #checkin-list-container {
+        grid-area: content;
         width: 100%;
         height: auto;
+        min-height: 240px;
         flex: 0 0 auto;
       }
 
       @media (max-width: 760px) {
         .todo-tools-row {
           grid-template-columns: 1fr;
+        }
+
+        .checkin-toolbar-filter {
+          flex: 1 1 100%;
+          min-width: 0;
+        }
+      }
+
+      @media (max-width: 1180px) and (min-width: 691px) {
+        .todo-panel-stack {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas:
+            "toolbar"
+            "controls"
+            "content"
+            "stats";
+          gap: 14px;
+        }
+
+        .todo-primary-toolbar {
+          align-items: stretch;
+          gap: 8px;
+        }
+
+        .todo-view-toggle {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+
+        .todo-view-toggle .bts {
+          flex: 1 1 0;
+          margin: 0 !important;
+        }
+
+        .todo-primary-actions {
+          flex: 0 0 auto;
+        }
+
+        .todo-primary-actions .bts {
+          margin: 0 !important;
+        }
+
+        .todo-dropdown-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .todo-dropdown-field,
+        .todo-tools-field {
+          flex: 1 1 100%;
+          width: 100%;
+        }
+
+        .todo-dropdown-field .tree-select,
+        .todo-dropdown-field .native-select-enhancer,
+        .todo-dropdown-field select,
+        .todo-tools-input {
+          width: 100% !important;
+        }
+
+        .todo-stats-shell {
+          position: static;
         }
       }
 
@@ -553,9 +648,16 @@
         }
 
         .todo-shell {
-          margin: 10px 6px 6px;
-          padding: 12px;
-          border-radius: 12px;
+          gap: 10px;
+        }
+
+        .todo-panel-stack {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas:
+            "toolbar"
+            "controls"
+            "content"
+            "stats";
           gap: 10px;
         }
 
@@ -629,15 +731,18 @@
           padding: 5px 10px !important;
           font-size: 11px !important;
         }
+
+        .todo-stats-shell {
+          position: static;
+        }
       }
     </style>
   </head>
   <body class="app-layout page-todo todo-bootstrap-pending bgs bkg flex row">
     <div
       class="app-sidebar flex column ms mgt mgb"
-      style="height: 100vh; width: 11%"
     >
-      <div class="app-sidebar-spacer flex ms" style="height: 20%"></div>
+      <div class="app-sidebar-spacer flex ms"></div>
       <div class="app-nav flex flex1 column ms mgt">
         <button class="bts" type="button" data-nav-page="index" onclick="if (window.ControlerUI?.navigateAppPage?.('index')) return false; window.location.href = 'index.html'; return false;">
           记录
@@ -660,9 +765,9 @@
       </div>
     </div>
 
-    <div class="app-main todo-main flex flex1 column mg ms" style="overflow-y: auto">
-      <div class="todo-topbar flex juzhong ms mg" style="height: 7%">
-        <h2 style="margin: 0; color: var(--text-color)">待办与打卡</h2>
+    <div class="app-main todo-main flex flex1 column mg ms">
+      <div class="todo-topbar page-topbar flex juzhong ms mg">
+        <h2 class="page-title">待办与打卡</h2>
       </div>
       <div
         id="todo-loading-overlay"
@@ -680,7 +785,7 @@
         </div>
       </div>
 
-      <div class="todo-shell">
+      <div class="todo-shell page-shell page-shell--fill">
         <div class="todo-panel-stack">
           <div class="todo-primary-toolbar">
             <div class="todo-view-toggle">
@@ -735,30 +840,14 @@
 
           <div id="checkin-view-controls" style="display: none">
             <div
-              class="todo-content-card todo-content-card--compact"
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 8px;
-                flex-wrap: nowrap;
-                padding: 10px;
-              "
+              class="todo-content-card todo-content-card--compact checkin-toolbar-card"
             >
-              <div
-                style="
-                  color: var(--text-color);
-                  font-size: 14px;
-                  flex: 1 1 auto;
-                  min-width: 0;
-                  white-space: nowrap;
-                "
-              >
+              <div class="checkin-toolbar-summary">
                 <span>今日打卡统计：</span>
                 <span id="today-checkin-count">0</span>/<span id="total-checkin-count">0</span>
               </div>
-              <div style="min-width: 0; flex: 0 0 132px">
-                <select id="checkin-status-filter-select" style="width: 100%">
+              <div class="checkin-toolbar-filter">
+                <select id="checkin-status-filter-select">
                   <option value="in_progress">进行中</option>
                   <option value="stopped">已停止</option>
                   <option value="ended">结束</option>
