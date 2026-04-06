@@ -67,6 +67,9 @@
           var(--accent-color) 16%
         );
         --plan-fab-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
+        --plan-fab-clearance: calc(
+          var(--plan-fab-size) + var(--plan-fab-offset-bottom) + 8px
+        );
       }
 
       .planner-shell {
@@ -76,9 +79,7 @@
         height: auto;
         flex: 0 0 auto;
         overflow: visible;
-        padding-bottom: calc(
-          var(--plan-fab-size) + var(--plan-fab-offset-bottom) + 8px
-        );
+        padding-bottom: 0;
       }
 
       .planner-dashboard {
@@ -135,17 +136,16 @@
       }
 
       body.page-plan .planner-floating-action-slot {
-        position: sticky;
-        bottom: var(--plan-fab-offset-bottom);
+        position: fixed;
+        inset: auto var(--plan-fab-offset-right) var(--plan-fab-offset-bottom)
+          auto;
         display: flex;
-        width: 100%;
+        width: auto;
+        align-items: flex-end;
         justify-content: flex-end;
-        margin-top: calc(
-          -1 * (var(--plan-fab-size) + var(--plan-fab-offset-bottom) + 8px)
-        );
-        min-height: var(--plan-fab-size);
-        padding-right: var(--plan-fab-offset-right);
-        padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+        margin: 0;
+        min-height: 0;
+        padding: 0;
         z-index: 72;
         pointer-events: none;
       }
@@ -218,6 +218,11 @@
 
       .planner-panel--plans {
         gap: 16px;
+        padding: 0;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0;
       }
 
       .todo-panel-stack {
@@ -604,17 +609,21 @@
       }
 
       .plan-date-nav-group {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
         gap: 12px;
-        flex-wrap: wrap;
         margin-left: auto;
+        min-width: 0;
       }
 
       .plan-current-date-display {
         color: var(--text-color);
         font-weight: bold;
         font-size: 18px;
+        min-width: 0;
+        white-space: nowrap;
+        line-height: 1.1;
       }
 
       .plan-nav-buttons {
@@ -782,14 +791,14 @@
           width: 100%;
           min-width: 0;
           margin-left: 0;
-          justify-content: space-between;
+          gap: 10px;
         }
 
         .plan-current-date-display {
-          min-width: 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          font-size: 16px;
+          overflow: visible;
+          text-overflow: clip;
+          letter-spacing: -0.01em;
         }
       }
 
@@ -808,9 +817,21 @@
             calc(env(safe-area-inset-right, 0px) + 8px)
           );
           --plan-fab-offset-bottom: max(
-            8px,
-            calc(env(safe-area-inset-bottom, 0px) + 4px)
+            64px,
+            calc(env(safe-area-inset-bottom, 0px) + 60px)
           );
+        }
+
+        body.page-plan.controler-android-native {
+          --plan-fab-offset-bottom: max(
+            65px,
+            calc(env(safe-area-inset-bottom, 0px) + 61px)
+          );
+        }
+
+        body.page-plan .plan-main {
+          box-sizing: border-box;
+          padding-bottom: max(12px, var(--plan-fab-clearance));
         }
 
         body.page-plan .planner-dashboard {
@@ -849,6 +870,11 @@
 
         body.page-plan .planner-dashboard .planner-panel--plans {
           order: 1;
+          padding: 0;
+          border-radius: 0;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
         }
 
         body.page-plan .planner-dashboard::-webkit-scrollbar {
@@ -1028,36 +1054,37 @@
 
         .plan-date-nav-group {
           width: 100%;
-          justify-content: space-between;
-          flex-wrap: nowrap;
-          gap: 8px;
+          gap: 6px;
         }
 
         .plan-current-date-display {
-          font-size: 15px !important;
-          min-width: 0;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-size: 13px !important;
+          overflow: visible;
+          text-overflow: clip;
+          letter-spacing: -0.03em;
         }
 
         .plan-nav-buttons {
-          gap: 4px;
+          gap: 3px;
         }
 
         .plan-nav-buttons .bts {
           margin: 0;
-          font-size: 11px !important;
+          font-size: 10px !important;
+          min-height: 31px;
+          padding: 5px 6px !important;
           white-space: nowrap;
           flex: 0 0 auto;
         }
 
         .plan-nav-arrow-btn {
-          padding: 6px 8px !important;
+          min-width: 28px;
+          padding: 5px 6px !important;
         }
 
         .plan-today-btn {
-          padding: 6px 10px !important;
+          padding: 5px 7px !important;
+          font-size: 10px !important;
           white-space: nowrap;
           word-break: keep-all;
           writing-mode: horizontal-tb;

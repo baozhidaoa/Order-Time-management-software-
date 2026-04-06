@@ -8150,9 +8150,9 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav {
 }
 
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
-  height: 48px;
-  min-height: 48px;
-  max-height: 48px;
+  height: 49px;
+  min-height: 49px;
+  max-height: 49px;
   padding: 6px 1px !important;
   gap: 3px;
   flex-wrap: nowrap;
