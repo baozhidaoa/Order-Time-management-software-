@@ -404,10 +404,15 @@
       return;
     }
 
-    const viewportWidth = Math.max(
-      Math.round(visualViewport?.width || 0),
-      Math.round(window.innerWidth || 0),
-      Math.round(document.documentElement?.clientWidth || 0),
+    // Keep horizontal size and offset from the same viewport source.
+    // Mixing visualViewport.offsetLeft with layout viewport width shifts
+    // fixed overlays to the right on Android WebView.
+    const viewportWidth = Math.round(
+      visualViewport?.width ||
+        window.innerWidth ||
+        document.documentElement?.clientWidth ||
+        document.body?.clientWidth ||
+        0,
     );
     const viewportOffsetTop = Math.max(
       0,

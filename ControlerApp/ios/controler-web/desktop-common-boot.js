@@ -778,10 +778,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
 
-    const viewportWidth = Math.max(
-      Math.round(visualViewport?.width || 0),
-      Math.round(window.innerWidth || 0),
-      Math.round(document.documentElement?.clientWidth || 0),
+    // Keep horizontal size and offset from the same viewport source.
+    // Mixing visualViewport.offsetLeft with layout viewport width shifts
+    // fixed overlays to the right on Android WebView.
+    const viewportWidth = Math.round(
+      visualViewport?.width ||
+        window.innerWidth ||
+        document.documentElement?.clientWidth ||
+        document.body?.clientWidth ||
+        0,
     );
     const viewportOffsetTop = Math.max(
       0,
@@ -19087,6 +19092,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (getNativeHostPlatform()) {
       return false;
     }
+    const compactViewport =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 760px)").matches;
+    if (compactViewport) {
+      return false;
+    }
     const root = document.documentElement;
     const body = document.body;
     if (!(body instanceof HTMLElement)) {
@@ -23100,9 +23111,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : "";
     const closeHandler =
       typeof options.close === "function" ? options.close : null;
+    const hasActiveSiblingModal = Array.from(
+      document.querySelectorAll(".modal-overlay"),
+    ).some((existingModal) => {
+      if (!(existingModal instanceof HTMLElement) || existingModal === modal) {
+        return false;
+      }
+      return !existingModal.hidden && existingModal.style.display !== "none";
+    });
     const forceViewportScope =
       options.scope === "viewport" ||
-      modal.classList.contains("controler-form-modal-overlay");
+      modal.classList.contains("controler-form-modal-overlay") ||
+      hasActiveSiblingModal;
     const scopedHost = forceViewportScope
       ? null
       : ensureDesktopContentOverlayHost(modal);
@@ -23327,7 +23347,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       modal.style.zIndex = "4200";
 
       modal.innerHTML = `
-        <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100% - 32px)); max-width:min(420px, calc(100% - 32px));">
+        <div class="modal-content themed-dialog-card ms" style="width:min(420px, 100%); max-width:min(420px, 100%);">
           <div class="themed-dialog-title"></div>
           <div class="themed-dialog-message"></div>
           <div class="themed-dialog-actions">
@@ -23381,6 +23401,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       prepareModalOverlay(modal, {
         zIndex: 4200,
+        scope: "viewport",
         keyboardConfirmSelector: ".themed-dialog-confirm-btn",
         keyboardCancelSelector: ".themed-dialog-cancel-btn",
       });
@@ -23452,6 +23473,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       overflowY: computedStyle.overflowY,
       touchAction: computedStyle.touchAction,
     };
+  }
+
+  const OPEN_TREE_SELECT_HOST_CLASS = "controler-open-tree-select-host";
+  const OPEN_TREE_SELECT_HOST_COUNT_ATTR = "data-controler-open-tree-select-count";
+
+  function updateOpenTreeSelectHosts(target, delta = 0) {
+    if (!(target instanceof Element) || !Number.isFinite(delta) || delta === 0) {
+      return;
+    }
+
+    let current = target.parentElement;
+    while (current instanceof Element) {
+      const currentCount = Math.max(
+        0,
+        Number.parseInt(
+          current.getAttribute(OPEN_TREE_SELECT_HOST_COUNT_ATTR) || "0",
+          10,
+        ) || 0,
+      );
+      const nextCount = Math.max(0, currentCount + delta);
+
+      if (nextCount > 0) {
+        current.setAttribute(OPEN_TREE_SELECT_HOST_COUNT_ATTR, String(nextCount));
+        current.classList.add(OPEN_TREE_SELECT_HOST_CLASS);
+      } else {
+        current.removeAttribute(OPEN_TREE_SELECT_HOST_COUNT_ATTR);
+        current.classList.remove(OPEN_TREE_SELECT_HOST_CLASS);
+      }
+
+      current = current.parentElement;
+    }
   }
 
   function enhanceNativeSelect(select, config = {}) {
@@ -23544,9 +23596,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     trigger.style.maxWidth = "100%";
     menu.style.width = "100%";
     menu.style.minWidth = "100%";
+    let isMenuOpen = false;
+
+    const syncMenuOpenState = (nextOpen) => {
+      const normalizedNextOpen = nextOpen === true;
+      if (isMenuOpen === normalizedNextOpen) {
+        return;
+      }
+      isMenuOpen = normalizedNextOpen;
+      wrapper.classList.toggle("open", normalizedNextOpen);
+      updateOpenTreeSelectHosts(wrapper, normalizedNextOpen ? 1 : -1);
+    };
 
     const closeMenu = () => {
-      wrapper.classList.remove("open");
+      syncMenuOpenState(false);
       document.removeEventListener("click", handleOutsideClick, true);
       window.removeEventListener("resize", repositionMenu, true);
       window.removeEventListener("scroll", repositionMenu, true);
@@ -23562,9 +23625,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const openMenu = () => {
-      if (select.disabled) return;
+      if (select.disabled || isMenuOpen) return;
       repositionMenu();
-      wrapper.classList.add("open");
+      syncMenuOpenState(true);
       setTimeout(() => {
         document.addEventListener("click", handleOutsideClick, true);
         window.addEventListener("resize", repositionMenu, true);
@@ -23702,6 +23765,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         rebuildMenu();
       },
       destroy() {
+        closeMenu();
         observer.disconnect();
         document.removeEventListener("click", handleOutsideClick, true);
         window.removeEventListener("resize", repositionMenu, true);

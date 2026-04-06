@@ -807,12 +807,45 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
 
 body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
-  top: var(--controler-visual-viewport-offset-top, 0px) !important;
+  --controler-modal-overlay-inline-padding-left: max(
+    10px,
+    env(safe-area-inset-left, 0px)
+  );
+  --controler-modal-overlay-inline-padding-right: max(
+    10px,
+    env(safe-area-inset-right, 0px)
+  );
+  --controler-modal-overlay-block-padding-top: max(
+    10px,
+    env(safe-area-inset-top, 0px)
+  );
+  --controler-modal-overlay-block-padding-bottom: calc(
+    10px + env(safe-area-inset-bottom, 0px)
+  );
+  --controler-modal-overlay-available-width: max(
+    0px,
+    calc(
+      100vw - var(--controler-modal-overlay-inline-padding-left) -
+        var(--controler-modal-overlay-inline-padding-right)
+    )
+  );
+  --controler-modal-overlay-available-height: max(
+    0px,
+    calc(
+      var(
+          --controler-visual-viewport-height,
+          var(--controler-stable-visual-viewport-height, 100dvh)
+        ) - var(--controler-modal-overlay-block-padding-top) -
+        var(--controler-modal-overlay-block-padding-bottom)
+    )
+  );
+  top: 0 !important;
   left: 0 !important;
-  right: 0 !important;
-  bottom: auto !important;
+  right: auto !important;
+  bottom: 0 !important;
   inset: auto !important;
   width: 100vw !important;
+  min-width: 100vw !important;
   max-width: 100vw !important;
   min-height: var(
     --controler-visual-viewport-height,
@@ -827,14 +860,15 @@ body.controler-android-native .modal-overlay {
     var(--controler-stable-visual-viewport-height, 100dvh)
   ) !important;
   padding:
-    max(12px, env(safe-area-inset-top, 0px))
-    max(12px, env(safe-area-inset-right, 0px))
-    calc(12px + env(safe-area-inset-bottom, 0px))
-    max(12px, env(safe-area-inset-left, 0px));
+    var(--controler-modal-overlay-block-padding-top)
+    var(--controler-modal-overlay-inline-padding-right)
+    var(--controler-modal-overlay-block-padding-bottom)
+    var(--controler-modal-overlay-inline-padding-left);
   overflow-x: hidden !important;
   overflow-y: auto !important;
   overscroll-behavior: contain;
-  align-items: flex-start !important;
+  align-items: center !important;
+  justify-content: center !important;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -850,15 +884,24 @@ body.controler-mobile-runtime .modal-content,
 body.controler-android-native .modal-content {
   width: min(
     520px,
-    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    var(
+      --controler-modal-overlay-available-width,
+      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    )
   );
   max-width: min(
     520px,
-    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    var(
+      --controler-modal-overlay-available-width,
+      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    )
   );
-  max-height: calc(
-    var(--controler-stable-visual-viewport-height, 100vh) -
-      max(24px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))
+  max-height: var(
+    --controler-modal-overlay-available-height,
+    calc(
+      var(--controler-stable-visual-viewport-height, 100vh) -
+        max(24px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))
+    )
   );
   overflow-y: auto;
   margin: 0 auto !important;
@@ -2773,7 +2816,9 @@ select optgroup {
 .stats-toolbar-group--range:has(.tree-select.open),
 .stats-toolbar-group--range:has(.native-select-enhancer.open),
 .stats-toolbar-group--sections:has(.tree-select.open),
-.stats-toolbar-group--sections:has(.native-select-enhancer.open) {
+.stats-toolbar-group--sections:has(.native-select-enhancer.open),
+.stats-toolbar-group--range.controler-open-tree-select-host,
+.stats-toolbar-group--sections.controler-open-tree-select-host {
   z-index: 560;
 }
 
@@ -3655,6 +3700,7 @@ body.page-stats #stats-container {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
 .controler-form-modal-footer-actions {
@@ -4671,14 +4717,46 @@ body.controler-android-native .themed-dialog-card {
 
 body.controler-mobile-runtime .themed-dialog-actions,
 body.controler-android-native .themed-dialog-actions {
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  flex-wrap: nowrap;
+  align-items: stretch;
 }
 
 body.controler-mobile-runtime .themed-dialog-actions .bts,
 body.controler-android-native .themed-dialog-actions .bts {
-  flex: 1 1 132px;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 46px;
+  white-space: nowrap;
+}
+
+body.controler-mobile-runtime .settings-theme-editor-modal-footer,
+body.controler-android-native .settings-theme-editor-modal-footer {
+  display: block !important;
+  justify-content: flex-start !important;
+  gap: 0 !important;
+  flex-wrap: nowrap !important;
+}
+
+body.controler-mobile-runtime .settings-theme-editor-modal-footer .controler-form-modal-footer-actions,
+body.controler-android-native .settings-theme-editor-modal-footer .controler-form-modal-footer-actions {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  width: 100% !important;
+  flex: none !important;
+  margin-left: 0 !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+}
+
+body.controler-mobile-runtime .settings-theme-editor-modal-footer .bts,
+body.controler-android-native .settings-theme-editor-modal-footer .bts {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .themed-dialog-option-btn {
@@ -5734,6 +5812,31 @@ body.page-todo #checkin-list-container {
   align-self: stretch !important;
 }
 
+body.page-todo .todo-control-shell {
+  position: relative;
+  z-index: 8;
+}
+
+body.page-todo :is(#todo-view-controls, #checkin-view-controls) {
+  position: relative;
+  z-index: 1;
+}
+
+body.page-todo .todo-control-shell:focus-within,
+body.page-todo .todo-control-shell.controler-open-tree-select-host {
+  z-index: 48;
+}
+
+body.page-todo :is(#todo-view-controls, #checkin-view-controls):focus-within,
+body.page-todo
+  :is(#todo-view-controls, #checkin-view-controls).controler-open-tree-select-host {
+  z-index: 56;
+}
+
+body.page-todo .todo-control-shell :is(.native-select-enhancer.open, .tree-select.open) {
+  z-index: 420;
+}
+
 @media (min-width: 691px) {
   body.page-plan.flex.row {
     height: 100dvh !important;
@@ -5848,7 +5951,7 @@ body.page-record .record-output-surface > * {
     width: 100%;
     flex: none !important;
     margin: 0 !important;
-    padding: 4px 7px calc(3px + env(safe-area-inset-bottom, 0px));
+    padding: 2px 6px calc(2px + env(safe-area-inset-bottom, 0px));
     border-radius: 16px;
     background:
       linear-gradient(
@@ -6101,7 +6204,7 @@ body.page-record .record-output-surface > * {
 
   .app-main {
     border-radius: 18px;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: max(2px, calc(env(safe-area-inset-bottom, 0px) / 2));
   }
 
   .page-topbar {
@@ -6393,6 +6496,13 @@ body.flex.row .modal-content {
     border-radius: 10px !important;
   }
 
+  body.page-record .project-item,
+  body.page-record .record-item {
+    padding: 8px !important;
+    border-radius: 10px !important;
+    font-size: 12px !important;
+  }
+
   body.page-record #project-totals {
     display: grid !important;
     width: 100% !important;
@@ -6404,11 +6514,14 @@ body.flex.row .modal-content {
     max-height: min(22dvh, 148px) !important;
     margin-top: 8px !important;
     padding-right: 2px !important;
+    font-size: 15px !important;
     align-content: start !important;
   }
 
   body.page-record .project-totals > div {
     margin: 0 !important;
+    padding: 8px 9px !important;
+    border-radius: 10px !important;
   }
 
   body.page-record #output {
@@ -6419,7 +6532,10 @@ body.flex.row .modal-content {
     max-width: 100% !important;
     min-width: 0 !important;
     display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+    gap: 8px !important;
     align-content: start !important;
+    padding: 8px !important;
     overflow-x: hidden !important;
   }
 
@@ -6431,18 +6547,18 @@ body.flex.row .modal-content {
     max-width: 100% !important;
     min-width: 0 !important;
     align-self: stretch !important;
-    padding: 4px !important;
+    padding: 10px !important;
   }
 
   body.page-record .record-item {
     margin: 0 !important;
-    min-height: 0 !important;
-    height: auto !important;
+    min-height: 75px !important;
+    height: 100% !important;
     box-sizing: border-box;
   }
 
   body.page-record .record-item > div:first-child {
-    height: auto;
+    height: 100%;
   }
 
   body.page-record .record-create-project-btn {
@@ -6853,13 +6969,30 @@ body.controler-android-native .controler-form-modal-overlay {
   body.flex.row .controler-form-modal,
   body.controler-mobile-runtime .controler-form-modal,
   body.controler-android-native .controler-form-modal {
-    width: min(100%, 460px) !important;
-    max-width: min(100%, 460px) !important;
-    max-height: calc(
-      var(--controler-modal-overlay-height) -
-        var(--controler-modal-overlay-vertical-gap)
+    width: min(
+      460px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-width: min(
+      460px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-height: min(
+      var(
+        --controler-modal-overlay-available-height,
+        calc(
+          var(--controler-modal-overlay-height) -
+            var(--controler-modal-overlay-vertical-gap)
+        )
+      ),
+      calc(
+        var(--controler-modal-overlay-height) -
+          var(--controler-modal-overlay-vertical-gap)
+      )
     ) !important;
     margin: auto 0;
+    margin-left: auto !important;
+    margin-right: auto !important;
     padding: 12px !important;
     border-radius: 14px !important;
   }
@@ -6884,20 +7017,41 @@ body.controler-android-native .controler-form-modal-overlay {
   body.flex.row .plan-form-modal,
   body.controler-mobile-runtime .plan-form-modal,
   body.controler-android-native .plan-form-modal {
-    width: min(100%, 560px) !important;
-    max-width: min(100%, 560px) !important;
+    width: min(
+      560px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-width: min(
+      560px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
   }
 
   body.controler-mobile-runtime .plan-detail-modal,
   body.controler-android-native .plan-detail-modal {
     width: min(
       100%,
-      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+      var(
+        --controler-modal-overlay-available-width,
+        calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+      )
     ) !important;
     max-width: min(
       100%,
-      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+      var(
+        --controler-modal-overlay-available-width,
+        calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+      )
     ) !important;
+    max-height: var(
+      --controler-modal-overlay-available-height,
+      calc(
+        var(--controler-modal-overlay-height) -
+          var(--controler-modal-overlay-vertical-gap)
+      )
+    ) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
     padding: 16px !important;
     gap: 16px;
   }
@@ -8195,6 +8349,7 @@ body.page-settings :is(.settings-collapsible-body, .settings-collapsible-body-in
   float: none;
   clear: both;
   flex: 0 0 auto;
+  min-height: 0;
 }
 
 body.page-settings .settings-card[data-settings-collapsible-pending="true"] {
@@ -8456,12 +8611,21 @@ body.page-settings .settings-collapse-toggle-icon::before {
 body.page-settings .settings-collapsible-body {
   display: block;
   opacity: 1;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 body.page-settings .settings-collapsible-body-inner {
   padding-top: 14px;
+  min-height: 0;
+}
+
+body.page-settings .settings-collapsible-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 body.page-settings .settings-collapsible-body[hidden] {
@@ -8537,6 +8701,38 @@ body.page-settings .settings-card--collapsible .settings-collapsible-body-inner 
 
 body.page-settings .settings-card--collapsible.is-expanded .settings-collapsible-body {
   margin-top: 0;
+}
+
+body.controler-mobile-runtime.page-settings .settings-collapsible-body,
+body.controler-android-native.page-settings .settings-collapsible-body,
+body.controler-mobile-runtime.page-settings .settings-collapsible-body-inner,
+body.controler-android-native.page-settings .settings-collapsible-body-inner {
+  touch-action: pan-y !important;
+}
+
+body.controler-mobile-runtime.page-settings .settings-card--collapsible.is-expanded .settings-collapsible-body,
+body.controler-android-native.page-settings .settings-card--collapsible.is-expanded .settings-collapsible-body {
+  max-height: max(
+    220px,
+    calc(
+      var(
+          --controler-visual-viewport-height,
+          var(--controler-stable-visual-viewport-height, 100dvh)
+        ) - 240px
+    )
+  );
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.controler-mobile-runtime.page-settings .settings-collapsible-body *,
+body.controler-android-native.page-settings .settings-collapsible-body * {
+  touch-action: pan-y !important;
+}
+
+body.controler-mobile-runtime.page-settings .settings-collapsible-body input[type="range"],
+body.controler-android-native.page-settings .settings-collapsible-body input[type="range"] {
+  touch-action: manipulation !important;
 }
 
 body.page-settings .settings-card--collapsible.is-expanded .settings-collapse-toggle {

@@ -3070,30 +3070,34 @@ function scheduleSettingsCollapsibleRefresh() {
   settingsCollapsibleRefreshFrame = window.requestAnimationFrame(() => {
     settingsCollapsibleRefreshFrame = null;
     settingsCollapsibleSections.forEach((section) => {
-      if (!section?.card || !section?.content || !section?.body || !section?.inner) {
-        return;
-      }
-      section.card.style.display = "block";
-      section.card.style.height = "";
-      section.card.style.maxHeight = "";
-      section.card.style.overflow = "visible";
-      section.content.style.display = "flex";
-      section.content.style.flexDirection = "column";
-      section.content.style.alignItems = "stretch";
-      section.content.style.width = "100%";
-      section.body.hidden = false;
-      section.body.style.display = section.expanded ? "block" : "none";
-      section.body.style.height = section.expanded ? "auto" : "0px";
-      section.body.style.maxHeight = section.expanded ? "none" : "0px";
-      section.body.style.overflow = section.expanded ? "visible" : "hidden";
-      section.body.style.pointerEvents = section.expanded ? "auto" : "none";
-      section.body.style.opacity = section.expanded ? "1" : "0";
-      section.inner.style.display = "block";
-      section.inner.style.height = "auto";
-      section.inner.style.maxHeight = "none";
-      section.inner.style.overflow = "visible";
+      syncSettingsCollapsibleSectionLayout(section);
     });
   });
+}
+
+function syncSettingsCollapsibleSectionLayout(section) {
+  if (!section?.card || !section?.content || !section?.body || !section?.inner) {
+    return;
+  }
+  section.card.style.display = "block";
+  section.card.style.height = "";
+  section.card.style.maxHeight = "";
+  section.card.style.overflow = "";
+  section.content.style.display = "flex";
+  section.content.style.flexDirection = "column";
+  section.content.style.alignItems = "stretch";
+  section.content.style.width = "100%";
+  section.body.hidden = !section.expanded;
+  section.body.style.display = section.expanded ? "block" : "none";
+  section.body.style.height = "";
+  section.body.style.maxHeight = "";
+  section.body.style.overflow = "";
+  section.body.style.pointerEvents = "";
+  section.body.style.opacity = "";
+  section.inner.style.display = "block";
+  section.inner.style.height = "";
+  section.inner.style.maxHeight = "";
+  section.inner.style.overflow = "";
 }
 
 function setSettingsCollapsibleExpanded(section, expanded, { immediate = false } = {}) {
@@ -3105,25 +3109,7 @@ function setSettingsCollapsibleExpanded(section, expanded, { immediate = false }
   section.card.classList.toggle("is-expanded", section.expanded);
   section.card.classList.toggle("is-collapsed", !section.expanded);
   section.header.setAttribute("aria-expanded", section.expanded ? "true" : "false");
-  section.card.style.display = "block";
-  section.card.style.height = "";
-  section.card.style.maxHeight = "";
-  section.card.style.overflow = "visible";
-  section.content.style.display = "flex";
-  section.content.style.flexDirection = "column";
-  section.content.style.alignItems = "stretch";
-  section.content.style.width = "100%";
-  section.body.hidden = false;
-  section.body.style.display = section.expanded ? "block" : "none";
-  section.body.style.height = section.expanded ? "auto" : "0px";
-  section.body.style.maxHeight = section.expanded ? "none" : "0px";
-  section.body.style.overflow = section.expanded ? "visible" : "hidden";
-  section.body.style.pointerEvents = section.expanded ? "auto" : "none";
-  section.body.style.opacity = section.expanded ? "1" : "0";
-  section.inner.style.display = "block";
-  section.inner.style.height = "auto";
-  section.inner.style.maxHeight = "none";
-  section.inner.style.overflow = "visible";
+  syncSettingsCollapsibleSectionLayout(section);
 }
 
 function initSettingsCollapsibleSections() {
@@ -3297,11 +3283,9 @@ function renderTableSizeSettingsPanel() {
 
 let themeStorageFlushTimer = 0;
 let pendingThemeCoreState = null;
+let themeStorageFlushChain = Promise.resolve(false);
 
 function scheduleThemeStorageFlush(partialCore = null) {
-  const canReplaceCoreState =
-    typeof window.ControlerStorage?.replaceCoreState === "function";
-  const canPersistNow = typeof window.ControlerStorage?.persistNow === "function";
   if (
     partialCore &&
     typeof partialCore === "object" &&
@@ -3312,15 +3296,47 @@ function scheduleThemeStorageFlush(partialCore = null) {
       ...partialCore,
     };
   }
+  const canReplaceCoreState =
+    typeof window.ControlerStorage?.replaceCoreState === "function";
+  const canPersistNow = typeof window.ControlerStorage?.persistNow === "function";
   if (!canReplaceCoreState && !canPersistNow) {
-    return;
+    return Promise.resolve(false);
   }
   window.clearTimeout(themeStorageFlushTimer);
-  themeStorageFlushTimer = window.setTimeout(async () => {
+  themeStorageFlushTimer = window.setTimeout(() => {
     themeStorageFlushTimer = 0;
-    const nextCorePatch = pendingThemeCoreState;
-    pendingThemeCoreState = null;
+    void flushThemeStorageNow();
+  }, 0);
+  return themeStorageFlushChain;
+}
 
+function flushThemeStorageNow(partialCore = null) {
+  if (
+    partialCore &&
+    typeof partialCore === "object" &&
+    !Array.isArray(partialCore)
+  ) {
+    pendingThemeCoreState = {
+      ...(pendingThemeCoreState || {}),
+      ...partialCore,
+    };
+  }
+
+  const canReplaceCoreState =
+    typeof window.ControlerStorage?.replaceCoreState === "function";
+  const canPersistNow = typeof window.ControlerStorage?.persistNow === "function";
+  if (!canReplaceCoreState && !canPersistNow) {
+    pendingThemeCoreState = null;
+    return Promise.resolve(false);
+  }
+
+  window.clearTimeout(themeStorageFlushTimer);
+  themeStorageFlushTimer = 0;
+
+  const nextCorePatch = pendingThemeCoreState;
+  pendingThemeCoreState = null;
+
+  const runFlush = async () => {
     if (nextCorePatch && canReplaceCoreState) {
       try {
         await window.ControlerStorage.replaceCoreState(nextCorePatch);
@@ -3336,18 +3352,37 @@ function scheduleThemeStorageFlush(partialCore = null) {
         console.error("刷新主题存储写入失败:", error);
       }
     }
-  }, 0);
+
+    return true;
+  };
+
+  themeStorageFlushChain = themeStorageFlushChain.then(runFlush, runFlush);
+  return themeStorageFlushChain;
+}
+
+async function refreshThemeWidgets() {
+  if (typeof window.ControlerWidgetBridge?.notifyDataChanged !== "function") {
+    return false;
+  }
+
+  try {
+    return !!(await window.ControlerWidgetBridge.notifyDataChanged());
+  } catch (error) {
+    console.error("刷新小组件显示失败:", error);
+    return false;
+  }
 }
 
 // 保存主题到localStorage
 function saveTheme(themeId) {
   try {
     localStorage.setItem("selectedTheme", themeId);
-    scheduleThemeStorageFlush({
+    return flushThemeStorageNow({
       selectedTheme: themeId,
     });
   } catch (e) {
     console.error("保存主题失败:", e);
+    return Promise.resolve(false);
   }
 }
 
@@ -3495,7 +3530,7 @@ function updateThemeSelector(selectedThemeId) {
   themes.forEach((theme) => {
     const resolvedColors = resolveThemeColors(theme);
     const option = document.createElement("div");
-    option.className = `theme-option controler-pressable ${theme.id === selectedThemeId ? "selected" : ""}`;
+    option.className = `theme-option ${theme.id === selectedThemeId ? "selected" : ""}`;
 
     const preview = document.createElement("div");
     preview.className = "theme-preview";
@@ -3569,15 +3604,10 @@ function updateThemeSelector(selectedThemeId) {
     footer.appendChild(editBtn);
     option.appendChild(footer);
 
-    option.addEventListener("click", () => {
+    option.addEventListener("click", async () => {
       applyTheme(theme.id);
-      saveTheme(theme.id);
-
-      // 更新选中状态
-      document.querySelectorAll(".theme-option").forEach((el) => {
-        el.classList.remove("selected");
-      });
-      option.classList.add("selected");
+      await saveTheme(theme.id);
+      await refreshThemeWidgets();
     });
 
     fragment.appendChild(option);
@@ -3676,7 +3706,7 @@ function deleteCustomTheme(themeId) {
 
   if (localStorage.getItem("selectedTheme") === themeId) {
     applyTheme("obsidian-mono");
-    saveTheme("obsidian-mono");
+    void saveTheme("obsidian-mono").then(() => refreshThemeWidgets());
   } else {
     updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
   }
@@ -3690,10 +3720,11 @@ function resetBuiltInThemeOverride(themeId) {
 
   if (localStorage.getItem("selectedTheme") === themeId) {
     applyTheme(themeId);
-    saveTheme(themeId);
+    return saveTheme(themeId).then(() => refreshThemeWidgets());
   } else {
     updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
   }
+  return Promise.resolve(false);
 }
 
 function prepareSettingsModalOverlayElement(modal, options = {}) {
@@ -3815,12 +3846,11 @@ function showThemeEditorModal(theme = null) {
   ).join("");
 
   modal.innerHTML = `
-    <div class="modal-content themed-dialog-card ms controler-form-modal settings-theme-editor-modal" style="width:min(920px, calc(100% - 32px)); max-width:min(920px, calc(100% - 32px)); max-height:min(calc(var(--controler-modal-overlay-height) - 32px), 860px); padding:20px;">
+    <div class="modal-content themed-dialog-card ms controler-form-modal settings-theme-editor-modal" style="width:min(920px, 100%); max-width:min(920px, 100%); max-height:min(var(--controler-modal-overlay-available-height, calc(var(--controler-modal-overlay-height) - 32px)), 860px); padding:20px;">
       <div class="controler-form-modal-body" style="display:flex; flex-direction:column; gap:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
           <div>
             <div class="themed-dialog-title">${dialogTitle}</div>
-            <div class="themed-dialog-message">支持输入 #RRGGBB 与 rgba(...)。建议优先调整“应用底色 / 主内容层 / 控件层 / 轻强调层 / 细分隔线”；想做更扁平的主题，就让“外壳底层 / 主内容层 / 控件层”彼此更接近。</div>
           </div>
         </div>
         <label style="display:flex; flex-direction:column; gap:8px;">
@@ -3876,13 +3906,12 @@ function showThemeEditorModal(theme = null) {
         <div style="display:flex; flex-direction:column; gap:10px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
           <div style="display:flex; flex-direction:column; gap:4px;">
             <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">小组件卡片与配件颜色</div>
-            <div style="color: var(--muted-text-color); font-size: 12px;">这里可以分开编辑桌面端与安卓小组件的外层底板、内容卡片、按钮和文字颜色。其中“内容卡片”对应列表卡片、目标卡片、周视图底部卡片等你圈出来的那类内层卡片；留空即恢复默认，文字类恢复默认后会重新启用自动对比度。</div>
           </div>
           <div class="theme-editor-grid">${widgetFieldsHtml}</div>
         </div>
       </div>
-      <div class="controler-form-modal-footer settings-theme-editor-modal-footer" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:0;">
-        <div>
+      <div class="controler-form-modal-footer settings-theme-editor-modal-footer" style="display:flex; align-items:center; gap:12px; margin-top:0;">
+        <div class="controler-form-modal-footer-actions settings-theme-editor-modal-footer-actions" style="display:flex; gap:10px; width:100%;">
           ${
             isEditingCustomTheme
               ? '<button type="button" class="bts themed-dialog-confirm-btn is-danger" id="delete-custom-theme-btn" style="margin:0;">删除</button>'
@@ -3890,8 +3919,6 @@ function showThemeEditorModal(theme = null) {
                 ? '<button type="button" class="bts themed-dialog-confirm-btn is-danger" id="reset-built-in-theme-btn" style="margin:0;">恢复默认</button>'
                 : ""
           }
-        </div>
-        <div class="controler-form-modal-footer-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
           <button type="button" class="bts" id="cancel-custom-theme-btn" style="margin:0;">取消</button>
           <button type="button" class="bts" id="save-custom-theme-btn" style="margin:0;">保存</button>
         </div>
@@ -4112,7 +4139,8 @@ function showThemeEditorModal(theme = null) {
         return;
       }
       applyTheme(savedTheme.id);
-      saveTheme(savedTheme.id);
+      await saveTheme(savedTheme.id);
+      await refreshThemeWidgets();
       closeModal();
     });
 
@@ -4148,7 +4176,7 @@ function showThemeEditorModal(theme = null) {
       );
       if (!confirmed) return;
 
-      resetBuiltInThemeOverride(theme.id);
+      await resetBuiltInThemeOverride(theme.id);
       closeModal();
     });
 
