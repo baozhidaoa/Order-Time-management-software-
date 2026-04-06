@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order Mobile Settings Concept</title>
+    <link rel="stylesheet" href="mobile-concept.css" />
+  </head>
+  <body class="page-settings-concept">
+    <main class="phone-shell">
+      <div class="status-row">
+        <span>9:41</span>
+        <span class="status-pill"><span class="status-pill__dot"></span> 个性化</span>
+      </div>
+
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Display & Navigation</p>
+          <h1 class="title">导航更少，但更漂亮</h1>
+          <p class="subtitle">移动端把主导航控制在 5 个入口内，同时把常用快捷方式放到页内，更美观也更清晰。</p>
+        </div>
+        <div class="avatar">设</div>
+      </section>
+
+      <section class="hero-card">
+        <div class="hero-header">
+          <span class="hero-kicker">导航策略</span>
+          <span class="hero-kicker">推荐</span>
+        </div>
+        <div class="hero-value">5 Tabs</div>
+        <p class="hero-meta">记录、统计、开始、计划、设置作为一级入口，待办和日记改成页内入口或快速卡片，减少底栏拥挤。</p>
+        <div class="preview-nav" aria-hidden="true">
+          <div class="preview-nav__item"></div>
+          <div class="preview-nav__item"></div>
+          <div class="preview-nav__item is-primary"></div>
+          <div class="preview-nav__item"></div>
+          <div class="preview-nav__item is-active"></div>
+        </div>
+      </section>
+
+      <section class="section-stack">
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">导航风格</h2>
+              <p class="section-subtitle">让当前页浮起，其他入口保持低对比，焦点更明确。</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <div class="setting-option is-active">
+              <strong>悬浮胶囊导航</strong>
+              <span>更适合移动端，拥有安全区留白、半透明磨砂和更强的选中反馈。</span>
+            </div>
+            <div class="setting-option">
+              <strong>传统平铺导航</strong>
+              <span>信息更全，但底栏容易显得挤，尤其当前页数量超过 5 个时。</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">次级入口承接</h2>
+              <p class="section-subtitle">把待办和日记移到页面内容区，让主导航回到“一级场景切换”。</p>
+            </div>
+          </div>
+          <div class="chip-row">
+            <span class="chip is-accent">计划页内待办</span>
+            <span class="chip">记录页内日记摘要</span>
+            <span class="chip">最近访问卡片</span>
+            <span class="chip">长按开始按钮</span>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">视觉层级</h2>
+              <p class="section-subtitle">设置页建议也走统一卡片语言，减少“很多框 + 很多按钮”带来的噪音。</p>
+            </div>
+          </div>
+          <div class="list">
+            <div class="list-item">
+              <div class="list-item__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+                  <path d="M6 12h12"></path>
+                  <path d="M6 7h12"></path>
+                  <path d="M6 17h8"></path>
+                </svg>
+              </div>
+              <div class="list-item__copy">
+                <p class="list-item__title">标题更靠前</p>
+                <p class="list-item__meta">首屏先说明这张卡片能解决什么，而不是直接堆控件。</p>
+              </div>
+            </div>
+            <div class="list-item">
+              <div class="list-item__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+                  <rect x="5" y="6" width="14" height="12" rx="3"></rect>
+                  <path d="M9 10h6"></path>
+                  <path d="M9 14h3"></path>
+                </svg>
+              </div>
+              <div class="list-item__copy">
+                <p class="list-item__title">选项像卡片，不像表单</p>
+                <p class="list-item__meta">移动端优先用整块点击区域，减少小控件密度。</p>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <nav class="bottom-nav" aria-label="优化后的主导航">
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <circle cx="12" cy="12" r="7.25"></circle>
+            <path d="M12 8.35v4.1l2.65 1.7"></path>
+          </svg>
+          <span>记录</span>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <path d="M4.5 19.25h15"></path>
+            <path d="M7.25 17.75v-5.5"></path>
+            <path d="M12 17.75V7.25"></path>
+            <path d="M16.75 17.75v-8"></path>
+          </svg>
+          <span>统计</span>
+        </div>
+        <div class="nav-item is-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+            <path d="M12 5.5v13"></path>
+            <path d="M5.5 12h13"></path>
+          </svg>
+          <strong>开始</strong>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <rect x="4.5" y="5.75" width="15" height="13.25" rx="3"></rect>
+            <path d="M8 3.75v4"></path>
+            <path d="M16 3.75v4"></path>
+            <path d="M4.5 9.75h15"></path>
+          </svg>
+          <span>计划</span>
+        </div>
+        <div class="nav-item is-active">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <path d="M12 8.7a3.3 3.3 0 1 0 0 6.6a3.3 3.3 0 0 0 0-6.6Z"></path>
+            <path d="M19.15 13.1V10.9l-1.76-.46a5.83 5.83 0 0 0-.54-1.31l.95-1.56l-1.55-1.56l-1.57.95a5.86 5.86 0 0 0-1.3-.53L13.1 4.7h-2.2l-.46 1.73c-.46.12-.9.3-1.31.53l-1.56-.95L6.02 7.57l.95 1.56c-.23.41-.41.85-.53 1.31l-1.74.46v2.2l1.74.46c.12.46.3.9.53 1.31l-.95 1.56l1.55 1.56l1.56-.95c.41.23.85.41 1.31.53l.46 1.74h2.2l.46-1.74c.45-.12.89-.3 1.3-.53l1.57.95l1.55-1.56l-.95-1.56c.23-.41.42-.85.54-1.31Z"></path>
+          </svg>
+          <span>设置</span>
+        </div>
+      </nav>
+    </main>
+  </body>
+</html>

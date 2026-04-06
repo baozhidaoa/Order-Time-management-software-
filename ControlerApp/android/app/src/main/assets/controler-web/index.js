@@ -3195,8 +3195,41 @@ function formatRecordDayHeading(targetDate, referenceDate = new Date()) {
 }
 
 function bindTableScaleLiveRefresh() {
+  const readTableScaleRefreshSignature = () => {
+    try {
+      return [
+        localStorage.getItem(TABLE_SIZE_UPDATED_AT_KEY) || "",
+        localStorage.getItem(TABLE_SIZE_STORAGE_KEY) || "",
+      ].join("|");
+    } catch (error) {
+      return "";
+    }
+  };
+  let tableScaleRefreshSignature = readTableScaleRefreshSignature();
+  let tableScaleRefreshPending = false;
+  const canApplyTableScaleRefresh = () =>
+    document.hidden !== true && (uiTools?.isShellPageActive?.() !== false);
+  const markTableScaleRefreshApplied = () => {
+    tableScaleRefreshPending = false;
+    tableScaleRefreshSignature = readTableScaleRefreshSignature();
+  };
   const rerender = () => {
     refreshIndexWorkspace();
+    markTableScaleRefreshApplied();
+  };
+  const requestTableScaleRefresh = () => {
+    const nextSignature = readTableScaleRefreshSignature();
+    if (
+      !tableScaleRefreshPending &&
+      nextSignature === tableScaleRefreshSignature
+    ) {
+      return;
+    }
+    if (!canApplyTableScaleRefresh()) {
+      tableScaleRefreshPending = true;
+      return;
+    }
+    rerender();
   };
   const isModalTextEntryElement = (target) => {
     if (!(target instanceof HTMLElement)) {
@@ -3276,19 +3309,30 @@ function bindTableScaleLiveRefresh() {
     refreshIndexWorkspace();
   };
 
-  window.addEventListener(TABLE_SIZE_EVENT_NAME, rerender);
+  window.addEventListener(TABLE_SIZE_EVENT_NAME, requestTableScaleRefresh);
   window.addEventListener("resize", rerenderForResize);
   window.addEventListener("storage", (event) => {
     if (
       event.key === TABLE_SIZE_STORAGE_KEY ||
       event.key === TABLE_SIZE_UPDATED_AT_KEY
     ) {
-      rerender();
+      requestTableScaleRefresh();
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) rerender();
+    if (!document.hidden) requestTableScaleRefresh();
   });
+  window.addEventListener("focus", requestTableScaleRefresh);
+  window.addEventListener("pageshow", requestTableScaleRefresh);
+  window.addEventListener(
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed",
+    (event) => {
+      if (event?.detail?.active === false) {
+        return;
+      }
+      requestTableScaleRefresh();
+    },
+  );
 }
 
 function formatMinutesToSpendtime(totalMinutes) {

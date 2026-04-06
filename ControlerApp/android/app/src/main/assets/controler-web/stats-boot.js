@@ -12129,12 +12129,46 @@ function initViewSelector(options = {}) {
 }
 
 function bindTableScaleLiveRefresh() {
+  const readTableScaleRefreshSignature = () => {
+    try {
+      return [
+        localStorage.getItem(TABLE_SIZE_UPDATED_AT_KEY) || "",
+        localStorage.getItem(TABLE_SIZE_STORAGE_KEY) || "",
+      ].join("|");
+    } catch (error) {
+      return "";
+    }
+  };
+  let tableScaleRefreshSignature = readTableScaleRefreshSignature();
+  let tableScaleRefreshPending = false;
+  const canApplyTableScaleRefresh = () =>
+    document.hidden !== true && (uiTools?.isShellPageActive?.() !== false);
+  const markTableScaleRefreshApplied = () => {
+    tableScaleRefreshPending = false;
+    tableScaleRefreshSignature = readTableScaleRefreshSignature();
+  };
   const rerender = () => {
     if (statsViewRefreshScheduler) {
       statsViewRefreshScheduler.schedule();
+      markTableScaleRefreshApplied();
       return;
     }
     renderCurrentView();
+    markTableScaleRefreshApplied();
+  };
+  const requestTableScaleRefresh = () => {
+    const nextSignature = readTableScaleRefreshSignature();
+    if (
+      !tableScaleRefreshPending &&
+      nextSignature === tableScaleRefreshSignature
+    ) {
+      return;
+    }
+    if (!canApplyTableScaleRefresh()) {
+      tableScaleRefreshPending = true;
+      return;
+    }
+    rerender();
   };
   let lastCompactLayout = isCompactMobileLayout();
 
@@ -12147,7 +12181,7 @@ function bindTableScaleLiveRefresh() {
     rerender();
   };
 
-  window.addEventListener(TABLE_SIZE_EVENT_NAME, rerender);
+  window.addEventListener(TABLE_SIZE_EVENT_NAME, requestTableScaleRefresh);
   window.addEventListener("controler:language-changed", () => {
     if (STATS_WIDGET_CONTEXT.enabled) {
       applyStatsDesktopWidgetMode();
@@ -12160,12 +12194,23 @@ function bindTableScaleLiveRefresh() {
       event.key === TABLE_SIZE_STORAGE_KEY ||
       event.key === TABLE_SIZE_UPDATED_AT_KEY
     ) {
-      rerender();
+      requestTableScaleRefresh();
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) rerender();
+    if (!document.hidden) requestTableScaleRefresh();
   });
+  window.addEventListener("focus", requestTableScaleRefresh);
+  window.addEventListener("pageshow", requestTableScaleRefresh);
+  window.addEventListener(
+    uiTools?.shellVisibilityEventName || "controler:shell-visibility-changed",
+    (event) => {
+      if (event?.detail?.active === false) {
+        return;
+      }
+      requestTableScaleRefresh();
+    },
+  );
   window.addEventListener("beforeunload", () => {
     statsViewRefreshScheduler?.cancel?.();
   });

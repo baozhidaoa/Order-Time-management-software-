@@ -23127,6 +23127,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ? null
       : ensureDesktopContentOverlayHost(modal);
     const scopeToContent = !forceViewportScope && scopedHost instanceof HTMLElement;
+    const viewportOverlayWidthValue =
+      "var(--controler-modal-overlay-width, 100vw)";
+    const viewportOverlayHeightValue =
+      "var(--controler-modal-overlay-height, var(--controler-stable-visual-viewport-height, 100dvh))";
     if (scopeToContent) {
       syncModalOverlayViewportMetrics(
         modal,
@@ -23146,16 +23150,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     modal.style.right = "0";
     modal.style.bottom = "0";
     modal.style.inset = "0";
-    modal.style.width = scopeToContent ? "auto" : "100vw";
+    modal.style.width = scopeToContent ? "auto" : viewportOverlayWidthValue;
     modal.style.minHeight = scopeToContent
       ? "100%"
-      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+      : viewportOverlayHeightValue;
     modal.style.height = scopeToContent
       ? "100%"
-      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+      : viewportOverlayHeightValue;
     modal.style.maxHeight = scopeToContent
       ? "none"
-      : "var(--controler-stable-visual-viewport-height, 100dvh)";
+      : viewportOverlayHeightValue;
+    modal.style.margin = "0";
+    modal.style.transform = "none";
     modal.style.borderRadius =
       scopeToContent && scopedHost instanceof HTMLElement
         ? window.getComputedStyle(scopedHost).borderRadius || ""

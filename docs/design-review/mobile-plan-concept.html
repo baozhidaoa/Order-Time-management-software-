@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order Mobile Plan Concept</title>
+    <link rel="stylesheet" href="mobile-concept.css" />
+  </head>
+  <body class="page-plan-concept">
+    <main class="phone-shell">
+      <div class="status-row">
+        <span>9:41</span>
+        <span class="status-pill"><span class="status-pill__dot"></span> 周计划同步</span>
+      </div>
+
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Plan Studio</p>
+          <h1 class="title">本周有重点，也有余白</h1>
+          <p class="subtitle">计划页更适合做成“周视图 + 时间线卡片”的组合，少一点切换，多一点节奏感。</p>
+        </div>
+        <div class="avatar">周</div>
+      </section>
+
+      <section class="hero-card">
+        <div class="hero-header">
+          <span class="hero-kicker">第 15 周 · Mon 06</span>
+          <span class="hero-kicker">完成度 68%</span>
+        </div>
+        <div class="two-column">
+          <div>
+            <div class="hero-value">3 / 5</div>
+            <p class="hero-meta">把“待办、打卡、周计划”合并进同一层级，让计划页成为移动端真正的执行面板。</p>
+          </div>
+          <div class="mini-card">
+            <div class="ring">68%</div>
+            <p>本周最重要的目标保持清晰，次级任务移到页面内标签里而不是主导航。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-stack">
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">七日焦点</h2>
+              <p class="section-subtitle">先给用户一个一眼能懂的周节奏，而不是堆满切换按钮。</p>
+            </div>
+            <span class="section-label">本周</span>
+          </div>
+          <div class="calendar-strip">
+            <div class="calendar-day"><span>一</span><strong>06</strong></div>
+            <div class="calendar-day is-focus"><span>二</span><strong>07</strong></div>
+            <div class="calendar-day"><span>三</span><strong>08</strong></div>
+            <div class="calendar-day"><span>四</span><strong>09</strong></div>
+            <div class="calendar-day"><span>五</span><strong>10</strong></div>
+            <div class="calendar-day"><span>六</span><strong>11</strong></div>
+            <div class="calendar-day"><span>日</span><strong>12</strong></div>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">今日节奏</h2>
+              <p class="section-subtitle">把任务按时间线呈现，比移动端多列表切换更自然。</p>
+            </div>
+            <span class="text-link">查看周历</span>
+          </div>
+          <div class="timeline">
+            <div class="timeline-item">
+              <div class="timeline-item__time">09:30</div>
+              <div class="timeline-card">
+                <strong>评审移动端导航</strong>
+                <span>输出 2 套导航优先级方案，确认主入口只保留 5 个。</span>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-item__time">13:30</div>
+              <div class="timeline-card">
+                <strong>同步开发节奏</strong>
+                <span>把待办、打卡入口收进计划页内的胶囊分段，不再独占底部 tab。</span>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-item__time">18:00</div>
+              <div class="timeline-card">
+                <strong>晚上轻复盘</strong>
+                <span>在同页补充日记摘要，减少从计划跳到日记页的来回成本。</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">页内分段</h2>
+              <p class="section-subtitle">把待办与打卡作为“计划页的子场景”，主导航立刻清爽很多。</p>
+            </div>
+          </div>
+          <div class="tag-row">
+            <span class="chip is-accent">周历</span>
+            <span class="chip">待办 12</span>
+            <span class="chip">打卡 4</span>
+            <span class="chip">日记摘要</span>
+          </div>
+        </article>
+      </section>
+
+      <nav class="bottom-nav" aria-label="优化后的主导航">
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <circle cx="12" cy="12" r="7.25"></circle>
+            <path d="M12 8.35v4.1l2.65 1.7"></path>
+          </svg>
+          <span>记录</span>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <path d="M4.5 19.25h15"></path>
+            <path d="M7.25 17.75v-5.5"></path>
+            <path d="M12 17.75V7.25"></path>
+            <path d="M16.75 17.75v-8"></path>
+          </svg>
+          <span>统计</span>
+        </div>
+        <div class="nav-item is-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+            <path d="M12 5.5v13"></path>
+            <path d="M5.5 12h13"></path>
+          </svg>
+          <strong>开始</strong>
+        </div>
+        <div class="nav-item is-active">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <rect x="4.5" y="5.75" width="15" height="13.25" rx="3"></rect>
+            <path d="M8 3.75v4"></path>
+            <path d="M16 3.75v4"></path>
+            <path d="M4.5 9.75h15"></path>
+          </svg>
+          <span>计划</span>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <path d="M12 8.7a3.3 3.3 0 1 0 0 6.6a3.3 3.3 0 0 0 0-6.6Z"></path>
+            <path d="M19.15 13.1V10.9l-1.76-.46a5.83 5.83 0 0 0-.54-1.31l.95-1.56l-1.55-1.56l-1.57.95a5.86 5.86 0 0 0-1.3-.53L13.1 4.7h-2.2l-.46 1.73c-.46.12-.9.3-1.31.53l-1.56-.95L6.02 7.57l.95 1.56c-.23.41-.41.85-.53 1.31l-1.74.46v2.2l1.74.46c.12.46.3.9.53 1.31l-.95 1.56l1.55 1.56l1.56-.95c.41.23.85.41 1.31.53l.46 1.74h2.2l.46-1.74c.45-.12.89-.3 1.3-.53l1.57.95l1.55-1.56l-.95-1.56c.23-.41.42-.85.54-1.31Z"></path>
+          </svg>
+          <span>设置</span>
+        </div>
+      </nav>
+    </main>
+  </body>
+</html>
