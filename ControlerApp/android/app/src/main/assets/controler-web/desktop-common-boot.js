@@ -16930,6 +16930,24 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  function waitForAndroidNavigationReleasePaint() {
+    if (!isAndroidNativeRuntime()) {
+      return Promise.resolve(false);
+    }
+
+    return new Promise((resolve) => {
+      const scheduleFrame =
+        typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (callback) => window.setTimeout(callback, 16);
+      scheduleFrame(() => {
+        scheduleFrame(() => {
+          resolve(true);
+        });
+      });
+    });
+  }
+
   function clearDeferredAppNavigationReplayTimer() {
     if (deferredAppNavigationReplayTimerId) {
       window.clearTimeout(deferredAppNavigationReplayTimerId);
@@ -20075,16 +20093,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       setAndroidReactNativeAppNavLocked(false);
     }
 
-    setAppPageLeaveOverlayState({
-      active: true,
-      ...overlayCopy,
-      delayMs: 0,
-    });
-    appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
     void (async () => {
       let shouldUnlock = true;
       try {
+        await waitForAndroidNavigationReleasePaint();
+        setAppPageLeaveOverlayState({
+          active: true,
+          ...overlayCopy,
+          delayMs: 0,
+        });
+        appPageTransitionLocked = true;
         const canLeave = await runBeforePageLeaveGuards({
           fromPage: currentItem?.key || "",
           toPage: targetItem.key,

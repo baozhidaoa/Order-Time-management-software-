@@ -2477,7 +2477,6 @@ function updateThemeSelector(selectedThemeId) {
     const resolvedColors = resolveThemeColors(theme);
     const option = document.createElement("div");
     option.className = `theme-option controler-pressable ${theme.id === selectedThemeId ? "selected" : ""}`;
-    option.dataset.theme = theme.id;
 
     const preview = document.createElement("div");
     preview.className = "theme-preview";
@@ -2683,6 +2682,15 @@ function prepareSettingsModalOverlayElement(modal, options = {}) {
     return null;
   }
   const nextOptions = { ...options };
+  const body = document.body;
+  if (
+    !nextOptions.scope &&
+    body instanceof HTMLElement &&
+    (body.classList.contains("controler-mobile-runtime") ||
+      body.classList.contains("controler-android-native"))
+  ) {
+    nextOptions.scope = "viewport";
+  }
   const currentZIndex = Number.parseInt(modal.style.zIndex || "", 10);
   if (
     !Number.isFinite(nextOptions.zIndex) &&
@@ -2788,71 +2796,73 @@ function showThemeEditorModal(theme = null) {
   ).join("");
 
   modal.innerHTML = `
-    <div class="modal-content themed-dialog-card ms" style="width:min(920px, calc(100% - 32px)); max-width:min(920px, calc(100% - 32px)); max-height:min(calc(var(--controler-modal-overlay-height) - 32px), 860px); overflow:auto; padding:20px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px;">
-        <div>
-          <div class="themed-dialog-title">${dialogTitle}</div>
-          <div class="themed-dialog-message">支持输入 #RRGGBB 与 rgba(...)。建议优先调整“应用底色 / 主内容层 / 控件层 / 轻强调层 / 细分隔线”；想做更扁平的主题，就让“外壳底层 / 主内容层 / 控件层”彼此更接近。</div>
-        </div>
-      </div>
-      <label style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
-        <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">主题名称</span>
-        <input id="custom-theme-name" type="text" class="time-input" value="${escapeHtml(draft.name)}" placeholder="例如：冰川蓝" />
-      </label>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">记录卡片颜色</div>
-          <div style="color: var(--muted-text-color); font-size: 12px;">可保留当前“跟随项目颜色”的多彩卡片，也可统一为主题专属卡片色。</div>
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
-          <button
-            type="button"
-            class="bts theme-record-card-mode-btn"
-            data-record-card-mode="project"
-            style="margin:0; text-align:left; padding:14px; border-radius:14px;"
-          >
-            <div style="font-size:14px; font-weight:700;">跟随项目颜色</div>
-            <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目当前颜色显示不同颜色。</div>
-          </button>
-          <button
-            type="button"
-            class="bts theme-record-card-mode-btn"
-            data-record-card-mode="theme"
-            style="margin:0; text-align:left; padding:14px; border-radius:14px;"
-          >
-            <div style="font-size:14px; font-weight:700;">统一主题卡片色</div>
-            <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">所有记录卡片使用同一种主题色，适合更整洁一致的视觉。</div>
-          </button>
-        </div>
-        <label
-          id="theme-record-card-color-row"
-          style="display:flex; flex-direction:column; gap:8px; ${initialRecordCardMode === "theme" ? "" : "display:none;"}"
-        >
-          <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">统一记录卡片颜色</span>
-          <div style="display:grid; grid-template-columns:minmax(92px, 120px) minmax(0, 1fr); gap:10px;">
-            <input type="color" data-record-card-color value="${toHexColor(initialRecordCardColor, DEFAULT_THEME_RECORD_CARD.color)}" />
-            <input
-              type="text"
-              class="time-input"
-              data-record-card-color-text
-              value="${escapeHtml(initialRecordCardColor)}"
-              placeholder="#79AF85 或 rgba(121, 175, 133, 0.42)"
-              autocomplete="off"
-              spellcheck="false"
-            />
+    <div class="modal-content themed-dialog-card ms controler-form-modal settings-theme-editor-modal" style="width:min(920px, calc(100% - 32px)); max-width:min(920px, calc(100% - 32px)); max-height:min(calc(var(--controler-modal-overlay-height) - 32px), 860px); padding:20px;">
+      <div class="controler-form-modal-body" style="display:flex; flex-direction:column; gap:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <div>
+            <div class="themed-dialog-title">${dialogTitle}</div>
+            <div class="themed-dialog-message">支持输入 #RRGGBB 与 rgba(...)。建议优先调整“应用底色 / 主内容层 / 控件层 / 轻强调层 / 细分隔线”；想做更扁平的主题，就让“外壳底层 / 主内容层 / 控件层”彼此更接近。</div>
           </div>
-          <div style="color: var(--muted-text-color); font-size: 12px;">会用于记录卡片标题强调、描边和浅色铺底，切换回“跟随项目颜色”时会保留此默认值。</div>
-        </label>
-      </div>
-      <div class="theme-editor-grid">${fieldsHtml}</div>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">小组件卡片与配件颜色</div>
-          <div style="color: var(--muted-text-color); font-size: 12px;">这里可以分开编辑桌面端与安卓小组件的外层底板、内容卡片、按钮和文字颜色。其中“内容卡片”对应列表卡片、目标卡片、周视图底部卡片等你圈出来的那类内层卡片；留空即恢复默认，文字类恢复默认后会重新启用自动对比度。</div>
         </div>
-        <div class="theme-editor-grid">${widgetFieldsHtml}</div>
+        <label style="display:flex; flex-direction:column; gap:8px;">
+          <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">主题名称</span>
+          <input id="custom-theme-name" type="text" class="time-input" value="${escapeHtml(draft.name)}" placeholder="例如：冰川蓝" />
+        </label>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">记录卡片颜色</div>
+            <div style="color: var(--muted-text-color); font-size: 12px;">可保留当前“跟随项目颜色”的多彩卡片，也可统一为主题专属卡片色。</div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
+            <button
+              type="button"
+              class="bts theme-record-card-mode-btn"
+              data-record-card-mode="project"
+              style="margin:0; text-align:left; padding:14px; border-radius:14px;"
+            >
+              <div style="font-size:14px; font-weight:700;">跟随项目颜色</div>
+              <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目当前颜色显示不同颜色。</div>
+            </button>
+            <button
+              type="button"
+              class="bts theme-record-card-mode-btn"
+              data-record-card-mode="theme"
+              style="margin:0; text-align:left; padding:14px; border-radius:14px;"
+            >
+              <div style="font-size:14px; font-weight:700;">统一主题卡片色</div>
+              <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">所有记录卡片使用同一种主题色，适合更整洁一致的视觉。</div>
+            </button>
+          </div>
+          <label
+            id="theme-record-card-color-row"
+            style="display:flex; flex-direction:column; gap:8px; ${initialRecordCardMode === "theme" ? "" : "display:none;"}"
+          >
+            <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">统一记录卡片颜色</span>
+            <div style="display:grid; grid-template-columns:minmax(92px, 120px) minmax(0, 1fr); gap:10px;">
+              <input type="color" data-record-card-color value="${toHexColor(initialRecordCardColor, DEFAULT_THEME_RECORD_CARD.color)}" />
+              <input
+                type="text"
+                class="time-input"
+                data-record-card-color-text
+                value="${escapeHtml(initialRecordCardColor)}"
+                placeholder="#79AF85 或 rgba(121, 175, 133, 0.42)"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+            <div style="color: var(--muted-text-color); font-size: 12px;">会用于记录卡片标题强调、描边和浅色铺底，切换回“跟随项目颜色”时会保留此默认值。</div>
+          </label>
+        </div>
+        <div class="theme-editor-grid">${fieldsHtml}</div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">小组件卡片与配件颜色</div>
+            <div style="color: var(--muted-text-color); font-size: 12px;">这里可以分开编辑桌面端与安卓小组件的外层底板、内容卡片、按钮和文字颜色。其中“内容卡片”对应列表卡片、目标卡片、周视图底部卡片等你圈出来的那类内层卡片；留空即恢复默认，文字类恢复默认后会重新启用自动对比度。</div>
+          </div>
+          <div class="theme-editor-grid">${widgetFieldsHtml}</div>
+        </div>
       </div>
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:18px;">
+      <div class="controler-form-modal-footer settings-theme-editor-modal-footer" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:0;">
         <div>
           ${
             isEditingCustomTheme
@@ -2862,7 +2872,7 @@ function showThemeEditorModal(theme = null) {
                 : ""
           }
         </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <div class="controler-form-modal-footer-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
           <button type="button" class="bts" id="cancel-custom-theme-btn" style="margin:0;">取消</button>
           <button type="button" class="bts" id="save-custom-theme-btn" style="margin:0;">保存</button>
         </div>

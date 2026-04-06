@@ -1330,7 +1330,14 @@ public final class ControlerWidgetRenderer {
         views.setTextColor(R.id.widget_stat_primary, statTextColor);
         views.setTextColor(R.id.widget_stat_secondary, statTextColor);
         views.setTextColor(R.id.widget_action_label, palette.actionTextColor);
-        views.setTextColor(R.id.widget_action_only_button, palette.actionTextColor);
+        views.setTextColor(
+            R.id.widget_action_only_button,
+            resolveWidgetActionTextColor(
+                palette,
+                resolveActionOnlyButtonSurfaceColor(palette),
+                4.1d
+            )
+        );
         views.setInt(
             R.id.widget_action_background_fill,
             "setColorFilter",
@@ -1978,6 +1985,11 @@ public final class ControlerWidgetRenderer {
             return Color.parseColor("#2AFFFFFF");
         }
         return resolveWidgetPanelSurfaceColor(palette);
+    }
+
+    private static int resolveActionOnlyButtonSurfaceColor(ThemePalette palette) {
+        ThemePalette safePalette = palette == null ? new ThemePalette() : palette;
+        return resolveOpaqueColor(Color.argb(0x24, 0xFF, 0xFF, 0xFF), safePalette.cardFillColor);
     }
 
     private static int resolveStatTextColor(ThemePalette palette) {

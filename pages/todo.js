@@ -2023,6 +2023,84 @@
     return findLatestTodoDailyCheckinMatch(itemId, date)?.entry || null;
   }
 
+  function createTodoDailyCheckinLookup(entries = dailyCheckins) {
+    const latestByItemDate = new Map();
+    const checkedDatesByItem = new Map();
+    const sourceEntries = Array.isArray(entries) ? entries : [];
+
+    sourceEntries.forEach((entry, index) => {
+      const itemId = String(entry?.itemId || "").trim();
+      const dateKey = normalizeTodoOccurrenceDateKey(entry?.date);
+      if (!itemId || !dateKey) {
+        return;
+      }
+
+      const candidate = {
+        entry,
+        index,
+        timestamp: getTodoCheckinEntryTimestamp(entry),
+      };
+      const lookupKey = `${itemId}::${dateKey}`;
+      const current = latestByItemDate.get(lookupKey) || null;
+      if (isTodoCheckinEntryNewer(candidate, current)) {
+        latestByItemDate.set(lookupKey, candidate);
+      }
+
+      if (entry?.checked) {
+        let checkedDates = checkedDatesByItem.get(itemId);
+        if (!(checkedDates instanceof Set)) {
+          checkedDates = new Set();
+          checkedDatesByItem.set(itemId, checkedDates);
+        }
+        checkedDates.add(dateKey);
+      }
+    });
+
+    return {
+      latestByItemDate,
+      checkedDatesByItem,
+    };
+  }
+
+  function getLatestTodoDailyCheckinEntryFromLookup(
+    lookup,
+    itemId,
+    date,
+  ) {
+    if (!(lookup?.latestByItemDate instanceof Map)) {
+      return getLatestTodoDailyCheckinEntry(itemId, date);
+    }
+    const normalizedItemId = String(itemId || "").trim();
+    const normalizedDate = normalizeTodoOccurrenceDateKey(date);
+    if (!normalizedItemId || !normalizedDate) {
+      return null;
+    }
+    return (
+      lookup.latestByItemDate.get(`${normalizedItemId}::${normalizedDate}`)
+        ?.entry || null
+    );
+  }
+
+  function getCheckedTodoDailyCheckinDates(itemId, lookup = null) {
+    const normalizedItemId = String(itemId || "").trim();
+    if (!normalizedItemId) {
+      return new Set();
+    }
+    if (lookup?.checkedDatesByItem instanceof Map) {
+      return lookup.checkedDatesByItem.get(normalizedItemId) || new Set();
+    }
+    return new Set(
+      dailyCheckins
+        .filter(
+          (checkin) =>
+            String(checkin?.itemId || "").trim() === normalizedItemId &&
+            checkin?.checked,
+        )
+        .map((checkin) => normalizeTodoOccurrenceDateKey(checkin?.date))
+        .filter(Boolean),
+    );
+  }
+
   function dedupeTodoDailyCheckinsForDate(itemId, date) {
     const latest = findLatestTodoDailyCheckinMatch(itemId, date);
     if (!latest) {
@@ -2888,12 +2966,65 @@
     return getTodoCompletionStateOnDate(todoLike, dateText);
   }
 
-  function getCheckinCompletionStateOnDate(itemLike = null, dateText = "") {
+  function getCheckinCompletionStateOnDate(
+    itemLike = null,
+    dateText = "",
+    lookup = null,
+  ) {
     const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
     if (!itemLike?.id || !normalizedDate) {
       return false;
     }
-    return !!getLatestTodoDailyCheckinEntry(itemLike.id, normalizedDate)?.checked;
+    return !!getLatestTodoDailyCheckinEntryFromLookup(
+      lookup,
+      itemLike.id,
+      normalizedDate,
+    )?.checked;
+  }
+
+  function findNearestCompletedCheckinDateFromLookup(
+    itemLike = null,
+    baseDateText = getLocalDateText(),
+    lookup = null,
+  ) {
+    const normalizedBaseDate = normalizeTodoOccurrenceDateKey(baseDateText);
+    if (!itemLike?.id || !normalizedBaseDate) {
+      return "";
+    }
+
+    const rememberedDate = getTodoLastResolvedOccurrenceDate(itemLike);
+    if (
+      rememberedDate &&
+      isTodoLinkedPlanOccurrenceAvailable("checkin", itemLike, rememberedDate) &&
+      getCheckinCompletionStateOnDate(itemLike, rememberedDate, lookup)
+    ) {
+      return rememberedDate;
+    }
+
+    const baseTime =
+      parseTodoOccurrenceDateKey(normalizedBaseDate)?.getTime?.() || 0;
+    let bestDate = "";
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    getCheckedTodoDailyCheckinDates(itemLike.id, lookup).forEach((dateKey) => {
+      if (!isTodoLinkedPlanOccurrenceAvailable("checkin", itemLike, dateKey)) {
+        return;
+      }
+      const dateTime = parseTodoOccurrenceDateKey(dateKey)?.getTime?.();
+      if (!Number.isFinite(dateTime)) {
+        return;
+      }
+      const distance = Math.abs(dateTime - baseTime);
+      if (
+        distance < bestDistance ||
+        (distance === bestDistance && (!bestDate || dateKey < bestDate))
+      ) {
+        bestDate = dateKey;
+        bestDistance = distance;
+      }
+    });
+
+    return bestDate;
   }
 
   function findTodoSourceOccurrenceDate(
@@ -5778,9 +5909,15 @@
     if (typeof role === "string" && role.trim()) {
       modal.dataset.todoModalRole = role.trim();
     }
+    const body = document.body;
+    const preferViewportScope =
+      body instanceof HTMLElement &&
+      (body.classList.contains("controler-mobile-runtime") ||
+        body.classList.contains("controler-android-native"));
     if (typeof uiTools?.prepareModalOverlay === "function") {
       uiTools.prepareModalOverlay(modal, {
         zIndex: Number.parseInt(modal.style.zIndex || "", 10),
+        scope: preferViewportScope ? "viewport" : undefined,
       });
     } else {
       document.body.appendChild(modal);
@@ -7141,9 +7278,12 @@
     }
 
     // 获取今日打卡状态
-    getTodayCheckinStatus() {
-      const today = getLocalDateText(); // YYYY-MM-DD
-      const checkin = getLatestTodoDailyCheckinEntry(this.id, today);
+    getTodayCheckinStatus(lookup = null, dateText = getLocalDateText()) {
+      const checkin = getLatestTodoDailyCheckinEntryFromLookup(
+        lookup,
+        this.id,
+        dateText,
+      );
       return checkin ? checkin.checked : false;
     }
 
@@ -7152,26 +7292,16 @@
       return toggleCheckinCompletionOnDate(this.id, getLocalDateText());
     }
 
-    getCheckedDaysCount() {
-      return new Set(
-        dailyCheckins
-          .filter((checkin) => checkin.itemId === this.id && checkin.checked)
-          .map((checkin) => checkin.date)
-          .filter(Boolean),
-      ).size;
+    getCheckedDaysCount(lookup = null) {
+      return getCheckedTodoDailyCheckinDates(this.id, lookup).size;
     }
 
     // 获取连续打卡天数
-    getStreakDays() {
-      if (dailyCheckins.length === 0) return 0;
+    getStreakDays(lookup = null, todayText = getLocalDateText()) {
+      const checkedSet = getCheckedTodoDailyCheckinDates(this.id, lookup);
+      if (checkedSet.size === 0) return 0;
 
-      const checkedSet = new Set(
-        dailyCheckins
-          .filter((c) => c.itemId === this.id && c.checked)
-          .map((c) => c.date),
-      );
-
-      const startCursor = new Date();
+      const startCursor = parseTodoOccurrenceDateKey(todayText) || new Date();
       startCursor.setHours(0, 0, 0, 0);
       const maxLoop = 400;
       let loops = 0;
@@ -8782,7 +8912,7 @@
 
     // 构建弹窗内容
     modal.innerHTML = `
-    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-content ms controler-form-modal todo-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${isEditMode ? "编辑待办事项" : "创建待办事项"}
       </h2>
@@ -9019,7 +9149,7 @@
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline todo-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `
@@ -9428,7 +9558,7 @@
     modal.style.justifyContent = "center";
 
     modal.innerHTML = `
-    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 420px; width: 90%; max-height: 90vh;">
+    <div class="modal-content ms controler-form-modal todo-form-modal" style="padding: 25px; border-radius: 15px; max-width: 420px; width: 90%; max-height: 90vh;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${isEditMode ? `📝 编辑"${escapeHtml(todo.title)}"的进度` : `📝 为"${escapeHtml(todo.title)}"添加进度`}
       </h2>
@@ -9452,7 +9582,7 @@
         </div>
       </div>
       
-      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline todo-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? '<button class="bts" type="button" id="delete-checkin-progress-btn" data-todo-modal-action="delete-progress" style="margin:0; background-color: var(--delete-btn);">删除</button>'
@@ -9684,33 +9814,42 @@
     updateStatsPanel();
   }
 
-  function updateCheckinStats() {
+  function updateCheckinStats(options = {}) {
     const todayCountElement = document.getElementById("today-checkin-count");
     const totalCountElement = document.getElementById("total-checkin-count");
     const maxStreakElement = document.getElementById("max-streak-days");
     if (!todayCountElement || !totalCountElement) return;
 
-    const today = getLocalDateText();
-    const visibleItems = getVisibleCheckinItems();
+    const today = normalizeTodoOccurrenceDateKey(options?.todayText) || getLocalDateText();
+    const dailyCheckinLookup =
+      options?.dailyCheckinLookup || createTodoDailyCheckinLookup();
+    const visibleItems = Array.isArray(options?.visibleItems)
+      ? options.visibleItems
+      : getVisibleCheckinItems();
     const scheduledItems = visibleItems.filter(
       (item) =>
         isCheckinItemActive(item, today) &&
         typeof item.isScheduledOn === "function" &&
         item.isScheduledOn(today),
     );
-    const scheduledIds = new Set(scheduledItems.map((item) => item.id));
-    const checkedToday = dailyCheckins.filter(
-      (entry) =>
-        entry.date === today && entry.checked && scheduledIds.has(entry.itemId),
-    );
+    const checkedTodayCount = scheduledItems.reduce((count, item) => {
+      return count +
+        (getLatestTodoDailyCheckinEntryFromLookup(
+          dailyCheckinLookup,
+          item.id,
+          today,
+        )?.checked
+          ? 1
+          : 0);
+    }, 0);
 
-    todayCountElement.textContent = String(checkedToday.length);
+    todayCountElement.textContent = String(checkedTodayCount);
     totalCountElement.textContent = String(scheduledItems.length);
 
     const maxStreak = visibleItems.reduce((max, item) => {
       const streak =
         typeof item.isScheduledOn === "function"
-        ? item.getStreakDays?.() || 0
+        ? item.getStreakDays?.(dailyCheckinLookup, today) || 0
         : 0;
       return Math.max(max, streak);
     }, 0);
@@ -9727,7 +9866,7 @@
     if (panelTotal) panelTotal.textContent = String(visibleItems.length);
     if (panelScheduled)
       panelScheduled.textContent = String(scheduledItems.length);
-    if (panelDone) panelDone.textContent = String(checkedToday.length);
+    if (panelDone) panelDone.textContent = String(checkedTodayCount);
     if (panelStreak) panelStreak.textContent = String(maxStreak);
   }
 
@@ -10027,7 +10166,7 @@
     modal.style.justifyContent = "center";
 
     modal.innerHTML = `
-    <div class="modal-content ms controler-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-content ms controler-form-modal todo-form-modal" style="padding: 25px; border-radius: 15px; max-width: 500px; width: 90%; max-height: 90vh;">
       <h2 style="margin-top: 0; color: var(--text-color); margin-bottom: 20px;">
         ${
           resumeMode
@@ -10256,7 +10395,7 @@
       </div>
       
       <!-- 按钮区域 -->
-      <div class="controler-form-modal-footer controler-form-modal-footer-inline" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+      <div class="controler-form-modal-footer controler-form-modal-footer-inline todo-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
             ? `
@@ -10924,17 +11063,31 @@
     // 清除容器内容
     container.innerHTML = "";
 
-    const filteredItems = getFilteredCheckinItems()
+    const todayText = getLocalDateText();
+    const dailyCheckinLookup = createTodoDailyCheckinLookup();
+    const visibleItems = getVisibleCheckinItems();
+    const filteredItems = visibleItems
+      .filter(
+        (item) =>
+          getCheckinItemEffectiveStatus(item, todayText) ===
+          currentCheckinStatusFilter,
+      )
       .slice()
       .sort((left, right) => {
-        const leftStatus = getCheckinItemEffectiveStatus(left);
-        const rightStatus = getCheckinItemEffectiveStatus(right);
+        const leftStatus = getCheckinItemEffectiveStatus(left, todayText);
+        const rightStatus = getCheckinItemEffectiveStatus(right, todayText);
         if (leftStatus !== rightStatus) {
           return leftStatus.localeCompare(rightStatus);
         }
         if (currentCheckinStatusFilter === "in_progress") {
-          const leftChecked = !!left.getTodayCheckinStatus?.();
-          const rightChecked = !!right.getTodayCheckinStatus?.();
+          const leftChecked = !!left.getTodayCheckinStatus?.(
+            dailyCheckinLookup,
+            todayText,
+          );
+          const rightChecked = !!right.getTodayCheckinStatus?.(
+            dailyCheckinLookup,
+            todayText,
+          );
           if (leftChecked !== rightChecked) {
             return Number(leftChecked) - Number(rightChecked);
           }
@@ -10948,11 +11101,11 @@
     // 如果没有打卡项目，显示空状态
     if (filteredItems.length === 0) {
       const emptyTitle =
-        getVisibleCheckinItems().length === 0
+        visibleItems.length === 0
           ? "暂无打卡项目"
           : `暂无${getCheckinStatusLabel(currentCheckinStatusFilter)}打卡项目`;
       const emptyDescription =
-        getVisibleCheckinItems().length === 0
+        visibleItems.length === 0
           ? '点击"添加项目"按钮创建打卡项目'
           : currentCheckinStatusFilter === "in_progress"
             ? "切换筛选器，或把已停止/结束项目继续后会出现在这里"
@@ -10977,26 +11130,37 @@
           useTwoColumnGrid,
         },
       );
-      updateCheckinStats();
+      updateCheckinStats({
+        todayText,
+        dailyCheckinLookup,
+        visibleItems,
+      });
       updateStatsPanel();
       return;
     }
 
     // 渲染打卡项目列表
     filteredItems.forEach((item) => {
-      const itemElement = createCheckinItemElement(item, listScale);
+      const itemElement = createCheckinItemElement(item, listScale, {
+        todayText,
+        dailyCheckinLookup,
+      });
       applyTodoCollectionItemLayout(itemElement, {
         useTwoColumnGrid,
       });
       container.appendChild(itemElement);
     });
 
-    updateCheckinStats();
+    updateCheckinStats({
+      todayText,
+      dailyCheckinLookup,
+      visibleItems,
+    });
     updateStatsPanel();
   }
 
   // 创建打卡项目元素
-  function createCheckinItemElement(item, listScale = 1) {
+  function createCheckinItemElement(item, listScale = 1, options = {}) {
     const itemElement = document.createElement("div");
     const cardScale = getTodoListDensityScale(listScale);
     const titleFontSize = Math.max(12, Math.round(20 * cardScale));
@@ -11020,19 +11184,25 @@
     itemElement.style.flexDirection = "column";
     itemElement.style.gap = `${Math.max(6, Math.round(10 * cardScale))}px`;
 
-    const today = getLocalDateText();
+    const today = normalizeTodoOccurrenceDateKey(options?.todayText) || getLocalDateText();
+    const dailyCheckinLookup = options?.dailyCheckinLookup || null;
     const effectiveStatus = getCheckinItemEffectiveStatus(item, today);
-    const checkedDays = item.getCheckedDaysCount();
+    const checkedDays = item.getCheckedDaysCount(dailyCheckinLookup);
     const isScheduledToday =
       effectiveStatus === "in_progress" &&
       isTodoLinkedPlanOccurrenceAvailable("checkin", item, today);
     const proxyCheckedDate =
       effectiveStatus === "in_progress" && !isScheduledToday
-        ? findNearestCompletedOccurrenceDate("checkin", item, today)
+        ? findNearestCompletedCheckinDateFromLookup(
+            item,
+            today,
+            dailyCheckinLookup,
+          )
         : "";
     const checked =
       effectiveStatus === "in_progress" &&
-      (item.getTodayCheckinStatus() || !!proxyCheckedDate);
+      (item.getTodayCheckinStatus(dailyCheckinLookup, today) ||
+        !!proxyCheckedDate);
     const repeatSummary =
       typeof item.getRepeatSummary === "function"
         ? item.getRepeatSummary()
@@ -11189,16 +11359,16 @@
 
     if (todoViewBtn && checkinViewBtn) {
       todoViewBtn.addEventListener("click", () => {
-        currentView = "todos";
-        todoViewBtn.classList.add("active");
-        checkinViewBtn.classList.remove("active");
+        setTodoView("todos", {
+          persistWidgetView: true,
+        });
         renderCurrentView();
       });
 
       checkinViewBtn.addEventListener("click", () => {
-        currentView = "checkins";
-        checkinViewBtn.classList.add("active");
-        todoViewBtn.classList.remove("active");
+        setTodoView("checkins", {
+          persistWidgetView: true,
+        });
         renderCurrentView();
       });
     }
@@ -11295,6 +11465,10 @@
       if (checkinContainer) checkinContainer.style.display = "none";
       if (todoControls) todoControls.style.display = "block";
       if (checkinControls) checkinControls.style.display = "none";
+      uiTools?.refreshEnhancedSelect?.(
+        document.getElementById("todo-layout-select"),
+      );
+      uiTools?.refreshEnhancedSelect?.(document.getElementById("todo-sort"));
       renderTodoArea();
     } else {
       if (todoContainer) todoContainer.style.display = "none";
@@ -11302,8 +11476,10 @@
       if (checkinContainer) checkinContainer.style.display = "block";
       if (todoControls) todoControls.style.display = "none";
       if (checkinControls) checkinControls.style.display = "block";
+      uiTools?.refreshEnhancedSelect?.(
+        document.getElementById("checkin-status-filter-select"),
+      );
       renderCheckinList();
-      updateCheckinStats();
     }
     updateStatsPanel();
   }

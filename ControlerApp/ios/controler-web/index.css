@@ -34,6 +34,8 @@
   --page-shell-gap: 18px;
   --page-shell-padding: 20px;
   --page-shell-radius: 24px;
+  --page-shell-inline-gap: 20px;
+  --page-shell-block-gap: 20px;
   --surface-app: color-mix(in srgb, var(--bg-primary) 76%, var(--panel-bg) 24%);
   --surface-panel: color-mix(
     in srgb,
@@ -169,7 +171,7 @@ body.flex.row > div:nth-of-type(2) {
   flex: 1 1 auto;
 }
 
-[data-theme="default"] {
+:root[data-theme="default"] {
   --bg-primary: #183524;
   --bg-secondary: rgba(23, 53, 36, 0.5);
   --bg-tertiary: rgba(41, 84, 54, 0.58);
@@ -200,7 +202,7 @@ body.flex.row > div:nth-of-type(2) {
 }
 
 /* Blue Ocean 主题 */
-[data-theme="blue-ocean"] {
+:root[data-theme="blue-ocean"] {
   --bg-primary: #12263f;
   --bg-secondary: rgba(24, 43, 69, 0.5);
   --bg-tertiary: rgba(39, 63, 96, 0.58);
@@ -230,7 +232,7 @@ body.flex.row > div:nth-of-type(2) {
 }
 
 /* Sunset Orange 主题 */
-[data-theme="sunset-orange"] {
+:root[data-theme="sunset-orange"] {
   --bg-primary: #4b261b;
   --bg-secondary: rgba(101, 50, 31, 0.48);
   --bg-tertiary: rgba(129, 67, 42, 0.58);
@@ -260,7 +262,7 @@ body.flex.row > div:nth-of-type(2) {
 }
 
 /* Minimal Gray 主题 */
-[data-theme="minimal-gray"] {
+:root[data-theme="minimal-gray"] {
   --bg-primary: #1c2734;
   --bg-secondary: rgba(35, 49, 64, 0.5);
   --bg-tertiary: rgba(54, 73, 95, 0.58);
@@ -289,7 +291,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #f5f9ff;
 }
 
-[data-theme="obsidian-mono"] {
+:root[data-theme="obsidian-mono"] {
   --bg-primary: #0d0f12;
   --bg-secondary: rgba(20, 23, 28, 0.52);
   --bg-tertiary: rgba(32, 36, 43, 0.6);
@@ -317,7 +319,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #f4f7ff;
 }
 
-[data-theme="ivory-light"] {
+:root[data-theme="ivory-light"] {
   --bg-primary: #eceff3;
   --bg-secondary: rgba(255, 255, 255, 0.72);
   --bg-tertiary: rgba(240, 244, 250, 0.82);
@@ -346,7 +348,7 @@ body.flex.row > div:nth-of-type(2) {
   color-scheme: light;
 }
 
-[data-theme="graphite-mist"] {
+:root[data-theme="graphite-mist"] {
   --bg-primary: #2a2d32;
   --bg-secondary: rgba(58, 62, 69, 0.5);
   --bg-tertiary: rgba(76, 81, 90, 0.58);
@@ -374,7 +376,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #f8f9fc;
 }
 
-[data-theme="aurora-mist"] {
+:root[data-theme="aurora-mist"] {
   --bg-primary: #362226;
   --bg-secondary: rgba(86, 50, 54, 0.48);
   --bg-tertiary: rgba(129, 81, 79, 0.58);
@@ -403,7 +405,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #fff6f1;
 }
 
-[data-theme="amethyst-haze"] {
+:root[data-theme="amethyst-haze"] {
   --bg-primary: #141826;
   --bg-secondary: rgba(29, 34, 53, 0.5);
   --bg-tertiary: rgba(50, 61, 96, 0.58);
@@ -432,7 +434,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #f5f7ff;
 }
 
-[data-theme="velvet-bordeaux"] {
+:root[data-theme="velvet-bordeaux"] {
   --bg-primary: #2f141d;
   --bg-secondary: rgba(68, 24, 37, 0.48);
   --bg-tertiary: rgba(94, 37, 52, 0.58);
@@ -461,7 +463,7 @@ body.flex.row > div:nth-of-type(2) {
   --bottom-nav-active-text: #fff3f6;
 }
 
-[data-theme="champagne-sandstone"] {
+:root[data-theme="champagne-sandstone"] {
   --bg-primary: #f1ebe2;
   --bg-secondary: rgba(255, 250, 244, 0.72);
   --bg-tertiary: rgba(238, 228, 214, 0.84);
@@ -492,7 +494,7 @@ body.flex.row > div:nth-of-type(2) {
   color-scheme: light;
 }
 
-[data-theme="midnight-indigo"] {
+:root[data-theme="midnight-indigo"] {
   --bg-primary: #111722;
   --bg-secondary: rgba(29, 37, 56, 0.5);
   --bg-tertiary: rgba(48, 59, 84, 0.58);
@@ -667,6 +669,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
       var(--controler-stable-visual-viewport-height, 100vh)
     )
   );
+  --controler-modal-overlay-inline-gap: 24px;
   --controler-modal-overlay-vertical-gap: 24px;
   position: fixed;
   top: 0;
@@ -711,6 +714,7 @@ body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
 }
 
 .controler-form-modal-overlay {
+  --controler-modal-overlay-inline-gap: 20px;
   --controler-modal-overlay-vertical-gap: 20px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -801,13 +805,15 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
   -webkit-backface-visibility: visible !important;
 }
 
-body.controler-mobile-runtime .modal-overlay {
+body.controler-mobile-runtime .modal-overlay,
+body.controler-android-native .modal-overlay {
   top: var(--controler-visual-viewport-offset-top, 0px) !important;
-  left: var(--controler-visual-viewport-offset-left, 0px) !important;
-  right: auto !important;
+  left: 0 !important;
+  right: 0 !important;
   bottom: auto !important;
   inset: auto !important;
-  width: var(--controler-visual-viewport-width, 100vw) !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
   min-height: var(
     --controler-visual-viewport-height,
     var(--controler-stable-visual-viewport-height, 100dvh)
@@ -822,39 +828,53 @@ body.controler-mobile-runtime .modal-overlay {
   ) !important;
   padding:
     max(12px, env(safe-area-inset-top, 0px))
-    12px
-    calc(12px + env(safe-area-inset-bottom, 0px));
-  overflow-y: auto;
+    max(12px, env(safe-area-inset-right, 0px))
+    calc(12px + env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
   overscroll-behavior: contain;
+  align-items: flex-start !important;
   -webkit-tap-highlight-color: transparent;
 }
 
 body.controler-mobile-runtime,
-body.controler-mobile-runtime * {
+body.controler-mobile-runtime *,
+body.controler-android-native,
+body.controler-android-native * {
   -webkit-tap-highlight-color: transparent;
   -webkit-focus-ring-color: transparent;
 }
 
-body.controler-mobile-runtime .modal-content {
-  width: min(520px, calc(100vw - 24px));
-  max-width: min(520px, calc(100vw - 24px));
+body.controler-mobile-runtime .modal-content,
+body.controler-android-native .modal-content {
+  width: min(
+    520px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  );
+  max-width: min(
+    520px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  );
   max-height: calc(
     var(--controler-stable-visual-viewport-height, 100vh) -
       max(24px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))
   );
   overflow-y: auto;
-  margin: auto 0;
+  margin: 0 auto !important;
   box-shadow:
     0 22px 54px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transform-origin: center bottom;
 }
 
-body.controler-mobile-runtime.controler-keyboard-open .modal-overlay {
+body.controler-mobile-runtime.controler-keyboard-open .modal-overlay,
+body.controler-android-native.controler-keyboard-open .modal-overlay {
   align-items: flex-start;
 }
 
-body.controler-mobile-runtime.controler-keyboard-open .modal-content {
+body.controler-mobile-runtime.controler-keyboard-open .modal-content,
+body.controler-android-native.controler-keyboard-open .modal-content {
   margin-top: 0;
   margin-bottom: auto;
 }
@@ -1193,9 +1213,15 @@ body.page-record .record-output-panel {
 body.page-record #project-container {
   min-height: 172px;
   max-height: min(32dvh, 340px);
-  padding: 16px !important;
+  padding: 0 !important;
   overflow-y: auto !important;
   scrollbar-gutter: stable;
+}
+
+body.page-record #project-container > .record-section-block {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 body.page-record #projects-table-container {
@@ -1260,20 +1286,43 @@ body.page-record .record-floating-timer-btn {
   overflow: hidden;
 }
 
-body.page-record .record-floating-timer-btn::before {
-  content: "";
-  position: absolute;
+body.controler-mobile-runtime.page-record .record-floating-timer-btn,
+body.controler-android-native.page-record .record-floating-timer-btn {
+  position: fixed;
+  inset: auto
+    max(18px, calc(env(safe-area-inset-right, 0px) + 14px))
+    max(64px, calc(env(safe-area-inset-bottom, 0px) + 60px))
+    auto;
+  top: auto;
+  left: auto;
+  right: max(18px, calc(env(safe-area-inset-right, 0px) + 14px));
+  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 60px));
+  z-index: 74;
+}
+
+body.page-record .record-floating-timer-btn__icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 38px;
   height: 38px;
-  background-color: currentColor;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='7'/%3E%3Cpath d='M12 8.8v3.7l2.45 1.65'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='7'/%3E%3Cpath d='M12 8.8v3.7l2.45 1.65'/%3E%3C/svg%3E");
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
+  pointer-events: none;
+}
+
+body.page-record .record-floating-timer-btn__icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.page-record .record-floating-timer-btn::before {
+  content: none;
 }
 
 body.page-record .record-floating-timer-btn::after {
@@ -3069,6 +3118,9 @@ body.page-stats #stats-container {
   color: var(--text-color);
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.28;
+  padding: 3px 4px 0;
+  overflow: visible;
   margin-bottom: 10px;
 }
 
@@ -3485,8 +3537,14 @@ body.page-stats #stats-container {
 
 .controler-form-modal {
   box-sizing: border-box;
-  width: min(500px, calc(100vw - 24px)) !important;
-  max-width: min(500px, calc(100vw - 24px)) !important;
+  width: min(
+    500px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  ) !important;
+  max-width: min(
+    500px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  ) !important;
   max-height: calc(
     var(--controler-modal-overlay-height) -
       var(--controler-modal-overlay-vertical-gap)
@@ -3593,15 +3651,18 @@ body.page-stats #stats-container {
 }
 
 .controler-form-modal-footer {
+  display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
 .controler-form-modal-footer-actions {
+  display: flex;
   justify-content: flex-end;
   flex: 1 1 auto;
   flex-wrap: wrap;
+  gap: 10px;
 }
 
 .controler-form-modal-footer.controler-form-modal-footer-inline {
@@ -3629,8 +3690,14 @@ body.page-stats #stats-container {
 }
 
 .year-goal-form-modal {
-  width: min(480px, calc(100vw - 24px)) !important;
-  max-width: min(480px, calc(100vw - 24px)) !important;
+  width: min(
+    480px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  ) !important;
+  max-width: min(
+    480px,
+    calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+  ) !important;
   gap: 16px;
 }
 
@@ -4597,6 +4664,23 @@ body.controler-android-native
   color: var(--text-color);
 }
 
+body.controler-mobile-runtime .themed-dialog-card,
+body.controler-android-native .themed-dialog-card {
+  padding: 16px !important;
+}
+
+body.controler-mobile-runtime .themed-dialog-actions,
+body.controler-android-native .themed-dialog-actions {
+  flex-wrap: wrap;
+}
+
+body.controler-mobile-runtime .themed-dialog-actions .bts,
+body.controler-android-native .themed-dialog-actions .bts {
+  flex: 1 1 132px;
+  min-width: 0;
+  min-height: 46px;
+}
+
 .themed-dialog-option-btn {
   width: 100%;
   justify-content: flex-start;
@@ -5158,19 +5242,19 @@ body.controler-android-native .weekly-glass-time-block.is-android-press-animate:
 }
 
 /* 滚动条增强主题适配 */
-[data-theme="blue-ocean"] ::-webkit-scrollbar-thumb {
+:root[data-theme="blue-ocean"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
-[data-theme="sunset-orange"] ::-webkit-scrollbar-thumb {
+:root[data-theme="sunset-orange"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
-[data-theme="obsidian-mono"] ::-webkit-scrollbar-thumb {
+:root[data-theme="obsidian-mono"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
-[data-theme="minimal-gray"] ::-webkit-scrollbar-thumb {
+:root[data-theme="minimal-gray"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
@@ -5372,8 +5456,8 @@ body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
 
 .page-shell {
   position: relative;
-  margin: 0 20px 20px;
-  width: calc(100% - 40px);
+  margin: 0 var(--page-shell-inline-gap) var(--page-shell-block-gap);
+  width: calc(100% - (var(--page-shell-inline-gap) * 2));
   max-width: var(--page-shell-max-width);
   align-self: center;
   padding: var(--page-shell-padding);
@@ -5563,11 +5647,25 @@ body.page-diary .diary-view-surface {
 /* 设置页卡片高度变化频繁，保持单列流式布局可避免桌面端折叠卡片重叠。 */
 body.page-settings .settings-main {
   display: block;
-  padding: 0 20px 20px;
+  padding: 0 var(--page-shell-inline-gap) var(--page-shell-block-gap);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 body.page-settings .settings-main > * {
   min-width: 0;
+}
+
+body.page-settings .settings-main::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 body.page-settings .settings-topbar {
@@ -5638,34 +5736,45 @@ body.page-todo #checkin-list-container {
 
 @media (min-width: 691px) {
   body.page-plan.flex.row {
-    height: auto !important;
+    height: 100dvh !important;
     min-height: 100dvh !important;
-    align-items: flex-start;
-    overflow-x: hidden;
-    overflow-y: auto;
+    align-items: stretch;
+    overflow: hidden;
   }
 
   body.page-plan.flex.row > div:first-of-type {
-    position: sticky;
-    top: var(--app-shell-padding);
-    align-self: flex-start;
-  }
-
-  body.page-plan.flex.row > div:nth-of-type(2),
-  body.page-plan .plan-main {
-    height: auto !important;
-    min-height: calc(100dvh - (var(--app-shell-padding) * 2)) !important;
-    overflow-x: hidden !important;
-    overflow-y: visible !important;
+    position: relative;
+    top: auto;
     align-self: stretch;
   }
 
-  body.page-plan .planner-shell,
+  body.page-plan .plan-main {
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-self: stretch;
+  }
+
+  body.page-plan .plan-main {
+    flex: 1 1 auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  body.page-plan .planner-shell {
+    min-height: auto !important;
+    height: auto !important;
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+  }
+
   body.page-plan .planner-dashboard,
   body.page-plan .planner-panel,
   body.page-plan #stats-container {
     height: auto !important;
-    min-height: 0 !important;
+    min-height: auto !important;
     max-height: none !important;
     flex: 0 0 auto !important;
     overflow: visible !important;
@@ -5710,8 +5819,8 @@ body.page-record .record-output-surface > * {
 @media (max-width: 690px) {
   body.flex.row {
     flex-direction: column;
-    padding: 6px;
-    gap: 6px;
+    padding: 6px 6px 0;
+    gap: 0;
     overflow: hidden;
   }
 
@@ -5734,12 +5843,12 @@ body.page-record .record-output-surface > * {
 
   body.flex.row > div:first-of-type > .app-nav {
     display: grid !important;
-    grid-template-columns: repeat(var(--nav-visible-count, 5), minmax(0, 1fr));
-    gap: 7px;
+    grid-template-columns: repeat(var(--nav-visible-count, 6), minmax(0, 1fr));
+    gap: 5px;
     width: 100%;
     flex: none !important;
     margin: 0 !important;
-    padding: 7px 7px calc(7px + env(safe-area-inset-bottom, 0px));
+    padding: 4px 7px calc(3px + env(safe-area-inset-bottom, 0px));
     border-radius: 16px;
     background:
       linear-gradient(
@@ -5992,7 +6101,7 @@ body.page-record .record-output-surface > * {
 
   .app-main {
     border-radius: 18px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .page-topbar {
@@ -6019,7 +6128,7 @@ body.page-record .record-output-surface > * {
   }
 
   .page-shell {
-    margin: 6px !important;
+    margin: 6px 6px 0 !important;
     width: calc(100% - 12px);
     padding: 12px !important;
     border-radius: 16px !important;
@@ -6039,7 +6148,7 @@ body.page-record .record-output-surface > * {
   }
 
   .guide-card-host {
-    margin: 6px !important;
+    margin: 6px 6px 0 !important;
   }
 
   body.flex.row
@@ -6220,14 +6329,14 @@ body.flex.row .modal-content {
     min-height: 112px !important;
     max-height: min(28dvh, 252px) !important;
     flex: 0 1 auto !important;
-    width: auto !important;
-    max-width: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
     min-width: 0 !important;
     align-self: stretch !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
-    padding: 10px !important;
+    padding: 0 !important;
     overflow-y: auto !important;
   }
 
@@ -6270,33 +6379,18 @@ body.flex.row .modal-content {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
-    gap: 6px !important;
-    min-height: 132px !important;
   }
 
   body.page-record .projects-table-grid {
     width: 100% !important;
-    gap: 6px !important;
-    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)) !important;
   }
 
   body.page-record .table-column {
-    padding: 6px !important;
-    border-radius: 8px !important;
+    min-width: 0 !important;
   }
 
-  body.page-record .level1-header,
-  body.page-record .level2-header,
-  body.page-record .level3-item {
-    font-size: 12px !important;
-  }
-
-  body.page-record .project-item,
-  body.page-record .record-item {
-    padding: 8px !important;
+  body.page-record .project-item {
     border-radius: 10px !important;
-    font-size: 12px !important;
   }
 
   body.page-record #project-totals {
@@ -6310,14 +6404,11 @@ body.flex.row .modal-content {
     max-height: min(22dvh, 148px) !important;
     margin-top: 8px !important;
     padding-right: 2px !important;
-    font-size: 15px !important;
     align-content: start !important;
   }
 
   body.page-record .project-totals > div {
     margin: 0 !important;
-    padding: 8px 9px !important;
-    border-radius: 10px !important;
   }
 
   body.page-record #output {
@@ -6328,10 +6419,7 @@ body.flex.row .modal-content {
     max-width: 100% !important;
     min-width: 0 !important;
     display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
-    gap: 8px !important;
     align-content: start !important;
-    padding: 8px !important;
     overflow-x: hidden !important;
   }
 
@@ -6339,22 +6427,22 @@ body.flex.row .modal-content {
     height: auto !important;
     min-height: 0 !important;
     flex: 1 1 0 !important;
-    width: auto !important;
-    max-width: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
     min-width: 0 !important;
     align-self: stretch !important;
-    padding: 10px !important;
+    padding: 4px !important;
   }
 
   body.page-record .record-item {
     margin: 0 !important;
-    min-height: 75px !important;
-    height: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
     box-sizing: border-box;
   }
 
   body.page-record .record-item > div:first-child {
-    height: 100%;
+    height: auto;
   }
 
   body.page-record .record-create-project-btn {
@@ -6371,19 +6459,32 @@ body.flex.row .modal-content {
   }
 
   body.page-record .record-floating-timer-btn {
-    right: 12px;
-    bottom: 12px;
-    width: 70px;
-    min-width: 70px;
-    height: 70px;
-    min-height: 70px;
+    position: fixed !important;
+    inset: auto !important;
+    top: auto !important;
+    left: auto !important;
+    right: max(
+      16px,
+      calc(env(safe-area-inset-right, 0px) + 12px)
+    ) !important;
+    bottom: max(44px, calc(env(safe-area-inset-bottom, 0px) + 40px)) !important;
+    z-index: 74 !important;
+    width: 64px;
+    min-width: 64px;
+    height: 64px;
+    min-height: 64px;
     aspect-ratio: 1 / 1;
-    border-radius: 24px !important;
+    border-radius: 22px !important;
+  }
+
+  body.page-record .record-floating-timer-btn__icon {
+    width: 28px;
+    height: 28px;
   }
 
   body.page-record .record-floating-timer-btn::before {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
   }
 
   body.page-record .record-floating-timer-btn::after {
@@ -6391,11 +6492,13 @@ body.flex.row .modal-content {
   }
 
   body.page-record .record-output-surface {
-    padding-bottom: 96px;
+    padding-bottom: 32px;
   }
 
   body.controler-mobile-runtime.page-record.record-inline-editing .record-floating-timer-btn,
-  body.controler-mobile-runtime.controler-keyboard-open.page-record .record-floating-timer-btn {
+  body.controler-mobile-runtime.controler-keyboard-open.page-record .record-floating-timer-btn,
+  body.controler-android-native.page-record.record-inline-editing .record-floating-timer-btn,
+  body.controler-android-native.controler-keyboard-open.page-record .record-floating-timer-btn {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
@@ -6724,7 +6827,8 @@ body.flex.row .modal-content {
   }
 
 body.flex.row .controler-form-modal-overlay,
-body.controler-mobile-runtime .controler-form-modal-overlay {
+body.controler-mobile-runtime .controler-form-modal-overlay,
+body.controler-android-native .controler-form-modal-overlay {
   align-items: flex-start !important;
   --controler-modal-overlay-vertical-gap: 20px;
   min-height: var(
@@ -6747,7 +6851,8 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
 }
 
   body.flex.row .controler-form-modal,
-  body.controler-mobile-runtime .controler-form-modal {
+  body.controler-mobile-runtime .controler-form-modal,
+  body.controler-android-native .controler-form-modal {
     width: min(100%, 460px) !important;
     max-width: min(100%, 460px) !important;
     max-height: calc(
@@ -6759,15 +6864,40 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
     border-radius: 14px !important;
   }
 
+  body.controler-mobile-runtime .settings-theme-editor-modal,
+  body.controler-android-native .settings-theme-editor-modal {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px;
+    overflow: hidden !important;
+  }
+
+  body.controler-mobile-runtime
+    .settings-theme-editor-modal
+    .controler-form-modal-body,
+  body.controler-android-native
+    .settings-theme-editor-modal
+    .controler-form-modal-body {
+    gap: 16px !important;
+  }
+
   body.flex.row .plan-form-modal,
-  body.controler-mobile-runtime .plan-form-modal {
+  body.controler-mobile-runtime .plan-form-modal,
+  body.controler-android-native .plan-form-modal {
     width: min(100%, 560px) !important;
     max-width: min(100%, 560px) !important;
   }
 
-  body.controler-mobile-runtime .plan-detail-modal {
-    width: min(100%, calc(100vw - 24px)) !important;
-    max-width: min(100%, calc(100vw - 24px)) !important;
+  body.controler-mobile-runtime .plan-detail-modal,
+  body.controler-android-native .plan-detail-modal {
+    width: min(
+      100%,
+      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    ) !important;
+    max-width: min(
+      100%,
+      calc(var(--controler-modal-overlay-width, 100vw) - 24px)
+    ) !important;
     padding: 16px !important;
     gap: 16px;
   }
@@ -6775,7 +6905,9 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   body.flex.row .controler-form-modal .controler-form-modal-split,
   body.flex.row .controler-form-modal .modal-date-range,
   body.controler-mobile-runtime .controler-form-modal .controler-form-modal-split,
-  body.controler-mobile-runtime .controler-form-modal .modal-date-range {
+  body.controler-mobile-runtime .controler-form-modal .modal-date-range,
+  body.controler-android-native .controler-form-modal .controler-form-modal-split,
+  body.controler-android-native .controler-form-modal .modal-date-range {
     flex-direction: column;
     flex-wrap: nowrap !important;
     gap: 10px !important;
@@ -6783,12 +6915,9 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
 
   body.flex.row .controler-form-modal .controler-form-modal-time-range,
   body.flex.row .controler-form-modal .controler-form-modal-date-range,
-  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-time-range {
-    flex-direction: row !important;
-    align-items: flex-start;
-  }
-
-  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-date-range {
+  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-time-range,
+  body.controler-android-native .controler-form-modal .controler-form-modal-time-range,
+  body.controler-android-native .controler-form-modal .controler-form-modal-date-range {
     flex-direction: row !important;
     align-items: flex-start;
   }
@@ -6798,12 +6927,16 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   body.controler-mobile-runtime
     .controler-form-modal
     .controler-form-modal-time-range
-    > div {
-    flex: 1 1 0;
-    min-width: 0 !important;
-  }
-
+    > div,
   body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-date-range
+    > div,
+  body.controler-android-native
+    .controler-form-modal
+    .controler-form-modal-time-range
+    > div,
+  body.controler-android-native
     .controler-form-modal
     .controler-form-modal-date-range
     > div {
@@ -6812,36 +6945,43 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   }
 
   body.flex.row .controler-form-modal .modal-date-field,
-  body.controler-mobile-runtime .controler-form-modal .modal-date-field {
+  body.controler-mobile-runtime .controler-form-modal .modal-date-field,
+  body.controler-android-native .controler-form-modal .modal-date-field {
     flex: 1 1 auto;
     min-width: 0 !important;
   }
 
   body.flex.row .controler-form-modal .modal-date-field label,
-  body.controler-mobile-runtime .controler-form-modal .modal-date-field label {
+  body.controler-mobile-runtime .controler-form-modal .modal-date-field label,
+  body.controler-android-native .controler-form-modal .modal-date-field label {
     font-size: 12px !important;
   }
 
   body.flex.row .controler-form-modal .modal-date-input,
-  body.controler-mobile-runtime .controler-form-modal .modal-date-input {
+  body.controler-mobile-runtime .controler-form-modal .modal-date-input,
+  body.controler-android-native .controler-form-modal .modal-date-input {
     padding: 8px 10px !important;
     font-size: 13px !important;
   }
 
   body.flex.row .controler-form-modal .controler-form-modal-footer,
   body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer,
+  body.controler-android-native .controler-form-modal .controler-form-modal-footer,
   body.flex.row .controler-form-modal .controler-form-modal-footer-actions,
-  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer-actions {
+  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer-actions,
+  body.controler-android-native .controler-form-modal .controler-form-modal-footer-actions {
     width: 100%;
   }
 
   body.flex.row .controler-form-modal .controler-form-modal-footer-actions,
-  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer-actions {
+  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer-actions,
+  body.controler-android-native .controler-form-modal .controler-form-modal-footer-actions {
     justify-content: stretch;
   }
 
   body.flex.row .controler-form-modal .controler-form-modal-footer .bts,
-  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer .bts {
+  body.controler-mobile-runtime .controler-form-modal .controler-form-modal-footer .bts,
+  body.controler-android-native .controler-form-modal .controler-form-modal-footer .bts {
     flex: 1 1 140px;
     min-width: 0;
   }
@@ -6850,6 +6990,9 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
     .controler-form-modal
     .controler-form-modal-footer.controler-form-modal-footer-inline,
   body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline,
+  body.controler-android-native
     .controler-form-modal
     .controler-form-modal-footer.controler-form-modal-footer-inline {
     flex-wrap: nowrap;
@@ -6860,6 +7003,10 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
     .controler-form-modal-footer.controler-form-modal-footer-inline
     .controler-form-modal-footer-actions,
   body.controler-mobile-runtime
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
+    .controler-form-modal-footer-actions,
+  body.controler-android-native
     .controler-form-modal
     .controler-form-modal-footer.controler-form-modal-footer-inline
     .controler-form-modal-footer-actions {
@@ -6877,20 +7024,78 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   body.controler-mobile-runtime
     .controler-form-modal
     .controler-form-modal-footer.controler-form-modal-footer-inline
+    .bts,
+  body.controler-android-native
+    .controler-form-modal
+    .controler-form-modal-footer.controler-form-modal-footer-inline
     .bts {
     flex: 0 1 auto;
     min-width: 0;
     white-space: nowrap;
   }
 
+  body.controler-mobile-runtime
+    .todo-form-modal-footer.controler-form-modal-footer-inline,
+  body.controler-android-native
+    .todo-form-modal-footer.controler-form-modal-footer-inline {
+    flex-wrap: wrap;
+  }
+
+  body.controler-mobile-runtime
+    .todo-form-modal-footer.controler-form-modal-footer-inline
+    .controler-form-modal-footer-actions,
+  body.controler-android-native
+    .todo-form-modal-footer.controler-form-modal-footer-inline
+    .controler-form-modal-footer-actions {
+    width: 100%;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  body.controler-mobile-runtime
+    .todo-form-modal-footer.controler-form-modal-footer-inline
+    .bts,
+  body.controler-android-native
+    .todo-form-modal-footer.controler-form-modal-footer-inline
+    .bts {
+    flex: 1 1 140px;
+    white-space: normal;
+  }
+
+  body.flex.row .timer-session-modal .controler-form-modal-footer-actions,
+  body.controler-mobile-runtime
+    .timer-session-modal
+    .controler-form-modal-footer-actions,
+  body.controler-android-native
+    .timer-session-modal
+    .controler-form-modal-footer-actions {
+    width: auto;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+
+  body.flex.row .timer-session-modal .controler-form-modal-footer .bts,
+  body.controler-mobile-runtime .timer-session-modal .controler-form-modal-footer .bts,
+  body.controler-android-native .timer-session-modal .controler-form-modal-footer .bts {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
   body.flex.row .plan-form-modal .plan-form-modal-footer,
-  body.controler-mobile-runtime .plan-form-modal .plan-form-modal-footer {
+  body.controler-mobile-runtime .plan-form-modal .plan-form-modal-footer,
+  body.controler-android-native .plan-form-modal .plan-form-modal-footer {
     align-items: center;
     flex-wrap: nowrap !important;
   }
 
   body.flex.row .plan-form-modal .plan-form-modal-footer-actions,
-  body.controler-mobile-runtime .plan-form-modal .plan-form-modal-footer-actions {
+  body.controler-mobile-runtime .plan-form-modal .plan-form-modal-footer-actions,
+  body.controler-android-native .plan-form-modal .plan-form-modal-footer-actions {
     width: auto !important;
     flex: 0 1 auto !important;
     flex-wrap: nowrap !important;
@@ -6899,14 +7104,17 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
   }
 
   body.flex.row .plan-detail-modal .plan-detail-modal-actions,
-  body.controler-mobile-runtime .plan-detail-modal .plan-detail-modal-actions {
+  body.controler-mobile-runtime .plan-detail-modal .plan-detail-modal-actions,
+  body.controler-android-native .plan-detail-modal .plan-detail-modal-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   body.flex.row .plan-detail-modal .plan-detail-modal-actions .bts,
   body.controler-mobile-runtime .plan-detail-modal .plan-detail-modal-actions .bts,
+  body.controler-android-native .plan-detail-modal .plan-detail-modal-actions .bts,
   body.flex.row .plan-detail-modal .plan-detail-modal-close,
-  body.controler-mobile-runtime .plan-detail-modal .plan-detail-modal-close {
+  body.controler-mobile-runtime .plan-detail-modal .plan-detail-modal-close,
+  body.controler-android-native .plan-detail-modal .plan-detail-modal-close {
     padding: 10px 10px;
     font-size: 13px;
   }
@@ -7024,7 +7232,10 @@ body.controler-mobile-runtime .controler-form-modal-overlay {
     min-height: 0 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding:
+      0
+      var(--page-shell-inline-gap)
+      calc(var(--page-shell-block-gap) + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   body.page-settings .settings-card + .settings-card {
@@ -7069,6 +7280,46 @@ body.page-settings .settings-card--language {
 
 body.page-settings .settings-card--widgets {
   z-index: auto;
+}
+
+body.controler-mobile-runtime.page-settings .settings-main,
+body.controler-android-native.page-settings .settings-main,
+body.controler-mobile-runtime.page-settings .settings-card,
+body.controler-android-native.page-settings .settings-card,
+body.controler-mobile-runtime.page-settings .settings-card-content,
+body.controler-android-native.page-settings .settings-card-content {
+  touch-action: pan-y;
+}
+
+body.controler-mobile-runtime.page-settings
+  :is(
+    .theme-selector,
+    .theme-option,
+    .theme-option-action,
+    .widget-action-card,
+    .widget-action-card-button,
+    .settings-collapse-toggle,
+    .settings-nav-toggle,
+    .settings-nav-toggle-check,
+    #table-size-items,
+    #desktop-widget-settings,
+    #widget-type-grid
+  ),
+body.controler-android-native.page-settings
+  :is(
+    .theme-selector,
+    .theme-option,
+    .theme-option-action,
+    .widget-action-card,
+    .widget-action-card-button,
+    .settings-collapse-toggle,
+    .settings-nav-toggle,
+    .settings-nav-toggle-check,
+    #table-size-items,
+    #desktop-widget-settings,
+    #widget-type-grid
+  ) {
+  touch-action: pan-y !important;
 }
 
 body.page-settings
@@ -7237,8 +7488,8 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
   }
 
   body.page-settings .theme-editor-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 8px;
   }
 
   body.page-settings .theme-editor-row {
@@ -7580,25 +7831,6 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
     -webkit-backdrop-filter: none !important;
   }
 
-  body.controler-android-native.page-settings .settings-main {
-    contain: layout paint style;
-    will-change: scroll-position;
-  }
-
-  body.page-record .project-item,
-  body.page-record .record-item {
-    padding: 6px !important;
-    border-radius: 8px !important;
-    font-size: 11px !important;
-  }
-
-  body.page-record .record-item .project-name,
-  body.page-record .record-item .record-spendtime,
-  body.page-record .record-item .record-time,
-  body.page-record .record-item .record-action-btn,
-  body.page-record .record-item .record-name-input {
-    font-size: 11px !important;
-  }
 }
 
 @keyframes mobileSceneRise {
@@ -7668,11 +7900,11 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
   }
 }
 
-[data-theme="ivory-light"] ::-webkit-scrollbar-thumb {
+:root[data-theme="ivory-light"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
-[data-theme="graphite-mist"] ::-webkit-scrollbar-thumb {
+:root[data-theme="graphite-mist"] ::-webkit-scrollbar-thumb {
   background: var(--accent-color);
 }
 
@@ -8112,13 +8344,41 @@ body.controler-android-native.page-settings .settings-collapse-toggle {
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-grid.settings-nav-grid--android-touch {
   touch-action: pan-y;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 6px !important;
 }
 
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle {
   touch-action: pan-y;
+  min-height: 62px !important;
+  padding: 8px !important;
+  gap: 5px !important;
+  border-radius: 12px !important;
   outline: none !important;
   -webkit-tap-highlight-color: transparent !important;
   -webkit-touch-callout: none;
+}
+
+body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle-header {
+  gap: 4px !important;
+}
+
+body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle-title {
+  font-size: 10px !important;
+  line-height: 1.15 !important;
+}
+
+body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle-status {
+  font-size: 8px !important;
+  padding: 2px 5px !important;
+}
+
+body.controler-android-native.page-settings
+  .settings-card--navigation
+  .settings-nav-toggle-description,
+body.controler-android-native.page-settings .settings-card--navigation .settings-inline-note {
+  font-size: 9px !important;
+  line-height: 1.22 !important;
+  -webkit-line-clamp: 1 !important;
 }
 
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle:focus,
@@ -8136,6 +8396,10 @@ body.controler-android-native.page-settings .settings-card--navigation .settings
 }
 
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle-check {
+  min-height: 24px !important;
+  padding: 4px 8px !important;
+  border-radius: 8px !important;
+  font-size: 9px !important;
   -webkit-tap-highlight-color: transparent !important;
   -webkit-touch-callout: none;
 }
@@ -9477,7 +9741,6 @@ body :is(.existing-projects) {
 }
 
 body.page-settings :is(
-    .theme-option,
     .theme-editor-row,
     .table-size-card,
     .widget-action-card,
@@ -9574,7 +9837,10 @@ body.page-record .existing-projects .project-option.selected {
 
 /* 共享页宽：顶部条、内容主体、设置卡片统一横向约束 */
 body .app-main > :is(.page-topbar, .guide-card-host, .page-shell, .settings-card) {
-  width: min(calc(100% - 40px), var(--page-shell-max-width)) !important;
+  width: min(
+    calc(100% - (var(--page-shell-inline-gap) * 2)),
+    var(--page-shell-max-width)
+  ) !important;
   max-width: var(--page-shell-max-width) !important;
   box-sizing: border-box !important;
   margin-left: auto !important;
@@ -9602,7 +9868,7 @@ body .guide-card-host {
 
 body .page-shell {
   margin-top: 0 !important;
-  margin-bottom: 20px !important;
+  margin-bottom: var(--page-shell-block-gap) !important;
 }
 
 body.flex.row > div:first-of-type > .app-sidebar-spacer {
@@ -9821,8 +10087,13 @@ body.page-settings
 }
 
 @media (max-width: 760px) {
-  body .app-main > :is(.page-topbar, .guide-card-host, .page-shell, .settings-card) {
-    width: calc(100% - 12px) !important;
+  body {
+    --page-shell-inline-gap: 6px;
+    --page-shell-block-gap: 0px;
+  }
+
+  body.page-settings {
+    --page-shell-inline-gap: 2px;
   }
 
   body .page-topbar {
@@ -9833,7 +10104,7 @@ body.page-settings
 
   body .guide-card-host,
   body .page-shell {
-    margin-bottom: 6px !important;
+    margin-bottom: 0 !important;
   }
 
   body.page-settings .settings-card {

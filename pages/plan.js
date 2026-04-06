@@ -1245,14 +1245,26 @@ function getPlanWidgetTitle(kind = "") {
   }
 }
 
+function isPlanListWidgetKind(kind = PLAN_WIDGET_CONTEXT.kind) {
+  return kind === "todos" || kind === "checkins";
+}
+
 function applyPlanDesktopWidgetMode() {
   if (!PLAN_WIDGET_CONTEXT.enabled) {
     return;
   }
 
+  const isListWidget = isPlanListWidgetKind();
+  document.body.classList.remove(
+    "desktop-widget-plan-page--calendar",
+    "desktop-widget-plan-page--list",
+  );
   document.body.classList.add(
     "desktop-widget-page",
     "desktop-widget-plan-page",
+    isListWidget
+      ? "desktop-widget-plan-page--list"
+      : "desktop-widget-plan-page--calendar",
   );
   document.body.dataset.widgetKind = PLAN_WIDGET_CONTEXT.kind || "week-view";
   document.title = localizePlanUiText(
@@ -1281,27 +1293,65 @@ function applyPlanDesktopWidgetMode() {
         min-height: 0 !important;
         height: 100vh !important;
         box-sizing: border-box;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+      }
+
+      body.desktop-widget-plan-page--list .plan-main {
         overflow: hidden !important;
+      }
+
+      body.desktop-widget-plan-page .planner-shell {
+        display: flex !important;
+        flex: 0 0 auto !important;
+        flex-direction: column !important;
+        min-height: auto !important;
+        height: auto !important;
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        overflow: visible !important;
+      }
+
+      body.desktop-widget-plan-page--list .planner-shell {
+        flex: 1 1 auto !important;
+        overflow: hidden !important;
+      }
+
+      body.desktop-widget-plan-page .page-shell-heading {
+        flex: 0 0 auto !important;
       }
 
       body.desktop-widget-plan-page #planner-dashboard {
         display: flex !important;
-        flex: 1 1 auto !important;
-        align-items: stretch !important;
-        min-height: 0 !important;
-        height: 100% !important;
+        flex: 0 0 auto !important;
+        align-items: flex-start !important;
+        min-height: auto !important;
+        height: auto !important;
         padding: 0 !important;
         gap: 12px !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.92fr) !important;
+      }
+
+      body.desktop-widget-plan-page--list #planner-dashboard {
+        flex: 1 1 auto !important;
+        align-items: stretch !important;
+        overflow: hidden !important;
       }
 
       body.desktop-widget-plan-page .planner-panel {
         display: flex !important;
-        flex: 1 1 0 !important;
+        flex: 0 0 auto !important;
         flex-direction: column !important;
         min-width: 0 !important;
-        min-height: 0 !important;
+        min-height: auto !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+
+      body.desktop-widget-plan-page--list .planner-panel {
+        flex: 1 1 0 !important;
         height: 100% !important;
         overflow: hidden !important;
       }
@@ -1322,12 +1372,29 @@ function applyPlanDesktopWidgetMode() {
       body.desktop-widget-plan-page #todo-list-container,
       body.desktop-widget-plan-page #todo-quadrant-container,
       body.desktop-widget-plan-page #checkin-list-container {
-        min-height: 0 !important;
+        min-height: auto !important;
       }
 
       body.desktop-widget-plan-page #stats-container {
-        flex: 1 1 auto !important;
+        flex: 0 0 auto !important;
         height: auto !important;
+        overflow: visible !important;
+      }
+
+      body.desktop-widget-plan-page--list .planner-shell,
+      body.desktop-widget-plan-page--list #planner-dashboard,
+      body.desktop-widget-plan-page--list .planner-panel,
+      body.desktop-widget-plan-page--list #stats-container,
+      body.desktop-widget-plan-page--list #todo-panel-anchor,
+      body.desktop-widget-plan-page--list .todo-panel-stack,
+      body.desktop-widget-plan-page--list #todo-list-container,
+      body.desktop-widget-plan-page--list #todo-quadrant-container,
+      body.desktop-widget-plan-page--list #checkin-list-container {
+        min-height: 0 !important;
+      }
+
+      body.desktop-widget-plan-page--list #stats-container {
+        flex: 1 1 auto !important;
         overflow: auto !important;
         overscroll-behavior: contain;
       }
@@ -1374,25 +1441,16 @@ function applyPlanDesktopWidgetMode() {
     document.head.appendChild(style);
   }
 
-  const dashboard = document.getElementById("planner-dashboard");
   const plansPanel = document.querySelector(".planner-panel--plans");
   const todoPanel = document.getElementById("todo-panel-anchor");
 
-  if (dashboard instanceof HTMLElement) {
-    dashboard.style.display = "flex";
-    dashboard.style.height = "100%";
-    dashboard.style.minHeight = "0";
-    dashboard.style.padding = "0";
-    dashboard.style.overflow = "hidden";
-  }
-
-  if (["todos", "checkins"].includes(PLAN_WIDGET_CONTEXT.kind)) {
+  if (isListWidget) {
     if (plansPanel instanceof HTMLElement) {
       plansPanel.style.display = "none";
     }
     if (todoPanel instanceof HTMLElement) {
       todoPanel.style.display = "flex";
-      todoPanel.style.height = "100%";
+      todoPanel.style.removeProperty("height");
     }
     window.location.hash = "#todo-panel-anchor";
     window.__controlerPlannerMobilePanel = "todos";
@@ -1403,10 +1461,11 @@ function applyPlanDesktopWidgetMode() {
 
   if (plansPanel instanceof HTMLElement) {
     plansPanel.style.display = "flex";
-    plansPanel.style.height = "100%";
+    plansPanel.style.removeProperty("height");
   }
   if (todoPanel instanceof HTMLElement) {
     todoPanel.style.display = "none";
+    todoPanel.style.removeProperty("height");
   }
 }
 
