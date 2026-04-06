@@ -6112,9 +6112,7 @@ function createPlanTimelineBlock(
   block.style.cursor = "pointer";
   block.style.backdropFilter = "blur(10px) saturate(120%)";
   block.style.webkitBackdropFilter = "blur(10px) saturate(120%)";
-  block.style.boxShadow = planCompleted
-    ? "0 8px 18px rgba(0,0,0,0.16)"
-    : "0 12px 24px rgba(0,0,0,0.22)";
+  block.style.boxShadow = "var(--controler-perf-surface-shadow)";
   block.style.zIndex = "10";
   block.style.opacity = planCompleted ? "0.92" : "1";
 
@@ -6141,13 +6139,13 @@ function createPlanTimelineBlock(
   // 悬停效果
   block.addEventListener("mouseenter", function () {
     this.style.transform = "scale(1.02)";
-    this.style.boxShadow = "0 4px 8px rgba(0,0,0,0.3)";
+    this.style.boxShadow = "var(--controler-perf-surface-shadow)";
     this.style.zIndex = "20";
   });
 
   block.addEventListener("mouseleave", function () {
     this.style.transform = "scale(1)";
-    this.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+    this.style.boxShadow = "var(--controler-perf-surface-shadow)";
     this.style.zIndex = "10";
   });
 
@@ -6286,6 +6284,12 @@ function renderWeeklyGridView(container) {
   timeColumn.style.width = `${timeColumnWidth}px`;
   timeColumn.style.flexShrink = "0";
   timeColumn.style.backgroundColor = "transparent";
+  const timeColumnBottomInset = Math.max(
+    4,
+    Math.round(Math.max(slotHeight, 24) * 0.12),
+  );
+  timeColumn.style.paddingBottom = `${timeColumnBottomInset}px`;
+  timeColumn.style.boxSizing = "border-box";
 
   const headerSpacer = document.createElement("div");
   headerSpacer.className = "weekly-glass-header-cell";
@@ -6304,12 +6308,12 @@ function renderWeeklyGridView(container) {
     slot.style.display = "flex";
     slot.style.alignItems = "center";
     slot.style.justifyContent = "center";
-    slot.style.padding = compactMobile ? "0 2px" : "0 3px";
+    slot.style.padding = compactMobile ? "0 2px 1px" : "0 3px 1px";
     slot.style.color = "var(--text-color)";
     slot.style.fontSize = `${timeLabelFont}px`;
-    slot.style.lineHeight = "1.05";
+    slot.style.lineHeight = "1.16";
     slot.style.boxSizing = "border-box";
-    slot.style.overflow = "hidden";
+    slot.style.overflow = "visible";
     slot.style.whiteSpace = "nowrap";
     slot.style.textOverflow = "ellipsis";
     slot.textContent = `${hour.toString().padStart(2, "0")}:00`;
@@ -6325,6 +6329,7 @@ function renderWeeklyGridView(container) {
   daysGrid.style.width = `${dateGridWidth}px`;
   daysGrid.style.minWidth = `${dateGridWidth}px`;
   daysGrid.style.boxSizing = "border-box";
+  daysGrid.style.paddingBottom = `${timeColumnBottomInset}px`;
 
   const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
   for (let i = 0; i < 7; i++) {

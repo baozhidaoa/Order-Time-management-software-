@@ -645,7 +645,7 @@
 
       .plan-calendar-content-card {
         resize: none;
-        overflow: visible;
+        overflow: hidden;
         min-height: auto !important;
         min-width: 0;
         width: 100%;
@@ -658,9 +658,7 @@
           linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
           color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
         border: 1px solid color-mix(in srgb, var(--panel-border-color) 58%, transparent);
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.05),
-          0 16px 30px rgba(0, 0, 0, 0.12);
+        box-shadow: none;
         border-radius: 20px;
         padding: 16px;
       }
@@ -734,7 +732,7 @@
         display: flex;
         flex-direction: column;
         min-height: auto !important;
-        overflow: visible !important;
+        overflow: hidden !important;
       }
 
       @media (min-width: 691px) {
@@ -872,11 +870,16 @@
 
         body.page-plan .planner-dashboard,
         body.page-plan .planner-dashboard .planner-panel,
-        body.page-plan #stats-container,
+        body.page-plan #stats-container {
+          max-height: none !important;
+          overflow-y: visible !important;
+          contain: none !important;
+        }
+
         body.page-plan #calendar-content,
         body.page-plan .plan-calendar-content-card {
           max-height: none !important;
-          overflow-y: visible !important;
+          overflow-y: hidden !important;
           contain: none !important;
         }
 

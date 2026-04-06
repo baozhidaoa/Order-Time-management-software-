@@ -23145,10 +23145,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     modal.classList.add("modal-overlay");
     modal.dataset.controlerOverlayScope = scopeToContent ? "content" : "viewport";
     modal.style.position = scopeToContent ? "absolute" : "fixed";
-    modal.style.top = "0";
-    modal.style.left = "0";
-    modal.style.right = "0";
-    modal.style.bottom = "0";
     modal.style.inset = "0";
     modal.style.width = scopeToContent ? "auto" : viewportOverlayWidthValue;
     modal.style.minHeight = scopeToContent

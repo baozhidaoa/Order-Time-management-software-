@@ -3550,21 +3550,41 @@ function updateThemeSelector(selectedThemeId) {
 
     const previewNav = document.createElement("div");
     previewNav.className = "theme-preview-nav";
-    previewNav.style.background = resolvedColors.navBarBg;
-    previewNav.style.borderColor = `color-mix(in srgb, ${resolvedColors.panelBorder} 48%, transparent)`;
-    const previewNavButtonBg = `color-mix(in srgb, ${resolvedColors.navButtonBg} 72%, ${resolvedColors.panel} 28%)`;
-    const previewNavButtonBorder = `color-mix(in srgb, ${resolvedColors.panelBorder} 70%, ${resolvedColors.accent} 30%)`;
-    const previewNavButtonActiveBorder = `color-mix(in srgb, ${resolvedColors.panelBorder} 36%, ${resolvedColors.navButtonActiveBg} 64%)`;
+    previewNav.style.background = `color-mix(in srgb, ${resolvedColors.navBarBg} 68%, ${resolvedColors.panel} 32%)`;
+    previewNav.style.borderColor = `color-mix(in srgb, ${resolvedColors.panelBorder} 72%, ${resolvedColors.navButtonBg} 28%)`;
+    previewNav.style.boxShadow = `
+      inset 0 1px 0 color-mix(in srgb, ${resolvedColors.panel} 18%, transparent),
+      inset 1px 0 0 color-mix(in srgb, ${resolvedColors.panel} 10%, transparent),
+      inset -1px 0 0 color-mix(in srgb, ${resolvedColors.navBarBg} 16%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, ${resolvedColors.navBarBg} 22%, transparent),
+      0 7px 15px rgba(0, 0, 0, 0.1)
+    `;
+    const previewNavButtonBg = `transparent`;
+    const previewNavButtonActiveBg = `color-mix(in srgb, ${resolvedColors.navButtonActiveBg} 42%, ${resolvedColors.panel} 58%)`;
 
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const navItem = document.createElement("span");
-      navItem.className = `theme-preview-nav-item ${index === 1 ? "is-active" : ""}`;
+      const isActive = index === 2;
+      navItem.className = `theme-preview-nav-item ${isActive ? "is-active" : ""}`;
       navItem.style.background =
-        index === 1 ? resolvedColors.navButtonActiveBg : previewNavButtonBg;
-      navItem.style.borderColor =
-        index === 1 ? previewNavButtonActiveBorder : previewNavButtonBorder;
+        isActive ? previewNavButtonActiveBg : previewNavButtonBg;
+      navItem.style.margin = isActive ? "2px" : "0";
+      navItem.style.borderRadius = isActive ? "8px" : "0";
+      navItem.style.borderColor = "transparent";
       navItem.style.color =
-        index === 1 ? resolvedColors.navButtonActiveText : resolvedColors.mutedText;
+        isActive
+          ? resolvedColors.navButtonActiveText
+          : `color-mix(in srgb, ${resolvedColors.mutedText} 78%, ${resolvedColors.navButtonActiveText} 22%)`;
+      navItem.style.boxShadow = isActive
+        ? `
+            inset 0 0 0 1px color-mix(in srgb, ${resolvedColors.panelBorder} 74%, ${resolvedColors.navButtonBg} 26%),
+            inset 0 1px 0 color-mix(in srgb, ${resolvedColors.navButtonBg} 12%, transparent),
+            inset 1px 0 0 color-mix(in srgb, ${resolvedColors.panel} 10%, transparent),
+            inset -1px 0 0 color-mix(in srgb, ${resolvedColors.navBarBg} 16%, transparent),
+            inset 0 -1px 0 color-mix(in srgb, ${resolvedColors.navBarBg} 22%, transparent),
+            0 2px 6px rgba(0, 0, 0, 0.04)
+          `
+        : "none";
       previewNav.appendChild(navItem);
     }
 
@@ -4176,8 +4196,16 @@ function showThemeEditorModal(theme = null) {
       );
       if (!confirmed) return;
 
-      await resetBuiltInThemeOverride(theme.id);
       closeModal();
+      try {
+        await resetBuiltInThemeOverride(theme.id);
+      } catch (error) {
+        console.error("恢复默认主题失败:", error);
+        await showSettingsAlert("恢复默认失败，请稍后重试。", {
+          title: "恢复失败",
+          danger: true,
+        });
+      }
     });
 
   prepareSettingsModalOverlayElement(modal);

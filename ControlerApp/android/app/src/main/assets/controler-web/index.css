@@ -674,10 +674,6 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   --controler-modal-overlay-inline-gap: 24px;
   --controler-modal-overlay-vertical-gap: 24px;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
   inset: 0;
   width: 100vw;
   min-height: var(--controler-stable-visual-viewport-height, 100dvh);
@@ -841,10 +837,6 @@ body.controler-android-native .modal-overlay {
     )
   );
   inset: 0 !important;
-  top: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  left: 0 !important;
   width: var(--controler-modal-overlay-width, 100vw) !important;
   min-width: var(--controler-modal-overlay-width, 100vw) !important;
   max-width: var(--controler-modal-overlay-width, 100vw) !important;
@@ -2201,21 +2193,22 @@ select optgroup {
 
 .theme-preview-nav {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  padding: 5px;
-  border-radius: 13px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  padding: 0;
+  border-radius: 11px;
   border: 1px solid transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  overflow: hidden;
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
 }
 
 .theme-preview-nav-item {
   display: block;
-  height: 17px;
-  border-radius: 8px;
+  height: 18px;
+  border-radius: 0;
   border: 1px solid transparent;
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .theme-preview-nav-item.is-active {
@@ -5927,9 +5920,11 @@ body.page-record .record-output-surface > * {
     width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
-    margin: 0 !important;
-    padding: 7px 10px 7px !important;
+    margin: -10px 0 0 !important;
+    padding: 0 !important;
     gap: 0 !important;
+    position: relative;
+    z-index: 4;
     background: transparent !important;
     border: none !important;
     backdrop-filter: none !important;
@@ -5943,30 +5938,33 @@ body.page-record .record-output-surface > * {
   body.flex.row > div:first-of-type > .app-nav {
     display: grid !important;
     grid-template-columns: repeat(var(--nav-visible-count, 6), minmax(0, 1fr));
-    gap: 5px;
+    gap: 0;
     width: 100%;
     flex: none !important;
     margin: 0 !important;
-    padding: 1px 6px calc(2px + env(safe-area-inset-bottom, 0px));
-    border-radius: 16px;
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.06),
-        rgba(255, 255, 255, 0.01)
-      ),
-      color-mix(in srgb, var(--bottom-nav-bg) 92%, transparent);
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    border-radius: 17px;
+    background: color-mix(
+      in srgb,
+      var(--bottom-nav-bg) 68%,
+      var(--surface-panel) 32%
+    );
     border: 1px solid
       color-mix(
         in srgb,
-        var(--panel-border-color) 58%,
-        rgba(255, 255, 255, 0.08)
+        var(--surface-border-soft) 72%,
+        var(--bottom-nav-button-bg) 28%
       );
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.07),
-      0 -6px 18px rgba(0, 0, 0, 0.14);
-    backdrop-filter: blur(18px) saturate(120%);
-    -webkit-backdrop-filter: blur(18px) saturate(120%);
+      inset 0 1px 0 color-mix(in srgb, var(--surface-control) 18%, transparent),
+      inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
+      inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
+      0 10px 20px rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(20px) saturate(118%);
+    -webkit-backdrop-filter: blur(20px) saturate(118%);
+    overflow: hidden;
+    transform: translateY(-7px);
     transition:
       transform 0.22s ease,
       opacity 0.22s ease,
@@ -5991,38 +5989,34 @@ body.page-record .record-output-surface > * {
     width: 100%;
     min-width: 0;
     margin: 0 !important;
-    min-height: 48px;
-    padding: 7px 4px 8px !important;
-    border-radius: 12px;
+    min-height: 52px;
+    padding: 7px 2px 9px !important;
+    border-radius: 0;
     font-size: 10.4px !important;
     font-weight: 600;
     line-height: 1.1;
-    color: var(--app-nav-button-text);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.08),
-        rgba(255, 255, 255, 0.01)
-      ),
-      var(--app-nav-button-bg);
-    border: 1px solid var(--app-nav-button-border);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 3px 10px rgba(0, 0, 0, 0.08);
+    color: color-mix(
+      in srgb,
+      var(--muted-text-color) 78%,
+      var(--bottom-nav-active-text) 22%
+    );
+    background: transparent;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     outline: none !important;
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
-    backdrop-filter: blur(14px) saturate(115%);
-    -webkit-backdrop-filter: blur(14px) saturate(115%);
-  transition:
-      transform 0.18s ease,
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition:
       background 0.18s ease,
-      border-color 0.18s ease,
+      color 0.18s ease,
       box-shadow 0.18s ease,
       opacity 0.18s ease;
   }
@@ -6035,19 +6029,13 @@ body.page-record .record-output-surface > * {
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts:hover {
-    transform: none;
-    color: var(--app-nav-button-hover-text);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.1),
-        rgba(255, 255, 255, 0.02)
-      ),
-      var(--app-nav-button-hover-bg);
-    border-color: var(--app-nav-button-hover-border);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 4px 12px rgba(0, 0, 0, 0.1);
+    color: color-mix(in srgb, var(--text-color) 72%, var(--bottom-nav-active-text) 28%);
+    background: color-mix(
+      in srgb,
+      var(--surface-control) 42%,
+      transparent
+    );
+    box-shadow: none;
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts::before,
@@ -6058,11 +6046,11 @@ body.page-record .record-output-surface > * {
 
   body.flex.row > div:first-of-type > .app-nav .bts .app-nav-icon {
     display: inline-flex;
-    width: 15px;
-    height: 15px;
-    min-width: 15px;
-    min-height: 15px;
-    flex: 0 0 15px;
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    flex: 0 0 14px;
     align-items: center;
     justify-content: center;
     line-height: 0;
@@ -6071,9 +6059,9 @@ body.page-record .record-output-surface > * {
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts .app-nav-icon-svg {
-    width: 15px;
-    height: 15px;
-    flex: 0 0 15px;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
     display: block;
   }
 
@@ -6083,7 +6071,7 @@ body.page-record .record-output-surface > * {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.2px;
+    font-size: 9.8px;
     line-height: 1.08;
     opacity: 1;
   }
@@ -6093,21 +6081,24 @@ body.page-record .record-output-surface > * {
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
-    position: relative;
-    z-index: 1;
-    transform: translateY(-3px);
     color: var(--app-nav-button-active-text);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.08),
-        rgba(255, 255, 255, 0.01)
-      ),
-      var(--app-nav-button-active-bg);
-    border-color: var(--app-nav-button-active-border);
+    border-radius: 13px;
+    background: color-mix(
+      in srgb,
+      var(--bottom-nav-button-active-bg) 42%,
+      var(--surface-control) 58%
+    );
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 10px 18px rgba(0, 0, 0, 0.18);
+      inset 0 0 0 1px color-mix(
+        in srgb,
+        var(--surface-border-soft) 74%,
+        var(--bottom-nav-button-bg) 26%
+      ),
+      inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 12%, transparent),
+      inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
+      inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
+      0 4px 8px rgba(0, 0, 0, 0.04);
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] .app-nav-icon,
@@ -6120,71 +6111,43 @@ body.page-record .record-output-surface > * {
   }
 
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:active {
-    transform: translateY(0.5px) scale(0.985);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.06),
-        rgba(255, 255, 255, 0.01)
-      ),
-      color-mix(in srgb, var(--bottom-nav-button-active-bg) 92%, transparent);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 2px 8px rgba(0, 0, 0, 0.08);
+    background: color-mix(in srgb, var(--bottom-nav-button-bg) 16%, transparent);
+    box-shadow: none;
   }
 
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::before,
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::after {
-    display: block !important;
-    content: "" !important;
+    display: none !important;
+    content: none !important;
   }
 
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts.is-android-press-active {
-    transform: translateY(0.5px) scale(0.985);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.06),
-        rgba(255, 255, 255, 0.01)
-      ),
-      color-mix(in srgb, var(--bottom-nav-button-active-bg) 92%, transparent);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 2px 8px rgba(0, 0, 0, 0.08);
+    background: color-mix(in srgb, var(--bottom-nav-button-bg) 16%, transparent);
+    box-shadow: none;
   }
 
   body.controler-android-native.flex.row
     > div:first-of-type
     > .app-nav
     .bts[aria-current="page"]:active {
-    transform: translateY(-1.5px) scale(0.985);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.06),
-        rgba(255, 255, 255, 0.01)
-      ),
-      color-mix(in srgb, var(--bottom-nav-button-active-bg) 92%, transparent);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 6px 12px rgba(0, 0, 0, 0.14);
+    background: color-mix(
+      in srgb,
+      var(--bottom-nav-button-active-bg) 78%,
+      var(--bottom-nav-bg) 22%
+    );
+    box-shadow: none;
   }
 
   body.controler-android-native.flex.row
     > div:first-of-type
     > .app-nav
     .bts[aria-current="page"].is-android-press-active {
-    transform: translateY(-1.5px) scale(0.985);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.06),
-        rgba(255, 255, 255, 0.01)
-      ),
-      color-mix(in srgb, var(--bottom-nav-button-active-bg) 92%, transparent);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 6px 12px rgba(0, 0, 0, 0.14);
+    background: color-mix(
+      in srgb,
+      var(--bottom-nav-button-active-bg) 78%,
+      var(--bottom-nav-bg) 22%
+    );
+    box-shadow: none;
   }
 
   body.flex.row > div:nth-of-type(2) {
@@ -6194,13 +6157,17 @@ body.page-record .record-output-surface > * {
     height: auto !important;
     min-height: 0 !important;
     margin: 0 !important;
+    position: relative;
+    z-index: 1;
     overflow-x: hidden !important;
     overflow-y: auto !important;
   }
 
   .app-main {
+    position: relative;
+    z-index: 1;
     border-radius: 18px;
-    padding-bottom: max(1px, calc(env(safe-area-inset-bottom, 0px) / 4));
+    padding-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) / 4));
   }
 
   .page-topbar {
@@ -8175,28 +8142,29 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav {
   align-items: stretch;
   contain: layout paint;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 -3px 10px rgba(0, 0, 0, 0.1);
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 24%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 38%, transparent),
+    0 18px 34px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(18px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
 }
 
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
   height: 48px;
   min-height: 48px;
   max-height: 48px;
-  padding: 6px 3px !important;
+  padding: 6px 1px !important;
   gap: 3px;
   flex-wrap: nowrap;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: none;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   outline: none !important;
   -webkit-tap-highlight-color: transparent !important;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease,
+    color 0.12s ease,
     box-shadow 0.12s ease,
     opacity 0.12s ease !important;
 }
@@ -8221,7 +8189,7 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus-visible,
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus-within {
   outline: none !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+  box-shadow: none !important;
   -webkit-focus-ring-color: transparent;
 }
 
@@ -8247,19 +8215,50 @@ body.controler-android-native.controler-android-nav-locked.flex.row > div:first-
 }
 
 body.controler-mobile-runtime.flex.row > div:first-of-type > .app-nav [data-nav-page] {
-  color: var(--bottom-nav-active-text) !important;
+  color: color-mix(
+    in srgb,
+    var(--muted-text-color) 78%,
+    var(--bottom-nav-active-text) 22%
+  ) !important;
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.08),
-      rgba(255, 255, 255, 0.01)
+      color-mix(in srgb, var(--bottom-nav-button-bg) 68%, transparent),
+      color-mix(in srgb, var(--bottom-nav-button-bg) 28%, transparent) 58%,
+      transparent
+    ) !important;
+  border-color: transparent !important;
+  border-top-color: transparent !important;
+  border-right-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.controler-mobile-runtime.flex.row
+  > div:first-of-type
+  > .app-nav
+  [data-nav-page][aria-current="page"] {
+  color: var(--app-nav-button-active-text) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--bottom-nav-button-active-bg) 82%,
+        var(--bottom-nav-button-bg) 18%
+      ),
+      color-mix(
+        in srgb,
+        var(--bottom-nav-button-active-bg) 62%,
+        var(--bottom-nav-bg) 38%
+      ) 72%
     ),
-    color-mix(in srgb, var(--bottom-nav-button-active-bg) 90%, transparent) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--bottom-nav-button-active-bg) 58%,
-    var(--panel-border-color)
-  ) !important;
+    color-mix(in srgb, var(--bottom-nav-button-active-bg) 84%, transparent) !important;
+  border-color: transparent !important;
+  border-top-color: transparent !important;
+  border-right-color: transparent !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-active-text) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 46%, transparent) !important;
 }
 
 body.controler-mobile-runtime.flex.row
@@ -9914,6 +9913,27 @@ body :is(.app-nav) {
   -webkit-backdrop-filter: none !important;
 }
 
+body.flex.row > div:first-of-type > .app-nav {
+  background: color-mix(
+    in srgb,
+    var(--bottom-nav-bg) 68%,
+    var(--surface-panel) 32%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--surface-border-soft) 72%,
+    var(--bottom-nav-button-bg) 28%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface-control) 18%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
+    0 10px 20px rgba(0, 0, 0, 0.12) !important;
+  backdrop-filter: blur(20px) saturate(118%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(118%) !important;
+}
+
 body :is(.page-control-card, .planner-panel, .todo-content-card, .todo-stats-shell, .guide-card),
 body.page-plan :is(.plan-calendar-content-card, .weekly-glass-shell),
 body.page-diary .diary-view-surface,
@@ -10082,27 +10102,48 @@ body.flex.row > div:first-of-type > .app-sidebar-spacer {
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts {
-  background: var(--app-nav-button-bg) !important;
-  background-image: none !important;
-  border-color: var(--app-nav-button-border) !important;
-  color: var(--app-nav-button-text) !important;
+  background: transparent !important;
+  border: 3px solid transparent !important;
+  background-clip: padding-box !important;
+  color: color-mix(
+    in srgb,
+    var(--muted-text-color) 78%,
+    var(--bottom-nav-active-text) 22%
+  ) !important;
   box-shadow: none !important;
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts:hover {
-  background: var(--app-nav-button-hover-bg) !important;
-  background-image: none !important;
-  border-color: var(--app-nav-button-hover-border) !important;
-  color: var(--app-nav-button-hover-text) !important;
+  background: color-mix(
+    in srgb,
+    var(--surface-control) 42%,
+    transparent
+  ) !important;
+  border-color: transparent !important;
+  color: color-mix(in srgb, var(--text-color) 72%, var(--bottom-nav-active-text) 28%) !important;
   box-shadow: none !important;
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
-  background: var(--app-nav-button-active-bg) !important;
-  background-image: none !important;
-  border-color: var(--app-nav-button-active-border) !important;
+  border-radius: 13px !important;
+  background: color-mix(
+    in srgb,
+    var(--bottom-nav-button-active-bg) 42%,
+    var(--surface-control) 58%
+  ) !important;
+  border-color: transparent !important;
   color: var(--app-nav-button-active-text) !important;
-  box-shadow: none !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(
+      in srgb,
+      var(--surface-border-soft) 74%,
+      var(--bottom-nav-button-bg) 26%
+    ),
+    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 12%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
+    0 4px 8px rgba(0, 0, 0, 0.04) !important;
 }
 
 body.page-record .record-create-project-btn {

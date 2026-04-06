@@ -11669,6 +11669,7 @@ async function handleIndexModalConfirmClick() {
         message: "正在写入新记录，请稍候后再切换页面。",
         delayMs: 0,
         lockNativeExit: false,
+        delegateToNative: false,
       });
       await waitForIndexUiPaint();
     }
