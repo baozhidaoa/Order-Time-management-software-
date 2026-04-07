@@ -33,7 +33,9 @@
     buttonBorder: "--button-border",
     onAccentText: "--on-accent-text",
     navBarBg: "--bottom-nav-bg",
+    navBarBorder: "--bottom-nav-border",
     navButtonBg: "--bottom-nav-button-bg",
+    navButtonText: "--bottom-nav-button-text",
     navButtonActiveBg: "--bottom-nav-button-active-bg",
     navButtonActiveText: "--bottom-nav-active-text",
     overlay: "--overlay-bg",
@@ -46,11 +48,14 @@
     "minimal-gray": "#1c2734",
     "obsidian-mono": "#0d0f12",
     "ivory-light": "#eceff3",
-    "graphite-mist": "#2a2d32",
+    "graphite-mist": "#121820",
     "aurora-mist": "#362226",
     "amethyst-haze": "#141826",
     "velvet-bordeaux": "#2f141d",
     "champagne-sandstone": "#f1ebe2",
+    "porcelain-mist": "#e8eff7",
+    "sage-cashmere": "#edf1ec",
+    "oyster-linen": "#f1eef6",
     "midnight-indigo": "#111722",
   });
 
@@ -245,14 +250,26 @@
 
   function resolveSelectedThemeState() {
     const windowNameThemeState = readWindowNameThemeState();
+    if (windowNameThemeState) {
+      return {
+        ...windowNameThemeState,
+        storageKeys: {
+          selectedTheme: "window-name",
+          customThemes: "window-name",
+          builtInThemeOverrides: "window-name",
+        },
+      };
+    }
+
     const selectedThemeEntry = readStorageEntry(SELECTED_THEME_STORAGE_KEY);
     const customThemesEntry = readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
     const builtInThemeOverridesEntry = readStorageEntry(
       BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
     );
-    const selectedThemeId = windowNameThemeState
-      ? windowNameThemeState.themeId
-      : readStringStorage(SELECTED_THEME_STORAGE_KEY, DEFAULT_THEME_ID);
+    const selectedThemeId = readStringStorage(
+      SELECTED_THEME_STORAGE_KEY,
+      DEFAULT_THEME_ID,
+    );
     const customThemes = parseJsonString(customThemesEntry.rawValue, []);
     const builtInThemeOverrides = parseJsonString(
       builtInThemeOverridesEntry.rawValue,
@@ -267,27 +284,22 @@
         : null;
     return {
       themeId: selectedThemeId,
-      colors: (windowNameThemeState && isPlainObject(windowNameThemeState.colors)
-        ? windowNameThemeState.colors
-        : null) ||
+      colors:
         (isPlainObject(matchedCustomTheme?.colors)
           ? matchedCustomTheme.colors
           : isPlainObject(builtInOverride?.colors)
             ? builtInOverride.colors
             : null),
-      recordCard: (windowNameThemeState && isPlainObject(windowNameThemeState.recordCard)
-        ? windowNameThemeState.recordCard
-        : null) ||
+      recordCard:
         (isPlainObject(matchedCustomTheme?.recordCard)
           ? matchedCustomTheme.recordCard
           : isPlainObject(builtInOverride?.recordCard)
             ? builtInOverride.recordCard
             : null),
-      source: windowNameThemeState
-        ? windowNameThemeState.source
-        : selectedThemeEntry.usedLocalMirror ||
-            customThemesEntry.usedLocalMirror ||
-            builtInThemeOverridesEntry.usedLocalMirror
+      source:
+        selectedThemeEntry.usedLocalMirror ||
+        customThemesEntry.usedLocalMirror ||
+        builtInThemeOverridesEntry.usedLocalMirror
           ? "electron-local-mirror"
           : "local-storage",
       storageKeys: {
@@ -325,6 +337,17 @@
           root.style.setProperty(cssVariableName, value.trim());
         }
       });
+      root.style.setProperty(
+        "--bottom-nav-border",
+        colors?.navBarBorder ||
+          colors?.panelBorder ||
+          colors?.border ||
+          `rgba(${toRgbChannels(colors?.accent || DEFAULT_ACCENT_COLOR)}, 0.44)`,
+      );
+      root.style.setProperty(
+        "--bottom-nav-button-text",
+        colors?.navButtonText || colors?.mutedText || colors?.text || DEFAULT_TEXT_COLOR,
+      );
     }
     if (isPlainObject(themeState.recordCard)) {
       if (typeof themeState.recordCard.mode === "string" && themeState.recordCard.mode.trim()) {

@@ -245,7 +245,9 @@ type ShellBootTheme = {
   text: string;
   mutedText: string;
   navBarBg: string;
+  navBarBorder: string;
   navButtonBg: string;
+  navButtonText: string;
   navButtonActiveBg: string;
   navButtonActiveText: string;
   indicatorBg: string;
@@ -275,7 +277,9 @@ type LaunchThemeColors = {
   buttonBorder: string;
   onAccentText: string;
   navBarBg: string;
+  navBarBorder: string;
   navButtonBg: string;
+  navButtonText: string;
   navButtonActiveBg: string;
   navButtonActiveText: string;
   overlay: string;
@@ -431,7 +435,9 @@ const DEFAULT_SHELL_BOOT_THEME: ShellBootTheme = {
   text: '#f4fff7',
   mutedText: 'rgba(244, 255, 247, 0.72)',
   navBarBg: 'rgba(11, 25, 17, 0.84)',
+  navBarBorder: 'rgba(111, 208, 141, 0.28)',
   navButtonBg: 'rgba(111, 208, 141, 0.12)',
+  navButtonText: 'rgba(244, 255, 247, 0.74)',
   navButtonActiveBg: 'rgba(98, 189, 125, 0.86)',
   navButtonActiveText: '#133120',
   indicatorBg: 'rgba(111, 208, 141, 0.14)',
@@ -565,25 +571,25 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     transitionOverlay: 'rgba(27, 31, 38, 0.18)',
   },
   'graphite-mist': {
-    screenBg: '#2a2d32',
-    cardBg: 'rgba(53, 57, 64, 0.78)',
-    cardBorder: 'rgba(224, 227, 234, 0.26)',
-    accent: '#f0f3fa',
-    buttonBg: '#f0f3fa',
-    buttonBgHover: '#ffffff',
-    buttonText: '#222832',
-    onAccentText: '#222832',
-    projectLevel1: '#d8dde7',
-    projectLevel2: '#aeb5c2',
-    projectLevel3: '#808897',
-    text: '#f8f9fc',
-    mutedText: 'rgba(248, 249, 252, 0.74)',
-    navBarBg: 'rgba(35, 39, 45, 0.88)',
-    navButtonBg: 'rgba(240, 243, 250, 0.12)',
-    navButtonActiveBg: 'rgba(124, 134, 149, 0.82)',
-    navButtonActiveText: '#f8f9fc',
-    indicatorBg: 'rgba(240, 243, 250, 0.14)',
-    transitionOverlay: 'rgba(20, 22, 26, 0.24)',
+    screenBg: '#121820',
+    cardBg: 'rgba(29, 37, 48, 0.82)',
+    cardBorder: 'rgba(186, 198, 214, 0.22)',
+    accent: '#c8d3df',
+    buttonBg: '#d5dee8',
+    buttonBgHover: '#e2e9f1',
+    buttonText: '#141a22',
+    onAccentText: '#141a22',
+    projectLevel1: '#bec9d7',
+    projectLevel2: '#8093a8',
+    projectLevel3: '#4a5d74',
+    text: '#f5f7fb',
+    mutedText: 'rgba(236, 241, 248, 0.72)',
+    navBarBg: 'rgba(13, 17, 23, 0.94)',
+    navButtonBg: 'rgba(186, 198, 214, 0.1)',
+    navButtonActiveBg: 'rgba(63, 77, 96, 0.92)',
+    navButtonActiveText: '#f5f7fb',
+    indicatorBg: 'rgba(186, 198, 214, 0.14)',
+    transitionOverlay: 'rgba(6, 9, 13, 0.34)',
   },
   'aurora-mist': {
     screenBg: '#362226',
@@ -669,6 +675,69 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
     indicatorBg: 'rgba(139, 111, 87, 0.12)',
     transitionOverlay: 'rgba(40, 34, 28, 0.18)',
   },
+  'porcelain-mist': {
+    screenBg: '#e8eff7',
+    cardBg: 'rgba(250, 252, 255, 0.9)',
+    cardBorder: 'rgba(94, 117, 145, 0.22)',
+    accent: '#4e6d8d',
+    buttonBg: '#4e6d8d',
+    buttonBgHover: '#6182a4',
+    buttonText: '#f7fbff',
+    onAccentText: '#f7fbff',
+    projectLevel1: '#768fa8',
+    projectLevel2: '#97adc1',
+    projectLevel3: '#c6d3e0',
+    text: '#1d2a38',
+    mutedText: 'rgba(29, 42, 56, 0.68)',
+    navBarBg: 'rgba(244, 249, 255, 0.95)',
+    navButtonBg: 'rgba(78, 109, 141, 0.08)',
+    navButtonActiveBg: 'rgba(88, 121, 156, 0.88)',
+    navButtonActiveText: '#f7fbff',
+    indicatorBg: 'rgba(78, 109, 141, 0.12)',
+    transitionOverlay: 'rgba(20, 31, 43, 0.17)',
+  },
+  'sage-cashmere': {
+    screenBg: '#edf1ec',
+    cardBg: 'rgba(249, 252, 248, 0.9)',
+    cardBorder: 'rgba(103, 119, 109, 0.22)',
+    accent: '#5f6f64',
+    buttonBg: '#5f6f64',
+    buttonBgHover: '#73857a',
+    buttonText: '#f4f7f3',
+    onAccentText: '#f4f7f3',
+    projectLevel1: '#7f9184',
+    projectLevel2: '#9bad9f',
+    projectLevel3: '#c7d2c9',
+    text: '#243028',
+    mutedText: 'rgba(36, 48, 40, 0.68)',
+    navBarBg: 'rgba(246, 249, 245, 0.93)',
+    navButtonBg: 'rgba(95, 111, 100, 0.08)',
+    navButtonActiveBg: 'rgba(105, 123, 111, 0.88)',
+    navButtonActiveText: '#f4f7f3',
+    indicatorBg: 'rgba(95, 111, 100, 0.12)',
+    transitionOverlay: 'rgba(25, 32, 27, 0.17)',
+  },
+  'oyster-linen': {
+    screenBg: '#f1eef6',
+    cardBg: 'rgba(250, 247, 252, 0.9)',
+    cardBorder: 'rgba(113, 101, 130, 0.22)',
+    accent: '#6d617d',
+    buttonBg: '#6d617d',
+    buttonBgHover: '#827492',
+    buttonText: '#f9f6fb',
+    onAccentText: '#f9f6fb',
+    projectLevel1: '#9a8da9',
+    projectLevel2: '#b6abc3',
+    projectLevel3: '#d8d1e2',
+    text: '#2c2733',
+    mutedText: 'rgba(44, 39, 51, 0.68)',
+    navBarBg: 'rgba(247, 243, 249, 0.94)',
+    navButtonBg: 'rgba(109, 97, 125, 0.08)',
+    navButtonActiveBg: 'rgba(124, 111, 141, 0.88)',
+    navButtonActiveText: '#f9f6fb',
+    indicatorBg: 'rgba(109, 97, 125, 0.12)',
+    transitionOverlay: 'rgba(29, 24, 36, 0.17)',
+  },
   'midnight-indigo': {
     screenBg: '#111722',
     cardBg: 'rgba(25, 31, 45, 0.8)',
@@ -714,7 +783,9 @@ const DEFAULT_LAUNCH_THEME_COLORS: LaunchThemeColors = {
   buttonBorder: 'rgba(111, 208, 141, 0.46)',
   onAccentText: '#133120',
   navBarBg: 'rgba(11, 25, 17, 0.84)',
+  navBarBorder: 'rgba(111, 208, 141, 0.28)',
   navButtonBg: 'rgba(111, 208, 141, 0.12)',
+  navButtonText: 'rgba(244, 255, 247, 0.74)',
   navButtonActiveBg: 'rgba(98, 189, 125, 0.86)',
   navButtonActiveText: '#f8fafc',
   overlay: 'rgba(8, 10, 12, 0.45)',
@@ -887,31 +958,32 @@ const BUILT_IN_LAUNCH_THEME_COLOR_MAP: Record<
     overlay: 'rgba(27, 31, 38, 0.22)',
   },
   'graphite-mist': {
-    primary: '#2a2d32',
-    secondary: 'rgba(63, 66, 72, 0.52)',
-    tertiary: 'rgba(88, 93, 102, 0.56)',
-    quaternary: 'rgba(149, 156, 168, 0.2)',
-    accent: '#f0f3fa',
-    text: '#f8f9fc',
-    mutedText: 'rgba(248, 249, 252, 0.74)',
-    border: 'rgba(224, 227, 234, 0.34)',
-    delete: '#ff8787',
-    deleteHover: '#ff6b6b',
-    projectLevel1: '#d8dde7',
-    projectLevel2: '#aeb5c2',
-    projectLevel3: '#808897',
-    panel: 'rgba(43, 46, 52, 0.66)',
-    panelStrong: 'rgba(53, 57, 64, 0.78)',
-    panelBorder: 'rgba(224, 227, 234, 0.26)',
-    buttonBg: '#f0f3fa',
-    buttonBgHover: '#ffffff',
-    buttonText: '#222832',
-    buttonBorder: 'rgba(240, 243, 250, 0.56)',
-    onAccentText: '#222832',
-    navBarBg: 'rgba(35, 39, 45, 0.88)',
-    navButtonBg: 'rgba(240, 243, 250, 0.12)',
-    navButtonActiveBg: 'rgba(124, 134, 149, 0.82)',
-    navButtonActiveText: '#f8f9fc',
+    primary: '#121820',
+    secondary: 'rgba(23, 30, 39, 0.58)',
+    tertiary: 'rgba(37, 46, 58, 0.62)',
+    quaternary: 'rgba(171, 185, 204, 0.16)',
+    accent: '#c8d3df',
+    text: '#f5f7fb',
+    mutedText: 'rgba(236, 241, 248, 0.72)',
+    border: 'rgba(186, 198, 214, 0.3)',
+    delete: '#ff8686',
+    deleteHover: '#ff6868',
+    projectLevel1: '#bec9d7',
+    projectLevel2: '#8093a8',
+    projectLevel3: '#4a5d74',
+    panel: 'rgba(22, 29, 38, 0.72)',
+    panelStrong: 'rgba(29, 37, 48, 0.84)',
+    panelBorder: 'rgba(186, 198, 214, 0.22)',
+    buttonBg: '#d5dee8',
+    buttonBgHover: '#e2e9f1',
+    buttonText: '#141a22',
+    buttonBorder: 'rgba(200, 211, 224, 0.52)',
+    onAccentText: '#141a22',
+    navBarBg: 'rgba(13, 17, 23, 0.94)',
+    navButtonBg: 'rgba(186, 198, 214, 0.12)',
+    navButtonActiveBg: 'rgba(63, 77, 96, 0.92)',
+    navButtonActiveText: '#f5f7fb',
+    overlay: 'rgba(6, 9, 13, 0.5)',
   },
   'aurora-mist': {
     primary: '#362226',
@@ -1021,6 +1093,90 @@ const BUILT_IN_LAUNCH_THEME_COLOR_MAP: Record<
     navButtonActiveBg: 'rgba(145, 118, 92, 0.88)',
     navButtonActiveText: '#f8f3ec',
     overlay: 'rgba(40, 34, 28, 0.18)',
+  },
+  'porcelain-mist': {
+    primary: '#e8eff7',
+    secondary: 'rgba(255, 255, 255, 0.72)',
+    tertiary: 'rgba(235, 241, 250, 0.82)',
+    quaternary: 'rgba(221, 229, 239, 0.64)',
+    accent: '#4e6d8d',
+    text: '#1d2a38',
+    mutedText: 'rgba(29, 42, 56, 0.68)',
+    border: '#869db7',
+    delete: '#c95a5a',
+    deleteHover: '#af4949',
+    projectLevel1: '#768fa8',
+    projectLevel2: '#97adc1',
+    projectLevel3: '#c6d3e0',
+    panel: 'rgba(255, 255, 255, 0.78)',
+    panelStrong: 'rgba(250, 252, 255, 0.9)',
+    panelBorder: 'rgba(94, 117, 145, 0.22)',
+    buttonBg: '#4e6d8d',
+    buttonBgHover: '#6182a4',
+    buttonText: '#f7fbff',
+    buttonBorder: 'rgba(78, 109, 141, 0.48)',
+    onAccentText: '#f7fbff',
+    navBarBg: 'rgba(244, 249, 255, 0.92)',
+    navButtonBg: 'rgba(78, 109, 141, 0.08)',
+    navButtonActiveBg: 'rgba(88, 121, 156, 0.88)',
+    navButtonActiveText: '#f7fbff',
+    overlay: 'rgba(20, 31, 43, 0.17)',
+  },
+  'sage-cashmere': {
+    primary: '#edf1ec',
+    secondary: 'rgba(255, 255, 255, 0.7)',
+    tertiary: 'rgba(237, 242, 236, 0.82)',
+    quaternary: 'rgba(215, 223, 216, 0.64)',
+    accent: '#5f6f64',
+    text: '#243028',
+    mutedText: 'rgba(36, 48, 40, 0.68)',
+    border: '#94a296',
+    delete: '#c95c60',
+    deleteHover: '#ae4a4f',
+    projectLevel1: '#7f9184',
+    projectLevel2: '#9bad9f',
+    projectLevel3: '#c7d2c9',
+    panel: 'rgba(255, 255, 255, 0.76)',
+    panelStrong: 'rgba(249, 252, 248, 0.9)',
+    panelBorder: 'rgba(103, 119, 109, 0.22)',
+    buttonBg: '#5f6f64',
+    buttonBgHover: '#73857a',
+    buttonText: '#f4f7f3',
+    buttonBorder: 'rgba(95, 111, 100, 0.46)',
+    onAccentText: '#f4f7f3',
+    navBarBg: 'rgba(246, 249, 245, 0.92)',
+    navButtonBg: 'rgba(95, 111, 100, 0.08)',
+    navButtonActiveBg: 'rgba(105, 123, 111, 0.88)',
+    navButtonActiveText: '#f4f7f3',
+    overlay: 'rgba(25, 32, 27, 0.17)',
+  },
+  'oyster-linen': {
+    primary: '#f1eef6',
+    secondary: 'rgba(255, 252, 255, 0.72)',
+    tertiary: 'rgba(241, 236, 247, 0.82)',
+    quaternary: 'rgba(225, 217, 234, 0.64)',
+    accent: '#6d617d',
+    text: '#2c2733',
+    mutedText: 'rgba(44, 39, 51, 0.68)',
+    border: '#a89db7',
+    delete: '#c55a63',
+    deleteHover: '#aa4752',
+    projectLevel1: '#9a8da9',
+    projectLevel2: '#b6abc3',
+    projectLevel3: '#d8d1e2',
+    panel: 'rgba(255, 252, 255, 0.78)',
+    panelStrong: 'rgba(250, 247, 252, 0.9)',
+    panelBorder: 'rgba(113, 101, 130, 0.22)',
+    buttonBg: '#6d617d',
+    buttonBgHover: '#827492',
+    buttonText: '#f9f6fb',
+    buttonBorder: 'rgba(109, 97, 125, 0.46)',
+    onAccentText: '#f9f6fb',
+    navBarBg: 'rgba(247, 243, 249, 0.92)',
+    navButtonBg: 'rgba(109, 97, 125, 0.08)',
+    navButtonActiveBg: 'rgba(124, 111, 141, 0.88)',
+    navButtonActiveText: '#f9f6fb',
+    overlay: 'rgba(29, 24, 36, 0.17)',
   },
   'midnight-indigo': {
     primary: '#111722',
@@ -1268,6 +1424,33 @@ function buildShellBootTheme(
     colors?.buttonText,
     getBootThemeContrastText(buttonBg),
   );
+  const navBarBg = normalizeBootThemeColor(
+    colors?.navBarBg ?? colors?.panelStrong ?? colors?.panel,
+    fallback.navBarBg,
+  );
+  const navBarBorder = normalizeBootThemeColor(
+    colors?.navBarBorder ?? colors?.panelBorder ?? colors?.border,
+    fallback.navBarBorder,
+  );
+  const navButtonBg = normalizeBootThemeColor(
+    colors?.navButtonBg ?? colors?.panelBorder,
+    fallback.navButtonBg,
+  );
+  const navButtonText = normalizeBootThemeColor(
+    colors?.navButtonText ?? colors?.mutedText ?? colors?.text,
+    fallback.navButtonText,
+  );
+  const navButtonActiveBg = normalizeBootThemeColor(
+    colors?.navButtonActiveBg ?? colors?.accent,
+    fallback.navButtonActiveBg,
+  );
+  const navButtonActiveText = normalizeBootThemeColor(
+    colors?.navButtonActiveText ??
+      colors?.navButtonText ??
+      colors?.text ??
+      colors?.mutedText,
+    fallback.navButtonActiveText,
+  );
   return {
     screenBg: normalizeBootThemeColor(colors?.primary, fallback.screenBg),
     cardBg: normalizeBootThemeColor(
@@ -1297,22 +1480,12 @@ function buildShellBootTheme(
     ),
     text: normalizeBootThemeColor(colors?.text, fallback.text),
     mutedText: normalizeBootThemeColor(colors?.mutedText, fallback.mutedText),
-    navBarBg: normalizeBootThemeColor(
-      colors?.navBarBg ?? colors?.panelStrong ?? colors?.panel,
-      fallback.navBarBg,
-    ),
-    navButtonBg: normalizeBootThemeColor(
-      colors?.navButtonBg ?? colors?.panelBorder,
-      fallback.navButtonBg,
-    ),
-    navButtonActiveBg: normalizeBootThemeColor(
-      colors?.navButtonActiveBg ?? colors?.accent,
-      fallback.navButtonActiveBg,
-    ),
-    navButtonActiveText: normalizeBootThemeColor(
-      colors?.navButtonActiveText ?? colors?.onAccentText ?? colors?.buttonText,
-      fallback.navButtonActiveText,
-    ),
+    navBarBg,
+    navBarBorder,
+    navButtonBg,
+    navButtonText,
+    navButtonActiveBg,
+    navButtonActiveText,
     indicatorBg: normalizeBootThemeColor(
       colors?.navButtonBg ?? colors?.panelBorder,
       fallback.indicatorBg,
@@ -1328,6 +1501,30 @@ function buildShellBootThemeFromPalette(
   palette: Partial<ShellBootTheme> | null | undefined,
   fallback: ShellBootTheme = DEFAULT_SHELL_BOOT_THEME,
 ): ShellBootTheme {
+  const navBarBg = normalizeBootThemeColor(palette?.navBarBg, fallback.navBarBg);
+  const navBarBorder = normalizeBootThemeColor(
+    palette?.navBarBorder ?? palette?.cardBorder,
+    fallback.navBarBorder,
+  );
+  const navButtonBg = normalizeBootThemeColor(
+    palette?.navButtonBg,
+    fallback.navButtonBg,
+  );
+  const navButtonText = normalizeBootThemeColor(
+    palette?.navButtonText ?? palette?.mutedText ?? palette?.text,
+    fallback.navButtonText,
+  );
+  const navButtonActiveBg = normalizeBootThemeColor(
+    palette?.navButtonActiveBg,
+    fallback.navButtonActiveBg,
+  );
+  const navButtonActiveText = normalizeBootThemeColor(
+    palette?.navButtonActiveText ??
+      palette?.navButtonText ??
+      palette?.text ??
+      palette?.mutedText,
+    fallback.navButtonActiveText,
+  );
   return {
     screenBg: normalizeBootThemeColor(palette?.screenBg, fallback.screenBg),
     cardBg: normalizeBootThemeColor(palette?.cardBg, fallback.cardBg),
@@ -1357,19 +1554,12 @@ function buildShellBootThemeFromPalette(
     ),
     text: normalizeBootThemeColor(palette?.text, fallback.text),
     mutedText: normalizeBootThemeColor(palette?.mutedText, fallback.mutedText),
-    navBarBg: normalizeBootThemeColor(palette?.navBarBg, fallback.navBarBg),
-    navButtonBg: normalizeBootThemeColor(
-      palette?.navButtonBg,
-      fallback.navButtonBg,
-    ),
-    navButtonActiveBg: normalizeBootThemeColor(
-      palette?.navButtonActiveBg,
-      fallback.navButtonActiveBg,
-    ),
-    navButtonActiveText: normalizeBootThemeColor(
-      palette?.navButtonActiveText,
-      fallback.navButtonActiveText,
-    ),
+    navBarBg,
+    navBarBorder,
+    navButtonBg,
+    navButtonText,
+    navButtonActiveBg,
+    navButtonActiveText,
     indicatorBg: normalizeBootThemeColor(palette?.indicatorBg, fallback.indicatorBg),
     transitionOverlay: normalizeBootThemeColor(
       palette?.transitionOverlay,
@@ -1507,9 +1697,23 @@ function buildLaunchThemeBootstrapState(
       rawResolvedColors.navBarBg,
       DEFAULT_LAUNCH_THEME_COLORS.navBarBg,
     ),
+    navBarBorder: normalizeBootThemeColor(
+      rawResolvedColors.navBarBorder,
+      normalizeBootThemeColor(
+        rawResolvedColors.panelBorder ?? rawResolvedColors.border,
+        DEFAULT_LAUNCH_THEME_COLORS.navBarBorder,
+      ),
+    ),
     navButtonBg: normalizeBootThemeColor(
       rawResolvedColors.navButtonBg,
       DEFAULT_LAUNCH_THEME_COLORS.navButtonBg,
+    ),
+    navButtonText: normalizeBootThemeColor(
+      rawResolvedColors.navButtonText,
+      normalizeBootThemeColor(
+        rawResolvedColors.mutedText ?? rawResolvedColors.text,
+        DEFAULT_LAUNCH_THEME_COLORS.navButtonText,
+      ),
     ),
     navButtonActiveBg: normalizeBootThemeColor(
       rawResolvedColors.navButtonActiveBg,
@@ -1554,7 +1758,9 @@ function buildLaunchThemeBootstrapState(
       '--button-border': resolvedColors.buttonBorder,
       '--on-accent-text': resolvedColors.onAccentText,
       '--bottom-nav-bg': resolvedColors.navBarBg,
+      '--bottom-nav-border': resolvedColors.navBarBorder,
       '--bottom-nav-button-bg': resolvedColors.navButtonBg,
+      '--bottom-nav-button-text': resolvedColors.navButtonText,
       '--bottom-nav-button-active-bg': resolvedColors.navButtonActiveBg,
       '--bottom-nav-active-text': resolvedColors.navButtonActiveText,
       '--overlay-bg': resolvedColors.overlay,
@@ -1581,7 +1787,9 @@ function areShellBootThemesEqual(
     left.text === right.text &&
     left.mutedText === right.mutedText &&
     left.navBarBg === right.navBarBg &&
+    left.navBarBorder === right.navBarBorder &&
     left.navButtonBg === right.navButtonBg &&
+    left.navButtonText === right.navButtonText &&
     left.navButtonActiveBg === right.navButtonActiveBg &&
     left.navButtonActiveText === right.navButtonActiveText &&
     left.indicatorBg === right.indicatorBg &&
@@ -1631,7 +1839,7 @@ function resolveShellBootTheme(coreState: Record<string, unknown> | null): Shell
   return builtInBase;
 }
 
-function buildLaunchThemeStatePayload(
+function buildSharedThemeStatePayload(
   coreState: Record<string, unknown> | null,
 ): Record<string, unknown> {
   if (!coreState) {
@@ -1648,6 +1856,28 @@ function buildLaunchThemeStatePayload(
   const customThemes = Array.isArray(coreState.customThemes)
     ? coreState.customThemes
     : [];
+  const builtInThemeOverrides = isPlainObject(coreState.builtInThemeOverrides)
+    ? coreState.builtInThemeOverrides
+    : {};
+  return {
+    selectedTheme,
+    customThemes,
+    builtInThemeOverrides,
+  };
+}
+
+function buildLaunchThemeStatePayload(
+  coreState: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const sharedThemeState = buildSharedThemeStatePayload(coreState);
+  const selectedTheme =
+    typeof sharedThemeState.selectedTheme === 'string' &&
+    sharedThemeState.selectedTheme.trim()
+      ? sharedThemeState.selectedTheme.trim()
+      : 'default';
+  const customThemes = Array.isArray(sharedThemeState.customThemes)
+    ? sharedThemeState.customThemes
+    : [];
   const matchedCustomTheme = customThemes.find(theme => {
     return (
       isPlainObject(theme) &&
@@ -1655,8 +1885,8 @@ function buildLaunchThemeStatePayload(
       theme.id.trim() === selectedTheme
     );
   });
-  const builtInOverrides = isPlainObject(coreState.builtInThemeOverrides)
-    ? coreState.builtInThemeOverrides
+  const builtInOverrides = isPlainObject(sharedThemeState.builtInThemeOverrides)
+    ? sharedThemeState.builtInThemeOverrides
     : {};
   return {
     selectedTheme,
@@ -2402,7 +2632,7 @@ function buildBridgeBootstrapScript(
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
   const serializedThemeState = JSON.stringify(
-    buildLaunchThemeStatePayload(themeState),
+    buildSharedThemeStatePayload(themeState),
   )
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
@@ -2617,6 +2847,9 @@ function App({
   const runtimeSessionIdRef = useRef<string>(createRuntimeSessionId());
   const initialCoreStateRef = useRef<Record<string, unknown> | null>(
     parseBridgeJson(initialCoreStateJson),
+  );
+  const sharedThemeStateRef = useRef<Record<string, unknown>>(
+    buildSharedThemeStatePayload(initialCoreStateRef.current),
   );
   const launchThemeStateRef = useRef<Record<string, unknown>>(
     buildLaunchThemeStatePayload(initialCoreStateRef.current),
@@ -3200,7 +3433,7 @@ function App({
         includeSource?: boolean;
       } = {},
     ) => {
-      const normalizedThemeState = buildLaunchThemeStatePayload(themeState);
+      const normalizedThemeState = buildSharedThemeStatePayload(themeState);
       const sourceSlot = options.sourceSlot || null;
       const includeSource = options.includeSource === true;
 
@@ -3232,7 +3465,10 @@ function App({
         ...buildLaunchThemeTracePayload(coreState),
       }),
     );
-    launchThemeStateRef.current = buildLaunchThemeStatePayload(coreState);
+    sharedThemeStateRef.current = buildSharedThemeStatePayload(coreState);
+    launchThemeStateRef.current = buildLaunchThemeStatePayload(
+      sharedThemeStateRef.current,
+    );
     applyShellBootThemeFromCoreState(coreState);
     persistLaunchThemeState(coreState).catch(() => undefined);
     broadcastThemeStateToLoadedSlots(coreState, {
@@ -3301,17 +3537,20 @@ function App({
           if (storedThemeState) {
             console.info(
               '[OrderBootTheme]',
-              JSON.stringify({
-                stage: 'native-launch-theme',
-                ...buildLaunchThemeTracePayload(storedThemeState),
-              }),
+            JSON.stringify({
+              stage: 'native-launch-theme',
+              ...buildLaunchThemeTracePayload(storedThemeState),
+            }),
+          );
+            sharedThemeStateRef.current =
+              buildSharedThemeStatePayload(storedThemeState);
+            launchThemeStateRef.current = buildLaunchThemeStatePayload(
+              sharedThemeStateRef.current,
             );
-            launchThemeStateRef.current =
-              buildLaunchThemeStatePayload(storedThemeState);
             applyShellBootThemeFromCoreState(storedThemeState);
             initialCoreStateRef.current = {
               ...(initialCoreStateRef.current || {}),
-              ...launchThemeStateRef.current,
+              ...sharedThemeStateRef.current,
             };
           }
         }
@@ -6175,8 +6414,7 @@ function App({
           message.payload && typeof message.payload === 'object'
             ? message.payload
             : {};
-        const normalizedThemeState =
-          buildLaunchThemeStatePayload(nextThemeState);
+        const normalizedThemeState = buildSharedThemeStatePayload(nextThemeState);
         console.info(
           '[OrderBootTheme]',
           JSON.stringify({
@@ -6185,7 +6423,10 @@ function App({
             ...buildLaunchThemeTracePayload(normalizedThemeState),
           }),
         );
-        launchThemeStateRef.current = normalizedThemeState;
+        sharedThemeStateRef.current = normalizedThemeState;
+        launchThemeStateRef.current = buildLaunchThemeStatePayload(
+          normalizedThemeState,
+        );
         initialCoreStateRef.current = {
           ...(initialCoreStateRef.current || {}),
           ...normalizedThemeState,
@@ -6933,7 +7174,7 @@ function App({
                 href: slotState.uri,
                 transitionLoading: slot === transitionLoadingSlot,
               },
-              launchThemeStateRef.current,
+              sharedThemeStateRef.current,
               runtimeSessionIdRef.current,
             );
             bridgeBootstrapScriptsBySlotRef.current[slot] = {

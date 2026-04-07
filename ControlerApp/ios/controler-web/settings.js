@@ -1,42 +1,41 @@
 const uiTools = window.ControlerUI || null;
-
-// 主题配置
+const themeRuntime = window.ControlerTheme || null;
 const DEFAULT_THEME_COLORS = {
-  primary: "#183524",
-  secondary: "rgba(23, 53, 36, 0.5)",
-  tertiary: "rgba(41, 84, 54, 0.58)",
-  quaternary: "rgba(111, 208, 141, 0.12)",
-  accent: "#6fd08d",
-  text: "#f4fff7",
-  mutedText: "rgba(244, 255, 247, 0.74)",
-  border: "#5fa878",
-  delete: "#ff8686",
-  deleteHover: "#ff6b6b",
-  projectLevel1: "#72c28a",
-  projectLevel2: "#4c9966",
-  projectLevel3: "#2f6945",
-  panel: "rgba(15, 32, 22, 0.86)",
-  panelStrong: "rgba(18, 40, 27, 0.94)",
-  panelBorder: "rgba(111, 208, 141, 0.18)",
-  buttonBg: "#76d694",
-  buttonBgHover: "#8ae0a6",
-  buttonText: "#133120",
-  buttonBorder: "rgba(111, 208, 141, 0.46)",
-  onAccentText: "#133120",
-  navBarBg: "rgba(11, 25, 17, 0.9)",
-  navButtonBg: "rgba(111, 208, 141, 0.08)",
-  navButtonActiveBg: "rgba(98, 189, 125, 0.88)",
-  overlay: "rgba(8, 10, 12, 0.45)",
-  widgetCardBg: "",
-  widgetItemBg: "",
-  widgetText: "",
-  widgetButtonBg: "",
-  widgetButtonText: "",
+  ...(themeRuntime?.DEFAULT_THEME_COLORS || {}),
 };
 const DEFAULT_THEME_RECORD_CARD = {
   mode: "project",
   color: "#72c28a",
+  ...(themeRuntime?.DEFAULT_THEME_RECORD_CARD || {}),
 };
+const BUILT_IN_THEMES =
+  typeof themeRuntime?.getBuiltInThemes === "function"
+    ? themeRuntime.getBuiltInThemes()
+    : [];
+const THEME_FIELD_SECTIONS =
+  typeof themeRuntime?.getThemeFieldSections === "function"
+    ? themeRuntime.getThemeFieldSections()
+    : [];
+const THEME_RECORD_CARD_SECTION_ID = "advanced-record-card";
+const THEME_WIDGET_SECTION_IDS = new Set(["advanced-widget"]);
+const THEME_WIDGET_COLOR_FIELDS = THEME_FIELD_SECTIONS.filter((section) =>
+  THEME_WIDGET_SECTION_IDS.has(section?.id),
+).flatMap((section) => (Array.isArray(section?.fields) ? section.fields : []));
+const ALL_THEME_COLOR_FIELDS = THEME_FIELD_SECTIONS.flatMap((section) =>
+  Array.isArray(section?.fields) ? section.fields : [],
+);
+const OPTIONAL_THEME_COLOR_FIELD_KEYS = new Set(
+  ALL_THEME_COLOR_FIELDS.filter(({ optional }) => optional).map(({ key }) => key),
+);
+
+function resolveThemeRuntime() {
+  return window.ControlerTheme || themeRuntime || null;
+}
+
+if (!themeRuntime) {
+  console.error("主题运行时未加载，设置页主题编辑已降级。");
+}
+
 const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
 const RGB_COLOR_PATTERN =
   /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
@@ -198,390 +197,56 @@ function scheduleSettingsDeferredPanelInitialization() {
   return settingsDeferredPanelInitPromise;
 }
 
-function buildThemeDefinition(id, name, colorOverrides = {}, options = {}) {
-  const colors = {
-    ...DEFAULT_THEME_COLORS,
-    ...colorOverrides,
-  };
-  return {
-    id,
-    name,
-    colors,
-    recordCard: resolveThemeRecordCard(
-      {
-        recordCard: options?.recordCard,
-      },
-      colors,
-    ),
-  };
-}
-
-const BUILT_IN_THEMES = [
-  buildThemeDefinition("default", "森林磨砂"),
-  buildThemeDefinition("blue-ocean", "海蓝磨砂", {
-    primary: "#12263f",
-      secondary: "rgba(24, 43, 69, 0.5)",
-      tertiary: "rgba(39, 63, 96, 0.58)",
-      quaternary: "rgba(126, 198, 255, 0.12)",
-    accent: "#7ec6ff",
-    text: "#eef6ff",
-    mutedText: "rgba(238, 246, 255, 0.72)",
-    border: "#6d7ba4",
-    delete: "#ff8a8a",
-    deleteHover: "#ff6f6f",
-    projectLevel1: "#63b3ed",
-    projectLevel2: "#4299e1",
-    projectLevel3: "#2c5282",
-      panel: "rgba(15, 30, 50, 0.86)",
-      panelStrong: "rgba(19, 36, 58, 0.94)",
-      panelBorder: "rgba(126, 198, 255, 0.16)",
-    buttonBg: "#7ec6ff",
-    buttonBgHover: "#95d2ff",
-    buttonText: "#123052",
-    buttonBorder: "rgba(126, 198, 255, 0.48)",
-    onAccentText: "#123052",
-      navBarBg: "rgba(11, 23, 39, 0.9)",
-      navButtonBg: "rgba(126, 198, 255, 0.08)",
-    navButtonActiveBg: "rgba(119, 182, 235, 0.84)",
-  }),
-  buildThemeDefinition("sunset-orange", "落日暖橙", {
-    primary: "#4b261b",
-      secondary: "rgba(101, 50, 31, 0.48)",
-      tertiary: "rgba(129, 67, 42, 0.58)",
-      quaternary: "rgba(255, 191, 120, 0.12)",
-    accent: "#ffbf78",
-    text: "#fff5ea",
-    mutedText: "rgba(255, 245, 234, 0.74)",
-    border: "#bdb38b",
-    delete: "#ff9a9a",
-    deleteHover: "#ff7d7d",
-    projectLevel1: "#f6ad55",
-    projectLevel2: "#ed8936",
-    projectLevel3: "#c05621",
-      panel: "rgba(59, 31, 22, 0.86)",
-      panelStrong: "rgba(70, 37, 26, 0.94)",
-      panelBorder: "rgba(255, 191, 120, 0.18)",
-    buttonBg: "#ffc78a",
-    buttonBgHover: "#ffd3a5",
-    buttonText: "#522a1c",
-    buttonBorder: "rgba(255, 191, 120, 0.48)",
-    onAccentText: "#522a1c",
-      navBarBg: "rgba(46, 25, 18, 0.9)",
-      navButtonBg: "rgba(255, 191, 120, 0.08)",
-    navButtonActiveBg: "rgba(243, 181, 112, 0.88)",
-  }),
-  buildThemeDefinition("minimal-gray", "冰川银蓝", {
-    primary: "#1c2734",
-    secondary: "rgba(35, 49, 64, 0.5)",
-    tertiary: "rgba(54, 73, 95, 0.58)",
-    quaternary: "rgba(183, 205, 230, 0.12)",
-    accent: "#b7cde6",
-    text: "#f5f9ff",
-    mutedText: "rgba(245, 249, 255, 0.74)",
-    border: "#89a1bc",
-    delete: "#ff8d8d",
-    deleteHover: "#ff7070",
-    projectLevel1: "#a9c1de",
-    projectLevel2: "#7e9bbd",
-    projectLevel3: "#55718f",
-    panel: "rgba(20, 31, 42, 0.86)",
-    panelStrong: "rgba(25, 38, 51, 0.94)",
-    panelBorder: "rgba(183, 205, 230, 0.18)",
-    buttonBg: "#c2d7ee",
-    buttonBgHover: "#d3e3f5",
-    buttonText: "#1f3246",
-    buttonBorder: "rgba(183, 205, 230, 0.5)",
-    onAccentText: "#1f3246",
-    navBarBg: "rgba(15, 24, 34, 0.9)",
-    navButtonBg: "rgba(183, 205, 230, 0.08)",
-    navButtonActiveBg: "rgba(108, 133, 162, 0.88)",
-  }),
-  buildThemeDefinition("obsidian-mono", "曜石黑", {
-    primary: "#0d0f12",
-      secondary: "rgba(20, 23, 28, 0.52)",
-      tertiary: "rgba(32, 36, 43, 0.6)",
-      quaternary: "rgba(241, 244, 250, 0.1)",
-    accent: "#f1f4fa",
-    text: "#f4f6fb",
-    mutedText: "rgba(244, 246, 251, 0.76)",
-      border: "rgba(215, 221, 232, 0.24)",
-    delete: "#ff7b7b",
-    deleteHover: "#ff5f5f",
-    projectLevel1: "#d6dde8",
-    projectLevel2: "#a2adbd",
-    projectLevel3: "#667084",
-      panel: "rgba(15, 17, 21, 0.88)",
-      panelStrong: "rgba(19, 22, 27, 0.95)",
-      panelBorder: "rgba(215, 221, 232, 0.14)",
-    buttonBg: "#f1f4fa",
-    buttonBgHover: "#ffffff",
-    buttonText: "#10141d",
-    buttonBorder: "rgba(241, 244, 250, 0.68)",
-    onAccentText: "#10141d",
-      navBarBg: "rgba(10, 12, 15, 0.92)",
-      navButtonBg: "rgba(241, 244, 250, 0.06)",
-    navButtonActiveBg: "rgba(72, 79, 92, 0.92)",
-  }),
-  buildThemeDefinition("ivory-light", "象牙白", {
-    primary: "#eceff3",
-      secondary: "rgba(255, 255, 255, 0.72)",
-      tertiary: "rgba(240, 244, 250, 0.82)",
-      quaternary: "rgba(63, 73, 95, 0.08)",
-    accent: "#3f495f",
-    text: "#202633",
-    mutedText: "rgba(32, 38, 51, 0.7)",
-    border: "#7b8598",
-    delete: "#cf4d4d",
-    deleteHover: "#b13d3d",
-    projectLevel1: "#8b94a5",
-    projectLevel2: "#a2abbb",
-    projectLevel3: "#c0c7d3",
-      panel: "rgba(255, 255, 255, 0.88)",
-      panelStrong: "rgba(250, 252, 255, 0.96)",
-      panelBorder: "rgba(110, 122, 143, 0.14)",
-    buttonBg: "#3f495f",
-    buttonBgHover: "#56607a",
-    buttonText: "#f4f7ff",
-    buttonBorder: "rgba(63, 73, 95, 0.58)",
-    onAccentText: "#f4f7ff",
-      navBarBg: "rgba(246, 249, 252, 0.92)",
-      navButtonBg: "rgba(63, 73, 95, 0.05)",
-    navButtonActiveBg: "rgba(74, 85, 109, 0.88)",
-    overlay: "rgba(27, 31, 38, 0.22)",
-  }),
-  buildThemeDefinition("graphite-mist", "石墨灰", {
-    primary: "#2a2d32",
-      secondary: "rgba(58, 62, 69, 0.5)",
-      tertiary: "rgba(76, 81, 90, 0.58)",
-      quaternary: "rgba(240, 243, 250, 0.1)",
-    accent: "#f0f3fa",
-    text: "#f8f9fc",
-    mutedText: "rgba(248, 249, 252, 0.74)",
-      border: "rgba(224, 227, 234, 0.24)",
-    delete: "#ff8787",
-    deleteHover: "#ff6b6b",
-    projectLevel1: "#d8dde7",
-    projectLevel2: "#aeb5c2",
-    projectLevel3: "#808897",
-      panel: "rgba(39, 42, 48, 0.86)",
-      panelStrong: "rgba(45, 49, 56, 0.94)",
-      panelBorder: "rgba(224, 227, 234, 0.15)",
-    buttonBg: "#f0f3fa",
-    buttonBgHover: "#ffffff",
-    buttonText: "#222832",
-    buttonBorder: "rgba(240, 243, 250, 0.56)",
-    onAccentText: "#222832",
-      navBarBg: "rgba(33, 36, 41, 0.9)",
-      navButtonBg: "rgba(240, 243, 250, 0.06)",
-    navButtonActiveBg: "rgba(124, 134, 149, 0.82)",
-  }),
-  buildThemeDefinition("aurora-mist", "玫瑰晨雾", {
-    primary: "#362226",
-    secondary: "rgba(86, 50, 54, 0.48)",
-    tertiary: "rgba(129, 81, 79, 0.58)",
-    quaternary: "rgba(255, 182, 142, 0.13)",
-    accent: "#ffb68e",
-    text: "#fff6f1",
-    mutedText: "rgba(255, 246, 241, 0.74)",
-    border: "#ca9788",
-    delete: "#ff8e85",
-    deleteHover: "#ff736c",
-    projectLevel1: "#f0ad8b",
-    projectLevel2: "#cf8669",
-    projectLevel3: "#8f5849",
-    panel: "rgba(44, 28, 31, 0.86)",
-    panelStrong: "rgba(54, 34, 38, 0.94)",
-    panelBorder: "rgba(255, 182, 142, 0.18)",
-    buttonBg: "#ffc09a",
-    buttonBgHover: "#ffd0b3",
-    buttonText: "#532f26",
-    buttonBorder: "rgba(255, 182, 142, 0.46)",
-    onAccentText: "#532f26",
-    navBarBg: "rgba(36, 22, 25, 0.9)",
-    navButtonBg: "rgba(255, 182, 142, 0.08)",
-    navButtonActiveBg: "rgba(182, 112, 89, 0.9)",
-  }),
-  buildThemeDefinition("amethyst-haze", "紫晶暮雾", {
-    primary: "#141826",
-    secondary: "rgba(29, 34, 53, 0.5)",
-    tertiary: "rgba(50, 61, 96, 0.58)",
-    quaternary: "rgba(157, 176, 255, 0.14)",
-    accent: "#9db0ff",
-    text: "#f5f7ff",
-    mutedText: "rgba(245, 247, 255, 0.74)",
-    border: "#8394c9",
-    delete: "#ff8fa2",
-    deleteHover: "#ff748c",
-    projectLevel1: "#b1c2ff",
-    projectLevel2: "#7488de",
-    projectLevel3: "#46589d",
-    panel: "rgba(18, 22, 35, 0.86)",
-    panelStrong: "rgba(24, 29, 45, 0.94)",
-    panelBorder: "rgba(157, 176, 255, 0.18)",
-    buttonBg: "#b9c8ff",
-    buttonBgHover: "#ced8ff",
-    buttonText: "#1f2742",
-    buttonBorder: "rgba(157, 176, 255, 0.48)",
-    onAccentText: "#1f2742",
-    navBarBg: "rgba(15, 19, 31, 0.9)",
-    navButtonBg: "rgba(157, 176, 255, 0.09)",
-    navButtonActiveBg: "rgba(92, 109, 183, 0.9)",
-  }),
-  buildThemeDefinition("velvet-bordeaux", "酒红夜幕", {
-    primary: "#2f141d",
-      secondary: "rgba(68, 24, 37, 0.48)",
-      tertiary: "rgba(94, 37, 52, 0.58)",
-      quaternary: "rgba(216, 166, 184, 0.12)",
-    accent: "#d8a6b8",
-    text: "#fff3f6",
-    mutedText: "rgba(255, 243, 246, 0.74)",
-    border: "#b78898",
-    delete: "#ff919b",
-    deleteHover: "#ff7784",
-    projectLevel1: "#c58da2",
-    projectLevel2: "#a6607a",
-    projectLevel3: "#6c3348",
-      panel: "rgba(36, 17, 24, 0.86)",
-      panelStrong: "rgba(43, 20, 29, 0.94)",
-      panelBorder: "rgba(216, 166, 184, 0.16)",
-    buttonBg: "#e2b0c2",
-    buttonBgHover: "#ebc1cf",
-    buttonText: "#421d2a",
-    buttonBorder: "rgba(216, 166, 184, 0.46)",
-    onAccentText: "#421d2a",
-      navBarBg: "rgba(31, 14, 21, 0.9)",
-      navButtonBg: "rgba(216, 166, 184, 0.08)",
-    navButtonActiveBg: "rgba(142, 77, 99, 0.88)",
-  }),
-  buildThemeDefinition("champagne-sandstone", "香槟砂岩", {
-    primary: "#f1ebe2",
-      secondary: "rgba(255, 250, 244, 0.72)",
-      tertiary: "rgba(238, 228, 214, 0.84)",
-      quaternary: "rgba(139, 111, 87, 0.08)",
-    accent: "#8b6f57",
-    text: "#2f261f",
-    mutedText: "rgba(47, 38, 31, 0.68)",
-    border: "#b59f8c",
-    delete: "#c85656",
-    deleteHover: "#ad4343",
-    projectLevel1: "#bca087",
-    projectLevel2: "#cfb59a",
-    projectLevel3: "#e0d0bf",
-      panel: "rgba(255, 252, 248, 0.9)",
-      panelStrong: "rgba(252, 247, 241, 0.96)",
-      panelBorder: "rgba(143, 119, 95, 0.14)",
-    buttonBg: "#8b6f57",
-    buttonBgHover: "#a28267",
-    buttonText: "#f8f3ec",
-    buttonBorder: "rgba(139, 111, 87, 0.44)",
-    onAccentText: "#f8f3ec",
-      navBarBg: "rgba(249, 243, 235, 0.92)",
-      navButtonBg: "rgba(139, 111, 87, 0.05)",
-    navButtonActiveBg: "rgba(145, 118, 92, 0.88)",
-    overlay: "rgba(40, 34, 28, 0.18)",
-  }),
-  buildThemeDefinition("midnight-indigo", "琥珀暮影", {
-    primary: "#111722",
-    secondary: "rgba(29, 37, 56, 0.5)",
-    tertiary: "rgba(48, 59, 84, 0.58)",
-    quaternary: "rgba(214, 195, 156, 0.13)",
-    accent: "#d6c39c",
-    text: "#faf7f1",
-    mutedText: "rgba(250, 247, 241, 0.74)",
-    border: "#98876b",
-    delete: "#ff9c86",
-    deleteHover: "#ff836f",
-    projectLevel1: "#deccab",
-    projectLevel2: "#a59372",
-    projectLevel3: "#5f5542",
-    panel: "rgba(19, 24, 36, 0.86)",
-    panelStrong: "rgba(25, 31, 45, 0.94)",
-    panelBorder: "rgba(214, 195, 156, 0.18)",
-    buttonBg: "#e3d2af",
-    buttonBgHover: "#ecdfc3",
-    buttonText: "#2a241b",
-    buttonBorder: "rgba(214, 195, 156, 0.48)",
-    onAccentText: "#2a241b",
-    navBarBg: "rgba(16, 21, 32, 0.9)",
-    navButtonBg: "rgba(214, 195, 156, 0.08)",
-    navButtonActiveBg: "rgba(128, 113, 83, 0.9)",
-  }),
-];
-
 let themes = [];
 const CUSTOM_THEMES_STORAGE_KEY = "customThemes";
 const BUILT_IN_THEME_OVERRIDES_STORAGE_KEY = "builtInThemeOverrides";
-const THEME_COLOR_FIELDS = [
-  { key: "primary", label: "应用底色" },
-  { key: "secondary", label: "外壳底层" },
-  { key: "panel", label: "主内容层" },
-  { key: "panelStrong", label: "强调内容层" },
-  { key: "tertiary", label: "控件层" },
-  { key: "quaternary", label: "轻强调层" },
-  { key: "accent", label: "强调色" },
-  { key: "text", label: "文字颜色" },
-  { key: "mutedText", label: "次级文字" },
-  { key: "border", label: "通用边线" },
-  { key: "panelBorder", label: "细分隔线" },
-  { key: "buttonBg", label: "主按钮" },
-  { key: "buttonBgHover", label: "按钮悬停" },
-  { key: "buttonText", label: "按钮文字" },
-  { key: "buttonBorder", label: "按钮描边" },
-  { key: "onAccentText", label: "强调底文字" },
-  { key: "navBarBg", label: "导航底层" },
-  { key: "navButtonBg", label: "导航按钮" },
-  { key: "navButtonActiveBg", label: "导航当前项" },
-  { key: "delete", label: "删除按钮" },
-  { key: "deleteHover", label: "删除悬停" },
-  { key: "projectLevel1", label: "一级项目" },
-  { key: "projectLevel2", label: "二级项目" },
-  { key: "projectLevel3", label: "三级项目" },
-  { key: "overlay", label: "遮罩颜色" },
-];
-const THEME_WIDGET_COLOR_FIELDS = [
-  {
-    key: "widgetCardBg",
-    label: "小组件外层底板",
-    description: "控制最外层整张小组件的底板颜色；留空时会按当前主题自动生成。",
-    placeholder: "留空则跟随当前主题外层底板颜色",
-  },
-  {
-    key: "widgetItemBg",
-    label: "小组件内容卡片",
-    description: "控制列表卡片、目标卡片、周视图底部卡片等内层内容卡片颜色；会接入其他小组件里的同类卡片。",
-    placeholder: "留空则跟随当前主题内容卡片颜色",
-  },
-  {
-    key: "widgetText",
-    label: "小组件文字",
-    description: "留空时会重新启用小组件文字的自动对比度。",
-    placeholder: "留空则自动计算可读文字颜色",
-  },
-  {
-    key: "widgetButtonBg",
-    label: "小组件按钮",
-    description: "留空时跟随主题按钮/强调色。",
-    placeholder: "留空则跟随主题按钮颜色",
-  },
-  {
-    key: "widgetButtonText",
-    label: "小组件按钮文字",
-    description: "留空时会重新启用按钮文字的自动对比度。",
-    placeholder: "留空则自动计算按钮文字颜色",
-  },
-];
-const ALL_THEME_COLOR_FIELDS = [
-  ...THEME_COLOR_FIELDS,
-  ...THEME_WIDGET_COLOR_FIELDS,
-];
-const OPTIONAL_THEME_COLOR_FIELD_KEYS = new Set(
-  THEME_WIDGET_COLOR_FIELDS.map(({ key }) => key),
-);
+const BUILT_IN_THEME_LEGACY_NAME_MAP = Object.freeze({
+  "graphite-mist": Object.freeze(["石墨灰"]),
+  "porcelain-mist": Object.freeze(["瓷雾白"]),
+  "oyster-linen": Object.freeze(["雾贝绢白"]),
+});
+const LEGACY_BUILT_IN_THEME_OVERRIDE_SNAPSHOTS = Object.freeze({
+  "graphite-mist": Object.freeze({
+    name: "石墨灰",
+    colors: Object.freeze({
+      primary: "#2a2d32",
+      secondary: "rgba(58, 62, 69, 0.5)",
+      tertiary: "rgba(76, 81, 90, 0.58)",
+      quaternary: "rgba(240, 243, 250, 0.1)",
+      accent: "#f0f3fa",
+      text: "#f8f9fc",
+      mutedText: "rgba(248, 249, 252, 0.74)",
+      border: "rgba(224, 227, 234, 0.24)",
+      delete: "#ff8787",
+      deleteHover: "#ff6b6b",
+      projectLevel1: "#d8dde7",
+      projectLevel2: "#aeb5c2",
+      projectLevel3: "#808897",
+      panel: "rgba(39, 42, 48, 0.86)",
+      panelStrong: "rgba(45, 49, 56, 0.94)",
+      panelBorder: "rgba(224, 227, 234, 0.15)",
+      buttonBg: "#f0f3fa",
+      buttonBgHover: "#ffffff",
+      buttonText: "#222832",
+      buttonBorder: "rgba(240, 243, 250, 0.56)",
+      onAccentText: "#222832",
+      navBarBg: "rgba(33, 36, 41, 0.9)",
+      navButtonBg: "rgba(240, 243, 250, 0.06)",
+      navButtonActiveBg: "rgba(124, 134, 149, 0.82)",
+      overlay: "rgba(8, 10, 12, 0.45)",
+    }),
+    recordCard: Object.freeze({
+      mode: "project",
+      color: "#d8dde7",
+    }),
+  }),
+});
 
 const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
 const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
 const TABLE_SIZE_EVENT_NAME = "ui:table-scale-settings-changed";
 const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
+const LOCAL_ONLY_STORAGE_PREFIX = "__controler_local__:";
 const APP_NAV_REORDER_DESKTOP_HOLD_MS = 280;
 const APP_NAV_REORDER_TOUCH_HOLD_MS = 420;
 const APP_NAV_REORDER_CANCEL_DISTANCE_PX = 10;
@@ -1559,155 +1224,28 @@ function normalizeThemeRecordCardMode(mode, fallback = DEFAULT_THEME_RECORD_CARD
 }
 
 function resolveThemeRecordCard(theme = null, resolvedColors = null) {
-  const source =
-    theme?.recordCard && typeof theme.recordCard === "object"
-      ? theme.recordCard
-      : {};
-  const palette =
-    resolvedColors && typeof resolvedColors === "object"
-      ? resolvedColors
-      : resolveThemeColors(theme);
-  const colorCandidates = [
-    source?.color,
-    palette?.projectLevel1,
-    palette?.accent,
-    palette?.buttonBg,
-    DEFAULT_THEME_RECORD_CARD.color,
-  ];
-  const resolvedColor =
-    colorCandidates.find((value) => isValidThemeColorValue(value)) ||
-    DEFAULT_THEME_RECORD_CARD.color;
+  if (typeof resolveThemeRuntime()?.resolveThemeRecordCard === "function") {
+    return resolveThemeRuntime().resolveThemeRecordCard(theme, resolvedColors);
+  }
   return {
-    mode: normalizeThemeRecordCardMode(source?.mode),
-    color: String(resolvedColor || DEFAULT_THEME_RECORD_CARD.color).trim(),
+    mode: normalizeThemeRecordCardMode(theme?.recordCard?.mode),
+    color: DEFAULT_THEME_RECORD_CARD.color,
   };
 }
 
 function resolveThemeColors(theme = null) {
-  const source = theme?.colors || {};
-  const primary = isValidThemeColorValue(source.primary)
-    ? source.primary.trim()
-    : DEFAULT_THEME_COLORS.primary;
-  const secondary = isValidThemeColorValue(source.secondary)
-    ? source.secondary.trim()
-    : DEFAULT_THEME_COLORS.secondary;
-  const tertiary = isValidThemeColorValue(source.tertiary)
-    ? source.tertiary.trim()
-    : DEFAULT_THEME_COLORS.tertiary;
-  const quaternary = isValidThemeColorValue(source.quaternary)
-    ? source.quaternary.trim()
-    : DEFAULT_THEME_COLORS.quaternary;
-  const accent = isValidThemeColorValue(source.accent)
-    ? source.accent.trim()
-    : DEFAULT_THEME_COLORS.accent;
-  const text = isValidThemeColorValue(source.text)
-    ? source.text.trim()
-    : DEFAULT_THEME_COLORS.text;
-  const buttonBg = isValidThemeColorValue(source.buttonBg)
-    ? source.buttonBg.trim()
-    : accent;
-  const panel = isValidThemeColorValue(source.panel)
-    ? source.panel.trim()
-    : secondary;
-  const panelStrong = isValidThemeColorValue(source.panelStrong)
-    ? source.panelStrong.trim()
-    : tertiary;
-  const panelBorder = isValidThemeColorValue(source.panelBorder)
-    ? source.panelBorder.trim()
-    : toRgbaColor(accent, 0.28);
-  const navBarBg = isValidThemeColorValue(source.navBarBg)
-    ? source.navBarBg.trim()
-    : panelStrong;
-  const navButtonBg = isValidThemeColorValue(source.navButtonBg)
-    ? source.navButtonBg.trim()
-    : toRgbaColor(accent, 0.12);
-  const navButtonActiveBg = isValidThemeColorValue(source.navButtonActiveBg)
-    ? source.navButtonActiveBg.trim()
-    : buttonBg;
-  const buttonText = ensureReadableTextColor(
-    buttonBg,
-    source.buttonText,
-    "#173326",
-    "#f8fafc",
-  );
-  const onAccentText = ensureReadableTextColor(
-    accent,
-    source.onAccentText,
-    "#173326",
-    "#f8fafc",
-  );
-  const navButtonActiveText = ensureReadableTextColor(
-    navButtonActiveBg,
-    source.navButtonActiveText,
-    "#16211c",
-    "#f8fafc",
-  );
-  const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
-  const primaryRgb = parseHexColor(primaryHex);
-  const isLightSurface =
-    !!primaryRgb &&
-    (0.2126 * primaryRgb.r + 0.7152 * primaryRgb.g + 0.0722 * primaryRgb.b) /
-      255 >=
-      0.72;
-
+  if (typeof resolveThemeRuntime()?.resolveThemeColors === "function") {
+    return resolveThemeRuntime().resolveThemeColors(theme);
+  }
   return {
-    primary,
-    secondary,
-    tertiary,
-    quaternary,
-    accent,
-    text,
-    mutedText: isValidThemeColorValue(source.mutedText)
-      ? source.mutedText.trim()
-      : toRgbaColor(text, isLightSurface ? 0.7 : 0.72),
-    border: isValidThemeColorValue(source.border)
-      ? source.border.trim()
-      : panelBorder,
-    delete: isValidThemeColorValue(source.delete)
-      ? source.delete.trim()
-      : DEFAULT_THEME_COLORS.delete,
-    deleteHover: isValidThemeColorValue(source.deleteHover)
-      ? source.deleteHover.trim()
-      : DEFAULT_THEME_COLORS.deleteHover,
-    projectLevel1: isValidThemeColorValue(source.projectLevel1)
-      ? source.projectLevel1.trim()
-      : DEFAULT_THEME_COLORS.projectLevel1,
-    projectLevel2: isValidThemeColorValue(source.projectLevel2)
-      ? source.projectLevel2.trim()
-      : DEFAULT_THEME_COLORS.projectLevel2,
-    projectLevel3: isValidThemeColorValue(source.projectLevel3)
-      ? source.projectLevel3.trim()
-      : DEFAULT_THEME_COLORS.projectLevel3,
-    panel,
-    panelStrong,
-    panelBorder,
-    buttonBg,
-    buttonBgHover: isValidThemeColorValue(source.buttonBgHover)
-      ? source.buttonBgHover.trim()
-      : buttonBg,
-    buttonText,
-    buttonBorder: isValidThemeColorValue(source.buttonBorder)
-      ? source.buttonBorder.trim()
-      : toRgbaColor(buttonBg, 0.48),
-    onAccentText,
-    navBarBg,
-    navButtonBg,
-    navButtonActiveBg,
-    navButtonActiveText,
-    widgetCardBg: resolveOptionalThemeColorValue(source.widgetCardBg),
-    widgetItemBg: resolveOptionalThemeColorValue(source.widgetItemBg),
-    widgetText: resolveOptionalThemeColorValue(source.widgetText),
-    widgetButtonBg: resolveOptionalThemeColorValue(source.widgetButtonBg),
-    widgetButtonText: resolveOptionalThemeColorValue(source.widgetButtonText),
-    overlay: isValidThemeColorValue(source.overlay)
-      ? source.overlay.trim()
-      : isLightSurface
-        ? "rgba(27, 31, 38, 0.22)"
-        : DEFAULT_THEME_COLORS.overlay,
+    ...DEFAULT_THEME_COLORS,
   };
 }
 
 function sanitizeThemeId(name, existingId = "") {
+  if (typeof resolveThemeRuntime()?.sanitizeThemeId === "function") {
+    return resolveThemeRuntime().sanitizeThemeId(name, existingId);
+  }
   const normalized = String(name || existingId || "custom-theme")
     .trim()
     .toLowerCase()
@@ -1717,36 +1255,119 @@ function sanitizeThemeId(name, existingId = "") {
 }
 
 function normalizeThemeObject(theme, index = 0) {
-  const normalizedColors = resolveThemeColors(theme);
-  const normalizedRecordCard = resolveThemeRecordCard(theme, normalizedColors);
-
-  const name =
-    typeof theme?.name === "string" && theme.name.trim()
-      ? theme.name.trim()
-      : `自定义主题 ${index + 1}`;
-  const safeId = sanitizeThemeId(theme?.id || name, theme?.id);
-  const themeId = BUILT_IN_THEMES.some((item) => item.id === safeId)
-    ? `custom-${safeId}`
-    : safeId.startsWith("custom-")
-      ? safeId
-      : `custom-${safeId}`;
-
+  if (typeof resolveThemeRuntime()?.normalizeThemeObject === "function") {
+    return resolveThemeRuntime().normalizeThemeObject(theme, index);
+  }
   return {
-    id: themeId,
-    name,
-    colors: normalizedColors,
-    recordCard: normalizedRecordCard,
+    id: `custom-${sanitizeThemeId(theme?.id || theme?.name || `theme-${index + 1}`)}`,
+    name: theme?.name || `自定义主题 ${index + 1}`,
+    colors: resolveThemeColors(theme),
+    recordCard: resolveThemeRecordCard(theme),
     isCustom: true,
     isBuiltIn: false,
     hasOverride: false,
   };
 }
 
+function readThemeStorageRawValue(storageKey) {
+  const normalizedKey = String(storageKey || "").trim();
+  if (!normalizedKey) {
+    return null;
+  }
+  try {
+    const storageValue = localStorage.getItem(normalizedKey);
+    if (storageValue !== null && typeof storageValue !== "undefined") {
+      return storageValue;
+    }
+  } catch (error) {
+    console.error("读取主题存储失败:", error);
+  }
+  try {
+    return localStorage.getItem(`${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`);
+  } catch (error) {
+    console.error("读取主题本地镜像失败:", error);
+    return null;
+  }
+}
+
+function writeThemeStorageValue(storageKey, rawValue) {
+  const normalizedKey = String(storageKey || "").trim();
+  if (!normalizedKey) {
+    return;
+  }
+  const nextValue =
+    typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue ?? null);
+  try {
+    localStorage.setItem(normalizedKey, nextValue);
+  } catch (error) {
+    console.error("写入主题存储失败:", error);
+  }
+  try {
+    localStorage.setItem(`${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`, nextValue);
+  } catch (error) {
+    console.error("写入主题本地镜像失败:", error);
+  }
+}
+
+function parseThemeStorageJson(storageKey, fallback) {
+  const rawValue = readThemeStorageRawValue(storageKey);
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(rawValue);
+    return parsed === null || typeof parsed === "undefined" ? fallback : parsed;
+  } catch (error) {
+    console.error("解析主题存储失败:", error);
+    return fallback;
+  }
+}
+
+function getStoredThemeStateSnapshot() {
+  if (typeof resolveThemeRuntime()?.getStoredThemeState === "function") {
+    return resolveThemeRuntime().getStoredThemeState();
+  }
+  const selectedThemeRaw = readThemeStorageRawValue("selectedTheme");
+  const customThemes = parseThemeStorageJson(CUSTOM_THEMES_STORAGE_KEY, []);
+  const builtInThemeOverrides = parseThemeStorageJson(
+    BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+    {},
+  );
+  return {
+    selectedTheme:
+      typeof selectedThemeRaw === "string" && selectedThemeRaw.trim()
+        ? selectedThemeRaw.trim()
+        : "obsidian-mono",
+    customThemes: Array.isArray(customThemes) ? customThemes : [],
+    builtInThemeOverrides:
+      builtInThemeOverrides &&
+      typeof builtInThemeOverrides === "object" &&
+      !Array.isArray(builtInThemeOverrides)
+        ? builtInThemeOverrides
+        : {},
+  };
+}
+
+function getStoredSelectedThemeId() {
+  const storedThemeState = getStoredThemeStateSnapshot();
+  const selectedTheme =
+    typeof storedThemeState?.selectedTheme === "string" &&
+    storedThemeState.selectedTheme.trim()
+      ? storedThemeState.selectedTheme.trim()
+      : "";
+  if (selectedTheme) {
+    return selectedTheme;
+  }
+  const resolvedThemeId =
+    typeof storedThemeState?.themeId === "string" && storedThemeState.themeId.trim()
+      ? storedThemeState.themeId.trim()
+      : "";
+  return resolvedThemeId || "obsidian-mono";
+}
+
 function loadCustomThemes() {
   try {
-    const raw = JSON.parse(
-      localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY) || "[]",
-    );
+    const raw = getStoredThemeStateSnapshot()?.customThemes;
     if (!Array.isArray(raw)) return [];
     return raw.map((theme, index) => normalizeThemeObject(theme, index));
   } catch (error) {
@@ -1759,15 +1380,35 @@ function saveCustomThemes(customThemes) {
   const normalized = Array.isArray(customThemes)
     ? customThemes.map((theme, index) => normalizeThemeObject(theme, index))
     : [];
-  localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(normalized));
+  writeThemeStorageValue(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(normalized));
   scheduleThemeStorageFlush({
     customThemes: normalized,
   });
   return normalized;
 }
 
-function normalizeBuiltInThemeOverride(themeId, override = {}) {
-  const baseTheme = BUILT_IN_THEMES.find((item) => item.id === themeId);
+function normalizeThemeComparisonValue(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function areThemeColorMapsEqual(leftColors = {}, rightColors = {}) {
+  return Object.keys(DEFAULT_THEME_COLORS).every(
+    (key) =>
+      normalizeThemeComparisonValue(leftColors?.[key]) ===
+      normalizeThemeComparisonValue(rightColors?.[key]),
+  );
+}
+
+function areThemeRecordCardsEqual(leftRecordCard = {}, rightRecordCard = {}) {
+  return (
+    normalizeThemeRecordCardMode(leftRecordCard?.mode) ===
+      normalizeThemeRecordCardMode(rightRecordCard?.mode) &&
+    normalizeThemeComparisonValue(leftRecordCard?.color) ===
+      normalizeThemeComparisonValue(rightRecordCard?.color)
+  );
+}
+
+function buildComparableBuiltInThemeOverride(baseTheme, override = {}) {
   if (
     !baseTheme ||
     !override ||
@@ -1776,12 +1417,58 @@ function normalizeBuiltInThemeOverride(themeId, override = {}) {
   ) {
     return null;
   }
-
+  const normalizeThemeColorComparisonValue = (color) =>
+    isValidThemeColorValue(color)
+      ? String(color).trim().toLowerCase().replace(/\s+/g, "")
+      : "";
+  const autoDerivedNavKeys = [
+    "navBarBorder",
+    "navButtonText",
+    "navButtonActiveText",
+  ];
+  const storedColors = {};
+  Object.entries(override?.colors || {}).forEach(([key, value]) => {
+    if (isValidThemeColorValue(value)) {
+      storedColors[key] = value.trim();
+    }
+  });
+  const autoDerivedComparisonColors = { ...storedColors };
+  autoDerivedNavKeys.forEach((key) => {
+    delete autoDerivedComparisonColors[key];
+  });
+  const autoDerivedColors = resolveThemeColors({
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      ...autoDerivedComparisonColors,
+    },
+  });
+  autoDerivedNavKeys.forEach((key) => {
+    if (
+      normalizeThemeColorComparisonValue(storedColors[key]) &&
+      normalizeThemeColorComparisonValue(storedColors[key]) ===
+        normalizeThemeColorComparisonValue(autoDerivedColors[key])
+    ) {
+      delete storedColors[key];
+    }
+  });
+  const baseResolvedColors = resolveThemeColors(baseTheme);
+  Object.keys(storedColors).forEach((key) => {
+    if (autoDerivedNavKeys.includes(key)) {
+      return;
+    }
+    if (
+      normalizeThemeColorComparisonValue(storedColors[key]) ===
+      normalizeThemeColorComparisonValue(baseResolvedColors[key])
+    ) {
+      delete storedColors[key];
+    }
+  });
   const normalizedColors = resolveThemeColors({
     ...baseTheme,
     colors: {
       ...baseTheme.colors,
-      ...(override?.colors || {}),
+      ...storedColors,
     },
   });
   const normalizedRecordCard = resolveThemeRecordCard(
@@ -1794,45 +1481,84 @@ function normalizeBuiltInThemeOverride(themeId, override = {}) {
     },
     normalizedColors,
   );
+  const trimmedOverrideName =
+    typeof override?.name === "string" ? override.name.trim() : "";
+  const legacyNames = Array.isArray(BUILT_IN_THEME_LEGACY_NAME_MAP[baseTheme.id])
+    ? BUILT_IN_THEME_LEGACY_NAME_MAP[baseTheme.id]
+    : [];
   return {
-    id: themeId,
-    name:
-      typeof override?.name === "string" && override.name.trim()
-        ? override.name.trim()
-        : baseTheme.name,
-    colors: normalizedColors,
+    id: baseTheme.id,
+    name: trimmedOverrideName
+      ? legacyNames.includes(trimmedOverrideName)
+        ? baseTheme.name
+        : trimmedOverrideName
+      : baseTheme.name,
+    colors: storedColors,
+    resolvedColors: normalizedColors,
     recordCard: normalizedRecordCard,
   };
 }
 
-function loadBuiltInThemeOverrides() {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY) || "{}",
-    );
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return {};
-    }
-
-    return BUILT_IN_THEMES.reduce((accumulator, theme) => {
-      const override = normalizeBuiltInThemeOverride(theme.id, raw[theme.id]);
-      if (override) {
-        accumulator[theme.id] = override;
-      }
-      return accumulator;
-    }, {});
-  } catch (error) {
-    console.error("加载内置主题覆盖失败:", error);
-    return {};
+function buildLegacyBuiltInThemeSnapshot(baseTheme) {
+  const snapshot = LEGACY_BUILT_IN_THEME_OVERRIDE_SNAPSHOTS[baseTheme?.id];
+  if (!snapshot) {
+    return null;
   }
+  return buildComparableBuiltInThemeOverride(baseTheme, snapshot);
 }
 
-function saveBuiltInThemeOverrides(overrides) {
-  const normalizedOverrides = BUILT_IN_THEMES.reduce((accumulator, theme) => {
-    const override = normalizeBuiltInThemeOverride(
-      theme.id,
-      overrides?.[theme.id],
-    );
+function normalizeBuiltInThemeOverride(themeId, override = {}) {
+  if (typeof resolveThemeRuntime()?.normalizeBuiltInThemeOverride === "function") {
+    return resolveThemeRuntime().normalizeBuiltInThemeOverride(themeId, override);
+  }
+  const baseTheme = BUILT_IN_THEMES.find((item) => item.id === themeId);
+  const comparableOverride = buildComparableBuiltInThemeOverride(baseTheme, override);
+  if (!comparableOverride) {
+    return null;
+  }
+  const baseRecordCard = resolveThemeRecordCard(
+    baseTheme,
+    resolveThemeColors(baseTheme),
+  );
+  const isEquivalentToBase =
+    comparableOverride.name === baseTheme.name &&
+    Object.keys(comparableOverride.colors).length === 0 &&
+    areThemeRecordCardsEqual(comparableOverride.recordCard, baseRecordCard);
+  if (isEquivalentToBase) {
+    return null;
+  }
+  const legacySnapshot = buildLegacyBuiltInThemeSnapshot(baseTheme);
+  if (
+    legacySnapshot &&
+    comparableOverride.name === legacySnapshot.name &&
+    areThemeColorMapsEqual(
+      comparableOverride.resolvedColors,
+      legacySnapshot.resolvedColors,
+    ) &&
+    areThemeRecordCardsEqual(
+      comparableOverride.recordCard,
+      legacySnapshot.recordCard,
+    )
+  ) {
+    return null;
+  }
+  return {
+    id: comparableOverride.id,
+    name: comparableOverride.name,
+    colors: comparableOverride.colors,
+    recordCard: comparableOverride.recordCard,
+  };
+}
+
+function normalizeBuiltInThemeOverridesMap(rawOverrides = {}) {
+  if (
+    typeof resolveThemeRuntime()?.normalizeBuiltInThemeOverridesMap ===
+    "function"
+  ) {
+    return resolveThemeRuntime().normalizeBuiltInThemeOverridesMap(rawOverrides);
+  }
+  return BUILT_IN_THEMES.reduce((accumulator, theme) => {
+    const override = normalizeBuiltInThemeOverride(theme.id, rawOverrides?.[theme.id]);
     if (override) {
       accumulator[theme.id] = {
         name: override.name,
@@ -1842,8 +1568,36 @@ function saveBuiltInThemeOverrides(overrides) {
     }
     return accumulator;
   }, {});
+}
 
-  localStorage.setItem(
+function loadBuiltInThemeOverrides() {
+  try {
+    const raw = getStoredThemeStateSnapshot()?.builtInThemeOverrides;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return {};
+    }
+    const normalizedOverrides = normalizeBuiltInThemeOverridesMap(raw);
+    const normalizedSnapshot = JSON.stringify(normalizedOverrides);
+    if (normalizedSnapshot !== JSON.stringify(raw)) {
+      writeThemeStorageValue(
+        BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+        normalizedSnapshot,
+      );
+      scheduleThemeStorageFlush({
+        builtInThemeOverrides: normalizedOverrides,
+      });
+    }
+    return normalizedOverrides;
+  } catch (error) {
+    console.error("加载内置主题覆盖失败:", error);
+    return {};
+  }
+}
+
+function saveBuiltInThemeOverrides(overrides) {
+  const normalizedOverrides = normalizeBuiltInThemeOverridesMap(overrides);
+
+  writeThemeStorageValue(
     BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
     JSON.stringify(normalizedOverrides),
   );
@@ -1909,7 +1663,18 @@ function buildThemeDraft(baseTheme = null) {
 
 function isLightTheme(themeId) {
   const theme = findThemeById(themeId);
-  if (themeId === "ivory-light" || themeId === "champagne-sandstone") return true;
+  if (typeof resolveThemeRuntime()?.isLightTheme === "function") {
+    return resolveThemeRuntime().isLightTheme(theme);
+  }
+  if (
+    themeId === "ivory-light" ||
+    themeId === "champagne-sandstone" ||
+    themeId === "porcelain-mist" ||
+    themeId === "sage-cashmere" ||
+    themeId === "oyster-linen"
+  ) {
+    return true;
+  }
   const rgb = parseHexColor(
     toHexColor(theme?.colors?.primary, DEFAULT_THEME_COLORS.primary),
   );
@@ -2212,7 +1977,7 @@ function renderTableSizeSettingsPanel() {
       <div class="table-size-card-description" style="color: var(--muted-text-color); font-size: 12px; margin: 4px 0 10px 0;">
         ${item.description}
       </div>
-      <label class="table-size-slider-row" style="display: flex; align-items: center; gap: 8px; color: var(--text-color); font-size: 13px;">
+      <div class="table-size-slider-row" style="display: flex; align-items: center; gap: 8px; color: var(--text-color); font-size: 13px;">
         <span class="table-size-slider-label">尺寸</span>
         <input
           id="table-size-item-${item.id}"
@@ -2224,7 +1989,7 @@ function renderTableSizeSettingsPanel() {
           style="flex: 1"
         />
         <span class="table-size-item-value" id="table-size-item-value-${item.id}">${formatScaleText(scale)}</span>
-      </label>
+      </div>
       <div class="table-size-effective-scale" style="color: var(--muted-text-color); font-size: 12px; margin-top: 8px;">
         已保存缩放: <span id="table-size-item-saved-${item.id}">${formatScaleText(scale)}</span>
       </div>
@@ -2357,7 +2122,7 @@ async function refreshThemeWidgets() {
 // 保存主题到localStorage
 function saveTheme(themeId) {
   try {
-    localStorage.setItem("selectedTheme", themeId);
+    writeThemeStorageValue("selectedTheme", themeId);
     return flushThemeStorageNow({
       selectedTheme: themeId,
     });
@@ -2372,12 +2137,23 @@ function loadTheme(options = {}) {
   const shouldUpdateSelector = options?.updateSelector !== false;
   try {
     syncThemeCatalog();
-    const savedTheme = localStorage.getItem("selectedTheme");
+    const storedThemeState = getStoredThemeStateSnapshot();
+    const savedTheme = getStoredSelectedThemeId();
     if (savedTheme && findThemeById(savedTheme)) {
       applyTheme(savedTheme, {
         updateSelector: shouldUpdateSelector,
       });
       return savedTheme;
+    }
+    const resolvedThemeId =
+      typeof storedThemeState?.themeId === "string" && storedThemeState.themeId.trim()
+        ? storedThemeState.themeId.trim()
+        : "";
+    if (resolvedThemeId && findThemeById(resolvedThemeId)) {
+      applyTheme(resolvedThemeId, {
+        updateSelector: shouldUpdateSelector,
+      });
+      return resolvedThemeId;
     }
     applyTheme("obsidian-mono", {
       updateSelector: shouldUpdateSelector,
@@ -2396,99 +2172,48 @@ function loadTheme(options = {}) {
 // 应用主题
 function applyTheme(themeId, options = {}) {
   const theme = findThemeById(themeId) || themes[0] || BUILT_IN_THEMES[0];
-  const resolvedColors = resolveThemeColors(theme);
-  const resolvedRecordCard = resolveThemeRecordCard(theme, resolvedColors);
-
-  // 设置CSS变量
-  const root = document.documentElement;
-  root.style.setProperty("--bg-primary", resolvedColors.primary);
-  root.style.setProperty("--bg-secondary", resolvedColors.secondary);
-  root.style.setProperty("--bg-tertiary", resolvedColors.tertiary);
-  root.style.setProperty("--bg-quaternary", resolvedColors.quaternary);
-  root.style.setProperty("--accent-color", resolvedColors.accent);
-  root.style.setProperty("--text-color", resolvedColors.text);
-  root.style.setProperty("--muted-text-color", resolvedColors.mutedText);
-  root.style.setProperty("--border-color", resolvedColors.border);
-  root.style.setProperty("--delete-btn", resolvedColors.delete);
-  root.style.setProperty("--delete-hover", resolvedColors.deleteHover);
-  root.style.setProperty("--project-level-1", resolvedColors.projectLevel1);
-  root.style.setProperty("--project-level-2", resolvedColors.projectLevel2);
-  root.style.setProperty("--project-level-3", resolvedColors.projectLevel3);
-  root.style.setProperty(
-    "--panel-bg",
-    resolvedColors.panel || resolvedColors.secondary,
-  );
-  root.style.setProperty(
-    "--panel-strong-bg",
-    resolvedColors.panelStrong || resolvedColors.tertiary,
-  );
-  root.style.setProperty(
-    "--panel-border-color",
-    resolvedColors.panelBorder || "rgba(121,175,133,0.28)",
-  );
-  root.style.setProperty("--button-bg", resolvedColors.buttonBg);
-  root.style.setProperty("--button-bg-hover", resolvedColors.buttonBgHover);
-  root.style.setProperty("--button-text", resolvedColors.buttonText);
-  root.style.setProperty("--button-border", resolvedColors.buttonBorder);
-  root.style.setProperty("--on-accent-text", resolvedColors.onAccentText);
-  root.style.setProperty("--bottom-nav-bg", resolvedColors.navBarBg);
-  root.style.setProperty("--bottom-nav-button-bg", resolvedColors.navButtonBg);
-  root.style.setProperty(
-    "--bottom-nav-button-active-bg",
-    resolvedColors.navButtonActiveBg,
-  );
-  root.style.setProperty(
-    "--bottom-nav-active-text",
-    resolvedColors.navButtonActiveText,
-  );
-  root.style.setProperty("--overlay-bg", resolvedColors.overlay);
-  root.style.setProperty(
-    "--record-card-color-mode",
-    resolvedRecordCard.mode === "theme" ? "theme" : "project",
-  );
-  root.style.setProperty("--record-card-theme-color", resolvedRecordCard.color);
-  root.style.setProperty(
-    "--accent-color-rgb",
-    toRgbChannels(resolvedColors.accent),
-  );
-  root.style.colorScheme = isLightTheme(theme.id) ? "light" : "dark";
-  if (typeof window.ControlerTheme?.syncDocumentThemeSurface === "function") {
-    window.ControlerTheme.syncDocumentThemeSurface(resolvedColors);
-  } else {
-    root.style.backgroundColor = resolvedColors.primary;
-    root.style.color = resolvedColors.text;
-    if (document.body instanceof HTMLElement) {
-      document.body.style.backgroundColor = resolvedColors.primary;
-      document.body.style.color = resolvedColors.text;
-    }
+  if (typeof resolveThemeRuntime()?.applyThemeState === "function") {
+    resolveThemeRuntime().applyThemeState(theme.id, theme);
   }
-
-  // 设置data-theme属性
-  root.setAttribute("data-theme", theme.id);
 
   // 更新主题选择器UI
   if (options?.updateSelector !== false) {
     updateThemeSelector(theme.id);
   }
+}
 
-  window.dispatchEvent(
-    new CustomEvent("controler:theme-applied", {
-      detail: {
-        themeId: theme.id,
-        colors: { ...resolvedColors },
-        recordCard: { ...resolvedRecordCard },
-      },
-    }),
-  );
-  window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
-    href: window.location.href,
-    themeId: theme.id,
-    selectedTheme: theme.id,
-    customThemes: loadCustomThemes(),
-    builtInThemeOverrides: loadBuiltInThemeOverrides(),
-    colors: { ...resolvedColors },
-    recordCard: { ...resolvedRecordCard },
-  });
+function resolveThemePreviewModel(theme) {
+  const resolvedColors = resolveThemeColors(theme);
+  const navTokens =
+    typeof resolveThemeRuntime()?.resolveNavThemeTokens === "function"
+      ? resolveThemeRuntime().resolveNavThemeTokens(resolvedColors)
+      : {
+          containerBg: resolvedColors.navBarBg,
+          containerBorder: resolvedColors.navBarBorder || resolvedColors.panelBorder,
+          itemBg: resolvedColors.navButtonBg,
+          itemText: resolvedColors.navButtonText || resolvedColors.mutedText,
+          itemBorder: resolvedColors.panelBorder,
+          itemActiveBg: resolvedColors.navButtonActiveBg,
+          itemActiveText: resolvedColors.navButtonActiveText,
+          itemActiveBorder: resolvedColors.panelBorder,
+        };
+  const recordCardSurface =
+    typeof resolveThemeRuntime()?.resolveRecordCardSurfaceStyles === "function"
+      ? resolveThemeRuntime().resolveRecordCardSurfaceStyles({
+          theme,
+          resolvedColors,
+        })
+      : {
+          background: `linear-gradient(180deg, ${resolvedColors.panelStrong} 0%, ${resolvedColors.panel} 100%)`,
+          borderColor: resolvedColors.panelBorder,
+          shadow: "none",
+          titleColor: resolvedColors.accent,
+        };
+
+  return {
+    resolvedColors,
+    navTokens,
+  };
 }
 
 // 更新主题选择器UI
@@ -2509,7 +2234,7 @@ function updateThemeSelector(selectedThemeId) {
   const fragment = document.createDocumentFragment();
 
   themes.forEach((theme) => {
-    const resolvedColors = resolveThemeColors(theme);
+    const { resolvedColors, navTokens } = resolveThemePreviewModel(theme);
     const option = document.createElement("div");
     option.className = `theme-option ${theme.id === selectedThemeId ? "selected" : ""}`;
 
@@ -2527,48 +2252,30 @@ function updateThemeSelector(selectedThemeId) {
     previewAccent.className = "theme-preview-accent";
     previewAccent.style.background = resolvedColors.accent;
     previewSurface.appendChild(previewAccent);
-    preview.appendChild(previewSurface);
 
     const previewNav = document.createElement("div");
     previewNav.className = "theme-preview-nav";
-    previewNav.style.background = `color-mix(in srgb, ${resolvedColors.navBarBg} 68%, ${resolvedColors.panel} 32%)`;
-    previewNav.style.borderColor = `color-mix(in srgb, ${resolvedColors.panelBorder} 72%, ${resolvedColors.navButtonBg} 28%)`;
-    previewNav.style.boxShadow = `
-      inset 0 1px 0 color-mix(in srgb, ${resolvedColors.panel} 18%, transparent),
-      inset 1px 0 0 color-mix(in srgb, ${resolvedColors.panel} 10%, transparent),
-      inset -1px 0 0 color-mix(in srgb, ${resolvedColors.navBarBg} 16%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, ${resolvedColors.navBarBg} 22%, transparent),
-      0 7px 15px rgba(0, 0, 0, 0.1)
-    `;
-    const previewNavButtonBg = `transparent`;
-    const previewNavButtonActiveBg = `color-mix(in srgb, ${resolvedColors.navButtonActiveBg} 42%, ${resolvedColors.panel} 58%)`;
+    previewNav.style.background = navTokens.containerBg;
+    previewNav.style.borderColor = navTokens.containerBorder;
+    previewNav.style.boxShadow = "none";
+    const previewNavButtonBg = "transparent";
+    const previewNavButtonActiveBg = navTokens.itemActiveBg;
+
+    preview.appendChild(previewSurface);
 
     for (let index = 0; index < 5; index += 1) {
       const navItem = document.createElement("span");
       const isActive = index === 2;
       navItem.className = `theme-preview-nav-item ${isActive ? "is-active" : ""}`;
-      navItem.style.background =
-        isActive ? previewNavButtonActiveBg : previewNavButtonBg;
-      navItem.style.margin = isActive ? "2px" : "0";
-      navItem.style.borderRadius = isActive ? "8px" : "0";
-      navItem.style.borderColor = "transparent";
-      navItem.style.color =
-        isActive
-          ? resolvedColors.navButtonActiveText
-          : `color-mix(in srgb, ${resolvedColors.mutedText} 78%, ${resolvedColors.navButtonActiveText} 22%)`;
-      navItem.style.boxShadow = isActive
-        ? `
-            inset 0 0 0 1px color-mix(in srgb, ${resolvedColors.panelBorder} 74%, ${resolvedColors.navButtonBg} 26%),
-            inset 0 1px 0 color-mix(in srgb, ${resolvedColors.navButtonBg} 12%, transparent),
-            inset 1px 0 0 color-mix(in srgb, ${resolvedColors.panel} 10%, transparent),
-            inset -1px 0 0 color-mix(in srgb, ${resolvedColors.navBarBg} 16%, transparent),
-            inset 0 -1px 0 color-mix(in srgb, ${resolvedColors.navBarBg} 22%, transparent),
-            0 2px 6px rgba(0, 0, 0, 0.04)
-          `
-        : "none";
+      navItem.style.background = isActive
+        ? previewNavButtonActiveBg
+        : previewNavButtonBg;
+      navItem.style.borderColor = isActive ? navTokens.itemActiveBorder : "transparent";
+      navItem.style.color = isActive
+        ? navTokens.itemActiveText
+        : navTokens.itemText;
       previewNav.appendChild(navItem);
     }
-
     preview.appendChild(previewNav);
     option.appendChild(preview);
 
@@ -2672,7 +2379,19 @@ function upsertBuiltInThemeOverride(themeDraft) {
     themeDraft,
   );
   if (!normalizedOverride) {
-    return null;
+    delete overrides[themeDraft.id];
+    saveBuiltInThemeOverrides(overrides);
+    syncThemeCatalog();
+    return (
+      findThemeById(themeDraft.id) || {
+        ...baseTheme,
+        colors: resolveThemeColors(baseTheme),
+        recordCard: resolveThemeRecordCard(baseTheme),
+        isCustom: false,
+        isBuiltIn: true,
+        hasOverride: false,
+      }
+    );
   }
 
   overrides[themeDraft.id] = {
@@ -2700,32 +2419,39 @@ function upsertThemeDraft(themeDraft) {
   return upsertCustomTheme(themeDraft);
 }
 
-function deleteCustomTheme(themeId) {
+async function deleteCustomTheme(themeId) {
   const nextThemes = loadCustomThemes().filter((theme) => theme.id !== themeId);
   saveCustomThemes(nextThemes);
   syncThemeCatalog();
 
-  if (localStorage.getItem("selectedTheme") === themeId) {
+  const selectedThemeId = getStoredSelectedThemeId();
+  if (selectedThemeId === themeId) {
     applyTheme("obsidian-mono");
-    void saveTheme("obsidian-mono").then(() => refreshThemeWidgets());
-  } else {
-    updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
+    await saveTheme("obsidian-mono");
+    await refreshThemeWidgets();
+    return true;
   }
+  updateThemeSelector(selectedThemeId || "obsidian-mono");
+  await flushThemeStorageNow();
+  return true;
 }
 
-function resetBuiltInThemeOverride(themeId) {
+async function resetBuiltInThemeOverride(themeId) {
   const overrides = loadBuiltInThemeOverrides();
   delete overrides[themeId];
   saveBuiltInThemeOverrides(overrides);
   syncThemeCatalog();
 
-  if (localStorage.getItem("selectedTheme") === themeId) {
+  const selectedThemeId = getStoredSelectedThemeId();
+  if (selectedThemeId === themeId) {
     applyTheme(themeId);
-    return saveTheme(themeId).then(() => refreshThemeWidgets());
-  } else {
-    updateThemeSelector(localStorage.getItem("selectedTheme") || "obsidian-mono");
+    await saveTheme(themeId);
+    await refreshThemeWidgets();
+    return true;
   }
-  return Promise.resolve(false);
+  updateThemeSelector(selectedThemeId || "obsidian-mono");
+  await flushThemeStorageNow();
+  return true;
 }
 
 function prepareSettingsModalOverlayElement(modal, options = {}) {
@@ -2769,11 +2495,180 @@ function prepareSettingsModalOverlayElement(modal, options = {}) {
   return modal;
 }
 
+function buildThemeFieldInputRowHtml(field, draftColors = {}, widgetFallbacks = {}) {
+  if (!field?.key) {
+    return "";
+  }
+  const key = field.key;
+  const fieldValue = String(draftColors[key] || "").trim();
+  const fallbackValue = OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)
+    ? firstNonEmpty(widgetFallbacks[key], DEFAULT_THEME_COLORS.buttonBg, "#000000")
+    : firstNonEmpty(fieldValue, DEFAULT_THEME_COLORS[key], "#000000");
+  const placeholder =
+    field.placeholder || "#79AF85 或 rgba(121, 175, 133, 0.42)";
+  return `
+    <label class="theme-editor-row" data-theme-field="${escapeHtml(key)}">
+      <span class="theme-editor-row-label">${escapeHtml(field.label || key)}</span>
+      <input type="color" data-theme-color="${escapeHtml(key)}" value="${toHexColor(fieldValue || fallbackValue, "#000000")}" />
+      <input
+        type="text"
+        class="time-input theme-editor-row-input"
+        data-theme-color-text="${escapeHtml(key)}"
+        value="${escapeHtml(fieldValue)}"
+        placeholder="${escapeHtml(placeholder)}"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      ${
+        OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)
+          ? `
+            <div class="theme-editor-row-meta">
+              <span data-widget-theme-default-label="${escapeHtml(key)}" class="theme-editor-row-meta-text">默认：${escapeHtml(fallbackValue)}</span>
+              <button
+                type="button"
+                class="bts theme-editor-row-meta-action"
+                data-widget-theme-reset="${escapeHtml(key)}"
+              >恢复默认</button>
+            </div>
+          `
+          : ""
+      }
+      ${
+        field.description
+          ? `<div class="theme-editor-row-description">${escapeHtml(field.description)}</div>`
+          : ""
+      }
+    </label>
+  `;
+}
+
+function buildThemeRecordCardSectionHtml(
+  section,
+  initialRecordCardMode,
+  initialRecordCardColor,
+) {
+  return `
+    <section class="theme-editor-section theme-editor-section--record-card" data-theme-section="${escapeHtml(section?.id || THEME_RECORD_CARD_SECTION_ID)}">
+      <div class="theme-editor-section-header">
+        <div class="theme-editor-section-title">${escapeHtml(section?.title || "记录卡片")}</div>
+        ${
+          section?.description
+            ? `<div class="theme-editor-section-description">${escapeHtml(section.description)}</div>`
+            : ""
+        }
+      </div>
+      <div class="theme-editor-record-card-mode-grid">
+        <button
+          type="button"
+          class="bts theme-record-card-mode-btn"
+          data-record-card-mode="project"
+          style="margin:0; text-align:left; padding:14px; border-radius:14px;"
+        >
+          <div style="font-size:14px; font-weight:700;">跟随项目颜色</div>
+          <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目当前颜色显示不同颜色。</div>
+        </button>
+        <button
+          type="button"
+          class="bts theme-record-card-mode-btn"
+          data-record-card-mode="theme"
+          style="margin:0; text-align:left; padding:14px; border-radius:14px;"
+        >
+          <div style="font-size:14px; font-weight:700;">统一主题卡片色</div>
+          <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">使用更实心、轻微透明的统一卡片外观，和跟随项目色的卡片样式分开。</div>
+        </button>
+      </div>
+      <label
+        id="theme-record-card-color-row"
+        class="theme-editor-record-card-color-row"
+        style="${initialRecordCardMode === "theme" ? "" : "display:none;"}"
+      >
+        <span class="theme-editor-row-label">统一记录卡片颜色</span>
+        <div class="theme-editor-record-card-color-inputs">
+          <input type="color" data-record-card-color value="${toHexColor(initialRecordCardColor, DEFAULT_THEME_RECORD_CARD.color)}" />
+          <input
+            type="text"
+            class="time-input"
+            data-record-card-color-text
+            value="${escapeHtml(initialRecordCardColor)}"
+            placeholder="#79AF85 或 rgba(121, 175, 133, 0.42)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="theme-editor-row-description">只影响“统一主题卡片色”模式的卡片主色，切回项目色模式时会保留这个值。</div>
+      </label>
+    </section>
+  `;
+}
+
+function buildThemeEditorSectionHtml(section, context = {}) {
+  if (!section || typeof section !== "object") {
+    return "";
+  }
+  if (section.kind === "record-card") {
+    return buildThemeRecordCardSectionHtml(
+      section,
+      context.initialRecordCardMode,
+      context.initialRecordCardColor,
+    );
+  }
+  const rowsHtml = (Array.isArray(section.fields) ? section.fields : [])
+    .map((field) =>
+      buildThemeFieldInputRowHtml(
+        field,
+        context.draftColors,
+        context.widgetFallbacks,
+      ),
+    )
+    .join("");
+  if (!rowsHtml) {
+    return "";
+  }
+  return `
+    <section class="theme-editor-section" data-theme-section="${escapeHtml(section.id || "")}">
+      <div class="theme-editor-section-header">
+        <div class="theme-editor-section-title">${escapeHtml(section.title || "主题颜色")}</div>
+        ${
+          section.description
+            ? `<div class="theme-editor-section-description">${escapeHtml(section.description)}</div>`
+            : ""
+        }
+      </div>
+      <div class="theme-editor-section-grid">${rowsHtml}</div>
+    </section>
+  `;
+}
+
+function buildThemeEditorGroupHtml(groupKey, groupTitle, context = {}) {
+  const sectionsHtml = THEME_FIELD_SECTIONS.filter(
+    (section) => section?.group === groupKey,
+  )
+    .map((section) => buildThemeEditorSectionHtml(section, context))
+    .join("");
+  if (!sectionsHtml) {
+    return "";
+  }
+  return `
+    <section class="theme-editor-group" data-theme-group="${escapeHtml(groupKey)}">
+      <div class="theme-editor-group-heading">${escapeHtml(groupTitle)}</div>
+      <div class="theme-editor-sections">${sectionsHtml}</div>
+    </section>
+  `;
+}
+
 function showThemeEditorModal(theme = null) {
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
   modal.style.display = "flex";
   modal.style.zIndex = "4200";
+  const isAndroidNativeThemeEditor =
+    document.body?.classList.contains("controler-android-native") === true;
+  if (isAndroidNativeThemeEditor) {
+    // The Android modal autofocus assist is helpful for small forms, but this
+    // theme editor has a tall scrollable body with many inputs. Letting the
+    // user tap the name field explicitly avoids the IME double-pop on open.
+    modal.dataset.controlerDisableAutofocus = "true";
+  }
 
   const draft = buildThemeDraft(theme);
   const isEditingCustomTheme = Boolean(theme?.isCustom);
@@ -2790,61 +2685,22 @@ function showThemeEditorModal(theme = null) {
   const initialRecordCardColor =
     draft.recordCard?.color || DEFAULT_THEME_RECORD_CARD.color;
   const initialWidgetFallbacks = resolveThemeEditorWidgetColorFallbacks(draft.colors);
-
-  const fieldsHtml = THEME_COLOR_FIELDS.map(
-    ({ key, label }) => `
-      <label class="theme-editor-row">
-        <span class="theme-editor-row-label">${escapeHtml(label)}</span>
-        <input type="color" data-theme-color="${key}" value="${toHexColor(draft.colors[key], DEFAULT_THEME_COLORS[key] || "#000000")}" />
-        <input
-          type="text"
-          class="time-input theme-editor-row-input"
-          data-theme-color-text="${key}"
-          value="${escapeHtml(draft.colors[key])}"
-          placeholder="#79AF85 或 rgba(121, 175, 133, 0.42)"
-          autocomplete="off"
-          spellcheck="false"
-        />
-      </label>
-    `,
-  ).join("");
-  const widgetFieldsHtml = THEME_WIDGET_COLOR_FIELDS.map(
-    ({ key, label, description, placeholder }) => {
-      const fieldValue = String(draft.colors[key] || "").trim();
-      const fallbackValue = firstNonEmpty(
-        initialWidgetFallbacks[key],
-        DEFAULT_THEME_COLORS.buttonBg,
-      );
-      return `
-        <label class="theme-editor-row">
-          <span class="theme-editor-row-label">${escapeHtml(label)}</span>
-          <input type="color" data-theme-color="${key}" value="${toHexColor(fieldValue || fallbackValue, "#000000")}" />
-          <input
-            type="text"
-            class="time-input theme-editor-row-input"
-            data-theme-color-text="${key}"
-            value="${escapeHtml(fieldValue)}"
-            placeholder="${escapeHtml(placeholder)}"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-            <span
-              data-widget-theme-default-label="${key}"
-              style="color: var(--muted-text-color); font-size: 11px; line-height: 1.35;"
-            >默认：${escapeHtml(fallbackValue)}</span>
-            <button
-              type="button"
-              class="bts"
-              data-widget-theme-reset="${key}"
-              style="margin:0; min-height:30px; padding:0 12px;"
-            >恢复默认</button>
-          </div>
-          <div style="color: var(--muted-text-color); font-size: 11px; line-height: 1.4;">${escapeHtml(description)}</div>
-        </label>
-      `;
-    },
-  ).join("");
+  const themeEditorContext = {
+    draftColors: draft.colors,
+    widgetFallbacks: initialWidgetFallbacks,
+    initialRecordCardMode,
+    initialRecordCardColor,
+  };
+  const baseGroupHtml = buildThemeEditorGroupHtml(
+    "base",
+    "基础颜色",
+    themeEditorContext,
+  );
+  const advancedGroupHtml = buildThemeEditorGroupHtml(
+    "advanced",
+    "高级颜色",
+    themeEditorContext,
+  );
 
   modal.innerHTML = `
     <div class="modal-content themed-dialog-card ms controler-form-modal settings-theme-editor-modal" style="width:min(920px, 100%); max-width:min(920px, 100%); max-height:min(var(--controler-modal-overlay-available-height, calc(var(--controler-modal-overlay-height) - 32px)), 860px); padding:20px;">
@@ -2858,58 +2714,8 @@ function showThemeEditorModal(theme = null) {
           <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">主题名称</span>
           <input id="custom-theme-name" type="text" class="time-input" value="${escapeHtml(draft.name)}" placeholder="例如：冰川蓝" />
         </label>
-        <div style="display:flex; flex-direction:column; gap:10px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
-          <div style="display:flex; flex-direction:column; gap:4px;">
-            <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">记录卡片颜色</div>
-            <div style="color: var(--muted-text-color); font-size: 12px;">可保留当前“跟随项目颜色”的多彩卡片，也可统一为主题专属卡片色。</div>
-          </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
-            <button
-              type="button"
-              class="bts theme-record-card-mode-btn"
-              data-record-card-mode="project"
-              style="margin:0; text-align:left; padding:14px; border-radius:14px;"
-            >
-              <div style="font-size:14px; font-weight:700;">跟随项目颜色</div>
-              <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">保留当前效果，每张记录卡片按所属项目当前颜色显示不同颜色。</div>
-            </button>
-            <button
-              type="button"
-              class="bts theme-record-card-mode-btn"
-              data-record-card-mode="theme"
-              style="margin:0; text-align:left; padding:14px; border-radius:14px;"
-            >
-              <div style="font-size:14px; font-weight:700;">统一主题卡片色</div>
-              <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">所有记录卡片使用同一种主题色，适合更整洁一致的视觉。</div>
-            </button>
-          </div>
-          <label
-            id="theme-record-card-color-row"
-            style="display:flex; flex-direction:column; gap:8px; ${initialRecordCardMode === "theme" ? "" : "display:none;"}"
-          >
-            <span style="color: var(--text-color); font-size: 13px; font-weight: 600;">统一记录卡片颜色</span>
-            <div style="display:grid; grid-template-columns:minmax(92px, 120px) minmax(0, 1fr); gap:10px;">
-              <input type="color" data-record-card-color value="${toHexColor(initialRecordCardColor, DEFAULT_THEME_RECORD_CARD.color)}" />
-              <input
-                type="text"
-                class="time-input"
-                data-record-card-color-text
-                value="${escapeHtml(initialRecordCardColor)}"
-                placeholder="#79AF85 或 rgba(121, 175, 133, 0.42)"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-            <div style="color: var(--muted-text-color); font-size: 12px;">会用于记录卡片标题强调、描边和浅色铺底，切换回“跟随项目颜色”时会保留此默认值。</div>
-          </label>
-        </div>
-        <div class="theme-editor-grid">${fieldsHtml}</div>
-        <div style="display:flex; flex-direction:column; gap:10px; padding:14px; border-radius:16px; border:1px solid var(--panel-border-color); background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);">
-          <div style="display:flex; flex-direction:column; gap:4px;">
-            <div style="color: var(--text-color); font-size: 13px; font-weight: 700;">小组件卡片与配件颜色</div>
-          </div>
-          <div class="theme-editor-grid">${widgetFieldsHtml}</div>
-        </div>
+        ${baseGroupHtml}
+        ${advancedGroupHtml}
       </div>
       <div class="controler-form-modal-footer settings-theme-editor-modal-footer" style="display:flex; align-items:center; gap:12px; margin-top:0;">
         <div class="controler-form-modal-footer-actions settings-theme-editor-modal-footer-actions" style="display:flex; gap:10px; width:100%;">
@@ -2926,8 +2732,17 @@ function showThemeEditorModal(theme = null) {
       </div>
     </div>
   `;
+  if (isAndroidNativeThemeEditor) {
+    modal
+      .querySelector(".settings-theme-editor-modal")
+      ?.classList.add("settings-theme-editor-modal-entering");
+  }
 
   const closeModal = () => {
+    if (typeof window.ControlerUI?.closeModal === "function") {
+      window.ControlerUI.closeModal(modal);
+      return;
+    }
     if (modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
@@ -3159,8 +2974,16 @@ function showThemeEditorModal(theme = null) {
       );
       if (!confirmed) return;
 
-      deleteCustomTheme(theme.id);
-      closeModal();
+      try {
+        await deleteCustomTheme(theme.id);
+        closeModal();
+      } catch (error) {
+        console.error("删除自定义主题失败:", error);
+        await showSettingsAlert("删除主题失败，请稍后重试。", {
+          title: "删除失败",
+          danger: true,
+        });
+      }
     });
 
   modal
@@ -3190,6 +3013,33 @@ function showThemeEditorModal(theme = null) {
     });
 
   prepareSettingsModalOverlayElement(modal);
+  if (isAndroidNativeThemeEditor) {
+    const nameInput = modal.querySelector("#custom-theme-name");
+    const themeEditorSurface = modal.querySelector(".settings-theme-editor-modal");
+    const releaseEnteringState = () => {
+      themeEditorSurface?.classList.remove("settings-theme-editor-modal-entering");
+    };
+    const blurTransientNameFocus = () => {
+      if (
+        nameInput instanceof HTMLElement &&
+        document.activeElement === nameInput
+      ) {
+        try {
+          nameInput.blur();
+        } catch (error) {}
+      }
+    };
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    blurTransientNameFocus();
+    schedule(() => {
+      blurTransientNameFocus();
+      window.setTimeout(blurTransientNameFocus, 72);
+      window.setTimeout(releaseEnteringState, 220);
+    });
+  }
 }
 
 // 计算存储使用情况
@@ -3409,7 +3259,7 @@ function buildLocalOnlyBackupPayload() {
     appNavigationVisibility: normalizeNavigationVisibilityState(
       getNavigationState(),
     ),
-    selectedTheme: localStorage.getItem("selectedTheme") || "obsidian-mono",
+    selectedTheme: getStoredSelectedThemeId(),
     timerSessionState: JSON.parse(
       localStorage.getItem("timerSessionState") || "null",
     ),
@@ -3498,8 +3348,7 @@ function normalizeImportedBackupPayload(data) {
   }
 
   const hasOwn = (key) => Object.prototype.hasOwnProperty.call(data, key);
-  const currentSelectedTheme =
-    localStorage.getItem("selectedTheme") || "obsidian-mono";
+  const currentSelectedTheme = getStoredSelectedThemeId();
   const currentCustomThemes = loadCustomThemes();
   const currentBuiltInThemeOverrides = loadBuiltInThemeOverrides();
 
@@ -7105,7 +6954,6 @@ function bindSettingsMobileDragScroll() {
   if (isAndroidNative) {
     return;
   }
-
   const isEnabled = () => window.innerWidth <= 690;
   const ignoreSelector =
     "button, input, select, textarea, a, label, .tree-select, .tree-select *, .modal-content, .modal-content *";
@@ -7120,6 +6968,281 @@ function bindSettingsMobileDragScroll() {
         pressDelay: 160,
       });
     });
+}
+
+function bindSettingsAndroidExpandedPageScrollProxy() {
+  const isAndroidNative =
+    document.documentElement.classList.contains("controler-android-native") ||
+    document.body?.classList.contains("controler-android-native");
+  if (!isAndroidNative) {
+    return;
+  }
+
+  const root = document.querySelector(".settings-main");
+  if (
+    !(root instanceof HTMLElement) ||
+    root.dataset.settingsAndroidExpandedScrollProxyBound === "true"
+  ) {
+    return;
+  }
+  root.dataset.settingsAndroidExpandedScrollProxyBound = "true";
+
+  const activationSelector = [
+    ".settings-card--themes .settings-collapse-toggle",
+    ".settings-card--themes.is-expanded .settings-collapsible-body",
+    ".settings-card--table-scale .settings-collapse-toggle",
+    ".settings-card--table-scale.is-expanded .settings-collapsible-body",
+    ".settings-card--widgets .settings-collapse-toggle",
+    ".settings-card--widgets.is-expanded .settings-collapsible-body",
+  ].join(", ");
+  const ignoreSelector = [
+    "input[type='text']",
+    "input[type='search']",
+    "input[type='email']",
+    "input[type='url']",
+    "input[type='tel']",
+    "input[type='password']",
+    "input[type='number']",
+    "input[type='date']",
+    "input[type='time']",
+    "input[type='datetime-local']",
+    "input[type='checkbox']",
+    "input[type='radio']",
+    "input[type='color']",
+    "input[type='range']",
+    "textarea",
+    "select",
+    "a[href]",
+    "[contenteditable='true']",
+    ".tree-select",
+    ".tree-select *",
+    ".native-select-enhancer",
+    ".native-select-enhancer *",
+    ".modal-content",
+    ".modal-content *",
+  ].join(", ");
+  let trackingTouchId = null;
+  let startX = 0;
+  let startY = 0;
+  let lastY = 0;
+  let gestureHost = null;
+  let isDragging = false;
+  let suppressedTarget = null;
+  let suppressUntil = 0;
+  let scrollVelocity = 0;
+  let lastSampleTime = 0;
+  let lastSampleFingerY = 0;
+  let inertiaFrameId = 0;
+
+  const stopInertia = () => {
+    if (inertiaFrameId) {
+      window.cancelAnimationFrame(inertiaFrameId);
+      inertiaFrameId = 0;
+    }
+    scrollVelocity = 0;
+  };
+
+  const clampScrollTop = (nextScrollTop) => {
+    const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+    return Math.min(maxScrollTop, Math.max(0, nextScrollTop));
+  };
+
+  const startInertia = (initialVelocity) => {
+    stopInertia();
+    if (!Number.isFinite(initialVelocity) || Math.abs(initialVelocity) < 0.08) {
+      return;
+    }
+    scrollVelocity = initialVelocity;
+    let previousTimestamp = 0;
+    const step = (timestamp) => {
+      if (!previousTimestamp) {
+        previousTimestamp = timestamp;
+        inertiaFrameId = window.requestAnimationFrame(step);
+        return;
+      }
+      const elapsedMs = Math.max(1, Math.min(24, timestamp - previousTimestamp));
+      previousTimestamp = timestamp;
+      if (Math.abs(scrollVelocity) < 0.02) {
+        stopInertia();
+        return;
+      }
+      const currentScrollTop = root.scrollTop;
+      const nextScrollTop = clampScrollTop(
+        currentScrollTop + scrollVelocity * elapsedMs,
+      );
+      root.scrollTop = nextScrollTop;
+      if (Math.abs(nextScrollTop - currentScrollTop) < 0.5) {
+        stopInertia();
+        return;
+      }
+      scrollVelocity *= Math.pow(0.92, elapsedMs / 16);
+      inertiaFrameId = window.requestAnimationFrame(step);
+    };
+    inertiaFrameId = window.requestAnimationFrame(step);
+  };
+
+  const clearTracking = () => {
+    trackingTouchId = null;
+    startX = 0;
+    startY = 0;
+    lastY = 0;
+    gestureHost = null;
+    isDragging = false;
+    lastSampleTime = 0;
+    lastSampleFingerY = 0;
+  };
+
+  const resolveTouchByIdentifier = (touchList) => {
+    if (!touchList || trackingTouchId === null) {
+      return null;
+    }
+    for (let index = 0; index < touchList.length; index += 1) {
+      const touch = touchList[index];
+      if (touch.identifier === trackingTouchId) {
+        return touch;
+      }
+    }
+    return null;
+  };
+
+  root.addEventListener(
+    "touchstart",
+    (event) => {
+      clearTracking();
+      stopInertia();
+      if (!event.touches || event.touches.length !== 1) {
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        !(target instanceof Element) ||
+        !root.contains(target) ||
+        target.closest(ignoreSelector)
+      ) {
+        return;
+      }
+
+      const resolvedHost = target.closest(activationSelector);
+      if (!(resolvedHost instanceof HTMLElement) || !root.contains(resolvedHost)) {
+        return;
+      }
+
+      const touch = event.touches[0];
+      trackingTouchId = touch.identifier;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      lastY = touch.clientY;
+      lastSampleFingerY = touch.clientY;
+      lastSampleTime = Date.now();
+      gestureHost = resolvedHost;
+    },
+    {
+      capture: true,
+      passive: true,
+    },
+  );
+
+  root.addEventListener(
+    "touchmove",
+    (event) => {
+      const touch = resolveTouchByIdentifier(event.touches);
+      if (!touch || !(gestureHost instanceof HTMLElement)) {
+        return;
+      }
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+
+      if (!isDragging) {
+        if (Math.abs(deltaY) < 8) {
+          return;
+        }
+        if (Math.abs(deltaY) <= Math.abs(deltaX) + 4) {
+          if (Math.abs(deltaX) >= 16) {
+            clearTracking();
+          }
+          return;
+        }
+        isDragging = true;
+        suppressedTarget = gestureHost;
+        suppressUntil = Date.now() + 480;
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+
+      const moveY = touch.clientY - lastY;
+      if (moveY) {
+        root.scrollTop = clampScrollTop(root.scrollTop - moveY);
+      }
+      lastY = touch.clientY;
+
+      const now = Date.now();
+      const elapsedMs = Math.max(1, now - lastSampleTime);
+      const fingerVelocity = (touch.clientY - lastSampleFingerY) / elapsedMs;
+      scrollVelocity = -fingerVelocity;
+      lastSampleTime = now;
+      lastSampleFingerY = touch.clientY;
+    },
+    {
+      capture: true,
+      passive: false,
+    },
+  );
+
+  const clearTouchTrackingOnEnd = (event) => {
+    const touch = resolveTouchByIdentifier(event.changedTouches);
+    if (!touch) {
+      return;
+    }
+    if (isDragging && event.cancelable) {
+      event.preventDefault();
+    }
+    startInertia(scrollVelocity);
+    clearTracking();
+  };
+
+  root.addEventListener("touchend", clearTouchTrackingOnEnd, {
+    capture: true,
+    passive: false,
+  });
+  root.addEventListener("touchcancel", clearTouchTrackingOnEnd, {
+    capture: true,
+    passive: false,
+  });
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      if (
+        !(suppressedTarget instanceof HTMLElement) ||
+        suppressUntil <= Date.now()
+      ) {
+        suppressedTarget = null;
+        suppressUntil = 0;
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        !(target instanceof Element) ||
+        !(
+          suppressedTarget === target ||
+          suppressedTarget.contains(target) ||
+          target.contains(suppressedTarget)
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      suppressedTarget = null;
+      suppressUntil = 0;
+    },
+    true,
+  );
 }
 
 function enhanceSettingsLanguageSelect() {
@@ -7327,7 +7450,7 @@ let settingsExternalStorageRefreshQueued = false;
 function refreshSettingsFromStorage() {
   settingsExternalStorageRefreshQueued = false;
   syncThemeCatalog();
-  const currentThemeId = localStorage.getItem("selectedTheme") || "obsidian-mono";
+  const currentThemeId = getStoredSelectedThemeId();
   updateThemeSelector(currentThemeId);
   ensureThemeSelectorVisible(currentThemeId);
   updateStorageStatus();
@@ -7337,21 +7460,25 @@ function refreshSettingsFromStorage() {
   void renderWidgetSettingsPanel();
 }
 
+function scheduleSettingsStorageRefresh(detail = {}) {
+  if (settingsExternalStorageRefreshQueued) {
+    return;
+  }
+  settingsExternalStorageRefreshQueued = true;
+  if (settingsExternalStorageRefreshCoordinator) {
+    settingsExternalStorageRefreshCoordinator.enqueue(detail);
+    return;
+  }
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(refreshSettingsFromStorage);
+}
+
 function bindSettingsExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
-    if (settingsExternalStorageRefreshQueued) {
-      return;
-    }
-    settingsExternalStorageRefreshQueued = true;
-    if (settingsExternalStorageRefreshCoordinator) {
-      settingsExternalStorageRefreshCoordinator.enqueue(event?.detail || {});
-      return;
-    }
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(refreshSettingsFromStorage);
+    scheduleSettingsStorageRefresh(event?.detail || {});
   });
 }
 
@@ -7833,7 +7960,7 @@ function buildWidgetActionCard(item, bridge) {
     !!bridge?.supportsWidgetManualAdd;
 
   const card = document.createElement("div");
-  card.className = "ms widget-action-card";
+  card.className = "widget-action-card";
   card.style.padding = "10px";
   card.style.borderRadius = "12px";
   card.style.border = "1px solid var(--panel-border-color)";
@@ -8135,14 +8262,27 @@ async function initSettings() {
   window.ControlerUI?.markPerfStage?.("settings-init-navigation-ready");
   window.ControlerUI?.markPerfStage?.("first-data-ready");
   bindSettingsExternalStorageRefresh();
-  window.addEventListener("focus", () => {
-    renderNavigationVisibilitySettings();
-  });
+  const refreshSettingsOnResume = () => {
+    scheduleSettingsStorageRefresh({
+      reason: "resume",
+    });
+  };
+  window.addEventListener("focus", refreshSettingsOnResume);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      renderNavigationVisibilitySettings();
+      refreshSettingsOnResume();
     }
   });
+  window.addEventListener(
+    window.ControlerUI?.shellVisibilityEventName ||
+      "controler:shell-visibility-changed",
+    (event) => {
+      if (event?.detail?.active === false) {
+        return;
+      }
+      refreshSettingsOnResume();
+    },
+  );
   window.addEventListener(
     window.ControlerUI?.appNavigationVisibilityEventName ||
       "controler:app-navigation-visibility-changed",
@@ -8152,6 +8292,7 @@ async function initSettings() {
   );
   enhanceSettingsLanguageSelect();
   bindSettingsMobileDragScroll();
+  bindSettingsAndroidExpandedPageScrollProxy();
   scheduleSettingsCollapsibleRefresh();
   updateDataManagementGuideHint();
   window.addEventListener(

@@ -13,7 +13,7 @@
   let currentView = "todos"; // 当前视图: "todos" 或 "checkins"
   let todoLayoutMode = "list"; // "list" | "quadrant"
   const uiTools = window.ControlerUI || null;
-  const reminderTools = window.ControlerReminders || null;
+  let reminderTools = window.ControlerReminders || null;
   const storageBundleApi = window.ControlerStorageBundle || null;
   const TABLE_SIZE_STORAGE_KEY = "uiTableScaleSettings";
   const TABLE_SIZE_UPDATED_AT_KEY = "uiTableScaleSettingsUpdatedAt";
@@ -71,6 +71,7 @@
   let todoDeferredFreshSyncGeneration = 0;
   let todoDeferredFreshSyncTimerId = 0;
   let todoDeferredFreshSyncIdleId = 0;
+  let todoReminderRuntimePromise = null;
   const TODO_TOGGLE_PERSIST_DEBOUNCE_MS =
     window.ControlerStorage?.isNativeApp === true ? 0 : 180;
   const todoDeferredToggleCommits = {
@@ -420,6 +421,36 @@
       );
     }
     return source;
+  }
+
+  function getReminderTools() {
+    reminderTools = window.ControlerReminders || reminderTools || null;
+    return reminderTools;
+  }
+
+  function ensureTodoReminderRuntimeLoaded() {
+    const availableTools = getReminderTools();
+    if (availableTools) {
+      return Promise.resolve(availableTools);
+    }
+    if (todoReminderRuntimePromise) {
+      return todoReminderRuntimePromise;
+    }
+    if (typeof uiTools?.loadScriptOnce !== "function") {
+      todoReminderRuntimePromise = Promise.resolve(getReminderTools());
+      return todoReminderRuntimePromise;
+    }
+    todoReminderRuntimePromise = Promise.resolve(
+      uiTools.loadScriptOnce("reminders.js"),
+    )
+      .catch((error) => {
+        console.error("加载待办提醒脚本失败:", error);
+      })
+      .then(() => {
+        reminderTools = window.ControlerReminders || reminderTools || null;
+        return reminderTools;
+      });
+    return todoReminderRuntimePromise;
   }
 
   function getLocalDateText(dateValue = new Date()) {
@@ -1283,6 +1314,36 @@
     }
   }
 
+  function mergeTodoBootstrapSnapshotWithAuthoritativeCore(
+    bootstrapSnapshot = null,
+    authoritativeSnapshot = null,
+  ) {
+    if (
+      !bootstrapSnapshot ||
+      typeof bootstrapSnapshot !== "object" ||
+      Array.isArray(bootstrapSnapshot)
+    ) {
+      return null;
+    }
+    const normalizedBootstrap = mergeTodoWorkspaceSnapshot(bootstrapSnapshot);
+    if (
+      !authoritativeSnapshot ||
+      typeof authoritativeSnapshot !== "object" ||
+      Array.isArray(authoritativeSnapshot)
+    ) {
+      return normalizedBootstrap;
+    }
+    const normalizedAuthoritative = mergeTodoWorkspaceSnapshot(
+      authoritativeSnapshot,
+      normalizedBootstrap,
+    );
+    return {
+      ...normalizedBootstrap,
+      todos: cloneTodoValue(normalizedAuthoritative.todos),
+      checkinItems: cloneTodoValue(normalizedAuthoritative.checkinItems),
+    };
+  }
+
   function readTodoWorkspaceSnapshot() {
     const localSnapshot = readTodoWorkspaceSnapshotFromLocalStorage();
     const localMirrorSnapshot = localSnapshot?.__hasMirror
@@ -1291,11 +1352,18 @@
     const managedSnapshot = readTodoWorkspaceSnapshotFromManagedStorage();
     const bootstrapSnapshot = readTodoWorkspaceSnapshotFromPageBootstrap();
     if (bootstrapSnapshot) {
+      const effectiveBootstrapSnapshot =
+        window.ControlerStorage?.isNativeApp === true
+          ? mergeTodoBootstrapSnapshotWithAuthoritativeCore(
+              bootstrapSnapshot,
+              managedSnapshot || localMirrorSnapshot || localSnapshot,
+            )
+          : bootstrapSnapshot;
       return (
         restoreTodoCoreFromFallbackSnapshot(
-          bootstrapSnapshot,
+          effectiveBootstrapSnapshot,
           localMirrorSnapshot || managedSnapshot || localSnapshot,
-        ) || mergeTodoWorkspaceSnapshot(bootstrapSnapshot)
+        ) || mergeTodoWorkspaceSnapshot(effectiveBootstrapSnapshot)
       );
     }
     if (window.ControlerStorage?.isNativeApp) {
@@ -1337,7 +1405,7 @@
       if (!data) {
         throw new Error("missing todo bootstrap data");
       }
-      return mergeTodoWorkspaceSnapshot({
+      const bootstrapSnapshot = mergeTodoWorkspaceSnapshot({
         todos: Array.isArray(data.todos) ? data.todos : [],
         checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
         dailyCheckins: Array.isArray(data.todayDailyCheckins)
@@ -1345,6 +1413,16 @@
           : [],
         checkins: Array.isArray(data.recentCheckins) ? data.recentCheckins : [],
       });
+      if (window.ControlerStorage?.isNativeApp === true) {
+        return (
+          mergeTodoBootstrapSnapshotWithAuthoritativeCore(
+            bootstrapSnapshot,
+            readTodoWorkspaceSnapshotFromManagedStorage() ||
+              readTodoWorkspaceSnapshotFromLocalStorage(),
+          ) || bootstrapSnapshot
+        );
+      }
+      return bootstrapSnapshot;
     } catch (error) {
       console.error("读取待办页最新引导数据失败，回退当前快照:", error);
       return readTodoWorkspaceSnapshot();
@@ -2129,7 +2207,7 @@
       options;
     invalidateTodoDerivedCaches();
     if (refreshReminders) {
-      reminderTools?.refresh?.({
+      getReminderTools()?.refresh?.({
         resetWindow: true,
       });
     }
@@ -2667,6 +2745,19 @@
           ? sourceLike.repeatMonthDays
           : []
         : [];
+    const sourceNotification =
+      normalizedSourceType === "checkin"
+        ? normalizeCheckinNotificationConfig(sourceLike?.notification, {
+            ...sourceLike,
+            startDate,
+            repeatType,
+          })
+        : normalizeTodoNotificationConfig(sourceLike?.notification, {
+            ...sourceLike,
+            dueDate: String(sourceLike?.dueDate || startDate || "").trim(),
+            startDate,
+            repeatType,
+          });
     const nextPlan = {
       ...(existingPlan && typeof existingPlan === "object" ? existingPlan : {}),
       id:
@@ -2694,7 +2785,12 @@
         repeatType === "monthly"
           ? normalizeTodoMonthDayList(repeatMonthDays)
           : [],
-      notification: existingPlan?.notification || null,
+      notification:
+        sourceLike &&
+        typeof sourceLike === "object" &&
+        Object.prototype.hasOwnProperty.call(sourceLike, "notification")
+          ? sourceNotification
+          : existingPlan?.notification || null,
       projectId: existingPlan?.projectId || null,
       createdAt: existingPlan?.createdAt || new Date().toISOString(),
       linkedSourceType: normalizedSourceType,
@@ -3267,11 +3363,22 @@
       return null;
     }
     const merged = {
-      ...(secondary || {}),
       ...(primary || {}),
+      ...(secondary || {}),
     };
-    merged.notification =
-      primary?.notification || secondary?.notification || null;
+    if (
+      secondary &&
+      Object.prototype.hasOwnProperty.call(secondary, "notification")
+    ) {
+      merged.notification = cloneTodoValue(secondary.notification);
+    } else if (
+      primary &&
+      Object.prototype.hasOwnProperty.call(primary, "notification")
+    ) {
+      merged.notification = cloneTodoValue(primary.notification);
+    } else {
+      merged.notification = null;
+    }
     merged.projectId = primary?.projectId || secondary?.projectId || null;
     merged.color = primary?.color || secondary?.color || "";
     const createdAtCandidates = [primary?.createdAt, secondary?.createdAt]
@@ -4638,7 +4745,7 @@
 
   function normalizeTodoNotificationConfig(rawNotification, todoLike = {}) {
     return (
-      reminderTools?.normalizeTodoReminder?.(rawNotification, todoLike) || {
+      getReminderTools()?.normalizeTodoReminder?.(rawNotification, todoLike) || {
         enabled: false,
         mode: "none",
         customTime: "09:00",
@@ -4649,7 +4756,7 @@
 
   function normalizeCheckinNotificationConfig(rawNotification, itemLike = {}) {
     return (
-      reminderTools?.normalizeCheckinReminder?.(rawNotification, itemLike) || {
+      getReminderTools()?.normalizeCheckinReminder?.(rawNotification, itemLike) || {
         enabled: false,
         mode: "none",
         customTime: "09:00",
@@ -4675,7 +4782,7 @@
       startDate: todo?.startDate || baseDateText,
     });
     const customDateTimeValue =
-      reminderTools?.buildRelativeCustomDateTimeValue?.(
+      getReminderTools()?.buildRelativeCustomDateTimeValue?.(
         baseDateText,
         reminderConfig,
         reminderConfig.customTime || "09:00",
@@ -4816,7 +4923,7 @@
     const customInputValue =
       modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
     const parsedCustomConfig =
-      reminderTools?.parseRelativeCustomDateTimeInput?.(
+      getReminderTools()?.parseRelativeCustomDateTimeInput?.(
         customInputValue,
         baseDateText,
         {
@@ -6046,8 +6153,37 @@
       return () => {};
     }
 
-    const getRevealDelayMs = () =>
-      document.body?.classList.contains("controler-android-native") ? 140 : 0;
+    const isAndroidNative =
+      document.body?.classList.contains("controler-android-native") === true;
+    const revealTimerIds = new Set();
+    const clearPendingRevealTimers = () => {
+      revealTimerIds.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      revealTimerIds.clear();
+    };
+    const queueReveal = (target, delays = []) => {
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      clearPendingRevealTimers();
+      const normalizedDelays = Array.from(
+        new Set(
+          (Array.isArray(delays) ? delays : [delays])
+            .map((delayMs) => Math.max(0, Number(delayMs) || 0))
+            .filter((delayMs) => Number.isFinite(delayMs)),
+        ),
+      );
+      normalizedDelays.forEach((delayMs) => {
+        const timerId = window.setTimeout(() => {
+          revealTimerIds.delete(timerId);
+          scheduleTodoFormModalFieldReveal(modal, target, {
+            delayMs: 0,
+          });
+        }, delayMs);
+        revealTimerIds.add(timerId);
+      });
+    };
     const handleFocusIn = (event) => {
       const target = event?.target;
       if (
@@ -6056,13 +6192,18 @@
       ) {
         return;
       }
-      scheduleTodoFormModalFieldReveal(modal, target, {
-        delayMs: getRevealDelayMs(),
-      });
+      if (isAndroidNative) {
+        queueReveal(target, [140, 300]);
+        return;
+      }
+      queueReveal(target, 0);
     };
     const handleViewportResize = () => {
       if (!modal.isConnected) {
         cleanup();
+        return;
+      }
+      if (isAndroidNative) {
         return;
       }
       const activeElement = document.activeElement;
@@ -6072,13 +6213,10 @@
       ) {
         return;
       }
-      scheduleTodoFormModalFieldReveal(modal, activeElement, {
-        delayMs: document.body?.classList.contains("controler-android-native")
-          ? 48
-          : 0,
-      });
+      queueReveal(activeElement, 0);
     };
     const cleanup = () => {
+      clearPendingRevealTimers();
       modal.removeEventListener("focusin", handleFocusIn);
       window.visualViewport?.removeEventListener(
         "resize",
@@ -7993,26 +8131,13 @@
   function saveData() {
     try {
       invalidateTodoDerivedCaches();
-      reminderTools?.refresh?.({
+      getReminderTools()?.refresh?.({
         resetWindow: true,
       });
       return queueTodoPersist();
     } catch (e) {
       console.error("保存数据失败:", e);
       return Promise.resolve(false);
-    }
-  }
-
-  // 加载主题设置
-  function loadThemeSettings() {
-    try {
-      const savedTheme = localStorage.getItem("selectedTheme");
-      if (savedTheme) {
-        const root = document.documentElement;
-        root.setAttribute("data-theme", savedTheme);
-      }
-    } catch (e) {
-      console.error("加载主题设置失败:", e);
     }
   }
 
@@ -8509,7 +8634,7 @@
       ? `已记录 ${todoCheckins.length} 条`
       : "暂无进度，点右侧“＋”补一条";
     const reminderSummary =
-      reminderTools?.describeTodoReminder?.(todo) || "不通知";
+      getReminderTools()?.describeTodoReminder?.(todo) || "不通知";
     const showRepeatSummary =
       todo.repeatType && todo.repeatType !== "none";
     const showDueDateBadge = !showRepeatSummary;
@@ -9561,12 +9686,14 @@
     );
 
     if (saved && draftSession && typeof draftSession.clear === "function") {
-      void draftSession.clear().catch((error) => {
+      try {
+        await draftSession.clear();
+      } catch (error) {
         console.error("清理待办草稿失败:", error);
-      });
+      }
     }
     if (saved) {
-      const permissionTask = reminderTools?.requestPermissionIfNeeded?.(
+      const permissionTask = getReminderTools()?.requestPermissionIfNeeded?.(
         "待办",
         reminderConfig,
         {
@@ -9723,9 +9850,11 @@
         },
       );
       if (persisted) {
-        void progressDraftSession.clear().catch((error) => {
+        try {
+          await progressDraftSession.clear();
+        } catch (error) {
           console.error("清理进度草稿失败:", error);
-        });
+        }
       }
       return persisted;
     };
@@ -9794,9 +9923,11 @@
         },
       );
       if (persisted) {
-        void progressDraftSession.clear().catch((error) => {
+        try {
+          await progressDraftSession.clear();
+        } catch (error) {
           console.error("清理进度草稿失败:", error);
-        });
+        }
       }
       return persisted;
     };
@@ -11009,7 +11140,7 @@
       },
     );
     if (saved && linkedPlanSourceItem && isCheckinItemActive(linkedPlanSourceItem)) {
-      const permissionTask = reminderTools?.requestPermissionIfNeeded?.(
+      const permissionTask = getReminderTools()?.requestPermissionIfNeeded?.(
         "打卡",
         linkedPlanSourceItem?.notification || reminderConfig,
         {
@@ -11252,7 +11383,7 @@
         ? item.getRepeatSummary()
         : "每天";
     const reminderSummary =
-      reminderTools?.describeCheckinReminder?.(item) || "不通知";
+      getReminderTools()?.describeCheckinReminder?.(item) || "不通知";
     const statusLabel = getCheckinStatusLabel(effectiveStatus);
     const visibleRanges = getCheckinItemVisibleDateRanges(item);
     const currentRangeLabel =
@@ -11543,7 +11674,6 @@
   }
 
   function ensureTodoBaseBindings(options = {}) {
-    loadThemeSettings();
     applyTodoDesktopWidgetMode();
     if (!todoUiBindingsInitialized) {
       if (options?.skipInitialDataLoad !== true) {
@@ -12127,6 +12257,7 @@
 
   // 初始化
   async function init() {
+    const reminderRuntimeTask = ensureTodoReminderRuntimeLoaded();
     initTodoWidgetLaunchAction();
     registerTodoBeforePageLeaveGuard();
     bindTodoShellVisibilityGate();
@@ -12137,6 +12268,7 @@
     });
     try {
       const snapshot = bootstrapTodoFromCachedSnapshot();
+      await reminderRuntimeTask;
       ensureTodoBaseBindings({
         skipInitialDataLoad: true,
       });

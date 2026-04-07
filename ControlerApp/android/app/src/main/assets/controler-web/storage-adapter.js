@@ -5538,16 +5538,62 @@
       return true;
     }
 
-    function queueNativeForegroundSyncOnShellResume(reason = "shell-resume", options = {}) {
-      pendingForegroundSyncRequest = {
+    function buildForegroundSyncRequest(reason = "shell-resume", options = {}) {
+      const previousRequest =
+        pendingForegroundSyncRequest &&
+        typeof pendingForegroundSyncRequest === "object"
+          ? pendingForegroundSyncRequest
+          : null;
+      const normalizedChangedSections = normalizeChangedSectionsList(
+        options.changedSections || [],
+      );
+      const normalizedChangedPeriods = normalizeChangedPeriodsMap(
+        options.changedPeriods || {},
+      );
+      const normalizedSource =
+        typeof options.source === "string" ? options.source.trim() : "";
+      const normalizedOriginPageInstanceId =
+        typeof options.originPageInstanceId === "string"
+          ? options.originPageInstanceId.trim()
+          : "";
+      return {
         reason:
           typeof reason === "string" && reason.trim()
             ? reason.trim()
-            : pendingForegroundSyncRequest?.reason || "shell-resume",
+            : previousRequest?.reason || "shell-resume",
         resetWindow:
-          options.resetWindow === true ||
-          pendingForegroundSyncRequest?.resetWindow === true,
+          options.resetWindow === true || previousRequest?.resetWindow === true,
+        allowProbeOnlyBypass:
+          options.allowProbeOnlyBypass === false ||
+          previousRequest?.allowProbeOnlyBypass === false
+            ? false
+            : true,
+        forceSnapshotSync:
+          options.forceSnapshotSync === true ||
+          previousRequest?.forceSnapshotSync === true,
+        forceDispatch:
+          options.forceDispatch === true ||
+          previousRequest?.forceDispatch === true,
+        changedSections: normalizeChangedSectionsList([
+          ...(Array.isArray(previousRequest?.changedSections)
+            ? previousRequest.changedSections
+            : []),
+          ...normalizedChangedSections,
+        ]),
+        changedPeriods: mergeChangedPeriodEntries(
+          previousRequest?.changedPeriods || {},
+          normalizedChangedPeriods,
+        ),
+        source: normalizedSource || previousRequest?.source || "",
+        originPageInstanceId:
+          normalizedOriginPageInstanceId ||
+          previousRequest?.originPageInstanceId ||
+          "",
       };
+    }
+
+    function queueNativeForegroundSyncOnShellResume(reason = "shell-resume", options = {}) {
+      pendingForegroundSyncRequest = buildForegroundSyncRequest(reason, options);
     }
 
     rebuildManagedSectionCoverage(cachedState);
@@ -6367,19 +6413,43 @@
         source = "",
         originPageInstanceId = "",
       } = options;
+      const normalizedChangedSections = normalizeChangedSectionsList(changedSections);
+      const normalizedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
+      const normalizedSource =
+        typeof source === "string" ? source.trim() : "";
+      const normalizedOriginPageInstanceId =
+        typeof originPageInstanceId === "string"
+          ? originPageInstanceId.trim()
+          : "";
       emitStorageDebug("sync-state-from-native-start", {
         reason: typeof reason === "string" ? reason : "",
         forceDispatch: forceDispatch === true,
         suppressError: suppressError === true,
         hasPendingStateChanges: hasPendingStateChanges === true,
-        source: typeof source === "string" ? source : "",
-        originPageInstanceId:
-          typeof originPageInstanceId === "string" ? originPageInstanceId : "",
-        changedSections: normalizeChangedSectionsList(changedSections),
-        changedPeriods: normalizeChangedPeriodsMap(changedPeriods),
+        source: normalizedSource,
+        originPageInstanceId: normalizedOriginPageInstanceId,
+        changedSections: normalizedChangedSections,
+        changedPeriods: normalizedChangedPeriods,
       });
       if (isManagedShellInactive()) {
-        queueNativeForegroundSyncOnShellResume(reason || "shell-resume");
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume", {
+          resetWindow:
+            normalizedChangedSections.length > 0 ||
+            Object.keys(normalizedChangedPeriods).length > 0,
+          allowProbeOnlyBypass:
+            !forceDispatch &&
+            !normalizedChangedSections.length &&
+            !Object.keys(normalizedChangedPeriods).length,
+          forceSnapshotSync:
+            forceDispatch === true ||
+            normalizedChangedSections.length > 0 ||
+            Object.keys(normalizedChangedPeriods).length > 0,
+          forceDispatch,
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
+        });
         return createSourceSyncResult(
           buildMergedState(cachedState, {
             includeAliases: true,
@@ -6402,9 +6472,8 @@
           caller: "syncStateFromNative",
           reason: typeof reason === "string" ? reason : "",
           forceDispatch: forceDispatch === true,
-          source: typeof source === "string" ? source : "",
-          originPageInstanceId:
-            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
         },
       });
       if (!next?.state) {
@@ -6418,8 +6487,8 @@
       const currentSnapshot = createComparableSnapshot(currentState);
       const nextSnapshot = createComparableSnapshot(next.state);
       const snapshotChanged = nextSnapshot !== currentSnapshot;
-      let resolvedChangedSections = normalizeChangedSectionsList(changedSections);
-      const resolvedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
+      let resolvedChangedSections = normalizedChangedSections;
+      const resolvedChangedPeriods = normalizedChangedPeriods;
       if (snapshotChanged && !resolvedChangedSections.length) {
         resolvedChangedSections = inferChangedSectionsFromStateTransition(
           currentState,
@@ -6449,9 +6518,8 @@
         dispatchStorageChangedEvent(reason, buildMergedState(cachedState), cachedStatus, {
           changedSections: resolvedChangedSections,
           changedPeriods: resolvedChangedPeriods,
-          source,
-          originPageInstanceId:
-            typeof originPageInstanceId === "string" ? originPageInstanceId : "",
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
         });
       }
       emitStorageDebug("sync-state-from-native-finished", {
@@ -6625,7 +6693,24 @@
     }
 
     function scheduleNativeForegroundSync(reason, options = {}) {
-      const { resetWindow = true, allowProbeOnlyBypass = true } = options;
+      const {
+        resetWindow = true,
+        allowProbeOnlyBypass = true,
+        forceSnapshotSync = false,
+        forceDispatch = false,
+        changedSections = [],
+        changedPeriods = {},
+        source = "",
+        originPageInstanceId = "",
+      } = options;
+      const normalizedChangedSections = normalizeChangedSectionsList(changedSections);
+      const normalizedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
+      const normalizedSource =
+        typeof source === "string" ? source.trim() : "";
+      const normalizedOriginPageInstanceId =
+        typeof originPageInstanceId === "string"
+          ? originPageInstanceId.trim()
+          : "";
       const normalizedReason =
         typeof reason === "string" && reason.trim() ? reason.trim() : "";
       const reportShellResumeSettled = (payload = {}) => {
@@ -6636,6 +6721,8 @@
           reason: normalizedReason,
           resetWindow: resetWindow === true,
           allowProbeOnlyBypass: allowProbeOnlyBypass === true,
+          forceSnapshotSync: forceSnapshotSync === true,
+          forceDispatch: forceDispatch === true,
           shellPageActive: shellPageActive === true,
           nativeInitializationSettled: nativeInitializationSettled === true,
           hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
@@ -6650,46 +6737,73 @@
         reason: typeof reason === "string" ? reason : "",
         resetWindow: resetWindow === true,
         allowProbeOnlyBypass: allowProbeOnlyBypass === true,
+        forceSnapshotSync: forceSnapshotSync === true,
+        forceDispatch: forceDispatch === true,
         shellPageActive: shellPageActive === true,
         nativeInitializationSettled: nativeInitializationSettled === true,
+        changedSections: normalizedChangedSections,
+        changedPeriods: normalizedChangedPeriods,
+        source: normalizedSource,
+        originPageInstanceId: normalizedOriginPageInstanceId,
       });
       if (!shellPageActive) {
-        pendingForegroundSyncRequest = {
-          reason: reason || "shell-resume",
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume", {
           resetWindow: false,
-        };
+          allowProbeOnlyBypass,
+          forceSnapshotSync,
+          forceDispatch,
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
+        });
         return;
       }
       if (
         isAndroidTransitionLoadingShellState() &&
         !hasPendingStateChanges
       ) {
-        pendingForegroundSyncRequest = {
-          reason: reason || "shell-resume",
-          resetWindow:
-            resetWindow || pendingForegroundSyncRequest?.resetWindow === true,
-        };
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume", {
+          resetWindow,
+          allowProbeOnlyBypass,
+          forceSnapshotSync,
+          forceDispatch,
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
+        });
         emitStoragePerfMetric("storage-sync-shell-resume-deferred", {
           reason: normalizedReason || "shell-resume",
           resetWindow: resetWindow === true,
           transitionLoading: true,
           hasManagedCoreSnapshot: hasManagedCoreSnapshot === true,
           hasPendingStateChanges: false,
+          forceSnapshotSync: forceSnapshotSync === true,
         });
         return;
       }
       if (!nativeInitializationSettled) {
-        pendingForegroundSyncRequest = {
-          reason: reason || "external-update",
-          resetWindow:
-            resetWindow || pendingForegroundSyncRequest?.resetWindow === true,
-        };
+        queueNativeForegroundSyncOnShellResume(reason || "external-update", {
+          resetWindow,
+          allowProbeOnlyBypass,
+          forceSnapshotSync,
+          forceDispatch,
+          changedSections: normalizedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
+        });
         return;
       }
       if (resetWindow) {
         touchNativeFastProbeWindow();
       }
-      if (allowProbeOnlyBypass && shouldPreferProbeOnlyOnShellResume(reason)) {
+      if (
+        allowProbeOnlyBypass &&
+        !forceSnapshotSync &&
+        shouldPreferProbeOnlyOnShellResume(reason)
+      ) {
         writeChain = writeChain
           .then(() => runProbeOnlyShellResumeSync(reason || "shell-resume"))
           .catch((error) => {
@@ -6706,14 +6820,34 @@
       window.clearTimeout(nativeForegroundSyncTimer);
       nativeForegroundSyncTimer = window.setTimeout(() => {
         if (!shellPageActive) {
-          pendingForegroundSyncRequest = {
-            reason: reason || "shell-resume",
+          queueNativeForegroundSyncOnShellResume(reason || "shell-resume", {
             resetWindow: false,
-          };
+            allowProbeOnlyBypass,
+            forceSnapshotSync,
+            forceDispatch,
+            changedSections: normalizedChangedSections,
+            changedPeriods: normalizedChangedPeriods,
+            source: normalizedSource,
+            originPageInstanceId: normalizedOriginPageInstanceId,
+          });
           return;
         }
         writeChain = writeChain
-          .then(() => runNativeVersionProbe(reason || "external-update"))
+          .then(() => {
+            if (forceSnapshotSync) {
+              return syncStateFromNative(reason || "external-update", {
+                forceDispatch:
+                  forceDispatch === true ||
+                  normalizedChangedSections.length > 0 ||
+                  Object.keys(normalizedChangedPeriods).length > 0,
+                changedSections: normalizedChangedSections,
+                changedPeriods: normalizedChangedPeriods,
+                source: normalizedSource,
+                originPageInstanceId: normalizedOriginPageInstanceId,
+              });
+            }
+            return runNativeVersionProbe(reason || "external-update");
+          })
           .catch((error) => {
             console.error("前台恢复同步 React Native 存储失败:", error);
           })
@@ -6728,10 +6862,9 @@
 
     async function initializeReactNativeStorage() {
       if (isManagedShellInactive()) {
-        pendingForegroundSyncRequest = {
-          reason: "shell-resume",
+        queueNativeForegroundSyncOnShellResume("shell-resume", {
           resetWindow: false,
-        };
+        });
         persistMirrorSnapshot(true);
         updateVersionBaseline(cachedStatus);
         return;
@@ -8545,6 +8678,13 @@
         pendingForegroundSyncRequest = null;
         scheduleNativeForegroundSync(queuedForegroundSync.reason, {
           resetWindow: queuedForegroundSync.resetWindow,
+          allowProbeOnlyBypass: queuedForegroundSync.allowProbeOnlyBypass,
+          forceSnapshotSync: queuedForegroundSync.forceSnapshotSync,
+          forceDispatch: queuedForegroundSync.forceDispatch,
+          changedSections: queuedForegroundSync.changedSections || [],
+          changedPeriods: queuedForegroundSync.changedPeriods || {},
+          source: queuedForegroundSync.source || "",
+          originPageInstanceId: queuedForegroundSync.originPageInstanceId || "",
         });
       }
       if (useAndroidProbeLoop && !document.hidden && shellPageActive) {
@@ -8643,6 +8783,25 @@
           changedSections: normalizeChangedSectionsList(detail.changedSections || []),
         });
         if (!shellPageActive) {
+          queueNativeForegroundSyncOnShellResume(
+            typeof detail.reason === "string" && detail.reason.trim()
+              ? detail.reason.trim()
+              : "external-update",
+            {
+              resetWindow: true,
+              allowProbeOnlyBypass: false,
+              forceSnapshotSync: true,
+              forceDispatch: true,
+              changedSections: detail.changedSections || [],
+              changedPeriods: detail.changedPeriods || {},
+              source:
+                typeof detail.source === "string" ? detail.source.trim() : "",
+              originPageInstanceId:
+                typeof detail.originPageInstanceId === "string"
+                  ? detail.originPageInstanceId.trim()
+                  : "",
+            },
+          );
           return;
         }
         touchNativeFastProbeWindow();
@@ -8731,6 +8890,13 @@
           pendingForegroundSyncRequest = null;
           scheduleNativeForegroundSync(queuedForegroundSync.reason, {
             resetWindow: queuedForegroundSync.resetWindow === true,
+            allowProbeOnlyBypass: queuedForegroundSync.allowProbeOnlyBypass,
+            forceSnapshotSync: queuedForegroundSync.forceSnapshotSync,
+            forceDispatch: queuedForegroundSync.forceDispatch,
+            changedSections: queuedForegroundSync.changedSections || [],
+            changedPeriods: queuedForegroundSync.changedPeriods || {},
+            source: queuedForegroundSync.source || "",
+            originPageInstanceId: queuedForegroundSync.originPageInstanceId || "",
           });
         }
         return;
@@ -8748,10 +8914,9 @@
         hasPendingStateChanges: hasPendingStateChanges === true,
       });
       if (!shellPageActive) {
-        pendingForegroundSyncRequest = {
-          reason: "shell-resume",
+        queueNativeForegroundSyncOnShellResume("shell-resume", {
           resetWindow: false,
-        };
+        });
         stopNativeProbeLoop();
         const deferInternalTransitionHideFlush = document.hidden !== true;
         forceFlushNativeStorage("shell-hidden", {
@@ -8761,9 +8926,24 @@
         return;
       }
 
-      scheduleNativeForegroundSync("shell-resume", {
-        resetWindow: false,
-      });
+      const queuedForegroundSync = pendingForegroundSyncRequest;
+      if (queuedForegroundSync) {
+        pendingForegroundSyncRequest = null;
+        scheduleNativeForegroundSync(queuedForegroundSync.reason, {
+          resetWindow: queuedForegroundSync.resetWindow === true,
+          allowProbeOnlyBypass: queuedForegroundSync.allowProbeOnlyBypass,
+          forceSnapshotSync: queuedForegroundSync.forceSnapshotSync,
+          forceDispatch: queuedForegroundSync.forceDispatch,
+          changedSections: queuedForegroundSync.changedSections || [],
+          changedPeriods: queuedForegroundSync.changedPeriods || {},
+          source: queuedForegroundSync.source || "",
+          originPageInstanceId: queuedForegroundSync.originPageInstanceId || "",
+        });
+      } else {
+        scheduleNativeForegroundSync("shell-resume", {
+          resetWindow: false,
+        });
+      }
       scheduleNativeProbeLoop();
     });
     window.addEventListener("focus", () => {

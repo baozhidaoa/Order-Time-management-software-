@@ -67,9 +67,6 @@
           var(--accent-color) 16%
         );
         --plan-fab-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
-        --plan-fab-clearance: calc(
-          var(--plan-fab-size) + var(--plan-fab-offset-bottom) + 8px
-        );
       }
 
       .planner-shell {
@@ -136,9 +133,11 @@
       }
 
       body.page-plan .planner-floating-action-slot {
-        position: fixed;
-        inset: auto var(--plan-fab-offset-right) var(--plan-fab-offset-bottom)
-          auto;
+        position: absolute;
+        top: auto;
+        right: 16px;
+        bottom: 16px;
+        left: auto;
         display: flex;
         width: auto;
         align-items: flex-end;
@@ -148,6 +147,14 @@
         padding: 0;
         z-index: 72;
         pointer-events: none;
+        transition:
+          opacity 0.18s ease,
+          transform 0.18s ease,
+          visibility 0.18s ease;
+      }
+
+      body.page-plan:not([data-plan-view="month"]) .planner-floating-action-slot {
+        display: none !important;
       }
 
       body.page-plan #add-plan-btn-inline {
@@ -209,6 +216,17 @@
 
       body.desktop-widget-plan-page #add-plan-btn-inline {
         display: none !important;
+      }
+
+      body.page-plan.plan-bootstrap-pending .planner-floating-action-slot,
+      body.controler-mobile-runtime.controler-keyboard-open.page-plan
+        .planner-floating-action-slot,
+      body.controler-android-native.controler-keyboard-open.page-plan
+        .planner-floating-action-slot {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(12px);
       }
 
       .planner-panel-note {
@@ -653,7 +671,8 @@
 
       .plan-calendar-content-card {
         resize: none;
-        overflow: hidden;
+        position: relative;
+        overflow: visible;
         min-height: auto !important;
         min-width: 0;
         width: 100%;
@@ -669,6 +688,15 @@
         box-shadow: none;
         border-radius: 20px;
         padding: 16px;
+      }
+
+      .plan-calendar-render-host {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 0;
+        width: 100%;
+        min-height: 0;
       }
 
       .plan-week-helper {
@@ -719,6 +747,7 @@
       body.page-plan .planner-panel--plans,
       body.page-plan #stats-container,
       body.page-plan .calendar-container,
+      body.page-plan .plan-calendar-render-host,
       body.page-plan #calendar-content,
       body.page-plan .plan-calendar-content-card,
       body.page-plan .weekly-glass-shell {
@@ -736,11 +765,18 @@
       body.page-plan .planner-panel--plans,
       body.page-plan #stats-container,
       body.page-plan .calendar-container,
-      body.page-plan #calendar-content {
+      body.page-plan .plan-calendar-render-host {
         display: flex;
         flex-direction: column;
         min-height: auto !important;
         overflow: hidden !important;
+      }
+
+      body.page-plan #calendar-content {
+        display: flex;
+        flex-direction: column;
+        min-height: auto !important;
+        overflow: visible !important;
       }
 
       @media (min-width: 691px) {
@@ -831,7 +867,7 @@
 
         body.page-plan .plan-main {
           box-sizing: border-box;
-          padding-bottom: max(12px, var(--plan-fab-clearance));
+          padding-bottom: 12px;
         }
 
         body.page-plan .planner-dashboard {
@@ -904,7 +940,7 @@
         body.page-plan #calendar-content,
         body.page-plan .plan-calendar-content-card {
           max-height: none !important;
-          overflow-y: hidden !important;
+          overflow: visible !important;
           contain: none !important;
         }
 

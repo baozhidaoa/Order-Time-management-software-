@@ -702,6 +702,7 @@ let todoSidebarRuntimePromise = null;
 let todoSidebarRuntimeReady = false;
 let todoSidebarIdleBootstrapQueued = false;
 let planDeferredRuntimeIdleBootstrapQueued = false;
+let planReminderRuntimePromise = null;
 let pendingTodoSidebarRuntimeOptions = null;
 let planShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let planDeferredBootstrapPendingResume = false;
@@ -1059,6 +1060,30 @@ function getReminderTools() {
   return reminderTools;
 }
 
+function ensurePlanReminderRuntimeLoaded() {
+  const availableTools = getReminderTools();
+  if (availableTools) {
+    return Promise.resolve(availableTools);
+  }
+  if (planReminderRuntimePromise) {
+    return planReminderRuntimePromise;
+  }
+  if (typeof uiTools?.loadScriptOnce !== "function") {
+    planReminderRuntimePromise = Promise.resolve(getReminderTools());
+    return planReminderRuntimePromise;
+  }
+
+  planReminderRuntimePromise = Promise.resolve(uiTools.loadScriptOnce("reminders.js"))
+    .catch((error) => {
+      console.error("加载计划提醒脚本失败:", error);
+    })
+    .then(() => {
+      reminderTools = window.ControlerReminders || reminderTools || null;
+      return reminderTools;
+    });
+  return planReminderRuntimePromise;
+}
+
 function ensurePlanDeferredRuntimeLoaded() {
   if (!planShellPageActive) {
     planDeferredRuntimePendingResume = true;
@@ -1075,7 +1100,7 @@ function ensurePlanDeferredRuntimeLoaded() {
   planDeferredRuntimePromise = Promise.allSettled([
     uiTools.loadScriptOnce("guide-bundle.js"),
     uiTools.loadScriptOnce("guide-ui.js"),
-    uiTools.loadScriptOnce("reminders.js"),
+    ensurePlanReminderRuntimeLoaded(),
   ]).then((results) => {
     results.forEach((result) => {
       if (result.status === "rejected") {
@@ -2360,7 +2385,7 @@ function readPlanReminderConfig(modal, planLike = {}, prefix = "plan") {
     const customInputValue =
       modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
     const parsedCustomConfig =
-      reminderTools?.parseRelativeCustomDateTimeInput?.(
+      getReminderTools()?.parseRelativeCustomDateTimeInput?.(
         customInputValue,
         baseDateText,
         {
@@ -3869,6 +3894,76 @@ function bindAddPlanInlineButton() {
   addPlanButton.addEventListener("click", showPlanEditModal);
 }
 
+function ensurePlanCalendarRenderHost(calendarContent) {
+  if (!(calendarContent instanceof HTMLElement)) {
+    return null;
+  }
+
+  const existingRenderHost = Array.from(calendarContent.children).find(
+    (child) =>
+      child instanceof HTMLElement &&
+      child.classList.contains("plan-calendar-render-host"),
+  );
+  if (existingRenderHost instanceof HTMLElement) {
+    return existingRenderHost;
+  }
+
+  const renderHost = document.createElement("div");
+  renderHost.className = "plan-calendar-render-host";
+  const contentNodes = Array.from(calendarContent.childNodes).filter((node) => {
+    return !(
+      node instanceof HTMLElement &&
+      node.classList.contains("planner-floating-action-slot")
+    );
+  });
+  calendarContent.prepend(renderHost);
+  if (contentNodes.length > 0) {
+    renderHost.replaceChildren(...contentNodes);
+  }
+  return renderHost;
+}
+
+function getPlanCalendarRenderHost() {
+  if (
+    planShellRefs?.calendarRenderHost instanceof HTMLElement &&
+    planShellRefs.calendarRenderHost.isConnected
+  ) {
+    return planShellRefs.calendarRenderHost;
+  }
+
+  const calendarContent = document.getElementById("calendar-content");
+  const renderHost = ensurePlanCalendarRenderHost(calendarContent);
+  if (planShellRefs && planShellRefs.calendarContent === calendarContent) {
+    planShellRefs.calendarRenderHost = renderHost;
+  }
+  return renderHost;
+}
+
+function syncPlanInlineActionPlacement() {
+  const slot = document.querySelector(".planner-floating-action-slot");
+  const contentElement = document.getElementById("calendar-content");
+  if (!(slot instanceof HTMLElement) || !(contentElement instanceof HTMLElement)) {
+    return;
+  }
+
+  if (document.body instanceof HTMLElement) {
+    document.body.dataset.planView = currentView;
+  }
+
+  const isMonthView = currentView === "month";
+  slot.hidden = !isMonthView;
+  slot.style.display = isMonthView ? "flex" : "none";
+  slot.setAttribute("aria-hidden", isMonthView ? "false" : "true");
+  if (!isMonthView) {
+    return;
+  }
+
+  ensurePlanCalendarRenderHost(contentElement);
+  if (slot.parentElement !== contentElement) {
+    contentElement.appendChild(slot);
+  }
+}
+
 function getRequestedPlannerPanel() {
   if (window.location.hash === "#todo-panel-anchor") {
     return "todos";
@@ -4570,6 +4665,10 @@ function ensurePlanShellStructure() {
     planShellRefs.host === container &&
     planShellRefs.calendarContent?.isConnected
   ) {
+    planShellRefs.calendarRenderHost = ensurePlanCalendarRenderHost(
+      planShellRefs.calendarContent,
+    );
+    syncPlanInlineActionPlacement();
     return planShellRefs;
   }
 
@@ -4634,6 +4733,9 @@ function ensurePlanShellStructure() {
   const calendarContent = document.createElement("div");
   calendarContent.id = "calendar-content";
   calendarContent.className = "resizable-panel plan-calendar-content-card";
+  const calendarRenderHost = document.createElement("div");
+  calendarRenderHost.className = "plan-calendar-render-host";
+  calendarContent.appendChild(calendarRenderHost);
 
   calendarContainer.appendChild(calendarContent);
   container.appendChild(calendarContainer);
@@ -4641,7 +4743,9 @@ function ensurePlanShellStructure() {
     host: container,
     calendarContainer,
     calendarContent,
+    calendarRenderHost,
   };
+  syncPlanInlineActionPlacement();
   return planShellRefs;
 }
 
@@ -4649,7 +4753,7 @@ function renderDeferredCalendarPlaceholder(
   message = "切回计划面板后再加载日历内容",
 ) {
   const shell = ensurePlanShellStructure();
-  const calendarContent = shell?.calendarContent;
+  const calendarContent = shell?.calendarRenderHost || getPlanCalendarRenderHost();
   if (!(calendarContent instanceof HTMLElement)) {
     return;
   }
@@ -4764,8 +4868,15 @@ function updateCurrentDateDisplay() {
 
 // 渲染日历内容
 function renderCalendarContent() {
-  const contentElement = document.getElementById("calendar-content");
-  if (!contentElement) return;
+  const shell = ensurePlanShellStructure();
+  const cardElement = shell?.calendarContent;
+  const contentElement = shell?.calendarRenderHost || getPlanCalendarRenderHost();
+  if (
+    !(cardElement instanceof HTMLElement) ||
+    !(contentElement instanceof HTMLElement)
+  ) {
+    return;
+  }
 
   const stagedContent = document.createElement("div");
   stagedContent.style.display = "contents";
@@ -4786,9 +4897,12 @@ function renderCalendarContent() {
       break;
   }
 
+  cardElement.style.overflow = "visible";
+  cardElement.style.height = "auto";
   contentElement.style.overflow = "visible";
   contentElement.style.height = "auto";
   contentElement.replaceChildren(...Array.from(stagedContent.childNodes));
+  syncPlanInlineActionPlacement();
 }
 
 function normalizeYearGoalScope(scope) {
@@ -7849,19 +7963,6 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   });
 }
 
-// 加载主题设置
-function loadThemeSettings() {
-  try {
-    const savedTheme = localStorage.getItem("selectedTheme");
-    if (savedTheme) {
-      const root = document.documentElement;
-      root.setAttribute("data-theme", savedTheme);
-    }
-  } catch (e) {
-    console.error("加载主题设置失败:", e);
-  }
-}
-
 function initGridViewButton() {
   const gridViewBtn = document.getElementById("weekly-grid-btn");
   if (gridViewBtn) {
@@ -8265,7 +8366,7 @@ async function loadInitialPlanWorkspace() {
           periodIds: planLoadedPeriodIds.slice(),
           planCount: plans.length,
         });
-        const calendarContent = document.getElementById("calendar-content");
+        const calendarContent = getPlanCalendarRenderHost();
         const shouldRenderCalendar =
           dataChanged ||
           !planShellRendered ||
@@ -8325,7 +8426,7 @@ async function loadInitialPlanWorkspace() {
             periodIds: planLoadedPeriodIds.slice(),
             planCount: plans.length,
           });
-          const calendarContent = document.getElementById("calendar-content");
+          const calendarContent = getPlanCalendarRenderHost();
           const shouldRenderCalendar =
             dataChanged ||
             !planShellRendered ||
@@ -8433,6 +8534,7 @@ function scheduleDeferredPlanBootstrap() {
 
 async function init() {
   let lastCompactLayout = isCompactMobileLayout();
+  const reminderRuntimeTask = ensurePlanReminderRuntimeLoaded();
   const useWidgetLaunchFastPath =
     typeof PLAN_WIDGET_CONTEXT.launchAction === "string" &&
     PLAN_WIDGET_CONTEXT.launchAction.trim().length > 0;
@@ -8441,9 +8543,6 @@ async function init() {
     PLAN_WIDGET_CONTEXT.launchAction === "show-checkins";
 
   try {
-    // 加载主题设置
-    loadThemeSettings();
-
     // 加载视图状态
     loadViewState();
     applyPlanDesktopWidgetMode();
@@ -8456,6 +8555,7 @@ async function init() {
     initGridViewButton();
     bindAddPlanInlineButton();
     bindPlanExternalStorageRefresh();
+    await reminderRuntimeTask;
     renderPlanGuideCard();
     const bootstrappedFromSnapshot = bootstrapPlanFromCachedSnapshot();
     renderPlanShell({

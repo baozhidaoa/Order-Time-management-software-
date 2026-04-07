@@ -6328,6 +6328,21 @@ function resolveRecordCardColor(record, projectList = projects) {
   return resolveRecordProjectColor(record, projectList);
 }
 
+function resolveRecordCardSurfaceStyle(recordColor) {
+  const themeSurfaceResolver = window.ControlerTheme?.resolveRecordCardSurfaceStyles;
+  if (typeof themeSurfaceResolver === "function") {
+    return themeSurfaceResolver({
+      color: recordColor,
+    });
+  }
+  return {
+    titleColor: recordColor,
+    borderColor: getProjectColorShadow(recordColor, 0.22),
+    background: `linear-gradient(180deg, ${getProjectColorShadow(recordColor, 0.12)} 0%, ${getProjectColorShadow(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
+    shadow: "none",
+  };
+}
+
 function decorateIndexRecordProjectState(record, projectList = projects) {
   if (!record || typeof record !== "object") {
     return record;
@@ -10752,6 +10767,7 @@ function updateDisplay(options = {}) {
 
     group.records.forEach((record) => {
       const recordColor = resolveRecordCardColor(record, projects);
+      const recordSurfaceStyle = resolveRecordCardSurfaceStyle(recordColor);
       const recordElement = document.createElement("div");
       recordElement.className = "record-item";
       recordElement.dataset.recordId = record.id;
@@ -10759,10 +10775,10 @@ function updateDisplay(options = {}) {
       recordElement.style.borderRadius = `${cardRadius}px`;
       recordElement.style.fontSize = `${bodyFontSize}px`;
       recordElement.style.minHeight = `${cardMinHeight}px`;
-      recordElement.style.height = "100%";
       recordElement.style.boxSizing = "border-box";
-      recordElement.style.border = `1px solid ${getProjectColorShadow(recordColor, 0.22)}`;
-      recordElement.style.background = `linear-gradient(180deg, ${getProjectColorShadow(recordColor, 0.12)} 0%, ${getProjectColorShadow(recordColor, 0.03)} 100%), var(--bg-quaternary)`;
+      recordElement.style.border = `1px solid ${recordSurfaceStyle.borderColor}`;
+      recordElement.style.background = recordSurfaceStyle.background;
+      recordElement.style.boxShadow = recordSurfaceStyle.shadow;
       if (record.id === activeRecordId) {
         recordElement.classList.add("active");
       }
@@ -10787,7 +10803,7 @@ function updateDisplay(options = {}) {
       projectName.textContent = record.name;
       projectName.title = "双击可编辑";
       projectName.style.fontSize = `${titleFontSize}px`;
-      projectName.style.color = recordColor;
+      projectName.style.color = recordSurfaceStyle.titleColor;
       projectName.addEventListener("dblclick", (event) => {
         event.stopPropagation();
         activeRecordId = record.id;

@@ -2266,6 +2266,14 @@
     );
   }
 
+  function isAndroidKeyboardOpen() {
+    return (
+      document.documentElement?.classList.contains("controler-keyboard-open") ===
+        true ||
+      document.body?.classList.contains("controler-keyboard-open") === true
+    );
+  }
+
   function requestAndroidSoftInputForFocusedTarget(target) {
     if (
       !isAndroidNativeRuntime() ||
@@ -2287,12 +2295,18 @@
     }
 
     const now = Date.now();
-    if (now - lastAndroidSoftInputRequestAt < 220) {
+    if (now - lastAndroidSoftInputRequestAt < 320) {
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
+    const requestToken = `controler-soft-input-${now}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    target.__controlerAndroidSoftInputRequestToken = requestToken;
     const restoreFocusIfNeeded = () => {
       if (
+        target.__controlerAndroidSoftInputRequestToken !== requestToken ||
+        isAndroidKeyboardOpen() ||
         !shouldRestoreAndroidInteractiveTextControlFocus(target) ||
         isFocusedInteractiveTextControl(target)
       ) {
@@ -2310,9 +2324,7 @@
       .call("ui.showSoftInput")
       .catch(() => undefined)
       .finally(() => {
-        [0, 72, 168].forEach((delayMs) => {
-          window.setTimeout(restoreFocusIfNeeded, delayMs);
-        });
+        window.setTimeout(restoreFocusIfNeeded, 96);
       });
     return true;
   }
@@ -2661,6 +2673,9 @@
     }
 
     const scope = root instanceof HTMLElement ? root : document;
+    if (scope instanceof HTMLElement) {
+      scope.dataset.controlerAutofocusRequestedAt = String(Date.now());
+    }
     const focusTarget =
       scope.querySelector?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
       scope.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
@@ -2722,6 +2737,17 @@
       if (
         focusedModalControl instanceof HTMLElement &&
         modal.contains(focusedModalControl)
+      ) {
+        androidAutofocusedModalRoots.add(modal);
+        return;
+      }
+
+      const recentAutofocusRequestedAt = Number(
+        modal.dataset.controlerAutofocusRequestedAt || 0,
+      );
+      if (
+        recentAutofocusRequestedAt > 0 &&
+        Date.now() - recentAutofocusRequestedAt < 420
       ) {
         androidAutofocusedModalRoots.add(modal);
         return;
@@ -5920,6 +5946,9 @@
     };
 
     const shouldScopeFullscreenToInlineHost = () => {
+      if (isDesktopContentOverlayRuntime()) {
+        return false;
+      }
       if (!(inlineHost instanceof HTMLElement)) {
         return false;
       }
@@ -6488,7 +6517,9 @@
       return null;
     }
     const shield = document.createElement("div");
-    const contentHost = ensureDesktopContentOverlayHost();
+    const contentHost = isDesktopContentOverlayRuntime()
+      ? null
+      : ensureDesktopContentOverlayHost();
     const scopedToContent = contentHost instanceof HTMLElement;
     shield.dataset.controlerModalInteractionShield = "true";
     shield.dataset.controlerOverlayScope = scopedToContent ? "content" : "viewport";
@@ -6540,7 +6571,9 @@
     if (!(shield instanceof HTMLElement)) {
       return;
     }
-    const scopedHost = ensureDesktopContentOverlayHost() || document.body;
+    const scopedHost = isDesktopContentOverlayRuntime()
+      ? document.body
+      : ensureDesktopContentOverlayHost() || document.body;
     if (!(scopedHost instanceof HTMLElement)) {
       return;
     }
@@ -7176,6 +7209,7 @@
       return !existingModal.hidden && existingModal.style.display !== "none";
     });
     const forceViewportScope =
+      isDesktopContentOverlayRuntime() ||
       options.scope === "viewport" ||
       modal.classList.contains("controler-form-modal-overlay") ||
       hasActiveSiblingModal;

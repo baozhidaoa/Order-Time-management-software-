@@ -23,7 +23,13 @@
   --button-border: rgba(241, 244, 250, 0.38);
   --on-accent-text: #10141d;
   --bottom-nav-bg: rgba(9, 11, 14, 0.92);
+  --bottom-nav-border: color-mix(
+    in srgb,
+    var(--panel-border-color) 72%,
+    var(--accent-color) 28%
+  );
   --bottom-nav-button-bg: rgba(255, 255, 255, 0.05);
+  --bottom-nav-button-text: var(--muted-text-color);
   --bottom-nav-button-active-bg: rgba(74, 81, 94, 0.92);
   --bottom-nav-active-text: #f4f7ff;
   --overlay-bg: rgba(6, 8, 12, 0.58);
@@ -72,34 +78,18 @@
     var(--panel-border-color) 28%,
     transparent
   );
-  --app-nav-button-text: var(--muted-text-color);
-  --app-nav-button-hover-text: var(--text-color);
+  --app-nav-button-text: var(--bottom-nav-button-text);
+  --app-nav-button-hover-text: var(--bottom-nav-button-text);
   --app-nav-button-active-text: var(--bottom-nav-active-text);
-  --app-nav-button-bg: color-mix(
-    in srgb,
-    var(--bottom-nav-button-bg) 72%,
-    var(--surface-control) 28%
-  );
-  --app-nav-button-hover-bg: color-mix(
-    in srgb,
-    var(--bottom-nav-button-active-bg) 24%,
-    var(--surface-panel-muted) 76%
-  );
+  --app-nav-button-bg: var(--bottom-nav-button-bg);
+  --app-nav-button-hover-bg: var(--bottom-nav-button-bg);
   --app-nav-button-active-bg: var(--bottom-nav-button-active-bg);
-  --app-nav-button-border: color-mix(
-    in srgb,
-    var(--panel-border-color) 70%,
-    var(--accent-color) 30%
-  );
-  --app-nav-button-hover-border: color-mix(
-    in srgb,
-    var(--panel-border-color) 52%,
-    var(--bottom-nav-button-active-bg) 48%
-  );
+  --app-nav-button-border: transparent;
+  --app-nav-button-hover-border: transparent;
   --app-nav-button-active-border: color-mix(
     in srgb,
-    var(--panel-border-color) 36%,
-    var(--bottom-nav-button-active-bg) 64%
+    var(--bottom-nav-border) 42%,
+    var(--bottom-nav-button-active-bg) 58%
   );
   --input-border-color: color-mix(
     in srgb,
@@ -703,6 +693,17 @@ body.flex.row .modal-overlay[data-controler-overlay-scope="content"] {
   min-height: 100% !important;
   height: 100% !important;
   max-height: none !important;
+}
+
+body.flex.row:not(.controler-mobile-runtime):not(.controler-android-native):not(.controler-ios-native)
+  .modal-overlay[data-controler-overlay-scope="content"] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  border-radius: 0 !important;
 }
 
 body.page-stats .modal-overlay[data-controler-backdrop-visible="false"] {
@@ -1893,7 +1894,7 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
   justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
-  height: 100%;
+  height: auto;
 }
 
 .record-main {
@@ -2194,19 +2195,17 @@ select optgroup {
 .theme-preview-nav {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0;
-  padding: 0;
+  gap: 3px;
+  padding: 3px;
   border-radius: 11px;
   border: 1px solid transparent;
-  overflow: hidden;
-  backdrop-filter: blur(12px) saturate(130%);
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  overflow: visible;
 }
 
 .theme-preview-nav-item {
   display: block;
   height: 18px;
-  border-radius: 0;
+  border-radius: 8px;
   border: 1px solid transparent;
   opacity: 1;
 }
@@ -2269,6 +2268,56 @@ select optgroup {
   margin-top: 14px;
 }
 
+.theme-editor-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.theme-editor-group-heading {
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.theme-editor-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.theme-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid
+    color-mix(in srgb, var(--panel-border-color) 82%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-strong-bg) 80%, transparent);
+}
+
+.theme-editor-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.theme-editor-section-title {
+  color: var(--text-color);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.theme-editor-section-description {
+  color: var(--muted-text-color);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.theme-editor-section-grid,
 .theme-editor-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2288,6 +2337,32 @@ select optgroup {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
     color-mix(in srgb, var(--panel-bg) 82%, transparent);
+}
+
+.theme-editor-row-description {
+  color: var(--muted-text-color);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.theme-editor-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.theme-editor-row-meta-text {
+  color: var(--muted-text-color);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.theme-editor-row-meta-action {
+  margin: 0 !important;
+  min-height: 30px !important;
+  padding: 0 12px !important;
 }
 
 .theme-editor-row-label {
@@ -2343,6 +2418,24 @@ select optgroup {
 .theme-editor-row input[type="color"]::-moz-color-swatch {
   border: none;
   border-radius: 9px;
+}
+
+.theme-editor-record-card-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.theme-editor-record-card-color-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-editor-record-card-color-inputs {
+  display: grid;
+  grid-template-columns: minmax(92px, 120px) minmax(0, 1fr);
+  gap: 10px;
 }
 
 .settings-nav-grid {
@@ -5380,12 +5473,13 @@ body.flex.row > div:first-of-type > .app-nav {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin: 0 !important;
-  padding: 8px;
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--panel-strong-bg) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--panel-border-color) 72%, transparent);
+  padding: 10px;
+  border-radius: 24px;
+  background: var(--bottom-nav-bg);
+  border: 1px solid var(--bottom-nav-border);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.16);
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts {
@@ -5402,34 +5496,24 @@ body.flex.row > div:first-of-type > .app-nav .bts {
   gap: 6px;
   font-size: 13px;
   line-height: 1.15;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
-    var(--app-nav-button-bg);
+  background: transparent;
   color: var(--app-nav-button-text);
-  border-color: var(--app-nav-button-border);
+  border: 1px solid transparent;
   box-shadow: none;
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts:hover {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
-    var(--app-nav-button-hover-bg);
+  background: transparent;
   color: var(--app-nav-button-hover-text);
-  border-color: var(--app-nav-button-hover-border);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 12px 24px rgba(0, 0, 0, 0.12);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
-    var(--app-nav-button-active-bg);
+  background: var(--app-nav-button-active-bg);
   color: var(--app-nav-button-active-text);
   border-color: var(--app-nav-button-active-border);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 14px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.14);
 }
 
 .page-topbar {
@@ -5938,33 +6022,19 @@ body.page-record .record-output-surface > * {
   body.flex.row > div:first-of-type > .app-nav {
     display: grid !important;
     grid-template-columns: repeat(var(--nav-visible-count, 6), minmax(0, 1fr));
-    gap: 0;
+    gap: 6px;
     width: 100%;
     flex: none !important;
     margin: 0 !important;
-    padding: 0 0 env(safe-area-inset-bottom, 0px);
-    border-radius: 17px;
-    background: color-mix(
-      in srgb,
-      var(--bottom-nav-bg) 68%,
-      var(--surface-panel) 32%
-    );
-    border: 1px solid
-      color-mix(
-        in srgb,
-        var(--surface-border-soft) 72%,
-        var(--bottom-nav-button-bg) 28%
-      );
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--surface-control) 18%, transparent),
-      inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
-      inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
-      0 10px 20px rgba(0, 0, 0, 0.12);
-    backdrop-filter: blur(20px) saturate(118%);
-    -webkit-backdrop-filter: blur(20px) saturate(118%);
-    overflow: hidden;
-    transform: translateY(-7px);
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-radius: 22px;
+    background: var(--bottom-nav-bg);
+    border: 1px solid var(--bottom-nav-border);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    overflow: visible;
+    transform: translateY(-4px);
     transition:
       transform 0.22s ease,
       opacity 0.22s ease,
@@ -5989,19 +6059,15 @@ body.page-record .record-output-surface > * {
     width: 100%;
     min-width: 0;
     margin: 0 !important;
-    min-height: 52px;
-    padding: 7px 2px 9px !important;
-    border-radius: 0;
+    min-height: 56px;
+    padding: 8px 4px 10px !important;
+    border-radius: 16px;
     font-size: 10.4px !important;
     font-weight: 600;
     line-height: 1.1;
-    color: color-mix(
-      in srgb,
-      var(--muted-text-color) 78%,
-      var(--bottom-nav-active-text) 22%
-    );
+    color: var(--bottom-nav-button-text);
     background: transparent;
-    border: 3px solid transparent;
+    border: 1px solid transparent;
     background-clip: padding-box;
     box-shadow: none;
     display: flex;
@@ -6017,6 +6083,7 @@ body.page-record .record-output-surface > * {
     transition:
       background 0.18s ease,
       color 0.18s ease,
+      border-color 0.18s ease,
       box-shadow 0.18s ease,
       opacity 0.18s ease;
   }
@@ -6029,12 +6096,9 @@ body.page-record .record-output-surface > * {
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts:hover {
-    color: color-mix(in srgb, var(--text-color) 72%, var(--bottom-nav-active-text) 28%);
-    background: color-mix(
-      in srgb,
-      var(--surface-control) 42%,
-      transparent
-    );
+    color: var(--app-nav-button-hover-text);
+    background: var(--app-nav-button-hover-bg);
+    border-color: transparent;
     box-shadow: none;
   }
 
@@ -6082,23 +6146,10 @@ body.page-record .record-output-surface > * {
 
   body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
     color: var(--app-nav-button-active-text);
-    border-radius: 13px;
-    background: color-mix(
-      in srgb,
-      var(--bottom-nav-button-active-bg) 42%,
-      var(--surface-control) 58%
-    );
-    box-shadow:
-      inset 0 0 0 1px color-mix(
-        in srgb,
-        var(--surface-border-soft) 74%,
-        var(--bottom-nav-button-bg) 26%
-      ),
-      inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 12%, transparent),
-      inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
-      inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
-      0 4px 8px rgba(0, 0, 0, 0.04);
+    border-radius: 16px;
+    background: var(--app-nav-button-active-bg);
+    border-color: var(--app-nav-button-active-border);
+    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1);
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] .app-nav-icon,
@@ -6111,7 +6162,8 @@ body.page-record .record-output-surface > * {
   }
 
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:active {
-    background: color-mix(in srgb, var(--bottom-nav-button-bg) 16%, transparent);
+    background: var(--bottom-nav-button-bg);
+    border-color: transparent;
     box-shadow: none;
   }
 
@@ -6122,7 +6174,8 @@ body.page-record .record-output-surface > * {
   }
 
   body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts.is-android-press-active {
-    background: color-mix(in srgb, var(--bottom-nav-button-bg) 16%, transparent);
+    background: var(--bottom-nav-button-bg);
+    border-color: transparent;
     box-shadow: none;
   }
 
@@ -6130,11 +6183,8 @@ body.page-record .record-output-surface > * {
     > div:first-of-type
     > .app-nav
     .bts[aria-current="page"]:active {
-    background: color-mix(
-      in srgb,
-      var(--bottom-nav-button-active-bg) 78%,
-      var(--bottom-nav-bg) 22%
-    );
+    background: color-mix(in srgb, var(--bottom-nav-button-active-bg) 86%, var(--bottom-nav-bg) 14%);
+    border-color: var(--app-nav-button-active-border);
     box-shadow: none;
   }
 
@@ -6142,11 +6192,8 @@ body.page-record .record-output-surface > * {
     > div:first-of-type
     > .app-nav
     .bts[aria-current="page"].is-android-press-active {
-    background: color-mix(
-      in srgb,
-      var(--bottom-nav-button-active-bg) 78%,
-      var(--bottom-nav-bg) 22%
-    );
+    background: color-mix(in srgb, var(--bottom-nav-button-active-bg) 86%, var(--bottom-nav-bg) 14%);
+    border-color: var(--app-nav-button-active-border);
     box-shadow: none;
   }
 
@@ -6516,12 +6563,12 @@ body.flex.row .modal-content {
   body.page-record .record-item {
     margin: 0 !important;
     min-height: 75px !important;
-    height: 100% !important;
+    height: auto !important;
     box-sizing: border-box;
   }
 
   body.page-record .record-item > div:first-child {
-    height: 100%;
+    height: auto;
   }
 
   body.page-record .record-create-project-btn {
@@ -6979,6 +7026,19 @@ body.controler-android-native .controler-form-modal-overlay {
     overflow: hidden !important;
   }
 
+  body.controler-android-native
+    .settings-theme-editor-modal.settings-theme-editor-modal-entering
+    #custom-theme-name {
+    transition: none !important;
+  }
+
+  body.controler-android-native
+    .settings-theme-editor-modal.settings-theme-editor-modal-entering
+    #custom-theme-name:focus {
+    border-color: var(--bg-tertiary) !important;
+    box-shadow: none !important;
+  }
+
   body.controler-mobile-runtime
     .settings-theme-editor-modal
     .controler-form-modal-body,
@@ -7410,46 +7470,6 @@ body.page-settings .settings-card--widgets {
   z-index: auto;
 }
 
-body.controler-mobile-runtime.page-settings .settings-main,
-body.controler-android-native.page-settings .settings-main,
-body.controler-mobile-runtime.page-settings .settings-card,
-body.controler-android-native.page-settings .settings-card,
-body.controler-mobile-runtime.page-settings .settings-card-content,
-body.controler-android-native.page-settings .settings-card-content {
-  touch-action: pan-y;
-}
-
-body.controler-mobile-runtime.page-settings
-  :is(
-    .theme-selector,
-    .theme-option,
-    .theme-option-action,
-    .widget-action-card,
-    .widget-action-card-button,
-    .settings-collapse-toggle,
-    .settings-nav-toggle,
-    .settings-nav-toggle-check,
-    #table-size-items,
-    #desktop-widget-settings,
-    #widget-type-grid
-  ),
-body.controler-android-native.page-settings
-  :is(
-    .theme-selector,
-    .theme-option,
-    .theme-option-action,
-    .widget-action-card,
-    .widget-action-card-button,
-    .settings-collapse-toggle,
-    .settings-nav-toggle,
-    .settings-nav-toggle-check,
-    #table-size-items,
-    #desktop-widget-settings,
-    #widget-type-grid
-  ) {
-  touch-action: pan-y !important;
-}
-
 body.page-settings
   .settings-card--language
   :is(.tree-select, .native-select-enhancer) {
@@ -7615,9 +7635,14 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
     border-radius: 8px !important;
   }
 
-  body.page-settings .theme-editor-grid {
+  body.page-settings :is(.theme-editor-grid, .theme-editor-section-grid) {
     grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
     gap: 8px;
+  }
+
+  body.page-settings .theme-editor-section {
+    padding: 10px;
+    border-radius: 12px;
   }
 
   body.page-settings .theme-editor-row {
@@ -8141,20 +8166,17 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav {
   grid-auto-rows: minmax(0, 1fr);
   align-items: stretch;
   contain: layout paint;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 24%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 38%, transparent),
-    0 18px 34px rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(18px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
-  height: 49px;
-  min-height: 49px;
-  max-height: 49px;
-  padding: 6px 1px !important;
-  gap: 3px;
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  padding: 7px 3px !important;
+  gap: 4px;
   flex-wrap: nowrap;
   overflow: hidden;
   box-shadow: none;
@@ -8164,6 +8186,7 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
   -webkit-tap-highlight-color: transparent !important;
   transition:
     background 0.12s ease,
+    border-color 0.12s ease,
     color 0.12s ease,
     box-shadow 0.12s ease,
     opacity 0.12s ease !important;
@@ -8215,21 +8238,9 @@ body.controler-android-native.controler-android-nav-locked.flex.row > div:first-
 }
 
 body.controler-mobile-runtime.flex.row > div:first-of-type > .app-nav [data-nav-page] {
-  color: color-mix(
-    in srgb,
-    var(--muted-text-color) 78%,
-    var(--bottom-nav-active-text) 22%
-  ) !important;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bottom-nav-button-bg) 68%, transparent),
-      color-mix(in srgb, var(--bottom-nav-button-bg) 28%, transparent) 58%,
-      transparent
-    ) !important;
-  border-color: transparent !important;
-  border-top-color: transparent !important;
-  border-right-color: transparent !important;
+  color: var(--bottom-nav-button-text) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
   box-shadow: none !important;
 }
 
@@ -8238,27 +8249,9 @@ body.controler-mobile-runtime.flex.row
   > .app-nav
   [data-nav-page][aria-current="page"] {
   color: var(--app-nav-button-active-text) !important;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--bottom-nav-button-active-bg) 82%,
-        var(--bottom-nav-button-bg) 18%
-      ),
-      color-mix(
-        in srgb,
-        var(--bottom-nav-button-active-bg) 62%,
-        var(--bottom-nav-bg) 38%
-      ) 72%
-    ),
-    color-mix(in srgb, var(--bottom-nav-button-active-bg) 84%, transparent) !important;
-  border-color: transparent !important;
-  border-top-color: transparent !important;
-  border-right-color: transparent !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-active-text) 12%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 46%, transparent) !important;
+  background: var(--bottom-nav-button-active-bg) !important;
+  border-color: var(--app-nav-button-active-border) !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08) !important;
 }
 
 body.controler-mobile-runtime.flex.row
@@ -8503,13 +8496,11 @@ body.controler-android-native.page-settings .settings-collapse-toggle {
 }
 
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-grid.settings-nav-grid--android-touch {
-  touch-action: pan-y;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 6px !important;
 }
 
 body.controler-android-native.page-settings .settings-card--navigation .settings-nav-toggle {
-  touch-action: pan-y;
   min-height: 62px !important;
   padding: 8px !important;
   gap: 5px !important;
@@ -8617,9 +8608,9 @@ body.page-settings .settings-collapse-toggle-icon::before {
 body.page-settings .settings-collapsible-body {
   display: block;
   opacity: 1;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -8709,36 +8700,10 @@ body.page-settings .settings-card--collapsible.is-expanded .settings-collapsible
   margin-top: 0;
 }
 
-body.controler-mobile-runtime.page-settings .settings-collapsible-body,
-body.controler-android-native.page-settings .settings-collapsible-body,
-body.controler-mobile-runtime.page-settings .settings-collapsible-body-inner,
-body.controler-android-native.page-settings .settings-collapsible-body-inner {
-  touch-action: pan-y !important;
-}
-
 body.controler-mobile-runtime.page-settings .settings-card--collapsible.is-expanded .settings-collapsible-body,
 body.controler-android-native.page-settings .settings-card--collapsible.is-expanded .settings-collapsible-body {
-  max-height: max(
-    220px,
-    calc(
-      var(
-          --controler-visual-viewport-height,
-          var(--controler-stable-visual-viewport-height, 100dvh)
-        ) - 240px
-    )
-  );
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-body.controler-mobile-runtime.page-settings .settings-collapsible-body *,
-body.controler-android-native.page-settings .settings-collapsible-body * {
-  touch-action: pan-y !important;
-}
-
-body.controler-mobile-runtime.page-settings .settings-collapsible-body input[type="range"],
-body.controler-android-native.page-settings .settings-collapsible-body input[type="range"] {
-  touch-action: manipulation !important;
+  max-height: none;
+  overflow: visible;
 }
 
 body.page-settings .settings-card--collapsible.is-expanded .settings-collapse-toggle {
@@ -9496,6 +9461,17 @@ body.flex.row
   border-radius: inherit !important;
 }
 
+body.flex.row:not(.controler-mobile-runtime):not(.controler-android-native):not(.controler-ios-native)
+  .page-loading-overlay[data-mode="fullscreen"][data-controler-overlay-scope="content"] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  min-height: 100vh !important;
+  height: 100vh !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+}
+
 body.controler-mobile-runtime .page-loading-overlay,
 body.controler-android-native .page-loading-overlay,
 body.controler-ios-native .page-loading-overlay {
@@ -9905,33 +9881,9 @@ body .page-shell {
 }
 
 body :is(.app-nav) {
-  background: transparent !important;
   background-image: none !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-}
-
-body.flex.row > div:first-of-type > .app-nav {
-  background: color-mix(
-    in srgb,
-    var(--bottom-nav-bg) 68%,
-    var(--surface-panel) 32%
-  ) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--surface-border-soft) 72%,
-    var(--bottom-nav-button-bg) 28%
-  ) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--surface-control) 18%, transparent),
-    inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
-    inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
-    0 10px 20px rgba(0, 0, 0, 0.12) !important;
-  backdrop-filter: blur(20px) saturate(118%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(118%) !important;
 }
 
 body :is(.page-control-card, .planner-panel, .todo-content-card, .todo-stats-shell, .guide-card),
@@ -10008,6 +9960,135 @@ body.page-settings .settings-nav-toggle-status {
 
 body.page-settings :is(.settings-nav-toggle-check, .theme-option-action) {
   box-shadow: none !important;
+}
+
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--collapsible .settings-collapse-toggle,
+    .settings-card--collapsible .settings-collapsible-body,
+    .settings-card--collapsible .settings-collapsible-body-inner,
+    .settings-card--themes .theme-selector,
+    .settings-card--themes .theme-option,
+    .settings-card--themes .theme-custom-actions,
+    .settings-card--themes .theme-option-action,
+    .settings-card--themes .theme-custom-actions .bts,
+    .settings-card--table-scale #table-size-items,
+    .settings-card--table-scale .table-size-card,
+    .settings-card--table-scale .table-size-card-title,
+    .settings-card--table-scale .table-size-card-description,
+    .settings-card--table-scale .table-size-effective-scale,
+    .settings-card--table-scale .table-size-slider-row,
+    .settings-card--table-scale #table-size-reset,
+    .settings-card--navigation #navigation-visibility-grid,
+    .settings-card--navigation .settings-nav-toggle,
+    .settings-card--navigation .settings-nav-toggle-header,
+    .settings-card--navigation .settings-nav-toggle-title,
+    .settings-card--navigation .settings-nav-toggle-description,
+    .settings-card--navigation .settings-nav-toggle-footer,
+    .settings-card--navigation .settings-nav-toggle-status,
+    .settings-card--navigation .settings-nav-toggle-check,
+    .settings-card--widgets #desktop-widget-settings,
+    .settings-card--widgets #desktop-widget-settings > div:first-child,
+    .settings-card--widgets #desktop-widget-settings label,
+    .settings-card--widgets #widget-type-grid,
+    .settings-card--widgets .widget-action-card,
+    .settings-card--widgets .widget-action-card-copy,
+    .settings-card--widgets .widget-action-card-title,
+    .settings-card--widgets .widget-action-card-description,
+    .settings-card--widgets .widget-action-card-button
+  ) {
+  touch-action: pan-y !important;
+}
+
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--collapsible .settings-collapse-toggle,
+    .settings-card--themes .theme-option,
+    .settings-card--themes .theme-option-action,
+    .settings-card--themes .theme-custom-actions .bts,
+    .settings-card--table-scale .table-size-card,
+    .settings-card--table-scale #table-size-reset,
+    .settings-card--navigation .settings-nav-toggle,
+    .settings-card--navigation .settings-nav-toggle-check,
+    .settings-card--widgets .widget-action-card,
+    .settings-card--widgets .widget-action-card-button
+  ) {
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+  backface-visibility: visible !important;
+  isolation: auto !important;
+  overflow: visible !important;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease !important;
+}
+
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--collapsible .settings-collapse-toggle,
+    .settings-card--themes .theme-option-action,
+    .settings-card--themes .theme-custom-actions .bts,
+    .settings-card--table-scale #table-size-reset,
+    .settings-card--navigation .settings-nav-toggle,
+    .settings-card--navigation .settings-nav-toggle-check,
+    .settings-card--widgets .widget-action-card,
+    .settings-card--widgets .widget-action-card-button
+  )::before,
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--collapsible .settings-collapse-toggle,
+    .settings-card--themes .theme-option-action,
+    .settings-card--themes .theme-custom-actions .bts,
+    .settings-card--table-scale #table-size-reset,
+    .settings-card--navigation .settings-nav-toggle,
+    .settings-card--navigation .settings-nav-toggle-check,
+    .settings-card--widgets .widget-action-card,
+    .settings-card--widgets .widget-action-card-button
+  )::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+}
+
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--collapsible .settings-collapse-toggle,
+    .settings-card--themes .theme-option,
+    .settings-card--themes .theme-option-action,
+    .settings-card--themes .theme-custom-actions .bts,
+    .settings-card--table-scale .table-size-card,
+    .settings-card--table-scale #table-size-reset,
+    .settings-card--navigation .settings-nav-toggle,
+    .settings-card--navigation .settings-nav-toggle-check,
+    .settings-card--widgets .widget-action-card,
+    .settings-card--widgets .widget-action-card-button
+  ):is(:hover, :active, .is-android-press-active, .is-android-press-animate) {
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+body.controler-android-native.page-settings .settings-card--themes .theme-option.selected {
+  border-color: rgba(var(--accent-color-rgb), 0.24) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-color-rgb), 0.18) !important;
+}
+
+body.controler-android-native.page-settings
+  :is(
+    .settings-card--navigation .settings-nav-toggle.is-visible,
+    .settings-card--navigation .settings-nav-toggle.is-fixed
+  ) {
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-color-rgb), 0.14) !important;
+}
+
+body.controler-android-native.page-settings
+  .settings-card--table-scale
+  .table-size-slider-row
+  input[type="range"] {
+  touch-action: pan-x !important;
 }
 
 body.page-record :is(#projects-table, .projects-table-grid) {
@@ -10099,51 +10180,6 @@ body.flex.row > div:first-of-type > .app-sidebar-spacer {
   background-image: none !important;
   border-color: transparent !important;
   box-shadow: none !important;
-}
-
-body.flex.row > div:first-of-type > .app-nav .bts {
-  background: transparent !important;
-  border: 3px solid transparent !important;
-  background-clip: padding-box !important;
-  color: color-mix(
-    in srgb,
-    var(--muted-text-color) 78%,
-    var(--bottom-nav-active-text) 22%
-  ) !important;
-  box-shadow: none !important;
-}
-
-body.flex.row > div:first-of-type > .app-nav .bts:hover {
-  background: color-mix(
-    in srgb,
-    var(--surface-control) 42%,
-    transparent
-  ) !important;
-  border-color: transparent !important;
-  color: color-mix(in srgb, var(--text-color) 72%, var(--bottom-nav-active-text) 28%) !important;
-  box-shadow: none !important;
-}
-
-body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
-  border-radius: 13px !important;
-  background: color-mix(
-    in srgb,
-    var(--bottom-nav-button-active-bg) 42%,
-    var(--surface-control) 58%
-  ) !important;
-  border-color: transparent !important;
-  color: var(--app-nav-button-active-text) !important;
-  box-shadow:
-    inset 0 0 0 1px color-mix(
-      in srgb,
-      var(--surface-border-soft) 74%,
-      var(--bottom-nav-button-bg) 26%
-    ),
-    inset 0 1px 0 color-mix(in srgb, var(--bottom-nav-button-bg) 12%, transparent),
-    inset 1px 0 0 color-mix(in srgb, var(--surface-control) 10%, transparent),
-    inset -1px 0 0 color-mix(in srgb, var(--bottom-nav-bg) 16%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--bottom-nav-bg) 22%, transparent),
-    0 4px 8px rgba(0, 0, 0, 0.04) !important;
 }
 
 body.page-record .record-create-project-btn {

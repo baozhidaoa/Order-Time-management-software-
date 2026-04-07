@@ -77,6 +77,7 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -1303,9 +1304,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     ? null
                     : WindowCompat.getInsetsController(activity.getWindow(), targetView);
             requestSoftInputTargetFocus(targetView);
-            if (insetsController != null) {
-                insetsController.show(WindowInsetsCompat.Type.ime());
-            }
+            boolean imeVisible = isImeVisible(activity, targetView);
 
             boolean focused = targetView != null && targetView.hasFocus();
             boolean served =
@@ -1313,13 +1312,19 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 targetView != null &&
                 inputMethodManager.isActive(targetView);
             boolean shown = false;
-            if (served && inputMethodManager != null && targetView != null) {
+            boolean requestedViaInsets = false;
+            if (!imeVisible && served && inputMethodManager != null && targetView != null) {
                 shown =
                     inputMethodManager.showSoftInput(
                         targetView,
                         InputMethodManager.SHOW_IMPLICIT
                     );
             }
+            if (!imeVisible && !shown && insetsController != null) {
+                insetsController.show(WindowInsetsCompat.Type.ime());
+                requestedViaInsets = true;
+            }
+            shown = shown || requestedViaInsets || imeVisible;
 
             Log.d(
                 TAG,
@@ -1331,6 +1336,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     + served
                     + " shown="
                     + shown
+                    + " imeVisible="
+                    + imeVisible
+                    + " requestedViaInsets="
+                    + requestedViaInsets
                     + " attempt="
                     + attempt
             );
@@ -1538,6 +1547,24 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         try {
             targetView.requestFocus();
         } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isImeVisible(Activity activity, View targetView) {
+        if (activity == null) {
+            return false;
+        }
+        View decorView =
+            activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        View insetsView = targetView != null ? targetView : decorView;
+        if (insetsView == null) {
+            return false;
+        }
+        try {
+            WindowInsetsCompat windowInsets = ViewCompat.getRootWindowInsets(insetsView);
+            return windowInsets != null && windowInsets.isVisible(WindowInsetsCompat.Type.ime());
+        } catch (Exception error) {
+            return false;
         }
     }
 

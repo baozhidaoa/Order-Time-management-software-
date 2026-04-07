@@ -8,6 +8,11 @@
   const DESKTOP_THEME_PRELOAD_STYLE_ELEMENT_ID =
     "controler-desktop-theme-preload-style";
   const DEFAULT_THEME_ID = "obsidian-mono";
+  const AUTO_DERIVED_THEME_COLOR_KEYS = Object.freeze([
+    "navBarBorder",
+    "navButtonText",
+    "navButtonActiveText",
+  ]);
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
     /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
@@ -35,8 +40,11 @@
     buttonBorder: "rgba(111, 208, 141, 0.46)",
     onAccentText: "#133120",
     navBarBg: "rgba(11, 25, 17, 0.9)",
+    navBarBorder: "",
     navButtonBg: "rgba(111, 208, 141, 0.08)",
+    navButtonText: "",
     navButtonActiveBg: "rgba(98, 189, 125, 0.88)",
+    navButtonActiveText: "",
     overlay: "rgba(8, 10, 12, 0.45)",
     widgetCardBg: "",
     widgetItemBg: "",
@@ -200,31 +208,32 @@
       navButtonActiveBg: "rgba(74, 85, 109, 0.88)",
       overlay: "rgba(27, 31, 38, 0.22)",
     }),
-    buildThemeDefinition("graphite-mist", "石墨灰", {
-      primary: "#2a2d32",
-      secondary: "rgba(58, 62, 69, 0.5)",
-      tertiary: "rgba(76, 81, 90, 0.58)",
-      quaternary: "rgba(240, 243, 250, 0.1)",
-      accent: "#f0f3fa",
-      text: "#f8f9fc",
-      mutedText: "rgba(248, 249, 252, 0.74)",
-      border: "rgba(224, 227, 234, 0.24)",
-      delete: "#ff8787",
-      deleteHover: "#ff6b6b",
-      projectLevel1: "#d8dde7",
-      projectLevel2: "#aeb5c2",
-      projectLevel3: "#808897",
-      panel: "rgba(39, 42, 48, 0.86)",
-      panelStrong: "rgba(45, 49, 56, 0.94)",
-      panelBorder: "rgba(224, 227, 234, 0.15)",
-      buttonBg: "#f0f3fa",
-      buttonBgHover: "#ffffff",
-      buttonText: "#222832",
-      buttonBorder: "rgba(240, 243, 250, 0.56)",
-      onAccentText: "#222832",
-      navBarBg: "rgba(33, 36, 41, 0.9)",
-      navButtonBg: "rgba(240, 243, 250, 0.06)",
-      navButtonActiveBg: "rgba(124, 134, 149, 0.82)",
+    buildThemeDefinition("graphite-mist", "钛雾灰", {
+      primary: "#121820",
+      secondary: "rgba(23, 30, 39, 0.58)",
+      tertiary: "rgba(37, 46, 58, 0.72)",
+      quaternary: "rgba(171, 185, 204, 0.11)",
+      accent: "#c8d3df",
+      text: "#f5f7fb",
+      mutedText: "rgba(236, 241, 248, 0.72)",
+      border: "rgba(186, 198, 214, 0.24)",
+      delete: "#ff8686",
+      deleteHover: "#ff6868",
+      projectLevel1: "#bec9d7",
+      projectLevel2: "#8093a8",
+      projectLevel3: "#4a5d74",
+      panel: "rgba(22, 29, 38, 0.88)",
+      panelStrong: "rgba(29, 37, 48, 0.96)",
+      panelBorder: "rgba(186, 198, 214, 0.16)",
+      buttonBg: "#d5dee8",
+      buttonBgHover: "#e2e9f1",
+      buttonText: "#141a22",
+      buttonBorder: "rgba(200, 211, 224, 0.54)",
+      onAccentText: "#141a22",
+      navBarBg: "rgba(13, 17, 23, 0.94)",
+      navButtonBg: "rgba(186, 198, 214, 0.06)",
+      navButtonActiveBg: "rgba(63, 77, 96, 0.92)",
+      overlay: "rgba(6, 9, 13, 0.5)",
     }),
     buildThemeDefinition("aurora-mist", "玫瑰晨雾", {
       primary: "#362226",
@@ -331,6 +340,87 @@
       navButtonActiveBg: "rgba(145, 118, 92, 0.88)",
       overlay: "rgba(40, 34, 28, 0.18)",
     }),
+    buildThemeDefinition("porcelain-mist", "月霁蓝", {
+      primary: "#e8eff7",
+      secondary: "rgba(255, 255, 255, 0.78)",
+      tertiary: "rgba(235, 241, 250, 0.88)",
+      quaternary: "rgba(78, 109, 141, 0.08)",
+      accent: "#4e6d8d",
+      text: "#1d2a38",
+      mutedText: "rgba(29, 42, 56, 0.68)",
+      border: "#869db7",
+      delete: "#c95a5a",
+      deleteHover: "#af4949",
+      projectLevel1: "#768fa8",
+      projectLevel2: "#97adc1",
+      projectLevel3: "#c6d3e0",
+      panel: "rgba(255, 255, 255, 0.9)",
+      panelStrong: "rgba(250, 252, 255, 0.97)",
+      panelBorder: "rgba(94, 117, 145, 0.14)",
+      buttonBg: "#4e6d8d",
+      buttonBgHover: "#6182a4",
+      buttonText: "#f7fbff",
+      buttonBorder: "rgba(78, 109, 141, 0.48)",
+      onAccentText: "#f7fbff",
+      navBarBg: "rgba(244, 249, 255, 0.95)",
+      navButtonBg: "rgba(78, 109, 141, 0.06)",
+      navButtonActiveBg: "rgba(88, 121, 156, 0.88)",
+      overlay: "rgba(20, 31, 43, 0.17)",
+    }),
+    buildThemeDefinition("sage-cashmere", "鼠尾草绒", {
+      primary: "#edf1ec",
+      secondary: "rgba(255, 255, 255, 0.74)",
+      tertiary: "rgba(237, 242, 236, 0.84)",
+      quaternary: "rgba(95, 111, 100, 0.08)",
+      accent: "#5f6f64",
+      text: "#243028",
+      mutedText: "rgba(36, 48, 40, 0.68)",
+      border: "#94a296",
+      delete: "#c95c60",
+      deleteHover: "#ae4a4f",
+      projectLevel1: "#7f9184",
+      projectLevel2: "#9bad9f",
+      projectLevel3: "#c7d2c9",
+      panel: "rgba(255, 255, 255, 0.88)",
+      panelStrong: "rgba(249, 252, 248, 0.96)",
+      panelBorder: "rgba(103, 119, 109, 0.14)",
+      buttonBg: "#5f6f64",
+      buttonBgHover: "#73857a",
+      buttonText: "#f4f7f3",
+      buttonBorder: "rgba(95, 111, 100, 0.46)",
+      onAccentText: "#f4f7f3",
+      navBarBg: "rgba(246, 249, 245, 0.93)",
+      navButtonBg: "rgba(95, 111, 100, 0.06)",
+      navButtonActiveBg: "rgba(105, 123, 111, 0.88)",
+      overlay: "rgba(25, 32, 27, 0.17)",
+    }),
+    buildThemeDefinition("oyster-linen", "鸢尾霜绫", {
+      primary: "#f1eef6",
+      secondary: "rgba(255, 252, 255, 0.76)",
+      tertiary: "rgba(241, 236, 247, 0.86)",
+      quaternary: "rgba(109, 97, 125, 0.07)",
+      accent: "#6d617d",
+      text: "#2c2733",
+      mutedText: "rgba(44, 39, 51, 0.68)",
+      border: "#a89db7",
+      delete: "#c55a63",
+      deleteHover: "#aa4752",
+      projectLevel1: "#9a8da9",
+      projectLevel2: "#b6abc3",
+      projectLevel3: "#d8d1e2",
+      panel: "rgba(255, 252, 255, 0.9)",
+      panelStrong: "rgba(250, 247, 252, 0.97)",
+      panelBorder: "rgba(113, 101, 130, 0.14)",
+      buttonBg: "#6d617d",
+      buttonBgHover: "#827492",
+      buttonText: "#f9f6fb",
+      buttonBorder: "rgba(109, 97, 125, 0.46)",
+      onAccentText: "#f9f6fb",
+      navBarBg: "rgba(247, 243, 249, 0.94)",
+      navButtonBg: "rgba(109, 97, 125, 0.06)",
+      navButtonActiveBg: "rgba(124, 111, 141, 0.88)",
+      overlay: "rgba(29, 24, 36, 0.17)",
+    }),
     buildThemeDefinition("midnight-indigo", "琥珀暮影", {
       primary: "#111722",
       secondary: "rgba(29, 37, 56, 0.5)",
@@ -359,8 +449,186 @@
     }),
   ];
 
+  const THEME_FIELD_SECTIONS = Object.freeze([
+    Object.freeze({
+      id: "base-app",
+      group: "base",
+      title: "应用",
+      fields: Object.freeze([
+        Object.freeze({ key: "primary", label: "应用背景" }),
+        Object.freeze({ key: "secondary", label: "应用外壳底层" }),
+        Object.freeze({ key: "tertiary", label: "控件底色" }),
+        Object.freeze({ key: "quaternary", label: "轻强调铺底" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "base-content",
+      group: "base",
+      title: "内容",
+      fields: Object.freeze([
+        Object.freeze({ key: "panel", label: "页面内容底色" }),
+        Object.freeze({ key: "panelStrong", label: "强调内容底色" }),
+        Object.freeze({ key: "accent", label: "强调色" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "base-text",
+      group: "base",
+      title: "文本",
+      fields: Object.freeze([
+        Object.freeze({ key: "text", label: "主要文字" }),
+        Object.freeze({ key: "mutedText", label: "次级文字" }),
+        Object.freeze({ key: "onAccentText", label: "强调底文字" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "base-border",
+      group: "base",
+      title: "描边",
+      fields: Object.freeze([
+        Object.freeze({ key: "border", label: "通用描边" }),
+        Object.freeze({ key: "panelBorder", label: "细分隔线" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "advanced-button",
+      group: "advanced",
+      title: "按钮",
+      fields: Object.freeze([
+        Object.freeze({ key: "buttonBg", label: "主按钮底色" }),
+        Object.freeze({ key: "buttonBgHover", label: "主按钮悬停底色" }),
+        Object.freeze({ key: "buttonText", label: "主按钮文字" }),
+        Object.freeze({ key: "buttonBorder", label: "主按钮描边" }),
+        Object.freeze({ key: "delete", label: "删除按钮底色" }),
+        Object.freeze({ key: "deleteHover", label: "删除按钮悬停底色" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "advanced-nav",
+      group: "advanced",
+      title: "导航栏",
+      fields: Object.freeze([
+        Object.freeze({ key: "navBarBg", label: "导航容器底色" }),
+        Object.freeze({ key: "navBarBorder", label: "导航容器描边" }),
+        Object.freeze({ key: "navButtonBg", label: "导航未选中底色" }),
+        Object.freeze({ key: "navButtonText", label: "导航未选中文字" }),
+        Object.freeze({ key: "navButtonActiveBg", label: "导航当前项底色" }),
+        Object.freeze({ key: "navButtonActiveText", label: "导航当前项文字" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "advanced-record-card",
+      group: "advanced",
+      kind: "record-card",
+      title: "记录卡片",
+      description: "统一主题卡片色会使用完全实心的统一卡片样式。",
+      fields: Object.freeze([]),
+    }),
+    Object.freeze({
+      id: "advanced-project",
+      group: "advanced",
+      title: "项目色与遮罩",
+      fields: Object.freeze([
+        Object.freeze({ key: "projectLevel1", label: "一级项目色" }),
+        Object.freeze({ key: "projectLevel2", label: "二级项目色" }),
+        Object.freeze({ key: "projectLevel3", label: "三级项目色" }),
+        Object.freeze({ key: "overlay", label: "遮罩底色" }),
+      ]),
+    }),
+    Object.freeze({
+      id: "advanced-widget",
+      group: "advanced",
+      title: "小组件",
+      description: "留空时会自动跟随当前主题。",
+      fields: Object.freeze([
+        Object.freeze({
+          key: "widgetCardBg",
+          label: "小组件外层底板",
+          optional: true,
+          description: "留空时自动使用当前主题的小组件外层底板。",
+          placeholder: "留空则自动跟随当前主题",
+        }),
+        Object.freeze({
+          key: "widgetItemBg",
+          label: "小组件内容卡片",
+          optional: true,
+          description: "留空时自动使用当前主题的小组件内容卡片。",
+          placeholder: "留空则自动跟随当前主题",
+        }),
+        Object.freeze({
+          key: "widgetText",
+          label: "小组件文字",
+          optional: true,
+          description: "留空时自动重新计算可读文字颜色。",
+          placeholder: "留空则自动计算",
+        }),
+        Object.freeze({
+          key: "widgetButtonBg",
+          label: "小组件按钮底色",
+          optional: true,
+          description: "留空时自动跟随主题按钮颜色。",
+          placeholder: "留空则自动跟随当前主题",
+        }),
+        Object.freeze({
+          key: "widgetButtonText",
+          label: "小组件按钮文字",
+          optional: true,
+          description: "留空时自动重新计算按钮文字颜色。",
+          placeholder: "留空则自动计算",
+        }),
+      ]),
+    }),
+  ]);
+
   const builtInThemeMap = new Map(BUILT_IN_THEMES.map((theme) => [theme.id, theme]));
-  const lightThemeIds = new Set(["ivory-light", "champagne-sandstone"]);
+  const BUILT_IN_THEME_LEGACY_NAME_MAP = Object.freeze({
+    "graphite-mist": Object.freeze(["石墨灰"]),
+    "porcelain-mist": Object.freeze(["瓷雾白"]),
+    "oyster-linen": Object.freeze(["雾贝绢白"]),
+  });
+  const LEGACY_BUILT_IN_THEME_OVERRIDE_SNAPSHOTS = Object.freeze({
+    "graphite-mist": Object.freeze({
+      name: "石墨灰",
+      colors: Object.freeze({
+        primary: "#2a2d32",
+        secondary: "rgba(58, 62, 69, 0.5)",
+        tertiary: "rgba(76, 81, 90, 0.58)",
+        quaternary: "rgba(240, 243, 250, 0.1)",
+        accent: "#f0f3fa",
+        text: "#f8f9fc",
+        mutedText: "rgba(248, 249, 252, 0.74)",
+        border: "rgba(224, 227, 234, 0.24)",
+        delete: "#ff8787",
+        deleteHover: "#ff6b6b",
+        projectLevel1: "#d8dde7",
+        projectLevel2: "#aeb5c2",
+        projectLevel3: "#808897",
+        panel: "rgba(39, 42, 48, 0.86)",
+        panelStrong: "rgba(45, 49, 56, 0.94)",
+        panelBorder: "rgba(224, 227, 234, 0.15)",
+        buttonBg: "#f0f3fa",
+        buttonBgHover: "#ffffff",
+        buttonText: "#222832",
+        buttonBorder: "rgba(240, 243, 250, 0.56)",
+        onAccentText: "#222832",
+        navBarBg: "rgba(33, 36, 41, 0.9)",
+        navButtonBg: "rgba(240, 243, 250, 0.06)",
+        navButtonActiveBg: "rgba(124, 134, 149, 0.82)",
+        overlay: "rgba(8, 10, 12, 0.45)",
+      }),
+      recordCard: Object.freeze({
+        mode: "project",
+        color: "#d8dde7",
+      }),
+    }),
+  });
+  const lightThemeIds = new Set([
+    "ivory-light",
+    "champagne-sandstone",
+    "porcelain-mist",
+    "sage-cashmere",
+    "oyster-linen",
+  ]);
   let lastThemeStorageSignature = null;
   let lastLaunchThemeSyncSignature = null;
   let lastDesktopThemeDebugApplySignature = null;
@@ -444,6 +712,65 @@
     };
   }
 
+  function readRawLocalStorageValue(storageKey) {
+    const normalizedKey = String(storageKey || "").trim();
+    if (!normalizedKey) {
+      return null;
+    }
+    try {
+      if (typeof window.ControlerStorage?.getRawLocalItem === "function") {
+        return window.ControlerStorage.getRawLocalItem(normalizedKey);
+      }
+    } catch (_error) {}
+    try {
+      return window.localStorage.getItem(normalizedKey);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeRawLocalStorageValue(storageKey, rawValue) {
+    const normalizedKey = String(storageKey || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    const nextValue =
+      rawValue === null || typeof rawValue === "undefined" ? null : String(rawValue);
+    try {
+      if (typeof window.ControlerStorage?.setRawLocalItem === "function") {
+        window.ControlerStorage.setRawLocalItem(normalizedKey, nextValue ?? undefined);
+        return;
+      }
+    } catch (_error) {}
+    try {
+      if (nextValue === null) {
+        window.localStorage.removeItem(normalizedKey);
+      } else {
+        window.localStorage.setItem(normalizedKey, nextValue);
+      }
+    } catch (_error) {}
+  }
+
+  function writeStorageEntry(storageKey, rawValue) {
+    const normalizedKey = String(storageKey || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    const nextValue = typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue);
+    if (typeof nextValue !== "string") {
+      return;
+    }
+    const candidateKeys = [
+      `${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`,
+      normalizedKey,
+    ];
+    for (const candidateKey of candidateKeys) {
+      try {
+        window.localStorage.setItem(candidateKey, nextValue);
+      } catch (_error) {}
+    }
+  }
+
   function readJsonStorage(storageKey, fallback) {
     try {
       const entry = readStorageEntry(storageKey);
@@ -482,6 +809,51 @@
       builtInThemeOverridesEntry.storageKey || "",
       builtInThemeOverridesEntry.rawValue || "",
     ].join("\u0001");
+  }
+
+  function readBootstrapThemeState() {
+    try {
+      const preloadedThemeState = window.__CONTROLER_DESKTOP_PRELOADED_THEME__;
+      if (isPlainObject(preloadedThemeState)) {
+        const themeId =
+          typeof preloadedThemeState.themeId === "string" &&
+          preloadedThemeState.themeId.trim()
+            ? preloadedThemeState.themeId.trim()
+            : DEFAULT_THEME_ID;
+        return {
+          themeId,
+          colors: isPlainObject(preloadedThemeState.colors)
+            ? preloadedThemeState.colors
+            : null,
+          recordCard: isPlainObject(preloadedThemeState.recordCard)
+            ? preloadedThemeState.recordCard
+            : null,
+          source: "desktop-preload",
+        };
+      }
+    } catch (_error) {}
+    try {
+      const rawValue =
+        typeof window.name === "string" && window.name.startsWith(THEME_WINDOW_NAME_PREFIX)
+          ? window.name.slice(THEME_WINDOW_NAME_PREFIX.length)
+          : "";
+      const parsed = parseJsonString(rawValue, null);
+      if (!isPlainObject(parsed)) {
+        return null;
+      }
+      const themeId =
+        typeof parsed.themeId === "string" && parsed.themeId.trim()
+          ? parsed.themeId.trim()
+          : DEFAULT_THEME_ID;
+      return {
+        themeId,
+        colors: isPlainObject(parsed.colors) ? parsed.colors : null,
+        recordCard: isPlainObject(parsed.recordCard) ? parsed.recordCard : null,
+        source: "window-name",
+      };
+    } catch (_error) {
+      return null;
+    }
   }
 
   function persistThemeWindowNameState(themeId, colors, recordCard = null) {
@@ -572,6 +944,64 @@
 
   function toRgbaColor(color, alpha = 1) {
     return `rgba(${toRgbChannels(color)}, ${alpha})`;
+  }
+
+  function parseThemeColor(color) {
+    const hex = parseHexColor(color);
+    if (hex) {
+      return {
+        ...hex,
+        a: 1,
+      };
+    }
+
+    const rgbMatch = String(color || "")
+      .trim()
+      .match(RGB_COLOR_PATTERN);
+    if (!rgbMatch) {
+      return null;
+    }
+
+    return {
+      r: Number(rgbMatch[1]),
+      g: Number(rgbMatch[2]),
+      b: Number(rgbMatch[3]),
+      a:
+        rgbMatch[4] === undefined
+          ? 1
+          : Math.max(0, Math.min(1, Number(rgbMatch[4]))),
+    };
+  }
+
+  function resolveCompositeThemeColor(
+    foregroundColor,
+    backgroundColor,
+    fallbackColor = DEFAULT_THEME_COLORS.primary,
+  ) {
+    const foreground = parseThemeColor(foregroundColor);
+    if (!foreground) {
+      return toHexColor(backgroundColor, fallbackColor);
+    }
+    if (foreground.a >= 0.999) {
+      return toHexColor(foregroundColor, fallbackColor);
+    }
+
+    const background =
+      parseThemeColor(backgroundColor) || parseThemeColor(fallbackColor);
+    if (!background) {
+      return toHexColor(foregroundColor, fallbackColor);
+    }
+
+    const blendChannel = (foregroundValue, backgroundValue) =>
+      Math.round(foregroundValue * foreground.a + backgroundValue * (1 - foreground.a))
+        .toString(16)
+        .padStart(2, "0");
+
+    return `#${[
+      blendChannel(foreground.r, background.r),
+      blendChannel(foreground.g, background.g),
+      blendChannel(foreground.b, background.b),
+    ].join("")}`;
   }
 
   function mixThemeColors(baseColor, overlayColor, overlayWeight = 0.5) {
@@ -680,6 +1110,20 @@
     return getContrastRatio(backgroundColor, normalizedTextColor) >= minContrast
       ? normalizedTextColor
       : fallbackTextColor;
+  }
+
+  function resolveExplicitThemeColor(preferredColor, fallbackColor = "") {
+    if (isValidThemeColorValue(preferredColor)) {
+      return preferredColor.trim();
+    }
+    return isValidThemeColorValue(fallbackColor) ? fallbackColor.trim() : "";
+  }
+
+  function normalizeThemeColorComparisonValue(color) {
+    if (!isValidThemeColorValue(color)) {
+      return "";
+    }
+    return String(color).trim().toLowerCase().replace(/\s+/g, "");
   }
 
   function ensureReadableShapeColor(
@@ -1004,6 +1448,15 @@
     };
   }
 
+  function sanitizeThemeId(name, existingId = "") {
+    const normalized = String(name || existingId || "custom-theme")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return normalized || existingId || `custom-theme-${Date.now().toString(36)}`;
+  }
+
   function resolveThemeColors(theme = null) {
     const source = theme?.colors || {};
     const primary = isValidThemeColorValue(source.primary)
@@ -1053,6 +1506,12 @@
     const navBarBg = isValidThemeColorValue(source.navBarBg)
       ? source.navBarBg.trim()
       : panelStrong;
+    const navBarBorder = isValidThemeColorValue(source.navBarBorder)
+      ? source.navBarBorder.trim()
+      : toRgbaColor(
+          mixThemeColors(navBarBg, firstNonEmpty(panelBorder, accent), 0.58),
+          0.44,
+        );
     const navButtonBg = isValidThemeColorValue(source.navButtonBg)
       ? source.navButtonBg.trim()
       : toRgbaColor(accent, 0.12);
@@ -1064,21 +1523,41 @@
       buttonBg,
       1.9,
     );
-    const buttonText = ensureReadableTextColor(
+    const buttonTextFallback = ensureReadableTextColor(
       buttonBg,
-      source.buttonText,
+      firstNonEmpty(source.text, text),
       "#173326",
       "#f8fafc",
     );
-    const onAccentText = ensureReadableTextColor(
+    const buttonText = resolveExplicitThemeColor(
+      source.buttonText,
+      buttonTextFallback,
+    );
+    const onAccentTextFallback = ensureReadableTextColor(
       accent,
-      source.onAccentText,
+      firstNonEmpty(source.buttonText, source.text, text),
       "#173326",
+      "#f8fafc",
+    );
+    const onAccentText = resolveExplicitThemeColor(
+      source.onAccentText,
+      onAccentTextFallback,
+    );
+    const navButtonText = ensureReadableTextColor(
+      navBarBg,
+      firstNonEmpty(source.navButtonText, source.mutedText, source.text, text),
+      "#16211c",
       "#f8fafc",
     );
     const navButtonActiveText = ensureReadableTextColor(
       navButtonActiveBg,
-      source.navButtonActiveText,
+      firstNonEmpty(
+        source.navButtonActiveText,
+        source.navButtonText,
+        buttonText,
+        source.text,
+        text,
+      ),
       "#16211c",
       "#f8fafc",
     );
@@ -1130,7 +1609,9 @@
         : toRgbaColor(buttonBg, 0.48),
       onAccentText,
       navBarBg,
+      navBarBorder,
       navButtonBg,
+      navButtonText,
       navButtonActiveBg,
       navButtonActiveText,
       widgetCardBg: isValidThemeColorValue(source.widgetCardBg)
@@ -1157,12 +1638,259 @@
               isLightSurface ? 0.76 : 0.68,
             ),
             isLightSurface ? 0.24 : 0.62,
-          ),
+        ),
     };
   }
 
-  function normalizeBuiltInThemeOverride(themeId, override = {}) {
-    const baseTheme = builtInThemeMap.get(themeId);
+  function filterStoredThemeColors(colors = {}, options = {}) {
+    if (!isPlainObject(colors)) {
+      return {};
+    }
+
+    const nextColors = {};
+    Object.entries(colors).forEach(([key, value]) => {
+      if (isValidThemeColorValue(value)) {
+        nextColors[key] = value.trim();
+      }
+    });
+
+    if (!Object.keys(nextColors).length) {
+      return {};
+    }
+
+    const derivedComparisonColors = { ...nextColors };
+    AUTO_DERIVED_THEME_COLOR_KEYS.forEach((key) => {
+      delete derivedComparisonColors[key];
+    });
+    const autoDerivedColors = resolveThemeColors({
+      ...(isPlainObject(options?.theme) ? options.theme : {}),
+      colors: derivedComparisonColors,
+    });
+    AUTO_DERIVED_THEME_COLOR_KEYS.forEach((key) => {
+      if (
+        normalizeThemeColorComparisonValue(nextColors[key]) &&
+        normalizeThemeColorComparisonValue(nextColors[key]) ===
+          normalizeThemeColorComparisonValue(autoDerivedColors[key])
+      ) {
+        delete nextColors[key];
+      }
+    });
+
+    if (options?.baseTheme) {
+      const baseResolvedColors = resolveThemeColors(options.baseTheme);
+      Object.keys(nextColors).forEach((key) => {
+        if (AUTO_DERIVED_THEME_COLOR_KEYS.includes(key)) {
+          return;
+        }
+        if (
+          normalizeThemeColorComparisonValue(nextColors[key]) ===
+          normalizeThemeColorComparisonValue(baseResolvedColors[key])
+        ) {
+          delete nextColors[key];
+        }
+      });
+    }
+
+    return nextColors;
+  }
+
+  function resolveNavThemeTokens(colors = {}) {
+    const resolvedColors =
+      colors && typeof colors === "object" && !Array.isArray(colors) && !colors.colors
+        ? resolveThemeColors({ colors })
+        : resolveThemeColors(colors);
+    const hoverBg = mixThemeColors(
+      resolvedColors.navButtonBg,
+      resolvedColors.navButtonActiveBg,
+      0.18,
+    );
+    return {
+      containerBg: resolvedColors.navBarBg,
+      containerBorder: resolvedColors.navBarBorder,
+      itemBg: resolvedColors.navButtonBg,
+      itemText: resolvedColors.navButtonText,
+      itemBorder: toRgbaColor(
+        mixThemeColors(
+          resolvedColors.navBarBorder,
+          resolvedColors.navButtonBg,
+          0.28,
+        ),
+        0.52,
+      ),
+      itemHoverBg: hoverBg,
+      itemHoverText: ensureReadableTextColor(
+        hoverBg,
+        resolvedColors.navButtonText,
+        resolvedColors.navButtonText,
+        resolvedColors.navButtonActiveText,
+      ),
+      itemHoverBorder: toRgbaColor(
+        mixThemeColors(
+          resolvedColors.navBarBorder,
+          resolvedColors.navButtonActiveBg,
+          0.28,
+        ),
+        0.68,
+      ),
+      itemActiveBg: resolvedColors.navButtonActiveBg,
+      itemActiveText: resolvedColors.navButtonActiveText,
+      itemActiveBorder: toRgbaColor(
+        mixThemeColors(
+          resolvedColors.navBarBorder,
+          resolvedColors.navButtonActiveBg,
+          0.42,
+        ),
+        0.82,
+      ),
+      itemPressedBg: mixThemeColors(
+        resolvedColors.navButtonBg,
+        resolvedColors.navButtonActiveBg,
+        0.24,
+      ),
+      itemActivePressedBg: mixThemeColors(
+        resolvedColors.navButtonActiveBg,
+        resolvedColors.navBarBg,
+        0.16,
+      ),
+    };
+  }
+
+  function resolveRecordCardSurfaceStyles(options = {}) {
+    const resolvedColors =
+      options?.resolvedColors && typeof options.resolvedColors === "object"
+        ? options.resolvedColors
+        : resolveThemeColors(options?.theme || null);
+    const resolvedRecordCard =
+      options?.recordCard && typeof options.recordCard === "object"
+        ? resolveThemeRecordCard(
+            {
+              ...(options?.theme || {}),
+              recordCard: {
+                ...((options?.theme && options.theme.recordCard) || {}),
+                ...options.recordCard,
+              },
+            },
+            resolvedColors,
+          )
+        : resolveThemeRecordCard(options?.theme || null, resolvedColors);
+    const recordColor = isValidThemeColorValue(options?.color)
+      ? String(options.color).trim()
+      : resolvedRecordCard.mode === "theme"
+        ? resolvedRecordCard.color
+        : firstNonEmpty(
+            resolvedColors.projectLevel1,
+            resolvedColors.accent,
+            DEFAULT_THEME_RECORD_CARD.color,
+          );
+    const solidThemeCard = resolvedRecordCard.mode === "theme";
+    return {
+      mode: solidThemeCard ? "theme" : "project",
+      color: recordColor,
+      titleColor: recordColor,
+      borderColor: solidThemeCard
+        ? mixThemeColors(resolvedColors.panelBorder, recordColor, 0.52)
+        : toRgbaColor(recordColor, 0.22),
+      background: solidThemeCard
+        ? mixThemeColors(resolvedColors.panelStrong, recordColor, 0.34)
+        : `linear-gradient(180deg, ${toRgbaColor(recordColor, 0.12)} 0%, ${toRgbaColor(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
+      shadow: solidThemeCard
+        ? `0 10px 18px ${toRgbaColor(recordColor, 0.16)}`
+        : "none",
+    };
+  }
+
+  function normalizeThemeObject(theme, index = 0) {
+    const source =
+      theme && typeof theme === "object" && !Array.isArray(theme) ? theme : {};
+    const storedColors = filterStoredThemeColors(source.colors || {}, {
+      theme: source,
+    });
+    const normalizedColors = resolveThemeColors({
+      ...source,
+      colors: storedColors,
+    });
+    const normalizedRecordCard = resolveThemeRecordCard(source, normalizedColors);
+    const name =
+      typeof source.name === "string" && source.name.trim()
+        ? source.name.trim()
+        : `自定义主题 ${index + 1}`;
+    const safeId = sanitizeThemeId(source.id || name, source.id);
+    const themeId = builtInThemeMap.has(safeId)
+      ? `custom-${safeId}`
+      : safeId.startsWith("custom-")
+        ? safeId
+        : `custom-${safeId}`;
+
+    return {
+      id: themeId,
+      name,
+      colors: storedColors,
+      recordCard: normalizedRecordCard,
+      isCustom: true,
+      isBuiltIn: false,
+      hasOverride: false,
+    };
+  }
+
+  function getBuiltInThemes() {
+    return BUILT_IN_THEMES.map((theme) => ({
+      ...theme,
+      colors: resolveThemeColors(theme),
+      recordCard: resolveThemeRecordCard(theme),
+      isCustom: false,
+      isBuiltIn: true,
+      hasOverride: false,
+    }));
+  }
+
+  function getThemeFieldSections() {
+    return THEME_FIELD_SECTIONS.map((section) => ({
+      ...section,
+      fields: Array.isArray(section.fields)
+        ? section.fields.map((field) => ({ ...field }))
+        : [],
+    }));
+  }
+
+  function resolveBuiltInThemeOverrideName(baseTheme, overrideName) {
+    const trimmedOverrideName =
+      typeof overrideName === "string" ? overrideName.trim() : "";
+    if (!trimmedOverrideName) {
+      return baseTheme?.name || "";
+    }
+    const legacyNames = Array.isArray(
+      BUILT_IN_THEME_LEGACY_NAME_MAP[baseTheme?.id],
+    )
+      ? BUILT_IN_THEME_LEGACY_NAME_MAP[baseTheme.id]
+      : [];
+    if (legacyNames.includes(trimmedOverrideName)) {
+      return baseTheme?.name || trimmedOverrideName;
+    }
+    return trimmedOverrideName;
+  }
+
+  function normalizeThemeComparisonValue(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  function areThemeColorMapsEqual(leftColors = {}, rightColors = {}) {
+    return Object.keys(DEFAULT_THEME_COLORS).every(
+      (key) =>
+        normalizeThemeComparisonValue(leftColors?.[key]) ===
+        normalizeThemeComparisonValue(rightColors?.[key]),
+    );
+  }
+
+  function areThemeRecordCardsEqual(leftRecordCard = {}, rightRecordCard = {}) {
+    return (
+      normalizeThemeRecordCardMode(leftRecordCard?.mode) ===
+        normalizeThemeRecordCardMode(rightRecordCard?.mode) &&
+      normalizeThemeComparisonValue(leftRecordCard?.color) ===
+        normalizeThemeComparisonValue(rightRecordCard?.color)
+    );
+  }
+
+  function buildComparableBuiltInThemeOverride(baseTheme, override = {}) {
     if (
       !baseTheme ||
       !override ||
@@ -1172,14 +1900,24 @@
       return null;
     }
 
-    const normalizedColors = resolveThemeColors({
+    const storedColors = filterStoredThemeColors(override?.colors || {}, {
+      theme: {
+        ...baseTheme,
+        colors: {
+          ...baseTheme.colors,
+          ...(override?.colors || {}),
+        },
+      },
+      baseTheme,
+    });
+    const resolvedColors = resolveThemeColors({
       ...baseTheme,
       colors: {
         ...baseTheme.colors,
-        ...(override?.colors || {}),
+        ...storedColors,
       },
     });
-    const normalizedRecordCard = resolveThemeRecordCard(
+    const recordCard = resolveThemeRecordCard(
       {
         ...baseTheme,
         recordCard: {
@@ -1187,16 +1925,161 @@
           ...(override?.recordCard || {}),
         },
       },
-      normalizedColors,
+      resolvedColors,
     );
     return {
+      id: baseTheme.id,
+      name: resolveBuiltInThemeOverrideName(baseTheme, override?.name),
+      colors: storedColors,
+      resolvedColors,
+      recordCard,
+    };
+  }
+
+  function buildLegacyBuiltInThemeSnapshot(baseTheme) {
+    const snapshot = LEGACY_BUILT_IN_THEME_OVERRIDE_SNAPSHOTS[baseTheme?.id];
+    if (!snapshot) {
+      return null;
+    }
+    return buildComparableBuiltInThemeOverride(baseTheme, snapshot);
+  }
+
+  function countStoredThemeColorKeys(colors = {}) {
+    if (!isPlainObject(colors)) {
+      return 0;
+    }
+    return Object.keys(colors).filter((key) =>
+      isValidThemeColorValue(colors[key]),
+    ).length;
+  }
+
+  function hasOnlyAutoDerivedThemeColorKeys(colors = {}) {
+    const keys = Object.keys(colors || {});
+    return (
+      keys.length > 0 &&
+      keys.every((key) => AUTO_DERIVED_THEME_COLOR_KEYS.includes(key))
+    );
+  }
+
+  function matchesBuiltInThemeSnapshot(baseTheme, override = {}, options = {}) {
+    if (!baseTheme || !isPlainObject(override)) {
+      return false;
+    }
+    const comparableOverride = buildComparableBuiltInThemeOverride(baseTheme, {
+      name: baseTheme.name,
+      colors: override?.colors || {},
+      recordCard: override?.recordCard || {},
+    });
+    if (!comparableOverride) {
+      return false;
+    }
+    const baseRecordCard = resolveThemeRecordCard(
+      baseTheme,
+      resolveThemeColors(baseTheme),
+    );
+    const rawStoredColorCount = Number(options?.rawStoredColorCount) || 0;
+    if (
+      comparableOverride.name === baseTheme.name &&
+      areThemeRecordCardsEqual(comparableOverride.recordCard, baseRecordCard)
+    ) {
+      if (Object.keys(comparableOverride.colors).length === 0) {
+        return true;
+      }
+      if (
+        rawStoredColorCount >= 18 &&
+        hasOnlyAutoDerivedThemeColorKeys(comparableOverride.colors)
+      ) {
+        return true;
+      }
+    }
+    const legacySnapshot = buildLegacyBuiltInThemeSnapshot(baseTheme);
+    return Boolean(
+      legacySnapshot &&
+        areThemeColorMapsEqual(
+          comparableOverride.resolvedColors,
+          legacySnapshot.resolvedColors,
+        ) &&
+        areThemeRecordCardsEqual(
+          comparableOverride.recordCard,
+          legacySnapshot.recordCard,
+        ),
+    );
+  }
+
+  function normalizeBuiltInThemeOverridesMap(rawOverrides = {}) {
+    return BUILT_IN_THEMES.reduce((accumulator, theme) => {
+      const override = normalizeBuiltInThemeOverride(theme.id, rawOverrides?.[theme.id]);
+      if (override) {
+        accumulator[theme.id] = {
+          name: override.name,
+          colors: override.colors,
+          recordCard: override.recordCard,
+        };
+      }
+      return accumulator;
+    }, {});
+  }
+
+  function normalizeBuiltInThemeOverride(themeId, override = {}) {
+    const baseTheme = builtInThemeMap.get(themeId);
+    const rawStoredColorCount = countStoredThemeColorKeys(override?.colors || {});
+    const comparableOverride = buildComparableBuiltInThemeOverride(baseTheme, override);
+    if (!comparableOverride) {
+      return null;
+    }
+    const baseRecordCard = resolveThemeRecordCard(
+      baseTheme,
+      resolveThemeColors(baseTheme),
+    );
+    const isEquivalentToBase =
+      comparableOverride.name === baseTheme.name &&
+      Object.keys(comparableOverride.colors).length === 0 &&
+      areThemeRecordCardsEqual(comparableOverride.recordCard, baseRecordCard);
+    if (isEquivalentToBase) {
+      return null;
+    }
+    if (
+      comparableOverride.name === baseTheme.name &&
+      rawStoredColorCount >= 18
+    ) {
+      if (
+        matchesBuiltInThemeSnapshot(baseTheme, override, {
+          rawStoredColorCount,
+        })
+      ) {
+        return null;
+      }
+      const matchedBuiltInSnapshot = BUILT_IN_THEMES.find(
+        (theme) =>
+          theme.id !== themeId &&
+          matchesBuiltInThemeSnapshot(theme, override, {
+            rawStoredColorCount,
+          }),
+      );
+      if (matchedBuiltInSnapshot) {
+        return null;
+      }
+    }
+    const legacySnapshot = buildLegacyBuiltInThemeSnapshot(baseTheme);
+    if (
+      legacySnapshot &&
+      comparableOverride.name === legacySnapshot.name &&
+      areThemeColorMapsEqual(
+        comparableOverride.resolvedColors,
+        legacySnapshot.resolvedColors,
+      ) &&
+      areThemeRecordCardsEqual(
+        comparableOverride.recordCard,
+        legacySnapshot.recordCard,
+      )
+    ) {
+      return null;
+    }
+    return {
       id: themeId,
-      name:
-        typeof override?.name === "string" && override.name.trim()
-          ? override.name.trim()
-          : baseTheme.name,
-      colors: normalizedColors,
-      recordCard: normalizedRecordCard,
+      name: comparableOverride.name,
+      colors: comparableOverride.colors,
+      recordCard: comparableOverride.recordCard,
     };
   }
 
@@ -1206,31 +2089,24 @@
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         return {};
       }
-
-      return BUILT_IN_THEMES.reduce((accumulator, theme) => {
-        const override = normalizeBuiltInThemeOverride(theme.id, raw[theme.id]);
-        if (override) {
-          accumulator[theme.id] = override;
-        }
-        return accumulator;
-      }, {});
+      const normalizedOverrides = normalizeBuiltInThemeOverridesMap(raw);
+      const normalizedSnapshot = JSON.stringify(normalizedOverrides);
+      if (normalizedSnapshot !== JSON.stringify(raw)) {
+        writeStorageEntry(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY, normalizedSnapshot);
+      }
+      return normalizedOverrides;
     } catch (error) {
       return {};
     }
   }
 
   function normalizeCustomTheme(theme) {
-    if (!theme || typeof theme !== "object" || Array.isArray(theme)) {
-      return null;
-    }
-
-    const normalizedColors = resolveThemeColors(theme);
-
+    const normalizedTheme = normalizeThemeObject(theme);
     return {
-      id: typeof theme.id === "string" ? theme.id : "",
-      name: typeof theme.name === "string" ? theme.name : "",
-      colors: normalizedColors,
-      recordCard: resolveThemeRecordCard(theme, normalizedColors),
+      id: normalizedTheme.id,
+      name: normalizedTheme.name,
+      colors: normalizedTheme.colors,
+      recordCard: normalizedTheme.recordCard,
     };
   }
 
@@ -1271,7 +2147,9 @@
     root.style.setProperty("--button-border", resolvedColors.buttonBorder);
     root.style.setProperty("--on-accent-text", resolvedColors.onAccentText);
     root.style.setProperty("--bottom-nav-bg", resolvedColors.navBarBg);
+    root.style.setProperty("--bottom-nav-border", resolvedColors.navBarBorder);
     root.style.setProperty("--bottom-nav-button-bg", resolvedColors.navButtonBg);
+    root.style.setProperty("--bottom-nav-button-text", resolvedColors.navButtonText);
     root.style.setProperty(
       "--bottom-nav-button-active-bg",
       resolvedColors.navButtonActiveBg,
@@ -1515,6 +2393,190 @@
     };
   }
 
+  function resolveThemeStateFromBootstrapState(bootstrapState = null) {
+    const sourceState = isPlainObject(bootstrapState)
+      ? bootstrapState
+      : readBootstrapThemeState();
+    if (!sourceState) {
+      return null;
+    }
+    const themeId =
+      typeof sourceState.themeId === "string" && sourceState.themeId.trim()
+        ? sourceState.themeId.trim()
+        : DEFAULT_THEME_ID;
+    const fallbackTheme =
+      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
+    const baseTheme =
+      builtInThemeMap.get(themeId) || fallbackTheme || { id: themeId, colors: {} };
+    const draftTheme = {
+      ...baseTheme,
+      id: themeId,
+      colors: {
+        ...(isPlainObject(baseTheme?.colors) ? baseTheme.colors : {}),
+        ...(isPlainObject(sourceState.colors) ? sourceState.colors : {}),
+      },
+      recordCard: {
+        ...(isPlainObject(baseTheme?.recordCard) ? baseTheme.recordCard : {}),
+        ...(isPlainObject(sourceState.recordCard) ? sourceState.recordCard : {}),
+      },
+    };
+    const resolvedColors = resolveThemeColors(draftTheme);
+    const activeTheme = {
+      ...draftTheme,
+      colors: resolvedColors,
+      recordCard: resolveThemeRecordCard(draftTheme, resolvedColors),
+    };
+    return {
+      activeTheme,
+      themeId: activeTheme?.id || themeId || DEFAULT_THEME_ID,
+      source: sourceState.source || "bootstrap-theme-state",
+      storageKeys: {
+        selectedTheme: sourceState.source || "bootstrap-theme-state",
+        customThemes: sourceState.source || "bootstrap-theme-state",
+        builtInThemeOverrides: sourceState.source || "bootstrap-theme-state",
+      },
+    };
+  }
+
+  function shouldUseBootstrapThemeStateForStorage(
+    bootstrapThemeState,
+    storageThemeState,
+    storageEntries = null,
+  ) {
+    if (!bootstrapThemeState?.activeTheme) {
+      return false;
+    }
+    if (!storageThemeState?.activeTheme) {
+      return true;
+    }
+    const selectedThemeEntry =
+      storageEntries?.selectedTheme || readStorageEntry(SELECTED_THEME_STORAGE_KEY);
+    const customThemesEntry =
+      storageEntries?.customThemes || readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
+    const builtInThemeOverridesEntry =
+      storageEntries?.builtInThemeOverrides ||
+      readStorageEntry(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY);
+    const hasStoredThemePayload = [
+      selectedThemeEntry?.rawValue,
+      customThemesEntry?.rawValue,
+      builtInThemeOverridesEntry?.rawValue,
+    ].some((value) => typeof value === "string" && value.trim());
+    if (!hasStoredThemePayload) {
+      return true;
+    }
+    const preloadedThemeState = window.__CONTROLER_DESKTOP_PRELOADED_THEME__;
+    const preloadedThemeId =
+      typeof preloadedThemeState?.themeId === "string" && preloadedThemeState.themeId.trim()
+        ? preloadedThemeState.themeId.trim()
+        : "";
+    const preloadedColors = isPlainObject(preloadedThemeState?.colors)
+      ? preloadedThemeState.colors
+      : null;
+    if (preloadedThemeId && bootstrapThemeState.themeId === preloadedThemeId) {
+      if (storageThemeState.themeId !== preloadedThemeId) {
+        return true;
+      }
+      if (
+        preloadedColors &&
+        !areThemeColorMapsEqual(
+          resolveThemeColors(storageThemeState.activeTheme),
+          preloadedColors,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getStoredThemeState(storageEntries = null) {
+    const selectedThemeEntry =
+      storageEntries?.selectedTheme || readStorageEntry(SELECTED_THEME_STORAGE_KEY);
+    const customThemesEntry =
+      storageEntries?.customThemes || readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
+    const builtInThemeOverridesEntry =
+      storageEntries?.builtInThemeOverrides ||
+      readStorageEntry(BUILT_IN_THEME_OVERRIDES_STORAGE_KEY);
+    const resolvedThemeState = resolveActiveThemeState({
+      selectedTheme: selectedThemeEntry,
+      customThemes: customThemesEntry,
+      builtInThemeOverrides: builtInThemeOverridesEntry,
+    });
+    const storedSelectedTheme =
+      typeof selectedThemeEntry.rawValue === "string" && selectedThemeEntry.rawValue.trim()
+        ? selectedThemeEntry.rawValue.trim()
+        : resolvedThemeState.themeId || DEFAULT_THEME_ID;
+    const rawCustomThemes = parseJsonString(customThemesEntry.rawValue, []);
+    const customThemes = Array.isArray(rawCustomThemes)
+      ? rawCustomThemes.map((theme, index) => normalizeThemeObject(theme, index))
+      : [];
+    const rawBuiltInThemeOverrides = parseJsonString(
+      builtInThemeOverridesEntry.rawValue,
+      {},
+    );
+    const builtInThemeOverrides =
+      normalizeBuiltInThemeOverridesMap(rawBuiltInThemeOverrides);
+
+    return {
+      selectedTheme: storedSelectedTheme,
+      customThemes,
+      builtInThemeOverrides,
+      themeId: resolvedThemeState.themeId,
+      activeTheme: resolvedThemeState.activeTheme,
+      source: resolvedThemeState.source,
+      storageKeys: resolvedThemeState.storageKeys,
+    };
+  }
+
+  function resolveThemeStateFromCoreState(coreState = null) {
+    if (!isPlainObject(coreState)) {
+      return null;
+    }
+
+    const selectedTheme =
+      typeof coreState.selectedTheme === "string" && coreState.selectedTheme.trim()
+        ? coreState.selectedTheme.trim()
+        : DEFAULT_THEME_ID;
+    const customThemes = Array.isArray(coreState.customThemes)
+      ? coreState.customThemes
+          .map((theme, index) => normalizeThemeObject(theme, index))
+          .filter(Boolean)
+      : [];
+    const rawBuiltInThemeOverrides = isPlainObject(coreState.builtInThemeOverrides)
+      ? coreState.builtInThemeOverrides
+      : {};
+    const builtInThemeOverrides =
+      normalizeBuiltInThemeOverridesMap(rawBuiltInThemeOverrides);
+    const matchedCustomTheme =
+      customThemes.find((theme) => theme?.id === selectedTheme) || null;
+    const selectedBuiltInOverride = normalizeBuiltInThemeOverride(
+      selectedTheme,
+      rawBuiltInThemeOverrides?.[selectedTheme],
+    );
+    const fallbackTheme =
+      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
+    const activeTheme =
+      matchedCustomTheme ||
+      selectedBuiltInOverride ||
+      builtInThemeMap.get(selectedTheme) ||
+      fallbackTheme;
+    const themeId = activeTheme?.id || DEFAULT_THEME_ID;
+
+    return {
+      selectedTheme,
+      customThemes,
+      builtInThemeOverrides,
+      themeId,
+      activeTheme,
+      source: "managed-core-state",
+      storageKeys: {
+        selectedTheme: "",
+        customThemes: "",
+        builtInThemeOverrides: "",
+      },
+    };
+  }
+
   function resolveThemeStateFromBridgeDetail(detail = {}) {
     const selectedTheme =
       typeof detail.selectedTheme === "string" && detail.selectedTheme.trim()
@@ -1560,12 +2622,29 @@
     };
   }
 
+  function writeThemeStateToStorage(selectedTheme, customThemes, builtInThemeOverrides) {
+    writeStorageEntry(SELECTED_THEME_STORAGE_KEY, selectedTheme || DEFAULT_THEME_ID);
+    writeStorageEntry(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes || []));
+    writeStorageEntry(
+      BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+      JSON.stringify(builtInThemeOverrides || {}),
+    );
+    lastThemeStorageSignature = buildThemeStorageSignature();
+  }
+
   function applyThemeState(themeId, activeTheme, options = {}) {
     document.documentElement.setAttribute("data-theme", themeId);
     const { resolvedColors, resolvedRecordCard } = applyThemeColors(activeTheme);
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
+    window.__CONTROLER_DESKTOP_PRELOADED_THEME__ = {
+      themeId,
+      primaryColor: resolvedColors.primary,
+      textColor: resolvedColors.text,
+      colors: { ...resolvedColors },
+      recordCard: { ...resolvedRecordCard },
+    };
     persistThemeWindowNameState(themeId, resolvedColors, resolvedRecordCard);
     dispatchThemeApplied(themeId, resolvedColors, {
       ...options,
@@ -1592,12 +2671,17 @@
         emitNative: options?.emitNative !== false,
       });
     }
-
-    if (
-      (localStorage.getItem(SELECTED_THEME_STORAGE_KEY) || DEFAULT_THEME_ID) !== themeId
-    ) {
-      localStorage.setItem(SELECTED_THEME_STORAGE_KEY, themeId);
-    }
+    try {
+      if (readRawLocalStorageValue(SELECTED_THEME_STORAGE_KEY) !== themeId) {
+        writeRawLocalStorageValue(SELECTED_THEME_STORAGE_KEY, themeId);
+      }
+    } catch (_error) {}
+    try {
+      const localMirrorKey = `${LOCAL_ONLY_STORAGE_PREFIX}${SELECTED_THEME_STORAGE_KEY}`;
+      if (readRawLocalStorageValue(localMirrorKey) !== themeId) {
+        writeRawLocalStorageValue(localMirrorKey, themeId);
+      }
+    } catch (_error) {}
   }
 
   function applyThemeFromStorage(options = {}) {
@@ -1614,7 +2698,17 @@
         return;
       }
 
-      const resolvedThemeState = resolveActiveThemeState(storageEntries);
+      let resolvedThemeState = resolveActiveThemeState(storageEntries);
+      const bootstrapThemeState = resolveThemeStateFromBootstrapState();
+      if (
+        shouldUseBootstrapThemeStateForStorage(
+          bootstrapThemeState,
+          resolvedThemeState,
+          storageEntries,
+        )
+      ) {
+        resolvedThemeState = bootstrapThemeState;
+      }
       const activeTheme = resolvedThemeState.activeTheme;
       const themeId = resolvedThemeState.themeId;
       lastThemeStorageSignature = nextSignature;
@@ -1650,6 +2744,67 @@
     }
   }
 
+  async function applyThemeFromManagedCoreState(options = {}) {
+    const managedStorage = window.ControlerStorage;
+    if (
+      managedStorage?.isNativeApp !== true ||
+      typeof managedStorage?.getCoreState !== "function"
+    ) {
+      return false;
+    }
+    try {
+      const coreState = await managedStorage.getCoreState({
+        authoritative: options?.authoritative === true,
+      });
+      const resolvedThemeState = resolveThemeStateFromCoreState(coreState);
+      if (!resolvedThemeState?.activeTheme) {
+        return false;
+      }
+      const rawBuiltInThemeOverrides = isPlainObject(coreState?.builtInThemeOverrides)
+        ? coreState.builtInThemeOverrides
+        : {};
+      const normalizedBuiltInOverrides =
+        resolvedThemeState.builtInThemeOverrides || {};
+      if (
+        typeof managedStorage.replaceCoreState === "function" &&
+        JSON.stringify(rawBuiltInThemeOverrides) !==
+          JSON.stringify(normalizedBuiltInOverrides)
+      ) {
+        managedStorage.replaceCoreState({
+          builtInThemeOverrides: normalizedBuiltInOverrides,
+        }).catch(() => {});
+      }
+      writeThemeStateToStorage(
+        resolvedThemeState.themeId,
+        resolvedThemeState.customThemes,
+        resolvedThemeState.builtInThemeOverrides,
+      );
+      lastLaunchThemeSyncSignature = null;
+      applyThemeState(resolvedThemeState.themeId, resolvedThemeState.activeTheme, {
+        ...options,
+        emitNative: false,
+      });
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function refreshThemeFromAvailableSources(options = {}) {
+    if (
+      window.ControlerStorage?.isNativeApp === true &&
+      typeof window.ControlerStorage?.getCoreState === "function"
+    ) {
+      void applyThemeFromManagedCoreState(options).then((didApply) => {
+        if (!didApply) {
+          applyThemeFromStorage(options);
+        }
+      });
+      return;
+    }
+    applyThemeFromStorage(options);
+  }
+
   function syncThemeStateFromBridge(detail = {}) {
     if (!isPlainObject(detail)) {
       return;
@@ -1665,24 +2820,18 @@
     };
 
     try {
+      writeThemeStateToStorage(
+        selectedTheme,
+        customThemes,
+        builtInThemeOverrides,
+      );
       const managedStorage = window.ControlerStorage;
       if (
         managedStorage?.isNativeApp === true &&
         typeof managedStorage.applySharedStateFromBridge === "function"
       ) {
         managedStorage.applySharedStateFromBridge(sharedThemeState);
-      } else {
-        localStorage.setItem(SELECTED_THEME_STORAGE_KEY, selectedTheme);
-        localStorage.setItem(
-          CUSTOM_THEMES_STORAGE_KEY,
-          JSON.stringify(customThemes),
-        );
-        localStorage.setItem(
-          BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
-          JSON.stringify(builtInThemeOverrides),
-        );
       }
-      lastThemeStorageSignature = buildThemeStorageSignature();
       lastLaunchThemeSyncSignature = null;
       applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,
@@ -1690,7 +2839,7 @@
     } catch (_error) {}
   }
 
-  applyThemeFromStorage();
+  refreshThemeFromAvailableSources();
 
   window.addEventListener("storage", (event) => {
     if (
@@ -1703,23 +2852,23 @@
       event.key === `${LOCAL_ONLY_STORAGE_PREFIX}${CUSTOM_THEMES_STORAGE_KEY}` ||
       event.key === `${LOCAL_ONLY_STORAGE_PREFIX}${BUILT_IN_THEME_OVERRIDES_STORAGE_KEY}`
     ) {
-      applyThemeFromStorage();
+      refreshThemeFromAvailableSources();
     }
   });
 
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        applyThemeFromStorage();
+        refreshThemeFromAvailableSources();
       }
     });
   }
 
   window.addEventListener("focus", () => {
-    applyThemeFromStorage();
+    refreshThemeFromAvailableSources();
   });
   window.addEventListener("controler:storage-data-changed", () => {
-    applyThemeFromStorage();
+    refreshThemeFromAvailableSources();
   });
   window.addEventListener("controler:native-bridge-event", (event) => {
     const detail =
@@ -1732,7 +2881,7 @@
 
   try {
     if (!document.documentElement.getAttribute("data-theme")) {
-      applyThemeFromStorage();
+      refreshThemeFromAvailableSources();
     }
   } catch (error) {
     const fallbackTheme =
@@ -1744,10 +2893,27 @@
   }
 
   window.ControlerTheme = {
+    DEFAULT_THEME_COLORS,
+    DEFAULT_THEME_RECORD_CARD,
     themeAppliedEventName: THEME_APPLIED_EVENT_NAME,
+    applyThemeColors,
+    applyThemeState,
     ensureReadableShapeColor,
+    getBuiltInThemes,
+    getStoredThemeState,
+    getThemeFieldSections,
+    isLightTheme,
+    isValidThemeColorValue,
+    normalizeBuiltInThemeOverride,
+    normalizeBuiltInThemeOverridesMap,
+    normalizeThemeObject,
+    resolveNavThemeTokens,
+    resolveRecordCardSurfaceStyles,
+    resolveThemeColors,
     resolveThemeRecordCard,
+    sanitizeThemeId,
     syncDocumentThemeSurface,
+    toHexColor,
     getReadableTextColorForBackground(
       backgroundColor,
       preferredTextColor = "",

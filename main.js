@@ -293,9 +293,9 @@ const BUILT_IN_WINDOW_THEME_COLORS = Object.freeze({
     text: "#202633",
   }),
   "graphite-mist": Object.freeze({
-    primary: "#2a2d32",
-    panelStrong: "rgba(53, 57, 64, 0.78)",
-    text: "#f8f9fc",
+    primary: "#121820",
+    panelStrong: "rgba(29, 37, 48, 0.84)",
+    text: "#f5f7fb",
   }),
   "aurora-mist": Object.freeze({
     primary: "#162a2d",
@@ -311,6 +311,21 @@ const BUILT_IN_WINDOW_THEME_COLORS = Object.freeze({
     primary: "#f1ebe2",
     panelStrong: "rgba(250, 245, 239, 0.9)",
     text: "#2f261f",
+  }),
+  "porcelain-mist": Object.freeze({
+    primary: "#e8eff7",
+    panelStrong: "rgba(250, 252, 255, 0.9)",
+    text: "#1d2a38",
+  }),
+  "sage-cashmere": Object.freeze({
+    primary: "#edf1ec",
+    panelStrong: "rgba(249, 252, 248, 0.9)",
+    text: "#243028",
+  }),
+  "oyster-linen": Object.freeze({
+    primary: "#f1eef6",
+    panelStrong: "rgba(250, 247, 252, 0.9)",
+    text: "#2c2733",
   }),
   "midnight-indigo": Object.freeze({
     primary: "#111a35",
