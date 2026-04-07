@@ -1498,6 +1498,96 @@ function matchesId(left, right) {
   return String(left ?? "") === String(right ?? "");
 }
 
+function clampPlanReminderNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function normalizePlanReminderTimeText(value, fallback = "09:00") {
+  const normalizedText = String(value || fallback || "09:00").trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(normalizedText);
+  if (!match) {
+    if (normalizedText === "09:00") {
+      return "09:00";
+    }
+    return normalizePlanReminderTimeText(fallback, "09:00");
+  }
+  const hours = clampPlanReminderNumber(match[1], 0, 23, 9);
+  const minutes = clampPlanReminderNumber(match[2], 0, 59, 0);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function normalizePlanReminderBeforeMinutes(value, fallback = 15) {
+  return clampPlanReminderNumber(
+    value,
+    1,
+    7 * 24 * 60,
+    clampPlanReminderNumber(fallback, 1, 7 * 24 * 60, 15),
+  );
+}
+
+function normalizePlanReminderOffsetDays(value, fallback = 0) {
+  return clampPlanReminderNumber(
+    value,
+    -30,
+    30,
+    clampPlanReminderNumber(fallback, -30, 30, 0),
+  );
+}
+
+function inferPlanReminderMode(
+  rawNotification = {},
+  allowedModes = [],
+  fallback = "none",
+) {
+  const rawMode = String(rawNotification?.mode || "").trim();
+  if (allowedModes.includes(rawMode)) {
+    return rawMode;
+  }
+  if (rawNotification?.enabled === false) {
+    return "none";
+  }
+  if (allowedModes.includes("before_start") && rawNotification?.minutesBefore != null) {
+    return "before_start";
+  }
+  if (rawNotification?.customTime) {
+    return "custom";
+  }
+  return fallback;
+}
+
+function normalizePlanNotificationConfigFallback(rawNotification, planLike = {}) {
+  const reminder =
+    rawNotification && typeof rawNotification === "object" ? rawNotification : {};
+  const mode = inferPlanReminderMode(reminder, [
+    "none",
+    "before_start",
+    "custom",
+  ]);
+  const customTimeFallback = normalizePlanReminderTimeText(
+    planLike?.startTime || "09:00",
+  );
+  return {
+    enabled: mode !== "none" && reminder.enabled !== false,
+    mode,
+    minutesBefore: normalizePlanReminderBeforeMinutes(
+      reminder.minutesBefore,
+      15,
+    ),
+    customTime: normalizePlanReminderTimeText(
+      reminder.customTime || customTimeFallback,
+      customTimeFallback,
+    ),
+    customOffsetDays: normalizePlanReminderOffsetDays(
+      reminder.customOffsetDays,
+      0,
+    ),
+  };
+}
+
 function isCompactMobileLayout() {
   return window.innerWidth <= MOBILE_LAYOUT_MAX_WIDTH;
 }
@@ -1519,13 +1609,8 @@ function shouldUseCompactPlannerPager() {
 
 function normalizePlanNotificationConfig(rawNotification, planLike = {}) {
   return (
-    getReminderTools()?.normalizePlanReminder?.(rawNotification, planLike) || {
-      enabled: false,
-      mode: "none",
-      minutesBefore: 15,
-      customTime: planLike?.startTime || "09:00",
-      customOffsetDays: 0,
-    }
+    getReminderTools()?.normalizePlanReminder?.(rawNotification, planLike) ||
+    normalizePlanNotificationConfigFallback(rawNotification, planLike)
   );
 }
 

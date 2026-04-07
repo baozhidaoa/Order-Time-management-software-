@@ -30,6 +30,7 @@ import com.controlerapp.R;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -6616,6 +6617,7 @@ public final class ControlerWidgetRenderer {
         for (ControlerWidgetDataStore.PlanInfo plan : plans) {
             signature.addString(plan == null ? "" : plan.name);
             signature.addString(plan == null ? "" : plan.date);
+            signature.addString(plan == null ? "" : plan.endDate);
             signature.addString(plan == null ? "" : plan.startTime);
             signature.addString(plan == null ? "" : plan.endTime);
             signature.addString(plan == null ? "" : plan.color);
@@ -6956,6 +6958,10 @@ public final class ControlerWidgetRenderer {
         if (target.before(start)) {
             return false;
         }
+        String planEndDate = readPlanEndDate(plan);
+        if (!TextUtils.isEmpty(planEndDate) && dateText.compareTo(planEndDate) > 0) {
+            return false;
+        }
 
         if (plan.excludedDates != null && plan.excludedDates.contains(dateText)) {
             return false;
@@ -6983,6 +6989,19 @@ public final class ControlerWidgetRenderer {
             return start.get(Calendar.DAY_OF_MONTH) == target.get(Calendar.DAY_OF_MONTH);
         }
         return false;
+    }
+
+    private static String readPlanEndDate(ControlerWidgetDataStore.PlanInfo plan) {
+        if (plan == null) {
+            return "";
+        }
+        try {
+            Field endDateField = plan.getClass().getField("endDate");
+            Object rawValue = endDateField.get(plan);
+            return rawValue instanceof String ? safeText((String) rawValue) : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private static boolean inDateRange(String currentDate, String startDate, String endDate) {

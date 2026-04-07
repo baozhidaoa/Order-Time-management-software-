@@ -632,6 +632,7 @@
   let lastThemeStorageSignature = null;
   let lastLaunchThemeSyncSignature = null;
   let lastDesktopThemeDebugApplySignature = null;
+  let lastAppliedThemeStateSignature = null;
 
   function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -1679,6 +1680,14 @@
     if (options?.baseTheme) {
       const baseResolvedColors = resolveThemeColors(options.baseTheme);
       Object.keys(nextColors).forEach((key) => {
+        if (
+          AUTO_DERIVED_THEME_COLOR_KEYS.includes(key) &&
+          normalizeThemeColorComparisonValue(nextColors[key]) ===
+            normalizeThemeColorComparisonValue(baseResolvedColors[key])
+        ) {
+          delete nextColors[key];
+          return;
+        }
         if (AUTO_DERIVED_THEME_COLOR_KEYS.includes(key)) {
           return;
         }
@@ -2119,9 +2128,19 @@
     return luminance >= 0.72;
   }
 
-  function applyThemeColors(theme) {
-    const resolvedColors = resolveThemeColors(theme);
-    const resolvedRecordCard = resolveThemeRecordCard(theme, resolvedColors);
+  function buildAppliedThemeStateSignature(
+    themeId,
+    resolvedColors = {},
+    resolvedRecordCard = {},
+  ) {
+    return JSON.stringify({
+      themeId: String(themeId || "").trim(),
+      colors: resolvedColors,
+      recordCard: resolvedRecordCard,
+    });
+  }
+
+  function applyResolvedThemeColors(resolvedColors, resolvedRecordCard) {
     const widgetColors = resolveWidgetThemeColors(resolvedColors);
     const root = document.documentElement;
     root.style.setProperty("--bg-primary", resolvedColors.primary);
@@ -2239,6 +2258,12 @@
       widgetColors.colorChipOutline,
     );
     syncDocumentThemeSurface(resolvedColors);
+  }
+
+  function applyThemeColors(theme) {
+    const resolvedColors = resolveThemeColors(theme);
+    const resolvedRecordCard = resolveThemeRecordCard(theme, resolvedColors);
+    applyResolvedThemeColors(resolvedColors, resolvedRecordCard);
     return {
       resolvedColors,
       resolvedRecordCard,
@@ -2265,28 +2290,27 @@
       return;
     }
     try {
-      const builtInThemeOverrides = loadBuiltInThemeOverrides();
-      const rawCustomThemes = readJsonStorage(CUSTOM_THEMES_STORAGE_KEY, []);
-      const matchedCustomTheme = Array.isArray(rawCustomThemes)
-        ? normalizeCustomTheme(
-            rawCustomThemes.find((theme) => theme?.id === themeId) || null,
-          )
-        : null;
+      const storedThemeState = getStoredThemeState();
+      const customThemes = Array.isArray(storedThemeState?.customThemes)
+        ? storedThemeState.customThemes
+        : [];
+      const builtInThemeOverrides = isPlainObject(
+        storedThemeState?.builtInThemeOverrides,
+      )
+        ? storedThemeState.builtInThemeOverrides
+        : {};
+      const matchedCustomTheme =
+        customThemes.find((theme) => theme?.id === themeId) || null;
       const selectedOverride = builtInThemeOverrides[themeId];
+      const sharedThemeState = {
+        selectedTheme: themeId || DEFAULT_THEME_ID,
+        customThemes,
+        builtInThemeOverrides,
+      };
       window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
         href: window.location.href,
         themeId,
-        selectedTheme: themeId || DEFAULT_THEME_ID,
-        customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
-        builtInThemeOverrides: selectedOverride
-          ? {
-              [themeId]: {
-                name: selectedOverride.name,
-                colors: selectedOverride.colors,
-                recordCard: selectedOverride.recordCard,
-              },
-            }
-          : {},
+        ...sharedThemeState,
         colors: { ...colors },
         recordCard: { ...recordCard },
       });
@@ -2587,15 +2611,17 @@
           .map((theme) => normalizeCustomTheme(theme))
           .filter(Boolean)
       : [];
-    const builtInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
+    const rawBuiltInThemeOverrides = isPlainObject(detail.builtInThemeOverrides)
       ? detail.builtInThemeOverrides
       : {};
+    const builtInThemeOverrides =
+      normalizeBuiltInThemeOverridesMap(rawBuiltInThemeOverrides);
 
     const matchedCustomTheme =
       customThemes.find((theme) => theme?.id === selectedTheme) || null;
     const normalizedBuiltInOverride = normalizeBuiltInThemeOverride(
       selectedTheme,
-      builtInThemeOverrides[selectedTheme],
+      rawBuiltInThemeOverrides[selectedTheme],
     );
     const fallbackTheme =
       builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
@@ -2607,18 +2633,11 @@
     const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
+      selectedTheme,
       themeId,
       activeTheme,
-      customThemes: matchedCustomTheme ? [matchedCustomTheme] : [],
-      builtInThemeOverrides: normalizedBuiltInOverride
-        ? {
-            [themeId]: {
-              name: normalizedBuiltInOverride.name,
-              colors: normalizedBuiltInOverride.colors,
-              recordCard: normalizedBuiltInOverride.recordCard,
-            },
-          }
-        : {},
+      customThemes,
+      builtInThemeOverrides,
     };
   }
 
@@ -2633,8 +2652,22 @@
   }
 
   function applyThemeState(themeId, activeTheme, options = {}) {
+    const resolvedColors = resolveThemeColors(activeTheme);
+    const resolvedRecordCard = resolveThemeRecordCard(activeTheme, resolvedColors);
+    const nextAppliedThemeStateSignature = buildAppliedThemeStateSignature(
+      themeId,
+      resolvedColors,
+      resolvedRecordCard,
+    );
+    if (
+      options?.force !== true &&
+      nextAppliedThemeStateSignature === lastAppliedThemeStateSignature
+    ) {
+      return;
+    }
+    lastAppliedThemeStateSignature = nextAppliedThemeStateSignature;
     document.documentElement.setAttribute("data-theme", themeId);
-    const { resolvedColors, resolvedRecordCard } = applyThemeColors(activeTheme);
+    applyResolvedThemeColors(resolvedColors, resolvedRecordCard);
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
@@ -2810,7 +2843,10 @@
       return;
     }
     const resolvedThemeState = resolveThemeStateFromBridgeDetail(detail);
-    const selectedTheme = resolvedThemeState.themeId || DEFAULT_THEME_ID;
+    const selectedTheme =
+      resolvedThemeState.selectedTheme ||
+      resolvedThemeState.themeId ||
+      DEFAULT_THEME_ID;
     const customThemes = resolvedThemeState.customThemes;
     const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
     const sharedThemeState = {

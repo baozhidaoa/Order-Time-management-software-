@@ -1,6 +1,7 @@
 package com.controlerapp;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.content.ActivityNotFoundException;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -23,6 +24,7 @@ import android.util.AtomicFile;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
@@ -39,6 +41,7 @@ import com.controlerapp.widgets.ControlerWidgetPinStore;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.BaseActivityEventListener;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
@@ -263,6 +266,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private Promise pendingSelectStorageFilePromise = null;
     private Promise pendingSelectStorageDirectoryPromise = null;
     private Promise pendingNotificationPermissionPromise = null;
+    private boolean pendingExactAlarmPermissionCheck = false;
     private Promise pendingImportStorageSourcePromise = null;
     private JSONObject pendingImportStorageSourceOptions = null;
     private Promise pendingPickImportSourcePromise = null;
@@ -273,9 +277,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         Executors.newSingleThreadExecutor();
     private final Object storageSideEffectLock = new Object();
     private final Object storageStatusRefreshLock = new Object();
+    private final LinkedHashSet<String> pendingNotificationRescheduleSections =
+        new LinkedHashSet<>();
     private final LinkedHashSet<String> pendingStorageSideEffectSections =
         new LinkedHashSet<>();
-    private boolean pendingStorageNotificationReschedule = false;
+    private boolean pendingImmediateNotificationReschedule = false;
     private boolean pendingStorageWidgetRefresh = false;
     private boolean pendingStorageAutoBackupCheck = false;
     private boolean pendingPreciseStorageStatusRefresh = false;
@@ -285,7 +291,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         @Override
         public void run() {
             final JSONArray changedSections;
-            final boolean runNotifications;
             final boolean runWidgets;
             final boolean runAutoBackup;
             long rescheduleAutoBackupAfterMs = 0L;
@@ -294,8 +299,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             synchronized (storageSideEffectLock) {
                 changedSections = toJsonArray(pendingStorageSideEffectSections);
                 pendingStorageSideEffectSections.clear();
-                runNotifications = pendingStorageNotificationReschedule;
-                pendingStorageNotificationReschedule = false;
                 runWidgets = pendingStorageWidgetRefresh;
                 pendingStorageWidgetRefresh = false;
 
@@ -332,22 +335,12 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 );
             }
 
-            if (!runNotifications && !runWidgets && !runAutoBackup) {
+            if (!runWidgets && !runAutoBackup) {
                 return;
             }
 
             storageSideEffectExecutor.execute(() -> {
                 Context context = getReactApplicationContext();
-                if (runNotifications) {
-                    try {
-                        ControlerNotificationScheduler.rescheduleSections(
-                            context,
-                            changedSections
-                        );
-                    } catch (Exception error) {
-                        error.printStackTrace();
-                    }
-                }
                 if (runWidgets) {
                     try {
                         scheduleWidgetRefresh(
@@ -392,6 +385,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                         && grantResults[0] == PackageManager.PERMISSION_GRANTED;
                 try {
                     if (granted) {
+                        maybeRequestExactAlarmAccessIfNeeded(true);
                         ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
                     }
                     promise.resolve(
@@ -418,10 +412,24 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 }
             }
         };
+    private final LifecycleEventListener lifecycleEventListener =
+        new LifecycleEventListener() {
+            @Override
+            public void onHostResume() {
+                maybeHandleExactAlarmPermissionResult();
+            }
+
+            @Override
+            public void onHostPause() {}
+
+            @Override
+            public void onHostDestroy() {}
+        };
 
     public ControlerBridgeModule(ReactApplicationContext reactContext) {
         super(reactContext);
         reactContext.addActivityEventListener(activityEventListener);
+        reactContext.addLifecycleEventListener(lifecycleEventListener);
     }
 
     @Override
@@ -604,16 +612,61 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         return array;
     }
 
-    private void appendPendingStorageSideEffectSections(JSONArray changedSections) {
-        if (changedSections == null) {
+    private void appendChangedSections(
+        LinkedHashSet<String> target,
+        JSONArray changedSections
+    ) {
+        if (target == null || changedSections == null) {
             return;
         }
         for (int index = 0; index < changedSections.length(); index++) {
             String section = changedSections.optString(index, "").trim();
             if (!TextUtils.isEmpty(section)) {
-                pendingStorageSideEffectSections.add(section);
+                target.add(section);
             }
         }
+    }
+
+    private void appendPendingStorageSideEffectSections(JSONArray changedSections) {
+        appendChangedSections(pendingStorageSideEffectSections, changedSections);
+    }
+
+    private void enqueueImmediateNotificationReschedule(JSONArray changedSections) {
+        boolean shouldDispatch = false;
+        synchronized (storageSideEffectLock) {
+            appendChangedSections(pendingNotificationRescheduleSections, changedSections);
+            if (!pendingImmediateNotificationReschedule) {
+                pendingImmediateNotificationReschedule = true;
+                shouldDispatch = true;
+            }
+        }
+        if (!shouldDispatch) {
+            return;
+        }
+        storageSideEffectExecutor.execute(() -> {
+            Context context = getReactApplicationContext();
+            while (true) {
+                JSONArray sectionsToRefresh;
+                synchronized (storageSideEffectLock) {
+                    sectionsToRefresh = toJsonArray(pendingNotificationRescheduleSections);
+                    pendingNotificationRescheduleSections.clear();
+                }
+                try {
+                    ControlerNotificationScheduler.rescheduleSections(
+                        context,
+                        sectionsToRefresh
+                    );
+                } catch (Exception error) {
+                    error.printStackTrace();
+                }
+                synchronized (storageSideEffectLock) {
+                    if (pendingNotificationRescheduleSections.isEmpty()) {
+                        pendingImmediateNotificationReschedule = false;
+                        return;
+                    }
+                }
+            }
+        });
     }
 
     private void enqueueStorageSideEffects(
@@ -622,10 +675,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         boolean refreshWidgets,
         boolean checkAutoBackup
     ) {
+        if (refreshNotifications) {
+            enqueueImmediateNotificationReschedule(changedSections);
+        }
         synchronized (storageSideEffectLock) {
             appendPendingStorageSideEffectSections(changedSections);
-            pendingStorageNotificationReschedule =
-                pendingStorageNotificationReschedule || refreshNotifications;
             pendingStorageWidgetRefresh =
                 pendingStorageWidgetRefresh || refreshWidgets;
             pendingStorageAutoBackupCheck =
@@ -2118,17 +2172,23 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void requestNotificationPermission(boolean interactive, Promise promise) {
         try {
+            Context context = getReactApplicationContext();
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
+                if (interactive) {
+                    maybeRequestExactAlarmAccessIfNeeded(true);
+                }
+                ControlerNotificationScheduler.rescheduleAll(context);
                 promise.resolve(buildNotificationPermissionResult(true, true, false).toString());
                 return;
             }
 
-            Context context = getReactApplicationContext();
             boolean granted =
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     == PackageManager.PERMISSION_GRANTED;
             if (granted) {
+                if (interactive) {
+                    maybeRequestExactAlarmAccessIfNeeded(true);
+                }
                 ControlerNotificationScheduler.rescheduleAll(context);
                 promise.resolve(buildNotificationPermissionResult(true, true, false).toString());
                 return;
@@ -2165,14 +2225,15 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     public void syncNotificationSchedule(String scheduleJson, Promise promise) {
         try {
             ReactApplicationContext context = getReactApplicationContext();
-            JSONObject root = ControlerWidgetDataStore.loadRoot(context);
-            ControlerNotificationScheduler.rescheduleAll(context, root);
+            JSONObject payload =
+                TextUtils.isEmpty(scheduleJson) ? new JSONObject() : new JSONObject(scheduleJson);
+            int scheduledCount = ControlerNotificationScheduler.syncFromPayload(context, payload);
 
             JSONObject result = new JSONObject();
             result.put("ok", true);
             result.put("supported", true);
-            result.put("mode", "storage-native");
-            result.put("scheduledCount", 0);
+            result.put("mode", "schedule-payload-native");
+            result.put("scheduledCount", scheduledCount);
             promise.resolve(result.toString());
         } catch (Exception error) {
             promise.reject("notification_schedule_sync_failed", error);
@@ -2461,7 +2522,73 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         result.put("supported", supported);
         result.put("granted", granted);
         result.put("asked", asked);
+        result.put("exactAlarmSupported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);
+        result.put(
+            "exactAlarmGranted",
+            hasExactAlarmAccess(getReactApplicationContext())
+        );
         return result;
+    }
+
+    private boolean hasExactAlarmAccess(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true;
+        }
+        if (context == null) {
+            return false;
+        }
+        AlarmManager alarmManager =
+            (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        return alarmManager != null && alarmManager.canScheduleExactAlarms();
+    }
+
+    private void maybeRequestExactAlarmAccessIfNeeded(boolean interactive) {
+        if (!interactive || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return;
+        }
+
+        Context context = getReactApplicationContext();
+        if (hasExactAlarmAccess(context)) {
+            pendingExactAlarmPermissionCheck = false;
+            return;
+        }
+
+        Activity activity = getCurrentActivity();
+        if (activity == null) {
+            return;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+        intent.setData(Uri.parse("package:" + context.getPackageName()));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        pendingExactAlarmPermissionCheck = true;
+        try {
+            activity.startActivity(intent);
+        } catch (ActivityNotFoundException primaryError) {
+            try {
+                Intent fallbackIntent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(fallbackIntent);
+            } catch (Exception secondaryError) {
+                pendingExactAlarmPermissionCheck = false;
+            }
+        } catch (Exception error) {
+            pendingExactAlarmPermissionCheck = false;
+        }
+    }
+
+    private void maybeHandleExactAlarmPermissionResult() {
+        if (!pendingExactAlarmPermissionCheck) {
+            return;
+        }
+        if (hasExactAlarmAccess(getReactApplicationContext())) {
+            pendingExactAlarmPermissionCheck = false;
+            try {
+                ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
+            } catch (Exception error) {
+                error.printStackTrace();
+            }
+        }
     }
 
     private void handleStorageDirectorySelectionResult(int resultCode, Intent intent) {

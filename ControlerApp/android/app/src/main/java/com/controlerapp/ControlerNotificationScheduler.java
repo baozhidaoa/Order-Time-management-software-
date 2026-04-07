@@ -30,11 +30,13 @@ public final class ControlerNotificationScheduler {
     private static final String CHANNEL_DESCRIPTION = "计划、待办与打卡提醒";
     private static final String PREFS_NAME = "controler_notification_scheduler";
     private static final String KEY_SCHEDULED_CODES = "scheduled_codes";
+    private static final String KEY_SCHEDULE_SNAPSHOT = "schedule_snapshot";
     private static final int HORIZON_DAYS = 60;
     private static final int MAX_CUSTOM_OFFSET_DAYS = 30;
     private static final int MAX_PLAN_BEFORE_MINUTES = 7 * 24 * 60;
     private static final int MAX_SCAN_DAYS = 190;
     private static final int MAX_ENTRIES = 180;
+    private static final Object SCHEDULE_LOCK = new Object();
 
     private ControlerNotificationScheduler() {}
 
@@ -66,13 +68,34 @@ public final class ControlerNotificationScheduler {
             return;
         }
 
-        try {
-            rescheduleAll(
-                context,
-                buildSchedulingRoot(context, System.currentTimeMillis())
-            );
-        } catch (Exception error) {
-            error.printStackTrace();
+        synchronized (SCHEDULE_LOCK) {
+            try {
+                long nowMillis = System.currentTimeMillis();
+                StoredScheduleSnapshot storedSnapshot = loadStoredScheduleSnapshot(context);
+                if (storedSnapshot != null) {
+                    ArrayList<ReminderEntry> futureEntries = storedSnapshot.notificationsEnabled
+                        ? filterFutureReminderEntries(storedSnapshot.entries, nowMillis)
+                        : new ArrayList<ReminderEntry>();
+                    if (!storedSnapshot.notificationsEnabled || !futureEntries.isEmpty()) {
+                        applyReminderEntries(
+                            context,
+                            storedSnapshot.notificationsEnabled,
+                            futureEntries,
+                            buildStoredScheduleSnapshot(
+                                storedSnapshot.notificationsEnabled,
+                                futureEntries
+                            )
+                        );
+                        return;
+                    }
+                }
+                rescheduleAllLocked(
+                    context,
+                    buildSchedulingRoot(context, nowMillis)
+                );
+            } catch (Exception error) {
+                error.printStackTrace();
+            }
         }
     }
 
@@ -81,13 +104,15 @@ public final class ControlerNotificationScheduler {
             return;
         }
 
-        try {
-            rescheduleAll(
-                context,
-                buildSchedulingRoot(context, System.currentTimeMillis())
-            );
-        } catch (Exception error) {
-            error.printStackTrace();
+        synchronized (SCHEDULE_LOCK) {
+            try {
+                rescheduleAllLocked(
+                    context,
+                    buildSchedulingRoot(context, System.currentTimeMillis())
+                );
+            } catch (Exception error) {
+                error.printStackTrace();
+            }
         }
     }
 
@@ -96,64 +121,46 @@ public final class ControlerNotificationScheduler {
             return;
         }
 
-        cancelAllScheduled(context);
-        ensureNotificationChannel(context);
+        synchronized (SCHEDULE_LOCK) {
+            rescheduleAllLocked(context, root);
+        }
+    }
 
-        if (!areNotificationsEnabled(root)) {
-            persistScheduledCodes(context, new HashSet<String>());
-            return;
+    private static void rescheduleAllLocked(Context context, JSONObject root) {
+        boolean notificationsEnabled = areNotificationsEnabled(root);
+        ArrayList<ReminderEntry> entries = notificationsEnabled
+            ? collectReminderEntries(root, System.currentTimeMillis())
+            : new ArrayList<ReminderEntry>();
+        applyReminderEntries(
+            context,
+            notificationsEnabled,
+            entries,
+            buildStoredScheduleSnapshot(notificationsEnabled, entries)
+        );
+    }
+
+    public static int syncFromPayload(Context context, JSONObject schedulePayload) {
+        if (context == null) {
+            return 0;
         }
 
-        ArrayList<ReminderEntry> entries = collectReminderEntries(root, System.currentTimeMillis());
-        if (entries.isEmpty()) {
-            persistScheduledCodes(context, new HashSet<String>());
-            return;
+        synchronized (SCHEDULE_LOCK) {
+            long nowMillis = System.currentTimeMillis();
+            boolean notificationsEnabled = readNotificationsEnabled(schedulePayload, true);
+            ArrayList<ReminderEntry> entries = notificationsEnabled
+                ? filterFutureReminderEntries(
+                    parseReminderEntries(schedulePayload == null ? null : schedulePayload.optJSONArray("entries")),
+                    nowMillis
+                )
+                : new ArrayList<ReminderEntry>();
+            applyReminderEntries(
+                context,
+                notificationsEnabled,
+                entries,
+                buildStoredScheduleSnapshot(notificationsEnabled, entries)
+            );
+            return entries.size();
         }
-
-        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (alarmManager == null) {
-            return;
-        }
-
-        Set<String> scheduledCodes = new HashSet<>();
-        for (ReminderEntry entry : entries) {
-            Intent intent = buildReminderIntent(context, entry);
-            PendingIntent pendingIntent =
-                PendingIntent.getBroadcast(
-                    context,
-                    entry.requestCode,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-                );
-            if (pendingIntent == null) {
-                continue;
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                && alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    entry.reminderAtMillis,
-                    pendingIntent
-                );
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    entry.reminderAtMillis,
-                    pendingIntent
-                );
-            } else {
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    entry.reminderAtMillis,
-                    pendingIntent
-                );
-            }
-
-            scheduledCodes.add(String.valueOf(entry.requestCode));
-        }
-
-        persistScheduledCodes(context, scheduledCodes);
     }
 
     private static boolean shouldRescheduleForChangedSections(JSONArray changedSections) {
@@ -216,9 +223,17 @@ public final class ControlerNotificationScheduler {
             return;
         }
 
+        synchronized (SCHEDULE_LOCK) {
+            cancelAllScheduledInternal(context, true);
+        }
+    }
+
+    private static void cancelAllScheduledInternal(Context context, boolean persistState) {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (alarmManager == null) {
-            persistScheduledCodes(context, new HashSet<String>());
+            if (persistState) {
+                persistScheduleState(context, new HashSet<String>(), null);
+            }
             return;
         }
 
@@ -242,7 +257,54 @@ public final class ControlerNotificationScheduler {
             }
         }
 
-        persistScheduledCodes(context, new HashSet<String>());
+        if (persistState) {
+            persistScheduleState(context, new HashSet<String>(), null);
+        }
+    }
+
+    private static void applyReminderEntries(
+        Context context,
+        boolean notificationsEnabled,
+        ArrayList<ReminderEntry> entries,
+        JSONObject snapshot
+    ) {
+        cancelAllScheduledInternal(context, false);
+        ensureNotificationChannel(context);
+
+        ArrayList<ReminderEntry> safeEntries =
+            entries == null ? new ArrayList<ReminderEntry>() : new ArrayList<ReminderEntry>(entries);
+
+        if (!notificationsEnabled || safeEntries.isEmpty()) {
+            persistScheduleState(context, new HashSet<String>(), snapshot);
+            return;
+        }
+
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (alarmManager == null) {
+            persistScheduleState(context, new HashSet<String>(), snapshot);
+            return;
+        }
+
+        Set<String> scheduledCodes = new HashSet<>();
+        for (ReminderEntry entry : safeEntries) {
+            Intent intent = buildReminderIntent(context, entry);
+            PendingIntent pendingIntent =
+                PendingIntent.getBroadcast(
+                    context,
+                    entry.requestCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
+            if (pendingIntent == null) {
+                continue;
+            }
+
+            scheduleReminderAlarm(context, alarmManager, entry, pendingIntent);
+
+            scheduledCodes.add(String.valueOf(entry.requestCode));
+        }
+
+        persistScheduleState(context, scheduledCodes, snapshot);
     }
 
     private static Intent buildReminderIntent(Context context, ReminderEntry entry) {
@@ -272,10 +334,228 @@ public final class ControlerNotificationScheduler {
         return stored == null ? new HashSet<String>() : new HashSet<String>(stored);
     }
 
-    private static void persistScheduledCodes(Context context, Set<String> codes) {
+    private static StoredScheduleSnapshot loadStoredScheduleSnapshot(Context context) {
+        if (context == null) {
+            return null;
+        }
+
         SharedPreferences preferences =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        preferences.edit().putStringSet(KEY_SCHEDULED_CODES, new HashSet<String>(codes)).apply();
+        String snapshotJson = preferences.getString(KEY_SCHEDULE_SNAPSHOT, "");
+        if (TextUtils.isEmpty(snapshotJson)) {
+            return null;
+        }
+
+        try {
+            JSONObject snapshot = new JSONObject(snapshotJson);
+            boolean notificationsEnabled = readNotificationsEnabled(snapshot, true);
+            ArrayList<ReminderEntry> entries =
+                parseStoredReminderEntries(snapshot.optJSONArray("entries"));
+            return new StoredScheduleSnapshot(notificationsEnabled, entries);
+        } catch (Exception error) {
+            error.printStackTrace();
+            return null;
+        }
+    }
+
+    private static void persistScheduleState(
+        Context context,
+        Set<String> codes,
+        JSONObject snapshot
+    ) {
+        if (context == null) {
+            return;
+        }
+
+        SharedPreferences preferences =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String serialized = snapshot == null ? "" : snapshot.toString();
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putStringSet(
+            KEY_SCHEDULED_CODES,
+            new HashSet<String>(codes == null ? new HashSet<String>() : codes)
+        );
+        editor.putString(KEY_SCHEDULE_SNAPSHOT, serialized);
+        editor.commit();
+    }
+
+    private static JSONObject buildStoredScheduleSnapshot(
+        boolean notificationsEnabled,
+        ArrayList<ReminderEntry> entries
+    ) {
+        JSONObject snapshot = new JSONObject();
+        JSONArray serializedEntries = new JSONArray();
+        ArrayList<ReminderEntry> safeEntries =
+            entries == null ? new ArrayList<ReminderEntry>() : entries;
+        try {
+            snapshot.put("notificationsEnabled", notificationsEnabled);
+            for (ReminderEntry entry : safeEntries) {
+                if (entry == null) {
+                    continue;
+                }
+                JSONObject item = new JSONObject();
+                item.put("requestCode", entry.requestCode);
+                item.put("type", entry.type);
+                item.put("itemId", entry.itemId);
+                item.put("occurrenceDate", entry.occurrenceDateText);
+                item.put("reminderAt", entry.reminderAtMillis);
+                item.put("title", entry.title);
+                item.put("message", entry.message);
+                item.put("color", entry.color);
+                serializedEntries.put(item);
+            }
+            snapshot.put("entries", serializedEntries);
+        } catch (Exception error) {
+            error.printStackTrace();
+        }
+        return snapshot;
+    }
+
+    private static boolean readNotificationsEnabled(JSONObject root, boolean fallback) {
+        if (root == null || !root.has("notificationsEnabled")) {
+            return fallback;
+        }
+
+        Object value = root.opt("notificationsEnabled");
+        if (value instanceof Boolean) {
+            return ((Boolean) value).booleanValue();
+        }
+        if (value instanceof String) {
+            String normalized = ((String) value).trim();
+            if (TextUtils.isEmpty(normalized)) {
+                return fallback;
+            }
+            return !"false".equalsIgnoreCase(normalized);
+        }
+        return fallback;
+    }
+
+    private static ArrayList<ReminderEntry> parseStoredReminderEntries(JSONArray items) {
+        ArrayList<ReminderEntry> entries = new ArrayList<>();
+        if (items == null) {
+            return entries;
+        }
+
+        for (int index = 0; index < items.length(); index += 1) {
+            JSONObject item = items.optJSONObject(index);
+            if (item == null) {
+                continue;
+            }
+            long reminderAt = item.optLong("reminderAt", 0L);
+            if (reminderAt <= 0L) {
+                continue;
+            }
+            String type = normalizeReminderType(item.optString("type", ""));
+            String occurrenceDateText = item.optString("occurrenceDate", "");
+            if (TextUtils.isEmpty(type) || TextUtils.isEmpty(occurrenceDateText)) {
+                continue;
+            }
+            int requestCode = item.optInt(
+                "requestCode",
+                buildStableRequestCode(type + ":" + item.optString("itemId", "") + ":" + occurrenceDateText + ":" + reminderAt)
+            );
+            entries.add(
+                new ReminderEntry(
+                    requestCode,
+                    type,
+                    item.optString("itemId", ""),
+                    occurrenceDateText,
+                    reminderAt,
+                    item.optString("title", defaultTitleForType(type)),
+                    item.optString("message", ""),
+                    item.optInt("color", defaultColorForType(type))
+                )
+            );
+        }
+
+        return entries;
+    }
+
+    private static ArrayList<ReminderEntry> parseReminderEntries(JSONArray items) {
+        ArrayList<ReminderEntry> entries = new ArrayList<>();
+        if (items == null) {
+            return entries;
+        }
+
+        for (int index = 0; index < items.length(); index += 1) {
+            JSONObject item = items.optJSONObject(index);
+            if (item == null) {
+                continue;
+            }
+
+            long reminderAt = item.optLong("reminderAt", 0L);
+            if (reminderAt <= 0L) {
+                continue;
+            }
+
+            JSONObject payload = item.optJSONObject("payload");
+            String type = normalizeReminderType(
+                firstNonEmpty(
+                    item.optString("type", ""),
+                    payload == null ? "" : payload.optString("itemType", "")
+                )
+            );
+            String itemId = payload == null ? "" : payload.optString("itemId", "");
+            String occurrenceDateText =
+                payload == null ? "" : payload.optString("occurrenceDate", "");
+            if (TextUtils.isEmpty(type) || TextUtils.isEmpty(occurrenceDateText)) {
+                continue;
+            }
+
+            String key = item.optString("key", "");
+            int requestCode =
+                buildStableRequestCode(
+                    TextUtils.isEmpty(key)
+                        ? type + ":" + itemId + ":" + occurrenceDateText + ":" + reminderAt
+                        : key
+                );
+            entries.add(
+                new ReminderEntry(
+                    requestCode,
+                    type,
+                    itemId,
+                    occurrenceDateText,
+                    reminderAt,
+                    item.optString("title", defaultTitleForType(type)),
+                    item.optString("message", ""),
+                    parseColor(item.optString("color", ""), defaultColorTextForType(type))
+                )
+            );
+        }
+
+        return entries;
+    }
+
+    private static String normalizeReminderType(String value) {
+        String normalized = String.valueOf(value == null ? "" : value).trim();
+        if ("plan".equals(normalized) || "todo".equals(normalized) || "checkin".equals(normalized)) {
+            return normalized;
+        }
+        return "";
+    }
+
+    private static String defaultTitleForType(String type) {
+        if ("todo".equals(type)) {
+            return "待办提醒";
+        }
+        if ("checkin".equals(type)) {
+            return "打卡提醒";
+        }
+        return "计划提醒";
+    }
+
+    private static String defaultColorTextForType(String type) {
+        if ("todo".equals(type)) {
+            return "#ed8936";
+        }
+        if ("checkin".equals(type)) {
+            return "#4299e1";
+        }
+        return "#79af85";
+    }
+
+    private static int defaultColorForType(String type) {
+        return parseColor("", defaultColorTextForType(type));
     }
 
     private static boolean areNotificationsEnabled(JSONObject root) {
@@ -340,6 +620,20 @@ public final class ControlerNotificationScheduler {
         }
 
         try {
+            StoredScheduleSnapshot storedSnapshot = loadStoredScheduleSnapshot(context);
+            if (storedSnapshot != null) {
+                if (!storedSnapshot.notificationsEnabled) {
+                    return false;
+                }
+                return hasScheduledReminder(
+                    storedSnapshot.entries,
+                    type,
+                    itemId,
+                    occurrenceDateText,
+                    scheduledReminderAtMillis
+                );
+            }
+
             JSONObject root = ControlerWidgetDataStore.loadRoot(context);
             if (!areNotificationsEnabled(root)) {
                 return false;
@@ -377,6 +671,39 @@ public final class ControlerNotificationScheduler {
         return false;
     }
 
+    private static boolean hasScheduledReminder(
+        ArrayList<ReminderEntry> entries,
+        String type,
+        String itemId,
+        String occurrenceDateText,
+        long scheduledReminderAtMillis
+    ) {
+        if (entries == null || entries.isEmpty()) {
+            return false;
+        }
+
+        String normalizedType = normalizeReminderType(type);
+        for (ReminderEntry entry : entries) {
+            if (entry == null) {
+                continue;
+            }
+            if (!normalizedType.equals(entry.type)) {
+                continue;
+            }
+            if (!String.valueOf(itemId).equals(entry.itemId)) {
+                continue;
+            }
+            if (!occurrenceDateText.equals(entry.occurrenceDateText)) {
+                continue;
+            }
+            if (scheduledReminderAtMillis > 0L && scheduledReminderAtMillis != entry.reminderAtMillis) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
     private static ArrayList<ReminderEntry> collectReminderEntries(JSONObject root, long nowMillis) {
         ArrayList<ReminderEntry> entries = new ArrayList<>();
         if (root == null) {
@@ -410,8 +737,17 @@ public final class ControlerNotificationScheduler {
             nowMillis
         );
 
+        return filterFutureReminderEntries(entries, nowMillis);
+    }
+
+    private static ArrayList<ReminderEntry> filterFutureReminderEntries(
+        ArrayList<ReminderEntry> entries,
+        long nowMillis
+    ) {
+        ArrayList<ReminderEntry> safeEntries =
+            entries == null ? new ArrayList<ReminderEntry>() : new ArrayList<ReminderEntry>(entries);
         Collections.sort(
-            entries,
+            safeEntries,
             new Comparator<ReminderEntry>() {
                 @Override
                 public int compare(ReminderEntry left, ReminderEntry right) {
@@ -421,8 +757,8 @@ public final class ControlerNotificationScheduler {
         );
 
         ArrayList<ReminderEntry> filteredEntries = new ArrayList<>();
-        for (ReminderEntry entry : entries) {
-            if (entry.reminderAtMillis <= nowMillis + 1000L) {
+        for (ReminderEntry entry : safeEntries) {
+            if (entry == null || entry.reminderAtMillis <= nowMillis + 1000L) {
                 continue;
             }
             filteredEntries.add(entry);
@@ -768,6 +1104,10 @@ public final class ControlerNotificationScheduler {
         if (occurrenceDateText.compareTo(startDateText) < 0) {
             return false;
         }
+        String endDateText = plan.optString("endDate", "");
+        if (!TextUtils.isEmpty(endDateText) && occurrenceDateText.compareTo(endDateText) > 0) {
+            return false;
+        }
 
         String repeat = plan.optString("repeat", "none");
         if ("daily".equals(repeat)) {
@@ -1091,8 +1431,81 @@ public final class ControlerNotificationScheduler {
         }
     }
 
+    private static void scheduleReminderAlarm(
+        Context context,
+        AlarmManager alarmManager,
+        ReminderEntry entry,
+        PendingIntent pendingIntent
+    ) {
+        if (context == null || alarmManager == null || entry == null || pendingIntent == null) {
+            return;
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                alarmManager.setAlarmClock(
+                    new AlarmManager.AlarmClockInfo(
+                        entry.reminderAtMillis,
+                        buildReminderShowIntent(context, entry)
+                    ),
+                    pendingIntent
+                );
+                return;
+            }
+        } catch (SecurityException error) {
+            // Fall through to the lower-cost APIs when the OEM still rejects alarm-clock
+            // alarms for this package state.
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    entry.reminderAtMillis,
+                    pendingIntent
+                );
+                return;
+            } catch (SecurityException error) {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    entry.reminderAtMillis,
+                    pendingIntent
+                );
+                return;
+            }
+        }
+
+        alarmManager.set(
+            AlarmManager.RTC_WAKEUP,
+            entry.reminderAtMillis,
+            pendingIntent
+        );
+    }
+
+    private static PendingIntent buildReminderShowIntent(Context context, ReminderEntry entry) {
+        Intent launchIntent = new Intent(context, MainActivity.class);
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int requestCode = entry == null ? 0 : entry.requestCode;
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
     private static int buildStableRequestCode(String key) {
         return key.hashCode() & 0x7fffffff;
+    }
+
+    private static final class StoredScheduleSnapshot {
+        final boolean notificationsEnabled;
+        final ArrayList<ReminderEntry> entries;
+
+        StoredScheduleSnapshot(boolean notificationsEnabled, ArrayList<ReminderEntry> entries) {
+            this.notificationsEnabled = notificationsEnabled;
+            this.entries = entries == null ? new ArrayList<ReminderEntry>() : entries;
+        }
     }
 
     private static final class ReminderConfig {

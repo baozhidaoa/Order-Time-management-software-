@@ -1046,6 +1046,11 @@ const ALL_THEME_COLOR_FIELDS = THEME_FIELD_SECTIONS.flatMap((section) =>
 const OPTIONAL_THEME_COLOR_FIELD_KEYS = new Set(
   ALL_THEME_COLOR_FIELDS.filter(({ optional }) => optional).map(({ key }) => key),
 );
+const AUTO_DERIVED_THEME_COLOR_FIELD_KEYS = new Set([
+  "navBarBorder",
+  "navButtonText",
+  "navButtonActiveText",
+]);
 
 function resolveThemeRuntime() {
   return window.ControlerTheme || themeRuntime || null;
@@ -1084,6 +1089,36 @@ const settingsExternalStorageRefreshCoordinator =
     },
   }) || null;
 window.ControlerUI?.markPerfStage?.("settings-script-loaded");
+
+function emitThemeEditDebugEvent(stage, detail = {}) {
+  try {
+    window.ControlerNativeBridge?.emitEvent?.("ui.debug-theme-edit-probe", {
+      href: window.location.href,
+      page: "settings",
+      stage: String(stage || "").trim() || "unknown",
+      visibilityState: document.visibilityState || "",
+      ...detail,
+    });
+  } catch (error) {}
+}
+
+window.addEventListener(
+  "pagehide",
+  (event) => {
+    emitThemeEditDebugEvent("pagehide", {
+      persisted: event?.persisted === true,
+    });
+  },
+  true,
+);
+
+window.addEventListener(
+  "beforeunload",
+  () => {
+    emitThemeEditDebugEvent("beforeunload");
+  },
+  true,
+);
 
 function ensureSettingsDeferredRuntimeLoaded() {
   if (settingsDeferredRuntimePromise) {
@@ -2406,6 +2441,47 @@ function saveCustomThemes(customThemes) {
   return normalized;
 }
 
+function resolveThemeDraftSource(baseTheme = null) {
+  const sourceTheme =
+    baseTheme && typeof baseTheme === "object" && !Array.isArray(baseTheme)
+      ? baseTheme
+      : null;
+  const themeId =
+    typeof sourceTheme?.id === "string" && sourceTheme.id.trim()
+      ? sourceTheme.id.trim()
+      : "";
+  if (!themeId) {
+    return BUILT_IN_THEMES[0] || null;
+  }
+
+  const builtInTheme = BUILT_IN_THEMES.find((theme) => theme.id === themeId);
+  if (builtInTheme) {
+    const override = loadBuiltInThemeOverrides()?.[themeId];
+    return {
+      ...builtInTheme,
+      name:
+        typeof override?.name === "string" && override.name.trim()
+          ? override.name.trim()
+          : builtInTheme.name,
+      colors: {
+        ...(builtInTheme.colors || {}),
+        ...(isPlainObject(override?.colors) ? override.colors : {}),
+      },
+      recordCard: {
+        ...(builtInTheme.recordCard || {}),
+        ...(isPlainObject(override?.recordCard) ? override.recordCard : {}),
+      },
+    };
+  }
+
+  const storedCustomTheme = loadCustomThemes().find((theme) => theme.id === themeId);
+  if (storedCustomTheme) {
+    return storedCustomTheme;
+  }
+
+  return normalizeThemeObject(sourceTheme);
+}
+
 function normalizeThemeComparisonValue(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -2462,16 +2538,18 @@ function buildComparableBuiltInThemeOverride(baseTheme, override = {}) {
       ...autoDerivedComparisonColors,
     },
   });
+  const baseResolvedColors = resolveThemeColors(baseTheme);
   autoDerivedNavKeys.forEach((key) => {
     if (
       normalizeThemeColorComparisonValue(storedColors[key]) &&
-      normalizeThemeColorComparisonValue(storedColors[key]) ===
-        normalizeThemeColorComparisonValue(autoDerivedColors[key])
+      (normalizeThemeColorComparisonValue(storedColors[key]) ===
+        normalizeThemeColorComparisonValue(autoDerivedColors[key]) ||
+        normalizeThemeColorComparisonValue(storedColors[key]) ===
+          normalizeThemeColorComparisonValue(baseResolvedColors[key]))
     ) {
       delete storedColors[key];
     }
   });
-  const baseResolvedColors = resolveThemeColors(baseTheme);
   Object.keys(storedColors).forEach((key) => {
     if (autoDerivedNavKeys.includes(key)) {
       return;
@@ -2664,18 +2742,27 @@ function findThemeById(themeId) {
 }
 
 function buildThemeDraft(baseTheme = null) {
-  const source = resolveThemeColors(baseTheme || BUILT_IN_THEMES[0]);
-  const recordCard = resolveThemeRecordCard(baseTheme || BUILT_IN_THEMES[0], source);
+  const sourceTheme = resolveThemeDraftSource(baseTheme) || BUILT_IN_THEMES[0];
+  const sourceColors = resolveThemeColors(sourceTheme);
+  const explicitColors = isPlainObject(sourceTheme?.colors)
+    ? { ...sourceTheme.colors }
+    : {};
+  const recordCard = resolveThemeRecordCard(sourceTheme, sourceColors);
   const draftColors = {};
   ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
-    draftColors[key] = OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)
-      ? source[key] || ""
-      : source[key] || DEFAULT_THEME_COLORS[key] || "#000000";
+    const explicitValue =
+      typeof explicitColors[key] === "string" ? explicitColors[key].trim() : "";
+    if (OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)) {
+      draftColors[key] = explicitValue || "";
+      return;
+    }
+    draftColors[key] = explicitValue || sourceColors[key] || DEFAULT_THEME_COLORS[key] || "#000000";
   });
   return {
-    id: baseTheme?.id || "",
-    name: baseTheme?.name || "",
+    id: sourceTheme?.id || baseTheme?.id || "",
+    name: sourceTheme?.name || baseTheme?.name || "",
     colors: draftColors,
+    explicitColors,
     recordCard,
   };
 }
@@ -3049,6 +3136,23 @@ function renderTableSizeSettingsPanel() {
 let themeStorageFlushTimer = 0;
 let pendingThemeCoreState = null;
 let themeStorageFlushChain = Promise.resolve(false);
+let themeStorageTransactionDepth = 0;
+
+function isThemeStorageTransactionActive() {
+  return themeStorageTransactionDepth > 0;
+}
+
+async function runThemeStorageTransaction(task) {
+  themeStorageTransactionDepth += 1;
+  try {
+    return await task();
+  } finally {
+    themeStorageTransactionDepth = Math.max(0, themeStorageTransactionDepth - 1);
+    if (!isThemeStorageTransactionActive() && pendingThemeCoreState) {
+      await flushThemeStorageNow();
+    }
+  }
+}
 
 function scheduleThemeStorageFlush(partialCore = null) {
   if (
@@ -3066,6 +3170,9 @@ function scheduleThemeStorageFlush(partialCore = null) {
   const canPersistNow = typeof window.ControlerStorage?.persistNow === "function";
   if (!canReplaceCoreState && !canPersistNow) {
     return Promise.resolve(false);
+  }
+  if (isThemeStorageTransactionActive()) {
+    return themeStorageFlushChain;
   }
   window.clearTimeout(themeStorageFlushTimer);
   themeStorageFlushTimer = window.setTimeout(() => {
@@ -3093,6 +3200,9 @@ function flushThemeStorageNow(partialCore = null) {
   if (!canReplaceCoreState && !canPersistNow) {
     pendingThemeCoreState = null;
     return Promise.resolve(false);
+  }
+  if (isThemeStorageTransactionActive()) {
+    return themeStorageFlushChain;
   }
 
   window.clearTimeout(themeStorageFlushTimer);
@@ -3256,6 +3366,9 @@ function updateThemeSelector(selectedThemeId) {
     const { resolvedColors, navTokens } = resolveThemePreviewModel(theme);
     const option = document.createElement("div");
     option.className = `theme-option ${theme.id === selectedThemeId ? "selected" : ""}`;
+    const surfaceBtn = document.createElement("button");
+    surfaceBtn.type = "button";
+    surfaceBtn.className = "theme-option-surface";
 
     const preview = document.createElement("div");
     preview.className = "theme-preview";
@@ -3296,7 +3409,7 @@ function updateThemeSelector(selectedThemeId) {
       previewNav.appendChild(navItem);
     }
     preview.appendChild(previewNav);
-    option.appendChild(preview);
+    surfaceBtn.appendChild(preview);
 
     const header = document.createElement("div");
     header.className = "theme-option-header";
@@ -3315,7 +3428,8 @@ function updateThemeSelector(selectedThemeId) {
         : "内置";
     header.appendChild(badge);
 
-    option.appendChild(header);
+    surfaceBtn.appendChild(header);
+    option.appendChild(surfaceBtn);
 
     const footer = document.createElement("div");
     footer.className = "theme-option-footer";
@@ -3325,13 +3439,23 @@ function updateThemeSelector(selectedThemeId) {
     editBtn.className = "theme-option-action";
     editBtn.textContent = "编辑";
     editBtn.addEventListener("click", (event) => {
+      emitThemeEditDebugEvent("theme-edit-button-click", {
+        themeId: theme.id,
+        themeName: theme.name,
+        targetTag: event?.target?.tagName || "",
+        currentTargetTag: event?.currentTarget?.tagName || "",
+      });
       event.stopPropagation();
       showThemeEditorModal(theme);
     });
     footer.appendChild(editBtn);
     option.appendChild(footer);
 
-    option.addEventListener("click", async () => {
+    surfaceBtn.addEventListener("click", async () => {
+      emitThemeEditDebugEvent("theme-option-click", {
+        themeId: theme.id,
+        themeName: theme.name,
+      });
       applyTheme(theme.id);
       await saveTheme(theme.id);
       await refreshThemeWidgets();
@@ -3439,38 +3563,40 @@ function upsertThemeDraft(themeDraft) {
 }
 
 async function deleteCustomTheme(themeId) {
-  const nextThemes = loadCustomThemes().filter((theme) => theme.id !== themeId);
-  saveCustomThemes(nextThemes);
-  syncThemeCatalog();
+  return runThemeStorageTransaction(async () => {
+    const nextThemes = loadCustomThemes().filter((theme) => theme.id !== themeId);
+    saveCustomThemes(nextThemes);
+    syncThemeCatalog();
 
-  const selectedThemeId = getStoredSelectedThemeId();
-  if (selectedThemeId === themeId) {
-    applyTheme("obsidian-mono");
-    await saveTheme("obsidian-mono");
-    await refreshThemeWidgets();
+    const selectedThemeId = getStoredSelectedThemeId();
+    if (selectedThemeId === themeId) {
+      applyTheme("obsidian-mono");
+      await saveTheme("obsidian-mono");
+      await refreshThemeWidgets();
+      return true;
+    }
+    updateThemeSelector(selectedThemeId || "obsidian-mono");
     return true;
-  }
-  updateThemeSelector(selectedThemeId || "obsidian-mono");
-  await flushThemeStorageNow();
-  return true;
+  });
 }
 
 async function resetBuiltInThemeOverride(themeId) {
-  const overrides = loadBuiltInThemeOverrides();
-  delete overrides[themeId];
-  saveBuiltInThemeOverrides(overrides);
-  syncThemeCatalog();
+  return runThemeStorageTransaction(async () => {
+    const overrides = loadBuiltInThemeOverrides();
+    delete overrides[themeId];
+    saveBuiltInThemeOverrides(overrides);
+    syncThemeCatalog();
 
-  const selectedThemeId = getStoredSelectedThemeId();
-  if (selectedThemeId === themeId) {
-    applyTheme(themeId);
-    await saveTheme(themeId);
-    await refreshThemeWidgets();
+    const selectedThemeId = getStoredSelectedThemeId();
+    if (selectedThemeId === themeId) {
+      applyTheme(themeId);
+      await saveTheme(themeId);
+      await refreshThemeWidgets();
+      return true;
+    }
+    updateThemeSelector(selectedThemeId || "obsidian-mono");
     return true;
-  }
-  updateThemeSelector(selectedThemeId || "obsidian-mono");
-  await flushThemeStorageNow();
-  return true;
+  });
 }
 
 function prepareSettingsModalOverlayElement(modal, options = {}) {
@@ -3496,7 +3622,17 @@ function prepareSettingsModalOverlayElement(modal, options = {}) {
     nextOptions.zIndex = currentZIndex;
   }
   if (typeof uiTools?.prepareModalOverlay === "function") {
-    return uiTools.prepareModalOverlay(modal, nextOptions);
+    const preparedModal = uiTools.prepareModalOverlay(modal, nextOptions);
+    emitThemeEditDebugEvent("prepare-settings-modal-overlay", {
+      scope:
+        String(preparedModal?.dataset?.controlerOverlayScope || "").trim() ||
+        String(nextOptions.scope || "").trim() ||
+        "viewport",
+      isConnected: preparedModal?.isConnected === true,
+      parentTag: preparedModal?.parentElement?.tagName || "",
+      modalClass: preparedModal?.className || "",
+    });
+    return preparedModal;
   }
   if (nextOptions.append !== false && !modal.isConnected && document.body) {
     document.body.appendChild(modal);
@@ -3511,6 +3647,12 @@ function prepareSettingsModalOverlayElement(modal, options = {}) {
     modal.setAttribute("aria-hidden", "false");
   }
   uiTools?.stopModalContentPropagation?.(modal);
+  emitThemeEditDebugEvent("prepare-settings-modal-overlay-fallback", {
+    scope: String(nextOptions.scope || "").trim() || "viewport",
+    isConnected: modal.isConnected === true,
+    parentTag: modal.parentElement?.tagName || "",
+    modalClass: modal.className || "",
+  });
   return modal;
 }
 
@@ -3676,6 +3818,12 @@ function buildThemeEditorGroupHtml(groupKey, groupTitle, context = {}) {
 }
 
 function showThemeEditorModal(theme = null) {
+  emitThemeEditDebugEvent("show-theme-editor-modal-enter", {
+    themeId: String(theme?.id || "").trim(),
+    themeName: String(theme?.name || "").trim(),
+    isCustom: theme?.isCustom === true,
+    isBuiltIn: theme?.isBuiltIn === true,
+  });
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
   modal.style.display = "flex";
@@ -3690,6 +3838,9 @@ function showThemeEditorModal(theme = null) {
   }
 
   const draft = buildThemeDraft(theme);
+  const explicitDraftColors = isPlainObject(draft?.explicitColors)
+    ? { ...draft.explicitColors }
+    : {};
   const isEditingCustomTheme = Boolean(theme?.isCustom);
   const isBuiltInTheme = Boolean(theme?.isBuiltIn);
   const canResetBuiltIn = Boolean(isBuiltInTheme && theme?.hasOverride);
@@ -3781,6 +3932,8 @@ function showThemeEditorModal(theme = null) {
     }
   };
 
+  const dirtyThemeColorFieldKeys = new Set();
+
   const collectDraftThemeColors = () => {
     const nextColors = {
       ...draft.colors,
@@ -3858,6 +4011,7 @@ function showThemeEditorModal(theme = null) {
 
   modal.querySelectorAll("[data-theme-color]").forEach((input) => {
     input.addEventListener("input", () => {
+      dirtyThemeColorFieldKeys.add(String(input.dataset.themeColor || "").trim());
       syncTextWithPicker(input.dataset.themeColor, input.value);
       updateWidgetThemeFallbackUi();
     });
@@ -3865,6 +4019,9 @@ function showThemeEditorModal(theme = null) {
 
   modal.querySelectorAll("[data-theme-color-text]").forEach((input) => {
     input.addEventListener("input", () => {
+      dirtyThemeColorFieldKeys.add(
+        String(input.dataset.themeColorText || "").trim(),
+      );
       syncPickerWithText(input.dataset.themeColorText, input.value.trim());
       updateWidgetThemeFallbackUi();
     });
@@ -3950,6 +4107,25 @@ function showThemeEditorModal(theme = null) {
         }
         nextDraft.colors[key] = colorValue;
       });
+      const autoDerivedBaseColors = { ...nextDraft.colors };
+      AUTO_DERIVED_THEME_COLOR_FIELD_KEYS.forEach((key) => {
+        if (!dirtyThemeColorFieldKeys.has(key)) {
+          delete autoDerivedBaseColors[key];
+        }
+      });
+      const autoDerivedResolvedColors = resolveThemeColors({
+        ...nextDraft,
+        colors: autoDerivedBaseColors,
+      });
+      AUTO_DERIVED_THEME_COLOR_FIELD_KEYS.forEach((key) => {
+        if (dirtyThemeColorFieldKeys.has(key)) {
+          return;
+        }
+        const explicitValue = isValidThemeColorValue(explicitDraftColors[key])
+          ? explicitDraftColors[key].trim()
+          : "";
+        nextDraft.colors[key] = explicitValue || autoDerivedResolvedColors[key] || "";
+      });
       if (!isValidThemeColorValue(nextDraft.recordCard.color)) {
         hasInvalidColor = true;
       }
@@ -3965,7 +4141,15 @@ function showThemeEditorModal(theme = null) {
         return;
       }
 
-      const savedTheme = upsertThemeDraft(nextDraft);
+      const savedTheme = await runThemeStorageTransaction(async () => {
+        const nextSavedTheme = upsertThemeDraft(nextDraft);
+        if (!nextSavedTheme) {
+          return null;
+        }
+        applyTheme(nextSavedTheme.id);
+        await saveTheme(nextSavedTheme.id);
+        return nextSavedTheme;
+      });
       if (!savedTheme) {
         await showSettingsAlert("主题保存失败，请稍后重试。", {
           title: "保存失败",
@@ -3973,8 +4157,6 @@ function showThemeEditorModal(theme = null) {
         });
         return;
       }
-      applyTheme(savedTheme.id);
-      await saveTheme(savedTheme.id);
       await refreshThemeWidgets();
       closeModal();
     });
@@ -4032,6 +4214,12 @@ function showThemeEditorModal(theme = null) {
     });
 
   prepareSettingsModalOverlayElement(modal);
+  emitThemeEditDebugEvent("show-theme-editor-modal-mounted", {
+    themeId: String(theme?.id || "").trim(),
+    isConnected: modal.isConnected === true,
+    scope: String(modal.dataset?.controlerOverlayScope || "").trim(),
+    parentTag: modal.parentElement?.tagName || "",
+  });
   if (isAndroidNativeThemeEditor) {
     const nameInput = modal.querySelector("#custom-theme-name");
     const themeEditorSurface = modal.querySelector(".settings-theme-editor-modal");

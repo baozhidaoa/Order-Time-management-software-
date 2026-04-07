@@ -420,6 +420,10 @@
     if (occurrenceDateText < planDateText) {
       return false;
     }
+    const endDateText = String(planLike.endDate || "").trim();
+    if (endDateText && occurrenceDateText > endDateText) {
+      return false;
+    }
 
     switch (String(planLike.repeat || "none")) {
       case "daily":
@@ -698,6 +702,7 @@
       reminderAt: reminderDate.getTime(),
       title: "计划提醒",
       message: `${planName} 将于 ${occurrenceDateText} ${planLike?.startTime || "09:00"} 开始`,
+      color: String(planLike?.color || "#79af85"),
       page: "plan",
       action: "",
       source: "plan-reminder",
@@ -717,6 +722,7 @@
       reminderAt: reminderDate.getTime(),
       title: "待办提醒",
       message: `${todoTitle} 计划于 ${occurrenceDateText} 提醒你处理`,
+      color: String(todoLike?.color || "#ed8936"),
       page: "todo",
       action: "show-todos",
       source: "todo-reminder",
@@ -736,6 +742,7 @@
       reminderAt: reminderDate.getTime(),
       title: "打卡提醒",
       message: `${checkinTitle} 到时间了，记得完成今天的打卡`,
+      color: String(itemLike?.color || "#4299e1"),
       page: "todo",
       action: "show-checkins",
       source: "checkin-reminder",

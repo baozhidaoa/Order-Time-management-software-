@@ -4744,25 +4744,104 @@
     return String(left ?? "") === String(right ?? "");
   }
 
+  function clampTodoReminderNumber(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    return Math.min(Math.max(parsed, min), max);
+  }
+
+  function normalizeTodoReminderTimeText(value, fallback = "09:00") {
+    const normalizedText = String(value || fallback || "09:00").trim();
+    const match = /^(\d{1,2}):(\d{2})$/.exec(normalizedText);
+    if (!match) {
+      if (normalizedText === "09:00") {
+        return "09:00";
+      }
+      return normalizeTodoReminderTimeText(fallback, "09:00");
+    }
+    const hours = clampTodoReminderNumber(match[1], 0, 23, 9);
+    const minutes = clampTodoReminderNumber(match[2], 0, 59, 0);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  function normalizeTodoReminderOffsetDays(value, fallback = 0) {
+    return clampTodoReminderNumber(
+      value,
+      -30,
+      30,
+      clampTodoReminderNumber(fallback, -30, 30, 0),
+    );
+  }
+
+  function inferTodoReminderMode(
+    rawNotification = {},
+    allowedModes = [],
+    fallback = "none",
+  ) {
+    const rawMode = String(rawNotification?.mode || "").trim();
+    if (allowedModes.includes(rawMode)) {
+      return rawMode;
+    }
+    if (rawNotification?.enabled === false) {
+      return "none";
+    }
+    if (allowedModes.includes("before_start") && rawNotification?.minutesBefore != null) {
+      return "before_start";
+    }
+    if (rawNotification?.customTime) {
+      return "custom";
+    }
+    return fallback;
+  }
+
+  function normalizeTodoNotificationConfigFallback(
+    rawNotification,
+    todoLike = {},
+  ) {
+    const reminder =
+      rawNotification && typeof rawNotification === "object" ? rawNotification : {};
+    const mode = inferTodoReminderMode(reminder, ["none", "custom"]);
+    return {
+      enabled: mode !== "none" && reminder.enabled !== false,
+      mode,
+      customTime: normalizeTodoReminderTimeText(reminder.customTime || "09:00"),
+      customOffsetDays: normalizeTodoReminderOffsetDays(
+        reminder.customOffsetDays,
+        0,
+      ),
+    };
+  }
+
+  function normalizeCheckinNotificationConfigFallback(
+    rawNotification,
+    itemLike = {},
+  ) {
+    const reminder =
+      rawNotification && typeof rawNotification === "object" ? rawNotification : {};
+    const mode = inferTodoReminderMode(reminder, ["none", "custom"]);
+    return {
+      enabled: mode !== "none" && reminder.enabled !== false,
+      mode,
+      customTime: normalizeTodoReminderTimeText(
+        reminder.customTime || itemLike?.customTime || "09:00",
+      ),
+      customOffsetDays: 0,
+    };
+  }
+
   function normalizeTodoNotificationConfig(rawNotification, todoLike = {}) {
     return (
-      getReminderTools()?.normalizeTodoReminder?.(rawNotification, todoLike) || {
-        enabled: false,
-        mode: "none",
-        customTime: "09:00",
-        customOffsetDays: 0,
-      }
+      getReminderTools()?.normalizeTodoReminder?.(rawNotification, todoLike) ||
+      normalizeTodoNotificationConfigFallback(rawNotification, todoLike)
     );
   }
 
   function normalizeCheckinNotificationConfig(rawNotification, itemLike = {}) {
     return (
-      getReminderTools()?.normalizeCheckinReminder?.(rawNotification, itemLike) || {
-        enabled: false,
-        mode: "none",
-        customTime: "09:00",
-        customOffsetDays: 0,
-      }
+      getReminderTools()?.normalizeCheckinReminder?.(rawNotification, itemLike) ||
+      normalizeCheckinNotificationConfigFallback(rawNotification, itemLike)
     );
   }
 

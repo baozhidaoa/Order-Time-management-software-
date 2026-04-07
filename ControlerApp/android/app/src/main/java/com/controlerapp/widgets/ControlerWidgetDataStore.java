@@ -204,6 +204,7 @@ public final class ControlerWidgetDataStore {
     public static final class PlanInfo {
         public String name = "";
         public String date = "";
+        public String endDate = "";
         public String startTime = "";
         public String endTime = "";
         public String color = "#79af85";
@@ -8225,6 +8226,7 @@ public final class ControlerWidgetDataStore {
             PlanInfo plan = new PlanInfo();
             plan.name = item.optString("name", "未命名计划");
             plan.date = item.optString("date", "");
+            plan.endDate = item.optString("endDate", "");
             plan.startTime = item.optString("startTime", "");
             plan.endTime = item.optString("endTime", "");
             plan.color = item.optString("color", "#79af85");

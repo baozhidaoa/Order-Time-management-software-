@@ -2135,7 +2135,6 @@ select optgroup {
   background: var(--surface-panel);
   padding: 15px;
   border-radius: 14px;
-  cursor: pointer;
   transition:
     border-color 0.18s ease,
     background-color 0.18s ease,
@@ -2147,6 +2146,24 @@ select optgroup {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.theme-option-surface {
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .theme-option:hover {

@@ -250,26 +250,14 @@
 
   function resolveSelectedThemeState() {
     const windowNameThemeState = readWindowNameThemeState();
-    if (windowNameThemeState) {
-      return {
-        ...windowNameThemeState,
-        storageKeys: {
-          selectedTheme: "window-name",
-          customThemes: "window-name",
-          builtInThemeOverrides: "window-name",
-        },
-      };
-    }
-
     const selectedThemeEntry = readStorageEntry(SELECTED_THEME_STORAGE_KEY);
     const customThemesEntry = readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
     const builtInThemeOverridesEntry = readStorageEntry(
       BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
     );
-    const selectedThemeId = readStringStorage(
-      SELECTED_THEME_STORAGE_KEY,
-      DEFAULT_THEME_ID,
-    );
+    const selectedThemeId = windowNameThemeState
+      ? windowNameThemeState.themeId
+      : readStringStorage(SELECTED_THEME_STORAGE_KEY, DEFAULT_THEME_ID);
     const customThemes = parseJsonString(customThemesEntry.rawValue, []);
     const builtInThemeOverrides = parseJsonString(
       builtInThemeOverridesEntry.rawValue,
@@ -285,21 +273,28 @@
     return {
       themeId: selectedThemeId,
       colors:
+        (windowNameThemeState && isPlainObject(windowNameThemeState.colors)
+          ? windowNameThemeState.colors
+          : null) ||
         (isPlainObject(matchedCustomTheme?.colors)
           ? matchedCustomTheme.colors
           : isPlainObject(builtInOverride?.colors)
             ? builtInOverride.colors
             : null),
       recordCard:
+        (windowNameThemeState && isPlainObject(windowNameThemeState.recordCard)
+          ? windowNameThemeState.recordCard
+          : null) ||
         (isPlainObject(matchedCustomTheme?.recordCard)
           ? matchedCustomTheme.recordCard
           : isPlainObject(builtInOverride?.recordCard)
             ? builtInOverride.recordCard
             : null),
-      source:
-        selectedThemeEntry.usedLocalMirror ||
-        customThemesEntry.usedLocalMirror ||
-        builtInThemeOverridesEntry.usedLocalMirror
+      source: windowNameThemeState
+        ? windowNameThemeState.source
+        : selectedThemeEntry.usedLocalMirror ||
+            customThemesEntry.usedLocalMirror ||
+            builtInThemeOverridesEntry.usedLocalMirror
           ? "electron-local-mirror"
           : "local-storage",
       storageKeys: {

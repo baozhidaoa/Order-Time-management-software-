@@ -2854,6 +2854,9 @@ function App({
   const launchThemeStateRef = useRef<Record<string, unknown>>(
     buildLaunchThemeStatePayload(initialCoreStateRef.current),
   );
+  const lastPersistedLaunchThemeStateSignatureRef = useRef<string>(
+    JSON.stringify(launchThemeStateRef.current),
+  );
   const primaryWebViewRef = useRef<WebView>(null);
   const secondaryWebViewRef = useRef<WebView>(null);
   const tertiaryWebViewRef = useRef<WebView>(null);
@@ -3418,9 +3421,12 @@ function App({
       if (typeof nativeBridge?.setLaunchThemeState !== 'function') {
         return '';
       }
-      return nativeBridge.setLaunchThemeState(
-        JSON.stringify(normalizedThemeState),
-      );
+      const nextSignature = JSON.stringify(normalizedThemeState);
+      if (nextSignature === lastPersistedLaunchThemeStateSignatureRef.current) {
+        return '';
+      }
+      lastPersistedLaunchThemeStateSignatureRef.current = nextSignature;
+      return nativeBridge.setLaunchThemeState(nextSignature);
     },
     [],
   );
