@@ -22,6 +22,7 @@ import {
   isAndroidWidgetActionLaunch,
   resolveWidgetLaunchPolicy,
 } from './systemFixPolicies';
+import appPackageJson from './package.json';
 
 const platformContract = require('./platform-contract');
 
@@ -1282,6 +1283,11 @@ const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 128 : 84;
 const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = IS_ANDROID ? 0.6 : 0.75;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
+const ANDROID_ASSET_WEB_VERSION_QUERY_PARAM = 'assetVersion';
+const ANDROID_ASSET_WEB_VERSION =
+  typeof appPackageJson?.version === 'string' && appPackageJson.version.trim()
+    ? appPackageJson.version.trim()
+    : 'dev';
 const ABSOLUTE_URL_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'index', href: 'index.html'},
@@ -2006,6 +2012,25 @@ function isAbsoluteUrlString(value: string): boolean {
   return ABSOLUTE_URL_PATTERN.test(String(value || '').trim());
 }
 
+function appendAndroidAssetVersion(value: string): string {
+  const trimmed = String(value || '').trim();
+  if (!IS_ANDROID || !trimmed.startsWith(ANDROID_ASSET_WEB_ROOT)) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    parsed.searchParams.set(
+      ANDROID_ASSET_WEB_VERSION_QUERY_PARAM,
+      ANDROID_ASSET_WEB_VERSION,
+    );
+    return parsed.toString();
+  } catch {
+    const separator = trimmed.includes('?') ? '&' : '?';
+    return `${trimmed}${separator}${ANDROID_ASSET_WEB_VERSION_QUERY_PARAM}=${encodeURIComponent(ANDROID_ASSET_WEB_VERSION)}`;
+  }
+}
+
 function normalizeAppHref(value: string, fallback = 'index.html'): string {
   const trimmed = String(value || '').trim();
   const normalized = trimmed.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
@@ -2015,9 +2040,11 @@ function normalizeAppHref(value: string, fallback = 'index.html'): string {
 function buildAndroidAssetUrl(value: string, fallback = 'index.html'): string {
   const trimmed = String(value || '').trim();
   if (isAbsoluteUrlString(trimmed)) {
-    return trimmed;
+    return appendAndroidAssetVersion(trimmed);
   }
-  return `${ANDROID_ASSET_WEB_ROOT}/${normalizeAppHref(trimmed, fallback)}`;
+  return appendAndroidAssetVersion(
+    `${ANDROID_ASSET_WEB_ROOT}/${normalizeAppHref(trimmed, fallback)}`,
+  );
 }
 
 export function resolveAppPageUri(
@@ -2027,7 +2054,7 @@ export function resolveAppPageUri(
 ): string {
   const trimmedValue = String(value || '').trim();
   if (isAbsoluteUrlString(trimmedValue)) {
-    return trimmedValue;
+    return appendAndroidAssetVersion(trimmedValue);
   }
 
   const normalizedHref = normalizeAppHref(trimmedValue, fallback);
@@ -2039,7 +2066,9 @@ export function resolveAppPageUri(
   const sanitizedBaseUrl = normalizedBaseUrl.split('#')[0].split('?')[0];
   const lastSlashIndex = sanitizedBaseUrl.lastIndexOf('/');
   if (lastSlashIndex >= 0) {
-    return `${sanitizedBaseUrl.slice(0, lastSlashIndex + 1)}${normalizedHref}`;
+    return appendAndroidAssetVersion(
+      `${sanitizedBaseUrl.slice(0, lastSlashIndex + 1)}${normalizedHref}`,
+    );
   }
 
   return buildAndroidAssetUrl(normalizedHref, fallback);
@@ -2293,6 +2322,7 @@ export function getComparableUrl(value: string | null): string {
 
   try {
     const parsed = new URL(value);
+    parsed.searchParams.delete(ANDROID_ASSET_WEB_VERSION_QUERY_PARAM);
     parsed.searchParams.delete('widgetAction');
     parsed.searchParams.delete('widgetKind');
     parsed.searchParams.delete('widgetSource');
@@ -7152,7 +7182,7 @@ function App({
           originWhitelist={['*']}
           javaScriptEnabled
           domStorageEnabled
-          cacheEnabled
+          cacheEnabled={!IS_ANDROID}
           allowFileAccess
           allowingReadAccessToURL={slotState.uri}
           allowFileAccessFromFileURLs

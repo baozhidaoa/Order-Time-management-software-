@@ -4019,11 +4019,21 @@ function resolveRecordCardColor(record, projectList = projects) {
 }
 
 function resolveRecordCardSurfaceStyle(recordColor) {
+  const themedRecordCard = resolveThemeRecordCardStyle();
   const themeSurfaceResolver = window.ControlerTheme?.resolveRecordCardSurfaceStyles;
   if (typeof themeSurfaceResolver === "function") {
     return themeSurfaceResolver({
       color: recordColor,
+      recordCard: themedRecordCard,
     });
+  }
+  if (themedRecordCard.mode === "theme" && themedRecordCard.color) {
+    return {
+      titleColor: "var(--text-color)",
+      borderColor: getProjectColorShadow(recordColor, 0.78),
+      background: getProjectColorShadow(recordColor, 0.88),
+      shadow: `0 10px 18px ${getProjectColorShadow(recordColor, 0.16)}`,
+    };
   }
   return {
     titleColor: recordColor,

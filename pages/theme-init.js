@@ -1792,15 +1792,32 @@
             DEFAULT_THEME_RECORD_CARD.color,
           );
     const solidThemeCard = resolvedRecordCard.mode === "theme";
+    const solidBackground = solidThemeCard
+      ? toRgbaColor(recordColor, 0.88)
+      : "";
     return {
       mode: solidThemeCard ? "theme" : "project",
       color: recordColor,
-      titleColor: recordColor,
+      titleColor: solidThemeCard
+        ? ensureReadableTextColor(
+            solidBackground,
+            firstNonEmpty(
+              resolvedColors.text,
+              resolvedColors.onAccentText,
+              "#F7FAFF",
+            ),
+            "#17212B",
+            "#F7FAFF",
+          )
+        : recordColor,
       borderColor: solidThemeCard
-        ? mixThemeColors(resolvedColors.panelBorder, recordColor, 0.52)
+        ? toRgbaColor(
+            mixThemeColors(recordColor, resolvedColors.text, 0.18),
+            0.78,
+          )
         : toRgbaColor(recordColor, 0.22),
       background: solidThemeCard
-        ? mixThemeColors(resolvedColors.panelStrong, recordColor, 0.34)
+        ? solidBackground
         : `linear-gradient(180deg, ${toRgbaColor(recordColor, 0.12)} 0%, ${toRgbaColor(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
       shadow: solidThemeCard
         ? `0 10px 18px ${toRgbaColor(recordColor, 0.16)}`
@@ -1841,15 +1858,45 @@
     };
   }
 
-  function getBuiltInThemes() {
-    return BUILT_IN_THEMES.map((theme) => ({
-      ...theme,
-      colors: resolveThemeColors(theme),
-      recordCard: resolveThemeRecordCard(theme),
+  function resolveBuiltInTheme(themeId, override = null) {
+    const baseTheme = builtInThemeMap.get(themeId);
+    if (!baseTheme) {
+      return null;
+    }
+
+    const normalizedOverride = normalizeBuiltInThemeOverride(themeId, override);
+    const draftTheme = {
+      ...baseTheme,
+      name: normalizedOverride?.name || baseTheme.name,
+      colors: {
+        ...(isPlainObject(baseTheme.colors) ? baseTheme.colors : {}),
+        ...(isPlainObject(normalizedOverride?.colors)
+          ? normalizedOverride.colors
+          : {}),
+      },
+      recordCard: {
+        ...(isPlainObject(baseTheme.recordCard) ? baseTheme.recordCard : {}),
+        ...(isPlainObject(normalizedOverride?.recordCard)
+          ? normalizedOverride.recordCard
+          : {}),
+      },
       isCustom: false,
       isBuiltIn: true,
-      hasOverride: false,
-    }));
+      hasOverride: Boolean(normalizedOverride),
+    };
+    const resolvedColors = resolveThemeColors(draftTheme);
+    return {
+      ...draftTheme,
+      colors: resolvedColors,
+      recordCard: resolveThemeRecordCard(draftTheme, resolvedColors),
+    };
+  }
+
+  function getBuiltInThemes(options = {}) {
+    const overrides = isPlainObject(options?.overrides) ? options.overrides : {};
+    return BUILT_IN_THEMES.map(
+      (theme) => resolveBuiltInTheme(theme.id, overrides[theme.id]) || null,
+    ).filter(Boolean);
   }
 
   function getThemeFieldSections() {
@@ -2358,46 +2405,28 @@
       typeof selectedThemeEntry.rawValue === "string" && selectedThemeEntry.rawValue.trim()
         ? selectedThemeEntry.rawValue.trim()
         : DEFAULT_THEME_ID;
-    const builtInThemeOverrides = loadBuiltInThemeOverrides();
-    const rawCustomThemes = readJsonStorage(CUSTOM_THEMES_STORAGE_KEY, []);
+    const rawCustomThemes = parseJsonString(customThemesEntry.rawValue, []);
     const customTheme = Array.isArray(rawCustomThemes)
       ? normalizeCustomTheme(
           rawCustomThemes.find((theme) => theme?.id === storedTheme) || null,
         )
       : null;
-    const baseBuiltInTheme = builtInThemeMap.get(storedTheme) || null;
-    const mergedBuiltInTheme = baseBuiltInTheme
-      ? {
-          ...baseBuiltInTheme,
-          name: builtInThemeOverrides[storedTheme]?.name || baseBuiltInTheme.name,
-          colors: resolveThemeColors(
-            builtInThemeOverrides[storedTheme]
-              ? {
-                  ...baseBuiltInTheme,
-                  colors: {
-                    ...baseBuiltInTheme.colors,
-                    ...builtInThemeOverrides[storedTheme].colors,
-                  },
-                }
-              : baseBuiltInTheme,
-          ),
-          recordCard: resolveThemeRecordCard(
-            {
-              ...baseBuiltInTheme,
-              recordCard: {
-                ...(baseBuiltInTheme.recordCard || {}),
-                ...(builtInThemeOverrides[storedTheme]?.recordCard || {}),
-              },
-            },
-          ),
-        }
-      : null;
+    const rawBuiltInThemeOverrides = parseJsonString(
+      builtInThemeOverridesEntry.rawValue,
+      {},
+    );
+    const builtInThemeOverrides =
+      normalizeBuiltInThemeOverridesMap(rawBuiltInThemeOverrides);
+    const mergedBuiltInTheme = resolveBuiltInTheme(
+      storedTheme,
+      rawBuiltInThemeOverrides?.[storedTheme],
+    );
     const activeTheme =
       customTheme ||
       mergedBuiltInTheme ||
-      builtInThemeMap.get(storedTheme) ||
-      builtInThemeMap.get(DEFAULT_THEME_ID) ||
-      builtInThemeMap.get("default");
+      resolveBuiltInTheme(storedTheme) ||
+      resolveBuiltInTheme(DEFAULT_THEME_ID) ||
+      resolveBuiltInTheme("default");
     const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
@@ -2573,17 +2602,16 @@
       normalizeBuiltInThemeOverridesMap(rawBuiltInThemeOverrides);
     const matchedCustomTheme =
       customThemes.find((theme) => theme?.id === selectedTheme) || null;
-    const selectedBuiltInOverride = normalizeBuiltInThemeOverride(
+    const selectedBuiltInTheme = resolveBuiltInTheme(
       selectedTheme,
       rawBuiltInThemeOverrides?.[selectedTheme],
     );
-    const fallbackTheme =
-      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
     const activeTheme =
       matchedCustomTheme ||
-      selectedBuiltInOverride ||
-      builtInThemeMap.get(selectedTheme) ||
-      fallbackTheme;
+      selectedBuiltInTheme ||
+      resolveBuiltInTheme(selectedTheme) ||
+      resolveBuiltInTheme(DEFAULT_THEME_ID) ||
+      resolveBuiltInTheme("default");
     const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
@@ -2619,17 +2647,16 @@
 
     const matchedCustomTheme =
       customThemes.find((theme) => theme?.id === selectedTheme) || null;
-    const normalizedBuiltInOverride = normalizeBuiltInThemeOverride(
+    const selectedBuiltInTheme = resolveBuiltInTheme(
       selectedTheme,
       rawBuiltInThemeOverrides[selectedTheme],
     );
-    const fallbackTheme =
-      builtInThemeMap.get(DEFAULT_THEME_ID) || builtInThemeMap.get("default");
     const activeTheme =
       matchedCustomTheme ||
-      normalizedBuiltInOverride ||
-      builtInThemeMap.get(selectedTheme) ||
-      fallbackTheme;
+      selectedBuiltInTheme ||
+      resolveBuiltInTheme(selectedTheme) ||
+      resolveBuiltInTheme(DEFAULT_THEME_ID) ||
+      resolveBuiltInTheme("default");
     const themeId = activeTheme?.id || DEFAULT_THEME_ID;
 
     return {
@@ -2943,6 +2970,7 @@
     normalizeBuiltInThemeOverride,
     normalizeBuiltInThemeOverridesMap,
     normalizeThemeObject,
+    resolveBuiltInTheme,
     resolveNavThemeTokens,
     resolveRecordCardSurfaceStyles,
     resolveThemeColors,

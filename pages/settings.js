@@ -37,6 +37,10 @@ function resolveThemeRuntime() {
   return window.ControlerTheme || themeRuntime || null;
 }
 
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 if (!themeRuntime) {
   console.error("主题运行时未加载，设置页主题编辑已降级。");
 }
@@ -1437,22 +1441,12 @@ function resolveThemeDraftSource(baseTheme = null) {
 
   const builtInTheme = BUILT_IN_THEMES.find((theme) => theme.id === themeId);
   if (builtInTheme) {
-    const override = loadBuiltInThemeOverrides()?.[themeId];
-    return {
-      ...builtInTheme,
-      name:
-        typeof override?.name === "string" && override.name.trim()
-          ? override.name.trim()
-          : builtInTheme.name,
-      colors: {
-        ...(builtInTheme.colors || {}),
-        ...(isPlainObject(override?.colors) ? override.colors : {}),
-      },
-      recordCard: {
-        ...(builtInTheme.recordCard || {}),
-        ...(isPlainObject(override?.recordCard) ? override.recordCard : {}),
-      },
-    };
+    return (
+      resolveBuiltInThemeDefinition(
+        themeId,
+        loadBuiltInThemeOverrides()?.[themeId],
+      ) || builtInTheme
+    );
   }
 
   const storedCustomTheme = loadCustomThemes().find((theme) => theme.id === themeId);
@@ -1461,6 +1455,44 @@ function resolveThemeDraftSource(baseTheme = null) {
   }
 
   return normalizeThemeObject(sourceTheme);
+}
+
+function resolveBuiltInThemeDefinition(themeId, override = null) {
+  if (typeof resolveThemeRuntime()?.resolveBuiltInTheme === "function") {
+    return resolveThemeRuntime().resolveBuiltInTheme(themeId, override);
+  }
+
+  const baseTheme = BUILT_IN_THEMES.find((item) => item.id === themeId);
+  if (!baseTheme) {
+    return null;
+  }
+
+  const normalizedOverride = normalizeBuiltInThemeOverride(themeId, override);
+  const draftTheme = {
+    ...baseTheme,
+    name: normalizedOverride?.name || baseTheme.name,
+    colors: {
+      ...(isPlainObject(baseTheme.colors) ? baseTheme.colors : {}),
+      ...(isPlainObject(normalizedOverride?.colors)
+        ? normalizedOverride.colors
+        : {}),
+    },
+    recordCard: {
+      ...(isPlainObject(baseTheme.recordCard) ? baseTheme.recordCard : {}),
+      ...(isPlainObject(normalizedOverride?.recordCard)
+        ? normalizedOverride.recordCard
+        : {}),
+    },
+    isCustom: false,
+    isBuiltIn: true,
+    hasOverride: Boolean(normalizedOverride),
+  };
+  const resolvedColors = resolveThemeColors(draftTheme);
+  return {
+    ...draftTheme,
+    colors: resolvedColors,
+    recordCard: resolveThemeRecordCard(draftTheme, resolvedColors),
+  };
 }
 
 function normalizeThemeComparisonValue(value) {
@@ -1688,26 +1720,17 @@ function saveBuiltInThemeOverrides(overrides) {
 function syncThemeCatalog() {
   const builtInOverrides = loadBuiltInThemeOverrides();
   themes = [
-    ...BUILT_IN_THEMES.map((theme) => {
-      const override = builtInOverrides[theme.id];
-      const mergedTheme = override
-        ? {
-            ...theme,
-            name: override.name,
-            colors: override.colors,
-            recordCard: override.recordCard,
-          }
-        : theme;
-
-      return {
-        ...mergedTheme,
-        colors: resolveThemeColors(mergedTheme),
-        recordCard: resolveThemeRecordCard(mergedTheme),
-        isCustom: false,
-        isBuiltIn: true,
-        hasOverride: Boolean(override),
-      };
-    }),
+    ...BUILT_IN_THEMES.map(
+      (theme) =>
+        resolveBuiltInThemeDefinition(theme.id, builtInOverrides[theme.id]) || {
+          ...theme,
+          colors: resolveThemeColors(theme),
+          recordCard: resolveThemeRecordCard(theme),
+          isCustom: false,
+          isBuiltIn: true,
+          hasOverride: false,
+        },
+    ),
     ...loadCustomThemes().map((theme) => ({
       ...theme,
       colors: resolveThemeColors(theme),
@@ -2506,16 +2529,7 @@ function upsertBuiltInThemeOverride(themeDraft) {
     delete overrides[themeDraft.id];
     saveBuiltInThemeOverrides(overrides);
     syncThemeCatalog();
-    return (
-      findThemeById(themeDraft.id) || {
-        ...baseTheme,
-        colors: resolveThemeColors(baseTheme),
-        recordCard: resolveThemeRecordCard(baseTheme),
-        isCustom: false,
-        isBuiltIn: true,
-        hasOverride: false,
-      }
-    );
+    return findThemeById(themeDraft.id) || resolveBuiltInThemeDefinition(themeDraft.id);
   }
 
   overrides[themeDraft.id] = {
@@ -2526,13 +2540,8 @@ function upsertBuiltInThemeOverride(themeDraft) {
   saveBuiltInThemeOverrides(overrides);
   syncThemeCatalog();
   return (
-    findThemeById(themeDraft.id) || {
-      ...baseTheme,
-      name: normalizedOverride.name,
-      colors: normalizedOverride.colors,
-      recordCard: normalizedOverride.recordCard,
-      hasOverride: true,
-    }
+    findThemeById(themeDraft.id) ||
+    resolveBuiltInThemeDefinition(themeDraft.id, overrides[themeDraft.id])
   );
 }
 
