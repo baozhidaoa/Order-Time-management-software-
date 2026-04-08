@@ -3987,6 +3987,18 @@ function normalizeRecordCardColorMode(mode, fallback = "project") {
   return fallback === "theme" ? "theme" : "project";
 }
 
+function normalizeRecordCardOpacityPercent(value, fallback = 100) {
+  const fallbackNumber = Number(fallback);
+  const normalizedFallback = Number.isFinite(fallbackNumber)
+    ? Math.max(0, Math.min(100, Math.round(fallbackNumber)))
+    : 100;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return normalizedFallback;
+  }
+  return Math.max(0, Math.min(100, Math.round(numericValue)));
+}
+
 function resolveThemeRecordCardStyle() {
   const root = document.documentElement;
   if (
@@ -3996,6 +4008,10 @@ function resolveThemeRecordCardStyle() {
     return {
       mode: "project",
       color: "",
+      projectOpacity:
+        window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.projectOpacity || 100,
+      themeOpacity:
+        window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.themeOpacity || 100,
     };
   }
   const rootStyle = window.getComputedStyle(root);
@@ -4006,6 +4022,14 @@ function resolveThemeRecordCardStyle() {
     color: normalizeProjectColorToHex(
       rootStyle.getPropertyValue("--record-card-theme-color"),
       "",
+    ),
+    projectOpacity: normalizeRecordCardOpacityPercent(
+      rootStyle.getPropertyValue("--record-card-project-opacity"),
+      window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.projectOpacity || 100,
+    ),
+    themeOpacity: normalizeRecordCardOpacityPercent(
+      rootStyle.getPropertyValue("--record-card-theme-opacity"),
+      window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.themeOpacity || 100,
     ),
   };
 }
@@ -4027,18 +4051,28 @@ function resolveRecordCardSurfaceStyle(recordColor) {
       recordCard: themedRecordCard,
     });
   }
+  const projectOpacityRatio =
+    normalizeRecordCardOpacityPercent(
+      themedRecordCard.projectOpacity,
+      window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.projectOpacity || 100,
+    ) / 100;
+  const themeOpacityRatio =
+    normalizeRecordCardOpacityPercent(
+      themedRecordCard.themeOpacity,
+      window.ControlerTheme?.DEFAULT_THEME_RECORD_CARD?.themeOpacity || 100,
+    ) / 100;
   if (themedRecordCard.mode === "theme" && themedRecordCard.color) {
     return {
       titleColor: "var(--text-color)",
-      borderColor: getProjectColorShadow(recordColor, 0.78),
-      background: getProjectColorShadow(recordColor, 0.88),
+      borderColor: getProjectColorShadow(recordColor, 0.78 * themeOpacityRatio),
+      background: `linear-gradient(180deg, ${getProjectColorShadow(recordColor, 0.88 * themeOpacityRatio)} 0%, ${getProjectColorShadow(recordColor, 0.88 * themeOpacityRatio)} 100%), var(--bg-quaternary)`,
       shadow: "none",
     };
   }
   return {
     titleColor: recordColor,
-    borderColor: getProjectColorShadow(recordColor, 0.22),
-    background: `linear-gradient(180deg, ${getProjectColorShadow(recordColor, 0.12)} 0%, ${getProjectColorShadow(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
+    borderColor: getProjectColorShadow(recordColor, 0.22 * projectOpacityRatio),
+    background: `linear-gradient(180deg, ${getProjectColorShadow(recordColor, 0.12 * projectOpacityRatio)} 0%, ${getProjectColorShadow(recordColor, 0.03 * projectOpacityRatio)} 100%), var(--bg-quaternary)`,
     shadow: "none",
   };
 }
@@ -4951,16 +4985,20 @@ function bindRememberedProjectColorPicker(
     return;
   }
 
-  const applyOpenColor = () => {
+  const resolvePreferredOpenColor = () => {
     const preferredColor =
       typeof resolveOpenColor === "function" ? resolveOpenColor() : "";
     const displayFallback =
       input.dataset.colorPickerDisplayValue || input.value || "#79af85";
     const storedAnchor = readProjectColorPickerAnchor(normalizedAnchorKey);
-    const nextColor = normalizeProjectColorToHex(
+    return normalizeProjectColorToHex(
       preferredColor,
       storedAnchor || displayFallback || "#79af85",
     );
+  };
+
+  const applyOpenColor = () => {
+    const nextColor = resolvePreferredOpenColor();
     if (nextColor && input.value !== nextColor) {
       input.value = nextColor;
     }
@@ -5006,6 +5044,23 @@ function bindRememberedProjectColorPicker(
     }
   });
   input.addEventListener("blur", restoreDisplayColor);
+  if (typeof window.ControlerUI?.bindManagedColorInputProxy === "function") {
+    window.ControlerUI.bindManagedColorInputProxy(input, {
+      title: "选择颜色",
+      resolveColor: resolvePreferredOpenColor,
+      onSelect(nextColor) {
+        if (!nextColor) {
+          return;
+        }
+        if (input.value !== nextColor) {
+          input.value = nextColor;
+        }
+        input.dataset.colorPickerDisplayValue = nextColor;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      },
+    });
+  }
   restoreDisplayColor();
 }
 

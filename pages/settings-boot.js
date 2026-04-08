@@ -1025,6 +1025,8 @@ const DEFAULT_THEME_COLORS = {
 const DEFAULT_THEME_RECORD_CARD = {
   mode: "project",
   color: "#72c28a",
+  projectOpacity: 100,
+  themeOpacity: 100,
   ...(themeRuntime?.DEFAULT_THEME_RECORD_CARD || {}),
 };
 const BUILT_IN_THEMES =
@@ -1079,6 +1081,21 @@ function normalizeThemeColorInputValue(color) {
     .replace(/[）]/g, ")")
     .replace(/[；]+$/g, "")
     .trim();
+}
+
+function normalizeThemeRecordCardOpacityPercent(
+  value,
+  fallback = DEFAULT_THEME_RECORD_CARD.projectOpacity,
+) {
+  const fallbackNumber = Number(fallback);
+  const normalizedFallback = Number.isFinite(fallbackNumber)
+    ? Math.max(0, Math.min(100, Math.round(fallbackNumber)))
+    : 100;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return normalizedFallback;
+  }
+  return Math.max(0, Math.min(100, Math.round(numericValue)));
 }
 
 function normalizeColorPickerMemoryKey(storageKey) {
@@ -1161,16 +1178,20 @@ function bindRememberedThemeColorPicker(
     return;
   }
 
-  const applyOpenColor = () => {
+  const resolvePreferredOpenColor = () => {
     const preferredColor =
       typeof resolveOpenColor === "function" ? resolveOpenColor() : "";
     const displayFallback =
       input.dataset.colorPickerDisplayValue || input.value || "#000000";
     const storedAnchor = readThemeColorPickerAnchor(normalizedAnchorKey);
-    const nextColor = toHexColor(
+    return toHexColor(
       preferredColor,
       storedAnchor || displayFallback || "#000000",
     );
+  };
+
+  const applyOpenColor = () => {
+    const nextColor = resolvePreferredOpenColor();
     if (nextColor && input.value !== nextColor) {
       input.value = nextColor;
     }
@@ -1216,6 +1237,23 @@ function bindRememberedThemeColorPicker(
     }
   });
   input.addEventListener("blur", restoreDisplayColor);
+  if (typeof uiTools?.bindManagedColorInputProxy === "function") {
+    uiTools.bindManagedColorInputProxy(input, {
+      title: "选择颜色",
+      resolveColor: resolvePreferredOpenColor,
+      onSelect(nextColor) {
+        if (!nextColor) {
+          return;
+        }
+        if (input.value !== nextColor) {
+          input.value = nextColor;
+        }
+        input.dataset.colorPickerDisplayValue = nextColor;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      },
+    });
+  }
   restoreDisplayColor();
 }
 
@@ -2434,9 +2472,30 @@ function resolveThemeRecordCard(theme = null, resolvedColors = null) {
   if (typeof resolveThemeRuntime()?.resolveThemeRecordCard === "function") {
     return resolveThemeRuntime().resolveThemeRecordCard(theme, resolvedColors);
   }
+  const fallbackMode = normalizeThemeRecordCardMode(theme?.recordCard?.mode);
+  const legacyOpacity = Object.prototype.hasOwnProperty.call(
+    theme?.recordCard || {},
+    "opacity",
+  )
+    ? normalizeThemeRecordCardOpacityPercent(
+        theme?.recordCard?.opacity,
+        DEFAULT_THEME_RECORD_CARD.projectOpacity,
+      )
+    : null;
   return {
-    mode: normalizeThemeRecordCardMode(theme?.recordCard?.mode),
-    color: DEFAULT_THEME_RECORD_CARD.color,
+    mode: fallbackMode,
+    color:
+      theme?.recordCard?.color && isValidThemeColorValue(theme.recordCard.color)
+        ? theme.recordCard.color.trim()
+        : DEFAULT_THEME_RECORD_CARD.color,
+    projectOpacity: normalizeThemeRecordCardOpacityPercent(
+      theme?.recordCard?.projectOpacity,
+      legacyOpacity ?? DEFAULT_THEME_RECORD_CARD.projectOpacity,
+    ),
+    themeOpacity: normalizeThemeRecordCardOpacityPercent(
+      theme?.recordCard?.themeOpacity,
+      legacyOpacity ?? DEFAULT_THEME_RECORD_CARD.themeOpacity,
+    ),
   };
 }
 
@@ -2698,7 +2757,11 @@ function areThemeRecordCardsEqual(leftRecordCard = {}, rightRecordCard = {}) {
     normalizeThemeRecordCardMode(leftRecordCard?.mode) ===
       normalizeThemeRecordCardMode(rightRecordCard?.mode) &&
     normalizeThemeComparisonValue(leftRecordCard?.color) ===
-      normalizeThemeComparisonValue(rightRecordCard?.color)
+      normalizeThemeComparisonValue(rightRecordCard?.color) &&
+    normalizeThemeRecordCardOpacityPercent(leftRecordCard?.projectOpacity) ===
+      normalizeThemeRecordCardOpacityPercent(rightRecordCard?.projectOpacity) &&
+    normalizeThemeRecordCardOpacityPercent(leftRecordCard?.themeOpacity) ===
+      normalizeThemeRecordCardOpacityPercent(rightRecordCard?.themeOpacity)
   );
 }
 
@@ -3950,6 +4013,7 @@ function buildThemeRecordCardSectionHtml(
   section,
   initialRecordCardMode,
   initialRecordCardColor,
+  initialRecordCardOpacity,
 ) {
   return `
     <section class="theme-editor-section theme-editor-section--record-card" data-theme-section="${escapeHtml(section?.id || THEME_RECORD_CARD_SECTION_ID)}">
@@ -3981,6 +4045,34 @@ function buildThemeRecordCardSectionHtml(
           <div style="margin-top:6px; font-size:12px; color: var(--button-muted-text, color-mix(in srgb, var(--button-text) 72%, var(--button-bg)));">使用更实心、轻微透明的统一卡片外观，和跟随项目色的卡片样式分开。</div>
         </button>
       </div>
+      <label
+        class="theme-editor-record-card-opacity-row"
+        style="display:flex; flex-direction:column; gap:8px;"
+      >
+        <span class="theme-editor-row-label">记录卡片透明度</span>
+        <div
+          class="theme-editor-record-card-opacity-inputs"
+          style="display:flex; align-items:center; gap:12px;"
+        >
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            data-record-card-opacity
+            value="${escapeHtml(String(initialRecordCardOpacity))}"
+            style="flex:1; margin:0;"
+          />
+          <span
+            data-record-card-opacity-value
+            style="min-width:48px; text-align:right; font-size:13px; font-weight:600; color:var(--text-color);"
+          >${escapeHtml(String(initialRecordCardOpacity))}%</span>
+        </div>
+        <div
+          class="theme-editor-row-description"
+          data-record-card-opacity-description
+        >只影响记录列表卡片；两个模式分别记忆。</div>
+      </label>
       <label
         id="theme-record-card-color-row"
         class="theme-editor-record-card-color-row"
@@ -4014,6 +4106,7 @@ function buildThemeEditorSectionHtml(section, context = {}) {
       section,
       context.initialRecordCardMode,
       context.initialRecordCardColor,
+      context.initialRecordCardOpacity,
     );
   }
   const rowsHtml = (Array.isArray(section.fields) ? section.fields : [])
@@ -4097,12 +4190,25 @@ function showThemeEditorModal(theme = null) {
   );
   const initialRecordCardColor =
     draft.recordCard?.color || DEFAULT_THEME_RECORD_CARD.color;
+  const initialRecordCardProjectOpacity = normalizeThemeRecordCardOpacityPercent(
+    draft.recordCard?.projectOpacity,
+    DEFAULT_THEME_RECORD_CARD.projectOpacity,
+  );
+  const initialRecordCardThemeOpacity = normalizeThemeRecordCardOpacityPercent(
+    draft.recordCard?.themeOpacity,
+    DEFAULT_THEME_RECORD_CARD.themeOpacity,
+  );
+  const initialRecordCardOpacity =
+    initialRecordCardMode === "theme"
+      ? initialRecordCardThemeOpacity
+      : initialRecordCardProjectOpacity;
   const initialWidgetFallbacks = resolveThemeEditorWidgetColorFallbacks(draft.colors);
   const themeEditorContext = {
     draftColors: draft.colors,
     widgetFallbacks: initialWidgetFallbacks,
     initialRecordCardMode,
     initialRecordCardColor,
+    initialRecordCardOpacity,
   };
   const themeColorAnchorScope =
     typeof theme?.id === "string" && theme.id.trim() ? theme.id.trim() : "draft";
@@ -4246,6 +4352,45 @@ function showThemeEditorModal(theme = null) {
   };
 
   let recordCardMode = initialRecordCardMode;
+  const recordCardOpacityByMode = {
+    project: initialRecordCardProjectOpacity,
+    theme: initialRecordCardThemeOpacity,
+  };
+  const getCurrentRecordCardOpacity = () =>
+    normalizeThemeRecordCardOpacityPercent(
+      recordCardOpacityByMode[recordCardMode],
+      recordCardMode === "theme"
+        ? DEFAULT_THEME_RECORD_CARD.themeOpacity
+        : DEFAULT_THEME_RECORD_CARD.projectOpacity,
+    );
+  const syncRecordCardOpacityUi = () => {
+    const currentOpacity = getCurrentRecordCardOpacity();
+    const opacityInput = modal.querySelector("[data-record-card-opacity]");
+    if (opacityInput instanceof HTMLInputElement) {
+      opacityInput.value = String(currentOpacity);
+    }
+    const opacityValue = modal.querySelector("[data-record-card-opacity-value]");
+    if (opacityValue instanceof HTMLElement) {
+      opacityValue.textContent = `${currentOpacity}%`;
+    }
+    const opacityDescription = modal.querySelector(
+      "[data-record-card-opacity-description]",
+    );
+    if (opacityDescription instanceof HTMLElement) {
+      opacityDescription.textContent =
+        recordCardMode === "theme"
+          ? "当前为统一主题卡片色；只影响记录列表卡片，两个模式分别记忆。"
+          : "当前为跟随项目颜色；只影响记录列表卡片，两个模式分别记忆。";
+    }
+  };
+  const setCurrentRecordCardOpacity = (value) => {
+    recordCardOpacityByMode[recordCardMode] =
+      normalizeThemeRecordCardOpacityPercent(
+        value,
+        getCurrentRecordCardOpacity(),
+      );
+    syncRecordCardOpacityUi();
+  };
   const updateRecordCardModeUi = () => {
     const colorRow = modal.querySelector("#theme-record-card-color-row");
     if (colorRow instanceof HTMLElement) {
@@ -4266,6 +4411,7 @@ function showThemeEditorModal(theme = null) {
         : "none";
       button.style.transform = isActive ? "translateY(-1px)" : "translateY(0)";
     });
+    syncRecordCardOpacityUi();
   };
 
   modal.querySelectorAll("[data-theme-color]").forEach((input) => {
@@ -4323,6 +4469,11 @@ function showThemeEditorModal(theme = null) {
       updateRecordCardModeUi();
     });
   });
+  modal
+    .querySelector("[data-record-card-opacity]")
+    ?.addEventListener("input", (event) => {
+      setCurrentRecordCardOpacity(event.currentTarget?.value);
+    });
 
   const recordCardColorInput = modal.querySelector("[data-record-card-color]");
   if (recordCardColorInput instanceof HTMLInputElement) {
@@ -4391,6 +4542,14 @@ function showThemeEditorModal(theme = null) {
             normalizeThemeColorInputValue(
               modal.querySelector("[data-record-card-color-text]")?.value || "",
             ) || DEFAULT_THEME_RECORD_CARD.color,
+          projectOpacity: normalizeThemeRecordCardOpacityPercent(
+            recordCardOpacityByMode.project,
+            DEFAULT_THEME_RECORD_CARD.projectOpacity,
+          ),
+          themeOpacity: normalizeThemeRecordCardOpacityPercent(
+            recordCardOpacityByMode.theme,
+            DEFAULT_THEME_RECORD_CARD.themeOpacity,
+          ),
         },
       };
 

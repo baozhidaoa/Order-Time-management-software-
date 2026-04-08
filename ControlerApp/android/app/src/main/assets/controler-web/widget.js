@@ -652,6 +652,60 @@ function formatRelativeDateLabel(dateText) {
     : `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+function joinWidgetMetaParts(parts = []) {
+  const seen = new Set();
+  return (Array.isArray(parts) ? parts : [])
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const comparisonKey = part.toLowerCase();
+      if (seen.has(comparisonKey)) {
+        return false;
+      }
+      seen.add(comparisonKey);
+      return true;
+    })
+    .join(" · ");
+}
+
+function formatWidgetDateWindow({
+  startDate = "",
+  endDate = "",
+  dueDate = "",
+  includeDueDate = false,
+} = {}) {
+  const normalizedStart = String(startDate || "").trim();
+  const normalizedEnd = String(endDate || "").trim();
+  const normalizedDue = String(dueDate || "").trim();
+  if (normalizedStart && normalizedEnd) {
+    const startLabel = formatRelativeDateLabel(normalizedStart);
+    const endLabel = formatRelativeDateLabel(normalizedEnd);
+    return normalizedStart === normalizedEnd ? startLabel : `${startLabel}-${endLabel}`;
+  }
+  if (normalizedStart) {
+    return `${formatRelativeDateLabel(normalizedStart)}起`;
+  }
+  if (normalizedEnd) {
+    return `至${formatRelativeDateLabel(normalizedEnd)}`;
+  }
+  if (includeDueDate && normalizedDue) {
+    return `截止 ${formatRelativeDateLabel(normalizedDue)}`;
+  }
+  return "";
+}
+
+function formatWidgetTimeWindow({
+  startTime = "",
+  endTime = "",
+} = {}) {
+  const normalizedStart = String(startTime || "").trim();
+  const normalizedEnd = String(endTime || "").trim();
+  if (normalizedStart && normalizedEnd) {
+    return `${normalizedStart}-${normalizedEnd}`;
+  }
+  return normalizedStart || normalizedEnd || "";
+}
+
 function compareDateText(left, right) {
   const leftDate = parseDate(left);
   const rightDate = parseDate(right);
@@ -1327,20 +1381,24 @@ function getWidgetTodoItems(state) {
     .sort((left, right) => compareTodoWidgetPriority(left, right, sortPreference))
     .map((todo) => {
       const progressRecords = getTodoProgressRecords(state, todo?.id || "");
-      const lastProgress = progressRecords[0] || null;
       const dueState = getTodoDueState(todo, today);
+      const scheduleLead =
+        dueState.eyebrow === "未设置日期" ? dueState.status : dueState.eyebrow;
+      const dateWindow = formatWidgetDateWindow({
+        startDate: todo?.startDate,
+        endDate: todo?.endDate,
+      });
+      const timeWindow = formatWidgetTimeWindow({
+        startTime: todo?.startTime,
+        endTime: todo?.endTime,
+      });
       return {
         id: todo?.id || "",
         isToday: todoScheduledOn(todo, today),
         title: todo?.title || "未命名待办",
         eyebrow: dueState.eyebrow,
-        badge: dueState.status,
-        meta:
-          progressRecords.length > 0
-            ? `最近记录 ${formatTimeLabel(lastProgress?.time) || formatMonthDay(lastProgress?.time)}`
-            : todo?.completed
-              ? "已完成，可直接撤回"
-              : "可直接在这里完成",
+        badge: "",
+        meta: joinWidgetMetaParts([scheduleLead, dateWindow, timeWindow]),
         note: truncateText(getTodoCardDescription(todo, progressRecords), 64),
         accent: todo?.color || "#ed8936",
         actionLabel: todo?.completed ? "撤回" : "完成",
@@ -1547,14 +1605,25 @@ function getTodayCheckinItems(state) {
     .map((item) => {
       const todayEntry = getCheckinTodayEntry(state, item?.id, today);
       const checkedDays = getCheckinCheckedDaysCount(state, item?.id);
+      const dateWindow = formatWidgetDateWindow({
+        startDate: item?.startDate,
+        endDate: item?.endDate,
+      });
+      const timeWindow = formatWidgetTimeWindow({
+        startTime: item?.startTime,
+        endTime: item?.endTime,
+      });
       return {
         id: item?.id || "",
         title: item?.title || "未命名打卡",
         eyebrow: getCheckinRepeatSummary(item),
-        badge: todayEntry?.checked ? "已打卡" : "待打卡",
-        meta: todayEntry?.checked
-          ? `打卡时间 ${formatTimeLabel(todayEntry?.time) || "已记录"}`
-          : "可直接在这里完成打卡",
+        badge: "",
+        meta: joinWidgetMetaParts([
+          todayEntry?.checked ? "已打卡" : "待打卡",
+          getCheckinRepeatSummary(item),
+          dateWindow,
+          timeWindow,
+        ]),
         note: `已打卡天数: ${checkedDays}`,
         accent: item?.color || "#4299e1",
         actionLabel: todayEntry?.checked ? "撤回" : "打卡",
@@ -1999,11 +2068,19 @@ function buildUpcomingPlanSummary(state, dayCount = 7) {
           totalMinutes: 0,
           dayMinutes: new Map(),
           planCount: 0,
+          timeRanges: new Set(),
         };
+        const timeRangeText = formatWidgetTimeWindow({
+          startTime: plan?.startTime,
+          endTime: plan?.endTime,
+        });
 
         current.planCount += 1;
         current.totalMinutes += durationMinutes;
         current.dayMinutes.set(dateText, (current.dayMinutes.get(dateText) || 0) + durationMinutes);
+        if (timeRangeText) {
+          current.timeRanges.add(timeRangeText);
+        }
         summary.set(title, current);
       });
   });
@@ -2028,6 +2105,8 @@ function buildUpcomingPlanSummary(state, dayCount = 7) {
         planCount: item.planCount,
         bestDayText,
         bestDayMinutes,
+        timeRangeText:
+          item.timeRanges.size === 1 ? Array.from(item.timeRanges)[0] : "",
       };
     })
     .sort((left, right) => {
@@ -2445,18 +2524,22 @@ function buildRecordSummaryItemCards(summaryItems, actionLabel) {
 }
 
 function buildPlanSummaryItemCards(summaryItems, actionLabel) {
-  return summaryItems.map((item) => ({
-    title: item.title,
-    badge: `${translateWidgetUiText("安排")} ${item.planCount} ${translateWidgetUiText("项")}`,
-    meta: translateWidgetUiText(`${item.scheduledDays} 天安排`),
-    note:
-      item.bestDayText
-        ? translateWidgetUiText(`${formatRelativeDateLabel(item.bestDayText)} 安排较多`)
-        : translateWidgetUiText("打开原页查看完整周计划。"),
-    accent: item.accent,
-    actionLabel,
-    actionTone: "accent",
-  }));
+  return summaryItems.map((item) => {
+    const meta = joinWidgetMetaParts([
+      `${item.planCount}${translateWidgetUiText("项")}`,
+      `${item.scheduledDays}${translateWidgetUiText("天")}`,
+      item.timeRangeText,
+    ]);
+    return {
+      title: item.title,
+      badge: "",
+      meta,
+      note: "",
+      accent: item.accent,
+      actionLabel,
+      actionTone: "accent",
+    };
+  });
 }
 
 function fillStartTimerContent(content, state) {

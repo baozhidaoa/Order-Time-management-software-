@@ -7321,6 +7321,436 @@
     return button;
   }
 
+  function isAndroidManagedColorPickerRuntime() {
+    const nativeHostPlatform =
+      typeof getNativeHostPlatform === "function" ? getNativeHostPlatform() : "";
+    if (nativeHostPlatform === "android") {
+      return true;
+    }
+    return !!(
+      document.documentElement?.classList.contains("controler-android-native") ||
+      document.body?.classList.contains("controler-android-native") ||
+      document.documentElement?.classList.contains("controler-mobile-runtime") ||
+      document.body?.classList.contains("controler-mobile-runtime")
+    );
+  }
+
+  function clampManagedColorPickerNumber(value, min, max, fallback = min) {
+    const numericValue = Number(value);
+    const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : min;
+    if (!Number.isFinite(numericValue)) {
+      return Math.min(max, Math.max(min, safeFallback));
+    }
+    return Math.min(max, Math.max(min, numericValue));
+  }
+
+  function parseManagedColorPickerHex(color, fallback = "#79AF85") {
+    const normalizedColor = String(color || "").trim();
+    const hexMatch = normalizedColor.match(/^#([0-9a-f]{6})$/i);
+    if (hexMatch) {
+      return `#${hexMatch[1].toUpperCase()}`;
+    }
+    const rgbMatch = normalizedColor.match(
+      /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i,
+    );
+    if (rgbMatch) {
+      return `#${[rgbMatch[1], rgbMatch[2], rgbMatch[3]]
+        .map((channel) =>
+          clampManagedColorPickerNumber(channel, 0, 255, 0)
+            .toString(16)
+            .padStart(2, "0")
+            .toUpperCase(),
+        )
+        .join("")}`;
+    }
+    const normalizedFallback = String(fallback || "").trim();
+    return /^#([0-9a-f]{6})$/i.test(normalizedFallback)
+      ? normalizedFallback.toUpperCase()
+      : "#79AF85";
+  }
+
+  function hexToManagedColorPickerRgb(color) {
+    const normalized = parseManagedColorPickerHex(color);
+    return {
+      r: Number.parseInt(normalized.slice(1, 3), 16),
+      g: Number.parseInt(normalized.slice(3, 5), 16),
+      b: Number.parseInt(normalized.slice(5, 7), 16),
+    };
+  }
+
+  function rgbToManagedColorPickerHex(red, green, blue) {
+    return `#${[
+      clampManagedColorPickerNumber(red, 0, 255, 0),
+      clampManagedColorPickerNumber(green, 0, 255, 0),
+      clampManagedColorPickerNumber(blue, 0, 255, 0),
+    ]
+      .map((channel) => Math.round(channel).toString(16).padStart(2, "0").toUpperCase())
+      .join("")}`;
+  }
+
+  function rgbToManagedColorPickerHsv(red, green, blue) {
+    const r = clampManagedColorPickerNumber(red, 0, 255, 0) / 255;
+    const g = clampManagedColorPickerNumber(green, 0, 255, 0) / 255;
+    const b = clampManagedColorPickerNumber(blue, 0, 255, 0) / 255;
+    const maxChannel = Math.max(r, g, b);
+    const minChannel = Math.min(r, g, b);
+    const delta = maxChannel - minChannel;
+    let hue = 0;
+
+    if (delta > 0) {
+      if (maxChannel === r) {
+        hue = ((g - b) / delta) % 6;
+      } else if (maxChannel === g) {
+        hue = (b - r) / delta + 2;
+      } else {
+        hue = (r - g) / delta + 4;
+      }
+      hue *= 60;
+      if (hue < 0) {
+        hue += 360;
+      }
+    }
+
+    const saturation = maxChannel === 0 ? 0 : (delta / maxChannel) * 100;
+    const value = maxChannel * 100;
+    return {
+      hue: Math.round(clampManagedColorPickerNumber(hue, 0, 360, 0)),
+      saturation: Math.round(clampManagedColorPickerNumber(saturation, 0, 100, 0)),
+      value: Math.round(clampManagedColorPickerNumber(value, 0, 100, 0)),
+    };
+  }
+
+  function hsvToManagedColorPickerRgb(hue, saturation, value) {
+    const safeHue = clampManagedColorPickerNumber(hue, 0, 360, 0) % 360;
+    const safeSaturation =
+      clampManagedColorPickerNumber(saturation, 0, 100, 0) / 100;
+    const safeValue = clampManagedColorPickerNumber(value, 0, 100, 0) / 100;
+    const chroma = safeValue * safeSaturation;
+    const huePrime = safeHue / 60;
+    const secondary = chroma * (1 - Math.abs((huePrime % 2) - 1));
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+
+    if (huePrime >= 0 && huePrime < 1) {
+      red = chroma;
+      green = secondary;
+    } else if (huePrime < 2) {
+      red = secondary;
+      green = chroma;
+    } else if (huePrime < 3) {
+      green = chroma;
+      blue = secondary;
+    } else if (huePrime < 4) {
+      green = secondary;
+      blue = chroma;
+    } else if (huePrime < 5) {
+      red = secondary;
+      blue = chroma;
+    } else {
+      red = chroma;
+      blue = secondary;
+    }
+
+    const match = safeValue - chroma;
+    return {
+      r: Math.round((red + match) * 255),
+      g: Math.round((green + match) * 255),
+      b: Math.round((blue + match) * 255),
+    };
+  }
+
+  function showManagedColorPickerDialog(options = {}) {
+    const initialHex = parseManagedColorPickerHex(options.initialColor, "#79AF85");
+    const initialRgb = hexToManagedColorPickerRgb(initialHex);
+    const initialHsv = rgbToManagedColorPickerHsv(
+      initialRgb.r,
+      initialRgb.g,
+      initialRgb.b,
+    );
+
+    return new Promise((resolve) => {
+      const modal = document.createElement("div");
+      modal.className = "modal-overlay";
+      modal.style.display = "flex";
+      modal.style.zIndex = String(options.zIndex || 4600);
+
+      modal.innerHTML = `
+        <div class="modal-content themed-dialog-card ms" style="width:min(440px, calc(100vw - 32px)); max-width:min(440px, calc(100vw - 32px)); padding:20px; display:flex; flex-direction:column; gap:18px;">
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <div class="themed-dialog-title">${String(options.title || "选择颜色")}</div>
+            <div style="font-size:13px; color:var(--text-secondary, var(--text-color)); opacity:0.78;">打开时会使用当前颜色位置，确认后会直接写回当前设置值。</div>
+          </div>
+          <div style="display:grid; gap:14px; grid-template-columns:minmax(0, 1fr) 92px; align-items:start;">
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div data-managed-color-surface style="position:relative; min-height:220px; border-radius:18px; border:1px solid var(--panel-border-color); overflow:hidden; touch-action:none; background:${initialHex}; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);">
+                <div aria-hidden="true" style="position:absolute; inset:0; background:linear-gradient(90deg, #FFFFFF 0%, rgba(255,255,255,0) 100%);"></div>
+                <div aria-hidden="true" style="position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,0) 0%, #000000 100%);"></div>
+                <div data-managed-color-surface-handle style="position:absolute; width:18px; height:18px; border-radius:999px; border:2px solid rgba(255,255,255,0.96); box-shadow:0 0 0 1px rgba(0,0,0,0.28), 0 6px 16px rgba(0,0,0,0.22); transform:translate(-50%, -50%); left:50%; top:50%; pointer-events:none;"></div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <span style="font-size:13px; font-weight:600; color:var(--text-color);">色调</span>
+                  <span data-managed-color-hue-value style="font-size:12px; color:var(--text-secondary, var(--text-color)); opacity:0.8;">0°</span>
+                </div>
+                <input type="range" min="0" max="360" step="1" data-managed-color-hue />
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div data-managed-color-preview style="width:92px; height:92px; border-radius:20px; border:1px solid var(--panel-border-color); background:${initialHex}; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);"></div>
+              <div style="display:flex; flex-direction:column; gap:6px; padding:12px 12px 10px; border-radius:16px; border:1px solid var(--panel-border-color); background:color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 92%, transparent);">
+                <span style="font-size:12px; color:var(--text-secondary, var(--text-color)); opacity:0.76;">当前颜色</span>
+                <span data-managed-color-hex style="font-size:13px; font-weight:600; color:var(--text-color);">${initialHex}</span>
+                <span data-managed-color-sv-value style="font-size:12px; color:var(--text-secondary, var(--text-color)); opacity:0.82;">S 0% · V 0%</span>
+              </div>
+            </div>
+          </div>
+          <label style="display:flex; flex-direction:column; gap:8px;">
+            <span style="font-size:12px; color:var(--text-secondary, var(--text-color)); opacity:0.78;">拖动色盘选择饱和度和明度，拖动色调条选择色相。</span>
+          </label>
+          <div style="display:flex; justify-content:flex-end; gap:12px; flex-wrap:wrap;">
+            <button type="button" class="bts" data-managed-color-cancel style="margin:0;">${String(options.cancelText || "取消")}</button>
+            <button type="button" class="bts" data-managed-color-confirm style="margin:0;">${String(options.confirmText || "设置")}</button>
+          </div>
+        </div>
+      `;
+
+      let settled = false;
+      const settleDialog = (result = null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        modal.__controlerCloseModal = null;
+        closeModal(modal);
+        resolve(result);
+      };
+      modal.__controlerCloseModal = () => settleDialog(null);
+      prepareModalOverlay(modal, {
+        zIndex: Number(options.zIndex || 4600),
+        scope: "viewport",
+        keyboardConfirmSelector: "[data-managed-color-confirm]",
+        keyboardCancelSelector: "[data-managed-color-cancel]",
+      });
+      activateModalInteractionShield(180);
+
+      const hueInput = modal.querySelector("[data-managed-color-hue]");
+      const colorSurface = modal.querySelector("[data-managed-color-surface]");
+      const colorSurfaceHandle = modal.querySelector(
+        "[data-managed-color-surface-handle]",
+      );
+      const preview = modal.querySelector("[data-managed-color-preview]");
+      const hexLabel = modal.querySelector("[data-managed-color-hex]");
+      const hueLabel = modal.querySelector("[data-managed-color-hue-value]");
+      const svLabel = modal.querySelector("[data-managed-color-sv-value]");
+      let currentHsv = {
+        hue: initialHsv.hue,
+        saturation: initialHsv.saturation,
+        value: initialHsv.value,
+      };
+
+      const syncFromSurfacePosition = (clientX, clientY) => {
+        if (!(colorSurface instanceof HTMLElement)) {
+          return;
+        }
+        const rect = colorSurface.getBoundingClientRect();
+        const x = clampManagedColorPickerNumber(clientX - rect.left, 0, rect.width, 0);
+        const y = clampManagedColorPickerNumber(clientY - rect.top, 0, rect.height, 0);
+        currentHsv.saturation = Math.round((x / Math.max(rect.width, 1)) * 100);
+        currentHsv.value = Math.round(100 - (y / Math.max(rect.height, 1)) * 100);
+        syncUi();
+      };
+
+      const syncUi = () => {
+        const currentRgb = hsvToManagedColorPickerRgb(
+          currentHsv.hue,
+          currentHsv.saturation,
+          currentHsv.value,
+        );
+        const currentHex = rgbToManagedColorPickerHex(
+          currentRgb.r,
+          currentRgb.g,
+          currentRgb.b,
+        );
+        const surfaceHueColor = rgbToManagedColorPickerHex(
+          ...Object.values(
+            hsvToManagedColorPickerRgb(
+              currentHsv.hue,
+              100,
+              100,
+            ),
+          ),
+        );
+
+        if (hueInput instanceof HTMLInputElement) {
+          hueInput.value = String(currentHsv.hue);
+          hueInput.style.background =
+            "linear-gradient(90deg, #FF0000 0%, #FFFF00 17%, #00FF00 33%, #00FFFF 50%, #0000FF 67%, #FF00FF 83%, #FF0000 100%)";
+        }
+        if (colorSurface instanceof HTMLElement) {
+          colorSurface.style.background = surfaceHueColor;
+        }
+        if (colorSurfaceHandle instanceof HTMLElement) {
+          colorSurfaceHandle.style.left = `${currentHsv.saturation}%`;
+          colorSurfaceHandle.style.top = `${100 - currentHsv.value}%`;
+        }
+        if (preview instanceof HTMLElement) {
+          preview.style.background = currentHex;
+        }
+        if (hexLabel instanceof HTMLElement) {
+          hexLabel.textContent = currentHex;
+        }
+        if (hueLabel instanceof HTMLElement) {
+          hueLabel.textContent = `${Math.round(currentHsv.hue)}°`;
+        }
+        if (svLabel instanceof HTMLElement) {
+          svLabel.textContent = `S ${Math.round(currentHsv.saturation)}% · V ${Math.round(currentHsv.value)}%`;
+        }
+      };
+
+      const syncFromHueInput = () => {
+        currentHsv = {
+          hue: clampManagedColorPickerNumber(hueInput?.value, 0, 360, currentHsv.hue),
+          saturation: currentHsv.saturation,
+          value: currentHsv.value,
+        };
+        syncUi();
+      };
+
+      hueInput?.addEventListener("input", syncFromHueInput);
+      colorSurface?.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        syncFromSurfacePosition(event.clientX, event.clientY);
+
+        const handlePointerMove = (moveEvent) => {
+          syncFromSurfacePosition(moveEvent.clientX, moveEvent.clientY);
+        };
+        const handlePointerUp = () => {
+          window.removeEventListener("pointermove", handlePointerMove, true);
+          window.removeEventListener("pointerup", handlePointerUp, true);
+          window.removeEventListener("pointercancel", handlePointerUp, true);
+        };
+
+        window.addEventListener("pointermove", handlePointerMove, true);
+        window.addEventListener("pointerup", handlePointerUp, true);
+        window.addEventListener("pointercancel", handlePointerUp, true);
+      });
+
+      modal
+        .querySelector("[data-managed-color-cancel]")
+        ?.addEventListener("click", (event) => {
+          event.preventDefault();
+          settleDialog(null);
+        });
+      modal
+        .querySelector("[data-managed-color-confirm]")
+        ?.addEventListener("click", (event) => {
+          event.preventDefault();
+          const currentRgb = hsvToManagedColorPickerRgb(
+            currentHsv.hue,
+            currentHsv.saturation,
+            currentHsv.value,
+          );
+          settleDialog(
+            rgbToManagedColorPickerHex(currentRgb.r, currentRgb.g, currentRgb.b),
+          );
+        });
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          settleDialog(null);
+        }
+      });
+
+      syncUi();
+      window.setTimeout(() => {
+        (
+          modal.querySelector("[data-managed-color-confirm]") ||
+          modal.querySelector("[data-managed-color-cancel]")
+        )?.focus?.();
+      }, 0);
+    });
+  }
+
+  function bindManagedColorInputProxy(input, options = {}) {
+    if (
+      !(input instanceof HTMLInputElement) ||
+      String(input.type || "").toLowerCase() !== "color" ||
+      !isAndroidManagedColorPickerRuntime()
+    ) {
+      return null;
+    }
+    if (input.dataset.controlerManagedColorProxyBound === "true") {
+      return input.__controlerManagedColorProxyButton || null;
+    }
+
+    const computed = window.getComputedStyle(input);
+    const shell = document.createElement("span");
+    shell.dataset.controlerManagedColorProxyShell = "true";
+    shell.style.position = "relative";
+    shell.style.display =
+      computed.display === "block" ? "block" : "inline-flex";
+    shell.style.flex = computed.flex || "0 0 auto";
+    shell.style.width =
+      computed.width && computed.width !== "auto"
+        ? computed.width
+        : `${Math.max(24, Math.round(input.getBoundingClientRect().width || input.offsetWidth || 40))}px`;
+    shell.style.height =
+      computed.height && computed.height !== "auto"
+        ? computed.height
+        : `${Math.max(24, Math.round(input.getBoundingClientRect().height || input.offsetHeight || 40))}px`;
+
+    const parent = input.parentNode;
+    if (parent) {
+      parent.insertBefore(shell, input);
+      shell.appendChild(input);
+    }
+
+    input.style.width = "100%";
+    input.style.height = "100%";
+    input.style.pointerEvents = "none";
+    input.tabIndex = -1;
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.dataset.controlerManagedColorProxyTrigger = "true";
+    trigger.setAttribute("aria-label", String(options.title || "选择颜色"));
+    trigger.style.position = "absolute";
+    trigger.style.inset = "0";
+    trigger.style.border = "none";
+    trigger.style.margin = "0";
+    trigger.style.padding = "0";
+    trigger.style.background = "transparent";
+    trigger.style.borderRadius = computed.borderRadius || "10px";
+    trigger.style.cursor = "pointer";
+    shell.appendChild(trigger);
+
+    trigger.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const resolvedColor =
+        typeof options.resolveColor === "function"
+          ? options.resolveColor()
+          : input.value || "";
+      const nextColor = await showManagedColorPickerDialog({
+        title: options.title || "选择颜色",
+        initialColor: resolvedColor,
+        confirmText: options.confirmText || "设置",
+        cancelText: options.cancelText || "取消",
+        zIndex: options.zIndex || 4600,
+      });
+      if (
+        nextColor &&
+        typeof options.onSelect === "function"
+      ) {
+        options.onSelect(nextColor, input);
+      }
+    });
+
+    input.dataset.controlerManagedColorProxyBound = "true";
+    input.__controlerManagedColorProxyButton = trigger;
+    return trigger;
+  }
+
   function setAccentButtonState(button, active = true) {
     if (!button) return;
     if (button instanceof HTMLElement) {
@@ -9485,6 +9915,8 @@
     prepareModalOverlay,
     stopModalContentPropagation,
     bindModalAction,
+    showManagedColorPickerDialog,
+    bindManagedColorInputProxy,
     setAccentButtonState,
     setAccentButtonGroup,
     enhanceNativeSelect,

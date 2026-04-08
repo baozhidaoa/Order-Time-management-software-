@@ -63,6 +63,18 @@
     return !!value && typeof value === "object" && !Array.isArray(value);
   }
 
+  function normalizeRecordCardOpacityPercent(value, fallback = 100) {
+    const fallbackNumber = Number(fallback);
+    const normalizedFallback = Number.isFinite(fallbackNumber)
+      ? Math.max(0, Math.min(100, Math.round(fallbackNumber)))
+      : 100;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return normalizedFallback;
+    }
+    return Math.max(0, Math.min(100, Math.round(numericValue)));
+  }
+
   function resolveCurrentPageKey() {
     try {
       const pathSegments = String(window.location.pathname || "").split("/");
@@ -310,6 +322,19 @@
     const themeState = resolveSelectedThemeState();
     const themeId = themeState.themeId || DEFAULT_THEME_ID;
     const colors = isPlainObject(themeState.colors) ? themeState.colors : null;
+    const normalizedRecordCard = isPlainObject(themeState.recordCard)
+      ? {
+          ...themeState.recordCard,
+          projectOpacity: normalizeRecordCardOpacityPercent(
+            themeState.recordCard.projectOpacity,
+            100,
+          ),
+          themeOpacity: normalizeRecordCardOpacityPercent(
+            themeState.recordCard.themeOpacity,
+            100,
+          ),
+        }
+      : null;
     const primaryColor =
       typeof colors?.primary === "string" && colors.primary.trim()
         ? colors.primary.trim()
@@ -344,30 +369,35 @@
         colors?.navButtonText || colors?.mutedText || colors?.text || DEFAULT_TEXT_COLOR,
       );
     }
-    if (isPlainObject(themeState.recordCard)) {
-      if (typeof themeState.recordCard.mode === "string" && themeState.recordCard.mode.trim()) {
+    if (normalizedRecordCard) {
+      if (typeof normalizedRecordCard.mode === "string" && normalizedRecordCard.mode.trim()) {
         root.style.setProperty(
           "--record-card-color-mode",
-          themeState.recordCard.mode.trim() === "theme" ? "theme" : "project",
+          normalizedRecordCard.mode.trim() === "theme" ? "theme" : "project",
         );
       }
-      if (typeof themeState.recordCard.color === "string" && themeState.recordCard.color.trim()) {
+      if (typeof normalizedRecordCard.color === "string" && normalizedRecordCard.color.trim()) {
         root.style.setProperty(
           "--record-card-theme-color",
-          themeState.recordCard.color.trim(),
+          normalizedRecordCard.color.trim(),
         );
       }
     }
+    root.style.setProperty(
+      "--record-card-project-opacity",
+      String(normalizedRecordCard?.projectOpacity ?? 100),
+    );
+    root.style.setProperty(
+      "--record-card-theme-opacity",
+      String(normalizedRecordCard?.themeOpacity ?? 100),
+    );
     injectEarlySurfaceStyle(primaryColor, colors?.text || DEFAULT_TEXT_COLOR);
     window.__CONTROLER_DESKTOP_PRELOADED_THEME__ = {
       themeId,
       primaryColor,
       textColor: colors?.text || DEFAULT_TEXT_COLOR,
       colors: colors ? { ...colors } : null,
-      recordCard:
-        isPlainObject(themeState.recordCard)
-          ? { ...themeState.recordCard }
-          : null,
+      recordCard: normalizedRecordCard,
       source: themeState.source || "unknown",
       storageKeys:
         themeState.storageKeys && typeof themeState.storageKeys === "object"

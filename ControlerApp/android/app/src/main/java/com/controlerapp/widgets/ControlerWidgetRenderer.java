@@ -39,6 +39,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -282,6 +283,7 @@ public final class ControlerWidgetRenderer {
         int totalMinutes = 0;
         int planCount = 0;
         final Map<String, Integer> dayMinutes = new HashMap<>();
+        final Set<String> timeRanges = new LinkedHashSet<>();
     }
 
     private static final class SignatureAccumulator {
@@ -4628,14 +4630,12 @@ public final class ControlerWidgetRenderer {
                 ? appendPendingMeta(
                     describeCheckinCardMeta(
                         item,
-                        checked,
-                        countCheckinStreak(state, item, today)
+                        checked
                     )
                 )
                 : describeCheckinCardMeta(
                     item,
-                    checked,
-                    countCheckinStreak(state, item, today)
+                    checked
                 );
             card.actionLabel = checked ? "已打卡" : "打卡";
             card.command = ControlerWidgetActionHandler.COMMAND_TOGGLE_CHECKIN;
@@ -4889,6 +4889,13 @@ public final class ControlerWidgetRenderer {
                         ? accumulator.dayMinutes.get(currentDateText)
                         : 0) + durationMinutes
                 );
+                String timeRangeText = formatWidgetTimeWindow(
+                    plan == null ? "" : plan.startTime,
+                    plan == null ? "" : plan.endTime
+                );
+                if (!TextUtils.isEmpty(timeRangeText)) {
+                    accumulator.timeRanges.add(timeRangeText);
+                }
             }
             cursor.add(Calendar.DAY_OF_MONTH, 1);
         }
@@ -4914,29 +4921,17 @@ public final class ControlerWidgetRenderer {
         );
 
         for (PlanSummaryAccumulator summary : summaries) {
-            String busiestDateText = "";
-            int busiestMinutes = -1;
-            for (Map.Entry<String, Integer> entry : summary.dayMinutes.entrySet()) {
-                int value = entry.getValue() == null ? 0 : entry.getValue();
-                if (value > busiestMinutes) {
-                    busiestMinutes = value;
-                    busiestDateText = safeText(entry.getKey());
-                }
-            }
-
             WidgetItemCard card = new WidgetItemCard();
             card.title = safeText(summary.title);
-            String busiestLabel = formatFutureRelativeDateLabel(busiestDateText);
-            card.meta =
-                summary.planCount
-                    + " 项 · "
-                    + summary.dayMinutes.size()
-                    + " 天 · "
-                    + (
-                        TextUtils.isEmpty(busiestLabel)
-                            ? formatMinutesCompact(summary.totalMinutes)
-                            : busiestLabel + "较多"
-                    );
+            String timeRangeText =
+                summary.timeRanges.size() == 1
+                    ? summary.timeRanges.iterator().next()
+                    : "";
+            card.meta = joinWidgetMetaParts(
+                summary.planCount + "项",
+                summary.dayMinutes.size() + "天",
+                timeRangeText
+            );
             card.actionLabel = "查看计划";
             card.accentColor = summary.accentColor;
             cards.add(card);
@@ -6549,6 +6544,8 @@ public final class ControlerWidgetRenderer {
             signature.addString(todo == null ? "" : todo.dueDate);
             signature.addString(todo == null ? "" : todo.startDate);
             signature.addString(todo == null ? "" : todo.endDate);
+            signature.addString(todo == null ? "" : todo.startTime);
+            signature.addString(todo == null ? "" : todo.endTime);
             signature.addString(todo == null ? "" : todo.repeatType);
             signature.addBoolean(todo != null && todo.completed);
             signature.addString(todo == null ? "" : todo.color);
@@ -6575,11 +6572,14 @@ public final class ControlerWidgetRenderer {
             signature.addString(item == null ? "" : item.title);
             signature.addString(item == null ? "" : item.startDate);
             signature.addString(item == null ? "" : item.endDate);
+            signature.addString(item == null ? "" : item.startTime);
+            signature.addString(item == null ? "" : item.endTime);
             signature.addString(item == null ? "" : item.repeatType);
             signature.addString(item == null ? "" : item.color);
             signature.addString(item == null ? "" : item.status);
             signature.addString(item == null ? "" : item.deletedAt);
             appendIntegerListSignature(signature, item == null ? null : item.repeatWeekdays);
+            appendIntegerListSignature(signature, item == null ? null : item.repeatMonthDays);
         }
     }
 
@@ -6884,6 +6884,10 @@ public final class ControlerWidgetRenderer {
             int jsWeekday = day.get(Calendar.DAY_OF_WEEK) - 1;
             return item.repeatWeekdays != null && item.repeatWeekdays.contains(jsWeekday);
         }
+        if ("monthly".equals(repeatType)) {
+            return item.repeatMonthDays != null
+                && item.repeatMonthDays.contains(day.get(Calendar.DAY_OF_MONTH));
+        }
         return true;
     }
 
@@ -7130,6 +7134,62 @@ public final class ControlerWidgetRenderer {
         return (calendar.get(Calendar.MONTH) + 1) + "/" + calendar.get(Calendar.DAY_OF_MONTH);
     }
 
+    private static String joinWidgetMetaParts(String... parts) {
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        if (parts != null) {
+            for (String part : parts) {
+                String normalized = safeText(part).trim();
+                if (!TextUtils.isEmpty(normalized)) {
+                    values.add(normalized);
+                }
+            }
+        }
+        if (values.isEmpty()) {
+            return "";
+        }
+        return TextUtils.join(" · ", values);
+    }
+
+    private static String formatWidgetDateWindow(
+        String startDate,
+        String endDate,
+        String dueDate,
+        boolean includeDueDate
+    ) {
+        String normalizedStart = safeText(startDate).trim();
+        String normalizedEnd = safeText(endDate).trim();
+        String normalizedDue = safeText(dueDate).trim();
+        if (!TextUtils.isEmpty(normalizedStart) && !TextUtils.isEmpty(normalizedEnd)) {
+            String startLabel = formatMonthDayLabel(normalizedStart);
+            String endLabel = formatMonthDayLabel(normalizedEnd);
+            return normalizedStart.equals(normalizedEnd)
+                ? startLabel
+                : startLabel + "-" + endLabel;
+        }
+        if (!TextUtils.isEmpty(normalizedStart)) {
+            return formatMonthDayLabel(normalizedStart) + "起";
+        }
+        if (!TextUtils.isEmpty(normalizedEnd)) {
+            return "至" + formatMonthDayLabel(normalizedEnd);
+        }
+        if (includeDueDate && !TextUtils.isEmpty(normalizedDue)) {
+            return "截止 " + formatMonthDayLabel(normalizedDue);
+        }
+        return "";
+    }
+
+    private static String formatWidgetTimeWindow(String startTime, String endTime) {
+        String normalizedStart = safeText(startTime).trim();
+        String normalizedEnd = safeText(endTime).trim();
+        if (!TextUtils.isEmpty(normalizedStart) && !TextUtils.isEmpty(normalizedEnd)) {
+            return normalizedStart + "-" + normalizedEnd;
+        }
+        if (!TextUtils.isEmpty(normalizedStart)) {
+            return normalizedStart;
+        }
+        return normalizedEnd;
+    }
+
     private static String joinWeekdayLabels(List<Integer> weekdays) {
         if (weekdays == null || weekdays.isEmpty()) {
             return "";
@@ -7144,6 +7204,23 @@ public final class ControlerWidgetRenderer {
                 builder.append("、");
             }
             builder.append(labels[day]);
+        }
+        return builder.toString();
+    }
+
+    private static String joinMonthDayLabels(List<Integer> monthDays) {
+        if (monthDays == null || monthDays.isEmpty()) {
+            return "";
+        }
+        List<Integer> sorted = new ArrayList<>(monthDays);
+        Collections.sort(sorted);
+        StringBuilder builder = new StringBuilder();
+        for (int index = 0; index < sorted.size(); index++) {
+            int day = Math.max(1, Math.min(31, sorted.get(index)));
+            if (builder.length() > 0) {
+                builder.append("、");
+            }
+            builder.append(day).append("日");
         }
         return builder.toString();
     }
@@ -7181,18 +7258,39 @@ public final class ControlerWidgetRenderer {
             return "已完成";
         }
         if (!TextUtils.isEmpty(todo.repeatType) && !"none".equals(todo.repeatType)) {
-            return describeTodoRepeat(todo);
+            return joinWidgetMetaParts(
+                describeTodoRepeat(todo),
+                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
+                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+            );
         }
         if (today.equals(todo.dueDate)) {
-            return "今天截止";
+            return joinWidgetMetaParts(
+                "今天截止",
+                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
+                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+            );
         }
         if (!TextUtils.isEmpty(todo.dueDate) && todo.dueDate.compareTo(today) < 0) {
-            return "已逾期 · " + formatMonthDayLabel(todo.dueDate);
+            return joinWidgetMetaParts(
+                "已逾期",
+                formatMonthDayLabel(todo.dueDate),
+                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
+                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+            );
         }
         if (!TextUtils.isEmpty(todo.dueDate)) {
-            return "截止 " + formatMonthDayLabel(todo.dueDate);
+            return joinWidgetMetaParts(
+                "截止 " + formatMonthDayLabel(todo.dueDate),
+                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
+                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+            );
         }
-        return "待安排";
+        return joinWidgetMetaParts(
+            "待安排",
+            formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
+            formatWidgetTimeWindow(todo.startTime, todo.endTime)
+        );
     }
 
     private static boolean isWidgetTodoOverdue(
@@ -7344,6 +7442,10 @@ public final class ControlerWidgetRenderer {
             String labels = joinWeekdayLabels(item.repeatWeekdays);
             return TextUtils.isEmpty(labels) ? "每周" : "每周 " + labels;
         }
+        if ("monthly".equals(item.repeatType)) {
+            String labels = joinMonthDayLabels(item.repeatMonthDays);
+            return TextUtils.isEmpty(labels) ? "每月" : "每月 " + labels;
+        }
         return "每天";
     }
 
@@ -7384,22 +7486,17 @@ public final class ControlerWidgetRenderer {
 
     private static String describeCheckinCardMeta(
         ControlerWidgetDataStore.CheckinItemInfo item,
-        boolean checked,
-        int streak
+        boolean checked
     ) {
         if (item == null) {
             return "";
         }
-        StringBuilder builder = new StringBuilder();
-        builder.append(checked ? "已打卡" : "待打卡");
-        String repeatLabel = describeCheckinRepeat(item);
-        if (!TextUtils.isEmpty(repeatLabel)) {
-            builder.append(" · ").append(repeatLabel);
-        }
-        if (streak > 0) {
-            builder.append(" · 连击 ").append(streak).append(" 天");
-        }
-        return builder.toString();
+        return joinWidgetMetaParts(
+            checked ? "已打卡" : "待打卡",
+            describeCheckinRepeat(item),
+            formatWidgetDateWindow(item.startDate, item.endDate, "", false),
+            formatWidgetTimeWindow(item.startTime, item.endTime)
+        );
     }
 
     private static String shortWeekLabel(Calendar calendar) {

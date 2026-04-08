@@ -65,6 +65,8 @@
   const DEFAULT_THEME_RECORD_CARD = {
     mode: "project",
     color: "#72c28a",
+    projectOpacity: 100,
+    themeOpacity: 100,
   };
 
   function buildThemeDefinition(id, name, colorOverrides = {}, options = {}) {
@@ -1458,6 +1460,21 @@
     return fallback === "theme" ? "theme" : "project";
   }
 
+  function normalizeThemeRecordCardOpacity(
+    value,
+    fallback = DEFAULT_THEME_RECORD_CARD.projectOpacity,
+  ) {
+    const fallbackNumber = Number(fallback);
+    const normalizedFallback = Number.isFinite(fallbackNumber)
+      ? Math.max(0, Math.min(100, Math.round(fallbackNumber)))
+      : 100;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return normalizedFallback;
+    }
+    return Math.max(0, Math.min(100, Math.round(numericValue)));
+  }
+
   function resolveThemeRecordCard(theme = null, resolvedColors = null) {
     const source =
       theme?.recordCard && typeof theme.recordCard === "object"
@@ -1477,9 +1494,25 @@
     const resolvedColor =
       colorCandidates.find((value) => isValidThemeColorValue(value)) ||
       DEFAULT_THEME_RECORD_CARD.color;
+    const normalizedMode = normalizeThemeRecordCardMode(source?.mode);
+    const hasLegacyOpacity = Object.prototype.hasOwnProperty.call(source, "opacity");
+    const legacyOpacity = hasLegacyOpacity
+      ? normalizeThemeRecordCardOpacity(
+          source.opacity,
+          DEFAULT_THEME_RECORD_CARD.projectOpacity,
+        )
+      : null;
     return {
-      mode: normalizeThemeRecordCardMode(source?.mode),
+      mode: normalizedMode,
       color: String(resolvedColor || DEFAULT_THEME_RECORD_CARD.color).trim(),
+      projectOpacity: normalizeThemeRecordCardOpacity(
+        source?.projectOpacity,
+        legacyOpacity ?? DEFAULT_THEME_RECORD_CARD.projectOpacity,
+      ),
+      themeOpacity: normalizeThemeRecordCardOpacity(
+        source?.themeOpacity,
+        legacyOpacity ?? DEFAULT_THEME_RECORD_CARD.themeOpacity,
+      ),
     };
   }
 
@@ -1826,15 +1859,29 @@
             DEFAULT_THEME_RECORD_CARD.color,
           );
     const solidThemeCard = resolvedRecordCard.mode === "theme";
+    const projectOpacityRatio =
+      normalizeThemeRecordCardOpacity(
+        resolvedRecordCard.projectOpacity,
+        DEFAULT_THEME_RECORD_CARD.projectOpacity,
+      ) / 100;
+    const themeOpacityRatio =
+      normalizeThemeRecordCardOpacity(
+        resolvedRecordCard.themeOpacity,
+        DEFAULT_THEME_RECORD_CARD.themeOpacity,
+      ) / 100;
     const solidBackground = solidThemeCard
-      ? toRgbaColor(recordColor, 0.88)
+      ? toRgbaColor(recordColor, 0.88 * themeOpacityRatio)
       : "";
+    const themeSurfaceReference =
+      solidThemeCard && themeOpacityRatio > 0
+        ? solidBackground
+        : firstNonEmpty(resolvedColors.panelStrong, resolvedColors.panel, "#10141D");
     return {
       mode: solidThemeCard ? "theme" : "project",
       color: recordColor,
       titleColor: solidThemeCard
         ? ensureReadableTextColor(
-            solidBackground,
+            themeSurfaceReference,
             firstNonEmpty(
               resolvedColors.text,
               resolvedColors.onAccentText,
@@ -1847,12 +1894,12 @@
       borderColor: solidThemeCard
         ? toRgbaColor(
             mixThemeColors(recordColor, resolvedColors.text, 0.18),
-            0.78,
+            0.78 * themeOpacityRatio,
           )
-        : toRgbaColor(recordColor, 0.22),
+        : toRgbaColor(recordColor, 0.22 * projectOpacityRatio),
       background: solidThemeCard
-        ? solidBackground
-        : `linear-gradient(180deg, ${toRgbaColor(recordColor, 0.12)} 0%, ${toRgbaColor(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
+        ? `linear-gradient(180deg, ${solidBackground} 0%, ${solidBackground} 100%), var(--bg-quaternary)`
+        : `linear-gradient(180deg, ${toRgbaColor(recordColor, 0.12 * projectOpacityRatio)} 0%, ${toRgbaColor(recordColor, 0.03 * projectOpacityRatio)} 100%), var(--bg-quaternary)`,
       shadow: "none",
     };
   }
@@ -1974,7 +2021,11 @@
       normalizeThemeRecordCardMode(leftRecordCard?.mode) ===
         normalizeThemeRecordCardMode(rightRecordCard?.mode) &&
       normalizeThemeComparisonValue(leftRecordCard?.color) ===
-        normalizeThemeComparisonValue(rightRecordCard?.color)
+        normalizeThemeComparisonValue(rightRecordCard?.color) &&
+      normalizeThemeRecordCardOpacity(leftRecordCard?.projectOpacity) ===
+        normalizeThemeRecordCardOpacity(rightRecordCard?.projectOpacity) &&
+      normalizeThemeRecordCardOpacity(leftRecordCard?.themeOpacity) ===
+        normalizeThemeRecordCardOpacity(rightRecordCard?.themeOpacity)
     );
   }
 
@@ -2268,6 +2319,24 @@
       resolvedRecordCard.mode === "theme" ? "theme" : "project",
     );
     root.style.setProperty("--record-card-theme-color", resolvedRecordCard.color);
+    root.style.setProperty(
+      "--record-card-project-opacity",
+      String(
+        normalizeThemeRecordCardOpacity(
+          resolvedRecordCard.projectOpacity,
+          DEFAULT_THEME_RECORD_CARD.projectOpacity,
+        ),
+      ),
+    );
+    root.style.setProperty(
+      "--record-card-theme-opacity",
+      String(
+        normalizeThemeRecordCardOpacity(
+          resolvedRecordCard.themeOpacity,
+          DEFAULT_THEME_RECORD_CARD.themeOpacity,
+        ),
+      ),
+    );
     root.style.setProperty("--widget-surface-reference", widgetColors.surfaceReference);
     root.style.setProperty("--widget-window-surface", widgetColors.windowSurface);
     root.style.setProperty("--widget-window-glow", widgetColors.windowGlow);
@@ -3161,6 +3230,7 @@
     normalizeBuiltInThemeOverride,
     normalizeBuiltInThemeOverridesMap,
     normalizeThemeObject,
+    normalizeThemeRecordCardOpacity,
     resolveBuiltInTheme,
     resolveNavThemeTokens,
     resolveRecordCardSurfaceStyles,

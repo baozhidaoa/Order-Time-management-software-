@@ -480,6 +480,60 @@ function formatRelativeDateLabel(dateText) {
     : `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+function joinWidgetMetaParts(parts = []) {
+  const seen = new Set();
+  return (Array.isArray(parts) ? parts : [])
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const comparisonKey = part.toLowerCase();
+      if (seen.has(comparisonKey)) {
+        return false;
+      }
+      seen.add(comparisonKey);
+      return true;
+    })
+    .join(" · ");
+}
+
+function formatWidgetDateWindow({
+  startDate = "",
+  endDate = "",
+  dueDate = "",
+  includeDueDate = false,
+} = {}) {
+  const normalizedStart = String(startDate || "").trim();
+  const normalizedEnd = String(endDate || "").trim();
+  const normalizedDue = String(dueDate || "").trim();
+  if (normalizedStart && normalizedEnd) {
+    const startLabel = formatRelativeDateLabel(normalizedStart);
+    const endLabel = formatRelativeDateLabel(normalizedEnd);
+    return normalizedStart === normalizedEnd ? startLabel : `${startLabel}-${endLabel}`;
+  }
+  if (normalizedStart) {
+    return `${formatRelativeDateLabel(normalizedStart)}起`;
+  }
+  if (normalizedEnd) {
+    return `至${formatRelativeDateLabel(normalizedEnd)}`;
+  }
+  if (includeDueDate && normalizedDue) {
+    return `截止 ${formatRelativeDateLabel(normalizedDue)}`;
+  }
+  return "";
+}
+
+function formatWidgetTimeWindow({
+  startTime = "",
+  endTime = "",
+} = {}) {
+  const normalizedStart = String(startTime || "").trim();
+  const normalizedEnd = String(endTime || "").trim();
+  if (normalizedStart && normalizedEnd) {
+    return `${normalizedStart}-${normalizedEnd}`;
+  }
+  return normalizedStart || normalizedEnd || "";
+}
+
 function compareDateText(left, right) {
   const leftDate = parseDate(left);
   const rightDate = parseDate(right);
@@ -862,19 +916,23 @@ function getTodayTodoItems(state, limit = 6) {
     .slice(0, limit)
     .map((todo) => {
       const progressRecords = getTodoProgressRecords(state, todo?.id || "");
-      const lastProgress = progressRecords[0] || null;
       const dueState = getTodoDueState(todo, today);
+      const scheduleLead =
+        dueState.eyebrow === "未设置日期" ? dueState.status : dueState.eyebrow;
+      const dateWindow = formatWidgetDateWindow({
+        startDate: todo?.startDate,
+        endDate: todo?.endDate,
+      });
+      const timeWindow = formatWidgetTimeWindow({
+        startTime: todo?.startTime,
+        endTime: todo?.endTime,
+      });
       return {
         id: todo?.id || "",
         title: todo?.title || "未命名待办",
         eyebrow: dueState.eyebrow,
-        badge: dueState.status,
-        meta:
-          progressRecords.length > 0
-            ? `最近记录 ${formatTimeLabel(lastProgress?.time) || formatMonthDay(lastProgress?.time)}`
-            : todo?.completed
-              ? "已完成，可直接撤回"
-              : "可直接在这里完成",
+        badge: "",
+        meta: joinWidgetMetaParts([scheduleLead, dateWindow, timeWindow]),
         note: truncateText(getTodoCardDescription(todo, progressRecords), 64),
         accent: todo?.color || "#ed8936",
         actionLabel: todo?.completed ? "撤回" : "完成",
@@ -1055,14 +1113,25 @@ function getTodayCheckinItems(state, limit = 6) {
     .map((item) => {
       const todayEntry = getCheckinTodayEntry(state, item?.id, today);
       const checkedDays = getCheckinCheckedDaysCount(state, item?.id);
+      const dateWindow = formatWidgetDateWindow({
+        startDate: item?.startDate,
+        endDate: item?.endDate,
+      });
+      const timeWindow = formatWidgetTimeWindow({
+        startTime: item?.startTime,
+        endTime: item?.endTime,
+      });
       return {
         id: item?.id || "",
         title: item?.title || "未命名打卡",
         eyebrow: getCheckinRepeatSummary(item),
-        badge: todayEntry?.checked ? "已打卡" : "待打卡",
-        meta: todayEntry?.checked
-          ? `打卡时间 ${formatTimeLabel(todayEntry?.time) || "已记录"}`
-          : "可直接在这里完成打卡",
+        badge: "",
+        meta: joinWidgetMetaParts([
+          todayEntry?.checked ? "已打卡" : "待打卡",
+          getCheckinRepeatSummary(item),
+          dateWindow,
+          timeWindow,
+        ]),
         note: `已打卡天数: ${checkedDays}`,
         accent: item?.color || "#4299e1",
         actionLabel: todayEntry?.checked ? "撤回" : "打卡",

@@ -160,6 +160,8 @@ public final class ControlerWidgetDataStore {
         public String dueDate = "";
         public String startDate = "";
         public String endDate = "";
+        public String startTime = "";
+        public String endTime = "";
         public String repeatType = "none";
         public List<Integer> repeatWeekdays = new ArrayList<>();
         public boolean completed = false;
@@ -188,8 +190,11 @@ public final class ControlerWidgetDataStore {
         public String title = "";
         public String startDate = "";
         public String endDate = "";
+        public String startTime = "";
+        public String endTime = "";
         public String repeatType = "daily";
         public List<Integer> repeatWeekdays = new ArrayList<>();
+        public List<Integer> repeatMonthDays = new ArrayList<>();
         public String color = "#4299e1";
         public String status = "in_progress";
         public String deletedAt = "";
@@ -8164,6 +8169,8 @@ public final class ControlerWidgetDataStore {
             todo.dueDate = item.optString("dueDate", "");
             todo.startDate = item.optString("startDate", "");
             todo.endDate = item.optString("endDate", "");
+            todo.startTime = item.optString("startTime", "");
+            todo.endTime = item.optString("endTime", "");
             todo.repeatType = item.optString("repeatType", "none");
             todo.completed = item.optBoolean("completed", false);
             todo.color = item.optString("color", "#ed8936");
@@ -8196,8 +8203,11 @@ public final class ControlerWidgetDataStore {
             checkinItem.title = item.optString("title", "未命名打卡");
             checkinItem.startDate = item.optString("startDate", "");
             checkinItem.endDate = item.optString("endDate", "");
+            checkinItem.startTime = item.optString("startTime", "");
+            checkinItem.endTime = item.optString("endTime", "");
             checkinItem.repeatType = item.optString("repeatType", "daily");
             checkinItem.repeatWeekdays = parseIntArray(item.optJSONArray("repeatWeekdays"));
+            checkinItem.repeatMonthDays = parseIntArray(item.optJSONArray("repeatMonthDays"));
             checkinItem.color = item.optString("color", "#4299e1");
             checkinItem.status = item.optString("status", "in_progress");
             checkinItem.deletedAt = item.optString("deletedAt", "");
