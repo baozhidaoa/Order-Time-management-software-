@@ -50,6 +50,8 @@
     window.__controlerTodoRuntimePendingExternalRefresh === true;
   let todoPersistChain = Promise.resolve();
   let todoPendingPersistenceCount = 0;
+  let todoPendingReminderRefresh = false;
+  let todoReminderRefreshFlushPromise = null;
   let todoLastPersistenceError = null;
   let todoActiveSwipeDeleteShell = null;
   let todoSwipeDeleteDismissBound = false;
@@ -1497,6 +1499,7 @@
       mode = "inline",
       title = "正在加载数据中",
       delayMs = 0,
+      delegateToNative = true,
       message = mode === "fullscreen"
         ? "正在读取待办、打卡与今日进度，请稍候"
         : "正在同步待办与打卡数据，请稍候",
@@ -1512,6 +1515,7 @@
       title,
       message,
       delayMs,
+      delegateToNative,
     });
   }
 
@@ -2207,9 +2211,7 @@
       options;
     invalidateTodoDerivedCaches();
     if (refreshReminders) {
-      getReminderTools()?.refresh?.({
-        resetWindow: true,
-      });
+      todoPendingReminderRefresh = true;
     }
     todoLastPersistenceError = null;
     todoPendingPersistenceCount += 1;
@@ -2231,9 +2233,46 @@
         );
         if (todoPendingPersistenceCount <= 0) {
           flushTodoDeferredExternalRefreshIfNeeded();
+          flushTodoReminderRefreshIfNeeded();
         }
       });
     return todoPersistChain;
+  }
+
+  function flushTodoReminderRefreshIfNeeded() {
+    if (!todoPendingReminderRefresh || todoPendingPersistenceCount > 0) {
+      return;
+    }
+    if (todoReminderRefreshFlushPromise) {
+      return;
+    }
+    todoPendingReminderRefresh = false;
+    todoReminderRefreshFlushPromise = Promise.resolve(
+      ensureTodoReminderRuntimeLoaded(),
+    )
+      .then((tools) => {
+        if (!tools) {
+          return false;
+        }
+        tools.refresh?.({
+          resetWindow: true,
+        });
+        return Promise.resolve(
+          tools.syncNativeSchedule?.({
+            force: true,
+          }),
+        );
+      })
+      .catch((error) => {
+        console.error("刷新待办提醒状态失败:", error);
+        return false;
+      })
+      .finally(() => {
+        todoReminderRefreshFlushPromise = null;
+        if (todoPendingReminderRefresh && todoPendingPersistenceCount <= 0) {
+          flushTodoReminderRefreshIfNeeded();
+        }
+      });
   }
 
   async function flushTodoPendingPersistence() {
@@ -4774,6 +4813,85 @@
     );
   }
 
+  function hasStoredReminderPreference(rawNotification = {}) {
+    if (!rawNotification || typeof rawNotification !== "object") {
+      return false;
+    }
+    return [
+      "enabled",
+      "mode",
+      "customTime",
+      "customOffsetDays",
+      "minutesBefore",
+    ].some((key) => Object.prototype.hasOwnProperty.call(rawNotification, key));
+  }
+
+  function buildStartReminderSeed(
+    startTime = "",
+    endTime = "",
+    minutesBefore = getReminderTools()?.DEFAULT_START_REMINDER_MINUTES || 5,
+  ) {
+    const normalizedTimeRange = normalizeTodoTimeRangeFields({
+      startTime,
+      endTime,
+    });
+    if (
+      !normalizedTimeRange.startTime ||
+      !normalizedTimeRange.endTime ||
+      normalizedTimeRange.startTime >= normalizedTimeRange.endTime
+    ) {
+      return null;
+    }
+    const sharedSeed = getReminderTools()?.buildStartReminderSeed?.(
+      normalizedTimeRange.startTime,
+      minutesBefore,
+    );
+    if (sharedSeed) {
+      return sharedSeed;
+    }
+    const [hoursText, minutesText] = normalizedTimeRange.startTime.split(":");
+    let totalMinutes =
+      parseInt(hoursText, 10) * 60 +
+      parseInt(minutesText, 10) -
+      Math.max(1, Number(minutesBefore) || 5);
+    let customOffsetDays = 0;
+    while (totalMinutes < 0) {
+      totalMinutes += 24 * 60;
+      customOffsetDays -= 1;
+    }
+    return {
+      customTime: `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`,
+      customOffsetDays,
+      minutesBefore: Math.max(1, Number(minutesBefore) || 5),
+    };
+  }
+
+  function getTodoEffectiveEndDate({
+    startDate = "",
+    endDate = "",
+    dueDate = "",
+  } = {}) {
+    return String(endDate || dueDate || startDate || "").trim();
+  }
+
+  function isTodoNonRepeatSingleDay({
+    startDate = "",
+    endDate = "",
+    dueDate = "",
+  } = {}) {
+    const normalizedStartDate = String(startDate || dueDate || "").trim();
+    const normalizedEndDate = getTodoEffectiveEndDate({
+      startDate: normalizedStartDate,
+      endDate,
+      dueDate,
+    });
+    return (
+      !!normalizedStartDate &&
+      !!normalizedEndDate &&
+      normalizedStartDate === normalizedEndDate
+    );
+  }
+
   function inferTodoReminderMode(
     rawNotification = {},
     allowedModes = [],
@@ -4801,14 +4919,24 @@
   ) {
     const reminder =
       rawNotification && typeof rawNotification === "object" ? rawNotification : {};
-    const mode = inferTodoReminderMode(reminder, ["none", "custom"]);
+    const defaultSeed = buildStartReminderSeed(
+      todoLike?.startTime,
+      todoLike?.endTime,
+    );
+    const mode = inferTodoReminderMode(
+      reminder,
+      ["none", "custom"],
+      !hasStoredReminderPreference(reminder) && defaultSeed ? "custom" : "none",
+    );
     return {
       enabled: mode !== "none" && reminder.enabled !== false,
       mode,
-      customTime: normalizeTodoReminderTimeText(reminder.customTime || "09:00"),
+      customTime: normalizeTodoReminderTimeText(
+        reminder.customTime || defaultSeed?.customTime || "09:00",
+      ),
       customOffsetDays: normalizeTodoReminderOffsetDays(
         reminder.customOffsetDays,
-        0,
+        defaultSeed?.customOffsetDays || 0,
       ),
     };
   }
@@ -4819,14 +4947,28 @@
   ) {
     const reminder =
       rawNotification && typeof rawNotification === "object" ? rawNotification : {};
-    const mode = inferTodoReminderMode(reminder, ["none", "custom"]);
+    const defaultSeed = buildStartReminderSeed(
+      itemLike?.startTime,
+      itemLike?.endTime,
+    );
+    const mode = inferTodoReminderMode(
+      reminder,
+      ["none", "custom"],
+      !hasStoredReminderPreference(reminder) && defaultSeed ? "custom" : "none",
+    );
     return {
       enabled: mode !== "none" && reminder.enabled !== false,
       mode,
       customTime: normalizeTodoReminderTimeText(
-        reminder.customTime || itemLike?.customTime || "09:00",
+        reminder.customTime ||
+          defaultSeed?.customTime ||
+          itemLike?.customTime ||
+          "09:00",
       ),
-      customOffsetDays: 0,
+      customOffsetDays: normalizeTodoReminderOffsetDays(
+        reminder.customOffsetDays,
+        defaultSeed?.customOffsetDays || 0,
+      ),
     };
   }
 
@@ -4847,8 +4989,8 @@
   function getTodoReminderBaseDate(todoLike = null) {
     return (
       todoLike?._occurrenceDate ||
-      todoLike?.dueDate ||
       todoLike?.startDate ||
+      todoLike?.dueDate ||
       getLocalDateText()
     );
   }
@@ -4914,13 +5056,36 @@
   `;
   }
 
-  function bindTodoReminderInputs(modal, prefix = "todo") {
+  function bindTodoReminderInputs(modal, prefix = "todo", options = {}) {
     const radios = modal.querySelectorAll(
       `input[name="${prefix}-notification-mode"]`,
     );
     const customWrap = modal.querySelector(
       `#${prefix}-notification-custom-wrap`,
     );
+    const customInput = modal.querySelector(
+      `#${prefix}-notification-custom-input`,
+    );
+    const noneRadio = modal.querySelector(
+      `input[name="${prefix}-notification-mode"][value="none"]`,
+    );
+    const customRadio = modal.querySelector(
+      `input[name="${prefix}-notification-mode"][value="custom"]`,
+    );
+    const startDateInput = modal.querySelector("#todo-start-date-input");
+    const startTimeInput = modal.querySelector("#todo-start-time-input");
+    const endTimeInput = modal.querySelector("#todo-end-time-input");
+    const repeatInputs = modal.querySelectorAll(
+      'input[name="todo-repeat-type"]',
+    );
+    const hasPersistedPreference =
+      getReminderTools()?.hasStoredReminderPreference?.(
+        options?.todoLike?.notification,
+      ) || hasStoredReminderPreference(options?.todoLike?.notification);
+    let reminderTouched = hasPersistedPreference;
+    let customInputDirty = false;
+    let applyingDefaultMode = false;
+
     const syncReminderMode = () => {
       const activeMode =
         modal.querySelector(`input[name="${prefix}-notification-mode"]:checked`)
@@ -4929,29 +5094,9 @@
         customWrap.style.display = activeMode === "custom" ? "block" : "none";
       }
     };
-    radios.forEach((radio) => {
-      radio.addEventListener("change", syncReminderMode);
-    });
-    syncReminderMode();
-  }
-
-  function bindTodoReminderBaseDateSync(modal, prefix = "todo") {
-    const customInput = modal.querySelector(
-      `#${prefix}-notification-custom-input`,
-    );
-    if (!customInput) {
-      return;
-    }
-
-    const dueDateInput = modal.querySelector("#todo-due-date-input");
-    const startDateInput = modal.querySelector("#todo-start-date-input");
-    const repeatInputs = modal.querySelectorAll(
-      'input[name="todo-repeat-type"]',
-    );
-    let customInputDirty = false;
 
     const syncCustomReminderInput = () => {
-      if (customInputDirty) {
+      if (!(customInput instanceof HTMLInputElement)) {
         return;
       }
       const activeMode =
@@ -4960,29 +5105,74 @@
       if (activeMode !== "custom") {
         return;
       }
-      const repeatType =
-        modal.querySelector('input[name="todo-repeat-type"]:checked')?.value ||
-        "none";
-      const baseDateText =
-        repeatType === "none"
-          ? dueDateInput?.value || startDateInput?.value || getLocalDateText()
-          : startDateInput?.value || dueDateInput?.value || getLocalDateText();
+      const baseDateText = startDateInput?.value || getLocalDateText();
+      const defaultSeed = buildStartReminderSeed(
+        startTimeInput?.value,
+        endTimeInput?.value,
+      );
+      if (!customInputDirty && !hasPersistedPreference && defaultSeed) {
+        customInput.value =
+          getReminderTools()?.buildRelativeCustomDateTimeValue?.(
+            baseDateText,
+            defaultSeed,
+            defaultSeed.customTime,
+          ) || `${baseDateText}T${defaultSeed.customTime}`;
+        return;
+      }
+      if (customInputDirty) {
+        return;
+      }
       const timeText =
         (customInput.value.includes("T")
           ? customInput.value.split("T")[1]
-          : "") || "09:00";
+          : "") ||
+        defaultSeed?.customTime ||
+        "09:00";
       customInput.value = `${baseDateText}T${timeText}`;
     };
 
-    customInput.addEventListener("change", () => {
+    const syncReminderDefaults = () => {
+      const defaultSeed = buildStartReminderSeed(
+        startTimeInput?.value,
+        endTimeInput?.value,
+      );
+      if (!hasPersistedPreference && !reminderTouched) {
+        applyingDefaultMode = true;
+        if (defaultSeed) {
+          customRadio && (customRadio.checked = true);
+        } else {
+          noneRadio && (noneRadio.checked = true);
+        }
+        applyingDefaultMode = false;
+      }
+      syncReminderMode();
+      syncCustomReminderInput();
+    };
+
+    radios.forEach((radio) => {
+      radio.addEventListener("change", () => {
+        if (!applyingDefaultMode) {
+          reminderTouched = true;
+        }
+        syncReminderMode();
+        syncCustomReminderInput();
+      });
+    });
+    customInput?.addEventListener("input", () => {
       customInputDirty = true;
+      reminderTouched = true;
     });
-    dueDateInput?.addEventListener("change", syncCustomReminderInput);
-    startDateInput?.addEventListener("change", syncCustomReminderInput);
+    customInput?.addEventListener("change", () => {
+      customInputDirty = true;
+      reminderTouched = true;
+    });
+    startDateInput?.addEventListener("change", syncReminderDefaults);
+    startTimeInput?.addEventListener("change", syncReminderDefaults);
+    endTimeInput?.addEventListener("change", syncReminderDefaults);
     repeatInputs.forEach((input) => {
-      input.addEventListener("change", syncCustomReminderInput);
+      input.addEventListener("change", syncReminderDefaults);
     });
-    syncCustomReminderInput();
+    syncReminderDefaults();
   }
 
   function readTodoReminderConfig(modal, todoLike = {}, prefix = "todo") {
@@ -5001,16 +5191,21 @@
     }
     const customInputValue =
       modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
+    const defaultSeed = buildStartReminderSeed(
+      todoLike?.startTime,
+      todoLike?.endTime,
+    );
     const parsedCustomConfig =
       getReminderTools()?.parseRelativeCustomDateTimeInput?.(
         customInputValue,
         baseDateText,
         {
-          fallbackTime: "09:00",
+          fallbackTime: defaultSeed?.customTime || "09:00",
+          fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
         },
       ) || {
-        customTime: "09:00",
-        customOffsetDays: 0,
+        customTime: defaultSeed?.customTime || "09:00",
+        customOffsetDays: defaultSeed?.customOffsetDays || 0,
       };
     return normalizeTodoNotificationConfig(
       {
@@ -5057,6 +5252,7 @@
           type="time"
           id="${prefix}-notification-time-input"
           value="${reminderConfig.customTime}"
+          data-reminder-offset-days="${reminderConfig.customOffsetDays || 0}"
           style="
             width: 100%;
             padding: 10px;
@@ -5075,13 +5271,32 @@
   `;
   }
 
-  function bindCheckinReminderInputs(modal, prefix = "checkin") {
+  function bindCheckinReminderInputs(modal, prefix = "checkin", options = {}) {
     const radios = modal.querySelectorAll(
       `input[name="${prefix}-notification-mode"]`,
     );
     const customWrap = modal.querySelector(
       `#${prefix}-notification-custom-wrap`,
     );
+    const customInput = modal.querySelector(
+      `#${prefix}-notification-time-input`,
+    );
+    const noneRadio = modal.querySelector(
+      `input[name="${prefix}-notification-mode"][value="none"]`,
+    );
+    const customRadio = modal.querySelector(
+      `input[name="${prefix}-notification-mode"][value="custom"]`,
+    );
+    const startTimeInput = modal.querySelector("#checkin-start-time-input");
+    const endTimeInput = modal.querySelector("#checkin-end-time-input");
+    const hasPersistedPreference =
+      getReminderTools()?.hasStoredReminderPreference?.(
+        options?.itemLike?.notification,
+      ) || hasStoredReminderPreference(options?.itemLike?.notification);
+    let reminderTouched = hasPersistedPreference;
+    let customInputDirty = false;
+    let applyingDefaultMode = false;
+
     const syncReminderMode = () => {
       const activeMode =
         modal.querySelector(`input[name="${prefix}-notification-mode"]:checked`)
@@ -5090,10 +5305,56 @@
         customWrap.style.display = activeMode === "custom" ? "block" : "none";
       }
     };
+
+    const syncReminderDefaults = () => {
+      const defaultSeed = buildStartReminderSeed(
+        startTimeInput?.value,
+        endTimeInput?.value,
+      );
+      if (!hasPersistedPreference && !reminderTouched) {
+        applyingDefaultMode = true;
+        if (defaultSeed) {
+          customRadio && (customRadio.checked = true);
+        } else {
+          noneRadio && (noneRadio.checked = true);
+        }
+        applyingDefaultMode = false;
+      }
+      syncReminderMode();
+      if (
+        customInput instanceof HTMLInputElement &&
+        !customInputDirty &&
+        !hasPersistedPreference &&
+        defaultSeed
+      ) {
+        customInput.value = defaultSeed.customTime;
+        customInput.dataset.reminderOffsetDays = String(
+          defaultSeed.customOffsetDays || 0,
+        );
+      }
+    };
+
     radios.forEach((radio) => {
-      radio.addEventListener("change", syncReminderMode);
+      radio.addEventListener("change", () => {
+        if (!applyingDefaultMode) {
+          reminderTouched = true;
+        }
+        syncReminderMode();
+      });
     });
-    syncReminderMode();
+    customInput?.addEventListener("input", () => {
+      customInputDirty = true;
+      reminderTouched = true;
+      customInput.dataset.reminderOffsetDays = "0";
+    });
+    customInput?.addEventListener("change", () => {
+      customInputDirty = true;
+      reminderTouched = true;
+      customInput.dataset.reminderOffsetDays = "0";
+    });
+    startTimeInput?.addEventListener("change", syncReminderDefaults);
+    endTimeInput?.addEventListener("change", syncReminderDefaults);
+    syncReminderDefaults();
   }
 
   function readCheckinReminderConfig(modal, itemLike = {}, prefix = "checkin") {
@@ -5116,6 +5377,9 @@
         customTime:
           modal.querySelector(`#${prefix}-notification-time-input`)?.value ||
           "09:00",
+        customOffsetDays:
+          modal.querySelector(`#${prefix}-notification-time-input`)?.dataset
+            ?.reminderOffsetDays || 0,
       },
       itemLike,
     );
@@ -5720,14 +5984,20 @@
       normalizedRepeatType === "monthly"
         ? normalizeTodoMonthDayList(repeatMonthDays)
         : [];
-    const normalizedDueDate =
-      normalizedRepeatType === "none" ? dueDate || "" : "";
     const normalizedStartDate =
       normalizedRepeatType === "none"
-        ? normalizedDueDate || startDate || todayText
+        ? startDate || dueDate || todayText
         : startDate || todayText;
     const normalizedEndDate =
-      normalizedRepeatType === "none" ? "" : endDate || "";
+      normalizedRepeatType === "none" ? endDate || "" : endDate || "";
+    const normalizedDueDate =
+      normalizedRepeatType === "none"
+        ? getTodoEffectiveEndDate({
+            startDate: normalizedStartDate,
+            endDate: normalizedEndDate,
+            dueDate,
+          })
+        : "";
 
     if (
       normalizedRepeatType === "weekly" &&
@@ -6127,7 +6397,36 @@
     });
   }
 
-  function appendTodoManagedModal(modal, role = "") {
+  function isTodoManagedModalDeferredAutofocusRuntime() {
+    return document.body?.classList.contains("controler-android-native") === true;
+  }
+
+  function getTodoManagedModalTextAutofocusOptions() {
+    return {
+      delayMs: 40,
+      retryDelayMs: 120,
+      selectText: true,
+    };
+  }
+
+  function resumeTodoManagedModalTextAutofocus(modal) {
+    if (!(modal instanceof HTMLElement) || !modal.isConnected) {
+      return false;
+    }
+    delete modal.dataset.controlerDisableAutofocus;
+    const activeControl = document.activeElement;
+    if (activeControl instanceof HTMLElement && modal.contains(activeControl)) {
+      return false;
+    }
+    return (
+      uiTools?.autofocusInteractiveTextControl?.(
+        modal,
+        getTodoManagedModalTextAutofocusOptions(),
+      ) || false
+    );
+  }
+
+  function appendTodoManagedModal(modal, role = "", options = {}) {
     if (
       !(modal instanceof HTMLElement) ||
       !(typeof document !== "undefined" && document.body instanceof HTMLElement)
@@ -6144,19 +6443,31 @@
       body instanceof HTMLElement &&
       (body.classList.contains("controler-mobile-runtime") ||
         body.classList.contains("controler-android-native"));
+    const deferTextAutofocus =
+      options?.deferTextAutofocus === true &&
+      isTodoManagedModalDeferredAutofocusRuntime();
+    if (deferTextAutofocus) {
+      modal.dataset.controlerDisableAutofocus = "true";
+    } else {
+      delete modal.dataset.controlerDisableAutofocus;
+    }
     if (typeof uiTools?.prepareModalOverlay === "function") {
       uiTools.prepareModalOverlay(modal, {
         zIndex: Number.parseInt(modal.style.zIndex || "", 10),
         scope: preferViewportScope ? "viewport" : undefined,
+        textAutofocus: deferTextAutofocus
+          ? null
+          : getTodoManagedModalTextAutofocusOptions(),
       });
     } else {
       document.body.appendChild(modal);
+      if (!deferTextAutofocus) {
+        uiTools?.autofocusInteractiveTextControl?.(
+          modal,
+          getTodoManagedModalTextAutofocusOptions(),
+        );
+      }
     }
-    uiTools?.autofocusInteractiveTextControl?.(modal, {
-      delayMs: 40,
-      retryDelayMs: 120,
-      selectText: true,
-    });
   }
 
   function scheduleTodoFormModalFieldReveal(modal, target, options = {}) {
@@ -6834,30 +7145,33 @@
       title = "正在保存数据",
       message = "正在写入待办与打卡数据，请稍候",
       perfAction = "todo-mutation",
+      delegateToNative = false,
     } = options;
     uiTools?.markPerfStage?.("todo-form-save-start", {
       allowRepeat: true,
       action: perfAction,
     });
-    setTodoLoadingState({
+    await setTodoLoadingState({
       active: true,
       mode: "fullscreen",
       title,
       message,
       delayMs: 0,
+      delegateToNative,
     });
     try {
       await waitForTodoUiPaint();
-      finalizeTodoModalChange(closeModal, {
-        refreshView,
-      });
-      uiTools?.markPerfStage?.("todo-form-modal-hidden", {
-        allowRepeat: true,
-        action: perfAction,
-      });
       const result = typeof task === "function" ? await task() : true;
       if (result !== false) {
         uiTools?.markPerfStage?.("todo-form-storage-acked", {
+          allowRepeat: true,
+          action: perfAction,
+        });
+        finalizeTodoModalChange(closeModal, {
+          refreshView,
+        });
+        await waitForTodoUiPaint();
+        uiTools?.markPerfStage?.("todo-form-modal-hidden", {
           allowRepeat: true,
           action: perfAction,
         });
@@ -6866,6 +7180,7 @@
     } finally {
       await setTodoLoadingState({
         active: false,
+        delegateToNative,
       });
     }
   }
@@ -8210,9 +8525,6 @@
   function saveData() {
     try {
       invalidateTodoDerivedCaches();
-      getReminderTools()?.refresh?.({
-        resetWindow: true,
-      });
       return queueTodoPersist();
     } catch (e) {
       console.error("保存数据失败:", e);
@@ -9200,22 +9512,6 @@
           ">${todo?.description || ""}</textarea>
         </div>
         
-        <!-- 截止日期 -->
-        <div id="todo-due-date-field">
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-            截止日期
-          </label>
-          <input type="date" id="todo-due-date-input" value="${todo?.dueDate || ""}" style="
-            width: 100%;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--bg-tertiary);
-            background-color: var(--bg-quaternary);
-            color: var(--text-color);
-            font-size: 16px;
-          ">
-        </div>
-
         <!-- 重复规则 -->
         <div>
           <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
@@ -9290,7 +9586,7 @@
         <div
           id="todo-repeat-date-range"
           class="modal-date-range controler-form-modal-date-range"
-          style="opacity: ${todo?.repeatType && todo.repeatType !== "none" ? "1" : "0.6"};"
+          style="opacity: 1;"
         >
           <div class="modal-date-field">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
@@ -9322,7 +9618,18 @@
           </div>
         </div>
 
-        <div class="controler-form-modal-split controler-form-modal-time-range">
+        <div
+          id="todo-time-range-disabled-hint"
+          class="controler-form-modal-disabled-hint"
+          hidden
+        >
+          仅不重复且同一天时可设置时间
+        </div>
+
+        <div
+          id="todo-time-range-section"
+          class="controler-form-modal-split controler-form-modal-time-range"
+        >
           <div class="modal-date-field">
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
@@ -9415,7 +9722,10 @@
     </div>
   `;
 
-    appendTodoManagedModal(modal, "todo-edit");
+    const deferModalTextAutofocus = isTodoManagedModalDeferredAutofocusRuntime();
+    appendTodoManagedModal(modal, "todo-edit", {
+      deferTextAutofocus: deferModalTextAutofocus,
+    });
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
@@ -9424,9 +9734,16 @@
       `draft:todo:${todo?.id || "new"}:${isEditMode ? "edit" : "create"}`,
       "todo",
     );
-    void todoDraftSession.restore().catch((error) => {
-      console.error("恢复待办草稿失败:", error);
-    });
+    void todoDraftSession
+      .restore()
+      .catch((error) => {
+        console.error("恢复待办草稿失败:", error);
+      })
+      .finally(() => {
+        if (deferModalTextAutofocus) {
+          resumeTodoManagedModalTextAutofocus(modal);
+        }
+      });
     const discardTodoDraft = () => {
       void todoDraftSession.clear().catch((error) => {
         console.error("清理待办草稿失败:", error);
@@ -9450,16 +9767,37 @@
     );
     const weekdayWrap = modal.querySelector("#todo-weekday-wrap");
     const monthdayWrap = modal.querySelector("#todo-monthday-wrap");
-    const dueDateField = modal.querySelector("#todo-due-date-field");
-    const dueDateInput = modal.querySelector("#todo-due-date-input");
     const repeatDateRange = modal.querySelector("#todo-repeat-date-range");
+    const timeRangeHint = modal.querySelector("#todo-time-range-disabled-hint");
+    const timeRangeSection = modal.querySelector("#todo-time-range-section");
     const startDateInput = modal.querySelector("#todo-start-date-input");
     const endDateInput = modal.querySelector("#todo-end-date-input");
+    const startTimeInput = modal.querySelector("#todo-start-time-input");
+    const endTimeInput = modal.querySelector("#todo-end-time-input");
+    const syncTodoTimeRangeState = (disabled) => {
+      if (!(timeRangeSection instanceof HTMLElement)) {
+        return;
+      }
+      timeRangeSection.classList.toggle("is-disabled", disabled);
+      if (timeRangeHint instanceof HTMLElement) {
+        timeRangeHint.hidden = !disabled;
+      }
+      if (disabled) {
+        timeRangeSection.setAttribute("aria-disabled", "true");
+        return;
+      }
+      timeRangeSection.removeAttribute("aria-disabled");
+    };
     const syncTodoScheduleInputs = () => {
       const activeRepeatType =
         modal.querySelector('input[name="todo-repeat-type"]:checked')?.value ||
         "none";
-      const repeatEnabled = activeRepeatType !== "none";
+      const allowSingleDayTime =
+        activeRepeatType !== "none" ||
+        isTodoNonRepeatSingleDay({
+          startDate: startDateInput?.value,
+          endDate: endDateInput?.value,
+        });
       if (weekdayWrap) {
         weekdayWrap.style.display =
           activeRepeatType === "weekly" ? "block" : "none";
@@ -9469,29 +9807,32 @@
           activeRepeatType === "monthly" ? "block" : "none";
       }
       if (repeatDateRange) {
-        repeatDateRange.style.opacity = repeatEnabled ? "1" : "0.6";
-      }
-      if (dueDateField) {
-        dueDateField.style.opacity = repeatEnabled ? "0.6" : "1";
-      }
-      if (dueDateInput) {
-        dueDateInput.disabled = repeatEnabled;
-        if (repeatEnabled) {
-          dueDateInput.value = "";
-        }
+        repeatDateRange.style.opacity = "1";
       }
       [startDateInput, endDateInput].forEach((input) => {
         if (input) {
-          input.disabled = !repeatEnabled;
+          input.disabled = false;
         }
       });
+      [startTimeInput, endTimeInput].forEach((input) => {
+        if (input) {
+          input.disabled = !allowSingleDayTime;
+          if (!allowSingleDayTime) {
+            input.value = "";
+          }
+        }
+      });
+      syncTodoTimeRangeState(!allowSingleDayTime);
     };
     repeatRadios.forEach((radio) => {
       radio.addEventListener("change", syncTodoScheduleInputs);
     });
+    startDateInput?.addEventListener("change", syncTodoScheduleInputs);
+    endDateInput?.addEventListener("change", syncTodoScheduleInputs);
     syncTodoScheduleInputs();
-    bindTodoReminderInputs(modal, "todo");
-    bindTodoReminderBaseDateSync(modal, "todo");
+    bindTodoReminderInputs(modal, "todo", {
+      todoLike: todo,
+    });
     unbindModalActions = bindTodoModalActions(modal, {
       cancel: () => closeTodoModal({ discardDraft: true }),
       save: createTodoModalLockedAction(modal, () =>
@@ -9552,7 +9893,6 @@
     const description = modal
       .querySelector("#todo-description-input")
       .value.trim();
-    const dueDate = modal.querySelector("#todo-due-date-input").value;
     const repeatType =
       modal.querySelector('input[name="todo-repeat-type"]:checked')?.value ||
       "none";
@@ -9564,7 +9904,6 @@
     ).map((input) => parseInt(input.value, 10));
     const rawStartDate =
       modal.querySelector("#todo-start-date-input")?.value ||
-      dueDate ||
       getLocalDateText();
     const rawEndDate = modal.querySelector("#todo-end-date-input")?.value || "";
     const startTime = modal.querySelector("#todo-start-time-input")?.value || "";
@@ -9587,7 +9926,7 @@
     }
 
     const normalizedSchedule = normalizeTodoScheduleFields({
-      dueDate,
+      dueDate: rawEndDate || rawStartDate || "",
       repeatType,
       repeatWeekdays,
       repeatMonthDays,
@@ -9604,14 +9943,19 @@
         ...todoData,
         dueDate: normalizedSchedule.dueDate,
         startDate: normalizedSchedule.startDate,
+        endDate: normalizedSchedule.endDate,
         repeatType: normalizedSchedule.repeatType,
-        _occurrenceDate:
-          normalizedSchedule.repeatType === "none"
-            ? normalizedSchedule.dueDate
-            : normalizedSchedule.startDate,
+        _occurrenceDate: normalizedSchedule.startDate,
+        startTime: normalizedTimeRange.startTime,
+        endTime: normalizedTimeRange.endTime,
       },
       "todo",
     );
+    const isSingleDayNonRepeatTodo = isTodoNonRepeatSingleDay({
+      startDate: normalizedSchedule.startDate,
+      endDate: normalizedSchedule.endDate,
+      dueDate: normalizedSchedule.dueDate,
+    });
 
     if (
       normalizedSchedule.repeatType === "weekly" &&
@@ -9630,7 +9974,6 @@
     }
 
     if (
-      normalizedSchedule.repeatType !== "none" &&
       normalizedSchedule.endDate &&
       normalizedSchedule.startDate &&
       normalizedSchedule.endDate < normalizedSchedule.startDate
@@ -9659,9 +10002,9 @@
     if (
       normalizedSchedule.repeatType === "none" &&
       normalizedTimeRange.startTime &&
-      !normalizedSchedule.dueDate
+      !isSingleDayNonRepeatTodo
     ) {
-      alert("设置计划时间段时，请先选择截止日期");
+      alert("不重复的待办只有在开始日期和结束日期为同一天时才能设置时间");
       return false;
     }
 
@@ -9846,7 +10189,10 @@
     </div>
   `;
 
-    appendTodoManagedModal(modal, "todo-progress");
+    const deferModalTextAutofocus = isTodoManagedModalDeferredAutofocusRuntime();
+    appendTodoManagedModal(modal, "todo-progress", {
+      deferTextAutofocus: deferModalTextAutofocus,
+    });
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
@@ -9856,9 +10202,16 @@
       `draft:todo-progress:${todoId}:${existingRecord?.id || "new"}`,
       "todo-progress",
     );
-    void progressDraftSession.restore().catch((error) => {
-      console.error("恢复进度草稿失败:", error);
-    });
+    void progressDraftSession
+      .restore()
+      .catch((error) => {
+        console.error("恢复进度草稿失败:", error);
+      })
+      .finally(() => {
+        if (deferModalTextAutofocus) {
+          resumeTodoManagedModalTextAutofocus(modal);
+        }
+      });
     const discardProgressDraft = () => {
       void progressDraftSession.clear().catch((error) => {
         console.error("清理进度草稿失败:", error);
@@ -10214,10 +10567,6 @@
   // 显示类型选择弹窗
   function showTodoTypeModal() {
     const modal = document.createElement("div");
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
     let nextModalQueued = false;
     modal.className = "modal-overlay";
     modal.style.display = "flex";
@@ -10253,16 +10602,16 @@
 
     appendTodoManagedModal(modal, "todo-type");
     uiTools?.stopModalContentPropagation?.(modal);
-    const closeThenOpen = (openNext) => {
+    const openNextManagedModal = (openNext) => {
       if (nextModalQueued || typeof openNext !== "function") {
         return;
       }
       nextModalQueued = true;
-      closeModalElement(modal);
-      schedule(() => {
-        nextModalQueued = false;
+      try {
         openNext();
-      });
+      } finally {
+        nextModalQueued = false;
+      }
     };
 
     // 绑定事件
@@ -10271,13 +10620,13 @@
     });
 
     modal.querySelector("#create-todo-btn").addEventListener("click", () => {
-      closeThenOpen(() => {
+      openNextManagedModal(() => {
         showTodoEditModal();
       });
     });
 
     modal.querySelector("#create-checkin-btn").addEventListener("click", () => {
-      closeThenOpen(() => {
+      openNextManagedModal(() => {
         showCheckinItemModal();
       });
     });
@@ -10691,7 +11040,9 @@
       preferredMenuWidth: 220,
       maxMenuWidth: 260,
     });
-    bindCheckinReminderInputs(modal, "checkin");
+    bindCheckinReminderInputs(modal, "checkin", {
+      itemLike: modalItem,
+    });
 
     // 绑定事件
     const cancelAction = () => {
@@ -10797,7 +11148,10 @@
             {
               ...itemData,
               startDate,
+              endDate,
               repeatType,
+              startTime: normalizedTimeRange.startTime,
+              endTime: normalizedTimeRange.endTime,
             },
             "checkin",
           );

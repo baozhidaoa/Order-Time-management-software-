@@ -939,7 +939,11 @@ function getTodoRepeatSummary(todo = {}) {
       : [];
     return `每周 ${labels.join("、") || "未设置"}`;
   }
-  return todo?.dueDate ? `截止 ${formatRelativeDateLabel(todo.dueDate)}` : "待安排";
+  const dateWindow = formatWidgetDateWindow({
+    startDate: todo?.startDate,
+    endDate: todo?.endDate,
+  });
+  return dateWindow || "待安排";
 }
 
 function getTodoDueState(todo = {}, today = getLocalDateText(new Date())) {
@@ -1383,7 +1387,9 @@ function getWidgetTodoItems(state) {
       const progressRecords = getTodoProgressRecords(state, todo?.id || "");
       const dueState = getTodoDueState(todo, today);
       const scheduleLead =
-        dueState.eyebrow === "未设置日期" ? dueState.status : dueState.eyebrow;
+        todo?.repeatType && todo.repeatType !== "none"
+          ? getTodoRepeatSummary(todo)
+          : dueState.status;
       const dateWindow = formatWidgetDateWindow({
         startDate: todo?.startDate,
         endDate: todo?.endDate,
@@ -2206,6 +2212,9 @@ function resolvePreviewSupplementaryItemCount(kind, itemCards, metrics) {
     !isPreviewPrimaryKind(kind)
   ) {
     return 0;
+  }
+  if (String(kind || "") === "week-view") {
+    return itemCards.length;
   }
   if (metrics.width < 200 || metrics.height < 150) {
     return 0;

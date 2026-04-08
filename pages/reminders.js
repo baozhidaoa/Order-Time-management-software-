@@ -7,6 +7,7 @@
   const MINUTE_MS = 60 * 1000;
   const MAX_CUSTOM_OFFSET_DAYS = 30;
   const MAX_PLAN_BEFORE_MINUTES = 7 * 24 * 60;
+  const DEFAULT_START_REMINDER_MINUTES = 5;
   const REMINDER_SYNC_LOOKAHEAD_DAYS = 45;
   const REMINDER_SYNC_DEBOUNCE_MS = 600;
   const SHOWN_REMINDER_STORAGE_KEY = "__controler_shown_reminders__";
@@ -80,6 +81,56 @@
       hours,
       minutes,
       text: `${pad2(hours)}:${pad2(minutes)}`,
+    };
+  }
+
+  function hasStoredReminderPreference(rawValue = {}) {
+    if (!rawValue || typeof rawValue !== "object") {
+      return false;
+    }
+    return [
+      "enabled",
+      "mode",
+      "customTime",
+      "customOffsetDays",
+      "minutesBefore",
+    ].some((key) => Object.prototype.hasOwnProperty.call(rawValue, key));
+  }
+
+  function buildStartReminderSeed(
+    startTime,
+    minutesBefore = DEFAULT_START_REMINDER_MINUTES,
+  ) {
+    const normalizedStartTime = String(startTime || "").trim();
+    if (!normalizedStartTime) {
+      return null;
+    }
+    const match = /^(\d{1,2}):(\d{2})$/.exec(normalizedStartTime);
+    if (!match) {
+      return null;
+    }
+    const parsedTime = parseTimeParts(normalizedStartTime, "09:00");
+    const safeMinutesBefore = clampNumber(
+      minutesBefore,
+      1,
+      MAX_PLAN_BEFORE_MINUTES,
+      DEFAULT_START_REMINDER_MINUTES,
+    );
+    let totalMinutes =
+      parsedTime.hours * 60 + parsedTime.minutes - safeMinutesBefore;
+    let customOffsetDays = 0;
+    while (totalMinutes < 0) {
+      totalMinutes += 24 * 60;
+      customOffsetDays -= 1;
+    }
+    while (totalMinutes >= 24 * 60) {
+      totalMinutes -= 24 * 60;
+      customOffsetDays += 1;
+    }
+    return {
+      customTime: `${pad2(Math.floor(totalMinutes / 60))}:${pad2(totalMinutes % 60)}`,
+      customOffsetDays,
+      minutesBefore: safeMinutesBefore,
     };
   }
 
@@ -237,46 +288,87 @@
 
   function normalizePlanReminder(rawValue = {}, planLike = {}) {
     const reminder = rawValue && typeof rawValue === "object" ? rawValue : {};
-    const mode = inferReminderMode(reminder, ["none", "before_start", "custom"]);
-    const customTimeFallback = parseTimeParts(planLike?.startTime || "09:00", "09:00").text;
+    const hasStoredPreference = hasStoredReminderPreference(reminder);
+    const defaultSeed = buildStartReminderSeed(
+      planLike?.startTime,
+      DEFAULT_START_REMINDER_MINUTES,
+    );
+    const mode = inferReminderMode(
+      reminder,
+      ["none", "before_start", "custom"],
+      !hasStoredPreference && defaultSeed ? "before_start" : "none",
+    );
+    const customTimeFallback = parseTimeParts(
+      reminder.customTime || defaultSeed?.customTime || planLike?.startTime || "09:00",
+      defaultSeed?.customTime || "09:00",
+    ).text;
     return {
       enabled: mode !== "none" && reminder.enabled !== false,
       mode,
-      minutesBefore: normalizeBeforeMinutes(reminder.minutesBefore, 15),
+      minutesBefore: normalizeBeforeMinutes(
+        reminder.minutesBefore,
+        defaultSeed?.minutesBefore || DEFAULT_START_REMINDER_MINUTES,
+      ),
       customTime: parseTimeParts(reminder.customTime || customTimeFallback, customTimeFallback)
         .text,
-      customOffsetDays: normalizeOffsetDays(reminder.customOffsetDays, 0),
+      customOffsetDays: normalizeOffsetDays(
+        reminder.customOffsetDays,
+        defaultSeed?.customOffsetDays || 0,
+      ),
     };
   }
 
   function normalizeTodoReminder(rawValue = {}, todoLike = {}) {
     const reminder = rawValue && typeof rawValue === "object" ? rawValue : {};
-    const mode = inferReminderMode(reminder, ["none", "custom"]);
+    const hasStoredPreference = hasStoredReminderPreference(reminder);
+    const defaultSeed = buildStartReminderSeed(
+      todoLike?.startTime && todoLike?.endTime ? todoLike.startTime : "",
+      DEFAULT_START_REMINDER_MINUTES,
+    );
+    const mode = inferReminderMode(
+      reminder,
+      ["none", "custom"],
+      !hasStoredPreference && defaultSeed ? "custom" : "none",
+    );
     const customTimeFallback = parseTimeParts(
-      reminder.customTime ||
-        (todoLike?.repeatType && todoLike.repeatType !== "none" ? "09:00" : "09:00"),
-      "09:00",
+      reminder.customTime || defaultSeed?.customTime || "09:00",
+      defaultSeed?.customTime || "09:00",
     ).text;
     return {
       enabled: mode !== "none" && reminder.enabled !== false,
       mode,
       customTime: customTimeFallback,
-      customOffsetDays: normalizeOffsetDays(reminder.customOffsetDays, 0),
+      customOffsetDays: normalizeOffsetDays(
+        reminder.customOffsetDays,
+        defaultSeed?.customOffsetDays || 0,
+      ),
     };
   }
 
   function normalizeCheckinReminder(rawValue = {}, itemLike = {}) {
     const reminder = rawValue && typeof rawValue === "object" ? rawValue : {};
-    const mode = inferReminderMode(reminder, ["none", "custom"]);
+    const hasStoredPreference = hasStoredReminderPreference(reminder);
+    const defaultSeed = buildStartReminderSeed(
+      itemLike?.startTime && itemLike?.endTime ? itemLike.startTime : "",
+      DEFAULT_START_REMINDER_MINUTES,
+    );
+    const mode = inferReminderMode(
+      reminder,
+      ["none", "custom"],
+      !hasStoredPreference && defaultSeed ? "custom" : "none",
+    );
     const customTimeFallback = parseTimeParts(
-      reminder.customTime || itemLike?.customTime || "09:00",
-      "09:00",
+      reminder.customTime || defaultSeed?.customTime || itemLike?.customTime || "09:00",
+      defaultSeed?.customTime || "09:00",
     ).text;
     return {
       enabled: mode !== "none" && reminder.enabled !== false,
       mode,
       customTime: customTimeFallback,
-      customOffsetDays: 0,
+      customOffsetDays: normalizeOffsetDays(
+        reminder.customOffsetDays,
+        defaultSeed?.customOffsetDays || 0,
+      ),
     };
   }
 
@@ -389,7 +481,7 @@
     if (reminderDate) {
       return `自定义时间（本次 ${formatReminderDateTime(reminderDate)}）`;
     }
-    return `自定义时间 ${reminder.customTime}`;
+    return `自定义时间 ${describeOffsetDays(reminder.customOffsetDays)} ${reminder.customTime}`;
   }
 
   function normalizePlanRepeatDays(planLike = {}) {
@@ -602,7 +694,14 @@
     if (!reminder.enabled || reminder.mode === "none") {
       return null;
     }
-    return buildLocalDate(occurrenceDateText, reminder.customTime);
+    const reminderDate = addDays(
+      parseDateText(occurrenceDateText),
+      reminder.customOffsetDays,
+    );
+    if (!reminderDate) {
+      return null;
+    }
+    return buildLocalDate(toDateText(reminderDate), reminder.customTime);
   }
 
   function safeJsonParse(rawValue, fallback) {
@@ -622,6 +721,46 @@
   function readStateArray(key) {
     const value = safeJsonParse(localStorage.getItem(key), []);
     return Array.isArray(value) ? value : [];
+  }
+
+  function readReminderStateSnapshotFromManagedStorage() {
+    try {
+      const snapshot =
+        typeof window.ControlerStorage?.dump === "function"
+          ? window.ControlerStorage.dump()
+          : null;
+      if (
+        !snapshot ||
+        typeof snapshot !== "object" ||
+        Array.isArray(snapshot)
+      ) {
+        return null;
+      }
+      return {
+        plans: Array.isArray(snapshot.plans) ? snapshot.plans : [],
+        todos: Array.isArray(snapshot.todos) ? snapshot.todos : [],
+        checkinItems: Array.isArray(snapshot.checkinItems)
+          ? snapshot.checkinItems
+          : [],
+        dailyCheckins: Array.isArray(snapshot.dailyCheckins)
+          ? snapshot.dailyCheckins
+          : [],
+      };
+    } catch (error) {
+      console.warn("读取提醒受管存储快照失败，回退 localStorage:", error);
+      return null;
+    }
+  }
+
+  function readReminderStateSnapshot() {
+    return (
+      readReminderStateSnapshotFromManagedStorage() || {
+        plans: readStateArray("plans"),
+        todos: readStateArray("todos"),
+        checkinItems: readStateArray("checkinItems"),
+        dailyCheckins: readStateArray("dailyCheckins"),
+      }
+    );
   }
 
   function loadShownReminderMap() {
@@ -756,12 +895,7 @@
 
   function collectDueReminders(windowStartMs, windowEndMs) {
     const { start, end } = buildDateScanWindow(windowStartMs, windowEndMs);
-    const state = {
-      plans: readStateArray("plans"),
-      todos: readStateArray("todos"),
-      checkinItems: readStateArray("checkinItems"),
-      dailyCheckins: readStateArray("dailyCheckins"),
-    };
+    const state = readReminderStateSnapshot();
     const dueItems = [];
 
     ensureArray(state.plans).forEach((planLike) => {
@@ -1219,6 +1353,7 @@
   }
 
   window.ControlerReminders = {
+    DEFAULT_START_REMINDER_MINUTES,
     MAX_CUSTOM_OFFSET_DAYS,
     MAX_PLAN_BEFORE_MINUTES,
     ensurePermission,
@@ -1237,6 +1372,8 @@
     describePlanReminder,
     describeTodoReminder,
     describeCheckinReminder,
+    hasStoredReminderPreference,
+    buildStartReminderSeed,
     planOccursOnDate,
     todoOccursOnDate,
     checkinOccursOnDate,

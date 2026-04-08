@@ -1520,12 +1520,12 @@ function normalizePlanReminderTimeText(value, fallback = "09:00") {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function normalizePlanReminderBeforeMinutes(value, fallback = 15) {
+function normalizePlanReminderBeforeMinutes(value, fallback = 5) {
   return clampPlanReminderNumber(
     value,
     1,
     7 * 24 * 60,
-    clampPlanReminderNumber(fallback, 1, 7 * 24 * 60, 15),
+    clampPlanReminderNumber(fallback, 1, 7 * 24 * 60, 5),
   );
 }
 
@@ -1536,6 +1536,51 @@ function normalizePlanReminderOffsetDays(value, fallback = 0) {
     30,
     clampPlanReminderNumber(fallback, -30, 30, 0),
   );
+}
+
+function hasStoredReminderPreference(rawNotification = {}) {
+  if (!rawNotification || typeof rawNotification !== "object") {
+    return false;
+  }
+  return [
+    "enabled",
+    "mode",
+    "customTime",
+    "customOffsetDays",
+    "minutesBefore",
+  ].some((key) => Object.prototype.hasOwnProperty.call(rawNotification, key));
+}
+
+function buildPlanStartReminderSeed(
+  startTime = "",
+  minutesBefore = getReminderTools()?.DEFAULT_START_REMINDER_MINUTES || 5,
+) {
+  if (!String(startTime || "").trim()) {
+    return null;
+  }
+  const normalizedStartTime = normalizePlanReminderTimeText(startTime, "09:00");
+  const sharedSeed = getReminderTools()?.buildStartReminderSeed?.(
+    normalizedStartTime,
+    minutesBefore,
+  );
+  if (sharedSeed) {
+    return sharedSeed;
+  }
+  const [hoursText, minutesText] = normalizedStartTime.split(":");
+  let totalMinutes =
+    parseInt(hoursText, 10) * 60 +
+    parseInt(minutesText, 10) -
+    Math.max(1, Number(minutesBefore) || 5);
+  let customOffsetDays = 0;
+  while (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+    customOffsetDays -= 1;
+  }
+  return {
+    customTime: `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`,
+    customOffsetDays,
+    minutesBefore: Math.max(1, Number(minutesBefore) || 5),
+  };
 }
 
 function inferPlanReminderMode(
@@ -1562,20 +1607,27 @@ function inferPlanReminderMode(
 function normalizePlanNotificationConfigFallback(rawNotification, planLike = {}) {
   const reminder =
     rawNotification && typeof rawNotification === "object" ? rawNotification : {};
-  const mode = inferPlanReminderMode(reminder, [
-    "none",
-    "before_start",
-    "custom",
-  ]);
+  const defaultSeed = buildPlanStartReminderSeed(planLike?.startTime);
+  const mode = inferPlanReminderMode(
+    reminder,
+    ["none", "before_start", "custom"],
+    !hasStoredReminderPreference(reminder) && defaultSeed
+      ? "before_start"
+      : "none",
+  );
   const customTimeFallback = normalizePlanReminderTimeText(
-    planLike?.startTime || "09:00",
+    reminder.customTime ||
+      defaultSeed?.customTime ||
+      planLike?.startTime ||
+      "09:00",
+    defaultSeed?.customTime || "09:00",
   );
   return {
     enabled: mode !== "none" && reminder.enabled !== false,
     mode,
     minutesBefore: normalizePlanReminderBeforeMinutes(
       reminder.minutesBefore,
-      15,
+      defaultSeed?.minutesBefore || 5,
     ),
     customTime: normalizePlanReminderTimeText(
       reminder.customTime || customTimeFallback,
@@ -1583,7 +1635,7 @@ function normalizePlanNotificationConfigFallback(rawNotification, planLike = {})
     ),
     customOffsetDays: normalizePlanReminderOffsetDays(
       reminder.customOffsetDays,
-      0,
+      defaultSeed?.customOffsetDays || 0,
     ),
   };
 }
@@ -1810,16 +1862,20 @@ function readPlanReminderConfig(modal, planLike = {}, prefix = "plan") {
   if (mode === "custom") {
     const customInputValue =
       modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
+    const defaultSeed = buildPlanStartReminderSeed(planLike?.startTime);
     const parsedCustomConfig =
       getReminderTools()?.parseRelativeCustomDateTimeInput?.(
         customInputValue,
         baseDateText,
         {
-          fallbackTime: planLike?.startTime || "09:00",
+          fallbackTime:
+            defaultSeed?.customTime || planLike?.startTime || "09:00",
+          fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
         },
       ) || {
-        customTime: planLike?.startTime || "09:00",
-        customOffsetDays: 0,
+        customTime:
+          defaultSeed?.customTime || planLike?.startTime || "09:00",
+        customOffsetDays: defaultSeed?.customOffsetDays || 0,
       };
 
     return normalizePlanNotificationConfig(

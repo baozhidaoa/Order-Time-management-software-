@@ -2900,7 +2900,8 @@ public final class ControlerWidgetRenderer {
     private static boolean usesCollectionList(String kind) {
         String normalizedKind = ControlerWidgetKinds.normalize(kind);
         return isListFirstKind(normalizedKind)
-            || ControlerWidgetKinds.WEEK_GRID.equals(normalizedKind);
+            || ControlerWidgetKinds.WEEK_GRID.equals(normalizedKind)
+            || ControlerWidgetKinds.WEEK_VIEW.equals(normalizedKind);
     }
 
     private static boolean shouldUseExpandedHeaderQuickAction(
@@ -7236,7 +7237,8 @@ public final class ControlerWidgetRenderer {
         if ("daily".equals(todo.repeatType)) {
             return "每天重复";
         }
-        return TextUtils.isEmpty(todo.dueDate) ? "待安排" : "截止 " + formatMonthDayLabel(todo.dueDate);
+        String dateWindow = formatWidgetDateWindow(todo.startDate, todo.endDate, "", false);
+        return TextUtils.isEmpty(dateWindow) ? "待安排" : dateWindow;
     }
 
     private static String describeTodoCardMeta(
@@ -7254,42 +7256,43 @@ public final class ControlerWidgetRenderer {
         if (todo == null) {
             return "";
         }
+        String dateWindow = formatWidgetDateWindow(todo.startDate, todo.endDate, "", false);
+        String timeWindow = formatWidgetTimeWindow(todo.startTime, todo.endTime);
         if (completed) {
             return "已完成";
         }
         if (!TextUtils.isEmpty(todo.repeatType) && !"none".equals(todo.repeatType)) {
             return joinWidgetMetaParts(
                 describeTodoRepeat(todo),
-                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
-                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+                dateWindow,
+                timeWindow
             );
         }
         if (today.equals(todo.dueDate)) {
             return joinWidgetMetaParts(
-                "今天截止",
-                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
-                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+                "今日优先",
+                dateWindow,
+                timeWindow
             );
         }
         if (!TextUtils.isEmpty(todo.dueDate) && todo.dueDate.compareTo(today) < 0) {
             return joinWidgetMetaParts(
                 "已逾期",
-                formatMonthDayLabel(todo.dueDate),
-                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
-                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+                dateWindow,
+                timeWindow
             );
         }
         if (!TextUtils.isEmpty(todo.dueDate)) {
             return joinWidgetMetaParts(
-                "截止 " + formatMonthDayLabel(todo.dueDate),
-                formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
-                formatWidgetTimeWindow(todo.startTime, todo.endTime)
+                "待处理",
+                dateWindow,
+                timeWindow
             );
         }
         return joinWidgetMetaParts(
             "待安排",
-            formatWidgetDateWindow(todo.startDate, todo.endDate, "", false),
-            formatWidgetTimeWindow(todo.startTime, todo.endTime)
+            dateWindow,
+            timeWindow
         );
     }
 

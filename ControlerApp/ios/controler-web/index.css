@@ -4398,6 +4398,26 @@ body.page-stats #stats-container {
   width: 100%;
 }
 
+.controler-form-modal-time-range.is-disabled {
+  opacity: 0.56;
+}
+
+.controler-form-modal-time-range.is-disabled .modal-date-field > label {
+  color: var(--muted-text-color) !important;
+}
+
+.controler-form-modal-time-range.is-disabled .modal-date-input {
+  cursor: not-allowed;
+}
+
+.controler-form-modal-disabled-hint {
+  color: var(--muted-text-color);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
 body.page-stats .stats-heatmap-header {
   display: flex;
   flex-direction: column;

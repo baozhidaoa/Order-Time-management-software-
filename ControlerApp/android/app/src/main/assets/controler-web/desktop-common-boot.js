@@ -24891,6 +24891,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const persistent =
       options.persistent === true ||
       modal.dataset?.controlerModalPersistent === "true";
+    const textAutofocusOptions =
+      options.textAutofocus && typeof options.textAutofocus === "object"
+        ? { ...options.textAutofocus }
+        : options.textAutofocus === true
+          ? {}
+          : null;
     const zIndex =
       Number.isFinite(options.zIndex) && Number(options.zIndex) > 0
         ? String(Math.round(Number(options.zIndex)))
@@ -24918,6 +24924,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "var(--controler-modal-overlay-width, 100vw)";
     const viewportOverlayHeightValue =
       "var(--controler-modal-overlay-height, var(--controler-stable-visual-viewport-height, 100dvh))";
+    if (textAutofocusOptions && isAndroidNativeRuntime()) {
+      modal.dataset.controlerAutofocusRequestedAt = String(Date.now());
+    }
     if (scopeToContent) {
       syncModalOverlayViewportMetrics(
         modal,
@@ -24980,6 +24989,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
     bindDesktopModalKeyboardShortcuts(modal, options);
+    if (textAutofocusOptions) {
+      autofocusInteractiveTextControl(modal, textAutofocusOptions);
+    }
     return modal;
   }
 
