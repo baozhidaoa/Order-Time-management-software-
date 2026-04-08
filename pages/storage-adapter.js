@@ -8853,13 +8853,14 @@
       const previousTransitionLoading =
         previousShellVisibilityState?.transitionLoading === true;
       const nextActive = detail.active !== false;
-      const shouldArmProbeOnlyOnHiddenTransitionLoad =
-        nextActive === false &&
+      // Cached pages can stay logically active while the shell marks the slot as
+      // transition-loading, so arm probe-only for either side of the transition.
+      const shouldArmProbeOnlyOnTransitionLoad =
         detail.transitionLoading === true &&
         hasManagedCoreSnapshot &&
         !hasPendingStateChanges;
       if (
-        shouldArmProbeOnlyOnHiddenTransitionLoad &&
+        shouldArmProbeOnlyOnTransitionLoad &&
         !preferProbeOnlyOnFirstShellResume
       ) {
         preferProbeOnlyOnFirstShellResume = true;
@@ -8867,6 +8868,7 @@
           reason: typeof detail.reason === "string" ? detail.reason : "",
           page: typeof detail.page === "string" ? detail.page : "",
           transitionLoading: true,
+          active: nextActive === true,
           hasManagedCoreSnapshot: true,
         });
       }

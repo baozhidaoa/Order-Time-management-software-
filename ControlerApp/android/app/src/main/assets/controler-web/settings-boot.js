@@ -1066,7 +1066,159 @@ if (!themeRuntime) {
 
 const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
 const RGB_COLOR_PATTERN =
-  /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
+  /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i;
+const COLOR_PICKER_MEMORY_STORAGE_PREFIX =
+  "__controler_ui_color_picker_anchor__:";
+const themeColorPickerAnchorCache = new Map();
+
+function normalizeThemeColorInputValue(color) {
+  return String(color ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/[，]/g, ",")
+    .replace(/[（]/g, "(")
+    .replace(/[）]/g, ")")
+    .replace(/[；]+$/g, "")
+    .trim();
+}
+
+function normalizeColorPickerMemoryKey(storageKey) {
+  const normalizedKey = String(storageKey || "").trim();
+  return normalizedKey ? `${COLOR_PICKER_MEMORY_STORAGE_PREFIX}${normalizedKey}` : "";
+}
+
+function readThemeColorPickerAnchor(storageKey) {
+  const resolvedKey = normalizeColorPickerMemoryKey(storageKey);
+  if (!resolvedKey) {
+    return "";
+  }
+  if (themeColorPickerAnchorCache.has(resolvedKey)) {
+    return themeColorPickerAnchorCache.get(resolvedKey) || "";
+  }
+  try {
+    const storedValue = localStorage.getItem(resolvedKey) || "";
+    const normalizedValue = toHexColor(storedValue, "");
+    if (normalizedValue) {
+      themeColorPickerAnchorCache.set(resolvedKey, normalizedValue);
+      return normalizedValue;
+    }
+  } catch (error) {
+    console.error("读取颜色选择锚点失败:", error);
+  }
+  return "";
+}
+
+function writeThemeColorPickerAnchor(storageKey, color, { persist = false } = {}) {
+  const resolvedKey = normalizeColorPickerMemoryKey(storageKey);
+  const normalizedColor = toHexColor(color, "");
+  if (!resolvedKey || !normalizedColor) {
+    return "";
+  }
+  themeColorPickerAnchorCache.set(resolvedKey, normalizedColor);
+  if (persist) {
+    try {
+      if (localStorage.getItem(resolvedKey) !== normalizedColor) {
+        localStorage.setItem(resolvedKey, normalizedColor);
+      }
+    } catch (error) {
+      console.error("写入颜色选择锚点失败:", error);
+    }
+  }
+  return normalizedColor;
+}
+
+function setThemeColorPickerDisplayValue(input, color, fallback = "#000000") {
+  if (!(input instanceof HTMLInputElement)) {
+    return "";
+  }
+  const nextColor = toHexColor(color, fallback);
+  if (!nextColor) {
+    return "";
+  }
+  if (input.value !== nextColor) {
+    input.value = nextColor;
+  }
+  input.dataset.colorPickerDisplayValue = nextColor;
+  return nextColor;
+}
+
+function bindRememberedThemeColorPicker(
+  input,
+  {
+    anchorKey = "",
+    resolveOpenColor = () => "",
+    resolveDisplayColor = () =>
+      input?.dataset?.colorPickerDisplayValue || input?.value || "#000000",
+  } = {},
+) {
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+  const normalizedAnchorKey = String(anchorKey || "").trim();
+  if (!normalizedAnchorKey || input.dataset.colorPickerMemoryBound === "true") {
+    if (!input.dataset.colorPickerDisplayValue && input.value) {
+      input.dataset.colorPickerDisplayValue = input.value;
+    }
+    return;
+  }
+
+  const applyOpenColor = () => {
+    const preferredColor =
+      typeof resolveOpenColor === "function" ? resolveOpenColor() : "";
+    const displayFallback =
+      input.dataset.colorPickerDisplayValue || input.value || "#000000";
+    const storedAnchor = readThemeColorPickerAnchor(normalizedAnchorKey);
+    const nextColor = toHexColor(
+      preferredColor,
+      storedAnchor || displayFallback || "#000000",
+    );
+    if (nextColor && input.value !== nextColor) {
+      input.value = nextColor;
+    }
+  };
+
+  const restoreDisplayColor = () => {
+    const displayColor =
+      typeof resolveDisplayColor === "function" ? resolveDisplayColor() : "";
+    setThemeColorPickerDisplayValue(
+      input,
+      displayColor,
+      input.dataset.colorPickerDisplayValue || input.value || "#000000",
+    );
+  };
+
+  if (!input.dataset.colorPickerDisplayValue && input.value) {
+    input.dataset.colorPickerDisplayValue = input.value;
+  }
+
+  input.dataset.colorPickerMemoryBound = "true";
+  input.addEventListener("pointerdown", applyOpenColor);
+  input.addEventListener("mousedown", applyOpenColor);
+  input.addEventListener("touchstart", applyOpenColor, {
+    passive: true,
+  });
+  input.addEventListener("focus", applyOpenColor);
+  input.addEventListener("input", () => {
+    writeThemeColorPickerAnchor(normalizedAnchorKey, input.value, {
+      persist: false,
+    });
+    input.dataset.colorPickerDisplayValue = input.value;
+  });
+  input.addEventListener("change", () => {
+    const storedAnchor = writeThemeColorPickerAnchor(
+      normalizedAnchorKey,
+      input.value,
+      {
+        persist: true,
+      },
+    );
+    if (storedAnchor) {
+      input.dataset.colorPickerDisplayValue = storedAnchor;
+    }
+  });
+  input.addEventListener("blur", restoreDisplayColor);
+  restoreDisplayColor();
+}
+
 const SETTINGS_LANGUAGE_EVENT = "controler:language-changed";
 let settingsInitialReadyReported = false;
 let settingsInitialReadyPromise = null;
@@ -2077,9 +2229,7 @@ function getStorageEntries() {
 }
 
 function parseHexColor(color) {
-  const match = String(color || "")
-    .trim()
-    .match(/^#([0-9a-fA-F]{6})$/);
+  const match = normalizeThemeColorInputValue(color).match(HEX_COLOR_PATTERN);
   if (!match) return null;
   return {
     r: parseInt(match[1].slice(0, 2), 16),
@@ -2091,12 +2241,10 @@ function parseHexColor(color) {
 function toHexColor(color, fallback = "#000000") {
   const hex = parseHexColor(color);
   if (hex) {
-    return `#${String(color).trim().slice(1).toUpperCase()}`;
+    return `#${normalizeThemeColorInputValue(color).slice(1).toUpperCase()}`;
   }
 
-  const rgbMatch = String(color || "")
-    .trim()
-    .match(/^rgba?\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})(?:,\s*[\d.]+)?\)$/);
+  const rgbMatch = normalizeThemeColorInputValue(color).match(RGB_COLOR_PATTERN);
   if (rgbMatch) {
     return `#${[rgbMatch[1], rgbMatch[2], rgbMatch[3]]
       .map((value) => Number(value).toString(16).padStart(2, "0"))
@@ -2110,7 +2258,8 @@ function toHexColor(color, fallback = "#000000") {
 function toRgbChannels(color) {
   if (!color) return "121,175,133";
 
-  const hex = String(color).trim().match(HEX_COLOR_PATTERN);
+  const normalized = normalizeThemeColorInputValue(color);
+  const hex = normalized.match(HEX_COLOR_PATTERN);
   if (hex) {
     const r = parseInt(hex[1].slice(0, 2), 16);
     const g = parseInt(hex[1].slice(2, 4), 16);
@@ -2118,7 +2267,7 @@ function toRgbChannels(color) {
     return `${r},${g},${b}`;
   }
 
-  const rgb = String(color).trim().match(RGB_COLOR_PATTERN);
+  const rgb = normalized.match(RGB_COLOR_PATTERN);
   if (rgb) {
     return `${rgb[1]},${rgb[2]},${rgb[3]}`;
   }
@@ -2131,7 +2280,7 @@ function toRgbaColor(color, alpha = 1) {
 }
 
 function isValidThemeColorValue(color) {
-  const normalized = String(color || "").trim();
+  const normalized = normalizeThemeColorInputValue(color);
   return (
     HEX_COLOR_PATTERN.test(normalized) || RGB_COLOR_PATTERN.test(normalized)
   );
@@ -2356,12 +2505,17 @@ function writeThemeStorageValue(storageKey, rawValue) {
   const nextValue =
     typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue ?? null);
   try {
-    localStorage.setItem(normalizedKey, nextValue);
+    if (localStorage.getItem(normalizedKey) !== nextValue) {
+      localStorage.setItem(normalizedKey, nextValue);
+    }
   } catch (error) {
     console.error("写入主题存储失败:", error);
   }
   try {
-    localStorage.setItem(`${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`, nextValue);
+    const localMirrorKey = `${LOCAL_ONLY_STORAGE_PREFIX}${normalizedKey}`;
+    if (localStorage.getItem(localMirrorKey) !== nextValue) {
+      localStorage.setItem(localMirrorKey, nextValue);
+    }
   } catch (error) {
     console.error("写入主题本地镜像失败:", error);
   }
@@ -2434,13 +2588,26 @@ function loadCustomThemes() {
   }
 }
 
+function serializeCustomThemeForStorage(theme, index = 0) {
+  const normalizedTheme = normalizeThemeObject(theme, index);
+  return {
+    id: normalizedTheme.id,
+    name: normalizedTheme.name,
+    colors: { ...(normalizedTheme.colors || {}) },
+    recordCard: { ...(normalizedTheme.recordCard || {}) },
+  };
+}
+
 function saveCustomThemes(customThemes) {
   const normalized = Array.isArray(customThemes)
     ? customThemes.map((theme, index) => normalizeThemeObject(theme, index))
     : [];
-  writeThemeStorageValue(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(normalized));
+  const storedThemes = normalized.map((theme, index) =>
+    serializeCustomThemeForStorage(theme, index),
+  );
+  writeThemeStorageValue(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(storedThemes));
   scheduleThemeStorageFlush({
-    customThemes: normalized,
+    customThemes: storedThemes,
   });
   return normalized;
 }
@@ -3160,6 +3327,11 @@ let themeStorageFlushTimer = 0;
 let pendingThemeCoreState = null;
 let themeStorageFlushChain = Promise.resolve(false);
 let themeStorageTransactionDepth = 0;
+const SETTINGS_THEME_STORAGE_SECTIONS = new Set([
+  "selectedTheme",
+  "customThemes",
+  "builtInThemeOverrides",
+]);
 
 function isThemeStorageTransactionActive() {
   return themeStorageTransactionDepth > 0;
@@ -3236,6 +3408,16 @@ function flushThemeStorageNow(partialCore = null) {
 
   const runFlush = async () => {
     if (nextCorePatch && canReplaceCoreState) {
+      const changedSections = getSettingsNormalizedChangedSections(
+        Object.keys(nextCorePatch),
+      );
+      if (changedSections.length) {
+        window.ControlerStorage?.markRecentLocalEcho?.({
+          changedSections,
+          source: "settings-theme-write",
+          originPageInstanceId: getSettingsStoragePageInstanceId(),
+        });
+      }
       try {
         await window.ControlerStorage.replaceCoreState(nextCorePatch);
       } catch (error) {
@@ -3368,8 +3550,53 @@ function resolveThemePreviewModel(theme) {
   };
 }
 
+let lastSettingsThemeSelectorSignature = null;
+
+function buildSettingsThemeSelectorSignature(selectedThemeId = "obsidian-mono") {
+  const storedThemeState = getStoredThemeStateSnapshot();
+  const resolvedThemeId =
+    typeof selectedThemeId === "string" && selectedThemeId.trim()
+      ? selectedThemeId.trim()
+      : "obsidian-mono";
+  const customThemes = Array.isArray(storedThemeState?.customThemes)
+    ? storedThemeState.customThemes
+    : [];
+  const builtInThemeOverrides =
+    storedThemeState?.builtInThemeOverrides &&
+    typeof storedThemeState.builtInThemeOverrides === "object" &&
+    !Array.isArray(storedThemeState.builtInThemeOverrides)
+      ? storedThemeState.builtInThemeOverrides
+      : {};
+  return JSON.stringify({
+    selectedTheme: resolvedThemeId,
+    customThemes,
+    builtInThemeOverrides,
+  });
+}
+
+function refreshThemeSelectorIfNeeded(selectedThemeId, options = {}) {
+  const selector = document.getElementById("theme-selector");
+  const resolvedThemeId =
+    typeof selectedThemeId === "string" && selectedThemeId.trim()
+      ? selectedThemeId.trim()
+      : "obsidian-mono";
+  const nextSignature = buildSettingsThemeSelectorSignature(resolvedThemeId);
+  if (
+    options?.force !== true &&
+    selector &&
+    selector.children.length > 0 &&
+    nextSignature === lastSettingsThemeSelectorSignature
+  ) {
+    return false;
+  }
+  updateThemeSelector(resolvedThemeId, {
+    themeSelectorSignature: nextSignature,
+  });
+  return true;
+}
+
 // 更新主题选择器UI
-function updateThemeSelector(selectedThemeId) {
+function updateThemeSelector(selectedThemeId, options = {}) {
   const selector = document.getElementById("theme-selector");
   if (!selector) return;
 
@@ -3382,6 +3609,11 @@ function updateThemeSelector(selectedThemeId) {
     typeof performance.now === "function"
       ? performance.now()
       : 0;
+  lastSettingsThemeSelectorSignature =
+    typeof options?.themeSelectorSignature === "string" &&
+    options.themeSelectorSignature
+      ? options.themeSelectorSignature
+      : buildSettingsThemeSelectorSignature(selectedThemeId);
   syncThemeCatalog();
   const fragment = document.createDocumentFragment();
 
@@ -3507,7 +3739,9 @@ function ensureThemeSelectorVisible(selectedThemeId) {
   const selector = document.getElementById("theme-selector");
   if (!selector) return;
   if (selector.children.length === 0) {
-    updateThemeSelector(selectedThemeId);
+    refreshThemeSelectorIfNeeded(selectedThemeId, {
+      force: true,
+    });
   }
 }
 
@@ -3870,6 +4104,8 @@ function showThemeEditorModal(theme = null) {
     initialRecordCardMode,
     initialRecordCardColor,
   };
+  const themeColorAnchorScope =
+    typeof theme?.id === "string" && theme.id.trim() ? theme.id.trim() : "draft";
   const baseGroupHtml = buildThemeEditorGroupHtml(
     "base",
     "基础颜色",
@@ -3936,8 +4172,13 @@ function showThemeEditorModal(theme = null) {
 
   const syncPickerWithText = (key, value) => {
     const pickerInput = modal.querySelector(`[data-theme-color="${key}"]`);
-    if (pickerInput && /^#([0-9a-fA-F]{6})$/.test(value)) {
-      pickerInput.value = value;
+    const displayColor = toHexColor(value, "");
+    if (pickerInput && displayColor) {
+      setThemeColorPickerDisplayValue(
+        pickerInput,
+        displayColor,
+        pickerInput.value || "#000000",
+      );
     }
   };
 
@@ -3950,7 +4191,7 @@ function showThemeEditorModal(theme = null) {
     ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
       const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
       if (textInput) {
-        nextColors[key] = textInput.value.trim();
+        nextColors[key] = normalizeThemeColorInputValue(textInput.value);
       }
     });
     return nextColors;
@@ -3976,7 +4217,11 @@ function showThemeEditorModal(theme = null) {
       const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
       const pickerInput = modal.querySelector(`[data-theme-color="${key}"]`);
       if (textInput && pickerInput && !textInput.value.trim()) {
-        pickerInput.value = toHexColor(fallbackValue, pickerInput.value || "#000000");
+        setThemeColorPickerDisplayValue(
+          pickerInput,
+          fallbackValue,
+          pickerInput.value || "#000000",
+        );
       }
     });
   };
@@ -3990,8 +4235,13 @@ function showThemeEditorModal(theme = null) {
 
   const syncRecordCardPickerWithText = (value) => {
     const pickerInput = modal.querySelector("[data-record-card-color]");
-    if (pickerInput && /^#([0-9a-fA-F]{6})$/.test(value)) {
-      pickerInput.value = value;
+    const displayColor = toHexColor(value, "");
+    if (pickerInput && displayColor) {
+      setThemeColorPickerDisplayValue(
+        pickerInput,
+        displayColor,
+        pickerInput.value || DEFAULT_THEME_RECORD_CARD.color,
+      );
     }
   };
 
@@ -4019,6 +4269,23 @@ function showThemeEditorModal(theme = null) {
   };
 
   modal.querySelectorAll("[data-theme-color]").forEach((input) => {
+    const fieldKey = String(input.dataset.themeColor || "").trim();
+    bindRememberedThemeColorPicker(input, {
+      anchorKey: `theme-editor:${themeColorAnchorScope}:${fieldKey}`,
+      resolveOpenColor: () => {
+        const textInput = modal.querySelector(`[data-theme-color-text="${fieldKey}"]`);
+        return normalizeThemeColorInputValue(textInput?.value || "");
+      },
+      resolveDisplayColor: () => {
+        const textInput = modal.querySelector(
+          `[data-theme-color-text="${fieldKey}"]`,
+        );
+        return toHexColor(
+          normalizeThemeColorInputValue(textInput?.value || ""),
+          input.dataset.colorPickerDisplayValue || input.value || "#000000",
+        );
+      },
+    });
     input.addEventListener("input", () => {
       dirtyThemeColorFieldKeys.add(String(input.dataset.themeColor || "").trim());
       syncTextWithPicker(input.dataset.themeColor, input.value);
@@ -4031,7 +4298,10 @@ function showThemeEditorModal(theme = null) {
       dirtyThemeColorFieldKeys.add(
         String(input.dataset.themeColorText || "").trim(),
       );
-      syncPickerWithText(input.dataset.themeColorText, input.value.trim());
+      syncPickerWithText(
+        input.dataset.themeColorText,
+        normalizeThemeColorInputValue(input.value),
+      );
       updateWidgetThemeFallbackUi();
     });
   });
@@ -4054,15 +4324,36 @@ function showThemeEditorModal(theme = null) {
     });
   });
 
-  modal
-    .querySelector("[data-record-card-color]")
-    ?.addEventListener("input", (event) => {
+  const recordCardColorInput = modal.querySelector("[data-record-card-color]");
+  if (recordCardColorInput instanceof HTMLInputElement) {
+    bindRememberedThemeColorPicker(recordCardColorInput, {
+      anchorKey: `theme-editor:${themeColorAnchorScope}:record-card-color`,
+      resolveOpenColor: () =>
+        normalizeThemeColorInputValue(
+          modal.querySelector("[data-record-card-color-text]")?.value || "",
+        ),
+      resolveDisplayColor: () => {
+        const textValue = normalizeThemeColorInputValue(
+          modal.querySelector("[data-record-card-color-text]")?.value || "",
+        );
+        return toHexColor(
+          textValue,
+          recordCardColorInput.dataset.colorPickerDisplayValue ||
+            recordCardColorInput.value ||
+            DEFAULT_THEME_RECORD_CARD.color,
+        );
+      },
+    });
+    recordCardColorInput.addEventListener("input", (event) => {
       syncRecordCardTextWithPicker(event.currentTarget.value);
     });
+  }
   modal
     .querySelector("[data-record-card-color-text]")
     ?.addEventListener("input", (event) => {
-      syncRecordCardPickerWithText(event.currentTarget.value.trim());
+      syncRecordCardPickerWithText(
+        normalizeThemeColorInputValue(event.currentTarget.value),
+      );
     });
 
   updateRecordCardModeUi();
@@ -4097,8 +4388,9 @@ function showThemeEditorModal(theme = null) {
         recordCard: {
           mode: recordCardMode,
           color:
-            modal.querySelector("[data-record-card-color-text]")?.value?.trim() ||
-            DEFAULT_THEME_RECORD_CARD.color,
+            normalizeThemeColorInputValue(
+              modal.querySelector("[data-record-card-color-text]")?.value || "",
+            ) || DEFAULT_THEME_RECORD_CARD.color,
         },
       };
 
@@ -4107,7 +4399,7 @@ function showThemeEditorModal(theme = null) {
         const textInput = modal.querySelector(
           `[data-theme-color-text="${key}"]`,
         );
-        const colorValue = textInput?.value?.trim() || "";
+        const colorValue = normalizeThemeColorInputValue(textInput?.value || "");
         if (
           (OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) && colorValue && !isValidThemeColorValue(colorValue)) ||
           (!OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) && !isValidThemeColorValue(colorValue))
@@ -8662,13 +8954,114 @@ function hideSettingsModal(modal) {
 }
 
 let settingsExternalStorageRefreshQueued = false;
+let pendingSettingsStorageRefreshDetail = null;
+
+function mergeSettingsStorageRefreshDetail(detail = {}) {
+  const nextDetail =
+    detail && typeof detail === "object" && !Array.isArray(detail)
+      ? detail
+      : {};
+  const previousDetail =
+    pendingSettingsStorageRefreshDetail &&
+    typeof pendingSettingsStorageRefreshDetail === "object" &&
+    !Array.isArray(pendingSettingsStorageRefreshDetail)
+      ? pendingSettingsStorageRefreshDetail
+      : {};
+  pendingSettingsStorageRefreshDetail = {
+    ...previousDetail,
+    ...nextDetail,
+    changedSections: getSettingsNormalizedChangedSections([
+      ...(Array.isArray(previousDetail.changedSections)
+        ? previousDetail.changedSections
+        : []),
+      ...(Array.isArray(nextDetail.changedSections) ? nextDetail.changedSections : []),
+    ]),
+  };
+  return pendingSettingsStorageRefreshDetail;
+}
+
+function consumeSettingsStorageRefreshDetail() {
+  const detail =
+    pendingSettingsStorageRefreshDetail &&
+    typeof pendingSettingsStorageRefreshDetail === "object" &&
+    !Array.isArray(pendingSettingsStorageRefreshDetail)
+      ? pendingSettingsStorageRefreshDetail
+      : {};
+  pendingSettingsStorageRefreshDetail = null;
+  return detail;
+}
+
+function isThemeOnlySettingsRefresh(detail = {}) {
+  const changedSections = getSettingsNormalizedChangedSections(
+    detail?.changedSections,
+  );
+  return (
+    changedSections.length > 0 &&
+    changedSections.every((section) => SETTINGS_THEME_STORAGE_SECTIONS.has(section))
+  );
+}
+
+function getSettingsNormalizedChangedSections(changedSections = []) {
+  if (typeof uiTools?.normalizeChangedSections === "function") {
+    return uiTools.normalizeChangedSections(changedSections);
+  }
+  return Array.from(
+    new Set(
+      (Array.isArray(changedSections) ? changedSections : [])
+        .map((section) => String(section || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getSettingsStoragePageInstanceId() {
+  return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+    ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+    : "";
+}
+
+function shouldRefreshSettingsForExternalChange(detail = {}) {
+  const originPageInstanceId =
+    typeof detail?.originPageInstanceId === "string"
+      ? detail.originPageInstanceId.trim()
+      : "";
+  if (
+    originPageInstanceId &&
+    originPageInstanceId === getSettingsStoragePageInstanceId()
+  ) {
+    return false;
+  }
+  if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+    return false;
+  }
+  const reason = typeof detail?.reason === "string" ? detail.reason.trim() : "";
+  const source = typeof detail?.source === "string" ? detail.source.trim() : "";
+  const changedSections = getSettingsNormalizedChangedSections(
+    detail?.changedSections,
+  );
+  if (reason === "initial-sync" && !changedSections.length) {
+    return false;
+  }
+  if (
+    window.ControlerStorage?.isNativeApp === true &&
+    !changedSections.length &&
+    !source &&
+    (reason === "external-update" || reason === "shell-resume")
+  ) {
+    return false;
+  }
+  return true;
+}
 
 function refreshSettingsFromStorage() {
   settingsExternalStorageRefreshQueued = false;
-  syncThemeCatalog();
+  const detail = consumeSettingsStorageRefreshDetail();
   const currentThemeId = getStoredSelectedThemeId();
-  updateThemeSelector(currentThemeId);
+  refreshThemeSelectorIfNeeded(currentThemeId);
   ensureThemeSelectorVisible(currentThemeId);
+  if (isThemeOnlySettingsRefresh(detail)) {
+    return;
+  }
   updateStorageStatus();
   updateStoragePathInfo();
   void refreshAutoBackupPanel();
@@ -8677,6 +9070,7 @@ function refreshSettingsFromStorage() {
 }
 
 function scheduleSettingsStorageRefresh(detail = {}) {
+  mergeSettingsStorageRefreshDetail(detail);
   if (settingsExternalStorageRefreshQueued) {
     return;
   }
@@ -8694,7 +9088,12 @@ function scheduleSettingsStorageRefresh(detail = {}) {
 
 function bindSettingsExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
-    scheduleSettingsStorageRefresh(event?.detail || {});
+    const detail =
+      event?.detail && typeof event.detail === "object" ? event.detail : {};
+    if (!shouldRefreshSettingsForExternalChange(detail)) {
+      return;
+    }
+    scheduleSettingsStorageRefresh(detail);
   });
 }
 

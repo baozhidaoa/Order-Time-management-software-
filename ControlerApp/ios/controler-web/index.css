@@ -3321,10 +3321,10 @@ body.page-stats #stats-container {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  max-height: min(136px, 28dvh);
+  max-height: none;
   overflow-x: hidden;
-  overflow-y: auto;
-  padding-right: 4px;
+  overflow-y: visible;
+  padding-right: 0;
   box-sizing: border-box;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -5140,7 +5140,6 @@ body.controler-android-native
     .time-quick-btn,
     .todo-action-btn,
     .record-action-btn,
-    .record-item,
     .todo-item,
     .project-item,
     .project-option,
@@ -5187,7 +5186,6 @@ body.controler-android-native
     .time-quick-btn,
     .todo-action-btn,
     .record-action-btn,
-    .record-item,
     .todo-item,
     .project-item,
     .project-option,
@@ -5232,7 +5230,6 @@ body.controler-android-native
     .time-quick-btn,
     .todo-action-btn,
     .record-action-btn,
-    .record-item,
     .todo-item,
     .project-item,
     .project-option,
@@ -5264,7 +5261,6 @@ body.controler-android-native
     .time-quick-btn,
     .todo-action-btn,
     .record-action-btn,
-    .record-item,
     .todo-item,
     .project-item,
     .project-option,
@@ -5294,7 +5290,6 @@ body.controler-android-native
     .time-quick-btn,
     .todo-action-btn,
     .record-action-btn,
-    .record-item,
     .todo-item,
     .project-item,
     .project-option,
@@ -6753,7 +6748,8 @@ body.flex.row .modal-content {
 
   body.page-stats .stats-line-legend {
     gap: 6px;
-    max-height: min(110px, 22dvh);
+    max-height: none;
+    overflow-y: visible;
   }
 
   body.page-stats .stats-hierarchy-legend-label,
@@ -6803,7 +6799,8 @@ body.flex.row .modal-content {
 
   body.page-stats .stats-line-chart-layout.is-compact-mobile .stats-line-legend {
     gap: 5px;
-    max-height: min(100px, 20dvh);
+    max-height: none;
+    overflow-y: visible;
   }
 
   body.page-stats
@@ -6859,8 +6856,9 @@ body.flex.row .modal-content {
     font-size: 12px;
   }
 
-  body.page-stats .stats-pie-legend .stats-hierarchy-legend-label,
-  body.page-stats .stats-pie-legend .stats-hierarchy-legend-value {
+  body.page-stats
+    :is(.stats-pie-legend, .stats-line-legend)
+    :is(.stats-hierarchy-legend-label, .stats-hierarchy-legend-value) {
     font-size: 10px !important;
   }
 
@@ -9643,9 +9641,7 @@ body.settings-backup-busy {
 
 .record-item-pending {
   border-color: rgba(var(--accent-color-rgb), 0.3) !important;
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-color-rgb), 0.16),
-    0 18px 34px rgba(0, 0, 0, 0.14) !important;
+  box-shadow: none !important;
 }
 
 .record-persist-pending-chip {

@@ -4032,7 +4032,7 @@ function resolveRecordCardSurfaceStyle(recordColor) {
       titleColor: "var(--text-color)",
       borderColor: getProjectColorShadow(recordColor, 0.78),
       background: getProjectColorShadow(recordColor, 0.88),
-      shadow: `0 10px 18px ${getProjectColorShadow(recordColor, 0.16)}`,
+      shadow: "none",
     };
   }
   return {
@@ -4861,6 +4861,154 @@ function normalizeProjectColorToHex(color, fallback = "") {
   }
 }
 
+const PROJECT_COLOR_PICKER_MEMORY_STORAGE_PREFIX =
+  "__controler_ui_color_picker_anchor__:project:";
+const projectColorPickerAnchorCache = new Map();
+
+function normalizeProjectColorPickerMemoryKey(storageKey) {
+  const normalizedKey = String(storageKey || "").trim();
+  return normalizedKey
+    ? `${PROJECT_COLOR_PICKER_MEMORY_STORAGE_PREFIX}${normalizedKey}`
+    : "";
+}
+
+function readProjectColorPickerAnchor(storageKey) {
+  const resolvedKey = normalizeProjectColorPickerMemoryKey(storageKey);
+  if (!resolvedKey) {
+    return "";
+  }
+  if (projectColorPickerAnchorCache.has(resolvedKey)) {
+    return projectColorPickerAnchorCache.get(resolvedKey) || "";
+  }
+  try {
+    const storedValue = localStorage.getItem(resolvedKey) || "";
+    const normalizedValue = normalizeProjectColorToHex(storedValue, "");
+    if (normalizedValue) {
+      projectColorPickerAnchorCache.set(resolvedKey, normalizedValue);
+      return normalizedValue;
+    }
+  } catch (error) {
+    console.error("读取项目颜色选择锚点失败:", error);
+  }
+  return "";
+}
+
+function writeProjectColorPickerAnchor(
+  storageKey,
+  color,
+  { persist = false } = {},
+) {
+  const resolvedKey = normalizeProjectColorPickerMemoryKey(storageKey);
+  const normalizedColor = normalizeProjectColorToHex(color, "");
+  if (!resolvedKey || !normalizedColor) {
+    return "";
+  }
+  projectColorPickerAnchorCache.set(resolvedKey, normalizedColor);
+  if (persist) {
+    try {
+      if (localStorage.getItem(resolvedKey) !== normalizedColor) {
+        localStorage.setItem(resolvedKey, normalizedColor);
+      }
+    } catch (error) {
+      console.error("写入项目颜色选择锚点失败:", error);
+    }
+  }
+  return normalizedColor;
+}
+
+function setProjectColorPickerDisplayValue(input, color, fallback = "#79af85") {
+  if (!(input instanceof HTMLInputElement)) {
+    return "";
+  }
+  const nextColor = normalizeProjectColorToHex(color, fallback);
+  if (!nextColor) {
+    return "";
+  }
+  if (input.value !== nextColor) {
+    input.value = nextColor;
+  }
+  input.dataset.colorPickerDisplayValue = nextColor;
+  return nextColor;
+}
+
+function bindRememberedProjectColorPicker(
+  input,
+  {
+    anchorKey = "",
+    resolveOpenColor = () => input?.value || "",
+    resolveDisplayColor = () =>
+      input?.dataset?.colorPickerDisplayValue || input?.value || "#79af85",
+  } = {},
+) {
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+  const normalizedAnchorKey = String(anchorKey || "").trim();
+  if (!normalizedAnchorKey || input.dataset.projectColorPickerMemoryBound === "true") {
+    if (!input.dataset.colorPickerDisplayValue && input.value) {
+      input.dataset.colorPickerDisplayValue = input.value;
+    }
+    return;
+  }
+
+  const applyOpenColor = () => {
+    const preferredColor =
+      typeof resolveOpenColor === "function" ? resolveOpenColor() : "";
+    const displayFallback =
+      input.dataset.colorPickerDisplayValue || input.value || "#79af85";
+    const storedAnchor = readProjectColorPickerAnchor(normalizedAnchorKey);
+    const nextColor = normalizeProjectColorToHex(
+      preferredColor,
+      storedAnchor || displayFallback || "#79af85",
+    );
+    if (nextColor && input.value !== nextColor) {
+      input.value = nextColor;
+    }
+  };
+
+  const restoreDisplayColor = () => {
+    const displayColor =
+      typeof resolveDisplayColor === "function" ? resolveDisplayColor() : "";
+    setProjectColorPickerDisplayValue(
+      input,
+      displayColor,
+      input.dataset.colorPickerDisplayValue || input.value || "#79af85",
+    );
+  };
+
+  if (!input.dataset.colorPickerDisplayValue && input.value) {
+    input.dataset.colorPickerDisplayValue = input.value;
+  }
+
+  input.dataset.projectColorPickerMemoryBound = "true";
+  input.addEventListener("pointerdown", applyOpenColor);
+  input.addEventListener("mousedown", applyOpenColor);
+  input.addEventListener("touchstart", applyOpenColor, {
+    passive: true,
+  });
+  input.addEventListener("focus", applyOpenColor);
+  input.addEventListener("input", () => {
+    writeProjectColorPickerAnchor(normalizedAnchorKey, input.value, {
+      persist: false,
+    });
+    input.dataset.colorPickerDisplayValue = input.value;
+  });
+  input.addEventListener("change", () => {
+    const storedAnchor = writeProjectColorPickerAnchor(
+      normalizedAnchorKey,
+      input.value,
+      {
+        persist: true,
+      },
+    );
+    if (storedAnchor) {
+      input.dataset.colorPickerDisplayValue = storedAnchor;
+    }
+  });
+  input.addEventListener("blur", restoreDisplayColor);
+  restoreDisplayColor();
+}
+
 function hexColorToHsl(color) {
   const rgb = hexColorToRgb(normalizeProjectColorToHex(color, ""));
   if (!rgb) {
@@ -5331,6 +5479,28 @@ function createProjectColorController({
       preferCurrentHueForLevel1,
       projectList: getProjectList(),
     });
+  const resolveDefaultColor = () => getDefaultProjectColorByLevel(getLevel());
+  const projectColorAnchorKey = `project-controller:${
+    input.id || input.name || paletteContainer.id || "default"
+  }`;
+
+  bindRememberedProjectColorPicker(input, {
+    anchorKey: projectColorAnchorKey,
+    resolveOpenColor: () =>
+      normalizeProjectColorToHex(
+        getCurrentColor(),
+        input.dataset.colorPickerDisplayValue ||
+          input.value ||
+          resolveDefaultColor(),
+      ),
+    resolveDisplayColor: () =>
+      normalizeProjectColorToHex(
+        getCurrentColor(),
+        input.dataset.colorPickerDisplayValue ||
+          input.value ||
+          resolveDefaultColor(),
+      ),
+  });
 
   const applyColor = (nextColor, options = {}) => {
     const mode =
@@ -5341,15 +5511,19 @@ function createProjectColorController({
           : options.mode || "manual";
     const normalizedColor = normalizeProjectColorToHex(
       nextColor,
-      getDefaultProjectColorByLevel(getLevel()),
+      resolveDefaultColor(),
     );
-    input.value = normalizedColor;
+    setProjectColorPickerDisplayValue(
+      input,
+      normalizedColor,
+      resolveDefaultColor(),
+    );
     writeProjectColorInputMode(input, mode);
     syncProjectColorSwatchSelection(paletteContainer, normalizedColor);
     syncProjectColorValueText(
       valueLabel,
       normalizedColor,
-      getDefaultProjectColorByLevel(getLevel()),
+      resolveDefaultColor(),
     );
   };
 
@@ -5385,7 +5559,11 @@ function createProjectColorController({
       return;
     }
 
-    input.value = normalizedCurrent;
+    setProjectColorPickerDisplayValue(
+      input,
+      normalizedCurrent,
+      getDefaultProjectColorByLevel(level),
+    );
     writeProjectColorInputMode(input, currentMode);
     syncProjectColorSwatchSelection(paletteContainer, normalizedCurrent);
     syncProjectColorValueText(

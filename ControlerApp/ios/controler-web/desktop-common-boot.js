@@ -12223,13 +12223,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const previousTransitionLoading =
         previousShellVisibilityState?.transitionLoading === true;
       const nextActive = detail.active !== false;
-      const shouldArmProbeOnlyOnHiddenTransitionLoad =
-        nextActive === false &&
+      // Cached pages can stay logically active while the shell marks the slot as
+      // transition-loading, so arm probe-only for either side of the transition.
+      const shouldArmProbeOnlyOnTransitionLoad =
         detail.transitionLoading === true &&
         hasManagedCoreSnapshot &&
         !hasPendingStateChanges;
       if (
-        shouldArmProbeOnlyOnHiddenTransitionLoad &&
+        shouldArmProbeOnlyOnTransitionLoad &&
         !preferProbeOnlyOnFirstShellResume
       ) {
         preferProbeOnlyOnFirstShellResume = true;
@@ -12237,6 +12238,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           reason: typeof detail.reason === "string" ? detail.reason : "",
           page: typeof detail.page === "string" ? detail.page : "",
           transitionLoading: true,
+          active: nextActive === true,
           hasManagedCoreSnapshot: true,
         });
       }
@@ -14450,7 +14452,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   ]);
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
-    /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/;
+    /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i;
+
+  function normalizeThemeColorInputValue(color) {
+    return String(color ?? "")
+      .replace(/\u00A0/g, " ")
+      .replace(/[，]/g, ",")
+      .replace(/[（]/g, "(")
+      .replace(/[）]/g, ")")
+      .replace(/[；]+$/g, "")
+      .trim();
+  }
 
   const DEFAULT_THEME_COLORS = {
     primary: "#183524",
@@ -15068,6 +15080,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let lastLaunchThemeSyncSignature = null;
   let lastDesktopThemeDebugApplySignature = null;
   let lastAppliedThemeStateSignature = null;
+  let lastThemeStateStorageWriteSignature = null;
+  const THEME_STORAGE_SECTION_KEYS = new Set([
+    "selectedTheme",
+    "customThemes",
+    "builtInThemeOverrides",
+  ]);
+  let queuedThemeRefreshOptions = null;
+  let themeRefreshScheduled = false;
+  let themeRefreshInFlight = false;
 
   function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -15202,6 +15223,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ];
     for (const candidateKey of candidateKeys) {
       try {
+        if (window.localStorage.getItem(candidateKey) === nextValue) {
+          continue;
+        }
         window.localStorage.setItem(candidateKey, nextValue);
       } catch (_error) {}
     }
@@ -15245,6 +15269,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       builtInThemeOverridesEntry.storageKey || "",
       builtInThemeOverridesEntry.rawValue || "",
     ].join("\u0001");
+  }
+
+  function mergeThemeRefreshOptions(baseOptions = null, nextOptions = null) {
+    const base = isPlainObject(baseOptions) ? baseOptions : {};
+    const next = isPlainObject(nextOptions) ? nextOptions : {};
+    return {
+      ...base,
+      ...next,
+      authoritative: base.authoritative === true || next.authoritative === true,
+      force: base.force === true || next.force === true,
+    };
+  }
+
+  function normalizeThemeChangedSections(changedSections = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(changedSections) ? changedSections : [])
+          .map((section) => String(section || "").trim())
+          .filter(Boolean),
+      ),
+    );
   }
 
   function readBootstrapThemeState() {
@@ -15325,9 +15370,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function parseHexColor(color) {
-    const match = String(color || "")
-      .trim()
-      .match(HEX_COLOR_PATTERN);
+    const match = normalizeThemeColorInputValue(color).match(HEX_COLOR_PATTERN);
     if (!match) return null;
     return {
       r: parseInt(match[1].slice(0, 2), 16),
@@ -15339,12 +15382,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function toHexColor(color, fallback = "#000000") {
     const hex = parseHexColor(color);
     if (hex) {
-      return `#${String(color).trim().slice(1).toUpperCase()}`;
+      return `#${normalizeThemeColorInputValue(color).slice(1).toUpperCase()}`;
     }
 
-    const rgbMatch = String(color || "")
-      .trim()
-      .match(RGB_COLOR_PATTERN);
+    const rgbMatch = normalizeThemeColorInputValue(color).match(RGB_COLOR_PATTERN);
     if (rgbMatch) {
       return `#${[rgbMatch[1], rgbMatch[2], rgbMatch[3]]
         .map((value) => Number(value).toString(16).padStart(2, "0"))
@@ -15358,9 +15399,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function toRgbChannels(color) {
     if (!color) return "121,175,133";
 
-    const hex = String(color)
-      .trim()
-      .match(HEX_COLOR_PATTERN);
+    const normalized = normalizeThemeColorInputValue(color);
+    const hex = normalized.match(HEX_COLOR_PATTERN);
     if (hex) {
       const r = parseInt(hex[1].slice(0, 2), 16);
       const g = parseInt(hex[1].slice(2, 4), 16);
@@ -15368,9 +15408,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return `${r},${g},${b}`;
     }
 
-    const rgb = String(color)
-      .trim()
-      .match(RGB_COLOR_PATTERN);
+    const rgb = normalized.match(RGB_COLOR_PATTERN);
     if (rgb) {
       return `${rgb[1]},${rgb[2]},${rgb[3]}`;
     }
@@ -15391,9 +15429,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       };
     }
 
-    const rgbMatch = String(color || "")
-      .trim()
-      .match(RGB_COLOR_PATTERN);
+    const rgbMatch = normalizeThemeColorInputValue(color).match(RGB_COLOR_PATTERN);
     if (!rgbMatch) {
       return null;
     }
@@ -15467,7 +15503,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isValidThemeColorValue(color) {
-    const normalized = String(color || "").trim();
+    const normalized = normalizeThemeColorInputValue(color);
     return HEX_COLOR_PATTERN.test(normalized) || RGB_COLOR_PATTERN.test(normalized);
   }
 
@@ -16254,9 +16290,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       background: solidThemeCard
         ? solidBackground
         : `linear-gradient(180deg, ${toRgbaColor(recordColor, 0.12)} 0%, ${toRgbaColor(recordColor, 0.03)} 100%), var(--bg-quaternary)`,
-      shadow: solidThemeCard
-        ? `0 10px 18px ${toRgbaColor(recordColor, 0.16)}`
-        : "none",
+      shadow: "none",
     };
   }
 
@@ -16285,7 +16319,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return {
       id: themeId,
       name,
-      colors: storedColors,
+      colors: normalizedColors,
       recordCard: normalizedRecordCard,
       isCustom: true,
       isBuiltIn: false,
@@ -16599,6 +16633,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       colors: normalizedTheme.colors,
       recordCard: normalizedTheme.recordCard,
     };
+  }
+
+  function normalizeCustomThemesForStorage(customThemes = []) {
+    return Array.isArray(customThemes)
+      ? customThemes.map((theme) => normalizeCustomTheme(theme)).filter(Boolean)
+      : [];
   }
 
   function isLightTheme(theme) {
@@ -17104,12 +17144,75 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function writeThemeStateToStorage(selectedTheme, customThemes, builtInThemeOverrides) {
-    writeStorageEntry(SELECTED_THEME_STORAGE_KEY, selectedTheme || DEFAULT_THEME_ID);
-    writeStorageEntry(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes || []));
+    const storedCustomThemes = normalizeCustomThemesForStorage(customThemes);
+    const storedSelectedTheme = selectedTheme || DEFAULT_THEME_ID;
+    const storedCustomThemesJson = JSON.stringify(storedCustomThemes);
+    const storedBuiltInThemeOverridesJson = JSON.stringify(
+      builtInThemeOverrides || {},
+    );
+    const nextWriteSignature = JSON.stringify({
+      selectedTheme: storedSelectedTheme,
+      customThemes: storedCustomThemes,
+      builtInThemeOverrides: builtInThemeOverrides || {},
+    });
+    const selectedThemeEntry = readStorageEntry(SELECTED_THEME_STORAGE_KEY);
+    const customThemesEntry = readStorageEntry(CUSTOM_THEMES_STORAGE_KEY);
+    const builtInThemeOverridesEntry = readStorageEntry(
+      BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
+    );
+    const storageAlreadyMatches =
+      selectedThemeEntry.rawValue === storedSelectedTheme &&
+      customThemesEntry.rawValue === storedCustomThemesJson &&
+      builtInThemeOverridesEntry.rawValue === storedBuiltInThemeOverridesJson;
+    if (
+      nextWriteSignature === lastThemeStateStorageWriteSignature &&
+      storageAlreadyMatches
+    ) {
+      return;
+    }
+    writeStorageEntry(SELECTED_THEME_STORAGE_KEY, storedSelectedTheme);
+    writeStorageEntry(CUSTOM_THEMES_STORAGE_KEY, storedCustomThemesJson);
     writeStorageEntry(
       BUILT_IN_THEME_OVERRIDES_STORAGE_KEY,
-      JSON.stringify(builtInThemeOverrides || {}),
+      storedBuiltInThemeOverridesJson,
     );
+    lastThemeStateStorageWriteSignature = nextWriteSignature;
+    lastThemeStorageSignature = buildThemeStorageSignature();
+  }
+
+  function writeThemeStateToRawStorage(
+    selectedTheme,
+    customThemes,
+    builtInThemeOverrides,
+  ) {
+    const storedCustomThemes = normalizeCustomThemesForStorage(customThemes);
+    const storedSelectedTheme = selectedTheme || DEFAULT_THEME_ID;
+    const storedCustomThemesJson = JSON.stringify(storedCustomThemes);
+    const storedBuiltInThemeOverridesJson = JSON.stringify(
+      builtInThemeOverrides || {},
+    );
+    const nextWriteSignature = JSON.stringify({
+      selectedTheme: storedSelectedTheme,
+      customThemes: storedCustomThemes,
+      builtInThemeOverrides: builtInThemeOverrides || {},
+    });
+    const rawEntries = [
+      [SELECTED_THEME_STORAGE_KEY, storedSelectedTheme],
+      [CUSTOM_THEMES_STORAGE_KEY, storedCustomThemesJson],
+      [BUILT_IN_THEME_OVERRIDES_STORAGE_KEY, storedBuiltInThemeOverridesJson],
+      [`${LOCAL_ONLY_STORAGE_PREFIX}${SELECTED_THEME_STORAGE_KEY}`, storedSelectedTheme],
+      [`${LOCAL_ONLY_STORAGE_PREFIX}${CUSTOM_THEMES_STORAGE_KEY}`, storedCustomThemesJson],
+      [
+        `${LOCAL_ONLY_STORAGE_PREFIX}${BUILT_IN_THEME_OVERRIDES_STORAGE_KEY}`,
+        storedBuiltInThemeOverridesJson,
+      ],
+    ];
+    rawEntries.forEach(([storageKey, rawValue]) => {
+      if (readRawLocalStorageValue(storageKey) !== rawValue) {
+        writeRawLocalStorageValue(storageKey, rawValue);
+      }
+    });
+    lastThemeStateStorageWriteSignature = nextWriteSignature;
     lastThemeStorageSignature = buildThemeStorageSignature();
   }
 
@@ -17255,6 +17358,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!resolvedThemeState?.activeTheme) {
         return false;
       }
+      const selectedTheme =
+        resolvedThemeState.selectedTheme ||
+        resolvedThemeState.themeId ||
+        DEFAULT_THEME_ID;
       const rawBuiltInThemeOverrides = isPlainObject(coreState?.builtInThemeOverrides)
         ? coreState.builtInThemeOverrides
         : {};
@@ -17269,8 +17376,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           builtInThemeOverrides: normalizedBuiltInOverrides,
         }).catch(() => {});
       }
-      writeThemeStateToStorage(
-        resolvedThemeState.themeId,
+      writeThemeStateToRawStorage(
+        selectedTheme,
         resolvedThemeState.customThemes,
         resolvedThemeState.builtInThemeOverrides,
       );
@@ -17285,19 +17392,90 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
-  function refreshThemeFromAvailableSources(options = {}) {
+  async function runThemeRefreshFromAvailableSources(options = {}) {
     if (
       window.ControlerStorage?.isNativeApp === true &&
       typeof window.ControlerStorage?.getCoreState === "function"
     ) {
-      void applyThemeFromManagedCoreState(options).then((didApply) => {
-        if (!didApply) {
-          applyThemeFromStorage(options);
-        }
-      });
+      const didApply = await applyThemeFromManagedCoreState(options);
+      if (!didApply) {
+        applyThemeFromStorage(options);
+      }
       return;
     }
     applyThemeFromStorage(options);
+  }
+
+  function refreshThemeFromAvailableSources(options = {}) {
+    queuedThemeRefreshOptions = mergeThemeRefreshOptions(
+      queuedThemeRefreshOptions,
+      options,
+    );
+    if (themeRefreshScheduled || themeRefreshInFlight) {
+      return;
+    }
+    themeRefreshScheduled = true;
+    Promise.resolve().then(async () => {
+      themeRefreshScheduled = false;
+      if (themeRefreshInFlight) {
+        return;
+      }
+      themeRefreshInFlight = true;
+      try {
+        while (queuedThemeRefreshOptions) {
+          const nextOptions = queuedThemeRefreshOptions;
+          queuedThemeRefreshOptions = null;
+          await runThemeRefreshFromAvailableSources(nextOptions);
+        }
+      } finally {
+        themeRefreshInFlight = false;
+        if (queuedThemeRefreshOptions) {
+          refreshThemeFromAvailableSources();
+        }
+      }
+    });
+  }
+
+  function getThemeStoragePageInstanceId() {
+    return typeof window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ === "string"
+      ? window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__.trim()
+      : "";
+  }
+
+  function shouldRefreshThemeForStorageChange(detail = {}) {
+    if (!isPlainObject(detail)) {
+      return true;
+    }
+    const originPageInstanceId =
+      typeof detail.originPageInstanceId === "string"
+        ? detail.originPageInstanceId.trim()
+        : "";
+    if (
+      originPageInstanceId &&
+      originPageInstanceId === getThemeStoragePageInstanceId()
+    ) {
+      return false;
+    }
+    if (window.ControlerStorage?.shouldIgnoreRecentLocalEcho?.(detail)) {
+      return false;
+    }
+    const changedSections = normalizeThemeChangedSections(detail.changedSections);
+    if (changedSections.length) {
+      return changedSections.some((section) =>
+        THEME_STORAGE_SECTION_KEYS.has(section),
+      );
+    }
+    const reason =
+      typeof detail.reason === "string" ? detail.reason.trim() : "";
+    const source =
+      typeof detail.source === "string" ? detail.source.trim().toLowerCase() : "";
+    return (
+      reason === "import" ||
+      reason === "replace-all" ||
+      reason === "clear" ||
+      reason === "storage-path-changed" ||
+      source.includes("import")
+    );
   }
 
   function syncThemeStateFromBridge(detail = {}) {
@@ -17309,7 +17487,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       resolvedThemeState.selectedTheme ||
       resolvedThemeState.themeId ||
       DEFAULT_THEME_ID;
-    const customThemes = resolvedThemeState.customThemes;
+    const customThemes = normalizeCustomThemesForStorage(
+      resolvedThemeState.customThemes,
+    );
     const builtInThemeOverrides = resolvedThemeState.builtInThemeOverrides;
     const sharedThemeState = {
       selectedTheme,
@@ -17318,12 +17498,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     try {
-      writeThemeStateToStorage(
-        selectedTheme,
-        customThemes,
-        builtInThemeOverrides,
-      );
       const managedStorage = window.ControlerStorage;
+      if (managedStorage?.isNativeApp === true) {
+        writeThemeStateToRawStorage(
+          selectedTheme,
+          customThemes,
+          builtInThemeOverrides,
+        );
+      } else {
+        writeThemeStateToStorage(
+          selectedTheme,
+          customThemes,
+          builtInThemeOverrides,
+        );
+      }
       if (
         managedStorage?.isNativeApp === true &&
         typeof managedStorage.applySharedStateFromBridge === "function"
@@ -17365,7 +17553,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   window.addEventListener("focus", () => {
     refreshThemeFromAvailableSources();
   });
-  window.addEventListener("controler:storage-data-changed", () => {
+  window.addEventListener("controler:storage-data-changed", (event) => {
+    const detail =
+      event?.detail && typeof event.detail === "object" ? event.detail : {};
+    if (!shouldRefreshThemeForStorageChange(detail)) {
+      return;
+    }
     refreshThemeFromAvailableSources();
   });
   window.addEventListener("controler:native-bridge-event", (event) => {
