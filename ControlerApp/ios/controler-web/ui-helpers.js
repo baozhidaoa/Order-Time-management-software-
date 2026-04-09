@@ -5955,6 +5955,7 @@
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
     let suppressDuringAppPageEnterTransition = false;
+    let preserveViewportScopeUntilHidden = false;
     let stateRequestVersion = 0;
     let requestedOverlayState = {
       visible: currentVisibility,
@@ -6033,6 +6034,9 @@
     };
 
     const shouldScopeFullscreenToInlineHost = () => {
+      if (preserveViewportScopeUntilHidden && !isLeaveGuardOverlay) {
+        return false;
+      }
       if (isDesktopContentOverlayRuntime()) {
         return false;
       }
@@ -6087,6 +6091,13 @@
     const isLeaveGuardOverlay =
       overlay === appPageLeaveOverlayElement ||
       overlay.id === "controler-page-leave-overlay";
+
+    const shouldPreserveViewportScopeDuringBootstrap = (visible, mode) => {
+      if (!visible || mode !== "fullscreen" || isLeaveGuardOverlay) {
+        return false;
+      }
+      return preserveViewportScopeUntilHidden || hasPageBootstrapPendingBodyState();
+    };
 
     const shouldSuppressLoadingOverlayDuringAppPageEnterTransition = (visible) => {
       if (!visible || isLeaveGuardOverlay) {
@@ -6216,6 +6227,13 @@
       const resolvedMode = shouldForceFullscreenMode(requestedMode, visible)
         ? "fullscreen"
         : requestedMode;
+      const shouldPreserveViewportScope =
+        shouldPreserveViewportScopeDuringBootstrap(visible, resolvedMode);
+      if (shouldPreserveViewportScope) {
+        preserveViewportScopeUntilHidden = true;
+      } else if (!visible || resolvedMode !== "fullscreen") {
+        preserveViewportScopeUntilHidden = false;
+      }
       requestedOverlayState = {
         visible,
         mode: requestedMode,
@@ -6253,7 +6271,9 @@
 
       overlay.dataset.mode = resolvedMode;
       overlay.dataset.controlerOverlayScope =
-        resolvedMode === "fullscreen" && shouldScopeFullscreenToInlineHost()
+        resolvedMode === "fullscreen" &&
+        !shouldPreserveViewportScope &&
+        shouldScopeFullscreenToInlineHost()
           ? "content"
           : "viewport";
       overlay.hidden = !actualVisible;

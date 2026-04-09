@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
+import androidx.core.view.WindowCompat;
 import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
 import com.facebook.react.bridge.ReactContext;
@@ -19,7 +20,6 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint;
 import com.facebook.react.defaults.DefaultReactActivityDelegate;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
-import androidx.core.view.WindowCompat;
 import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -36,10 +36,7 @@ public class MainActivity extends ReactActivity {
   protected void onCreate(Bundle savedInstanceState) {
     pendingLaunchThemeStateJson = resolveLaunchThemeStateJson();
     setTheme(resolveLaunchThemeStyleRes(pendingLaunchThemeStateJson));
-    // Keep Android's bottom home-gesture reserved area outside app content.
-    // The app can safely own the visible canvas, while the system continues to
-    // own only the real gesture strip instead of our bottom action controls.
-    WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+    applyShellWindowChrome();
     super.onCreate(savedInstanceState);
     int launchBackgroundColor =
         resolveLaunchThemeBackgroundColor(pendingLaunchThemeStateJson);
@@ -51,8 +48,7 @@ public class MainActivity extends ReactActivity {
         .setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                 | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
-    getWindow().setStatusBarColor(Color.TRANSPARENT);
-    getWindow().setNavigationBarColor(Color.TRANSPARENT);
+    applyShellWindowChrome();
     ControlerStartupTrace.captureLaunchIntent(getIntent());
     ControlerStartupTrace.mark("main_activity_created");
     ControlerWidgetLaunchStore.captureLaunchIntent(this, getIntent());
@@ -69,6 +65,7 @@ public class MainActivity extends ReactActivity {
   public void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     setIntent(intent);
+    applyShellWindowChrome();
     ControlerStartupTrace.captureLaunchIntent(intent);
     ControlerStartupTrace.mark("main_activity_created", "mode=on_new_intent");
     ControlerWidgetLaunchStore.captureLaunchIntent(this, intent);
@@ -79,6 +76,18 @@ public class MainActivity extends ReactActivity {
       }
     }
     emitWidgetLaunchActionIfPossible(intent);
+  }
+
+  private void applyShellWindowChrome() {
+    if (getWindow() == null) {
+      return;
+    }
+    // Keep Android's bottom home-gesture reserved area outside app content.
+    // The app can safely own the visible canvas, while the system continues to
+    // own only the real gesture strip instead of our bottom action controls.
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+    getWindow().setStatusBarColor(Color.TRANSPARENT);
+    getWindow().setNavigationBarColor(Color.TRANSPARENT);
   }
 
   private void emitWidgetLaunchActionIfPossible(Intent intent) {

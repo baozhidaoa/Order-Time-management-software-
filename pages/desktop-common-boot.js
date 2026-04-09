@@ -23668,6 +23668,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     let currentNativeBusySignature = "";
     let suppressRevealingAfterShellUnlock = false;
     let suppressDuringAppPageEnterTransition = false;
+    let preserveViewportScopeUntilHidden = false;
     let stateRequestVersion = 0;
     let requestedOverlayState = {
       visible: currentVisibility,
@@ -23746,6 +23747,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
 
     const shouldScopeFullscreenToInlineHost = () => {
+      if (preserveViewportScopeUntilHidden && !isLeaveGuardOverlay) {
+        return false;
+      }
       if (isDesktopContentOverlayRuntime()) {
         return false;
       }
@@ -23800,6 +23804,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const isLeaveGuardOverlay =
       overlay === appPageLeaveOverlayElement ||
       overlay.id === "controler-page-leave-overlay";
+
+    const shouldPreserveViewportScopeDuringBootstrap = (visible, mode) => {
+      if (!visible || mode !== "fullscreen" || isLeaveGuardOverlay) {
+        return false;
+      }
+      return preserveViewportScopeUntilHidden || hasPageBootstrapPendingBodyState();
+    };
 
     const shouldSuppressLoadingOverlayDuringAppPageEnterTransition = (visible) => {
       if (!visible || isLeaveGuardOverlay) {
@@ -23929,6 +23940,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const resolvedMode = shouldForceFullscreenMode(requestedMode, visible)
         ? "fullscreen"
         : requestedMode;
+      const shouldPreserveViewportScope =
+        shouldPreserveViewportScopeDuringBootstrap(visible, resolvedMode);
+      if (shouldPreserveViewportScope) {
+        preserveViewportScopeUntilHidden = true;
+      } else if (!visible || resolvedMode !== "fullscreen") {
+        preserveViewportScopeUntilHidden = false;
+      }
       requestedOverlayState = {
         visible,
         mode: requestedMode,
@@ -23966,7 +23984,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
       overlay.dataset.mode = resolvedMode;
       overlay.dataset.controlerOverlayScope =
-        resolvedMode === "fullscreen" && shouldScopeFullscreenToInlineHost()
+        resolvedMode === "fullscreen" &&
+        !shouldPreserveViewportScope &&
+        shouldScopeFullscreenToInlineHost()
           ? "content"
           : "viewport";
       overlay.hidden = !actualVisible;

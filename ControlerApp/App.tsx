@@ -7291,7 +7291,6 @@ function App({
           barStyle="light-content"
           backgroundColor="transparent"
           translucent={Platform.OS === 'android'}
-          hidden={Platform.OS === 'android'}
         />
         <View style={styles.center}>
           <Text style={styles.errorTitle}>
@@ -7321,11 +7320,13 @@ function App({
     lastShellBlockingOverlayRef.current = null;
   }
   const shellBlockingOverlay =
-    liveShellBlockingOverlay ||
-    (transitionState?.status === 'loading'
-      ? lastShellBlockingOverlayRef.current
-      : null);
-  const shouldShowBootOverlay = !isPageReady && !shellBlockingOverlay;
+    IS_ANDROID && !isPageReady
+      ? null
+      : liveShellBlockingOverlay ||
+        (transitionState?.status === 'loading'
+          ? lastShellBlockingOverlayRef.current
+          : null);
+  const shouldShowBootOverlay = !isPageReady;
   const shouldBlockTouchesDuringTransition =
     transitionState?.status === 'loading';
   const shellBlockingOverlayView = shellBlockingOverlay ? (
@@ -7403,7 +7404,6 @@ function App({
           barStyle="light-content"
           backgroundColor="transparent"
           translucent={Platform.OS === 'android'}
-          hidden={Platform.OS === 'android'}
         />
         <View style={styles.center}>{bootCard}</View>
       </ScreenContainer>
@@ -7417,7 +7417,6 @@ function App({
         barStyle="light-content"
         backgroundColor="transparent"
         translucent={Platform.OS === 'android'}
-        hidden={Platform.OS === 'android'}
       />
       <View
         pointerEvents="box-none"

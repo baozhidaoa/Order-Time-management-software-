@@ -1024,11 +1024,19 @@
     return mergeResult;
   }
 
+  function canDeletedCheckinItemBeRevived(item, lookup = null) {
+    if (!isCheckinItemDeleted(item)) {
+      return false;
+    }
+    return getCheckedTodoDailyCheckinDates(item?.id, lookup).size > 0;
+  }
+
   function findReusableDeletedCheckinItemByTitle(title = "", excludeId = "") {
     const titleKey = normalizeCheckinTitleKey(title);
     if (!titleKey) {
       return null;
     }
+    const dailyCheckinLookup = createTodoDailyCheckinLookup();
     return (
       checkinItems
         .slice()
@@ -1037,7 +1045,7 @@
           (item) =>
             !String(item?.mergedIntoId || "").trim() &&
             !matchesId(item?.id, excludeId) &&
-            isCheckinItemDeleted(item) &&
+            canDeletedCheckinItemBeRevived(item, dailyCheckinLookup) &&
             normalizeCheckinTitleKey(item?.title) === titleKey,
         ) || null
     );

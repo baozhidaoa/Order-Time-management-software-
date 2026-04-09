@@ -30,6 +30,7 @@ let heatmapState = {
 };
 let calHeatmapInstance = null;
 let statsCheckinRangeScaleMeasureNode = null;
+let statsCheckinRangeScaleCleanup = null;
 let timeTableLevelFilter = "all";
 let pieChartState = {
   selectionValue: "summary:all",
@@ -5189,6 +5190,7 @@ function renderCurrentView() {
   const container = document.getElementById("stats-container");
   if (!container) return;
   const scrollState = captureStatsViewScrollState(container);
+  clearStatsCheckinRangeScaleLifecycle();
 
   disposeWeeklyGridOverlayLifecycle(container);
   destroyCalHeatmapInstance();
@@ -5387,6 +5389,13 @@ function restoreStatsViewScrollState(scrollState = null) {
     apply();
     schedule(apply);
   });
+}
+
+function clearStatsCheckinRangeScaleLifecycle() {
+  if (typeof statsCheckinRangeScaleCleanup === "function") {
+    statsCheckinRangeScaleCleanup();
+  }
+  statsCheckinRangeScaleCleanup = null;
 }
 
 function renderStatsSectionPanel(container, title, renderContent) {
@@ -10841,7 +10850,7 @@ function renderHeatmap(container) {
   root.appendChild(monthPanel);
   viewRoot.appendChild(root);
   if (heatmapState.dataType === "checkin") {
-    scheduleStatsCheckinRangeValueScale(root);
+    bindStatsCheckinRangeScaleLifecycle(root);
   }
 
   monthCountSelect.addEventListener("change", () => {
@@ -11055,13 +11064,21 @@ function applyStatsCheckinRangeValueScale(root = document) {
     });
 }
 
+function cancelScheduledStatsCheckinRangeValueScale(root = document) {
+  const scope =
+    root instanceof HTMLElement || root instanceof Document ? root : null;
+  if (!scope || !scope.__statsCheckinRangeScaleHandle) {
+    return;
+  }
+  window.cancelAnimationFrame?.(scope.__statsCheckinRangeScaleHandle);
+  clearTimeout(scope.__statsCheckinRangeScaleHandle);
+  scope.__statsCheckinRangeScaleHandle = 0;
+}
+
 function scheduleStatsCheckinRangeValueScale(root = document) {
   const scope =
     root instanceof HTMLElement || root instanceof Document ? root : document;
-  if (scope.__statsCheckinRangeScaleHandle) {
-    window.cancelAnimationFrame?.(scope.__statsCheckinRangeScaleHandle);
-    clearTimeout(scope.__statsCheckinRangeScaleHandle);
-  }
+  cancelScheduledStatsCheckinRangeValueScale(scope);
 
   const run = () => {
     scope.__statsCheckinRangeScaleHandle = 0;
@@ -11082,6 +11099,99 @@ function scheduleStatsCheckinRangeValueScale(root = document) {
   }
 
   scope.__statsCheckinRangeScaleHandle = window.setTimeout(run, 16);
+}
+
+function bindStatsCheckinRangeScaleLifecycle(root = document) {
+  clearStatsCheckinRangeScaleLifecycle();
+  const scope = root instanceof HTMLElement ? root : null;
+  if (!scope) {
+    return;
+  }
+  const observedValueElements = new Set();
+
+  const scheduleScale = () => {
+    if (!scope.isConnected) {
+      clearStatsCheckinRangeScaleLifecycle();
+      return;
+    }
+    scheduleStatsCheckinRangeValueScale(scope);
+  };
+
+  const resizeObserver =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => {
+          scheduleScale();
+        })
+      : null;
+  const syncObservedValueElements = () => {
+    if (!resizeObserver) {
+      return;
+    }
+
+    const nextElements = new Set();
+    scope
+      .querySelectorAll(".stats-period-summary-value--checkin-range")
+      .forEach((element) => {
+        if (!(element instanceof HTMLElement)) {
+          return;
+        }
+        nextElements.add(element);
+        if (!observedValueElements.has(element)) {
+          resizeObserver.observe(element);
+          observedValueElements.add(element);
+        }
+      });
+
+    observedValueElements.forEach((element) => {
+      if (nextElements.has(element)) {
+        return;
+      }
+      resizeObserver.unobserve(element);
+      observedValueElements.delete(element);
+    });
+  };
+
+  resizeObserver?.observe(scope);
+  syncObservedValueElements();
+
+  const mutationObserver =
+    typeof MutationObserver === "function"
+      ? new MutationObserver(() => {
+          syncObservedValueElements();
+          scheduleScale();
+        })
+      : null;
+  mutationObserver?.observe(scope, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+
+  window.addEventListener("resize", scheduleScale, {
+    passive: true,
+  });
+  window.visualViewport?.addEventListener?.("resize", scheduleScale, {
+    passive: true,
+  });
+
+  if (document.fonts?.ready) {
+    Promise.resolve(document.fonts.ready)
+      .then(() => {
+        scheduleScale();
+      })
+      .catch(() => undefined);
+  }
+
+  statsCheckinRangeScaleCleanup = () => {
+    cancelScheduledStatsCheckinRangeValueScale(scope);
+    resizeObserver?.disconnect?.();
+    mutationObserver?.disconnect?.();
+    window.removeEventListener("resize", scheduleScale);
+    window.visualViewport?.removeEventListener?.("resize", scheduleScale);
+    observedValueElements.clear();
+  };
+
+  scheduleScale();
 }
 
 function getStatsCheckinRangeEntries(item = {}) {
