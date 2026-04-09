@@ -10343,6 +10343,9 @@ function focusAdvancedProjectNameInput() {
   if (!(input instanceof HTMLInputElement)) {
     return;
   }
+  uiTools?.markModalAutofocusRequested?.(
+    document.getElementById("advanced-modal-overlay"),
+  );
 
   requestAnimationFrame(() => {
     if (typeof uiTools?.focusAndroidInteractiveTextControl === "function") {
@@ -10390,19 +10393,6 @@ function showProjectCreateModal() {
       document.getElementById("parent-project-select"),
     );
   });
-
-  // 添加点击外部关闭事件（确保每次都会工作）
-  const handleOutsideClick = function (e) {
-    if (e.target === this) {
-      closeAdvancedModal();
-      this.removeEventListener("click", handleOutsideClick);
-    }
-  };
-
-  // 移除旧的监听器并添加新的
-  modal.removeEventListener("click", modal._handleOutsideClick);
-  modal._handleOutsideClick = handleOutsideClick;
-  modal.addEventListener("click", handleOutsideClick);
   focusAdvancedProjectNameInput();
 }
 
@@ -11340,6 +11330,7 @@ function openModal(options = {}) {
   const defaultTarget = "project-name-input";
   setModalProjectInputTarget(defaultTarget);
   if (options.focusInput === true) {
+    uiTools?.markModalAutofocusRequested?.(modal);
     const focusTargetId =
       options.focusTargetId === "next-project-input" ||
       options.focusTargetId === "project-name-input"

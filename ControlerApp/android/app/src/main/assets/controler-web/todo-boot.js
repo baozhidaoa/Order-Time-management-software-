@@ -6427,6 +6427,20 @@
     );
   }
 
+  function scheduleTodoManagedModalTextAutofocusResume(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return false;
+    }
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+    schedule(() => {
+      resumeTodoManagedModalTextAutofocus(modal);
+    });
+    return true;
+  }
+
   function appendTodoManagedModal(modal, role = "", options = {}) {
     if (
       !(modal instanceof HTMLElement) ||
@@ -11023,7 +11037,10 @@
     </div>
   `;
 
-    appendTodoManagedModal(modal, "checkin-item");
+    const deferModalTextAutofocus = isTodoManagedModalDeferredAutofocusRuntime();
+    appendTodoManagedModal(modal, "checkin-item", {
+      deferTextAutofocus: deferModalTextAutofocus,
+    });
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
@@ -11093,6 +11110,9 @@
         closeCheckinItemModal();
       }
     });
+    if (deferModalTextAutofocus) {
+      scheduleTodoManagedModalTextAutofocusResume(modal);
+    }
   }
 
   // 保存打卡项目

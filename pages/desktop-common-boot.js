@@ -18113,6 +18113,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let androidModalAutofocusQueued = false;
   let androidReactNativeAppNavLocked = false;
   let lastAndroidSoftInputRequestAt = 0;
+  const ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS = 320;
+  const ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS = 420;
+  const ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS = 120;
   const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
   function normalizeAppPageEnterTransitionState(source = {}) {
@@ -20010,6 +20013,25 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     );
   }
 
+  function markModalAutofocusRequested(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return false;
+    }
+    modal.dataset.controlerAutofocusRequestedAt = String(Date.now());
+    return true;
+  }
+
+  function markContainingModalAutofocusRequested(target) {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    const modal = target.closest(".modal-overlay");
+    if (!(modal instanceof HTMLElement) || !isVisibleModalOverlay(modal)) {
+      return false;
+    }
+    return markModalAutofocusRequested(modal);
+  }
+
   function requestAndroidSoftInputForFocusedTarget(target) {
     if (
       !isAndroidNativeRuntime() ||
@@ -20031,7 +20053,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const now = Date.now();
-    if (now - lastAndroidSoftInputRequestAt < 320) {
+    const pendingUntil = Math.max(
+      0,
+      Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0),
+    );
+    if (pendingUntil > now) {
+      return false;
+    }
+    if (now - lastAndroidSoftInputRequestAt < ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS) {
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
@@ -20039,6 +20068,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       .toString(36)
       .slice(2, 8)}`;
     target.__controlerAndroidSoftInputRequestToken = requestToken;
+    target.__controlerAndroidSoftInputRequestPendingUntil =
+      now + ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS;
     const restoreFocusIfNeeded = () => {
       if (
         target.__controlerAndroidSoftInputRequestToken !== requestToken ||
@@ -20060,6 +20091,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       .call("ui.showSoftInput")
       .catch(() => undefined)
       .finally(() => {
+        if (target.__controlerAndroidSoftInputRequestToken !== requestToken) {
+          return;
+        }
+        target.__controlerAndroidSoftInputRequestPendingUntil = Math.max(
+          Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0),
+          Date.now() + ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS,
+        );
         window.setTimeout(restoreFocusIfNeeded, 96);
       });
     return true;
@@ -20111,6 +20149,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       return false;
     }
+
+    markContainingModalAutofocusRequested(focusTarget);
 
     const selectText = options.selectText === true;
     const allowRefocus = options.forceFocus === true;
@@ -27702,6 +27742,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     bindHorizontalDragScroll,
     bindVerticalDragScroll,
     bindWindowMoveHandle,
+    markModalAutofocusRequested,
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
     initEditablePageTitles,
