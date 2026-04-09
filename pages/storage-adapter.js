@@ -2706,6 +2706,15 @@
         });
         return result;
       },
+      getStateValue(key) {
+        const normalizedKey = String(key || "").trim();
+        if (!normalizedKey) {
+          return undefined;
+        }
+        return cloneValue(
+          safeDeserialize(window.localStorage.getItem(normalizedKey)),
+        );
+      },
       replaceAll(nextState) {
         window.localStorage.clear();
         if (nextState && typeof nextState === "object") {
@@ -3492,6 +3501,13 @@
       },
       dump() {
         return buildCurrentMergedState();
+      },
+      getStateValue(key) {
+        const normalizedKey = String(key || "").trim();
+        if (!normalizedKey) {
+          return undefined;
+        }
+        return cloneValue(readState()?.[normalizedKey]);
       },
       replaceAll(nextState) {
         const currentState = readState();

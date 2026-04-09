@@ -1,3 +1,212 @@
+;/* pages/checkin-schedule-utils.js */
+(() => {
+  const MAX_DATE_KEY = "9999-12-31";
+
+  function normalizeCheckinScheduleDateKey(dateValue = "") {
+    const directText = String(dateValue || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(directText)) {
+      return directText;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(directText)) {
+      return directText.slice(0, 10);
+    }
+    if (!directText) {
+      return "";
+    }
+    const parsed = new Date(directText);
+    if (Number.isNaN(parsed.getTime())) {
+      return "";
+    }
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(
+      parsed.getDate(),
+    ).padStart(2, "0")}`;
+  }
+
+  function normalizeCheckinScheduleReferenceDate(referenceDate = null) {
+    if (referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())) {
+      return normalizeCheckinScheduleDateKey(referenceDate);
+    }
+    return normalizeCheckinScheduleDateKey(referenceDate) || normalizeCheckinScheduleDateKey(new Date());
+  }
+
+  function parseCheckinScheduleTimestamp(value = "") {
+    const timestamp = Date.parse(String(value || "").trim());
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  function buildNormalizedCheckinScheduleRange(
+    rangeLike = {},
+    itemLike = {},
+    sourceIndex = 0,
+  ) {
+    const normalizedStartDate = normalizeCheckinScheduleDateKey(
+      rangeLike?.startDate || itemLike?.startDate || "",
+    );
+    if (!normalizedStartDate) {
+      return null;
+    }
+    return {
+      id: String(rangeLike?.id || "").trim(),
+      startDate: normalizedStartDate,
+      endDate: normalizeCheckinScheduleDateKey(
+        rangeLike?.endDate || itemLike?.endDate || "",
+      ),
+      createdAt:
+        String(rangeLike?.createdAt || itemLike?.createdAt || "").trim() || "",
+      updatedAt:
+        String(rangeLike?.updatedAt || itemLike?.updatedAt || "").trim() || "",
+      sourceIndex:
+        Number.isInteger(sourceIndex) && sourceIndex >= 0 ? sourceIndex : 0,
+    };
+  }
+
+  function getCheckinScheduleSourceRanges(itemLike = {}) {
+    if (Array.isArray(itemLike?.scheduleRanges) && itemLike.scheduleRanges.length > 0) {
+      return itemLike.scheduleRanges;
+    }
+    return itemLike && typeof itemLike === "object" ? [itemLike] : [];
+  }
+
+  function isCheckinScheduleRangeOngoing(rangeLike = {}, referenceDate = null) {
+    const normalizedReferenceDate =
+      normalizeCheckinScheduleReferenceDate(referenceDate);
+    const normalizedEndDate = normalizeCheckinScheduleDateKey(rangeLike?.endDate);
+    return !normalizedEndDate || normalizedReferenceDate < normalizedEndDate;
+  }
+
+  function isBetterCheckinScheduleRangeCandidate(
+    candidate,
+    current,
+    referenceDate = null,
+  ) {
+    if (!current) {
+      return true;
+    }
+
+    const candidateOngoing = isCheckinScheduleRangeOngoing(
+      candidate,
+      referenceDate,
+    );
+    const currentOngoing = isCheckinScheduleRangeOngoing(current, referenceDate);
+    if (candidateOngoing !== currentOngoing) {
+      return candidateOngoing;
+    }
+
+    const candidateEndScore =
+      normalizeCheckinScheduleDateKey(candidate?.endDate) || MAX_DATE_KEY;
+    const currentEndScore =
+      normalizeCheckinScheduleDateKey(current?.endDate) || MAX_DATE_KEY;
+    if (candidateEndScore !== currentEndScore) {
+      return candidateEndScore > currentEndScore;
+    }
+
+    const candidateUpdatedAt = Math.max(
+      parseCheckinScheduleTimestamp(candidate?.updatedAt),
+      parseCheckinScheduleTimestamp(candidate?.createdAt),
+    );
+    const currentUpdatedAt = Math.max(
+      parseCheckinScheduleTimestamp(current?.updatedAt),
+      parseCheckinScheduleTimestamp(current?.createdAt),
+    );
+    if (candidateUpdatedAt !== currentUpdatedAt) {
+      return candidateUpdatedAt > currentUpdatedAt;
+    }
+
+    return (candidate?.sourceIndex || 0) >= (current?.sourceIndex || 0);
+  }
+
+  function getCheckinScheduleDisplayRanges(itemLike = {}, options = {}) {
+    const normalizedReferenceDate = normalizeCheckinScheduleReferenceDate(
+      options?.referenceDate,
+    );
+    const groupedByStartDate = new Map();
+
+    getCheckinScheduleSourceRanges(itemLike).forEach((rangeLike, sourceIndex) => {
+      const normalizedRange = buildNormalizedCheckinScheduleRange(
+        rangeLike,
+        itemLike,
+        sourceIndex,
+      );
+      if (!normalizedRange) {
+        return;
+      }
+
+      const rangeKey = normalizedRange.startDate;
+      const current = groupedByStartDate.get(rangeKey) || null;
+      if (
+        isBetterCheckinScheduleRangeCandidate(
+          normalizedRange,
+          current,
+          normalizedReferenceDate,
+        )
+      ) {
+        groupedByStartDate.set(rangeKey, normalizedRange);
+      }
+    });
+
+    return Array.from(groupedByStartDate.values()).sort((left, right) => {
+      if (left.startDate !== right.startDate) {
+        return left.startDate.localeCompare(right.startDate);
+      }
+      return (left.sourceIndex || 0) - (right.sourceIndex || 0);
+    });
+  }
+
+  function formatCheckinScheduleDisplayDate(dateText = "", formatter = null) {
+    const normalizedDate = normalizeCheckinScheduleDateKey(dateText);
+    if (!normalizedDate) {
+      return "";
+    }
+    if (typeof formatter === "function") {
+      const formatted = formatter(normalizedDate);
+      return String(formatted || "").trim();
+    }
+    const parsed = new Date(normalizedDate);
+    if (Number.isNaN(parsed.getTime())) {
+      return normalizedDate;
+    }
+    return `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`;
+  }
+
+  function formatCheckinScheduleDisplayLabel(rangeLike = {}, options = {}) {
+    const normalizedReferenceDate = normalizeCheckinScheduleReferenceDate(
+      options?.referenceDate,
+    );
+    const startLabel = formatCheckinScheduleDisplayDate(
+      rangeLike?.startDate,
+      options?.formatDate,
+    );
+    if (!startLabel) {
+      return "";
+    }
+    if (isCheckinScheduleRangeOngoing(rangeLike, normalizedReferenceDate)) {
+      return startLabel;
+    }
+    const endLabel = formatCheckinScheduleDisplayDate(
+      rangeLike?.endDate,
+      options?.formatDate,
+    );
+    return endLabel ? `${startLabel}—${endLabel}` : startLabel;
+  }
+
+  function getCheckinScheduleDisplayLabels(itemLike = {}, options = {}) {
+    return getCheckinScheduleDisplayRanges(itemLike, options)
+      .map((rangeLike) => formatCheckinScheduleDisplayLabel(rangeLike, options))
+      .filter(Boolean);
+  }
+
+  window.ControlerCheckinScheduleUtils = {
+    normalizeDateKey: normalizeCheckinScheduleDateKey,
+    normalizeReferenceDate: normalizeCheckinScheduleReferenceDate,
+    isRangeOngoing: isCheckinScheduleRangeOngoing,
+    getDisplayRanges: getCheckinScheduleDisplayRanges,
+    formatDisplayDate: formatCheckinScheduleDisplayDate,
+    formatDisplayLabel: formatCheckinScheduleDisplayLabel,
+    getDisplayLabels: getCheckinScheduleDisplayLabels,
+  };
+})();
+
+
 ;/* pages/project-stats-utils.js */
 (() => {
   const SINGLE_SUFFIX = "（单）";
@@ -2339,6 +2548,7 @@ let heatmapState = {
   monthCount: 1,
 };
 let calHeatmapInstance = null;
+let statsCheckinRangeScaleMeasureNode = null;
 let timeTableLevelFilter = "all";
 let pieChartState = {
   selectionValue: "summary:all",
@@ -7497,6 +7707,7 @@ function buildHierarchyLineDataset(item, values) {
 function renderCurrentView() {
   const container = document.getElementById("stats-container");
   if (!container) return;
+  const scrollState = captureStatsViewScrollState(container);
 
   disposeWeeklyGridOverlayLifecycle(container);
   destroyCalHeatmapInstance();
@@ -7517,6 +7728,7 @@ function renderCurrentView() {
       widgetRenderer.title,
       widgetRenderer.render,
     );
+    restoreStatsViewScrollState(scrollState);
     return;
   }
 
@@ -7622,6 +7834,78 @@ function renderCurrentView() {
     STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
     renderers[safeMode] || renderers.table,
   );
+  restoreStatsViewScrollState(scrollState);
+}
+
+function resolveStatsViewScrollHost(container = null) {
+  const isScrollableElement = (element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    const overflowY = String(style.overflowY || "").toLowerCase();
+    if (!/(auto|scroll|overlay)/.test(overflowY)) {
+      return false;
+    }
+    return element.scrollHeight > element.clientHeight + 4;
+  };
+
+  let current = container instanceof HTMLElement ? container : null;
+  while (current instanceof HTMLElement) {
+    if (isScrollableElement(current)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  return document.scrollingElement || document.documentElement || document.body;
+}
+
+function captureStatsViewScrollState(container = null) {
+  const host = resolveStatsViewScrollHost(container);
+  if (host === document.body || host === document.documentElement || host === document.scrollingElement) {
+    return {
+      host,
+      top: Math.max(window.scrollY || window.pageYOffset || 0, 0),
+      left: Math.max(window.scrollX || window.pageXOffset || 0, 0),
+    };
+  }
+  return {
+    host,
+    top: Math.max(host?.scrollTop || 0, 0),
+    left: Math.max(host?.scrollLeft || 0, 0),
+  };
+}
+
+function restoreStatsViewScrollState(scrollState = null) {
+  if (!scrollState || Number.isFinite(scrollState.top) !== true) {
+    return;
+  }
+  const host = scrollState.host;
+  const nextTop = Math.max(0, Math.round(Number(scrollState.top) || 0));
+  const nextLeft = Math.max(0, Math.round(Number(scrollState.left) || 0));
+  const apply = () => {
+    if (
+      host === document.body ||
+      host === document.documentElement ||
+      host === document.scrollingElement
+    ) {
+      window.scrollTo(nextLeft, nextTop);
+      return;
+    }
+    if (host instanceof HTMLElement) {
+      host.scrollTop = nextTop;
+      host.scrollLeft = nextLeft;
+    }
+  };
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    apply();
+    schedule(apply);
+  });
 }
 
 function renderStatsSectionPanel(container, title, renderContent) {
@@ -13075,6 +13359,9 @@ function renderHeatmap(container) {
   }
   root.appendChild(monthPanel);
   viewRoot.appendChild(root);
+  if (heatmapState.dataType === "checkin") {
+    scheduleStatsCheckinRangeValueScale(root);
+  }
 
   monthCountSelect.addEventListener("change", () => {
     heatmapState.monthCount = clamp(
@@ -13167,16 +13454,18 @@ function destroyCalHeatmapInstance() {
 
 function loadCheckinHeatmapData() {
   try {
-    const managedSnapshot =
-      typeof window.ControlerStorage?.dump === "function"
-        ? window.ControlerStorage.dump()
-        : null;
-    const items = Array.isArray(managedSnapshot?.checkinItems)
-      ? managedSnapshot.checkinItems
-      : JSON.parse(localStorage.getItem("checkinItems") || "[]");
-    const daily = Array.isArray(managedSnapshot?.dailyCheckins)
-      ? managedSnapshot.dailyCheckins
-      : JSON.parse(localStorage.getItem("dailyCheckins") || "[]");
+    const items =
+      typeof window.ControlerStorage?.getStateValue === "function"
+        ? window.ControlerStorage.getStateValue("checkinItems")
+        : typeof window.ControlerStorage?.dump === "function"
+          ? window.ControlerStorage.dump()?.checkinItems
+          : JSON.parse(localStorage.getItem("checkinItems") || "[]");
+    const daily =
+      typeof window.ControlerStorage?.getStateValue === "function"
+        ? window.ControlerStorage.getStateValue("dailyCheckins")
+        : typeof window.ControlerStorage?.dump === "function"
+          ? window.ControlerStorage.dump()?.dailyCheckins
+          : JSON.parse(localStorage.getItem("dailyCheckins") || "[]");
     return {
       items: Array.isArray(items) ? items : [],
       daily: Array.isArray(daily) ? daily : [],
@@ -13195,29 +13484,6 @@ function getStatsTodayDateText() {
   return formatDateInputValue(new Date());
 }
 
-function normalizeStatsCheckinScheduleRanges(item = {}) {
-  const ranges = Array.isArray(item?.scheduleRanges) ? item.scheduleRanges : [];
-  const normalized = ranges
-    .map((range) => ({
-      startDate: String(range?.startDate || "").trim(),
-      endDate: String(range?.endDate || "").trim(),
-    }))
-    .filter((range) => !!range.startDate)
-    .sort((left, right) => left.startDate.localeCompare(right.startDate));
-  if (normalized.length > 0) {
-    return normalized;
-  }
-  if (String(item?.startDate || "").trim()) {
-    return [
-      {
-        startDate: String(item.startDate || "").trim(),
-        endDate: String(item.endDate || "").trim(),
-      },
-    ];
-  }
-  return [];
-}
-
 function formatStatsCheckinRangeDate(dateText) {
   const parsed = new Date(dateText);
   if (Number.isNaN(parsed.getTime())) {
@@ -13226,9 +13492,152 @@ function formatStatsCheckinRangeDate(dateText) {
   return `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`;
 }
 
-function getStatsCheckinRangeLabels(item = {}) {
+function getStatsCheckinRangeScaleMeasureNode() {
+  if (statsCheckinRangeScaleMeasureNode?.isConnected) {
+    return statsCheckinRangeScaleMeasureNode;
+  }
+  const measureNode = document.createElement("span");
+  measureNode.setAttribute("aria-hidden", "true");
+  measureNode.style.position = "absolute";
+  measureNode.style.left = "-99999px";
+  measureNode.style.top = "0";
+  measureNode.style.visibility = "hidden";
+  measureNode.style.pointerEvents = "none";
+  measureNode.style.whiteSpace = "nowrap";
+  measureNode.style.width = "max-content";
+  measureNode.style.maxWidth = "none";
+  measureNode.style.padding = "0";
+  measureNode.style.margin = "0";
+  measureNode.style.border = "0";
+  document.body.appendChild(measureNode);
+  statsCheckinRangeScaleMeasureNode = measureNode;
+  return measureNode;
+}
+
+function measureStatsCheckinRangeTextWidth(textElement) {
+  if (!(textElement instanceof HTMLElement)) {
+    return 0;
+  }
+  const computedStyle = window.getComputedStyle(textElement);
+  const measureNode = getStatsCheckinRangeScaleMeasureNode();
+  measureNode.textContent = textElement.textContent || "";
+  measureNode.style.fontFamily = computedStyle.fontFamily;
+  measureNode.style.fontWeight = computedStyle.fontWeight;
+  measureNode.style.fontStyle = computedStyle.fontStyle;
+  measureNode.style.fontVariant = computedStyle.fontVariant;
+  measureNode.style.fontSize = computedStyle.fontSize;
+  measureNode.style.letterSpacing = computedStyle.letterSpacing;
+  measureNode.style.lineHeight = computedStyle.lineHeight;
+  measureNode.style.textTransform = computedStyle.textTransform;
+  return measureNode.getBoundingClientRect().width;
+}
+
+function fitStatsCheckinRangeValueScale(valueElement) {
+  if (!(valueElement instanceof HTMLElement)) {
+    return;
+  }
+  const textElement = valueElement.querySelector(
+    ".stats-period-summary-value-text--checkin-range",
+  );
+  if (!(textElement instanceof HTMLElement)) {
+    return;
+  }
+
+  valueElement.style.setProperty("--stats-checkin-range-scale", "1");
+  const availableWidth = Math.max(
+    valueElement.clientWidth,
+    Math.round(valueElement.getBoundingClientRect().width),
+  );
+  if (availableWidth <= 0) {
+    return;
+  }
+
+  const measuredWidth = measureStatsCheckinRangeTextWidth(textElement);
+  if (measuredWidth <= 0) {
+    return;
+  }
+
+  const scale = Math.min(1, (availableWidth - 1) / measuredWidth);
+  valueElement.style.setProperty(
+    "--stats-checkin-range-scale",
+    String(Math.max(0.1, scale)),
+  );
+}
+
+function applyStatsCheckinRangeValueScale(root = document) {
+  const scope =
+    root instanceof HTMLElement || root instanceof Document ? root : document;
+  scope
+    .querySelectorAll(".stats-period-summary-value--checkin-range")
+    .forEach((valueElement) => {
+      fitStatsCheckinRangeValueScale(valueElement);
+    });
+}
+
+function scheduleStatsCheckinRangeValueScale(root = document) {
+  const scope =
+    root instanceof HTMLElement || root instanceof Document ? root : document;
+  if (scope.__statsCheckinRangeScaleHandle) {
+    window.cancelAnimationFrame?.(scope.__statsCheckinRangeScaleHandle);
+    clearTimeout(scope.__statsCheckinRangeScaleHandle);
+  }
+
+  const run = () => {
+    scope.__statsCheckinRangeScaleHandle = 0;
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        applyStatsCheckinRangeValueScale(scope);
+      });
+      return;
+    }
+    applyStatsCheckinRangeValueScale(scope);
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    scope.__statsCheckinRangeScaleHandle = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+    return;
+  }
+
+  scope.__statsCheckinRangeScaleHandle = window.setTimeout(run, 16);
+}
+
+function getStatsCheckinRangeEntries(item = {}) {
+  const checkinScheduleUtils = window.ControlerCheckinScheduleUtils;
   const todayText = getStatsTodayDateText();
-  return normalizeStatsCheckinScheduleRanges(item)
+  if (
+    typeof checkinScheduleUtils?.getDisplayRanges === "function" &&
+    typeof checkinScheduleUtils?.formatDisplayLabel === "function"
+  ) {
+    return checkinScheduleUtils
+      .getDisplayRanges(item, {
+        referenceDate: todayText,
+      })
+      .map((range) =>
+        checkinScheduleUtils.formatDisplayLabel(range, {
+          referenceDate: todayText,
+          formatDate: formatStatsCheckinRangeDate,
+        }),
+      )
+      .filter(Boolean);
+  }
+
+  const ranges = Array.isArray(item?.scheduleRanges) ? item.scheduleRanges : [];
+  const normalized = ranges
+    .map((range) => ({
+      startDate: String(range?.startDate || item?.startDate || "").trim(),
+      endDate: String(range?.endDate || item?.endDate || "").trim(),
+    }))
+    .filter((range) => !!range.startDate)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+  if (!normalized.length && String(item?.startDate || "").trim()) {
+    normalized.push({
+      startDate: String(item.startDate || "").trim(),
+      endDate: String(item.endDate || "").trim(),
+    });
+  }
+  return normalized
     .map((range) => {
       const startLabel = formatStatsCheckinRangeDate(range.startDate);
       if (!range.endDate || todayText < range.endDate) {
@@ -13242,6 +13651,7 @@ function getStatsCheckinRangeLabels(item = {}) {
 function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
   const card = document.createElement("section");
   card.className = "stats-period-summary";
+  card.classList.add("stats-period-summary--checkin-ranges");
 
   const title = document.createElement("div");
   title.className = "stats-period-summary-title";
@@ -13267,20 +13677,18 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
 
   const list = document.createElement("div");
   list.className = "stats-period-summary-metrics";
+  list.classList.add("stats-period-summary-metrics--checkin-ranges");
   list.style.gridTemplateColumns = "minmax(0, 1fr)";
 
   const entries =
     selectedItemId === "all"
       ? selectableItems.flatMap((item) =>
-          getStatsCheckinRangeLabels(item).map((label, index) => ({
+          getStatsCheckinRangeEntries(item).map((label, index, ranges) => ({
             label: item.title || "未命名打卡项目",
-            value:
-              getStatsCheckinRangeLabels(item).length > 1
-                ? `${label} · 第${index + 1}段`
-                : label,
+            value: ranges.length > 1 ? `${label} · 第${index + 1}段` : label,
           })),
         )
-      : getStatsCheckinRangeLabels(selectedItem || {}).map(
+      : getStatsCheckinRangeEntries(selectedItem || {}).map(
           (label, index, all) => ({
             label: all.length > 1 ? `时间段 ${index + 1}` : "时间段",
             value: label,
@@ -13312,6 +13720,7 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
   entries.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "stats-period-summary-item";
+    row.classList.add("stats-period-summary-item--checkin-range");
 
     const label = document.createElement("span");
     label.className = "stats-period-summary-label";
@@ -13319,8 +13728,12 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
 
     const value = document.createElement("strong");
     value.className = "stats-period-summary-value";
-    value.textContent = entry.value;
+    value.classList.add("stats-period-summary-value--checkin-range");
     value.title = entry.value;
+    const valueText = document.createElement("span");
+    valueText.className = "stats-period-summary-value-text--checkin-range";
+    valueText.textContent = entry.value;
+    value.appendChild(valueText);
 
     row.appendChild(label);
     row.appendChild(value);
@@ -13328,6 +13741,7 @@ function createStatsCheckinRangeCard(checkinData, selectedItemId = "all") {
   });
 
   card.appendChild(list);
+  scheduleStatsCheckinRangeValueScale(card);
   return card;
 }
 

@@ -1,3 +1,212 @@
+;/* pages/checkin-schedule-utils.js */
+(() => {
+  const MAX_DATE_KEY = "9999-12-31";
+
+  function normalizeCheckinScheduleDateKey(dateValue = "") {
+    const directText = String(dateValue || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(directText)) {
+      return directText;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(directText)) {
+      return directText.slice(0, 10);
+    }
+    if (!directText) {
+      return "";
+    }
+    const parsed = new Date(directText);
+    if (Number.isNaN(parsed.getTime())) {
+      return "";
+    }
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(
+      parsed.getDate(),
+    ).padStart(2, "0")}`;
+  }
+
+  function normalizeCheckinScheduleReferenceDate(referenceDate = null) {
+    if (referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())) {
+      return normalizeCheckinScheduleDateKey(referenceDate);
+    }
+    return normalizeCheckinScheduleDateKey(referenceDate) || normalizeCheckinScheduleDateKey(new Date());
+  }
+
+  function parseCheckinScheduleTimestamp(value = "") {
+    const timestamp = Date.parse(String(value || "").trim());
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  function buildNormalizedCheckinScheduleRange(
+    rangeLike = {},
+    itemLike = {},
+    sourceIndex = 0,
+  ) {
+    const normalizedStartDate = normalizeCheckinScheduleDateKey(
+      rangeLike?.startDate || itemLike?.startDate || "",
+    );
+    if (!normalizedStartDate) {
+      return null;
+    }
+    return {
+      id: String(rangeLike?.id || "").trim(),
+      startDate: normalizedStartDate,
+      endDate: normalizeCheckinScheduleDateKey(
+        rangeLike?.endDate || itemLike?.endDate || "",
+      ),
+      createdAt:
+        String(rangeLike?.createdAt || itemLike?.createdAt || "").trim() || "",
+      updatedAt:
+        String(rangeLike?.updatedAt || itemLike?.updatedAt || "").trim() || "",
+      sourceIndex:
+        Number.isInteger(sourceIndex) && sourceIndex >= 0 ? sourceIndex : 0,
+    };
+  }
+
+  function getCheckinScheduleSourceRanges(itemLike = {}) {
+    if (Array.isArray(itemLike?.scheduleRanges) && itemLike.scheduleRanges.length > 0) {
+      return itemLike.scheduleRanges;
+    }
+    return itemLike && typeof itemLike === "object" ? [itemLike] : [];
+  }
+
+  function isCheckinScheduleRangeOngoing(rangeLike = {}, referenceDate = null) {
+    const normalizedReferenceDate =
+      normalizeCheckinScheduleReferenceDate(referenceDate);
+    const normalizedEndDate = normalizeCheckinScheduleDateKey(rangeLike?.endDate);
+    return !normalizedEndDate || normalizedReferenceDate < normalizedEndDate;
+  }
+
+  function isBetterCheckinScheduleRangeCandidate(
+    candidate,
+    current,
+    referenceDate = null,
+  ) {
+    if (!current) {
+      return true;
+    }
+
+    const candidateOngoing = isCheckinScheduleRangeOngoing(
+      candidate,
+      referenceDate,
+    );
+    const currentOngoing = isCheckinScheduleRangeOngoing(current, referenceDate);
+    if (candidateOngoing !== currentOngoing) {
+      return candidateOngoing;
+    }
+
+    const candidateEndScore =
+      normalizeCheckinScheduleDateKey(candidate?.endDate) || MAX_DATE_KEY;
+    const currentEndScore =
+      normalizeCheckinScheduleDateKey(current?.endDate) || MAX_DATE_KEY;
+    if (candidateEndScore !== currentEndScore) {
+      return candidateEndScore > currentEndScore;
+    }
+
+    const candidateUpdatedAt = Math.max(
+      parseCheckinScheduleTimestamp(candidate?.updatedAt),
+      parseCheckinScheduleTimestamp(candidate?.createdAt),
+    );
+    const currentUpdatedAt = Math.max(
+      parseCheckinScheduleTimestamp(current?.updatedAt),
+      parseCheckinScheduleTimestamp(current?.createdAt),
+    );
+    if (candidateUpdatedAt !== currentUpdatedAt) {
+      return candidateUpdatedAt > currentUpdatedAt;
+    }
+
+    return (candidate?.sourceIndex || 0) >= (current?.sourceIndex || 0);
+  }
+
+  function getCheckinScheduleDisplayRanges(itemLike = {}, options = {}) {
+    const normalizedReferenceDate = normalizeCheckinScheduleReferenceDate(
+      options?.referenceDate,
+    );
+    const groupedByStartDate = new Map();
+
+    getCheckinScheduleSourceRanges(itemLike).forEach((rangeLike, sourceIndex) => {
+      const normalizedRange = buildNormalizedCheckinScheduleRange(
+        rangeLike,
+        itemLike,
+        sourceIndex,
+      );
+      if (!normalizedRange) {
+        return;
+      }
+
+      const rangeKey = normalizedRange.startDate;
+      const current = groupedByStartDate.get(rangeKey) || null;
+      if (
+        isBetterCheckinScheduleRangeCandidate(
+          normalizedRange,
+          current,
+          normalizedReferenceDate,
+        )
+      ) {
+        groupedByStartDate.set(rangeKey, normalizedRange);
+      }
+    });
+
+    return Array.from(groupedByStartDate.values()).sort((left, right) => {
+      if (left.startDate !== right.startDate) {
+        return left.startDate.localeCompare(right.startDate);
+      }
+      return (left.sourceIndex || 0) - (right.sourceIndex || 0);
+    });
+  }
+
+  function formatCheckinScheduleDisplayDate(dateText = "", formatter = null) {
+    const normalizedDate = normalizeCheckinScheduleDateKey(dateText);
+    if (!normalizedDate) {
+      return "";
+    }
+    if (typeof formatter === "function") {
+      const formatted = formatter(normalizedDate);
+      return String(formatted || "").trim();
+    }
+    const parsed = new Date(normalizedDate);
+    if (Number.isNaN(parsed.getTime())) {
+      return normalizedDate;
+    }
+    return `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`;
+  }
+
+  function formatCheckinScheduleDisplayLabel(rangeLike = {}, options = {}) {
+    const normalizedReferenceDate = normalizeCheckinScheduleReferenceDate(
+      options?.referenceDate,
+    );
+    const startLabel = formatCheckinScheduleDisplayDate(
+      rangeLike?.startDate,
+      options?.formatDate,
+    );
+    if (!startLabel) {
+      return "";
+    }
+    if (isCheckinScheduleRangeOngoing(rangeLike, normalizedReferenceDate)) {
+      return startLabel;
+    }
+    const endLabel = formatCheckinScheduleDisplayDate(
+      rangeLike?.endDate,
+      options?.formatDate,
+    );
+    return endLabel ? `${startLabel}—${endLabel}` : startLabel;
+  }
+
+  function getCheckinScheduleDisplayLabels(itemLike = {}, options = {}) {
+    return getCheckinScheduleDisplayRanges(itemLike, options)
+      .map((rangeLike) => formatCheckinScheduleDisplayLabel(rangeLike, options))
+      .filter(Boolean);
+  }
+
+  window.ControlerCheckinScheduleUtils = {
+    normalizeDateKey: normalizeCheckinScheduleDateKey,
+    normalizeReferenceDate: normalizeCheckinScheduleReferenceDate,
+    isRangeOngoing: isCheckinScheduleRangeOngoing,
+    getDisplayRanges: getCheckinScheduleDisplayRanges,
+    formatDisplayDate: formatCheckinScheduleDisplayDate,
+    formatDisplayLabel: formatCheckinScheduleDisplayLabel,
+    getDisplayLabels: getCheckinScheduleDisplayLabels,
+  };
+})();
+
+
 ;/* pages/todo.js */
 (() => {
   // 待办事项页面JavaScript
@@ -142,14 +351,12 @@
   function readPersistedTodoSortPreference() {
     const localValue = readTodoLocalSortPreferenceValue();
     try {
-      const managedSnapshot =
-        typeof window.ControlerStorage?.dump === "function"
-          ? window.ControlerStorage.dump()
-          : null;
       const managedValue =
-        managedSnapshot && typeof managedSnapshot === "object"
-          ? managedSnapshot.todoSortPreference
-          : "";
+        typeof window.ControlerStorage?.getStateValue === "function"
+          ? window.ControlerStorage.getStateValue(TODO_SORT_PREFERENCE_KEY)
+          : typeof window.ControlerStorage?.dump === "function"
+            ? window.ControlerStorage.dump()?.todoSortPreference
+            : "";
       if (typeof managedValue === "string" && managedValue.trim()) {
         const normalizedManagedValue =
           normalizeTodoSortPreference(managedValue);
@@ -574,6 +781,7 @@
     sourceLike = {},
     options = {},
   ) {
+    const nowIso = new Date().toISOString();
     const normalizedTimeRange = normalizeTodoTimeRangeFields({
       startTime: sourceLike?.startTime,
       endTime: sourceLike?.endTime,
@@ -622,9 +830,99 @@
       ),
       createdAt:
         String(sourceLike?.createdAt || "").trim() ||
-        new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+        nowIso,
+      updatedAt:
+        String(sourceLike?.updatedAt || sourceLike?.createdAt || "").trim() ||
+        nowIso,
     };
+  }
+
+  function dedupeCheckinScheduleRangesByStartDate(
+    ranges = [],
+    referenceDate = getLocalDateText(),
+  ) {
+    const normalizedRanges = Array.isArray(ranges) ? ranges : [];
+    const checkinScheduleUtils = window.ControlerCheckinScheduleUtils;
+    if (typeof checkinScheduleUtils?.getDisplayRanges === "function") {
+      return checkinScheduleUtils
+        .getDisplayRanges(
+          {
+            scheduleRanges: normalizedRanges,
+          },
+          {
+            referenceDate,
+          },
+        )
+        .map((rangeLike) => {
+          const sourceIndex = Number.isInteger(rangeLike?.sourceIndex)
+            ? rangeLike.sourceIndex
+            : -1;
+          const sourceRange =
+            sourceIndex >= 0 ? normalizedRanges[sourceIndex] : null;
+          return sourceRange && typeof sourceRange === "object"
+            ? {
+                ...sourceRange,
+                startDate:
+                  String(rangeLike?.startDate || sourceRange.startDate || "").trim(),
+                endDate: String(rangeLike?.endDate || sourceRange.endDate || "").trim(),
+              }
+            : createCheckinScheduleRange(rangeLike, {
+                defaultStartDate: rangeLike?.startDate || getLocalDateText(),
+              });
+        })
+        .filter((rangeLike) => !!String(rangeLike?.startDate || "").trim())
+        .sort((left, right) =>
+          String(left?.startDate || "").localeCompare(String(right?.startDate || "")),
+        );
+    }
+
+    const groupedByStartDate = new Map();
+    normalizedRanges.forEach((rangeLike, sourceIndex) => {
+      const nextRange = {
+        ...(rangeLike && typeof rangeLike === "object" ? rangeLike : {}),
+        sourceIndex,
+      };
+      const startDate = String(nextRange?.startDate || "").trim();
+      if (!startDate) {
+        return;
+      }
+      const endDate = String(nextRange?.endDate || "").trim();
+      const currentRange = groupedByStartDate.get(startDate) || null;
+      const nextIsOngoing = !endDate || referenceDate < endDate;
+      const currentEndDate = String(currentRange?.endDate || "").trim();
+      const currentIsOngoing =
+        !currentEndDate || referenceDate < currentEndDate;
+      if (!currentRange) {
+        groupedByStartDate.set(startDate, nextRange);
+        return;
+      }
+      if (nextIsOngoing !== currentIsOngoing) {
+        if (nextIsOngoing) {
+          groupedByStartDate.set(startDate, nextRange);
+        }
+        return;
+      }
+      if (endDate !== currentEndDate) {
+        if ((endDate || "9999-12-31") > (currentEndDate || "9999-12-31")) {
+          groupedByStartDate.set(startDate, nextRange);
+        }
+        return;
+      }
+      if ((nextRange.sourceIndex || 0) >= (currentRange.sourceIndex || 0)) {
+        groupedByStartDate.set(startDate, nextRange);
+      }
+    });
+    return Array.from(groupedByStartDate.values())
+      .map((rangeLike) => {
+        const nextRange = {
+          ...rangeLike,
+        };
+        delete nextRange.sourceIndex;
+        return nextRange;
+      })
+      .sort((left, right) =>
+        String(left?.startDate || "").localeCompare(String(right?.startDate || "")),
+      );
   }
 
   function normalizeCheckinScheduleRanges(
@@ -650,10 +948,7 @@
       .filter((range) => !!String(range?.startDate || "").trim());
 
     if (normalized.length > 0) {
-      normalized.sort((left, right) =>
-        String(left?.startDate || "").localeCompare(String(right?.startDate || "")),
-      );
-      return normalized;
+      return dedupeCheckinScheduleRangesByStartDate(normalized);
     }
 
     if (
@@ -673,6 +968,13 @@
 
   function closeCheckinScheduleRanges(item, closedDate = getLocalDateText()) {
     if (!item || !Array.isArray(item.scheduleRanges)) {
+      return;
+    }
+    item.scheduleRanges = normalizeCheckinScheduleRanges(
+      item.scheduleRanges,
+      item,
+    );
+    if (!item.scheduleRanges.length) {
       return;
     }
     item.scheduleRanges = item.scheduleRanges.map((range, index) => {
@@ -695,6 +997,10 @@
       nextRange.updatedAt = new Date().toISOString();
       return nextRange;
     });
+    item.scheduleRanges = normalizeCheckinScheduleRanges(
+      item.scheduleRanges,
+      item,
+    );
   }
 
   function appendCheckinScheduleRange(item, sourceLike = {}, options = {}) {
@@ -705,14 +1011,14 @@
       item.scheduleRanges,
       item,
     );
-    item.scheduleRanges.push(
-      createCheckinScheduleRange(sourceLike, {
-        defaultStartDate: sourceLike?.startDate || getLocalDateText(),
-        closedDate: options?.closedDate,
-      }),
-    );
-    item.scheduleRanges.sort((left, right) =>
-      String(left?.startDate || "").localeCompare(String(right?.startDate || "")),
+    item.scheduleRanges = normalizeCheckinScheduleRanges(
+      item.scheduleRanges.concat(
+        createCheckinScheduleRange(sourceLike, {
+          defaultStartDate: sourceLike?.startDate || getLocalDateText(),
+          closedDate: options?.closedDate,
+        }),
+      ),
+      item,
     );
   }
 
@@ -743,12 +1049,24 @@
         String(item.scheduleRanges[item.scheduleRanges.length - 1]?.id || "").trim() ||
         nextRange.id,
     };
+    item.scheduleRanges = normalizeCheckinScheduleRanges(
+      item.scheduleRanges,
+      item,
+    );
   }
 
   function getCheckinItemVisibleDateRanges(item) {
+    const checkinScheduleUtils = window.ControlerCheckinScheduleUtils;
+    if (typeof checkinScheduleUtils?.getDisplayLabels === "function") {
+      return checkinScheduleUtils.getDisplayLabels(item, {
+        referenceDate: getLocalDateText(),
+        formatDate: formatCheckinRangeDateText,
+      });
+    }
+
     const ranges = normalizeCheckinScheduleRanges(item?.scheduleRanges, item);
     const todayText = getLocalDateText();
-    const labels = ranges
+    return ranges
       .map((range) => {
         const startDate = String(range?.startDate || "").trim();
         if (!startDate) {
@@ -761,7 +1079,6 @@
         return endLabel ? `${startLabel}—${endLabel}` : startLabel;
       })
       .filter(Boolean);
-    return Array.from(new Set(labels));
   }
 
   function formatCheckinRangeDateText(dateText) {
@@ -796,8 +1113,9 @@
         deduped.set(key, range);
       }
     });
-    targetItem.scheduleRanges = Array.from(deduped.values()).sort((left, right) =>
-      String(left?.startDate || "").localeCompare(String(right?.startDate || "")),
+    targetItem.scheduleRanges = normalizeCheckinScheduleRanges(
+      Array.from(deduped.values()),
+      targetItem,
     );
   }
 
@@ -1261,10 +1579,18 @@
 
   function readTodoWorkspaceSnapshotFromManagedStorage() {
     try {
+      const getStateValue = window.ControlerStorage?.getStateValue;
       const snapshot =
-        typeof window.ControlerStorage?.dump === "function"
-          ? window.ControlerStorage.dump()
-          : null;
+        typeof getStateValue === "function"
+          ? {
+              todos: getStateValue("todos"),
+              checkinItems: getStateValue("checkinItems"),
+              dailyCheckins: getStateValue("dailyCheckins"),
+              checkins: getStateValue("checkins"),
+            }
+          : typeof window.ControlerStorage?.dump === "function"
+            ? window.ControlerStorage.dump()
+            : null;
       if (
         !snapshot ||
         typeof snapshot !== "object" ||
@@ -2475,11 +2801,14 @@
 
   function readTodoLinkedPlanCollection() {
     try {
-      if (typeof window.ControlerStorage?.dump === "function") {
-        const snapshot = window.ControlerStorage.dump();
-        if (snapshot && typeof snapshot === "object" && Array.isArray(snapshot.plans)) {
-          return reconcileTodoLinkedPlanCollection(snapshot.plans);
-        }
+      const planSnapshot =
+        typeof window.ControlerStorage?.getStateValue === "function"
+          ? window.ControlerStorage.getStateValue("plans")
+          : typeof window.ControlerStorage?.dump === "function"
+            ? window.ControlerStorage.dump()?.plans
+            : null;
+      if (Array.isArray(planSnapshot)) {
+        return reconcileTodoLinkedPlanCollection(planSnapshot);
       }
     } catch (error) {
       console.error("读取关联计划快照失败，回退本地计划镜像:", error);

@@ -1105,6 +1105,86 @@ function preparePlanModalOverlay(modal, options = {}) {
   return modal;
 }
 
+function isPlanManagedModalDeferredAutofocusRuntime() {
+  return document.body?.classList.contains("controler-android-native") === true;
+}
+
+function getPlanManagedModalTextAutofocusOptions() {
+  return {
+    delayMs: 40,
+    retryDelayMs: 120,
+    selectText: true,
+  };
+}
+
+function resumePlanManagedModalTextAutofocus(modal) {
+  if (!(modal instanceof HTMLElement) || !modal.isConnected) {
+    return false;
+  }
+  delete modal.dataset.controlerDisableAutofocus;
+  const activeControl = document.activeElement;
+  if (activeControl instanceof HTMLElement && modal.contains(activeControl)) {
+    return false;
+  }
+  return (
+    uiTools?.autofocusInteractiveTextControl?.(
+      modal,
+      getPlanManagedModalTextAutofocusOptions(),
+    ) || false
+  );
+}
+
+function schedulePlanManagedModalTextAutofocusResume(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return false;
+  }
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 0);
+  schedule(() => {
+    resumePlanManagedModalTextAutofocus(modal);
+  });
+  return true;
+}
+
+function appendPlanManagedModal(modal, role = "", options = {}) {
+  if (!(modal instanceof HTMLElement)) {
+    return null;
+  }
+  if (!(typeof document !== "undefined" && document.body instanceof HTMLElement)) {
+    return preparePlanModalOverlay(modal, options);
+  }
+  modal.dataset.planManagedModal = "true";
+  if (typeof role === "string" && role.trim()) {
+    modal.dataset.planModalRole = role.trim();
+  }
+  const body = document.body;
+  const preferViewportScope =
+    body.classList.contains("controler-mobile-runtime") ||
+    body.classList.contains("controler-android-native");
+  const deferTextAutofocus =
+    options?.deferTextAutofocus === true &&
+    isPlanManagedModalDeferredAutofocusRuntime();
+  if (deferTextAutofocus) {
+    modal.dataset.controlerDisableAutofocus = "true";
+  } else {
+    delete modal.dataset.controlerDisableAutofocus;
+  }
+  return preparePlanModalOverlay(modal, {
+    ...options,
+    scope:
+      typeof options.scope === "string" && options.scope.trim()
+        ? options.scope
+        : preferViewportScope
+          ? "viewport"
+          : undefined,
+    textAutofocus: deferTextAutofocus
+      ? null
+      : getPlanManagedModalTextAutofocusOptions(),
+  });
+}
+
 function removePlanModalElement(modal) {
   if (!(modal instanceof HTMLElement)) {
     return;
@@ -3397,12 +3477,7 @@ function ensurePlanCalendarRenderHost(calendarContent) {
 
   const renderHost = document.createElement("div");
   renderHost.className = "plan-calendar-render-host";
-  const contentNodes = Array.from(calendarContent.childNodes).filter((node) => {
-    return !(
-      node instanceof HTMLElement &&
-      node.classList.contains("planner-floating-action-slot")
-    );
-  });
+  const contentNodes = Array.from(calendarContent.childNodes);
   calendarContent.prepend(renderHost);
   if (contentNodes.length > 0) {
     renderHost.replaceChildren(...contentNodes);
@@ -3428,27 +3503,22 @@ function getPlanCalendarRenderHost() {
 
 function syncPlanInlineActionPlacement() {
   const slot = document.querySelector(".planner-floating-action-slot");
-  const contentElement = document.getElementById("calendar-content");
-  if (!(slot instanceof HTMLElement) || !(contentElement instanceof HTMLElement)) {
+  if (!(slot instanceof HTMLElement)) {
     return;
   }
 
-  if (document.body instanceof HTMLElement) {
-    document.body.dataset.planView = currentView;
+  const body = document.body;
+  if (body instanceof HTMLElement) {
+    body.dataset.planView = currentView;
+    if (slot.parentElement !== body) {
+      body.appendChild(slot);
+    }
   }
 
   const isMonthView = currentView === "month";
   slot.hidden = !isMonthView;
   slot.style.display = isMonthView ? "flex" : "none";
   slot.setAttribute("aria-hidden", isMonthView ? "false" : "true");
-  if (!isMonthView) {
-    return;
-  }
-
-  ensurePlanCalendarRenderHost(contentElement);
-  if (slot.parentElement !== contentElement) {
-    contentElement.appendChild(slot);
-  }
 }
 
 function getRequestedPlannerPanel() {
@@ -5107,11 +5177,13 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
     });
   };
 
-  preparePlanModalOverlay(modal, {
+  const deferModalTextAutofocus = isPlanManagedModalDeferredAutofocusRuntime();
+  appendPlanManagedModal(modal, "year-goal", {
     close: () => {
       closeYearGoalModal();
     },
     zIndex: 2100,
+    deferTextAutofocus: deferModalTextAutofocus,
   });
 
   const yearGoalTitleInput = modal.querySelector("#year-goal-title-input");
@@ -5235,6 +5307,10 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       .querySelector("#save-year-goal-btn")
       .addEventListener("click", saveYearGoalAction);
     deleteBtn?.addEventListener("click", deleteYearGoalAction);
+  }
+
+  if (deferModalTextAutofocus) {
+    schedulePlanManagedModalTextAutofocusResume(modal);
   }
 
   modal.addEventListener("click", function (event) {
@@ -6371,8 +6447,10 @@ function showWeeklyGridPlanModal(planData = null) {
     </div>
   `;
 
-  preparePlanModalOverlay(modal, {
+  const deferModalTextAutofocus = isPlanManagedModalDeferredAutofocusRuntime();
+  appendPlanManagedModal(modal, "weekly-plan-edit", {
     zIndex: 2000,
+    deferTextAutofocus: deferModalTextAutofocus,
   });
   bindPlanFormModalEventShield(modal);
 
@@ -6429,9 +6507,16 @@ function showWeeklyGridPlanModal(planData = null) {
     modal,
     `draft:plan:weekly:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
   );
-  void weeklyPlanDraftSession.restore().catch((error) => {
-    console.error("恢复周视图计划草稿失败:", error);
-  });
+  void weeklyPlanDraftSession
+    .restore()
+    .catch((error) => {
+      console.error("恢复周视图计划草稿失败:", error);
+    })
+    .finally(() => {
+      if (deferModalTextAutofocus) {
+        resumePlanManagedModalTextAutofocus(modal);
+      }
+    });
 
   const discardWeeklyPlanDraft = () => {
     void weeklyPlanDraftSession.clear().catch((error) => {
@@ -6937,8 +7022,10 @@ function showPlanEditModal(planData = null) {
     </div>
   `;
 
-  preparePlanModalOverlay(modal, {
+  const deferModalTextAutofocus = isPlanManagedModalDeferredAutofocusRuntime();
+  appendPlanManagedModal(modal, "plan-edit", {
     zIndex: 2000,
+    deferTextAutofocus: deferModalTextAutofocus,
   });
   bindPlanFormModalEventShield(modal);
 
@@ -6969,9 +7056,16 @@ function showPlanEditModal(planData = null) {
     modal,
     `draft:plan:main:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
   );
-  void planDraftSession.restore().catch((error) => {
-    console.error("恢复计划草稿失败:", error);
-  });
+  void planDraftSession
+    .restore()
+    .catch((error) => {
+      console.error("恢复计划草稿失败:", error);
+    })
+    .finally(() => {
+      if (deferModalTextAutofocus) {
+        resumePlanManagedModalTextAutofocus(modal);
+      }
+    });
 
   const discardPlanDraft = () => {
     void planDraftSession.clear().catch((error) => {

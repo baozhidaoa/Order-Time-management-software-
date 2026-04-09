@@ -2529,7 +2529,14 @@
               return;
             }
           }
-          retryAction();
+          if (isFocusedInteractiveTextControl(focusTarget) && !allowRefocus) {
+            clearPendingFocusRetries();
+            return;
+          }
+          const retrySucceeded = retryAction();
+          if (retrySucceeded) {
+            clearPendingFocusRetries();
+          }
         }, delayMs);
         focusTarget.__controlerAndroidFocusRetryTimers.push(timerId);
       });

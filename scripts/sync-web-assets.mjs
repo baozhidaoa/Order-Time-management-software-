@@ -44,6 +44,10 @@ const mobileIosWebDir = path.join(
   "controler-web",
 );
 const pagesSourceDir = path.join(repoRoot, "pages");
+const checkinScheduleUtilsPath = path.join(
+  pagesSourceDir,
+  "checkin-schedule-utils.js",
+);
 const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
 const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
@@ -114,9 +118,17 @@ const desktopBootBundleEntries = {
     { label: "pages/plan.js", file: path.join(pagesSourceDir, "plan.js") },
   ],
   "todo-boot.js": [
+    {
+      label: "pages/checkin-schedule-utils.js",
+      file: checkinScheduleUtilsPath,
+    },
     { label: "pages/todo.js", file: path.join(pagesSourceDir, "todo.js") },
   ],
   "stats-boot.js": [
+    {
+      label: "pages/checkin-schedule-utils.js",
+      file: checkinScheduleUtilsPath,
+    },
     {
       label: "pages/project-stats-utils.js",
       file: path.join(pagesSourceDir, "project-stats-utils.js"),
@@ -211,9 +223,17 @@ const mobileBootBundleEntries = {
     { label: "pages/plan.js", file: path.join(pagesSourceDir, "plan.js") },
   ],
   "todo-boot.js": [
+    {
+      label: "pages/checkin-schedule-utils.js",
+      file: checkinScheduleUtilsPath,
+    },
     { label: "pages/todo.js", file: path.join(pagesSourceDir, "todo.js") },
   ],
   "stats-boot.js": [
+    {
+      label: "pages/checkin-schedule-utils.js",
+      file: checkinScheduleUtilsPath,
+    },
     {
       label: "pages/project-stats-utils.js",
       file: path.join(pagesSourceDir, "project-stats-utils.js"),

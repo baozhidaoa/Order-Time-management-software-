@@ -6076,6 +6076,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
         return result;
       },
+      getStateValue(key) {
+        const normalizedKey = String(key || "").trim();
+        if (!normalizedKey) {
+          return undefined;
+        }
+        return cloneValue(
+          safeDeserialize(window.localStorage.getItem(normalizedKey)),
+        );
+      },
       replaceAll(nextState) {
         window.localStorage.clear();
         if (nextState && typeof nextState === "object") {
@@ -6862,6 +6871,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
       dump() {
         return buildCurrentMergedState();
+      },
+      getStateValue(key) {
+        const normalizedKey = String(key || "").trim();
+        if (!normalizedKey) {
+          return undefined;
+        }
+        return cloneValue(readState()?.[normalizedKey]);
       },
       replaceAll(nextState) {
         const currentState = readState();
@@ -20226,7 +20242,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return;
             }
           }
-          retryAction();
+          if (isFocusedInteractiveTextControl(focusTarget) && !allowRefocus) {
+            clearPendingFocusRetries();
+            return;
+          }
+          const retrySucceeded = retryAction();
+          if (retrySucceeded) {
+            clearPendingFocusRetries();
+          }
         }, delayMs);
         focusTarget.__controlerAndroidFocusRetryTimers.push(timerId);
       });

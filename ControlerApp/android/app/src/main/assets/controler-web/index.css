@@ -1939,9 +1939,14 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
   gap: 6px;
   align-items: stretch;
   flex: 0 0 auto;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .record-item .record-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 58px;
   padding: 6px 10px;
   border: 1px solid var(--button-border);
@@ -1949,6 +1954,9 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
   cursor: pointer;
   background-color: var(--button-bg);
   color: var(--button-text);
+  line-height: 1.2;
+  margin: 0;
+  box-sizing: border-box;
   opacity: 0;
   pointer-events: none;
   transition:
@@ -1960,6 +1968,10 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
 
 .record-item .record-action-btn:hover {
   background-color: var(--button-bg-hover);
+}
+
+.record-item .delete-btn {
+  margin-top: 0;
 }
 
 .record-item .record-save-btn,
@@ -3559,6 +3571,7 @@ body.page-stats #stats-container {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
   padding: 8px 10px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--bg-tertiary) 64%, transparent);
@@ -3572,11 +3585,45 @@ body.page-stats #stats-container {
 }
 
 .stats-period-summary-value {
+  display: block;
   color: var(--text-color);
-  font-size: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(11px, 2.9vw, 14px);
   font-weight: 700;
   line-height: 1.25;
+  letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.stats-period-summary--checkin-ranges .stats-period-summary-item--checkin-range {
+  padding: 3px 4px;
+}
+
+.stats-period-summary--checkin-ranges .stats-period-summary-value--checkin-range {
+  display: block;
+  width: 100%;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: clip;
+  font-size: clamp(8.6px, 2.2vw, 10.2px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+.stats-period-summary--checkin-ranges .stats-period-summary-value-text--checkin-range {
+  display: inline-block;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  transform-origin: left center;
+  transform: translateZ(0) scaleX(var(--stats-checkin-range-scale, 1));
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
 }
 
 .stats-period-summary.is-compact {
@@ -6806,7 +6853,13 @@ body.flex.row .modal-content {
   }
 
   body.page-stats .stats-period-summary-value {
-    font-size: 12px;
+    font-size: clamp(10px, 3vw, 12px);
+  }
+
+  body.page-stats
+    .stats-period-summary--checkin-ranges
+    .stats-period-summary-value--checkin-range {
+    font-size: clamp(8.1px, 2.05vw, 9.5px);
   }
 
   body.page-stats .stats-line-chart-layout.is-compact-mobile {
@@ -6873,7 +6926,14 @@ body.flex.row .modal-content {
     .stats-line-chart-layout.is-compact-mobile
     .stats-period-summary.is-compact
     .stats-period-summary-value {
-    font-size: 12px;
+    font-size: clamp(10px, 3vw, 12px);
+  }
+
+  body.page-stats
+    .stats-line-chart-layout.is-compact-mobile
+    .stats-period-summary--checkin-ranges
+    .stats-period-summary-value--checkin-range {
+    font-size: clamp(7.6px, 1.9vw, 8.9px);
   }
 
   body.page-stats
@@ -9520,11 +9580,7 @@ body.controler-ios-native .page-loading-overlay {
   border-radius: 0 !important;
   overflow: hidden !important;
   overscroll-behavior: contain;
-  padding:
-    max(24px, env(safe-area-inset-top))
-    max(10px, env(safe-area-inset-right))
-    max(24px, env(safe-area-inset-bottom))
-    max(10px, env(safe-area-inset-left)) !important;
+  padding: 0 !important;
   background: var(--controler-loading-overlay-bg-strong) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;

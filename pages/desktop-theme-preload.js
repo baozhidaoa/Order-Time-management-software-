@@ -191,7 +191,7 @@
     };
   }
 
-  function toRgbChannels(value, fallback = "142, 214, 164") {
+  function toRgbChannels(value, fallback = "241, 244, 250") {
     const channels = parseRgbColorChannels(value);
     if (!channels) {
       return fallback;

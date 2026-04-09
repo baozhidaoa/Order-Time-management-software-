@@ -419,30 +419,31 @@ function areBusyOverlayStatesEqual(
 const nativeBridge = NativeModules.ControlerBridge as
   | NativeBridgeModule
   | undefined;
-const SCREEN_BG = '#12261a';
-const ACCENT_COLOR = '#6fd08d';
+const DEFAULT_THEME_ID = 'obsidian-mono';
+const SCREEN_BG = '#0d0f12';
+const ACCENT_COLOR = '#f1f4fa';
 const DEFAULT_SHELL_BOOT_THEME: ShellBootTheme = {
   screenBg: SCREEN_BG,
-  cardBg: 'rgba(18, 40, 27, 0.88)',
-  cardBorder: 'rgba(111, 208, 141, 0.16)',
+  cardBg: 'rgba(20, 23, 28, 0.82)',
+  cardBorder: 'rgba(215, 221, 232, 0.22)',
   accent: ACCENT_COLOR,
-  buttonBg: '#76d694',
-  buttonBgHover: '#8ae0a6',
-  buttonText: '#133120',
-  onAccentText: '#133120',
-  projectLevel1: '#72c28a',
-  projectLevel2: '#4c9966',
-  projectLevel3: '#2f6945',
-  text: '#f4fff7',
-  mutedText: 'rgba(244, 255, 247, 0.72)',
-  navBarBg: 'rgba(11, 25, 17, 0.84)',
-  navBarBorder: 'rgba(111, 208, 141, 0.28)',
-  navButtonBg: 'rgba(111, 208, 141, 0.12)',
-  navButtonText: 'rgba(244, 255, 247, 0.74)',
-  navButtonActiveBg: 'rgba(98, 189, 125, 0.86)',
-  navButtonActiveText: '#133120',
-  indicatorBg: 'rgba(111, 208, 141, 0.14)',
-  transitionOverlay: 'rgba(15, 21, 18, 0.26)',
+  buttonBg: '#f1f4fa',
+  buttonBgHover: '#ffffff',
+  buttonText: '#10141d',
+  onAccentText: '#10141d',
+  projectLevel1: '#d6dde8',
+  projectLevel2: '#a2adbd',
+  projectLevel3: '#667084',
+  text: '#f4f6fb',
+  mutedText: 'rgba(244, 246, 251, 0.76)',
+  navBarBg: 'rgba(10, 12, 16, 0.9)',
+  navBarBorder: 'rgba(215, 221, 232, 0.22)',
+  navButtonBg: 'rgba(129, 140, 155, 0.14)',
+  navButtonText: 'rgba(244, 246, 251, 0.76)',
+  navButtonActiveBg: 'rgba(72, 79, 92, 0.92)',
+  navButtonActiveText: '#f4f7ff',
+  indicatorBg: 'rgba(241, 244, 250, 0.14)',
+  transitionOverlay: 'rgba(7, 8, 10, 0.3)',
 };
 const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
   default: {
@@ -762,34 +763,34 @@ const BUILT_IN_SHELL_BOOT_THEME_MAP: Record<string, Partial<ShellBootTheme>> = {
   },
 };
 const DEFAULT_LAUNCH_THEME_COLORS: LaunchThemeColors = {
-  primary: '#183524',
-  secondary: 'rgba(40, 79, 53, 0.42)',
-  tertiary: 'rgba(59, 117, 76, 0.5)',
-  quaternary: 'rgba(111, 208, 141, 0.2)',
-  accent: '#6fd08d',
-  text: '#f4fff7',
-  mutedText: 'rgba(244, 255, 247, 0.74)',
-  border: '#5fa878',
-  delete: '#ff8686',
-  deleteHover: '#ff6b6b',
-  projectLevel1: '#72c28a',
-  projectLevel2: '#4c9966',
-  projectLevel3: '#2f6945',
-  panel: 'rgba(15, 32, 22, 0.62)',
-  panelStrong: 'rgba(24, 52, 36, 0.74)',
-  panelBorder: 'rgba(111, 208, 141, 0.28)',
-  buttonBg: '#76d694',
-  buttonBgHover: '#8ae0a6',
-  buttonText: '#133120',
-  buttonBorder: 'rgba(111, 208, 141, 0.46)',
-  onAccentText: '#133120',
-  navBarBg: 'rgba(11, 25, 17, 0.84)',
-  navBarBorder: 'rgba(111, 208, 141, 0.28)',
-  navButtonBg: 'rgba(111, 208, 141, 0.12)',
-  navButtonText: 'rgba(244, 255, 247, 0.74)',
-  navButtonActiveBg: 'rgba(98, 189, 125, 0.86)',
+  primary: '#0d0f12',
+  secondary: 'rgba(24, 27, 32, 0.6)',
+  tertiary: 'rgba(46, 50, 59, 0.56)',
+  quaternary: 'rgba(106, 113, 128, 0.2)',
+  accent: '#f1f4fa',
+  text: '#f4f6fb',
+  mutedText: 'rgba(244, 246, 251, 0.76)',
+  border: 'rgba(215, 221, 232, 0.32)',
+  delete: '#ff7b7b',
+  deleteHover: '#ff5f5f',
+  projectLevel1: '#d6dde8',
+  projectLevel2: '#a2adbd',
+  projectLevel3: '#667084',
+  panel: 'rgba(16, 18, 22, 0.72)',
+  panelStrong: 'rgba(20, 23, 28, 0.82)',
+  panelBorder: 'rgba(215, 221, 232, 0.22)',
+  buttonBg: '#f1f4fa',
+  buttonBgHover: '#ffffff',
+  buttonText: '#10141d',
+  buttonBorder: 'rgba(241, 244, 250, 0.68)',
+  onAccentText: '#10141d',
+  navBarBg: 'rgba(10, 12, 16, 0.9)',
+  navBarBorder: 'rgba(215, 221, 232, 0.22)',
+  navButtonBg: 'rgba(129, 140, 155, 0.14)',
+  navButtonText: 'rgba(244, 246, 251, 0.76)',
+  navButtonActiveBg: 'rgba(72, 79, 92, 0.92)',
   navButtonActiveText: '#f8fafc',
-  overlay: 'rgba(8, 10, 12, 0.45)',
+  overlay: 'rgba(7, 8, 10, 0.3)',
 };
 const BUILT_IN_LAUNCH_THEME_COLOR_MAP: Record<
   string,
@@ -1384,7 +1385,7 @@ function parseBootThemeRgb(
   return {r, g, b};
 }
 
-function toBootThemeRgbChannels(value: string, fallback = '142, 214, 164'): string {
+function toBootThemeRgbChannels(value: string, fallback = '241, 244, 250'): string {
   const rgb = parseBootThemeRgb(value);
   return rgb ? `${rgb.r}, ${rgb.g}, ${rgb.b}` : fallback;
 }
@@ -1582,7 +1583,7 @@ function buildLaunchThemeBootstrapState(
     typeof normalizedThemeState.selectedTheme === 'string' &&
     normalizedThemeState.selectedTheme.trim()
       ? normalizedThemeState.selectedTheme.trim()
-      : 'default';
+      : DEFAULT_THEME_ID;
   const resolvedTheme = resolveShellBootTheme(themeState);
   const customThemes = Array.isArray(normalizedThemeState.customThemes)
     ? normalizedThemeState.customThemes
@@ -1810,7 +1811,7 @@ function resolveShellBootTheme(coreState: Record<string, unknown> | null): Shell
   const selectedTheme =
     typeof coreState.selectedTheme === 'string' && coreState.selectedTheme.trim()
       ? coreState.selectedTheme.trim()
-      : 'default';
+      : DEFAULT_THEME_ID;
   const customThemes = Array.isArray(coreState.customThemes)
     ? coreState.customThemes
     : [];
@@ -1850,7 +1851,7 @@ function buildSharedThemeStatePayload(
 ): Record<string, unknown> {
   if (!coreState) {
     return {
-      selectedTheme: 'default',
+      selectedTheme: DEFAULT_THEME_ID,
       customThemes: [],
       builtInThemeOverrides: {},
     };
@@ -1858,7 +1859,7 @@ function buildSharedThemeStatePayload(
   const selectedTheme =
     typeof coreState.selectedTheme === 'string' && coreState.selectedTheme.trim()
       ? coreState.selectedTheme.trim()
-      : 'default';
+      : DEFAULT_THEME_ID;
   const customThemes = Array.isArray(coreState.customThemes)
     ? coreState.customThemes
     : [];
@@ -1880,7 +1881,7 @@ function buildLaunchThemeStatePayload(
     typeof sharedThemeState.selectedTheme === 'string' &&
     sharedThemeState.selectedTheme.trim()
       ? sharedThemeState.selectedTheme.trim()
-      : 'default';
+      : DEFAULT_THEME_ID;
   const customThemes = Array.isArray(sharedThemeState.customThemes)
     ? sharedThemeState.customThemes
     : [];
@@ -1915,7 +1916,7 @@ function buildLaunchThemeTracePayload(
     typeof normalizedThemeState.selectedTheme === 'string' &&
     normalizedThemeState.selectedTheme.trim()
       ? normalizedThemeState.selectedTheme.trim()
-      : 'default';
+      : DEFAULT_THEME_ID;
   const customThemes = Array.isArray(normalizedThemeState.customThemes)
     ? normalizedThemeState.customThemes
     : [];
@@ -2714,7 +2715,7 @@ function buildBridgeBootstrapScript(
           typeof themeState?.selectedTheme === 'string' &&
           themeState.selectedTheme.trim()
             ? themeState.selectedTheme.trim()
-            : 'default';
+            : ${JSON.stringify(DEFAULT_THEME_ID)};
         const customThemes = Array.isArray(themeState?.customThemes)
           ? themeState.customThemes
           : [];
@@ -7561,8 +7562,8 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(142, 214, 164, 0.18)',
-    backgroundColor: 'rgba(22, 31, 27, 0.88)',
+    borderColor: 'rgba(241, 244, 250, 0.18)',
+    backgroundColor: 'rgba(20, 23, 28, 0.88)',
   },
   bootIndicator: {
     width: 54,
@@ -7570,9 +7571,9 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderRadius: 27,
     borderWidth: 3,
-    borderColor: 'rgba(142, 214, 164, 0.22)',
+    borderColor: 'rgba(241, 244, 250, 0.22)',
     borderTopColor: ACCENT_COLOR,
-    borderRightColor: 'rgba(95, 196, 135, 0.46)',
+    borderRightColor: '#f1f4fa88',
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 12,
@@ -7584,14 +7585,14 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 19,
     fontWeight: '700',
-    color: '#d4f5df',
+    color: '#f4f6fb',
     textAlign: 'center',
   },
   loadingSubText: {
     marginTop: 8,
     fontSize: 13,
     lineHeight: 21,
-    color: 'rgba(212, 245, 223, 0.68)',
+    color: 'rgba(244, 246, 251, 0.68)',
     textAlign: 'center',
   },
   errorTitle: {
