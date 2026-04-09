@@ -1227,11 +1227,16 @@ function bindPlanFormBackdropDismiss(modal, closeHandler) {
     return modal;
   }
   modal.dataset.planFormBackdropDismissBound = "true";
+  if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+    uiTools.bindModalBackdropDismiss(modal, closeHandler);
+    return modal;
+  }
   modal.addEventListener("click", (event) => {
     if (event.target !== modal) {
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     closeHandler(event);
   });
   return modal;

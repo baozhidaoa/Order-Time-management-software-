@@ -10,6 +10,7 @@
   const MODAL_EDGE_SWIPE_VERTICAL_TOLERANCE = 96;
   const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
   const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
+  const MODAL_REMOVAL_DEFERRED_DELAY_MS = 24;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -2059,6 +2060,47 @@
     return rect.width > 0 && rect.height > 0;
   }
 
+  function collectAutoEdgeBackSwipeExclusionTargets(root = document) {
+    if (!root?.querySelectorAll) {
+      return [];
+    }
+
+    const targets = [];
+    const seenTargets = new Set();
+    const appendTarget = (candidate) => {
+      if (!(candidate instanceof HTMLElement) || seenTargets.has(candidate)) {
+        return;
+      }
+      seenTargets.add(candidate);
+      targets.push(candidate);
+    };
+
+    root
+      .querySelectorAll(`[${EDGE_BACK_SWIPE_EXCLUSION_ATTR}="true"]`)
+      .forEach((target) => appendTarget(target));
+
+    getVisibleModalOverlays().forEach((modal) => {
+      [
+        "[data-controler-disable-edge-swipe='true']",
+        "input[type='radio']",
+        "input[type='checkbox']",
+        "label",
+        "select",
+        "button",
+        "[role='button']",
+        ".tree-select",
+        ".native-select-enhancer",
+      ]
+        .join(", ")
+        .split(", ")
+        .forEach((selector) => {
+          modal.querySelectorAll(selector).forEach((target) => appendTarget(target));
+        });
+    });
+
+    return targets.filter((target) => isVisibleEdgeBackSwipeExclusionTarget(target));
+  }
+
   function collectEdgeBackSwipeExclusionRects(root = document) {
     const viewportWidth = Math.max(
       window.innerWidth || 0,
@@ -2078,10 +2120,7 @@
       };
     }
 
-    const rects = Array.from(
-      root.querySelectorAll(`[${EDGE_BACK_SWIPE_EXCLUSION_ATTR}="true"]`),
-    )
-      .filter((target) => isVisibleEdgeBackSwipeExclusionTarget(target))
+    const rects = collectAutoEdgeBackSwipeExclusionTargets(root)
       .map((target) => {
         const rect = target.getBoundingClientRect();
         return {
@@ -4997,6 +5036,7 @@
         }
         if (didMutationAffectModalState(mutations)) {
           scheduleModalHistorySync();
+          scheduleNativeEdgeBackSwipeExclusionSync(document);
         }
       });
       modalHistoryObserver.observe(document.body, {
@@ -6770,13 +6810,31 @@
       modal.hidden = true;
       modal.style.display = "none";
       scheduleModalHistorySync();
+      scheduleNativeEdgeBackSwipeExclusionSync(document);
       return;
     }
 
-    if (modal.parentNode) {
-      modal.parentNode.removeChild(modal);
+    if (modal.__controlerRemovalQueued === "true") {
+      return;
     }
-    scheduleModalHistorySync();
+
+    modal.__controlerRemovalQueued = "true";
+    const removeModalElement = () => {
+      modal.__controlerRemovalQueued = "false";
+      if (modal.parentNode) {
+        modal.parentNode.removeChild(modal);
+      }
+      scheduleModalHistorySync();
+      scheduleNativeEdgeBackSwipeExclusionSync(document);
+    };
+    const schedule =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      window.setTimeout(removeModalElement, MODAL_REMOVAL_DEFERRED_DELAY_MS);
+    });
   }
 
   function closeAllModals() {
@@ -6794,9 +6852,31 @@
     const stopPropagation = (event) => {
       event.stopPropagation();
     };
-    ["pointerdown", "pointerup", "click"].forEach((eventName) => {
+    ["pointerdown", "pointerup", "click", "touchstart", "touchend"].forEach((eventName) => {
       content.addEventListener(eventName, stopPropagation);
     });
+  }
+
+  function bindModalBackdropDismiss(modal, handler) {
+    if (!(modal instanceof HTMLElement) || typeof handler !== "function") {
+      return modal;
+    }
+    if (modal.dataset.controlerBackdropDismissBound === "true") {
+      return modal;
+    }
+    modal.dataset.controlerBackdropDismissBound = "true";
+    modal.addEventListener("click", (event) => {
+      if (event.target !== modal || getTopVisibleModal() !== modal) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      handler(event, modal);
+    });
+    return modal;
   }
 
   function shouldEnableDesktopModalKeyboardShortcuts() {
@@ -7292,6 +7372,7 @@
     bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
     bindDesktopModalKeyboardShortcuts(modal, options);
+    scheduleNativeEdgeBackSwipeExclusionSync(document);
     if (textAutofocusOptions) {
       autofocusInteractiveTextControl(modal, textAutofocusOptions);
     }
@@ -7648,29 +7729,21 @@
         window.addEventListener("pointercancel", handlePointerUp, true);
       });
 
-      modal
-        .querySelector("[data-managed-color-cancel]")
-        ?.addEventListener("click", (event) => {
-          event.preventDefault();
-          settleDialog(null);
-        });
-      modal
-        .querySelector("[data-managed-color-confirm]")
-        ?.addEventListener("click", (event) => {
-          event.preventDefault();
-          const currentRgb = hsvToManagedColorPickerRgb(
-            currentHsv.hue,
-            currentHsv.saturation,
-            currentHsv.value,
-          );
-          settleDialog(
-            rgbToManagedColorPickerHex(currentRgb.r, currentRgb.g, currentRgb.b),
-          );
-        });
-      modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-          settleDialog(null);
-        }
+      bindModalAction(modal, "[data-managed-color-cancel]", () => {
+        settleDialog(null);
+      });
+      bindModalAction(modal, "[data-managed-color-confirm]", () => {
+        const currentRgb = hsvToManagedColorPickerRgb(
+          currentHsv.hue,
+          currentHsv.saturation,
+          currentHsv.value,
+        );
+        settleDialog(
+          rgbToManagedColorPickerHex(currentRgb.r, currentRgb.g, currentRgb.b),
+        );
+      });
+      bindModalBackdropDismiss(modal, () => {
+        settleDialog(null);
       });
 
       syncUi();
@@ -7918,19 +7991,14 @@
         resolve(result);
       };
 
-      confirmButton?.addEventListener("click", (event) => {
-        event.preventDefault();
+      bindModalAction(modal, confirmButton, () => {
         cleanup(true);
       });
-      cancelButton?.addEventListener("click", (event) => {
-        event.preventDefault();
+      bindModalAction(modal, cancelButton, () => {
         cleanup(false);
       });
-
-      modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-          cleanup(false);
-        }
+      bindModalBackdropDismiss(modal, () => {
+        cleanup(false);
       });
 
       prepareModalOverlay(modal, {
@@ -9927,6 +9995,7 @@
     prepareModalOverlay,
     stopModalContentPropagation,
     bindModalAction,
+    bindModalBackdropDismiss,
     showManagedColorPickerDialog,
     bindManagedColorInputProxy,
     setAccentButtonState,

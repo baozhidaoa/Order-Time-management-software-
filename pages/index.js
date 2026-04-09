@@ -11737,9 +11737,20 @@ function showProjectEditModal(project) {
   }
 
   const closeEditModal = () => {
+    if (typeof uiTools?.closeModal === "function") {
+      uiTools.closeModal(modal);
+      return;
+    }
     if (modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
+  };
+  const bindEditModalAction = (selector, handler) => {
+    if (typeof uiTools?.bindModalAction === "function") {
+      uiTools.bindModalAction(modal, selector, handler);
+      return;
+    }
+    modal.querySelector(selector)?.addEventListener("click", handler);
   };
 
   const setEditModalMergePending = (pending) => {
@@ -11857,11 +11868,11 @@ function showProjectEditModal(project) {
   });
 
   // 绑定事件
-  modal.querySelector("#cancel-edit-btn").addEventListener("click", () => {
+  bindEditModalAction("#cancel-edit-btn", () => {
     closeEditModal();
   });
 
-  modal.querySelector("#save-edit-btn").addEventListener("click", async () => {
+  bindEditModalAction("#save-edit-btn", async () => {
     const newName = modal.querySelector("#edit-project-name").value.trim();
     const newLevel = parseInt(
       modal.querySelector('input[name="edit-project-level"]:checked').value,
@@ -12346,9 +12357,7 @@ function showProjectEditModal(project) {
     closeEditModal();
   });
 
-  modal
-    .querySelector("#delete-project-btn")
-    .addEventListener("click", async () => {
+  bindEditModalAction("#delete-project-btn", async () => {
       projects = normalizeStoredProjects(projects);
       const liveProject =
         (project.id ? projects.find((p) => p.id === project.id) : null) ||
@@ -12497,11 +12506,17 @@ function showProjectEditModal(project) {
     });
 
   // 点击外部关闭
-  modal.addEventListener("click", function (e) {
-    if (e.target === this) {
+  if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+    uiTools.bindModalBackdropDismiss(modal, () => {
       closeEditModal();
-    }
-  });
+    });
+  } else {
+    modal.addEventListener("click", function (e) {
+      if (e.target === this) {
+        closeEditModal();
+      }
+    });
+  }
 }
 
 // 拖拽功能
@@ -15076,6 +15091,8 @@ function renderProjectsTable() {
       : Date.now();
   const tableContainer = document.getElementById("projects-table");
   if (!tableContainer) return;
+  const preservedScrollLeft = Math.max(tableContainer.scrollLeft || 0, 0);
+  const preservedScrollTop = Math.max(tableContainer.scrollTop || 0, 0);
 
   tableContainer.innerHTML = "";
   tableContainer.style.display = "block";
@@ -15335,12 +15352,26 @@ function renderProjectsTable() {
   }
 
   tableContainer.appendChild(table);
+  const restoreScrollPosition = () => {
+    const maxScrollLeft = Math.max(
+      tableContainer.scrollWidth - tableContainer.clientWidth,
+      0,
+    );
+    const maxScrollTop = Math.max(
+      tableContainer.scrollHeight - tableContainer.clientHeight,
+      0,
+    );
+    tableContainer.scrollLeft = Math.min(preservedScrollLeft, maxScrollLeft);
+    tableContainer.scrollTop = Math.min(preservedScrollTop, maxScrollTop);
+  };
+  restoreScrollPosition();
   requestAnimationFrame(() => {
     const scaledHeight = Math.max(
       260,
       Math.round(table.getBoundingClientRect().height),
     );
     tableContainer.style.minHeight = `${scaledHeight + 20}px`;
+    restoreScrollPosition();
   });
 
   const renderDurationMs =

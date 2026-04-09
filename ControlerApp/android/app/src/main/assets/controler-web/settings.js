@@ -3494,11 +3494,17 @@ function showThemeEditorModal(theme = null) {
   modal
     .querySelector("#cancel-custom-theme-btn")
     ?.addEventListener("click", closeModal);
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal) {
+  if (typeof window.ControlerUI?.bindModalBackdropDismiss === "function") {
+    window.ControlerUI.bindModalBackdropDismiss(modal, () => {
       closeModal();
-    }
-  });
+    });
+  } else {
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+  }
 
   modal
     .querySelector("#save-custom-theme-btn")

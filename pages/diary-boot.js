@@ -3423,7 +3423,14 @@ function showDiaryModal(dateText, entryId = null) {
     );
     unbindModalActions();
     categorySelector.destroy();
-    if (modal.parentNode) {
+    if (typeof uiTools?.closeModal === "function") {
+      const customCloseHandler = modal.__controlerCloseModal;
+      modal.__controlerCloseModal = null;
+      uiTools.closeModal(modal);
+      if (customCloseHandler && modal.isConnected) {
+        modal.__controlerCloseModal = customCloseHandler;
+      }
+    } else if (modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
     if (options?.discardDraft === true) {
@@ -3526,13 +3533,21 @@ function showDiaryModal(dateText, entryId = null) {
     "delete-entry": deleteAction,
   });
 
-  modal.addEventListener("click", function (event) {
-    if (event.target === this) {
+  if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+    uiTools.bindModalBackdropDismiss(modal, () => {
       closeModal({
         discardDraft: true,
       });
-    }
-  });
+    });
+  } else {
+    modal.addEventListener("click", function (event) {
+      if (event.target === this) {
+        closeModal({
+          discardDraft: true,
+        });
+      }
+    });
+  }
 }
 
 function showCategoryModal() {
@@ -3586,6 +3601,10 @@ function showCategoryModal() {
   let unbindModalActions = () => {};
   const closeModal = () => {
     unbindModalActions();
+    if (typeof uiTools?.closeModal === "function") {
+      uiTools.closeModal(modal);
+      return;
+    }
     if (modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
@@ -3665,11 +3684,17 @@ function showCategoryModal() {
     "delete-category": deleteCategoryAction,
   });
 
-  modal.addEventListener("click", function (event) {
-    if (event.target === this) {
+  if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+    uiTools.bindModalBackdropDismiss(modal, () => {
       closeModal();
-    }
-  });
+    });
+  } else {
+    modal.addEventListener("click", function (event) {
+      if (event.target === this) {
+        closeModal();
+      }
+    });
+  }
 }
 
 function isDiaryWidgetModalVisible() {
