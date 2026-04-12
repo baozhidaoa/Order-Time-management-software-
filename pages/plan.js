@@ -2845,17 +2845,7 @@ class Plan {
   }
 
   generateColor() {
-    // 生成随机但视觉友好的颜色
-    const colors = [
-      "#79af85",
-      "#4299e1",
-      "#ed8936",
-      "#9f7aea",
-      "#f56565",
-      "#48bb78",
-      "#ecc94b",
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
+    return pickRandomPlanColor();
   }
 
   // 检查计划是否在特定日期
@@ -3323,6 +3313,189 @@ function buildPlanPersistenceMutationOptions(
         ? options.reason.trim()
         : "",
   };
+}
+
+const PLAN_COLOR_PRESET_OPTIONS = Object.freeze([
+  "#79af85",
+  "#4299e1",
+  "#ed8936",
+  "#9f7aea",
+  "#f56565",
+  "#48bb78",
+  "#ecc94b",
+  "#38b2ac",
+  "#667eea",
+  "#d53f8c",
+]);
+
+function getDefaultPlanColor() {
+  return PLAN_COLOR_PRESET_OPTIONS[0] || "#79af85";
+}
+
+function normalizePlanColorToHex(color, fallback = getDefaultPlanColor()) {
+  const normalizedColor = String(color || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalizedColor)) {
+    return normalizedColor.toLowerCase();
+  }
+  const normalizedFallback = String(fallback || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalizedFallback)) {
+    return normalizedFallback.toLowerCase();
+  }
+  return "";
+}
+
+function setPlanColorPickerDisplayValue(
+  input,
+  color,
+  fallback = getDefaultPlanColor(),
+) {
+  if (!(input instanceof HTMLInputElement)) {
+    return "";
+  }
+  const nextColor = normalizePlanColorToHex(color, fallback);
+  if (!nextColor) {
+    return "";
+  }
+  if (input.value !== nextColor) {
+    input.value = nextColor;
+  }
+  input.dataset.planColorDisplayValue = nextColor;
+  return nextColor;
+}
+
+function syncPlanColorValueText(
+  labelElement,
+  colorValue,
+  fallbackColor = getDefaultPlanColor(),
+) {
+  if (!(labelElement instanceof HTMLElement)) {
+    return;
+  }
+  const resolvedColor =
+    normalizePlanColorToHex(colorValue, fallbackColor) ||
+    normalizePlanColorToHex(fallbackColor, getDefaultPlanColor()) ||
+    getDefaultPlanColor();
+  labelElement.textContent = resolvedColor.toUpperCase();
+}
+
+function pickRandomPlanColor(excludeColor = "") {
+  const normalizedExclude = normalizePlanColorToHex(excludeColor, "");
+  const candidates = PLAN_COLOR_PRESET_OPTIONS.filter(
+    (color) => color !== normalizedExclude,
+  );
+  const source = candidates.length > 0 ? candidates : PLAN_COLOR_PRESET_OPTIONS;
+  return (
+    source[Math.floor(Math.random() * Math.max(source.length, 1))] ||
+    getDefaultPlanColor()
+  );
+}
+
+function createPlanColorController({
+  input,
+  valueLabel = null,
+  randomButton = null,
+  pickerTitle = "选择颜色",
+} = {}) {
+  if (!(input instanceof HTMLInputElement)) {
+    return {
+      refresh() {},
+      setColor() {},
+    };
+  }
+
+  const applyColor = (nextColor, { emit = false } = {}) => {
+    const normalizedColor = setPlanColorPickerDisplayValue(
+      input,
+      nextColor,
+      input.dataset.planColorDisplayValue || input.value || getDefaultPlanColor(),
+    );
+    if (!normalizedColor) {
+      return;
+    }
+    syncPlanColorValueText(
+      valueLabel,
+      normalizedColor,
+      input.dataset.planColorDisplayValue || getDefaultPlanColor(),
+    );
+    if (emit) {
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  };
+
+  const refresh = () => {
+    const resolvedColor = normalizePlanColorToHex(
+      input.value,
+      input.dataset.planColorDisplayValue || getDefaultPlanColor(),
+    );
+    applyColor(resolvedColor || getDefaultPlanColor());
+  };
+
+  input.addEventListener("input", () => {
+    applyColor(input.value);
+  });
+
+  randomButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    applyColor(pickRandomPlanColor(input.value), { emit: true });
+  });
+
+  if (typeof uiTools?.bindManagedColorInputProxy === "function") {
+    uiTools.bindManagedColorInputProxy(input, {
+      title: pickerTitle,
+      confirmText: "设置",
+      cancelText: "取消",
+      resolveColor: () =>
+        normalizePlanColorToHex(
+          input.value,
+          input.dataset.planColorDisplayValue || getDefaultPlanColor(),
+        ),
+      onSelect(nextColor) {
+        if (!nextColor) {
+          return;
+        }
+        applyColor(nextColor, { emit: true });
+      },
+    });
+  }
+
+  return {
+    refresh,
+    setColor(nextColor, options = {}) {
+      applyColor(nextColor, options);
+    },
+  };
+}
+
+function buildPlanColorPickerSectionHtml({
+  inputId,
+  valueId,
+  randomButtonId,
+  color,
+} = {}) {
+  const resolvedColor = normalizePlanColorToHex(color, getDefaultPlanColor());
+  return `
+    <div class="project-color-panel">
+      <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
+        颜色
+      </label>
+      <div class="project-color-picker-row">
+        <input
+          type="color"
+          id="${inputId}"
+          class="project-color-input"
+          value="${resolvedColor}"
+          style="width: 50px; height: 50px; cursor: pointer"
+        >
+        <button type="button" class="bts project-color-random-btn" id="${randomButtonId}">
+          随机色
+        </button>
+        <div class="project-color-picker-copy">
+          <div id="${valueId}" class="project-color-current-value">${resolvedColor.toUpperCase()}</div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // 保存数据
@@ -6409,23 +6582,12 @@ function showWeeklyGridPlanModal(planData = null) {
 
         ${getPlanReminderSectionHtml(planData, "weekly-plan")}
         
-        <!-- 颜色选择 -->
-        <div>
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-            颜色
-          </label>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="color" id="weekly-plan-color-input" value="${planData?.color || "#79af85"}" style="
-              width: 50px;
-              height: 50px;
-              cursor: pointer;
-              border: none;
-              border-radius: 8px;
-              overflow: hidden;
-            ">
-            <div style="color: var(--text-color); font-size: 14px;">点击选择颜色</div>
-          </div>
-        </div>
+        ${buildPlanColorPickerSectionHtml({
+          inputId: "weekly-plan-color-input",
+          valueId: "weekly-plan-color-current",
+          randomButtonId: "weekly-plan-color-random-btn",
+          color: planData?.color,
+        })}
       </div>
       
       <!-- 按钮区域 -->
@@ -6453,6 +6615,11 @@ function showWeeklyGridPlanModal(planData = null) {
     deferTextAutofocus: deferModalTextAutofocus,
   });
   bindPlanFormModalEventShield(modal);
+  createPlanColorController({
+    input: modal.querySelector("#weekly-plan-color-input"),
+    valueLabel: modal.querySelector("#weekly-plan-color-current"),
+    randomButton: modal.querySelector("#weekly-plan-color-random-btn"),
+  }).refresh();
 
   const repeatDetails = modal.querySelector("#repeat-details");
   const repeatMonthDetails = modal.querySelector("#repeat-monthly-details");
@@ -6982,23 +7149,12 @@ function showPlanEditModal(planData = null) {
 
         ${getPlanReminderSectionHtml(planData, "plan")}
         
-        <!-- 颜色选择 -->
-        <div>
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-            颜色
-          </label>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="color" id="plan-color-input" value="${planData?.color || "#79af85"}" style="
-              width: 50px;
-              height: 50px;
-              cursor: pointer;
-              border: none;
-              border-radius: 8px;
-              overflow: hidden;
-            ">
-            <div style="color: var(--text-color); font-size: 14px;">点击选择颜色</div>
-          </div>
-        </div>
+        ${buildPlanColorPickerSectionHtml({
+          inputId: "plan-color-input",
+          valueId: "plan-color-current",
+          randomButtonId: "plan-color-random-btn",
+          color: planData?.color,
+        })}
         
        
       </div>
@@ -7028,6 +7184,11 @@ function showPlanEditModal(planData = null) {
     deferTextAutofocus: deferModalTextAutofocus,
   });
   bindPlanFormModalEventShield(modal);
+  createPlanColorController({
+    input: modal.querySelector("#plan-color-input"),
+    valueLabel: modal.querySelector("#plan-color-current"),
+    randomButton: modal.querySelector("#plan-color-random-btn"),
+  }).refresh();
 
   const repeatRadios = modal.querySelectorAll('input[name="plan-repeat"]');
   const repeatDaysWrap = modal.querySelector("#plan-repeat-days-wrap");
