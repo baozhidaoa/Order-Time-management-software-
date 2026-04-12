@@ -590,9 +590,17 @@
       "--controler-stable-visual-viewport-height",
       `${stableViewportHeight}px`,
     );
+    const transitionKeyboardDelta =
+      rawKeyboardDelta <= ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+        ? 0
+        : rawKeyboardDelta;
     root?.style.setProperty(
       "--controler-keyboard-inset",
       `${appliedKeyboardDelta}px`,
+    );
+    root?.style.setProperty(
+      "--controler-keyboard-transition-inset",
+      `${transitionKeyboardDelta}px`,
     );
     keyboardOpen = nextKeyboardOpen;
     lastKeyboardViewportHeight = nextKeyboardOpen

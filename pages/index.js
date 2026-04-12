@@ -7794,6 +7794,28 @@ function syncTimerModalExistingProjectQuickPickSelection() {
     });
 }
 
+function parseTimerModalPixelValue(value) {
+  const normalized = Number.parseFloat(String(value || "").trim());
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function getTimerModalFooterOverlayInsetPx(modal) {
+  const overlay =
+    modal?.closest?.(".controler-form-modal-overlay") ||
+    modal?.closest?.(".modal-overlay");
+  if (!(overlay instanceof HTMLElement)) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    parseTimerModalPixelValue(
+      window
+        .getComputedStyle(overlay)
+        .getPropertyValue("--controler-modal-keyboard-lift"),
+    ),
+  );
+}
+
 function scheduleTimerSessionFieldReveal(target, options = {}) {
   if (
     !(target instanceof HTMLElement) ||
@@ -7851,7 +7873,11 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
           Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
         )
       : 0;
-    const visibleBodyHeight = Math.max(modalBody.clientHeight, 120);
+    const footerOverlayInsetPx = getTimerModalFooterOverlayInsetPx(modal);
+    const visibleBodyHeight = Math.max(
+      modalBody.clientHeight - footerOverlayInsetPx,
+      120,
+    );
     const minVisibleTop = currentScrollTop + 12;
     const maxVisibleBottom = currentScrollTop + visibleBodyHeight;
     const desiredBottom = anchorBottom + visiblePopoverHeight + 20;

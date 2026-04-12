@@ -6506,6 +6506,22 @@
       0,
       Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
     );
+    const getFooterOverlayInsetPx = () => {
+      const overlay =
+        modal.closest?.(".controler-form-modal-overlay") ||
+        modal.closest?.(".modal-overlay");
+      if (!(overlay instanceof HTMLElement)) {
+        return 0;
+      }
+      const normalized = Number.parseFloat(
+        String(
+          window
+            .getComputedStyle(overlay)
+            .getPropertyValue("--controler-modal-keyboard-lift") || "",
+        ).trim(),
+      );
+      return Number.isFinite(normalized) ? Math.max(normalized, 0) : 0;
+    };
     const reveal = () => {
       if (
         !modal.isConnected ||
@@ -6523,6 +6539,10 @@
       const fieldBottom =
         modalBody.scrollTop + Math.max(fieldRect.bottom - modalBodyRect.top, 0);
       const desiredBottom = fieldBottom + 20;
+      const visibleBodyHeight = Math.max(
+        modalBody.clientHeight - getFooterOverlayInsetPx(),
+        120,
+      );
       const maxScrollTop = Math.max(
         modalBody.scrollHeight - modalBody.clientHeight,
         0,
@@ -6530,7 +6550,7 @@
       const nextScrollTop = Math.min(
         Math.max(
           Math.max(fieldTop - 12, 0),
-          Math.max(desiredBottom - modalBody.clientHeight, 0),
+          Math.max(desiredBottom - visibleBodyHeight, 0),
         ),
         maxScrollTop,
       );

@@ -964,9 +964,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "--controler-stable-visual-viewport-height",
       `${stableViewportHeight}px`,
     );
+    const transitionKeyboardDelta =
+      rawKeyboardDelta <= ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+        ? 0
+        : rawKeyboardDelta;
     root?.style.setProperty(
       "--controler-keyboard-inset",
       `${appliedKeyboardDelta}px`,
+    );
+    root?.style.setProperty(
+      "--controler-keyboard-transition-inset",
+      `${transitionKeyboardDelta}px`,
     );
     keyboardOpen = nextKeyboardOpen;
     lastKeyboardViewportHeight = nextKeyboardOpen
@@ -18181,6 +18189,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let androidInteractiveTextAssistInitialized = false;
   let androidInteractiveActionFocusBypassInitialized = false;
   let androidInteractiveActionReplayGuard = null;
+  let pendingAndroidInteractiveActionReplay = null;
   let androidModalAutofocusQueued = false;
   let androidReactNativeAppNavLocked = false;
   let lastAndroidSoftInputRequestAt = 0;
@@ -20542,6 +20551,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function clearPendingAndroidInteractiveActionReplay() {
+    const pendingReplay = pendingAndroidInteractiveActionReplay;
+    pendingAndroidInteractiveActionReplay = null;
+    if (
+      pendingReplay &&
+      Number.isFinite(Number(pendingReplay.timerId)) &&
+      Number(pendingReplay.timerId) > 0
+    ) {
+      window.clearTimeout(Number(pendingReplay.timerId));
+    }
+    return pendingReplay;
+  }
+
   function isAndroidInteractiveActionReplayClickNearGuard(
     event,
     guard = null,
@@ -20593,22 +20615,46 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
 
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? (callback) =>
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(callback);
-            })
-        : (callback) => window.setTimeout(callback, 34);
+    clearPendingAndroidInteractiveActionReplay();
+    const maxAttempts = 18;
+    const retryDelayMs = 28;
+    const pendingReplay = {
+      target,
+      attempts: 0,
+      timerId: 0,
+    };
+    pendingAndroidInteractiveActionReplay = pendingReplay;
 
-    schedule(() => {
-      if (!target.isConnected || isDisabledAndroidInteractiveActionTarget(target)) {
+    const replay = () => {
+      if (pendingAndroidInteractiveActionReplay !== pendingReplay) {
         return;
       }
+      if (!target.isConnected || isDisabledAndroidInteractiveActionTarget(target)) {
+        clearPendingAndroidInteractiveActionReplay();
+        return;
+      }
+
+      const activeControl = getActiveAndroidInteractiveTextControl();
+      if (
+        pendingReplay.attempts < maxAttempts &&
+        (isAndroidKeyboardOpen() ||
+          (activeControl instanceof HTMLElement &&
+            activeControl !== target &&
+            !activeControl.contains(target) &&
+            !target.contains(activeControl)))
+      ) {
+        pendingReplay.attempts += 1;
+        pendingReplay.timerId = window.setTimeout(replay, retryDelayMs);
+        return;
+      }
+
+      clearPendingAndroidInteractiveActionReplay();
       clearAndroidNavButtonFocus(target, true);
       armAndroidInteractiveActionReplayGuard(target);
       target.click?.();
-    });
+    };
+
+    pendingReplay.timerId = window.setTimeout(replay, 0);
     return true;
   }
 
@@ -20737,6 +20783,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       document.addEventListener(
         "pointerdown",
         (event) => {
+          const targetElement = event.target instanceof Element ? event.target : null;
+          if (
+            pendingAndroidInteractiveActionReplay?.target instanceof HTMLElement &&
+            (!targetElement ||
+              !pendingAndroidInteractiveActionReplay.target.contains(targetElement))
+          ) {
+            clearPendingAndroidInteractiveActionReplay();
+          }
           if (
             !isAndroidNativeRuntime() ||
             event.defaultPrevented ||
@@ -21232,6 +21286,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     appPageTransitionLocked = false;
     appPageLeavePreflightLocked = false;
     clearDeferredAppNavigationRequest();
+    clearPendingAndroidInteractiveActionReplay();
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
     clearNativeNavigationRetryTimer();
@@ -22606,6 +22661,229 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return visibleModals[visibleModals.length - 1] || null;
   }
 
+  function parseUiHelperPixelValue(value) {
+    const normalized = Number.parseFloat(String(value || "").trim());
+    return Number.isFinite(normalized) ? normalized : 0;
+  }
+
+  function getAndroidVisibleViewportBottomPx(rootStyle = null) {
+    const computedRootStyle =
+      rootStyle ||
+      (typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null);
+    const stableViewportHeight = Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-stable-visual-viewport-height",
+        ),
+      ),
+    );
+    const transitionKeyboardInsetPx = Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-keyboard-transition-inset",
+        ),
+      ),
+    );
+    if (stableViewportHeight > 0) {
+      return Math.max(stableViewportHeight - transitionKeyboardInsetPx, 0);
+    }
+
+    const visualViewport = window.visualViewport;
+    const viewportHeight =
+      Number(visualViewport?.height) ||
+      Number(window.innerHeight) ||
+      Number(document.documentElement?.clientHeight) ||
+      Number(document.body?.clientHeight) ||
+      0;
+    const viewportOffsetTop = Number(visualViewport?.offsetTop) || 0;
+    return Math.max(0, viewportOffsetTop + viewportHeight);
+  }
+
+  function getAndroidStableViewportHeightPx(rootStyle = null) {
+    const computedRootStyle =
+      rootStyle ||
+      (typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null);
+    return Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-stable-visual-viewport-height",
+        ),
+      ),
+    );
+  }
+
+  function getAndroidKeyboardTransitionInsetPx(rootStyle = null) {
+    const computedRootStyle =
+      rootStyle ||
+      (typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null);
+    return Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-keyboard-transition-inset",
+        ),
+      ),
+    );
+  }
+
+  function resolveFormModalOverlayElement(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return null;
+    }
+    if (modal.classList.contains("controler-form-modal-overlay")) {
+      return modal;
+    }
+    return modal.closest(".controler-form-modal-overlay");
+  }
+
+  function syncAndroidFormModalKeyboardLift(modal = null) {
+    const targetModals =
+      modal instanceof HTMLElement
+        ? [modal]
+        : Array.from(document.querySelectorAll(".controler-form-modal-overlay"));
+    if (!isAndroidNativeRuntime() || targetModals.length === 0) {
+      targetModals.forEach((candidate) => {
+        const overlay = resolveFormModalOverlayElement(candidate);
+        if (overlay instanceof HTMLElement) {
+          overlay.style.removeProperty("--controler-modal-footer-spare-space");
+        }
+      });
+      return;
+    }
+    const rootStyle =
+      typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null;
+    const stableViewportHeightPx = getAndroidStableViewportHeightPx(rootStyle);
+    const keyboardInsetPx = getAndroidKeyboardTransitionInsetPx(rootStyle);
+    const viewportBottomPx =
+      stableViewportHeightPx > 0
+        ? stableViewportHeightPx
+        : getAndroidVisibleViewportBottomPx(rootStyle) + keyboardInsetPx;
+
+    targetModals.forEach((candidate) => {
+      const overlay = resolveFormModalOverlayElement(candidate);
+      if (!(overlay instanceof HTMLElement)) {
+        return;
+      }
+      if (!isVisibleModalOverlay(overlay)) {
+        overlay.style.removeProperty("--controler-modal-footer-spare-space");
+        return;
+      }
+
+      const modalFooter = overlay.querySelector(".controler-form-modal-footer");
+      if (!(modalFooter instanceof HTMLElement)) {
+        overlay.style.removeProperty("--controler-modal-footer-spare-space");
+        return;
+      }
+
+      const currentLiftPx = Math.max(
+        0,
+        parseUiHelperPixelValue(
+          window.getComputedStyle(overlay).getPropertyValue(
+            "--controler-modal-keyboard-lift",
+          ),
+        ),
+      );
+      const footerRect = modalFooter.getBoundingClientRect();
+      const naturalFooterBottomPx = footerRect.bottom + currentLiftPx;
+      const nextSpareSpacePx = Math.max(
+        viewportBottomPx - naturalFooterBottomPx - 12,
+        0,
+      );
+      overlay.style.setProperty(
+        "--controler-modal-footer-spare-space",
+        `${Math.round(nextSpareSpacePx)}px`,
+      );
+    });
+  }
+
+  let androidFormModalKeyboardLiftSyncFrameId = 0;
+
+  function scheduleAndroidFormModalKeyboardLiftSync(modal = null) {
+    if (androidFormModalKeyboardLiftSyncFrameId) {
+      return;
+    }
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    androidFormModalKeyboardLiftSyncFrameId = schedule(() => {
+      androidFormModalKeyboardLiftSyncFrameId = 0;
+      syncAndroidFormModalKeyboardLift(modal);
+    });
+  }
+
+  let androidFormModalKeyboardLiftSyncBound = false;
+
+  function clearAndroidFormModalKeyboardLiftObserver(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    const cleanup = modal.__controlerAndroidFormModalKeyboardLiftCleanup;
+    if (typeof cleanup === "function") {
+      cleanup();
+    }
+    modal.__controlerAndroidFormModalKeyboardLiftCleanup = null;
+  }
+
+  function bindAndroidFormModalKeyboardLiftObserver(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return modal;
+    }
+    clearAndroidFormModalKeyboardLiftObserver(modal);
+    if (
+      !isAndroidNativeRuntime() ||
+      typeof ResizeObserver !== "function" ||
+      !modal.classList.contains("controler-form-modal-overlay")
+    ) {
+      return modal;
+    }
+
+    const observedElements = [
+      modal.querySelector(".controler-form-modal"),
+      modal.querySelector(".controler-form-modal-body"),
+      modal.querySelector(".controler-form-modal-footer"),
+    ].filter((element) => element instanceof HTMLElement);
+    if (observedElements.length === 0) {
+      return modal;
+    }
+
+    const observer = new ResizeObserver(() => {
+      scheduleAndroidFormModalKeyboardLiftSync(modal);
+    });
+    observedElements.forEach((element) => {
+      observer.observe(element);
+    });
+    modal.__controlerAndroidFormModalKeyboardLiftCleanup = () => {
+      observer.disconnect();
+    };
+    return modal;
+  }
+
+  function ensureAndroidFormModalKeyboardLiftSync() {
+    if (androidFormModalKeyboardLiftSyncBound) {
+      return;
+    }
+    androidFormModalKeyboardLiftSyncBound = true;
+    const handleSync = () => {
+      scheduleAndroidFormModalKeyboardLiftSync();
+    };
+    window.visualViewport?.addEventListener("resize", handleSync);
+    window.visualViewport?.addEventListener("scroll", handleSync);
+    window.addEventListener("resize", handleSync);
+    window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleSync);
+  }
+
   function isContentScopedOverlayElement(overlay) {
     if (!(overlay instanceof HTMLElement)) {
       return false;
@@ -22761,6 +23039,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (hasOpenModal) {
       scheduleAndroidModalAutofocus();
     }
+    scheduleAndroidFormModalKeyboardLiftSync();
     const nextSignature = JSON.stringify({
       active,
       hasOpenModal,
@@ -24830,6 +25109,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
+      clearAndroidFormModalKeyboardLiftObserver(modal);
     }
 
     activateModalInteractionShield();
@@ -25306,6 +25586,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function prepareModalOverlay(modal, options = {}) {
     if (!(modal instanceof HTMLElement)) return null;
 
+    ensureAndroidFormModalKeyboardLiftSync();
+
     const persistent =
       options.persistent === true ||
       modal.dataset?.controlerModalPersistent === "true";
@@ -25407,6 +25689,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     bindContentScopedModalViewportSync(modal);
     stopModalContentPropagation(modal);
     bindDesktopModalKeyboardShortcuts(modal, options);
+    bindAndroidFormModalKeyboardLiftObserver(modal);
+    syncAndroidFormModalKeyboardLift(modal);
+    scheduleAndroidFormModalKeyboardLiftSync(modal);
     scheduleNativeEdgeBackSwipeExclusionSync(document);
     if (textAutofocusOptions) {
       autofocusInteractiveTextControl(modal, textAutofocusOptions);

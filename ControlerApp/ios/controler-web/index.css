@@ -7043,19 +7043,16 @@ body.controler-android-native .controler-form-modal-overlay {
   overflow-y: auto !important;
 }
 
-body.controler-mobile-runtime.controler-android-native,
-body.controler-android-native {
+body.controler-mobile-runtime.controler-android-native .controler-form-modal-overlay,
+body.controler-android-native .controler-form-modal-overlay {
+  --controler-modal-footer-spare-space: 9999px;
   --controler-modal-keyboard-lift: max(
     0px,
     calc(
       var(--controler-keyboard-transition-inset, 0px) -
-        env(safe-area-inset-bottom, 0px)
+        var(--controler-modal-footer-spare-space, 9999px)
     )
   );
-}
-
-body.controler-mobile-runtime.controler-android-native .controler-form-modal-overlay,
-body.controler-android-native .controler-form-modal-overlay {
   min-height: var(
     --controler-modal-overlay-height,
     var(--controler-stable-visual-viewport-height, 100dvh)
