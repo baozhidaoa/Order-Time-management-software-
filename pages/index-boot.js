@@ -10104,35 +10104,6 @@ function syncTimerModalExistingProjectQuickPickSelection() {
     });
 }
 
-function getTimerModalKeyboardInsetPx() {
-  if (!document.body?.classList.contains("controler-keyboard-open")) {
-    return 0;
-  }
-
-  const root =
-    document.documentElement instanceof HTMLElement
-      ? document.documentElement
-      : null;
-  const rootStyle =
-    root && typeof window.getComputedStyle === "function"
-      ? window.getComputedStyle(root)
-      : null;
-  const parseViewportHeight = (value) => {
-    const parsed = Number.parseFloat(String(value || "").trim());
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  };
-  const stableViewportHeight = parseViewportHeight(
-    rootStyle?.getPropertyValue("--controler-stable-visual-viewport-height"),
-  );
-  const visualViewportHeight = parseViewportHeight(
-    rootStyle?.getPropertyValue("--controler-visual-viewport-height"),
-  );
-  if (stableViewportHeight > 0 && visualViewportHeight > 0) {
-    return Math.max(stableViewportHeight - visualViewportHeight, 0);
-  }
-  return 0;
-}
-
 function scheduleTimerSessionFieldReveal(target, options = {}) {
   if (
     !(target instanceof HTMLElement) ||
@@ -10190,13 +10161,7 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
           Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
         )
       : 0;
-    const keyboardInsetPx = isAndroidNativeTimerModalKeyboardRuntime()
-      ? getTimerModalKeyboardInsetPx()
-      : 0;
-    const visibleBodyHeight = Math.max(
-      modalBody.clientHeight - keyboardInsetPx,
-      Math.min(modalBody.clientHeight, 120),
-    );
+    const visibleBodyHeight = Math.max(modalBody.clientHeight, 120);
     const minVisibleTop = currentScrollTop + 12;
     const maxVisibleBottom = currentScrollTop + visibleBodyHeight;
     const desiredBottom = anchorBottom + visiblePopoverHeight + 20;

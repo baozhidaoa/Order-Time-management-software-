@@ -898,17 +898,6 @@ body.controler-android-native .modal-content {
   transform-origin: center bottom;
 }
 
-body.controler-mobile-runtime.controler-keyboard-open .modal-overlay,
-body.controler-android-native.controler-keyboard-open .modal-overlay {
-  align-items: flex-start;
-}
-
-body.controler-mobile-runtime.controler-keyboard-open .modal-content,
-body.controler-android-native.controler-keyboard-open .modal-content {
-  margin-top: 0;
-  margin-bottom: auto;
-}
-
 /* 删除按钮样式 */
 .delete-btn {
   background-color: var(--delete-btn);
@@ -1735,42 +1724,6 @@ body.controler-mobile-runtime .timer-session-modal .input-with-suggestions {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
-  .timer-session-modal-overlay {
-  min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
-  height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
-  max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
-}
-
-body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
-  .timer-session-modal {
-  height: calc(
-    var(--controler-stable-visual-viewport-height, 100dvh) - 20px
-  ) !important;
-  max-height: calc(
-    var(--controler-stable-visual-viewport-height, 100dvh) - 20px
-  ) !important;
-}
-
-body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
-  .timer-session-modal
-  .controler-form-modal-body {
-  padding-bottom: calc(
-    24px +
-      (
-        var(--controler-stable-visual-viewport-height, 100dvh) -
-          var(--controler-visual-viewport-height, 100dvh)
-      )
-  );
-  scroll-padding-bottom: calc(
-    24px +
-      (
-        var(--controler-stable-visual-viewport-height, 100dvh) -
-          var(--controler-visual-viewport-height, 100dvh)
-      )
-  );
 }
 
 body.controler-mobile-runtime .timer-session-modal .suggestion-popover {
@@ -7088,6 +7041,64 @@ body.controler-android-native .controler-form-modal-overlay {
   justify-content: center !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
+}
+
+body.controler-mobile-runtime.controler-android-native,
+body.controler-android-native {
+  --controler-modal-keyboard-lift: max(
+    0px,
+    calc(
+      var(--controler-keyboard-transition-inset, 0px) -
+        env(safe-area-inset-bottom, 0px)
+    )
+  );
+}
+
+body.controler-mobile-runtime.controler-android-native .controler-form-modal-overlay,
+body.controler-android-native .controler-form-modal-overlay {
+  min-height: var(
+    --controler-modal-overlay-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
+  height: var(
+    --controler-modal-overlay-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
+  max-height: var(
+    --controler-modal-overlay-height,
+    var(--controler-stable-visual-viewport-height, 100dvh)
+  ) !important;
+  overflow-y: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+body.controler-mobile-runtime.controler-android-native .controler-form-modal-body,
+body.controler-android-native .controler-form-modal-body {
+  padding-bottom: calc(24px + var(--controler-modal-keyboard-lift, 0px));
+  scroll-padding-bottom: calc(24px + var(--controler-modal-keyboard-lift, 0px));
+}
+
+body.controler-mobile-runtime.controler-android-native .controler-form-modal-footer,
+body.controler-android-native .controler-form-modal-footer {
+  transform: translate3d(
+    0,
+    calc(-1 * var(--controler-modal-keyboard-lift, 0px)),
+    0
+  );
+  will-change: transform;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .timer-session-modal
+  .controler-form-modal-body
+  > h2:first-child,
+body.controler-android-native
+  .timer-session-modal
+  .controler-form-modal-body
+  > h2:first-child {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
 }
 
   body.flex.row .controler-form-modal,

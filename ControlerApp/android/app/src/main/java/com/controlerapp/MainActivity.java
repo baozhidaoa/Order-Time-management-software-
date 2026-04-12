@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
@@ -41,6 +42,18 @@ public class MainActivity extends ReactActivity {
     SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
     splashScreen.setKeepOnScreenCondition(
         ControlerLaunchSplashCoordinator::shouldKeepOnScreen);
+    splashScreen.setOnExitAnimationListener(
+        splashScreenViewProvider -> {
+          final View splashView = splashScreenViewProvider.getView();
+          splashView.animate().cancel();
+          splashView.clearAnimation();
+          splashView.setAlpha(1f);
+          splashView.setTranslationX(0f);
+          splashView.setTranslationY(0f);
+          splashView.setScaleX(1f);
+          splashView.setScaleY(1f);
+          splashView.postOnAnimation(splashScreenViewProvider::remove);
+        });
     applyShellWindowChrome();
     super.onCreate(savedInstanceState);
     int launchBackgroundColor =

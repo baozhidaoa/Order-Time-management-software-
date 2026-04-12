@@ -7366,7 +7366,7 @@ function App({
       <ScreenContainer
         style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
         <StatusBar
-          barStyle="light-content"
+          barStyle={statusBarStyle}
           backgroundColor="transparent"
           translucent={Platform.OS === 'android'}
         />
@@ -7386,6 +7386,9 @@ function App({
 
   const activeUri = webViewSlots[activeSlot].uri;
   const activeBusyOverlay = busyOverlayBySlotRef.current[activeSlot];
+  const statusBarStyle = isLightBootTheme(shellBootTheme)
+    ? 'dark-content'
+    : 'light-content';
   const liveShellBlockingOverlay = resolveShellBlockingOverlayPayload({
     transitionState,
     activeBusyOverlay,
@@ -7464,7 +7467,7 @@ function App({
     <ScreenContainer
       style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
       <StatusBar
-        barStyle="light-content"
+        barStyle={statusBarStyle}
         backgroundColor="transparent"
         translucent={Platform.OS === 'android'}
       />
