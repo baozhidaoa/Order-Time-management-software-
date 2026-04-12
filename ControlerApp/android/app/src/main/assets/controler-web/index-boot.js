@@ -9464,13 +9464,6 @@ function getTimerModalProjectInputIdFromElement(element) {
   return isTimerModalProjectInputId(inputId) ? inputId : "";
 }
 
-function isAndroidNativeTimerModalKeyboardRuntime() {
-  return (
-    document.body?.classList.contains("controler-mobile-runtime") &&
-    document.body?.classList.contains("controler-android-native")
-  );
-}
-
 function getActiveTimerModalTextEntry() {
   const activeElement = document.activeElement;
   if (
@@ -9893,9 +9886,7 @@ function applyTimerModalProjectSelection(
         : modalProjectInputTargetManual,
   });
   scheduleTimerSessionFieldReveal(input, {
-    delayMs: document.body?.classList.contains("controler-android-native")
-      ? 140
-      : 0,
+    delayMs: 0,
   });
   if (targetInputId === "next-project-input") {
     syncTimerModalExistingProjectQuickPickSelection();
@@ -9976,9 +9967,7 @@ function renderProjectSuggestionsForInput(
   if (shouldShow) {
     popover.classList.add("visible");
     scheduleTimerSessionFieldReveal(input, {
-      delayMs: document.body?.classList.contains("controler-android-native")
-        ? 140
-        : 0,
+      delayMs: 0,
     });
   } else {
     popover.classList.remove("visible");
@@ -11667,9 +11656,7 @@ function initIndexModalBindings() {
         showSuggestions: true,
       });
       scheduleTimerSessionFieldReveal(input, {
-        delayMs: document.body?.classList.contains("controler-android-native")
-          ? 140
-          : 0,
+        delayMs: 0,
       });
     });
     input.addEventListener("input", () => {
@@ -11826,8 +11813,7 @@ function initIndexModalBindings() {
     if (!isModalOpen) {
       return;
     }
-    const delayMs = isAndroidNativeTimerModalKeyboardRuntime() ? 48 : 0;
-    revealFocusedTimerModalField(delayMs);
+    revealFocusedTimerModalField(0);
   });
 
   document.addEventListener("click", (event) => {
@@ -12149,9 +12135,7 @@ function initIndexPrimaryBindings() {
   if (shortenHoursInput) {
     shortenHoursInput.addEventListener("focus", () => {
       scheduleTimerSessionFieldReveal(shortenHoursInput, {
-        delayMs: document.body?.classList.contains("controler-android-native")
-          ? 140
-          : 0,
+        delayMs: 0,
       });
     });
     shortenHoursInput.addEventListener("input", () => {
@@ -12167,9 +12151,7 @@ function initIndexPrimaryBindings() {
   if (shortenMinutesInput) {
     shortenMinutesInput.addEventListener("focus", () => {
       scheduleTimerSessionFieldReveal(shortenMinutesInput, {
-        delayMs: document.body?.classList.contains("controler-android-native")
-          ? 140
-          : 0,
+        delayMs: 0,
       });
     });
     shortenMinutesInput.addEventListener("input", () => {

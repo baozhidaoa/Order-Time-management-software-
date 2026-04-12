@@ -4893,44 +4893,7 @@
     return Number.isFinite(normalized) ? normalized : 0;
   }
 
-  function getAndroidVisibleViewportBottomPx(rootStyle = null) {
-    const computedRootStyle =
-      rootStyle ||
-      (typeof window.getComputedStyle === "function"
-        ? window.getComputedStyle(document.documentElement)
-        : null);
-    const stableViewportHeight = Math.max(
-      0,
-      parseUiHelperPixelValue(
-        computedRootStyle?.getPropertyValue(
-          "--controler-stable-visual-viewport-height",
-        ),
-      ),
-    );
-    const transitionKeyboardInsetPx = Math.max(
-      0,
-      parseUiHelperPixelValue(
-        computedRootStyle?.getPropertyValue(
-          "--controler-keyboard-transition-inset",
-        ),
-      ),
-    );
-    if (stableViewportHeight > 0) {
-      return Math.max(stableViewportHeight - transitionKeyboardInsetPx, 0);
-    }
-
-    const visualViewport = window.visualViewport;
-    const viewportHeight =
-      Number(visualViewport?.height) ||
-      Number(window.innerHeight) ||
-      Number(document.documentElement?.clientHeight) ||
-      Number(document.body?.clientHeight) ||
-      0;
-    const viewportOffsetTop = Number(visualViewport?.offsetTop) || 0;
-    return Math.max(0, viewportOffsetTop + viewportHeight);
-  }
-
-  function getAndroidStableViewportHeightPx(rootStyle = null) {
+  function readAndroidStableViewportHeightPx(rootStyle = null) {
     const computedRootStyle =
       rootStyle ||
       (typeof window.getComputedStyle === "function"
@@ -4946,7 +4909,7 @@
     );
   }
 
-  function getAndroidKeyboardTransitionInsetPx(rootStyle = null) {
+  function readAndroidKeyboardTransitionInsetPx(rootStyle = null) {
     const computedRootStyle =
       rootStyle ||
       (typeof window.getComputedStyle === "function"
@@ -4981,21 +4944,18 @@
       targetModals.forEach((candidate) => {
         const overlay = resolveFormModalOverlayElement(candidate);
         if (overlay instanceof HTMLElement) {
-          overlay.style.removeProperty("--controler-modal-footer-spare-space");
+          overlay.style.removeProperty("--controler-modal-keyboard-lift");
         }
       });
       return;
     }
+
     const rootStyle =
       typeof window.getComputedStyle === "function"
         ? window.getComputedStyle(document.documentElement)
         : null;
-    const stableViewportHeightPx = getAndroidStableViewportHeightPx(rootStyle);
-    const keyboardInsetPx = getAndroidKeyboardTransitionInsetPx(rootStyle);
-    const viewportBottomPx =
-      stableViewportHeightPx > 0
-        ? stableViewportHeightPx
-        : getAndroidVisibleViewportBottomPx(rootStyle) + keyboardInsetPx;
+    const stableViewportHeightPx = readAndroidStableViewportHeightPx(rootStyle);
+    const keyboardInsetPx = readAndroidKeyboardTransitionInsetPx(rootStyle);
 
     targetModals.forEach((candidate) => {
       const overlay = resolveFormModalOverlayElement(candidate);
@@ -5003,33 +4963,26 @@
         return;
       }
       if (!isVisibleModalOverlay(overlay)) {
-        overlay.style.removeProperty("--controler-modal-footer-spare-space");
+        overlay.style.removeProperty("--controler-modal-keyboard-lift");
         return;
       }
 
-      const modalFooter = overlay.querySelector(".controler-form-modal-footer");
-      if (!(modalFooter instanceof HTMLElement)) {
-        overlay.style.removeProperty("--controler-modal-footer-spare-space");
-        return;
-      }
-
-      const currentLiftPx = Math.max(
-        0,
-        parseUiHelperPixelValue(
-          window.getComputedStyle(overlay).getPropertyValue(
-            "--controler-modal-keyboard-lift",
-          ),
-        ),
+      const overlayRect = overlay.getBoundingClientRect();
+      const overlayHeightPx = Math.max(
+        Math.round(overlayRect.height || 0),
+        Math.round(overlay.clientHeight || 0),
       );
-      const footerRect = modalFooter.getBoundingClientRect();
-      const naturalFooterBottomPx = footerRect.bottom + currentLiftPx;
-      const nextSpareSpacePx = Math.max(
-        viewportBottomPx - naturalFooterBottomPx - 12,
+      const viewportCompensationPx =
+        stableViewportHeightPx > 0 && overlayHeightPx > 0
+          ? Math.max(stableViewportHeightPx - overlayHeightPx, 0)
+          : 0;
+      const resolvedLiftPx = Math.max(
+        Math.round(keyboardInsetPx - viewportCompensationPx),
         0,
       );
       overlay.style.setProperty(
-        "--controler-modal-footer-spare-space",
-        `${Math.round(nextSpareSpacePx)}px`,
+        "--controler-modal-keyboard-lift",
+        `${resolvedLiftPx}px`,
       );
     });
   }
@@ -5077,6 +5030,7 @@
     }
 
     const observedElements = [
+      modal,
       modal.querySelector(".controler-form-modal"),
       modal.querySelector(".controler-form-modal-body"),
       modal.querySelector(".controler-form-modal-footer"),

@@ -384,6 +384,7 @@
   let keyboardOpenPeakInset = 0;
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
+  let lastAndroidKeyboardTraceSignature = "";
 
   function readPersistedAndroidKeyboardBaseline(viewportWidth = 0) {
     try {
@@ -467,6 +468,60 @@
       return longestHeight;
     }
     return longestHeight >= viewportWidth ? longestHeight : 0;
+  }
+
+  function traceAndroidKeyboardViewportState(payload = {}) {
+    if (getNativeHostPlatform() !== "android") {
+      return;
+    }
+    const visibleModal = document.querySelector(
+      ".controler-form-modal-overlay:not([style*='display: none'])",
+    );
+    if (!(visibleModal instanceof HTMLElement)) {
+      return;
+    }
+    const activeElement = document.activeElement;
+    const activeTarget =
+      activeElement instanceof HTMLElement &&
+      visibleModal.contains(activeElement) &&
+      activeElement.matches?.("input, textarea, select")
+        ? activeElement
+        : null;
+    const modalLiftPx = Math.max(
+      0,
+      Math.round(
+        Number.parseFloat(
+          String(
+            window
+              .getComputedStyle(visibleModal)
+              .getPropertyValue("--controler-modal-keyboard-lift") || "0",
+          ).trim(),
+        ) || 0,
+      ),
+    );
+    const signature = JSON.stringify({
+      viewportHeight: payload.viewportHeight,
+      transitionKeyboardDelta: payload.transitionKeyboardDelta,
+      appliedKeyboardDelta: payload.appliedKeyboardDelta,
+      keyboardOpen: payload.keyboardOpen,
+      activeId: activeTarget?.id || "",
+      modalLiftPx,
+    });
+    if (signature === lastAndroidKeyboardTraceSignature) {
+      return;
+    }
+    lastAndroidKeyboardTraceSignature = signature;
+    try {
+      emitEvent("ui.debug-keyboard-trace", {
+        type: "viewport",
+        page: resolveCurrentPageKey(),
+        t: Math.round(performance.now?.() || Date.now()),
+        activeId: activeTarget?.id || "",
+        activeTag: activeTarget?.tagName || "",
+        modalLiftPx,
+        ...payload,
+      });
+    } catch (error) {}
   }
 
   function applyKeyboardOpenState() {
@@ -608,6 +663,15 @@
       : rawViewportHeight;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
+    traceAndroidKeyboardViewportState({
+      viewportHeight,
+      viewportWidth,
+      rawViewportHeight,
+      rawKeyboardDelta,
+      appliedKeyboardDelta,
+      transitionKeyboardDelta,
+      keyboardOpen,
+    });
 
     if (
       !keyboardOpen &&
