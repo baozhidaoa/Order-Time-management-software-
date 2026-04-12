@@ -6723,6 +6723,11 @@
       if (!(overlay instanceof HTMLElement)) {
         return 0;
       }
+      if (
+        typeof uiTools?.resolveAndroidFormModalKeyboardLiftPx === "function"
+      ) {
+        return uiTools.resolveAndroidFormModalKeyboardLiftPx(overlay);
+      }
       const normalized = Number.parseFloat(
         String(
           window

@@ -7045,7 +7045,14 @@ body.controler-android-native .controler-form-modal-overlay {
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-overlay,
 body.controler-android-native .controler-form-modal-overlay {
-  --controler-modal-keyboard-lift: 0px;
+  --controler-modal-footer-spare-space: 9999px;
+  --controler-modal-keyboard-lift: max(
+    0px,
+    calc(
+      var(--controler-keyboard-transition-inset, 0px) -
+        var(--controler-modal-footer-spare-space, 9999px)
+    )
+  );
   min-height: var(
     --controler-modal-overlay-height,
     var(--controler-stable-visual-viewport-height, 100dvh)

@@ -758,7 +758,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let keyboardOpenPeakInset = 0;
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
-  let lastAndroidKeyboardTraceSignature = "";
 
   function readPersistedAndroidKeyboardBaseline(viewportWidth = 0) {
     try {
@@ -842,60 +841,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return longestHeight;
     }
     return longestHeight >= viewportWidth ? longestHeight : 0;
-  }
-
-  function traceAndroidKeyboardViewportState(payload = {}) {
-    if (getNativeHostPlatform() !== "android") {
-      return;
-    }
-    const visibleModal = document.querySelector(
-      ".controler-form-modal-overlay:not([style*='display: none'])",
-    );
-    if (!(visibleModal instanceof HTMLElement)) {
-      return;
-    }
-    const activeElement = document.activeElement;
-    const activeTarget =
-      activeElement instanceof HTMLElement &&
-      visibleModal.contains(activeElement) &&
-      activeElement.matches?.("input, textarea, select")
-        ? activeElement
-        : null;
-    const modalLiftPx = Math.max(
-      0,
-      Math.round(
-        Number.parseFloat(
-          String(
-            window
-              .getComputedStyle(visibleModal)
-              .getPropertyValue("--controler-modal-keyboard-lift") || "0",
-          ).trim(),
-        ) || 0,
-      ),
-    );
-    const signature = JSON.stringify({
-      viewportHeight: payload.viewportHeight,
-      transitionKeyboardDelta: payload.transitionKeyboardDelta,
-      appliedKeyboardDelta: payload.appliedKeyboardDelta,
-      keyboardOpen: payload.keyboardOpen,
-      activeId: activeTarget?.id || "",
-      modalLiftPx,
-    });
-    if (signature === lastAndroidKeyboardTraceSignature) {
-      return;
-    }
-    lastAndroidKeyboardTraceSignature = signature;
-    try {
-      emitEvent("ui.debug-keyboard-trace", {
-        type: "viewport",
-        page: resolveCurrentPageKey(),
-        t: Math.round(performance.now?.() || Date.now()),
-        activeId: activeTarget?.id || "",
-        activeTag: activeTarget?.tagName || "",
-        modalLiftPx,
-        ...payload,
-      });
-    } catch (error) {}
   }
 
   function applyKeyboardOpenState() {
@@ -1037,15 +982,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       : rawViewportHeight;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
-    traceAndroidKeyboardViewportState({
-      viewportHeight,
-      viewportWidth,
-      rawViewportHeight,
-      rawKeyboardDelta,
-      appliedKeyboardDelta,
-      transitionKeyboardDelta,
-      keyboardOpen,
-    });
 
     if (
       !keyboardOpen &&
@@ -22730,6 +22666,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return Number.isFinite(normalized) ? normalized : 0;
   }
 
+  function getAndroidVisibleViewportBottomPx(rootStyle = null) {
+    const computedRootStyle =
+      rootStyle ||
+      (typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null);
+    const stableViewportHeight = Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-stable-visual-viewport-height",
+        ),
+      ),
+    );
+    const transitionKeyboardInsetPx = Math.max(
+      0,
+      parseUiHelperPixelValue(
+        computedRootStyle?.getPropertyValue(
+          "--controler-keyboard-transition-inset",
+        ),
+      ),
+    );
+    if (stableViewportHeight > 0) {
+      return Math.max(stableViewportHeight - transitionKeyboardInsetPx, 0);
+    }
+
+    const visualViewport = window.visualViewport;
+    const viewportHeight =
+      Number(visualViewport?.height) ||
+      Number(window.innerHeight) ||
+      Number(document.documentElement?.clientHeight) ||
+      Number(document.body?.clientHeight) ||
+      0;
+    const viewportOffsetTop = Number(visualViewport?.offsetTop) || 0;
+    return Math.max(0, viewportOffsetTop + viewportHeight);
+  }
+
   function readAndroidStableViewportHeightPx(rootStyle = null) {
     const computedRootStyle =
       rootStyle ||
@@ -22772,6 +22745,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return modal.closest(".controler-form-modal-overlay");
   }
 
+  function readAndroidFormModalFooterSpareSpacePx(overlay) {
+    if (
+      !(overlay instanceof HTMLElement) ||
+      typeof window.getComputedStyle !== "function"
+    ) {
+      return 0;
+    }
+    return Math.max(
+      0,
+      parseUiHelperPixelValue(
+        window
+          .getComputedStyle(overlay)
+          .getPropertyValue("--controler-modal-footer-spare-space"),
+      ),
+    );
+  }
+
+  function resolveAndroidFormModalKeyboardLiftPx(overlay, rootStyle = null) {
+    if (!(overlay instanceof HTMLElement)) {
+      return 0;
+    }
+    const computedRootStyle =
+      rootStyle ||
+      (typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(document.documentElement)
+        : null);
+    const keyboardInsetPx = readAndroidKeyboardTransitionInsetPx(
+      computedRootStyle,
+    );
+    const spareSpacePx = readAndroidFormModalFooterSpareSpacePx(overlay);
+    return Math.max(Math.round(keyboardInsetPx - spareSpacePx), 0);
+  }
+
   function syncAndroidFormModalKeyboardLift(modal = null) {
     const targetModals =
       modal instanceof HTMLElement
@@ -22781,6 +22787,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       targetModals.forEach((candidate) => {
         const overlay = resolveFormModalOverlayElement(candidate);
         if (overlay instanceof HTMLElement) {
+          overlay.style.removeProperty("--controler-modal-footer-spare-space");
           overlay.style.removeProperty("--controler-modal-keyboard-lift");
         }
       });
@@ -22800,27 +22807,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       if (!isVisibleModalOverlay(overlay)) {
+        overlay.style.removeProperty("--controler-modal-footer-spare-space");
         overlay.style.removeProperty("--controler-modal-keyboard-lift");
         return;
       }
 
-      const overlayRect = overlay.getBoundingClientRect();
-      const overlayHeightPx = Math.max(
-        Math.round(overlayRect.height || 0),
-        Math.round(overlay.clientHeight || 0),
+      const modalFooter = overlay.querySelector(".controler-form-modal-footer");
+      if (!(modalFooter instanceof HTMLElement)) {
+        overlay.style.removeProperty("--controler-modal-footer-spare-space");
+        overlay.style.removeProperty("--controler-modal-keyboard-lift");
+        return;
+      }
+
+      const viewportBottomPx =
+        stableViewportHeightPx > 0
+          ? stableViewportHeightPx
+          : getAndroidVisibleViewportBottomPx(rootStyle) + keyboardInsetPx;
+      const currentLiftPx = resolveAndroidFormModalKeyboardLiftPx(
+        overlay,
+        rootStyle,
       );
-      const viewportCompensationPx =
-        stableViewportHeightPx > 0 && overlayHeightPx > 0
-          ? Math.max(stableViewportHeightPx - overlayHeightPx, 0)
-          : 0;
-      const resolvedLiftPx = Math.max(
-        Math.round(keyboardInsetPx - viewportCompensationPx),
+      const footerRect = modalFooter.getBoundingClientRect();
+      const naturalFooterBottomPx = footerRect.bottom + currentLiftPx;
+      const nextSpareSpacePx = Math.max(
+        viewportBottomPx - naturalFooterBottomPx - 12,
         0,
       );
       overlay.style.setProperty(
-        "--controler-modal-keyboard-lift",
-        `${resolvedLiftPx}px`,
+        "--controler-modal-footer-spare-space",
+        `${Math.round(nextSpareSpacePx)}px`,
       );
+      overlay.style.removeProperty("--controler-modal-keyboard-lift");
     });
   }
 
@@ -28334,6 +28351,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     stopModalContentPropagation,
     bindModalAction,
     bindModalBackdropDismiss,
+    resolveAndroidFormModalKeyboardLiftPx,
+    syncAndroidFormModalKeyboardLift,
+    scheduleAndroidFormModalKeyboardLiftSync,
     showManagedColorPickerDialog,
     bindManagedColorInputProxy,
     setAccentButtonState,

@@ -7795,6 +7795,9 @@ function getTimerModalFooterOverlayInsetPx(modal) {
   if (!(overlay instanceof HTMLElement)) {
     return 0;
   }
+  if (typeof uiTools?.resolveAndroidFormModalKeyboardLiftPx === "function") {
+    return uiTools.resolveAndroidFormModalKeyboardLiftPx(overlay);
+  }
   return Math.max(
     0,
     parseTimerModalPixelValue(
@@ -9027,6 +9030,13 @@ function openModal(options = {}) {
     sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
   }
   updateRemainingTimeDisplay();
+  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
+  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
+    });
+  }
 
   if (modalDurationTimer) {
     clearInterval(modalDurationTimer);
