@@ -7082,6 +7082,14 @@ body.controler-android-native .controler-form-modal-overlay {
   overflow: hidden !important;
 }
 
+body.controler-mobile-runtime .controler-form-modal-overlay,
+body.controler-android-native .controler-form-modal-overlay {
+  align-items: center !important;
+  justify-content: center !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
   body.flex.row .controler-form-modal,
   body.controler-mobile-runtime .controler-form-modal,
   body.controler-android-native .controler-form-modal {
@@ -7111,6 +7119,12 @@ body.controler-android-native .controler-form-modal-overlay {
     margin-right: auto !important;
     padding: 12px !important;
     border-radius: 14px !important;
+  }
+
+  body.controler-mobile-runtime .controler-form-modal,
+  body.controler-android-native .controler-form-modal {
+    margin-top: auto !important;
+    margin-bottom: auto !important;
   }
 
   body.controler-mobile-runtime .settings-theme-editor-modal,
@@ -8976,8 +8990,7 @@ body.page-plan.plan-bootstrap-pending:not(.controler-android-native):not(.contro
 body.page-record.record-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #record-loading-overlay,
 body.page-todo.todo-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #todo-loading-overlay,
 body.page-diary.diary-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #diary-loading-overlay,
-body.page-settings.settings-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #settings-backup-overlay,
-body:not(.controler-android-native):not(.controler-ios-native) #controler-page-leave-overlay {
+body.page-settings.settings-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #settings-backup-overlay {
   display: none !important;
 }
 
@@ -9587,13 +9600,7 @@ body.controler-ios-native .page-loading-overlay {
 }
 
 body.controler-android-native .page-loading-overlay {
-  background:
-    radial-gradient(
-      circle at top,
-      rgba(var(--accent-color-rgb), 0.08),
-      transparent 32%
-    ),
-    var(--controler-loading-overlay-bg-strong) !important;
+  background: var(--bg-primary) !important;
 }
 
 body.controler-mobile-runtime .page-loading-overlay[data-mode="inline"],
@@ -9612,22 +9619,16 @@ body.controler-ios-native .page-loading-card {
 }
 
 body.controler-android-native .page-loading-card {
-  border-radius: 28px !important;
+  border-radius: 24px !important;
   border: 1px solid var(--controler-loading-card-border) !important;
-  background:
-    linear-gradient(
-      180deg,
-      var(--controler-loading-card-highlight),
-      transparent
-    ),
-    var(--controler-loading-card-bg) !important;
-  box-shadow: var(--controler-loading-card-shadow) !important;
+  background: var(--controler-loading-card-bg) !important;
+  box-shadow: none !important;
 }
 
 body.controler-android-native .page-loading-card::before {
-  width: 56px;
-  height: 56px;
-  margin-bottom: 12px;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 14px;
   border-width: 3px;
 }
 

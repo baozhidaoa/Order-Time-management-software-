@@ -3439,7 +3439,8 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
   });
   const forceAuthoritativeRead =
     options?.fresh === true || options?.authoritative === true;
-  const allowPageBootstrap = !forceAuthoritativeRead;
+  const allowPageBootstrap =
+    !forceAuthoritativeRead && options?.pageBootstrap !== false;
   emitStatsRangeLoad("start", {
     rangeUnit: statsRangeState.unit,
     startDate: String(scope?.startDate || "").trim(),
@@ -3656,6 +3657,7 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       {
         delayMs,
         manageLoading,
+        waitForLoadingPaint: mode === "fullscreen" && delayMs <= 0,
         loadingOptions: {
           mode,
           title,
@@ -3729,12 +3731,11 @@ function getStatsRangeNavigationRefreshOptions(
 ) {
   return {
     mode: "fullscreen",
-    delayMs: 0,
+    delayMs: STATS_LOADING_OVERLAY_DELAY_MS,
     title: "正在加载数据中",
     message,
     lockNativeExit: true,
-    fresh: true,
-    authoritative: true,
+    pageBootstrap: false,
   };
 }
 

@@ -6,51 +6,87 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
-    <style name="AppThemeLaunchDefault" parent="@style/AppTheme">
+    <style name="AppThemeLaunchDefault" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#183524</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#183524</item>
     </style>
 
-    <style name="AppThemeLaunchBlueOcean" parent="@style/AppTheme">
+    <style name="AppThemeLaunchBlueOcean" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#12263F</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#12263F</item>
     </style>
 
-    <style name="AppThemeLaunchSunsetOrange" parent="@style/AppTheme">
+    <style name="AppThemeLaunchSunsetOrange" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#4B261B</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#4B261B</item>
     </style>
 
-    <style name="AppThemeLaunchMinimalGray" parent="@style/AppTheme">
+    <style name="AppThemeLaunchMinimalGray" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#1C2734</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#1C2734</item>
     </style>
 
-    <style name="AppThemeLaunchObsidianMono" parent="@style/AppTheme">
+    <style name="AppThemeLaunchObsidianMono" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0D0F12</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#0D0F12</item>
     </style>
 
-    <style name="AppThemeLaunchIvoryLight" parent="@style/AppTheme">
+    <style name="AppThemeLaunchIvoryLight" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#ECEFF3</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#ECEFF3</item>
     </style>
 
-    <style name="AppThemeLaunchGraphiteMist" parent="@style/AppTheme">
+    <style name="AppThemeLaunchGraphiteMist" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#2A2D32</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#2A2D32</item>
     </style>
 
-    <style name="AppThemeLaunchAuroraMist" parent="@style/AppTheme">
+    <style name="AppThemeLaunchAuroraMist" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#341D28</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#341D28</item>
     </style>
 
-    <style name="AppThemeLaunchAmethystHaze" parent="@style/AppTheme">
+    <style name="AppThemeLaunchAmethystHaze" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#24192F</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#24192F</item>
     </style>
 
-    <style name="AppThemeLaunchVelvetBordeaux" parent="@style/AppTheme">
+    <style name="AppThemeLaunchVelvetBordeaux" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#2F141D</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#2F141D</item>
     </style>
 
-    <style name="AppThemeLaunchChampagneSandstone" parent="@style/AppTheme">
+    <style name="AppThemeLaunchChampagneSandstone" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F1EBE2</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#F1EBE2</item>
     </style>
 
-    <style name="AppThemeLaunchMidnightIndigo" parent="@style/AppTheme">
+    <style name="AppThemeLaunchMidnightIndigo" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#352211</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
         <item name="android:windowBackground">#352211</item>
     </style>
 

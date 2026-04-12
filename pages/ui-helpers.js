@@ -396,6 +396,9 @@
   let blockingOverlayScrollLockState = null;
   let nativePageReadyReported = false;
   let nativePageReadyScheduled = false;
+  let deferredNativePageReadyOptions = null;
+  let deferredNativePageReadyFrameId = 0;
+  let deferredNativePageReadyObserverBound = false;
   let androidNativeBootstrapTransitionOverlayActive = false;
   let nativeShellResumeReadyPending = false;
   let nativeShellResumeReadyVersion = 0;
@@ -1133,6 +1136,97 @@
     );
   }
 
+  function shouldDeferReactNativePageReadyReport(options = {}) {
+    if (options?.skipBlockingOverlayWait === true) {
+      return false;
+    }
+    if (!isReactNativeNavigationRuntime()) {
+      return false;
+    }
+    if (hasPageBootstrapPendingBodyState()) {
+      return true;
+    }
+    return hasVisibleBlockingOverlayExcludingLeaveGuard();
+  }
+
+  function clearDeferredNativePageReadyFrame() {
+    if (!deferredNativePageReadyFrameId) {
+      return;
+    }
+    if (typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(deferredNativePageReadyFrameId);
+    } else {
+      window.clearTimeout(deferredNativePageReadyFrameId);
+    }
+    deferredNativePageReadyFrameId = 0;
+  }
+
+  function flushDeferredNativePageReadyReport() {
+    const pendingOptions = deferredNativePageReadyOptions;
+    if (!pendingOptions) {
+      return false;
+    }
+    if (shouldDeferReactNativePageReadyReport()) {
+      return false;
+    }
+    deferredNativePageReadyOptions = null;
+    reportNativePageReadyWithOptions({
+      ...pendingOptions,
+      skipBlockingOverlayWait: true,
+    });
+    return true;
+  }
+
+  function ensureDeferredNativePageReadyObserver() {
+    if (deferredNativePageReadyObserverBound) {
+      return;
+    }
+    deferredNativePageReadyObserverBound = true;
+    const handleDeferredReadyStateChange = () => {
+      if (!deferredNativePageReadyOptions) {
+        return;
+      }
+      scheduleDeferredNativePageReadyReport();
+    };
+    window.addEventListener(
+      BLOCKING_OVERLAY_STATE_EVENT_NAME,
+      handleDeferredReadyStateChange,
+    );
+    window.addEventListener(
+      SHELL_VISIBILITY_EVENT_NAME,
+      handleDeferredReadyStateChange,
+    );
+    window.addEventListener("focus", handleDeferredReadyStateChange);
+    document.addEventListener(
+      "visibilitychange",
+      handleDeferredReadyStateChange,
+    );
+  }
+
+  function scheduleDeferredNativePageReadyReport(options = {}) {
+    if (options && typeof options === "object" && Object.keys(options).length) {
+      deferredNativePageReadyOptions = {
+        allowRepeat: options.allowRepeat === true,
+        reason: resolveNativePageReadyReason(options),
+      };
+    } else if (!deferredNativePageReadyOptions) {
+      return false;
+    }
+    ensureDeferredNativePageReadyObserver();
+    if (deferredNativePageReadyFrameId) {
+      return true;
+    }
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    deferredNativePageReadyFrameId = schedule(() => {
+      deferredNativePageReadyFrameId = 0;
+      flushDeferredNativePageReadyReport();
+    });
+    return true;
+  }
+
   function shouldKeepOverlayDuringNativeShellStateChange(nextShellState = {}) {
     if (!isAndroidReactNativeNavigationRuntime()) {
       return false;
@@ -1455,9 +1549,21 @@
     ) {
       return;
     }
+    if (
+      shouldReportToReactNative &&
+      shouldDeferReactNativePageReadyReport(options)
+    ) {
+      scheduleDeferredNativePageReadyReport({
+        allowRepeat,
+        reason: readyReason,
+      });
+      return;
+    }
     if (!allowRepeat) {
       nativePageReadyReported = true;
     }
+    deferredNativePageReadyOptions = null;
+    clearDeferredNativePageReadyFrame();
     markPagePerfStage("page-ready-emitted", {
       allowRepeat,
       reason: readyReason,
@@ -2592,7 +2698,7 @@
     const fallbackRetryDelayMs = Math.max(48, Number(options.retryDelayMs) || 120);
     const fallbackRetrySequence = retrySequence.length
       ? retrySequence
-      : [fallbackRetryDelayMs, fallbackRetryDelayMs + 120];
+      : [fallbackRetryDelayMs];
     clearPendingFocusRetries();
     const retryToken = createRetryToken();
     scheduleRetrySequence(fallbackRetrySequence, focusOnce, retryToken);
@@ -2845,7 +2951,7 @@
 
       const didScheduleFocus = autofocusInteractiveTextControl(modal, {
         delayMs: 28,
-        retrySequence: [90, 180, 320],
+        retrySequence: [96],
         selectText: true,
       });
       if (didScheduleFocus) {
@@ -3009,6 +3115,29 @@
     );
   }
 
+  function syncAppNavigationButtonFocusability(
+    root = document,
+    options = {},
+  ) {
+    if (!root?.querySelectorAll) {
+      return;
+    }
+    const disableFocus = options?.disableFocus === true;
+    root.querySelectorAll(".app-nav [data-nav-page]").forEach((button) => {
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      if (button.hidden || disableFocus) {
+        button.setAttribute("tabindex", "-1");
+        if (disableFocus) {
+          clearAndroidNavButtonFocus(button, true);
+        }
+        return;
+      }
+      button.removeAttribute("tabindex");
+    });
+  }
+
   function decorateAppNavigationButton(button, navItem, currentPageKey) {
     if (!(button instanceof HTMLElement) || !navItem) {
       return;
@@ -3146,7 +3275,6 @@
         if (isHidden) {
           button.setAttribute("tabindex", "-1");
         } else {
-          button.removeAttribute("tabindex");
           visibleCount += 1;
         }
       });
@@ -3154,6 +3282,15 @@
       const safeVisibleCount = Math.max(visibleCount, 1);
       nav.style.setProperty("--nav-visible-count", String(safeVisibleCount));
       nav.dataset.visibleCount = String(safeVisibleCount);
+    });
+    syncAppNavigationButtonFocusability(root, {
+      disableFocus:
+        document.documentElement?.classList.contains("controler-modal-overlay-active") ===
+          true ||
+        document.documentElement?.classList.contains("controler-blocking-overlay-active") ===
+          true ||
+        document.body?.classList.contains("controler-modal-overlay-active") === true ||
+        document.body?.classList.contains("controler-blocking-overlay-active") === true,
     });
     scheduleNativeEdgeBackSwipeExclusionSync(root);
   }
@@ -3952,6 +4089,7 @@
     appPageLeaveOverlayController = createPageLoadingOverlayController({
       overlay,
       inlineHost: ensureDesktopContentOverlayHost() || document.body,
+      scopeFullscreenToInlineHost: false,
     });
     bindAppPageLeaveOverlayShellVisibility();
     return appPageLeaveOverlayController;
@@ -4605,6 +4743,45 @@
     });
   }
 
+  function syncModalBackgroundInteractivity(hasOpenModal = false) {
+    if (!(document.body instanceof HTMLElement)) {
+      return;
+    }
+    const visibleModals = getVisibleModalOverlays();
+    const modalHosts = new Set(
+      visibleModals.map((modal) => {
+        let host = modal;
+        while (host.parentElement && host.parentElement !== document.body) {
+          host = host.parentElement;
+        }
+        return host;
+      }),
+    );
+    Array.from(document.body.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) {
+        return;
+      }
+      const containsVisibleModal =
+        modalHosts.has(child) ||
+        visibleModals.some((modal) => child === modal || child.contains(modal));
+      const shouldDisableBackground = hasOpenModal && !containsVisibleModal;
+      if (shouldDisableBackground) {
+        child.inert = true;
+        child.dataset.controlerModalBackgroundInert = "true";
+        if (child.contains(document.activeElement)) {
+          try {
+            document.activeElement?.blur?.();
+          } catch (error) {}
+        }
+        return;
+      }
+      if (child.dataset.controlerModalBackgroundInert === "true") {
+        child.inert = false;
+        delete child.dataset.controlerModalBackgroundInert;
+      }
+    });
+  }
+
   function isCompactGestureLayout() {
     return (
       typeof window !== "undefined" &&
@@ -4812,6 +4989,10 @@
     );
     root?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
     body?.classList.toggle("controler-modal-overlay-active", hasOpenModal);
+    syncModalBackgroundInteractivity(hasOpenModal);
+    syncAppNavigationButtonFocusability(document, {
+      disableFocus: hasOpenModal || hasBlockingLoadingOverlay,
+    });
     if (hasOpenModal) {
       scheduleAndroidModalAutofocus();
     }
@@ -5776,6 +5957,18 @@
       typeof options.showLoading === "function" ? options.showLoading : () => {};
     const defaultHideLoading =
       typeof options.hideLoading === "function" ? options.hideLoading : () => {};
+    const waitForPaint = () =>
+      new Promise((resolve) => {
+        const schedule =
+          typeof window.requestAnimationFrame === "function"
+            ? window.requestAnimationFrame.bind(window)
+            : (callback) => window.setTimeout(callback, 16);
+        schedule(() => {
+          schedule(() => {
+            resolve(true);
+          });
+        });
+      });
     let activeRequestId = 0;
 
     return {
@@ -5802,22 +5995,30 @@
             ? runOptions.hideLoading
             : defaultHideLoading;
         const shouldManageLoading = runOptions.manageLoading !== false;
+        const waitForLoadingPaint =
+          runOptions.waitForLoadingPaint === true && delayMs <= 0;
         let loadingTimerId = 0;
         let loadingShown = false;
 
-        const revealLoading = () => {
+        const revealLoading = async () => {
           if (!shouldManageLoading || loadingShown || requestId !== activeRequestId) {
-            return;
+            return false;
           }
           loadingShown = true;
-          showLoading(runOptions.loadingOptions || {});
+          await Promise.resolve(showLoading(runOptions.loadingOptions || {}));
+          if (waitForLoadingPaint && requestId === activeRequestId) {
+            await waitForPaint();
+          }
+          return true;
         };
 
         if (shouldManageLoading) {
           if (delayMs <= 0) {
-            revealLoading();
+            await revealLoading();
           } else {
-            loadingTimerId = window.setTimeout(revealLoading, delayMs);
+            loadingTimerId = window.setTimeout(() => {
+              void revealLoading();
+            }, delayMs);
           }
         }
 
@@ -5901,6 +6102,10 @@
       if (Number.isFinite(clientWidth) && clientWidth > 0) {
         return clientWidth;
       }
+      const screenWidth = Number(window.screen?.width || window.screen?.availWidth);
+      if (Number.isFinite(screenWidth) && screenWidth > 0) {
+        return screenWidth;
+      }
       return 0;
     };
     const isCompactBlockingOverlayLayout = () => {
@@ -5941,8 +6146,26 @@
       if (!visible || mode !== "inline") {
         return false;
       }
+      if (isDesktopThemeTransitionRuntime()) {
+        const transitionState = readAppPageTransitionState();
+        const transitionStartedAt = Math.max(
+          0,
+          Number.isFinite(Number(transitionState?.startedAt))
+            ? Number(transitionState.startedAt)
+            : 0,
+        );
+        if (
+          transitionStartedAt > 0 &&
+          Date.now() - transitionStartedAt <= APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS
+        ) {
+          return true;
+        }
+      }
       const platform = String(window.ControlerNativeBridge?.platform || "").trim();
       if (platform === "android" || platform === "ios") {
+        return true;
+      }
+      if (isReactNativeNavigationRuntime()) {
         return true;
       }
       return isCompactBlockingOverlayLayout();
@@ -6033,43 +6256,23 @@
       overlay.style.borderRadius = "";
     };
 
-    const shouldScopeFullscreenToInlineHost = () => {
+    const shouldScopeFullscreenToInlineHost = (
+      mode = currentMode,
+      visible = currentVisibility,
+    ) => {
+      if (!visible || normalizeMode(mode) !== "fullscreen") {
+        return false;
+      }
       if (preserveViewportScopeUntilHidden && !isLeaveGuardOverlay) {
         return false;
       }
-      if (isDesktopContentOverlayRuntime()) {
+      if (!(inlineHost instanceof HTMLElement) || !scopeFullscreenToInlineHost) {
         return false;
       }
-      if (!(inlineHost instanceof HTMLElement)) {
-        return false;
-      }
-      const forceDesktopContentScope =
-        inlineHost !== document.body &&
-        isDesktopContentOverlayRuntime() &&
-        !!ensureDesktopContentOverlayHost(inlineHost);
-      if (!scopeFullscreenToInlineHost && !forceDesktopContentScope) {
-        return false;
-      }
-      const platform = String(window.ControlerNativeBridge?.platform || "").trim();
-      if (platform === "android" || platform === "ios") {
-        return false;
-      }
-      const root = document.documentElement;
-      const body = document.body;
-      if (!(body instanceof HTMLElement)) {
-        return false;
-      }
-      if (
-        root?.classList.contains("controler-mobile-runtime") ||
-        root?.classList.contains("controler-android-native") ||
-        root?.classList.contains("controler-ios-native") ||
-        body.classList.contains("controler-mobile-runtime") ||
-        body.classList.contains("controler-android-native") ||
-        body.classList.contains("controler-ios-native")
-      ) {
-        return false;
-      }
-      return body.classList.contains("row");
+      // Fullscreen loading overlays must always center against the full viewport.
+      // Constraining them to the content host produces a second visual center
+      // during navigation and cold-start handoff.
+      return false;
     };
 
     const shouldSuppressFullscreenOverlay = (visible, mode) => {
@@ -6163,7 +6366,7 @@
         clearFullscreenGeometry();
         return;
       }
-      if (!shouldScopeFullscreenToInlineHost()) {
+      if (!shouldScopeFullscreenToInlineHost(currentMode, currentVisibility)) {
         clearFullscreenGeometry();
         return;
       }
@@ -6273,7 +6476,7 @@
       overlay.dataset.controlerOverlayScope =
         resolvedMode === "fullscreen" &&
         !shouldPreserveViewportScope &&
-        shouldScopeFullscreenToInlineHost()
+        shouldScopeFullscreenToInlineHost(resolvedMode, actualVisible)
           ? "content"
           : "viewport";
       overlay.hidden = !actualVisible;

@@ -23,6 +23,7 @@ import App, {
   getComparableUrl,
   isWebViewLayerInteractive,
   resolveShellBlockingOverlayPayload,
+  resolveShellOverlayViewState,
   resolveBridgeNavigationDispatchPolicy,
   resolveAppPageUri,
 } from '../App';
@@ -118,7 +119,7 @@ describe('resolveAppPageUri', () => {
 });
 
 describe('resolveBridgeNavigationDispatchPolicy', () => {
-  it('queues android bridge navigation from inactive slots instead of ignoring it', () => {
+  it('ignores android bridge navigation from inactive slots', () => {
     expect(
       resolveBridgeNavigationDispatchPolicy({
         isAndroid: true,
@@ -127,8 +128,8 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
         transitionBusy: false,
       }),
     ).toEqual({
-      ignore: false,
-      queue: true,
+      ignore: true,
+      queue: false,
     });
   });
 
@@ -305,22 +306,18 @@ describe('isWebViewLayerInteractive', () => {
 });
 
 describe('resolveShellBlockingOverlayPayload', () => {
-  const webViewSlots = {
-    primary: {
-      uri: 'file:///android_asset/controler-web/index.html',
-      pageKey: 'index',
-      revision: 1,
-    },
-    secondary: {
-      uri: 'file:///android_asset/controler-web/todo.html',
-      pageKey: 'todo',
-      revision: 1,
-    },
-    tertiary: {
-      uri: 'file:///android_asset/controler-web/stats.html',
-      pageKey: 'stats',
-      revision: 1,
-    },
+  const emptyBusyOverlayState = {
+    active: false,
+    lockNavigation: false,
+    title: '',
+    message: '',
+    presentation: '',
+    href: '',
+  } as const;
+  const busyOverlayStates = {
+    primary: emptyBusyOverlayState,
+    secondary: emptyBusyOverlayState,
+    tertiary: emptyBusyOverlayState,
   } as const;
 
   it('keeps transition loading from taking over the whole shell overlay', () => {
@@ -328,18 +325,11 @@ describe('resolveShellBlockingOverlayPayload', () => {
       resolveShellBlockingOverlayPayload({
         transitionState: {
           status: 'loading',
+          fromSlot: 'primary',
           toSlot: 'secondary',
         },
-        webViewSlots,
-        activeSlot: 'primary',
-        activeBusyOverlay: {
-          active: false,
-          lockNavigation: false,
-          title: '',
-          message: '',
-          presentation: '',
-          href: '',
-        },
+        busyOverlayStates,
+        activeBusyOverlay: emptyBusyOverlayState,
         shellLanguage: 'zh-CN',
       }),
     ).toBeNull();
@@ -349,8 +339,7 @@ describe('resolveShellBlockingOverlayPayload', () => {
     expect(
       resolveShellBlockingOverlayPayload({
         transitionState: null,
-        webViewSlots,
-        activeSlot: 'primary',
+        busyOverlayStates,
         activeBusyOverlay: {
           active: true,
           lockNavigation: false,
@@ -366,8 +355,7 @@ describe('resolveShellBlockingOverlayPayload', () => {
     expect(
       resolveShellBlockingOverlayPayload({
         transitionState: null,
-        webViewSlots,
-        activeSlot: 'primary',
+        busyOverlayStates,
         activeBusyOverlay: {
           active: true,
           lockNavigation: true,
@@ -381,6 +369,56 @@ describe('resolveShellBlockingOverlayPayload', () => {
     ).toEqual({
       title: '正在同步',
       message: '请稍候',
+    });
+  });
+});
+
+describe('resolveShellOverlayViewState', () => {
+  it('shows the boot overlay copy before the active page is ready', () => {
+    expect(
+      resolveShellOverlayViewState({
+        isPageReady: false,
+        shellBlockingOverlay: null,
+        shellLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      visible: true,
+      source: 'boot',
+      title: '正在加载数据中',
+      message: '页面资源与本地数据正在就绪',
+    });
+  });
+
+  it('prefers a page-provided blocking overlay even during cold start', () => {
+    expect(
+      resolveShellOverlayViewState({
+        isPageReady: false,
+        shellBlockingOverlay: {
+          title: '正在同步',
+          message: '请稍候',
+        },
+        shellLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      visible: true,
+      source: 'blocking',
+      title: '正在同步',
+      message: '请稍候',
+    });
+  });
+
+  it('hides the shell overlay after boot when no blocking overlay remains', () => {
+    expect(
+      resolveShellOverlayViewState({
+        isPageReady: true,
+        shellBlockingOverlay: null,
+        shellLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      visible: false,
+      source: 'none',
+      title: '',
+      message: '',
     });
   });
 });

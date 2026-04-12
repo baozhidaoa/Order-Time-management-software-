@@ -1345,6 +1345,18 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         });
     }
 
+    @ReactMethod
+    public void markStartupReady(Promise promise) {
+        try {
+            ControlerLaunchSplashCoordinator.markStartupReady();
+            JSONObject result = new JSONObject();
+            result.put("ok", true);
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            promise.reject("mark_startup_ready_failed", error);
+        }
+    }
+
     private void showSoftInputWithRetry(
         Activity activity,
         InputMethodManager inputMethodManager,

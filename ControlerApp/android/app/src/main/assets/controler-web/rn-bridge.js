@@ -375,11 +375,13 @@
   const ANDROID_KEYBOARD_OPEN_THRESHOLD_PX = 140;
   const ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX = 64;
   const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
+  const ANDROID_KEYBOARD_INSET_HOLD_TOLERANCE_PX = 24;
   const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
   const ANDROID_KEYBOARD_BASELINE_SESSION_KEY =
     "__controler_android_keyboard_baseline__";
   let keyboardViewportBaseHeight = 0;
   let lastKeyboardViewportHeight = 0;
+  let keyboardOpenPeakInset = 0;
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
 
@@ -437,6 +439,19 @@
     );
   }
 
+  function getAndroidVisibleViewportHeightCandidate() {
+    const candidates = [
+      Math.round(window.visualViewport?.height || 0),
+      Math.round(window.innerHeight || 0),
+      Math.round(document.documentElement?.clientHeight || 0),
+      Math.round(document.body?.clientHeight || 0),
+    ].filter((value) => value > 0);
+    if (!candidates.length) {
+      return 0;
+    }
+    return Math.min(...candidates);
+  }
+
   function getAndroidScreenViewportHeightCandidate(viewportWidth = 0) {
     const screenHeight = Math.round(window.screen?.height || 0);
     const availableHeight = Math.round(window.screen?.availHeight || 0);
@@ -461,10 +476,8 @@
     }
 
     const visualViewport = window.visualViewport;
-    const viewportHeight = Math.round(
-      visualViewport?.height || window.innerHeight || 0,
-    );
-    if (!viewportHeight) {
+    const rawViewportHeight = getAndroidVisibleViewportHeightCandidate();
+    if (!rawViewportHeight) {
       return;
     }
 
@@ -491,13 +504,14 @@
         viewportWidth,
       );
     }
-    const layoutViewportHeight = getAndroidLayoutViewportHeight(viewportHeight);
+    const rawLayoutViewportHeight =
+      getAndroidLayoutViewportHeight(rawViewportHeight);
     const screenViewportHeight = getAndroidScreenViewportHeightCandidate(
       viewportWidth,
     );
     const viewportBaseCandidateHeight = Math.max(
-      layoutViewportHeight,
-      viewportHeight,
+      rawLayoutViewportHeight,
+      rawViewportHeight,
       screenViewportHeight,
     );
     const hadStableBaseline = keyboardViewportBaseHeight > 0;
@@ -511,7 +525,23 @@
       persistAndroidKeyboardBaseline(keyboardViewportBaseHeight, viewportWidth);
     }
 
-    lastKeyboardViewportHeight = viewportHeight;
+    const rawStableViewportHeight = Math.max(
+      keyboardViewportBaseHeight || 0,
+      rawLayoutViewportHeight,
+      rawViewportHeight,
+    );
+    const rawKeyboardDelta = Math.max(
+      rawStableViewportHeight - rawViewportHeight,
+      0,
+    );
+    const rawNextKeyboardOpen = keyboardOpen
+      ? rawKeyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
+      : rawKeyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
+    const viewportHeight =
+      rawNextKeyboardOpen && lastKeyboardViewportHeight > 0
+        ? Math.min(rawViewportHeight, lastKeyboardViewportHeight)
+        : rawViewportHeight;
+    const layoutViewportHeight = getAndroidLayoutViewportHeight(viewportHeight);
 
     const stableViewportHeight = Math.max(
       keyboardViewportBaseHeight || 0,
@@ -522,6 +552,22 @@
     const nextKeyboardOpen = keyboardOpen
       ? keyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
       : keyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
+    let appliedKeyboardDelta = keyboardDelta;
+    if (nextKeyboardOpen) {
+      if (!keyboardOpen) {
+        keyboardOpenPeakInset = keyboardDelta;
+      } else if (
+        keyboardDelta >= keyboardOpenPeakInset ||
+        keyboardOpenPeakInset - keyboardDelta <=
+          ANDROID_KEYBOARD_INSET_HOLD_TOLERANCE_PX
+      ) {
+        keyboardOpenPeakInset = keyboardDelta;
+      }
+      appliedKeyboardDelta = Math.max(keyboardDelta, keyboardOpenPeakInset);
+    } else {
+      keyboardOpenPeakInset = 0;
+      appliedKeyboardDelta = 0;
+    }
     const root = document.documentElement;
     const body = document.body;
     root?.style.setProperty(
@@ -544,8 +590,14 @@
       "--controler-stable-visual-viewport-height",
       `${stableViewportHeight}px`,
     );
-    root?.style.setProperty("--controler-keyboard-inset", `${keyboardDelta}px`);
+    root?.style.setProperty(
+      "--controler-keyboard-inset",
+      `${appliedKeyboardDelta}px`,
+    );
     keyboardOpen = nextKeyboardOpen;
+    lastKeyboardViewportHeight = nextKeyboardOpen
+      ? viewportHeight
+      : rawViewportHeight;
     root?.classList.toggle("controler-keyboard-open", keyboardOpen);
     body?.classList.toggle("controler-keyboard-open", keyboardOpen);
 

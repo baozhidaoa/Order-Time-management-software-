@@ -1137,14 +1137,6 @@
       sourceLastResolved && (!targetLastResolved || sourceLastResolved > targetLastResolved)
         ? sourceLastResolved
         : targetLastResolved;
-    if (
-      !String(targetItem?.offScheduleResolutionMode || "").trim() &&
-      String(sourceItem?.offScheduleResolutionMode || "").trim()
-    ) {
-      targetItem.offScheduleResolutionMode = String(
-        sourceItem.offScheduleResolutionMode,
-      ).trim();
-    }
     return targetItem;
   }
 
@@ -1338,6 +1330,14 @@
 
   function applyTodoModalDraftFields(modal, fields = {}) {
     const source = fields && typeof fields === "object" ? fields : {};
+    const dispatchControlEvents = (control, eventNames = []) => {
+      if (!(control instanceof HTMLElement)) {
+        return;
+      }
+      eventNames.forEach((eventName) => {
+        control.dispatchEvent(new Event(eventName, { bubbles: true }));
+      });
+    };
     Object.keys(source).forEach((key) => {
       const idSelector = `#${escapeTodoSelectorValue(key)}`;
       const namedControls = Array.from(
@@ -1346,9 +1346,17 @@
       );
       const controlById = modal?.querySelector?.(idSelector) || null;
       if (namedControls.length && namedControls[0]?.type === "radio") {
+        const changedControls = [];
         namedControls.forEach((control) => {
-          control.checked = String(control.value) === String(source[key] ?? "");
-          control.dispatchEvent(new Event("change", { bubbles: true }));
+          const nextChecked = String(control.value) === String(source[key] ?? "");
+          if (!!control.checked === nextChecked) {
+            return;
+          }
+          control.checked = nextChecked;
+          changedControls.push(control);
+        });
+        changedControls.forEach((control) => {
+          dispatchControlEvents(control, ["change"]);
         });
         return;
       }
@@ -1360,9 +1368,17 @@
         const selectedValues = new Set(
           source[key].map((value) => String(value)),
         );
+        const changedControls = [];
         namedControls.forEach((control) => {
-          control.checked = selectedValues.has(String(control.value));
-          control.dispatchEvent(new Event("change", { bubbles: true }));
+          const nextChecked = selectedValues.has(String(control.value));
+          if (!!control.checked === nextChecked) {
+            return;
+          }
+          control.checked = nextChecked;
+          changedControls.push(control);
+        });
+        changedControls.forEach((control) => {
+          dispatchControlEvents(control, ["change"]);
         });
         return;
       }
@@ -1370,21 +1386,68 @@
       if (!targetControl) {
         return;
       }
+      let didChange = false;
       if (targetControl.type === "checkbox") {
-        targetControl.checked = !!source[key];
+        const nextChecked = !!source[key];
+        if (!!targetControl.checked !== nextChecked) {
+          targetControl.checked = nextChecked;
+          didChange = true;
+        }
       } else {
-        targetControl.value = source[key] ?? "";
+        const nextValue = source[key] ?? "";
+        if (String(targetControl.value ?? "") !== String(nextValue)) {
+          targetControl.value = nextValue;
+          didChange = true;
+        }
       }
-      targetControl.dispatchEvent(new Event("input", { bubbles: true }));
-      targetControl.dispatchEvent(new Event("change", { bubbles: true }));
+      if (!didChange) {
+        return;
+      }
+      dispatchControlEvents(targetControl, ["input", "change"]);
     });
   }
 
   function createTodoModalDraftSession(modal, draftKey, scope = "todo") {
     let timer = 0;
+    let persistenceActive = false;
+    const registeredControls = [];
     const initialFieldsSignature = JSON.stringify(
       captureTodoModalDraftFields(modal),
     );
+    const scheduleSave = () => {
+      if (!persistenceActive) {
+        return;
+      }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void persistDraft();
+      }, TODO_DRAFT_SAVE_DELAY_MS);
+    };
+    const bindFieldPersistence = () => {
+      if (persistenceActive) {
+        return true;
+      }
+      const controls = Array.from(
+        modal?.querySelectorAll?.("input, textarea, select") || [],
+      );
+      controls.forEach((control) => {
+        if (!(control instanceof HTMLElement)) {
+          return;
+        }
+        control.addEventListener("input", scheduleSave);
+        control.addEventListener("change", scheduleSave);
+        registeredControls.push(control);
+      });
+      persistenceActive = true;
+      return true;
+    };
+    const unbindFieldPersistence = () => {
+      registeredControls.splice(0).forEach((control) => {
+        control.removeEventListener("input", scheduleSave);
+        control.removeEventListener("change", scheduleSave);
+      });
+      persistenceActive = false;
+    };
     const persistDraft = async () => {
       if (
         !modal?.isConnected ||
@@ -1409,12 +1472,6 @@
         },
       );
     };
-    const scheduleSave = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        void persistDraft();
-      }, TODO_DRAFT_SAVE_DELAY_MS);
-    };
     const handlePageHide = () => {
       void persistDraft();
     };
@@ -1423,15 +1480,12 @@
         void persistDraft();
       }
     };
-    modal
-      ?.querySelectorAll?.("input, textarea, select")
-      ?.forEach?.((control) => {
-        control.addEventListener("input", scheduleSave);
-        control.addEventListener("change", scheduleSave);
-      });
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return {
+      activate() {
+        return bindFieldPersistence();
+      },
       async restore() {
         if (typeof window.ControlerStorage?.getDraft !== "function") {
           return null;
@@ -1460,6 +1514,7 @@
       },
       destroy() {
         window.clearTimeout(timer);
+        unbindFieldPersistence();
         window.removeEventListener("pagehide", handlePageHide);
         document.removeEventListener(
           "visibilitychange",
@@ -1674,10 +1729,56 @@
       authoritativeSnapshot,
       normalizedBootstrap,
     );
+    const mergedDailyCheckins = (() => {
+      const latestByItemDate = new Map();
+      const mergeSource = (items = [], sourceRank = 0) => {
+        (Array.isArray(items) ? items : []).forEach((entry) => {
+          const itemId = String(entry?.itemId || "").trim();
+          const dateKey = normalizeTodoOccurrenceDateKey(entry?.date);
+          if (!itemId || !dateKey) {
+            return;
+          }
+          const key = `${itemId}::${dateKey}`;
+          const candidate = {
+            entry: {
+              ...(entry || {}),
+              itemId,
+              date: dateKey,
+            },
+            timestamp: getTodoCheckinEntryTimestamp(entry),
+            sourceRank,
+          };
+          const current = latestByItemDate.get(key);
+          if (
+            !current ||
+            candidate.timestamp > current.timestamp ||
+            (candidate.timestamp === current.timestamp &&
+              candidate.sourceRank > current.sourceRank)
+          ) {
+            latestByItemDate.set(key, candidate);
+          }
+        });
+      };
+      mergeSource(normalizedBootstrap.dailyCheckins, 0);
+      mergeSource(normalizedAuthoritative.dailyCheckins, 1);
+      return Array.from(latestByItemDate.values())
+        .map((candidate) => candidate.entry)
+        .sort((left, right) =>
+          `${String(left?.date || "").trim()}::${String(left?.itemId || "").trim()}`.localeCompare(
+            `${String(right?.date || "").trim()}::${String(right?.itemId || "").trim()}`,
+          ),
+        );
+    })();
     return {
       ...normalizedBootstrap,
       todos: cloneTodoValue(normalizedAuthoritative.todos),
       checkinItems: cloneTodoValue(normalizedAuthoritative.checkinItems),
+      dailyCheckins: mergedDailyCheckins,
+      checkins:
+        Array.isArray(normalizedBootstrap.checkins) &&
+        normalizedBootstrap.checkins.length > 0
+          ? cloneTodoValue(normalizedBootstrap.checkins)
+          : cloneTodoValue(normalizedAuthoritative.checkins),
     };
   }
 
@@ -3455,109 +3556,6 @@
     )?.checked;
   }
 
-  function findNearestCompletedCheckinDateFromLookup(
-    itemLike = null,
-    baseDateText = getLocalDateText(),
-    lookup = null,
-  ) {
-    const normalizedBaseDate = normalizeTodoOccurrenceDateKey(baseDateText);
-    if (!itemLike?.id || !normalizedBaseDate) {
-      return "";
-    }
-
-    const rememberedDate = getTodoLastResolvedOccurrenceDate(itemLike);
-    if (
-      rememberedDate &&
-      isTodoLinkedPlanOccurrenceAvailable("checkin", itemLike, rememberedDate) &&
-      getCheckinCompletionStateOnDate(itemLike, rememberedDate, lookup)
-    ) {
-      return rememberedDate;
-    }
-
-    const baseTime =
-      parseTodoOccurrenceDateKey(normalizedBaseDate)?.getTime?.() || 0;
-    let bestDate = "";
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    getCheckedTodoDailyCheckinDates(itemLike.id, lookup).forEach((dateKey) => {
-      if (!isTodoLinkedPlanOccurrenceAvailable("checkin", itemLike, dateKey)) {
-        return;
-      }
-      const dateTime = parseTodoOccurrenceDateKey(dateKey)?.getTime?.();
-      if (!Number.isFinite(dateTime)) {
-        return;
-      }
-      const distance = Math.abs(dateTime - baseTime);
-      if (
-        distance < bestDistance ||
-        (distance === bestDistance && (!bestDate || dateKey < bestDate))
-      ) {
-        bestDate = dateKey;
-        bestDistance = distance;
-      }
-    });
-
-    return bestDate;
-  }
-
-  function findTodoSourceOccurrenceDate(
-    sourceLike = null,
-    fromDateText = "",
-    direction = 1,
-    options = {},
-  ) {
-    if (!sourceLike || typeof sourceLike.isScheduledOn !== "function") {
-      return "";
-    }
-    const normalizedFromDate = normalizeTodoOccurrenceDateKey(fromDateText);
-    const parsedFromDate = parseTodoOccurrenceDateKey(normalizedFromDate);
-    if (!(parsedFromDate instanceof Date)) {
-      return "";
-    }
-    const dayStep = direction < 0 ? -1 : 1;
-    const inclusive = options?.inclusive === true;
-    const maxIterations = Math.max(
-      1,
-      Math.round(Number(options?.maxIterations) || 1095),
-    );
-    if (!inclusive) {
-      parsedFromDate.setDate(parsedFromDate.getDate() + dayStep);
-    }
-    const occurrenceFilter =
-      typeof options?.occurrenceFilter === "function"
-        ? options.occurrenceFilter
-        : null;
-    for (let index = 0; index < maxIterations; index += 1) {
-      const currentDateKey = getLocalDateText(parsedFromDate);
-      if (sourceLike.isScheduledOn(currentDateKey)) {
-        if (occurrenceFilter && !occurrenceFilter(currentDateKey)) {
-          parsedFromDate.setDate(parsedFromDate.getDate() + dayStep);
-          continue;
-        }
-        const completionResolver =
-          typeof options?.completionResolver === "function"
-            ? options.completionResolver
-            : null;
-        const isCompleted = completionResolver
-          ? !!completionResolver(currentDateKey)
-          : false;
-        if (options?.requireIncomplete && isCompleted) {
-          parsedFromDate.setDate(parsedFromDate.getDate() + dayStep);
-          continue;
-        }
-        if (options?.requireCompleted && !isCompleted) {
-          parsedFromDate.setDate(parsedFromDate.getDate() + dayStep);
-          continue;
-        }
-        if (!options?.requireIncomplete || !isCompleted || options?.requireCompleted) {
-          return currentDateKey;
-        }
-      }
-      parsedFromDate.setDate(parsedFromDate.getDate() + dayStep);
-    }
-    return "";
-  }
-
   function getTodoLastResolvedOccurrenceDate(sourceLike = null) {
     return normalizeTodoOccurrenceDateKey(sourceLike?.lastResolvedOccurrenceDate);
   }
@@ -3569,135 +3567,6 @@
     const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
     sourceLike.lastResolvedOccurrenceDate = normalizedDate || "";
     return sourceLike.lastResolvedOccurrenceDate;
-  }
-
-  function getTodoOffScheduleResolutionMode(sourceLike = null) {
-    const normalized = String(sourceLike?.offScheduleResolutionMode || "")
-      .trim()
-      .toLowerCase();
-    return normalized === "next" ||
-      normalized === "previous" ||
-      normalized === "today"
-      ? normalized
-      : "";
-  }
-
-  function setTodoOffScheduleResolutionMode(sourceLike = null, mode = "") {
-    if (!sourceLike || typeof sourceLike !== "object") {
-      return "";
-    }
-    const normalizedMode =
-      mode === "next" || mode === "previous" || mode === "today" ? mode : "";
-    sourceLike.offScheduleResolutionMode = normalizedMode;
-    return normalizedMode;
-  }
-
-  function findNearestCompletedOccurrenceDate(
-    sourceType = "",
-    sourceLike = null,
-    baseDateText = getLocalDateText(),
-  ) {
-    const normalizedBaseDate = normalizeTodoOccurrenceDateKey(baseDateText);
-    if (!normalizedBaseDate || !sourceLike) {
-      return "";
-    }
-    const completionResolver =
-      sourceType === "checkin"
-        ? (dateKey) => getCheckinCompletionStateOnDate(sourceLike, dateKey)
-        : (dateKey) => getTodoCompletionStateOnDate(sourceLike, dateKey);
-    const occurrenceFilter = (dateKey) =>
-      isTodoLinkedPlanOccurrenceAvailable(sourceType, sourceLike, dateKey);
-    const rememberedDate = getTodoLastResolvedOccurrenceDate(sourceLike);
-    if (
-      rememberedDate &&
-      occurrenceFilter(rememberedDate) &&
-      completionResolver(rememberedDate)
-    ) {
-      return rememberedDate;
-    }
-    const previousDate = findTodoSourceOccurrenceDate(
-      sourceLike,
-      normalizedBaseDate,
-      -1,
-      {
-        requireCompleted: true,
-        completionResolver,
-        occurrenceFilter,
-      },
-    );
-    const nextDate = findTodoSourceOccurrenceDate(
-      sourceLike,
-      normalizedBaseDate,
-      1,
-      {
-        requireCompleted: true,
-        completionResolver,
-        occurrenceFilter,
-      },
-    );
-    if (!previousDate) {
-      return nextDate;
-    }
-    if (!nextDate) {
-      return previousDate;
-    }
-    const previousDistance = Math.abs(
-      (parseTodoOccurrenceDateKey(previousDate)?.getTime?.() || 0) -
-        (parseTodoOccurrenceDateKey(normalizedBaseDate)?.getTime?.() || 0),
-    );
-    const nextDistance = Math.abs(
-      (parseTodoOccurrenceDateKey(nextDate)?.getTime?.() || 0) -
-        (parseTodoOccurrenceDateKey(normalizedBaseDate)?.getTime?.() || 0),
-    );
-    return previousDistance <= nextDistance ? previousDate : nextDate;
-  }
-
-  function resolveTodoOffScheduleOccurrenceByMode(
-    sourceType = "",
-    sourceLike = null,
-    baseDateText = getLocalDateText(),
-    mode = "",
-  ) {
-    const normalizedBaseDate = normalizeTodoOccurrenceDateKey(baseDateText);
-    const normalizedMode =
-      mode === "next" || mode === "previous" || mode === "today" ? mode : "";
-    if (!normalizedBaseDate || !sourceLike || !normalizedMode) {
-      return null;
-    }
-    const completionResolver =
-      sourceType === "checkin"
-        ? (dateKey) => getCheckinCompletionStateOnDate(sourceLike, dateKey)
-        : (dateKey) => getTodoCompletionStateOnDate(sourceLike, dateKey);
-    const occurrenceFilter = (dateKey) =>
-      isTodoLinkedPlanOccurrenceAvailable(sourceType, sourceLike, dateKey);
-
-    if (normalizedMode === "today") {
-      return {
-        action: "today",
-        dateKey: normalizedBaseDate,
-        includeDate: true,
-      };
-    }
-
-    const direction = normalizedMode === "previous" ? -1 : 1;
-    const targetDate = findTodoSourceOccurrenceDate(
-      sourceLike,
-      normalizedBaseDate,
-      direction,
-      {
-        requireIncomplete: true,
-        completionResolver,
-        occurrenceFilter,
-      },
-    );
-    if (!targetDate) {
-      return null;
-    }
-    return {
-      action: normalizedMode,
-      dateKey: targetDate,
-      includeDate: false,
-    };
   }
 
   function buildTodoLinkedPlanMutation(sourceType = "", sourceLike = null) {
@@ -5209,7 +5078,7 @@
     endDate = "",
     dueDate = "",
   } = {}) {
-    return String(endDate || dueDate || startDate || "").trim();
+    return String(endDate || dueDate || "").trim();
   }
 
   function isTodoNonRepeatSingleDay({
@@ -6898,11 +6767,43 @@
     const isAndroidNative =
       document.body?.classList.contains("controler-android-native") === true;
     const revealTimerIds = new Set();
+    const scheduleFrame =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    const cancelFrame =
+      typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame.bind(window)
+        : window.clearTimeout.bind(window);
+    let viewportRevealFrameId = 0;
     const clearPendingRevealTimers = () => {
       revealTimerIds.forEach((timerId) => {
         window.clearTimeout(timerId);
       });
       revealTimerIds.clear();
+    };
+    const scheduleActiveReveal = () => {
+      if (viewportRevealFrameId) {
+        return;
+      }
+      viewportRevealFrameId = scheduleFrame(() => {
+        viewportRevealFrameId = 0;
+        if (!modal.isConnected) {
+          cleanup();
+          return;
+        }
+        const activeElement = document.activeElement;
+        if (
+          !(activeElement instanceof HTMLElement) ||
+          !modal.contains(activeElement) ||
+          !activeElement.matches?.("input, textarea, select")
+        ) {
+          return;
+        }
+        scheduleTodoFormModalFieldReveal(modal, activeElement, {
+          delayMs: 0,
+        });
+      });
     };
     const queueReveal = (target, delays = []) => {
       if (!(target instanceof HTMLElement)) {
@@ -6934,11 +6835,10 @@
       ) {
         return;
       }
-      if (isAndroidNative) {
-        queueReveal(target, [140, 300]);
-        return;
-      }
       queueReveal(target, 0);
+      if (!isAndroidNative) {
+        scheduleActiveReveal();
+      }
     };
     const handleViewportResize = () => {
       if (!modal.isConnected) {
@@ -6948,26 +6848,30 @@
       if (isAndroidNative) {
         return;
       }
-      const activeElement = document.activeElement;
-      if (
-        !(activeElement instanceof HTMLElement) ||
-        !modal.contains(activeElement)
-      ) {
-        return;
-      }
-      queueReveal(activeElement, 0);
+      scheduleActiveReveal();
     };
     const cleanup = () => {
+      if (viewportRevealFrameId) {
+        cancelFrame(viewportRevealFrameId);
+        viewportRevealFrameId = 0;
+      }
       clearPendingRevealTimers();
       modal.removeEventListener("focusin", handleFocusIn);
       window.visualViewport?.removeEventListener(
         "resize",
         handleViewportResize,
       );
+      window.visualViewport?.removeEventListener(
+        "scroll",
+        handleViewportResize,
+      );
     };
 
     modal.addEventListener("focusin", handleFocusIn);
-    window.visualViewport?.addEventListener("resize", handleViewportResize);
+    if (!isAndroidNative) {
+      window.visualViewport?.addEventListener("resize", handleViewportResize);
+      window.visualViewport?.addEventListener("scroll", handleViewportResize);
+    }
     return cleanup;
   }
 
@@ -7925,7 +7829,6 @@
       this.uncompletedDates = [];
       this.includedDates = [];
       this.lastResolvedOccurrenceDate = "";
-      this.offScheduleResolutionMode = "";
       this.color = this.getPriorityColor();
       this.type = "todo"; // 类型标识
       const normalizedSchedule = normalizeTodoScheduleFields({
@@ -7997,8 +7900,20 @@
         return true;
       }
       if (this.repeatType === "none") {
-        if (!this.dueDate) return false;
-        return this.dueDate === normalizedDate;
+        const normalizedStartDate =
+          normalizeTodoOccurrenceDateKey(this.startDate || this.dueDate) || "";
+        const normalizedEndDate =
+          normalizeTodoOccurrenceDateKey(this.dueDate || this.endDate) || "";
+        if (!normalizedStartDate && !normalizedEndDate) {
+          return false;
+        }
+        if (normalizedStartDate && normalizedDate < normalizedStartDate) {
+          return false;
+        }
+        if (normalizedEndDate && normalizedDate > normalizedEndDate) {
+          return false;
+        }
+        return true;
       }
 
       const date = new Date(normalizedDate);
@@ -8061,7 +7976,28 @@
       if (this.repeatType !== "none") {
         return this.getRepeatSummary();
       }
-      if (!this.dueDate) return "无截止日期";
+      if (!this.dueDate) {
+        if (this.startDate) {
+          const startDate = new Date(this.startDate);
+          if (!Number.isNaN(startDate.getTime())) {
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(today.getDate() + 1);
+            const yesterday = new Date(today);
+            yesterday.setDate(today.getDate() - 1);
+            let label = `${startDate.getMonth() + 1}月${startDate.getDate()}日`;
+            if (startDate.toDateString() === today.toDateString()) {
+              label = "今天";
+            } else if (startDate.toDateString() === tomorrow.toDateString()) {
+              label = "明天";
+            } else if (startDate.toDateString() === yesterday.toDateString()) {
+              label = "昨天";
+            }
+            return `${label}起`;
+          }
+        }
+        return "无截止日期";
+      }
 
       const dueDate = new Date(this.dueDate);
       const today = new Date();
@@ -8139,7 +8075,6 @@
       this.type = "checkin"; // 类型标识
       this.includedDates = [];
       this.lastResolvedOccurrenceDate = "";
-      this.offScheduleResolutionMode = "";
       this.status = normalizeCheckinLifecycleStatus(status);
       this.deletedAt = "";
       this.mergedIntoId = "";
@@ -8299,119 +8234,6 @@
     }
   }
 
-  function buildTodoOccurrenceResolutionChoices(
-    sourceType = "",
-    sourceLike = null,
-    baseDateText = getLocalDateText(),
-  ) {
-    const normalizedBaseDate = normalizeTodoOccurrenceDateKey(baseDateText);
-    if (!normalizedBaseDate || !sourceLike) {
-      return null;
-    }
-    const completionResolver =
-      sourceType === "checkin"
-        ? (dateKey) => getCheckinCompletionStateOnDate(sourceLike, dateKey)
-        : (dateKey) => getTodoCompletionStateOnDate(sourceLike, dateKey);
-    const occurrenceFilter = (dateKey) =>
-      isTodoLinkedPlanOccurrenceAvailable(sourceType, sourceLike, dateKey);
-    const nextDate = findTodoSourceOccurrenceDate(
-      sourceLike,
-      normalizedBaseDate,
-      1,
-      {
-        requireIncomplete: true,
-        completionResolver,
-        occurrenceFilter,
-      },
-    );
-    const previousDate = findTodoSourceOccurrenceDate(
-      sourceLike,
-      normalizedBaseDate,
-      -1,
-      {
-        requireIncomplete: true,
-        completionResolver,
-        occurrenceFilter,
-      },
-    );
-    const choices = [];
-    if (nextDate) {
-      choices.push({
-        key: "next",
-        label: "完成最近的下一次",
-        description: `标记 ${formatTodoOccurrenceDateLabel(nextDate)} 这次为已完成。`,
-      });
-    }
-    choices.push({
-      key: "today",
-      label: "在今日创建并完成",
-      description: `为今天补一条计划并立即完成：${formatTodoOccurrenceDateLabel(normalizedBaseDate)}。`,
-    });
-    if (previousDate) {
-      choices.push({
-        key: "previous",
-        label: "完成上一次未完成",
-        description: `回填 ${formatTodoOccurrenceDateLabel(previousDate)} 这次未完成的事项。`,
-      });
-    }
-    return {
-      choices,
-      nextDate,
-      previousDate,
-      todayDate: normalizedBaseDate,
-    };
-  }
-
-  async function requestTodoOccurrenceResolution(
-    sourceType = "",
-    sourceLike = null,
-    baseDateText = getLocalDateText(),
-  ) {
-    const normalizedType =
-      sourceType === "checkin" ? "打卡项目" : "待办事项";
-    const resolution = buildTodoOccurrenceResolutionChoices(
-      sourceType,
-      sourceLike,
-      baseDateText,
-    );
-    if (!resolution || !resolution.choices.length) {
-      return null;
-    }
-    const selected = await requestTodoChoice(
-      `今天没有命中“${sourceLike?.title || sourceLike?.name || normalizedType}”的计划日期，请选择这次操作要落到哪一天。`,
-      {
-        title: `${normalizedType}未命中今日计划`,
-        cancelText: "取消",
-        choices: resolution.choices,
-      },
-    );
-    if (!selected) {
-      return null;
-    }
-    if (selected === "next" && resolution.nextDate) {
-      return {
-        action: "next",
-        dateKey: resolution.nextDate,
-        includeDate: false,
-      };
-    }
-    if (selected === "previous" && resolution.previousDate) {
-      return {
-        action: "previous",
-        dateKey: resolution.previousDate,
-        includeDate: false,
-      };
-    }
-    if (selected === "today") {
-      return {
-        action: "today",
-        dateKey: resolution.todayDate,
-        includeDate: true,
-      };
-    }
-    return null;
-  }
-
   function commitTodoCompletionForDate(
     todo,
     dateText,
@@ -8502,26 +8324,8 @@
     if (isTodoLinkedPlanOccurrenceAvailable("todo", todo, normalizedDate)) {
       return commitTodoCompletionForDate(todo, normalizedDate);
     }
-    const cancellationDate = findNearestCompletedOccurrenceDate(
-      "todo",
-      todo,
-      normalizedDate,
-    );
-    if (cancellationDate) {
-      return commitTodoCompletionForDate(todo, cancellationDate, {
-        nextCompleted: false,
-      });
-    }
-    const resolution = await requestTodoOccurrenceResolution(
-      "todo",
-      todo,
-      normalizedDate,
-    );
-    if (!resolution?.dateKey) {
-      return false;
-    }
-    return commitTodoCompletionForDate(todo, resolution.dateKey, {
-      includeDate: resolution.includeDate === true,
+    return commitTodoCompletionForDate(todo, normalizedDate, {
+      includeDate: true,
       nextCompleted: true,
     });
   }
@@ -8655,30 +8459,10 @@
     ) {
       return commitCheckinCompletionOnDate(targetItem, normalizedDate);
     }
-    const cancellationDate = findNearestCompletedOccurrenceDate(
-      "checkin",
-      targetItem,
-      normalizedDate,
-    );
-    if (cancellationDate) {
-      return commitCheckinCompletionOnDate(targetItem, cancellationDate, {
-        nextChecked: false,
-      });
-    }
-    void requestTodoOccurrenceResolution("checkin", targetItem, normalizedDate)
-      .then((resolution) => {
-        if (!resolution?.dateKey) {
-          return false;
-        }
-        return commitCheckinCompletionOnDate(targetItem, resolution.dateKey, {
-          includeDate: resolution.includeDate === true,
-          nextChecked: true,
-        });
-      })
-      .catch((error) => {
-        console.error("处理打卡补计划选择失败:", error);
-      });
-    return true;
+    return commitCheckinCompletionOnDate(targetItem, normalizedDate, {
+      includeDate: true,
+      nextChecked: true,
+    });
   }
 
   function getTodoCheckins(todoId) {
@@ -9334,11 +9118,7 @@
       todo.repeatType === "none"
         ? true
         : isTodoLinkedPlanOccurrenceAvailable("todo", todo, todayDate);
-    const proxyCompletedDate =
-      todo.repeatType !== "none" && !isScheduledToday
-        ? findNearestCompletedOccurrenceDate("todo", todo, todayDate)
-        : "";
-    const showCompletedAction = completedToday || !!proxyCompletedDate;
+    const showCompletedAction = completedToday;
     const cardScale = getTodoListDensityScale(listScale);
     const titleFontSize = Math.max(12, Math.round(20 * cardScale));
     const descriptionFontSize = Math.max(10, Math.round(14 * cardScale));
@@ -9633,9 +9413,9 @@
       completeButton.textContent = showCompletedAction ? "取消完成" : "完成";
       completeButton.title =
         todo.repeatType !== "none" && !isScheduledToday
-          ? proxyCompletedDate
-            ? `取消 ${proxyCompletedDate} 这次完成`
-            : "今天未安排，点击后可选择补记今天、下一次或上一次未完成"
+          ? completedToday
+            ? "取消今天这次完成"
+            : "今天未安排，点击后记为今天完成"
           : completedToday
             ? "取消这次完成状态"
             : "标记这次为完成";
@@ -9801,12 +9581,6 @@
   // 显示待办事项编辑弹窗
   function showTodoEditModal(todo = null) {
     const isEditMode = !!(todo && typeof todo === "object" && todo.id);
-    const todoWeekdays = Array.isArray(todo?.repeatWeekdays)
-      ? todo.repeatWeekdays
-      : [];
-    const todoMonthDays = Array.isArray(todo?.repeatMonthDays)
-      ? todo.repeatMonthDays
-      : [];
 
     // 创建弹窗
     const modal = document.createElement("div");
@@ -9864,76 +9638,6 @@
           ">${todo?.description || ""}</textarea>
         </div>
         
-        <!-- 重复规则 -->
-        <div>
-          <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
-            重复规则
-          </label>
-          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <label style="display: flex; align-items: center; color: var(--text-color); gap: 6px;">
-              <input type="radio" name="todo-repeat-type" value="none" ${!todo?.repeatType || todo?.repeatType === "none" ? "checked" : ""}>
-              不重复
-            </label>
-            <label style="display: flex; align-items: center; color: var(--text-color); gap: 6px;">
-              <input type="radio" name="todo-repeat-type" value="daily" ${todo?.repeatType === "daily" ? "checked" : ""}>
-              每天
-            </label>
-            <label style="display: flex; align-items: center; color: var(--text-color); gap: 6px;">
-              <input type="radio" name="todo-repeat-type" value="weekly" ${todo?.repeatType === "weekly" ? "checked" : ""}>
-              每周
-            </label>
-            <label style="display: flex; align-items: center; color: var(--text-color); gap: 6px;">
-              <input type="radio" name="todo-repeat-type" value="monthly" ${todo?.repeatType === "monthly" ? "checked" : ""}>
-              每月
-            </label>
-          </div>
-          <div id="todo-weekday-wrap" style="
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 8px;
-            background-color: var(--bg-tertiary);
-            display: ${todo?.repeatType === "weekly" ? "block" : "none"};
-          ">
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              ${[
-                ["1", "周一"],
-                ["2", "周二"],
-                ["3", "周三"],
-                ["4", "周四"],
-                ["5", "周五"],
-                ["6", "周六"],
-                ["0", "周日"],
-              ]
-                .map(
-                  ([value, label]) => `
-                <label style="display: inline-flex; align-items: center; gap: 4px; color: var(--text-color); font-size: 13px;">
-                  <input type="checkbox" name="todo-repeat-weekday" value="${value}" ${todoWeekdays.includes(parseInt(value, 10)) ? "checked" : ""}>
-                  ${label}
-                </label>
-              `,
-                )
-                .join("")}
-            </div>
-          </div>
-          <div id="todo-monthday-wrap" style="
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 8px;
-            background-color: var(--bg-tertiary);
-            display: ${todo?.repeatType === "monthly" ? "block" : "none"};
-          ">
-            <div style="color: var(--muted-text-color); font-size: 12px; margin-bottom: 8px;">
-              每月重复日期
-            </div>
-            <div class="controler-repeat-day-grid">
-              ${buildMonthlyRepeatOptionsHtml(
-                "todo-repeat-month-day",
-                todoMonthDays,
-              )}
-            </div>
-          </div>
-        </div>
-
         <!-- 起止日期 -->
         <div
           id="todo-repeat-date-range"
@@ -10081,6 +9785,7 @@
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
+    const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
     const todoDraftSession = createTodoModalDraftSession(
       modal,
       `draft:todo:${todo?.id || "new"}:${isEditMode ? "edit" : "create"}`,
@@ -10092,6 +9797,7 @@
         console.error("恢复待办草稿失败:", error);
       })
       .finally(() => {
+        todoDraftSession.activate();
         if (deferModalTextAutofocus) {
           resumeTodoManagedModalTextAutofocus(modal);
         }
@@ -10103,6 +9809,7 @@
     };
     const closeTodoModal = (options = {}) => {
       todoDraftSession.destroy();
+      unbindViewportReveal();
       unbindModalActions();
       closeModalElement(modal);
       if (options?.discardDraft === true) {
@@ -10114,11 +9821,6 @@
         discardDraft: true,
       });
 
-    const repeatRadios = modal.querySelectorAll(
-      'input[name="todo-repeat-type"]',
-    );
-    const weekdayWrap = modal.querySelector("#todo-weekday-wrap");
-    const monthdayWrap = modal.querySelector("#todo-monthday-wrap");
     const repeatDateRange = modal.querySelector("#todo-repeat-date-range");
     const timeRangeHint = modal.querySelector("#todo-time-range-disabled-hint");
     const timeRangeSection = modal.querySelector("#todo-time-range-section");
@@ -10141,23 +9843,11 @@
       timeRangeSection.removeAttribute("aria-disabled");
     };
     const syncTodoScheduleInputs = () => {
-      const activeRepeatType =
-        modal.querySelector('input[name="todo-repeat-type"]:checked')?.value ||
-        "none";
       const allowSingleDayTime =
-        activeRepeatType !== "none" ||
         isTodoNonRepeatSingleDay({
           startDate: startDateInput?.value,
           endDate: endDateInput?.value,
         });
-      if (weekdayWrap) {
-        weekdayWrap.style.display =
-          activeRepeatType === "weekly" ? "block" : "none";
-      }
-      if (monthdayWrap) {
-        monthdayWrap.style.display =
-          activeRepeatType === "monthly" ? "block" : "none";
-      }
       if (repeatDateRange) {
         repeatDateRange.style.opacity = "1";
       }
@@ -10176,9 +9866,6 @@
       });
       syncTodoTimeRangeState(!allowSingleDayTime);
     };
-    repeatRadios.forEach((radio) => {
-      radio.addEventListener("change", syncTodoScheduleInputs);
-    });
     startDateInput?.addEventListener("change", syncTodoScheduleInputs);
     endDateInput?.addEventListener("change", syncTodoScheduleInputs);
     syncTodoScheduleInputs();
@@ -10245,15 +9932,6 @@
     const description = modal
       .querySelector("#todo-description-input")
       .value.trim();
-    const repeatType =
-      modal.querySelector('input[name="todo-repeat-type"]:checked')?.value ||
-      "none";
-    const repeatWeekdays = Array.from(
-      modal.querySelectorAll('input[name="todo-repeat-weekday"]:checked'),
-    ).map((input) => parseInt(input.value, 10));
-    const repeatMonthDays = Array.from(
-      modal.querySelectorAll('input[name="todo-repeat-month-day"]:checked'),
-    ).map((input) => parseInt(input.value, 10));
     const rawStartDate =
       modal.querySelector("#todo-start-date-input")?.value ||
       getLocalDateText();
@@ -10278,10 +9956,10 @@
     }
 
     const normalizedSchedule = normalizeTodoScheduleFields({
-      dueDate: rawEndDate || rawStartDate || "",
-      repeatType,
-      repeatWeekdays,
-      repeatMonthDays,
+      dueDate: rawEndDate || "",
+      repeatType: "none",
+      repeatWeekdays: [],
+      repeatMonthDays: [],
       startDate: rawStartDate,
       endDate: rawEndDate,
     });
@@ -10308,22 +9986,6 @@
       endDate: normalizedSchedule.endDate,
       dueDate: normalizedSchedule.dueDate,
     });
-
-    if (
-      normalizedSchedule.repeatType === "weekly" &&
-      normalizedSchedule.repeatWeekdays.length === 0
-    ) {
-      alert("请选择每周重复的日期");
-      return false;
-    }
-
-    if (
-      normalizedSchedule.repeatType === "monthly" &&
-      normalizedSchedule.repeatMonthDays.length === 0
-    ) {
-      alert("请选择每月重复的日期");
-      return false;
-    }
 
     if (
       normalizedSchedule.endDate &&
@@ -10560,6 +10222,7 @@
         console.error("恢复进度草稿失败:", error);
       })
       .finally(() => {
+        progressDraftSession.activate();
         if (deferModalTextAutofocus) {
           resumeTodoManagedModalTextAutofocus(modal);
         }
@@ -11381,8 +11044,10 @@
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
+    const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
     const unbindModalStateSync = bindCheckinModalInputState(modal);
     const closeCheckinItemModal = () => {
+      unbindViewportReveal();
       unbindModalStateSync();
       unbindModalActions();
       closeModalElement(modal);
@@ -12157,18 +11822,9 @@
     const isScheduledToday =
       effectiveStatus === "in_progress" &&
       isTodoLinkedPlanOccurrenceAvailable("checkin", item, today);
-    const proxyCheckedDate =
-      effectiveStatus === "in_progress" && !isScheduledToday
-        ? findNearestCompletedCheckinDateFromLookup(
-            item,
-            today,
-            dailyCheckinLookup,
-          )
-        : "";
     const checked =
       effectiveStatus === "in_progress" &&
-      (item.getTodayCheckinStatus(dailyCheckinLookup, today) ||
-        !!proxyCheckedDate);
+      item.getTodayCheckinStatus(dailyCheckinLookup, today);
     const repeatSummary =
       typeof item.getRepeatSummary === "function"
         ? item.getRepeatSummary()
@@ -12253,9 +11909,9 @@
           effectiveStatus !== "in_progress"
             ? statusLabel
             : !isScheduledToday
-              ? proxyCheckedDate
-                ? `已补记 ${proxyCheckedDate}`
-                : "今日未安排，点击可补记"
+              ? checked
+                ? "已记为今日打卡"
+                : "今日未安排，可记为今日打卡"
               : checked
                 ? "今日已打卡"
                 : "今日未打卡"
@@ -12280,9 +11936,9 @@
       toggleBtn.setAttribute("aria-busy", "false");
       toggleBtn.title = isScheduledToday
         ? "切换今日打卡状态"
-        : proxyCheckedDate
-          ? `取消 ${proxyCheckedDate} 这次补记`
-          : "今天未安排，点击后可选择补记今天、下一次或上一次未完成";
+        : checked
+          ? "取消今天这次打卡"
+          : "今天未安排，点击后记为今天打卡";
       bindTodoActionButton(toggleBtn, () => {
         item.toggleTodayCheckin();
       });

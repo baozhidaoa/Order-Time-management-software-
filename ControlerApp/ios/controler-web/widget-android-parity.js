@@ -717,7 +717,19 @@ function normalizeTodoSchedule(todo = {}) {
 function todoScheduledOn(todo, dateText) {
   const schedule = normalizeTodoSchedule(todo);
   if (schedule.repeatType === "none") {
-    return !!schedule.dueDate && schedule.dueDate === dateText;
+    if (schedule.dueDate) {
+      return schedule.dueDate === dateText;
+    }
+    if (!schedule.startDate && !schedule.endDate) {
+      return false;
+    }
+    if (schedule.startDate && dateText < schedule.startDate) {
+      return false;
+    }
+    if (schedule.endDate && dateText > schedule.endDate) {
+      return false;
+    }
+    return true;
   }
 
   const date = parseDate(dateText);
@@ -788,6 +800,16 @@ function getTodoDueState(todo = {}, today = getDateText(new Date())) {
 
   const dueDate = typeof todo?.dueDate === "string" ? todo.dueDate : "";
   if (!dueDate) {
+    const dateWindow = formatWidgetDateWindow({
+      startDate: todo?.startDate,
+      endDate: todo?.endDate,
+    });
+    if (dateWindow) {
+      return {
+        eyebrow: dateWindow,
+        status: "待处理",
+      };
+    }
     return {
       eyebrow: "未设置日期",
       status: "待安排",

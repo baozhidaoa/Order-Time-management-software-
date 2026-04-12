@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
+import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
 import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
@@ -36,6 +37,10 @@ public class MainActivity extends ReactActivity {
   protected void onCreate(Bundle savedInstanceState) {
     pendingLaunchThemeStateJson = resolveLaunchThemeStateJson();
     setTheme(resolveLaunchThemeStyleRes(pendingLaunchThemeStateJson));
+    ControlerLaunchSplashCoordinator.markStartupPending();
+    SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
+    splashScreen.setKeepOnScreenCondition(
+        ControlerLaunchSplashCoordinator::shouldKeepOnScreen);
     applyShellWindowChrome();
     super.onCreate(savedInstanceState);
     int launchBackgroundColor =

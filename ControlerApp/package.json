@@ -5,9 +5,9 @@
   "private": true,
   "scripts": {
     "prepare:web-assets": "node ../scripts/sync-web-assets.mjs",
-    "android": "cmd /c if exist android\\build\\generated\\autolinking rmdir /s /q android\\build\\generated\\autolinking && set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& react-native run-android",
+    "android": "cmd /c set GRADLE_USER_HOME=%CD%\\android\\.gradle&& set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& react-native run-android",
     "ios": "react-native run-ios",
-    "build:apk": "cmd /c if exist android\\build\\generated\\autolinking rmdir /s /q android\\build\\generated\\autolinking && set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& cd android && gradlew.bat assembleRelease",
+    "build:apk": "cmd /c set GRADLE_USER_HOME=%CD%\\android\\.gradle&& set ANDROID_HOME=%LOCALAPPDATA%\\Android\\Sdk&& set ANDROID_SDK_ROOT=%LOCALAPPDATA%\\Android\\Sdk&& cd android && gradlew.bat app:assembleRelease --build-cache --console=plain",
     "build:ios": "xcodebuild -workspace ios/ControlerApp.xcworkspace -scheme ControlerApp -configuration Release -sdk iphoneos -derivedDataPath ios/build",
     "lint": "eslint .",
     "start": "react-native start",

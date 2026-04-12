@@ -6814,7 +6814,13 @@ public final class ControlerWidgetRenderer {
         }
         String repeatType = TextUtils.isEmpty(todo.repeatType) ? "none" : todo.repeatType;
         if ("none".equals(repeatType)) {
-            return !TextUtils.isEmpty(todo.dueDate) && dayText.equals(todo.dueDate);
+            if (!TextUtils.isEmpty(todo.dueDate)) {
+                return dayText.equals(todo.dueDate);
+            }
+            if (TextUtils.isEmpty(todo.startDate) && TextUtils.isEmpty(todo.endDate)) {
+                return false;
+            }
+            return inDateRange(dayText, todo.startDate, todo.endDate);
         }
         if (!inDateRange(dayText, todo.startDate, todo.endDate)) {
             return false;
@@ -7283,6 +7289,13 @@ public final class ControlerWidgetRenderer {
             );
         }
         if (!TextUtils.isEmpty(todo.dueDate)) {
+            return joinWidgetMetaParts(
+                "待处理",
+                dateWindow,
+                timeWindow
+            );
+        }
+        if (!TextUtils.isEmpty(dateWindow)) {
             return joinWidgetMetaParts(
                 "待处理",
                 dateWindow,

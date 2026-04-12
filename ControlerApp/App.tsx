@@ -80,6 +80,7 @@ type NativeBridgeModule = {
   setLastVisiblePage?: (pageKey: string) => Promise<string>;
   showToast?: (message: string) => Promise<string>;
   showSoftInput?: () => Promise<string>;
+  markStartupReady?: () => Promise<string>;
 };
 
 function createRuntimeSessionId(): string {
@@ -2178,6 +2179,52 @@ export function resolveShellBlockingOverlayPayload({
   return null;
 }
 
+export function resolveShellOverlayViewState({
+  isPageReady,
+  shellBlockingOverlay,
+  shellLanguage,
+}: {
+  isPageReady: boolean;
+  shellBlockingOverlay: ShellBlockingOverlayPayload;
+  shellLanguage: UiLanguage;
+}): {
+  visible: boolean;
+  source: 'none' | 'boot' | 'blocking';
+  title: string;
+  message: string;
+} {
+  if (shellBlockingOverlay) {
+    return {
+      visible: true,
+      source: 'blocking',
+      title: shellBlockingOverlay.title,
+      message: shellBlockingOverlay.message,
+    };
+  }
+  if (!isPageReady) {
+    return {
+      visible: true,
+      source: 'boot',
+      title: selectShellText(
+        shellLanguage,
+        '正在加载数据中',
+        'Loading your data',
+      ),
+      message: selectShellText(
+        shellLanguage,
+        '页面资源与本地数据正在就绪',
+        'Preparing page assets and local data',
+      ),
+    };
+  }
+  return {
+    visible: false,
+    source: 'none',
+    title: '',
+    message: '',
+  };
+}
+
 function normalizeNavigationDirection(value: unknown): NavigationDirection | '' {
   if (value === 'forward' || value === 'back') {
     return value;
@@ -2220,8 +2267,8 @@ export function resolveBridgeNavigationDispatchPolicy({
   queue: boolean;
 } {
   return {
-    ignore: false,
-    queue: transitionBusy || (isAndroid && sourceSlot !== activeSlot),
+    ignore: isAndroid && sourceSlot !== activeSlot,
+    queue: transitionBusy,
   };
 }
 
@@ -3111,6 +3158,7 @@ function App({
   const bootOverlayOpacity = useRef(new Animated.Value(1)).current;
   const bootCardScale = useRef(new Animated.Value(0.98)).current;
   const bootPulse = useRef(new Animated.Value(0)).current;
+  const androidStartupReadyReportedRef = useRef(false);
 
   const ScreenContainer = Platform.OS === 'ios' ? SafeAreaView : View;
 
@@ -3131,6 +3179,14 @@ function App({
       cancelAnimationFrame(androidLoadedTransitionFrameRef.current);
       androidLoadedTransitionFrameRef.current = 0;
     }
+  }, []);
+
+  const markAndroidStartupReady = useCallback(() => {
+    if (Platform.OS !== 'android' || androidStartupReadyReportedRef.current) {
+      return;
+    }
+    androidStartupReadyReportedRef.current = true;
+    void nativeBridge?.markStartupReady?.().catch(() => undefined);
   }, []);
 
   function isCurrentSlotRevision(slot: WebViewSlot, revision: number) {
@@ -4501,12 +4557,14 @@ function App({
     bootOverlayOpacity.setValue(0);
     bootCardScale.setValue(1);
     setIsPageReady(true);
-  }, [bootCardScale, bootOverlayOpacity]);
+    markAndroidStartupReady();
+  }, [bootCardScale, bootOverlayOpacity, markAndroidStartupReady]);
 
   const resetWebViewPresentation = useCallback(() => {
     transitionTokenRef.current += 1;
     isPageReadyRef.current = false;
     setIsPageReady(false);
+    androidStartupReadyReportedRef.current = false;
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
     bootOverlayOpacity.stopAnimation();
@@ -4546,6 +4604,13 @@ function App({
     clearTransitionWatchdog,
     transitionProgress,
   ]);
+
+  useEffect(() => {
+    if (!bootError) {
+      return;
+    }
+    markAndroidStartupReady();
+  }, [bootError, markAndroidStartupReady]);
 
   const clearWidgetLaunchAckTimer = useCallback(() => {
     if (widgetLaunchAckTimerRef.current !== null) {
@@ -6589,7 +6654,10 @@ function App({
         let queued = false;
         let ackState = 'rejected';
         let ackReason = 'unresolved-target';
-        if (
+        if (dispatchPolicy.ignore) {
+          ackState = 'rejected';
+          ackReason = 'inactive-slot';
+        } else if (
           incomingIntent &&
           compareNavigationIntentPriority(
             latestBridgeNavigationIntentRef.current,
@@ -6950,7 +7018,11 @@ function App({
     outputRange: ['0deg', '360deg'],
   });
 
-  const bootCard = (
+  const renderLoadingCard = (
+    title: string,
+    message: string,
+    animationStyle?: object | null,
+  ) => (
     <Animated.View
       style={[
         styles.bootCard,
@@ -6958,9 +7030,7 @@ function App({
           backgroundColor: shellBootTheme.cardBg,
           borderColor: shellBootTheme.cardBorder,
         },
-        {
-          transform: [{scale: bootCardScale}],
-        },
+        animationStyle || null,
       ]}>
       <Animated.View
         style={[
@@ -6982,11 +7052,7 @@ function App({
             color: shellBootTheme.text,
           },
         ]}>
-        {selectShellText(
-          shellLanguage,
-          '正在加载数据中',
-          'Loading your data',
-        )}
+        {title}
       </Text>
       <Text
         style={[
@@ -6995,13 +7061,20 @@ function App({
             color: shellBootTheme.mutedText,
           },
         ]}>
-        {selectShellText(
-          shellLanguage,
-          '页面资源与本地数据正在就绪',
-          'Preparing page assets and local data',
-        )}
+        {message}
       </Text>
     </Animated.View>
+  );
+  const bootCard = renderLoadingCard(
+    selectShellText(shellLanguage, '正在加载数据中', 'Loading your data'),
+    selectShellText(
+      shellLanguage,
+      '页面资源与本地数据正在就绪',
+      'Preparing page assets and local data',
+    ),
+    {
+      transform: [{scale: bootCardScale}],
+    },
   );
 
   const renderWebView = (slot: WebViewSlot) => {
@@ -7068,12 +7141,17 @@ function App({
         ? {
             zIndex: 0,
             elevation: 0,
-            // Keep the incoming WebView close to its entering transform while the
-            // current page still fully covers it. This gives Android a chance to
-            // finish compositing the first real frame before transition-complete.
+            // Keep the incoming WebView fully outside the hit-test region while
+            // it is pre-rendering in the background. Android can still composite
+            // the first frame off-screen, but background slots must never be able
+            // to receive touches or emit navigation from under the active page.
             opacity: 1,
             transform: [
-              {translateX: enteringOffset},
+              {
+                translateX: enteringOffset >= 0
+                  ? androidHiddenOffset
+                  : -androidHiddenOffset,
+              },
               {scale: enteringScaleStart},
             ],
           }
@@ -7320,21 +7398,32 @@ function App({
     lastShellBlockingOverlayRef.current = null;
   }
   const shellBlockingOverlay =
-    IS_ANDROID && !isPageReady
-      ? null
-      : liveShellBlockingOverlay ||
-        (transitionState?.status === 'loading'
-          ? lastShellBlockingOverlayRef.current
-          : null);
-  const shouldShowBootOverlay = !isPageReady;
+    liveShellBlockingOverlay ||
+    (transitionState?.status === 'loading'
+      ? lastShellBlockingOverlayRef.current
+      : null);
+  const shellOverlayViewState = resolveShellOverlayViewState({
+    isPageReady,
+    shellBlockingOverlay,
+    shellLanguage,
+  });
+  const shouldRenderAndroidBootOverlayCard =
+    !(Platform.OS === 'android' && shellOverlayViewState.source === 'boot');
   const shouldBlockTouchesDuringTransition =
     transitionState?.status === 'loading';
-  const shellBlockingOverlayView = shellBlockingOverlay ? (
-    <View
+  const shellBlockingOverlayView = shellOverlayViewState.visible ? (
+    <Animated.View
       accessible={false}
       pointerEvents="box-none"
       renderToHardwareTextureAndroid={Platform.OS === 'android'}
-      style={styles.shellBlockingOverlayHost}>
+      style={[
+        styles.shellBlockingOverlayHost,
+        shellOverlayViewState.source === 'boot'
+          ? {
+              opacity: bootOverlayOpacity,
+            }
+          : null,
+      ]}>
       <View
         pointerEvents="none"
         style={[
@@ -7344,72 +7433,33 @@ function App({
           },
         ]}
       />
-      <View pointerEvents="none" style={styles.shellBlockingOverlayCardHost}>
-        <View
-          style={styles.center}>
-          <View
-            style={[
-              styles.bootCard,
-              {
-                backgroundColor: shellBootTheme.cardBg,
-                borderColor: shellBootTheme.cardBorder,
-              },
-            ]}>
-            <Animated.View
-              style={[
-                styles.bootIndicator,
-                {
-                  borderColor: `${shellBootTheme.accent}38`,
-                  borderTopColor: shellBootTheme.accent,
-                  borderRightColor: `${shellBootTheme.accent}88`,
-                },
-                {
-                  transform: [{rotate: bootSpinnerRotate}],
-                },
-              ]}
-            />
-            <Text
-              style={[
-                styles.loadingText,
-                {
-                  color: shellBootTheme.text,
-                },
-              ]}>
-              {shellBlockingOverlay.title}
-            </Text>
-            <Text
-              style={[
-                styles.loadingSubText,
-                {
-                  color: shellBootTheme.mutedText,
-                },
-              ]}>
-              {shellBlockingOverlay.message}
-            </Text>
+      {shouldRenderAndroidBootOverlayCard ? (
+        <View pointerEvents="none" style={styles.shellBlockingOverlayCardHost}>
+          <View style={styles.center}>
+            {renderLoadingCard(
+              shellOverlayViewState.title,
+              shellOverlayViewState.message,
+              shellOverlayViewState.source === 'boot'
+                ? {
+                    transform: [{scale: bootCardScale}],
+                  }
+                : null,
+            )}
           </View>
         </View>
-      </View>
+      ) : null}
       <View
         accessible={false}
         pointerEvents="auto"
-        style={styles.shellBlockingOverlayTouchBlocker}
+        style={[
+          styles.shellBlockingOverlayTouchBlocker,
+          !isPageReady
+            ? styles.shellBlockingOverlayTouchBlockerFullscreen
+            : null,
+        ]}
       />
-    </View>
+    </Animated.View>
   ) : null;
-  if (!activeUri) {
-    return (
-      <ScreenContainer
-        style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
-        <StatusBar
-          barStyle="light-content"
-          backgroundColor="transparent"
-          translucent={Platform.OS === 'android'}
-        />
-        <View style={styles.center}>{bootCard}</View>
-      </ScreenContainer>
-    );
-  }
-
   return (
     <ScreenContainer
       style={[styles.screen, {backgroundColor: shellBootTheme.screenBg}]}>
@@ -7453,21 +7503,6 @@ function App({
               },
             ]}
           />
-        ) : null}
-
-        {shouldShowBootOverlay ? (
-          <Animated.View
-            pointerEvents="auto"
-            renderToHardwareTextureAndroid={Platform.OS === 'android'}
-            style={[
-              styles.bootOverlay,
-              {
-                opacity: bootOverlayOpacity,
-                backgroundColor: shellBootTheme.screenBg,
-              },
-            ]}>
-            <View style={styles.center}>{bootCard}</View>
-          </Animated.View>
         ) : null}
         {shouldBlockTouchesDuringTransition ? (
           <View
@@ -7523,12 +7558,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: SCREEN_BG,
   },
-  bootOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: SCREEN_BG,
-    zIndex: 5,
-    elevation: 5,
-  },
   shellBlockingOverlayHost: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 6,
@@ -7545,6 +7574,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
     backgroundColor: 'transparent',
+  },
+  shellBlockingOverlayTouchBlockerFullscreen: {
+    bottom: 0,
   },
   center: {
     flex: 1,
