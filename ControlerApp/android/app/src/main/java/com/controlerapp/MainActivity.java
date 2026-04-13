@@ -393,6 +393,12 @@ public class MainActivity extends ReactActivity {
         return Color.parseColor("#2F141D");
       case "champagne-sandstone":
         return Color.parseColor("#F1EBE2");
+      case "porcelain-mist":
+        return Color.parseColor("#E8EFF7");
+      case "sage-cashmere":
+        return Color.parseColor("#EDF1EC");
+      case "oyster-linen":
+        return Color.parseColor("#F1EEF6");
       case "midnight-indigo":
         return Color.parseColor("#352211");
       default:
@@ -483,6 +489,12 @@ public class MainActivity extends ReactActivity {
         return R.style.AppThemeLaunchVelvetBordeaux;
       case "champagne-sandstone":
         return R.style.AppThemeLaunchChampagneSandstone;
+      case "porcelain-mist":
+        return R.style.AppThemeLaunchPorcelainMist;
+      case "sage-cashmere":
+        return R.style.AppThemeLaunchSageCashmere;
+      case "oyster-linen":
+        return R.style.AppThemeLaunchOysterLinen;
       case "midnight-indigo":
         return R.style.AppThemeLaunchMidnightIndigo;
       default:

@@ -24897,6 +24897,57 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MODAL_INTERACTION_SHIELD_DURATION_MS = 360;
   let modalInteractionShield = null;
   let modalInteractionShieldTimer = 0;
+  let modalInteractionSuppressionStartedAt = 0;
+  let modalInteractionSuppressionUntil = 0;
+
+  function armModalInteractionSuppression(
+    durationMs = MODAL_INTERACTION_SHIELD_DURATION_MS,
+  ) {
+    const safeDuration = Math.max(
+      80,
+      Number(durationMs) || MODAL_INTERACTION_SHIELD_DURATION_MS,
+    );
+    modalInteractionSuppressionStartedAt = Date.now();
+    modalInteractionSuppressionUntil =
+      modalInteractionSuppressionStartedAt + safeDuration;
+    return modalInteractionSuppressionUntil;
+  }
+
+  function recordModalInteractionIntent(target) {
+    if (!(target instanceof HTMLElement)) {
+      return 0;
+    }
+    const timestamp = Date.now();
+    target.dataset.controlerModalInteractionIntentAt = String(timestamp);
+    return timestamp;
+  }
+
+  function readModalInteractionIntentAt(target) {
+    if (!(target instanceof HTMLElement)) {
+      return 0;
+    }
+    return (
+      Number.parseInt(
+        target.dataset.controlerModalInteractionIntentAt || "0",
+        10,
+      ) || 0
+    );
+  }
+
+  function shouldSuppressModalFollowThrough(target, event = null) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    if (Date.now() >= modalInteractionSuppressionUntil) {
+      return false;
+    }
+    if (event?.detail === 0) {
+      return false;
+    }
+    return (
+      readModalInteractionIntentAt(target) < modalInteractionSuppressionStartedAt
+    );
+  }
 
   function getModalInteractionShield() {
     if (modalInteractionShield instanceof HTMLElement) {
@@ -24966,6 +25017,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(scopedHost instanceof HTMLElement)) {
       return;
     }
+    armModalInteractionSuppression(durationMs);
     shield.dataset.controlerOverlayScope =
       scopedHost === document.body ? "viewport" : "content";
     shield.style.position = scopedHost === document.body ? "fixed" : "absolute";
@@ -25215,8 +25267,25 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return modal;
     }
     modal.dataset.controlerBackdropDismissBound = "true";
+    const recordBackdropIntent = (event) => {
+      if (event.target !== modal || getTopVisibleModal() !== modal) {
+        return;
+      }
+      recordModalInteractionIntent(modal);
+    };
+    ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
+      modal.addEventListener(eventName, recordBackdropIntent, true);
+    });
     modal.addEventListener("click", (event) => {
       if (event.target !== modal || getTopVisibleModal() !== modal) {
+        return;
+      }
+      if (shouldSuppressModalFollowThrough(modal, event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
         return;
       }
       event.preventDefault();
@@ -25747,7 +25816,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       stopImmediate = true,
     } = options;
 
+    const recordButtonIntent = () => {
+      if (button instanceof HTMLElement) {
+        recordModalInteractionIntent(button);
+      }
+    };
+    ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
+      button.addEventListener(eventName, recordButtonIntent, {
+        capture: true,
+        passive: eventName === "touchstart",
+      });
+    });
+
     button.addEventListener("click", (event) => {
+      if (
+        button instanceof HTMLElement &&
+        shouldSuppressModalFollowThrough(button, event)
+      ) {
+        if (preventDefault) event.preventDefault();
+        if (stopPropagation) event.stopPropagation();
+        if (stopImmediate && typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
       const lastTriggeredAt = Number(button.dataset.controlerModalActionAt || 0);
       if (Date.now() - lastTriggeredAt < MODAL_ACTION_DEDUP_WINDOW_MS) {
         if (preventDefault) event.preventDefault();

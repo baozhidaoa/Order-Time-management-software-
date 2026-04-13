@@ -88,6 +88,27 @@
         <item name="android:windowBackground">#F1EBE2</item>
     </style>
 
+    <style name="AppThemeLaunchPorcelainMist" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#E8EFF7</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+        <item name="android:windowBackground">#E8EFF7</item>
+    </style>
+
+    <style name="AppThemeLaunchSageCashmere" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#EDF1EC</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+        <item name="android:windowBackground">#EDF1EC</item>
+    </style>
+
+    <style name="AppThemeLaunchOysterLinen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F1EEF6</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+        <item name="android:windowBackground">#F1EEF6</item>
+    </style>
+
     <style name="AppThemeLaunchMidnightIndigo" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#352211</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>

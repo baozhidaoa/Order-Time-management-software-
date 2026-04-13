@@ -1905,6 +1905,42 @@ public final class ControlerWidgetRenderer {
             colors.put("buttonBg", "#8b6f57");
             colors.put("buttonText", "#f8f3ec");
             colors.put("onAccentText", "#f8f3ec");
+        } else if ("porcelain-mist".equals(safeThemeId)) {
+            colors.put("primary", "#e8eff7");
+            colors.put("panel", "rgba(255, 255, 255, 0.78)");
+            colors.put("panelStrong", "rgba(250, 252, 255, 0.90)");
+            colors.put("accent", "#4e6d8d");
+            colors.put("text", "#1d2a38");
+            colors.put("mutedText", "rgba(29, 42, 56, 0.68)");
+            colors.put("border", "#869db7");
+            colors.put("panelBorder", "rgba(94, 117, 145, 0.22)");
+            colors.put("buttonBg", "#4e6d8d");
+            colors.put("buttonText", "#f7fbff");
+            colors.put("onAccentText", "#f7fbff");
+        } else if ("sage-cashmere".equals(safeThemeId)) {
+            colors.put("primary", "#edf1ec");
+            colors.put("panel", "rgba(255, 255, 255, 0.76)");
+            colors.put("panelStrong", "rgba(249, 252, 248, 0.90)");
+            colors.put("accent", "#5f6f64");
+            colors.put("text", "#243028");
+            colors.put("mutedText", "rgba(36, 48, 40, 0.68)");
+            colors.put("border", "#94a296");
+            colors.put("panelBorder", "rgba(103, 119, 109, 0.22)");
+            colors.put("buttonBg", "#5f6f64");
+            colors.put("buttonText", "#f4f7f3");
+            colors.put("onAccentText", "#f4f7f3");
+        } else if ("oyster-linen".equals(safeThemeId)) {
+            colors.put("primary", "#f1eef6");
+            colors.put("panel", "rgba(255, 252, 255, 0.78)");
+            colors.put("panelStrong", "rgba(250, 247, 252, 0.90)");
+            colors.put("accent", "#6d617d");
+            colors.put("text", "#2c2733");
+            colors.put("mutedText", "rgba(44, 39, 51, 0.68)");
+            colors.put("border", "#a89db7");
+            colors.put("panelBorder", "rgba(113, 101, 130, 0.22)");
+            colors.put("buttonBg", "#6d617d");
+            colors.put("buttonText", "#f9f6fb");
+            colors.put("onAccentText", "#f9f6fb");
         } else if ("midnight-indigo".equals(safeThemeId)) {
             colors.put("primary", "#111722");
             colors.put("panel", "rgba(18, 23, 34, 0.68)");
