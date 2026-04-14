@@ -8597,20 +8597,19 @@
 
   // 初始化添加按钮
   function openTodoCreateFlow(options = {}) {
-    const shouldForceTodoModal = options?.forceTodoModal === true;
     const prefillTodo =
       options?.prefillTodo && typeof options.prefillTodo === "object"
         ? options.prefillTodo
         : null;
-    if (currentView === "checkins" && !shouldForceTodoModal && !prefillTodo) {
-      showCheckinItemModal();
-      return;
-    }
-    if (TODO_WIDGET_CONTEXT.enabled || shouldForceTodoModal || prefillTodo) {
+    if (prefillTodo) {
       showTodoEditModal(prefillTodo);
       return;
     }
-    showTodoTypeModal();
+    if (currentView === "checkins") {
+      showCheckinItemModal();
+      return;
+    }
+    showTodoEditModal();
   }
 
   function initAddButtons() {
@@ -10392,81 +10391,6 @@
     renderCheckinList();
     updateCheckinStats();
     updateStatsPanel();
-  }
-
-  // 显示类型选择弹窗
-  function showTodoTypeModal() {
-    const modal = document.createElement("div");
-    let nextModalQueued = false;
-    modal.className = "modal-overlay";
-    modal.style.display = "flex";
-    modal.style.zIndex = "2000";
-    modal.style.position = "fixed";
-    modal.style.top = "0";
-    modal.style.left = "0";
-    modal.style.width = "100%";
-    modal.style.height = "100%";
-    modal.style.backgroundColor = "var(--overlay-bg)";
-    modal.style.alignItems = "center";
-    modal.style.justifyContent = "center";
-
-    modal.innerHTML = `
-    <div class="modal-content themed-dialog-card ms" style="width:min(420px, calc(100% - 32px)); max-width:min(420px, calc(100% - 32px));">
-      <div class="themed-dialog-title">创建项目类型</div>
-      <div class="themed-dialog-message">选择你现在要新建的内容，弹窗样式会跟随当前主题自动适配。</div>
-      <div class="themed-dialog-actions themed-dialog-actions-vertical">
-        <button class="bts themed-dialog-option-btn" id="create-todo-btn" type="button" style="margin:0;">
-          <span class="themed-dialog-option-label">📝 普通待办事项</span>
-          <span class="themed-dialog-option-desc">有截止日期、优先级、标签的待办事项</span>
-        </button>
-        <button class="bts themed-dialog-option-btn" id="create-checkin-btn" type="button" style="margin:0;">
-          <span class="themed-dialog-option-label">✅ 打卡项目</span>
-          <span class="themed-dialog-option-desc">每日打卡，记录连续打卡天数</span>
-        </button>
-      </div>
-      <div class="themed-dialog-actions">
-        <button class="bts themed-dialog-cancel-btn" id="cancel-type-btn" type="button" style="margin:0;">取消</button>
-      </div>
-    </div>
-  `;
-
-    appendTodoManagedModal(modal, "todo-type");
-    uiTools?.stopModalContentPropagation?.(modal);
-    const openNextManagedModal = (openNext) => {
-      if (nextModalQueued || typeof openNext !== "function") {
-        return;
-      }
-      nextModalQueued = true;
-      try {
-        openNext();
-      } finally {
-        nextModalQueued = false;
-      }
-    };
-
-    // 绑定事件
-    modal.querySelector("#cancel-type-btn").addEventListener("click", () => {
-      closeModalElement(modal);
-    });
-
-    modal.querySelector("#create-todo-btn").addEventListener("click", () => {
-      openNextManagedModal(() => {
-        showTodoEditModal();
-      });
-    });
-
-    modal.querySelector("#create-checkin-btn").addEventListener("click", () => {
-      openNextManagedModal(() => {
-        showCheckinItemModal();
-      });
-    });
-
-    // 点击外部关闭
-    modal.addEventListener("click", function (e) {
-      if (e.target === this) {
-        closeModalElement(modal);
-      }
-    });
   }
 
   function buildCheckinModalSeedItem(item = null, options = {}) {
@@ -12251,7 +12175,6 @@
     renderTodoWorkspace();
     if (action === "open-create-todo") {
       openTodoCreateFlow({
-        forceTodoModal: true,
         prefillTodo: {
           title: targetId,
         },
