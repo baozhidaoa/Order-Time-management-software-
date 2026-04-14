@@ -4223,6 +4223,15 @@ function initTimeSelector() {
     }
   };
 
+  const releaseButtonFocus = (button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    window.setTimeout(() => {
+      button.blur?.();
+    }, 0);
+  };
+
   const applyRange = (startDateObj, endDateObj, activeButton = null) => {
     if (!startDate || !endDate || !startDateObj || !endDateObj) return;
 
@@ -4278,7 +4287,11 @@ function initTimeSelector() {
   // 快速按钮事件
   const quickBtns = document.querySelectorAll(".time-quick-btn");
   quickBtns.forEach((btn) => {
+    btn.addEventListener("pointerup", () => {
+      releaseButtonFocus(btn);
+    });
     btn.addEventListener("click", function () {
+      releaseButtonFocus(this);
       if (!startDate || !endDate) return;
 
       const currentStart = parseDateInputValue(startDate.value) || new Date();
@@ -4301,7 +4314,11 @@ function initTimeSelector() {
 
       if (this.id === "today-prev-btn" || this.id === "today-next-btn") {
         const diff = this.id === "today-prev-btn" ? -1 : 1;
-        applyTodayShift(diff);
+        const baseStart = new Date(today);
+        const baseEnd = new Date(today);
+        baseStart.setDate(baseStart.getDate() + diff);
+        baseEnd.setDate(baseEnd.getDate() + diff);
+        applyRange(baseStart, baseEnd, null);
         return;
       }
 
@@ -4312,7 +4329,7 @@ function initTimeSelector() {
         nextWeekStart.setDate(nextWeekStart.getDate() + diff);
         const nextWeekEnd = new Date(nextWeekStart);
         nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
-        applyRange(nextWeekStart, nextWeekEnd, this);
+        applyRange(nextWeekStart, nextWeekEnd, null);
         return;
       }
 
@@ -4333,7 +4350,7 @@ function initTimeSelector() {
           baseMonth.getMonth() + 1,
           0,
         );
-        applyRange(monthStart, monthEnd, this);
+        applyRange(monthStart, monthEnd, null);
       }
     });
   });
@@ -4429,6 +4446,9 @@ function ensurePlanShellStructure() {
   prevBtn.textContent = "<";
   prevBtn.style.margin = "0";
   prevBtn.style.padding = "8px 12px";
+  prevBtn.addEventListener("pointerup", () => {
+    releaseButtonFocus(prevBtn);
+  });
   prevBtn.addEventListener("click", navigateCalendar.bind(null, -1));
 
   const todayBtn = document.createElement("button");
@@ -4437,6 +4457,9 @@ function ensurePlanShellStructure() {
   todayBtn.textContent = "今天";
   todayBtn.style.margin = "0";
   todayBtn.style.padding = "8px 12px";
+  todayBtn.addEventListener("pointerup", () => {
+    releaseButtonFocus(todayBtn);
+  });
   todayBtn.addEventListener("click", goToToday);
 
   const nextBtn = document.createElement("button");
@@ -4445,6 +4468,9 @@ function ensurePlanShellStructure() {
   nextBtn.textContent = ">";
   nextBtn.style.margin = "0";
   nextBtn.style.padding = "8px 12px";
+  nextBtn.addEventListener("pointerup", () => {
+    releaseButtonFocus(nextBtn);
+  });
   nextBtn.addEventListener("click", navigateCalendar.bind(null, 1));
 
   navButtons.appendChild(prevBtn);

@@ -1048,11 +1048,41 @@ const ALL_THEME_COLOR_FIELDS = THEME_FIELD_SECTIONS.flatMap((section) =>
 const OPTIONAL_THEME_COLOR_FIELD_KEYS = new Set(
   ALL_THEME_COLOR_FIELDS.filter(({ optional }) => optional).map(({ key }) => key),
 );
-const AUTO_DERIVED_THEME_COLOR_FIELD_KEYS = new Set([
-  "navBarBorder",
-  "navButtonText",
-  "navButtonActiveText",
-]);
+const AUTO_DERIVED_THEME_COLOR_FIELD_KEYS = new Set(
+  Array.isArray(themeRuntime?.AUTO_DERIVED_THEME_COLOR_KEYS)
+    ? themeRuntime.AUTO_DERIVED_THEME_COLOR_KEYS
+    : [
+        "panel",
+        "panelStrong",
+        "text",
+        "mutedText",
+        "panelBorder",
+        "border",
+        "buttonBg",
+        "buttonBgHover",
+        "buttonText",
+        "buttonBorder",
+        "onAccentText",
+        "navBarBg",
+        "navBarBorder",
+        "navButtonBg",
+        "navButtonText",
+        "navButtonActiveBg",
+        "navButtonActiveText",
+        "overlay",
+      ],
+);
+
+function isThemeColorFieldBlankAllowed(key) {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey) {
+    return false;
+  }
+  return (
+    OPTIONAL_THEME_COLOR_FIELD_KEYS.has(normalizedKey) ||
+    AUTO_DERIVED_THEME_COLOR_FIELD_KEYS.has(normalizedKey)
+  );
+}
 
 function resolveThemeRuntime() {
   return window.ControlerTheme || themeRuntime || null;
@@ -2524,10 +2554,16 @@ function normalizeThemeObject(theme, index = 0) {
   if (typeof resolveThemeRuntime()?.normalizeThemeObject === "function") {
     return resolveThemeRuntime().normalizeThemeObject(theme, index);
   }
+  const explicitColors = isPlainObject(theme?.explicitColors)
+    ? { ...theme.explicitColors }
+    : isPlainObject(theme?.colors)
+      ? { ...theme.colors }
+      : {};
   return {
     id: `custom-${sanitizeThemeId(theme?.id || theme?.name || `theme-${index + 1}`)}`,
     name: theme?.name || `自定义主题 ${index + 1}`,
     colors: resolveThemeColors(theme),
+    explicitColors,
     recordCard: resolveThemeRecordCard(theme),
     isCustom: true,
     isBuiltIn: false,
@@ -2647,12 +2683,81 @@ function loadCustomThemes() {
   }
 }
 
+function normalizeThemeColorStorageComparisonValue(value) {
+  return isValidThemeColorValue(value)
+    ? normalizeThemeColorInputValue(value).toLowerCase()
+    : "";
+}
+
+function collectStoredThemeColors(colors = {}, options = {}) {
+  if (!isPlainObject(colors)) {
+    return {};
+  }
+
+  const nextColors = {};
+  Object.entries(colors).forEach(([key, value]) => {
+    if (isValidThemeColorValue(value)) {
+      nextColors[key] = normalizeThemeColorInputValue(value);
+    }
+  });
+
+  if (!Object.keys(nextColors).length) {
+    return {};
+  }
+
+  const sourceTheme = isPlainObject(options?.theme) ? options.theme : {};
+  const sourceThemeColors = isPlainObject(sourceTheme?.colors)
+    ? sourceTheme.colors
+    : {};
+  AUTO_DERIVED_THEME_COLOR_FIELD_KEYS.forEach((key) => {
+    if (!normalizeThemeColorStorageComparisonValue(nextColors[key])) {
+      return;
+    }
+    const comparisonColors = {
+      ...sourceThemeColors,
+      ...nextColors,
+    };
+    delete comparisonColors[key];
+    const autoDerivedColor = resolveThemeColors({
+      ...sourceTheme,
+      colors: comparisonColors,
+    })[key];
+    if (
+      normalizeThemeColorStorageComparisonValue(nextColors[key]) ===
+        normalizeThemeColorStorageComparisonValue(autoDerivedColor)
+    ) {
+      delete nextColors[key];
+    }
+  });
+
+  if (options?.baseTheme) {
+    const baseResolvedColors = resolveThemeColors(options.baseTheme);
+    Object.keys(nextColors).forEach((key) => {
+      if (
+        normalizeThemeColorStorageComparisonValue(nextColors[key]) ===
+        normalizeThemeColorStorageComparisonValue(baseResolvedColors[key])
+      ) {
+        delete nextColors[key];
+      }
+    });
+  }
+
+  return nextColors;
+}
+
 function serializeCustomThemeForStorage(theme, index = 0) {
   const normalizedTheme = normalizeThemeObject(theme, index);
+  const explicitColorsSource = isPlainObject(theme?.explicitColors)
+    ? theme.explicitColors
+    : theme?.colors || {};
+  const storedColors = collectStoredThemeColors(explicitColorsSource, {
+    theme: normalizedTheme,
+    resolvedColors: normalizedTheme.colors,
+  });
   return {
     id: normalizedTheme.id,
     name: normalizedTheme.name,
-    colors: { ...(normalizedTheme.colors || {}) },
+    colors: storedColors,
     recordCard: { ...(normalizedTheme.recordCard || {}) },
   };
 }
@@ -2700,6 +2805,39 @@ function resolveThemeDraftSource(baseTheme = null) {
   }
 
   return normalizeThemeObject(sourceTheme);
+}
+
+function resolveThemeDraftEditableSource(baseTheme = null) {
+  const sourceTheme =
+    baseTheme && typeof baseTheme === "object" && !Array.isArray(baseTheme)
+      ? baseTheme
+      : null;
+  const themeId =
+    typeof sourceTheme?.id === "string" && sourceTheme.id.trim()
+      ? sourceTheme.id.trim()
+      : "";
+  if (!themeId) {
+    return null;
+  }
+
+  const storedThemeState = getStoredThemeStateSnapshot();
+  const rawCustomThemes = Array.isArray(storedThemeState?.customThemes)
+    ? storedThemeState.customThemes
+    : [];
+  const rawBuiltInThemeOverrides =
+    storedThemeState?.builtInThemeOverrides &&
+    typeof storedThemeState.builtInThemeOverrides === "object" &&
+    !Array.isArray(storedThemeState.builtInThemeOverrides)
+      ? storedThemeState.builtInThemeOverrides
+      : {};
+
+  if (BUILT_IN_THEMES.some((theme) => theme.id === themeId)) {
+    const rawOverride = rawBuiltInThemeOverrides[themeId];
+    return isPlainObject(rawOverride) ? rawOverride : null;
+  }
+
+  const storedCustomTheme = rawCustomThemes.find((theme) => theme?.id === themeId);
+  return isPlainObject(storedCustomTheme) ? storedCustomTheme : sourceTheme;
 }
 
 function resolveBuiltInThemeDefinition(themeId, override = null) {
@@ -2774,54 +2912,15 @@ function buildComparableBuiltInThemeOverride(baseTheme, override = {}) {
   ) {
     return null;
   }
-  const normalizeThemeColorComparisonValue = (color) =>
-    isValidThemeColorValue(color)
-      ? String(color).trim().toLowerCase().replace(/\s+/g, "")
-      : "";
-  const autoDerivedNavKeys = [
-    "navBarBorder",
-    "navButtonText",
-    "navButtonActiveText",
-  ];
-  const storedColors = {};
-  Object.entries(override?.colors || {}).forEach(([key, value]) => {
-    if (isValidThemeColorValue(value)) {
-      storedColors[key] = value.trim();
-    }
-  });
-  const autoDerivedComparisonColors = { ...storedColors };
-  autoDerivedNavKeys.forEach((key) => {
-    delete autoDerivedComparisonColors[key];
-  });
-  const autoDerivedColors = resolveThemeColors({
-    ...baseTheme,
-    colors: {
-      ...baseTheme.colors,
-      ...autoDerivedComparisonColors,
+  const storedColors = collectStoredThemeColors(override?.colors || {}, {
+    theme: {
+      ...baseTheme,
+      colors: {
+        ...(isPlainObject(baseTheme.colors) ? baseTheme.colors : {}),
+        ...(isPlainObject(override?.colors) ? override.colors : {}),
+      },
     },
-  });
-  const baseResolvedColors = resolveThemeColors(baseTheme);
-  autoDerivedNavKeys.forEach((key) => {
-    if (
-      normalizeThemeColorComparisonValue(storedColors[key]) &&
-      (normalizeThemeColorComparisonValue(storedColors[key]) ===
-        normalizeThemeColorComparisonValue(autoDerivedColors[key]) ||
-        normalizeThemeColorComparisonValue(storedColors[key]) ===
-          normalizeThemeColorComparisonValue(baseResolvedColors[key]))
-    ) {
-      delete storedColors[key];
-    }
-  });
-  Object.keys(storedColors).forEach((key) => {
-    if (autoDerivedNavKeys.includes(key)) {
-      return;
-    }
-    if (
-      normalizeThemeColorComparisonValue(storedColors[key]) ===
-      normalizeThemeColorComparisonValue(baseResolvedColors[key])
-    ) {
-      delete storedColors[key];
-    }
+    baseTheme,
   });
   const normalizedColors = resolveThemeColors({
     ...baseTheme,
@@ -2997,9 +3096,18 @@ function findThemeById(themeId) {
 function buildThemeDraft(baseTheme = null) {
   const sourceTheme = resolveThemeDraftSource(baseTheme) || BUILT_IN_THEMES[0];
   const sourceColors = resolveThemeColors(sourceTheme);
-  const explicitColors = isPlainObject(sourceTheme?.colors)
-    ? { ...sourceTheme.colors }
-    : {};
+  const editableSource = resolveThemeDraftEditableSource(baseTheme);
+  const baseBuiltInTheme = BUILT_IN_THEMES.find(
+    (theme) => theme.id === sourceTheme?.id,
+  );
+  const explicitColors = collectStoredThemeColors(
+    editableSource?.colors || {},
+    {
+      theme: sourceTheme,
+      resolvedColors: sourceColors,
+      baseTheme: baseBuiltInTheme || null,
+    },
+  );
   const recordCard = resolveThemeRecordCard(sourceTheme, sourceColors);
   const draftColors = {};
   ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
@@ -4002,12 +4110,15 @@ function buildThemeFieldInputRowHtml(field, draftColors = {}, widgetFallbacks = 
     return "";
   }
   const key = field.key;
+  const allowsBlankValue = isThemeColorFieldBlankAllowed(key);
   const fieldValue = String(draftColors[key] || "").trim();
   const fallbackValue = OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key)
     ? firstNonEmpty(widgetFallbacks[key], DEFAULT_THEME_COLORS.buttonBg, "#000000")
     : firstNonEmpty(fieldValue, DEFAULT_THEME_COLORS[key], "#000000");
-  const placeholder =
-    field.placeholder || "#79AF85 或 rgba(121, 175, 133, 0.42)";
+  const placeholder = field.placeholder ||
+    (allowsBlankValue
+      ? "留空则自动计算"
+      : "#79AF85 或 rgba(121, 175, 133, 0.42)");
   return `
     <div
       class="theme-editor-row"
@@ -4324,6 +4435,28 @@ function showThemeEditorModal(theme = null) {
     }
   };
 
+  const bindThemeEditorModalAction = (selector, handler) => {
+    const target =
+      selector instanceof Element ? selector : modal.querySelector(selector);
+    if (!(target instanceof Element) || typeof handler !== "function") {
+      return null;
+    }
+    if (typeof window.ControlerUI?.bindModalAction === "function") {
+      return window.ControlerUI.bindModalAction(modal, target, () => {
+        void handler();
+      });
+    }
+    target.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      void handler();
+    });
+    return target;
+  };
+
   const syncTextWithPicker = (key, value) => {
     const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
     if (textInput) {
@@ -4599,11 +4732,12 @@ function showThemeEditorModal(theme = null) {
     ALL_THEME_COLOR_FIELDS.forEach(({ key }) => {
       const textInput = modal.querySelector(`[data-theme-color-text="${key}"]`);
       const colorValue = normalizeThemeColorInputValue(textInput?.value || "");
+      const allowsBlankValue = isThemeColorFieldBlankAllowed(key);
       if (
-        (OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) &&
+        (allowsBlankValue &&
           colorValue &&
           !isValidThemeColorValue(colorValue)) ||
-        (!OPTIONAL_THEME_COLOR_FIELD_KEYS.has(key) &&
+        (!allowsBlankValue &&
           !isValidThemeColorValue(colorValue))
       ) {
         hasInvalidColor = true;
@@ -4659,7 +4793,7 @@ function showThemeEditorModal(theme = null) {
       return null;
     }
     await showSettingsAlert(
-      "请为主题颜色和记录卡片颜色填写合法颜色值；小组件配件颜色可以留空，若填写则也需要是合法颜色，例如 #79AF85 或 rgba(121, 175, 133, 0.42)。",
+      "请为主题颜色和记录卡片颜色填写合法颜色值；可自动计算或跟随主题的颜色字段可以留空，若填写则也需要是合法颜色，例如 #79AF85 或 rgba(121, 175, 133, 0.42)。",
       {
         title: "颜色格式无效",
         danger: true,
@@ -4668,9 +4802,7 @@ function showThemeEditorModal(theme = null) {
     return null;
   };
 
-  modal
-    .querySelector("#cancel-custom-theme-btn")
-    ?.addEventListener("click", closeModal);
+  bindThemeEditorModalAction("#cancel-custom-theme-btn", closeModal);
   if (typeof window.ControlerUI?.bindModalBackdropDismiss === "function") {
     window.ControlerUI.bindModalBackdropDismiss(modal, () => {
       closeModal();
@@ -4683,9 +4815,7 @@ function showThemeEditorModal(theme = null) {
     });
   }
 
-  modal
-    .querySelector("#save-custom-theme-btn")
-    ?.addEventListener("click", async () => {
+  bindThemeEditorModalAction("#save-custom-theme-btn", async () => {
       const nextDraft = await resolvePendingThemeDraftOrNotify();
       if (!nextDraft) {
         return;
@@ -4711,9 +4841,7 @@ function showThemeEditorModal(theme = null) {
       closeModal();
     });
 
-  modal
-    .querySelector("#duplicate-theme-btn")
-    ?.addEventListener("click", async () => {
+  bindThemeEditorModalAction("#duplicate-theme-btn", async () => {
       const confirmed = await requestSettingsConfirmation(
         `确定复制主题“${theme?.name || draft.name || ""}”吗？确认后会创建一个和当前配置完全一致的新主题，并永久保存。`,
         {
@@ -4757,9 +4885,7 @@ function showThemeEditorModal(theme = null) {
       }
     });
 
-  modal
-    .querySelector("#delete-custom-theme-btn")
-    ?.addEventListener("click", async () => {
+  bindThemeEditorModalAction("#delete-custom-theme-btn", async () => {
       const confirmed = await requestSettingsConfirmation(
         `确定删除主题“${theme?.name || ""}”吗？`,
         {
@@ -4783,9 +4909,7 @@ function showThemeEditorModal(theme = null) {
       }
     });
 
-  modal
-    .querySelector("#reset-built-in-theme-btn")
-    ?.addEventListener("click", async () => {
+  bindThemeEditorModalAction("#reset-built-in-theme-btn", async () => {
       const confirmed = await requestSettingsConfirmation(
         `确定将“${theme?.name || ""}”恢复为默认配色吗？`,
         {

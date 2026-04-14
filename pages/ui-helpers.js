@@ -7122,10 +7122,15 @@
   }
 
   const MODAL_INTERACTION_SHIELD_DURATION_MS = 360;
+  const MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS = Math.max(
+    MODAL_INTERACTION_SHIELD_DURATION_MS,
+    MODAL_ACTION_DEDUP_WINDOW_MS + 40,
+  );
   let modalInteractionShield = null;
   let modalInteractionShieldTimer = 0;
   let modalInteractionSuppressionStartedAt = 0;
   let modalInteractionSuppressionUntil = 0;
+  let modalInteractionSuppressionCaptureBound = false;
 
   function armModalInteractionSuppression(
     durationMs = MODAL_INTERACTION_SHIELD_DURATION_MS,
@@ -7161,9 +7166,133 @@
     );
   }
 
+  function resolveModalInteractionIntentAt(target) {
+    let current =
+      target instanceof HTMLElement
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    let latestIntentAt = 0;
+    while (current instanceof HTMLElement) {
+      latestIntentAt = Math.max(
+        latestIntentAt,
+        readModalInteractionIntentAt(current),
+      );
+      current = current.parentElement;
+    }
+    return latestIntentAt;
+  }
+
+  function resolveModalInteractionSuppressionTarget(target) {
+    const element =
+      target instanceof HTMLElement
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    if (element instanceof HTMLElement) {
+      return (
+        element.closest(".modal-overlay") ||
+        element.closest(
+          [
+            "button",
+            "[role='button']",
+            "a[href]",
+            "select",
+            "summary",
+            "input",
+            "textarea",
+            "[contenteditable='true']",
+            "[contenteditable]:not([contenteditable='false'])",
+          ].join(", "),
+        ) ||
+        element
+      );
+    }
+    return getTopVisibleModal() || document.body || null;
+  }
+
+  function resolveOwningModalOverlay(target) {
+    const element =
+      target instanceof HTMLElement
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+    return element.classList.contains("modal-overlay")
+      ? element
+      : element.closest(".modal-overlay");
+  }
+
+  function readModalFollowThroughProtectionUntil(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return 0;
+    }
+    return (
+      Number.parseInt(
+        modal.dataset.controlerModalFollowThroughProtectedUntil || "0",
+        10,
+      ) || 0
+    );
+  }
+
+  function protectModalFromFollowThrough(
+    modal,
+    durationMs = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+  ) {
+    if (!(modal instanceof HTMLElement)) {
+      return 0;
+    }
+    const safeDuration = Math.max(
+      80,
+      Number(durationMs) || MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+    );
+    const until = Date.now() + safeDuration;
+    modal.dataset.controlerModalFollowThroughProtectedUntil = String(
+      Math.max(readModalFollowThroughProtectionUntil(modal), until),
+    );
+    return until;
+  }
+
+  function protectVisibleParentModalsFromFollowThrough(
+    sourceModal,
+    durationMs = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+  ) {
+    if (!(sourceModal instanceof HTMLElement)) {
+      return 0;
+    }
+    const visibleModals = getVisibleModalOverlays();
+    let protectedUntil = 0;
+    visibleModals.forEach((modal) => {
+      if (modal === sourceModal) {
+        return;
+      }
+      protectedUntil = Math.max(
+        protectedUntil,
+        protectModalFromFollowThrough(modal, durationMs),
+      );
+    });
+    return protectedUntil;
+  }
+
+  function isModalFollowThroughProtected(target) {
+    const owningModal = resolveOwningModalOverlay(target);
+    return (
+      owningModal instanceof HTMLElement &&
+      Date.now() < readModalFollowThroughProtectionUntil(owningModal)
+    );
+  }
+
   function shouldSuppressModalFollowThrough(target, event = null) {
     if (!(target instanceof HTMLElement)) {
       return false;
+    }
+    if (isModalFollowThroughProtected(target)) {
+      return true;
     }
     if (Date.now() >= modalInteractionSuppressionUntil) {
       return false;
@@ -7172,9 +7301,65 @@
       return false;
     }
     return (
-      readModalInteractionIntentAt(target) < modalInteractionSuppressionStartedAt
+      resolveModalInteractionIntentAt(target) < modalInteractionSuppressionStartedAt
     );
   }
+
+  function bindGlobalModalInteractionSuppression() {
+    if (modalInteractionSuppressionCaptureBound || typeof document === "undefined") {
+      return;
+    }
+    modalInteractionSuppressionCaptureBound = true;
+
+    const recordIntentFromEvent = (event) => {
+      const eventTarget = event.target;
+      const suppressionTarget =
+        resolveModalInteractionSuppressionTarget(eventTarget);
+      if (suppressionTarget instanceof HTMLElement) {
+        recordModalInteractionIntent(suppressionTarget);
+      }
+      const directElement =
+        eventTarget instanceof HTMLElement
+          ? eventTarget
+          : eventTarget instanceof Node
+            ? eventTarget.parentElement
+            : null;
+      if (
+        directElement instanceof HTMLElement &&
+        directElement !== suppressionTarget
+      ) {
+        recordModalInteractionIntent(directElement);
+      }
+    };
+
+    const suppressEvent = (event) => {
+      const suppressionTarget =
+        resolveModalInteractionSuppressionTarget(event.target);
+      if (
+        !(suppressionTarget instanceof HTMLElement) ||
+        !shouldSuppressModalFollowThrough(suppressionTarget, event)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+    };
+
+    ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
+      document.addEventListener(eventName, recordIntentFromEvent, {
+        capture: true,
+        passive: eventName === "touchstart",
+      });
+    });
+    ["pointerup", "mouseup", "touchend", "click"].forEach((eventName) => {
+      document.addEventListener(eventName, suppressEvent, true);
+    });
+  }
+
+  bindGlobalModalInteractionSuppression();
 
   function getModalInteractionShield() {
     if (modalInteractionShield instanceof HTMLElement) {
@@ -7424,6 +7609,7 @@
       resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
       clearAndroidFormModalKeyboardLiftObserver(modal);
+      protectVisibleParentModalsFromFollowThrough(modal);
     }
 
     activateModalInteractionShield();
@@ -8290,7 +8476,9 @@
         settled = true;
         modal.__controlerCloseModal = null;
         closeModal(modal);
-        resolve(result);
+        window.setTimeout(() => {
+          resolve(result);
+        }, MODAL_REMOVAL_DEFERRED_DELAY_MS + 40);
       };
       modal.__controlerCloseModal = () => settleDialog(null);
       prepareModalOverlay(modal, {

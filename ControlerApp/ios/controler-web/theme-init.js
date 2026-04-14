@@ -9,9 +9,24 @@
     "controler-desktop-theme-preload-style";
   const DEFAULT_THEME_ID = "obsidian-mono";
   const AUTO_DERIVED_THEME_COLOR_KEYS = Object.freeze([
+    "panel",
+    "panelStrong",
+    "text",
+    "mutedText",
+    "panelBorder",
+    "border",
+    "buttonBg",
+    "buttonBgHover",
+    "buttonText",
+    "buttonBorder",
+    "onAccentText",
+    "navBarBg",
     "navBarBorder",
+    "navButtonBg",
     "navButtonText",
+    "navButtonActiveBg",
     "navButtonActiveText",
+    "overlay",
   ]);
   const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{6})$/;
   const RGB_COLOR_PATTERN =
@@ -1209,37 +1224,54 @@
       resolvedColors.primary,
       DEFAULT_THEME_COLORS.primary,
     );
-    const surfaceReference = firstNonEmpty(
+    const themeSurfaceReference = firstNonEmpty(
       resolvedColors.panelStrong,
       resolvedColors.panel,
       resolvedColors.secondary,
       primarySurface,
       DEFAULT_THEME_COLORS.panelStrong,
     );
-    const surfaceLuminance = getRelativeLuminance(surfaceReference);
+    const widgetCardOverride = isValidThemeColorValue(resolvedColors.widgetCardBg)
+      ? resolvedColors.widgetCardBg.trim()
+      : "";
+    const widgetItemOverride = isValidThemeColorValue(resolvedColors.widgetItemBg)
+      ? resolvedColors.widgetItemBg.trim()
+      : "";
+    const widgetSurfaceReference = firstNonEmpty(
+      widgetCardOverride,
+      widgetItemOverride,
+      themeSurfaceReference,
+    );
+    const hasWidgetSurfaceOverride = Boolean(
+      widgetCardOverride || widgetItemOverride,
+    );
+    const surfaceReference = hasWidgetSurfaceOverride
+      ? widgetSurfaceReference
+      : themeSurfaceReference;
+    const surfaceLuminance = getRelativeLuminance(widgetSurfaceReference);
     const isLightSurface =
       Number.isFinite(surfaceLuminance) && surfaceLuminance >= 0.58;
     const contrastReference = isLightSurface ? "#17212B" : "#FFFFFF";
     const accentBase = ensureReadableShapeColor(
       resolvedColors.accent,
-      surfaceReference,
+      widgetSurfaceReference,
       DEFAULT_THEME_COLORS.accent,
       2.1,
     );
-    const widgetCardOverride = isValidThemeColorValue(resolvedColors.widgetCardBg)
-      ? resolvedColors.widgetCardBg.trim()
-      : "";
     const cardBase = firstNonEmpty(
       widgetCardOverride,
-      mixThemeColors(
-        surfaceReference,
-        primarySurface,
-        isLightSurface ? 0.18 : 0.3,
-      ),
+      hasWidgetSurfaceOverride
+        ? mixThemeColors(
+            surfaceReference,
+            contrastReference,
+            isLightSurface ? 0.01 : 0.04,
+          )
+        : mixThemeColors(
+            surfaceReference,
+            primarySurface,
+            isLightSurface ? 0.18 : 0.3,
+          ),
     );
-    const widgetItemOverride = isValidThemeColorValue(resolvedColors.widgetItemBg)
-      ? resolvedColors.widgetItemBg.trim()
-      : "";
     const itemCardBase = firstNonEmpty(
       widgetItemOverride,
       mixThemeColors(
@@ -1327,11 +1359,20 @@
           "#F7FAFF",
           4.2,
         );
-    const windowSurface = mixThemeColors(
-      primarySurface,
-      surfaceReference,
-      isLightSurface ? 0.1 : 0.26,
-    );
+    const windowSurfaceReference = hasWidgetSurfaceOverride
+      ? firstNonEmpty(widgetCardOverride, cardBase, surfaceReference)
+      : themeSurfaceReference;
+    const windowSurface = hasWidgetSurfaceOverride
+      ? mixThemeColors(
+          windowSurfaceReference,
+          contrastReference,
+          isLightSurface ? 0.02 : 0.06,
+        )
+      : mixThemeColors(
+          primarySurface,
+          windowSurfaceReference,
+          isLightSurface ? 0.1 : 0.26,
+        );
     const cardSurfaceAlpha = widgetCardOverride ? 1 : isLightSurface ? 0.98 : 0.96;
     const itemSurfaceAlpha = widgetItemOverride ? 1 : isLightSurface ? 0.92 : 0.9;
     const itemSurfaceStrongAlpha = widgetItemOverride ? 1 : isLightSurface ? 0.96 : 0.94;
@@ -1545,29 +1586,28 @@
     const panelStrong = isValidThemeColorValue(source.panelStrong)
       ? source.panelStrong.trim()
       : tertiary;
-    const accent = ensureReadableShapeColor(
-      isValidThemeColorValue(source.accent)
-        ? source.accent.trim()
-        : DEFAULT_THEME_COLORS.accent,
+    const accentFallback = ensureReadableShapeColor(
+      DEFAULT_THEME_COLORS.accent,
       panelStrong,
       DEFAULT_THEME_COLORS.accent,
       2.1,
     );
-    const text = ensureReadableTextColor(
+    const accent = resolveExplicitThemeColor(source.accent, accentFallback);
+    const textFallback = ensureReadableTextColor(
       panelStrong,
-      isValidThemeColorValue(source.text)
-        ? source.text.trim()
-        : DEFAULT_THEME_COLORS.text,
+      DEFAULT_THEME_COLORS.text,
       "#173326",
       "#f8fafc",
       4.5,
     );
-    const buttonBg = ensureReadableShapeColor(
-      isValidThemeColorValue(source.buttonBg) ? source.buttonBg.trim() : accent,
+    const text = resolveExplicitThemeColor(source.text, textFallback);
+    const buttonBgFallback = ensureReadableShapeColor(
+      accent,
       panelStrong,
       accent,
       2.1,
     );
+    const buttonBg = resolveExplicitThemeColor(source.buttonBg, buttonBgFallback);
     const panelBorder = isValidThemeColorValue(source.panelBorder)
       ? source.panelBorder.trim()
       : toRgbaColor(accent, 0.28);
@@ -1583,13 +1623,15 @@
     const navButtonBg = isValidThemeColorValue(source.navButtonBg)
       ? source.navButtonBg.trim()
       : toRgbaColor(accent, 0.12);
-    const navButtonActiveBg = ensureReadableShapeColor(
-      isValidThemeColorValue(source.navButtonActiveBg)
-        ? source.navButtonActiveBg.trim()
-        : buttonBg,
+    const navButtonActiveBgFallback = ensureReadableShapeColor(
+      buttonBg,
       navBarBg,
       buttonBg,
       1.9,
+    );
+    const navButtonActiveBg = resolveExplicitThemeColor(
+      source.navButtonActiveBg,
+      navButtonActiveBgFallback,
     );
     const buttonTextFallback = ensureReadableTextColor(
       buttonBg,
@@ -1611,16 +1653,19 @@
       source.onAccentText,
       onAccentTextFallback,
     );
-    const navButtonText = ensureReadableTextColor(
+    const navButtonTextFallback = ensureReadableTextColor(
       navBarBg,
-      firstNonEmpty(source.navButtonText, source.mutedText, source.text, text),
+      firstNonEmpty(source.mutedText, source.text, text),
       "#16211c",
       "#f8fafc",
     );
-    const navButtonActiveText = ensureReadableTextColor(
+    const navButtonText = resolveExplicitThemeColor(
+      source.navButtonText,
+      navButtonTextFallback,
+    );
+    const navButtonActiveTextFallback = ensureReadableTextColor(
       navButtonActiveBg,
       firstNonEmpty(
-        source.navButtonActiveText,
         source.navButtonText,
         buttonText,
         source.text,
@@ -1628,6 +1673,10 @@
       ),
       "#16211c",
       "#f8fafc",
+    );
+    const navButtonActiveText = resolveExplicitThemeColor(
+      source.navButtonActiveText,
+      navButtonActiveTextFallback,
     );
     const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
     const primaryRgb = parseHexColor(primaryHex);
@@ -1726,19 +1775,26 @@
       return {};
     }
 
-    const derivedComparisonColors = { ...nextColors };
+    const sourceTheme = isPlainObject(options?.theme) ? options.theme : {};
+    const sourceThemeColors = isPlainObject(sourceTheme?.colors)
+      ? sourceTheme.colors
+      : {};
     AUTO_DERIVED_THEME_COLOR_KEYS.forEach((key) => {
-      delete derivedComparisonColors[key];
-    });
-    const autoDerivedColors = resolveThemeColors({
-      ...(isPlainObject(options?.theme) ? options.theme : {}),
-      colors: derivedComparisonColors,
-    });
-    AUTO_DERIVED_THEME_COLOR_KEYS.forEach((key) => {
+      if (!normalizeThemeColorComparisonValue(nextColors[key])) {
+        return;
+      }
+      const comparisonColors = {
+        ...sourceThemeColors,
+        ...nextColors,
+      };
+      delete comparisonColors[key];
+      const autoDerivedColor = resolveThemeColors({
+        ...sourceTheme,
+        colors: comparisonColors,
+      })[key];
       if (
-        normalizeThemeColorComparisonValue(nextColors[key]) &&
         normalizeThemeColorComparisonValue(nextColors[key]) ===
-          normalizeThemeColorComparisonValue(autoDerivedColors[key])
+          normalizeThemeColorComparisonValue(autoDerivedColor)
       ) {
         delete nextColors[key];
       }
@@ -1747,17 +1803,6 @@
     if (options?.baseTheme) {
       const baseResolvedColors = resolveThemeColors(options.baseTheme);
       Object.keys(nextColors).forEach((key) => {
-        if (
-          AUTO_DERIVED_THEME_COLOR_KEYS.includes(key) &&
-          normalizeThemeColorComparisonValue(nextColors[key]) ===
-            normalizeThemeColorComparisonValue(baseResolvedColors[key])
-        ) {
-          delete nextColors[key];
-          return;
-        }
-        if (AUTO_DERIVED_THEME_COLOR_KEYS.includes(key)) {
-          return;
-        }
         if (
           normalizeThemeColorComparisonValue(nextColors[key]) ===
           normalizeThemeColorComparisonValue(baseResolvedColors[key])
@@ -1907,7 +1952,9 @@
   function normalizeThemeObject(theme, index = 0) {
     const source =
       theme && typeof theme === "object" && !Array.isArray(theme) ? theme : {};
-    const storedColors = filterStoredThemeColors(source.colors || {}, {
+    const explicitColorsSource =
+      isPlainObject(source.explicitColors) ? source.explicitColors : source.colors || {};
+    const storedColors = filterStoredThemeColors(explicitColorsSource, {
       theme: source,
     });
     const normalizedColors = resolveThemeColors({
@@ -1930,6 +1977,7 @@
       id: themeId,
       name,
       colors: normalizedColors,
+      explicitColors: storedColors,
       recordCard: normalizedRecordCard,
       isCustom: true,
       isBuiltIn: false,
@@ -2249,9 +2297,26 @@
     };
   }
 
+  function serializeCustomThemeForStorage(theme, index = 0) {
+    const normalizedTheme = normalizeThemeObject(theme, index);
+    const explicitColorsSource = isPlainObject(theme?.explicitColors)
+      ? theme.explicitColors
+      : theme?.colors || normalizedTheme.explicitColors || {};
+    return {
+      id: normalizedTheme.id,
+      name: normalizedTheme.name,
+      colors: filterStoredThemeColors(explicitColorsSource, {
+        theme: normalizedTheme,
+      }),
+      recordCard: normalizedTheme.recordCard,
+    };
+  }
+
   function normalizeCustomThemesForStorage(customThemes = []) {
     return Array.isArray(customThemes)
-      ? customThemes.map((theme) => normalizeCustomTheme(theme)).filter(Boolean)
+      ? customThemes
+          .map((theme, index) => serializeCustomThemeForStorage(theme, index))
+          .filter(Boolean)
       : [];
   }
 
@@ -3231,6 +3296,7 @@
     normalizeBuiltInThemeOverridesMap,
     normalizeThemeObject,
     normalizeThemeRecordCardOpacity,
+    AUTO_DERIVED_THEME_COLOR_KEYS,
     resolveBuiltInTheme,
     resolveNavThemeTokens,
     resolveRecordCardSurfaceStyles,

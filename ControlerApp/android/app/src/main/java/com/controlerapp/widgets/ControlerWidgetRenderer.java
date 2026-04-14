@@ -3908,10 +3908,7 @@ public final class ControlerWidgetRenderer {
             actionId,
             minimalListCards || TextUtils.isEmpty(item.actionLabel) ? View.GONE : View.VISIBLE
         );
-        int accentColor =
-            palette == null
-                ? item.accentColor
-                : resolveVisibleAccentColor(item.accentColor, palette.surfaceColor, palette.accentColor);
+        int accentColor = item.accentColor;
         views.setInt(accentId, "setBackgroundColor", accentColor);
         views.setViewVisibility(
             accentId,
@@ -5707,11 +5704,7 @@ public final class ControlerWidgetRenderer {
                 if (project == null) {
                     continue;
                 }
-                int color = resolveVisibleAccentColor(
-                    parseColor(project.color, palette.accentColor),
-                    palette.surfaceColor,
-                    palette.accentColor
-                );
+                int color = parseColor(project.color, palette.accentColor);
                 if (!TextUtils.isEmpty(project.id)) {
                     colorByProjectId.put(project.id, color);
                 }
@@ -5835,11 +5828,7 @@ public final class ControlerWidgetRenderer {
                         Math.min(1440, endMinutes)
                     );
                     segment.detail = formatClockRange(segment.startMinutes, segment.endMinutes);
-                    segment.color = resolveVisibleAccentColor(
-                        parseColor(plan == null ? "" : plan.color, palette.accentColor),
-                        palette.surfaceColor,
-                        palette.accentColor
-                    );
+                    segment.color = parseColor(plan == null ? "" : plan.color, palette.accentColor);
                     row.segments.add(segment);
                 }
             }
@@ -6100,11 +6089,7 @@ public final class ControlerWidgetRenderer {
                 if (project == null) {
                     continue;
                 }
-                int color = resolveVisibleAccentColor(
-                    parseColor(project.color, palette.accentColor),
-                    palette.surfaceColor,
-                    palette.accentColor
-                );
+                int color = parseColor(project.color, palette.accentColor);
                 if (!TextUtils.isEmpty(project.id)) {
                     colorByProjectId.put(project.id, color);
                     nameByProjectId.put(project.id, firstNonEmpty(project.name, project.id));

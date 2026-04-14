@@ -2672,6 +2672,7 @@ const STATS_LOADING_OVERLAY_DELAY_MS = Math.max(
   0,
   Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
 );
+const STATS_RANGE_NAVIGATION_OVERLAY_DELAY_MS = 2000;
 const STATS_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const HEATMAP_THRESHOLD_DEFAULTS = Object.freeze({
   lightMaxHours: 2,
@@ -6234,14 +6235,23 @@ function setStatsRangeControlsBusy(active) {
 function updateStatsRangeStepButtonAvailability() {
   const prevBtn = document.getElementById("stats-range-prev");
   const nextBtn = document.getElementById("stats-range-next");
-  const shouldDisable = statsRangeControlsBusy || isTodayStatsRangeUnit();
+  const shouldDisableForUnit = isTodayStatsRangeUnit();
+  const shouldBlockInteraction = statsRangeControlsBusy || shouldDisableForUnit;
   [prevBtn, nextBtn].forEach((button) => {
     if (!(button instanceof HTMLButtonElement)) {
       return;
     }
-    button.disabled = shouldDisable;
-    button.setAttribute("aria-disabled", shouldDisable ? "true" : "false");
-    button.dataset.statsDisabled = shouldDisable ? "true" : "false";
+    button.disabled = shouldDisableForUnit;
+    button.setAttribute(
+      "aria-disabled",
+      shouldBlockInteraction ? "true" : "false",
+    );
+    button.dataset.statsDisabled = shouldBlockInteraction ? "true" : "false";
+    button.dataset.statsDisabledReason = shouldDisableForUnit
+      ? "unit"
+      : statsRangeControlsBusy
+        ? "busy"
+        : "";
   });
 }
 
@@ -6250,7 +6260,7 @@ function getStatsRangeNavigationRefreshOptions(
 ) {
   return {
     mode: "fullscreen",
-    delayMs: STATS_LOADING_OVERLAY_DELAY_MS,
+    delayMs: STATS_RANGE_NAVIGATION_OVERLAY_DELAY_MS,
     title: "正在加载数据中",
     message,
     lockNativeExit: true,
@@ -6274,6 +6284,20 @@ function initTimeSelector() {
     preferredMenuWidth: 96,
     maxMenuWidth: 124,
   });
+  const unitSelectEnhancer =
+    unitSelect.nextElementSibling instanceof HTMLElement &&
+    unitSelect.nextElementSibling.classList.contains("native-select-enhancer")
+      ? unitSelect.nextElementSibling
+      : null;
+  if (unitSelectEnhancer) {
+    unitSelectEnhancer.classList.add("stats-range-unit-enhancer");
+    const unitSelectTrigger = unitSelectEnhancer.querySelector(
+      ".tree-select-button",
+    );
+    if (unitSelectTrigger instanceof HTMLElement) {
+      unitSelectTrigger.classList.add("stats-range-unit-button");
+    }
+  }
   syncStatsTimeUnitOptions(unitSelect);
 
   const shiftCurrentStatsRange = (amount, refreshOptions = {}) => {

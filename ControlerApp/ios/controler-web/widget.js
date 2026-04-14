@@ -163,6 +163,19 @@ function resolveWidgetShapeColor(color, fallback = "") {
   return safeColor;
 }
 
+function resolveWidgetDataColor(color, fallback = "") {
+  const safeFallback = firstNonEmpty(fallback, getWidgetAccentFallbackColor());
+  const safeColor = firstNonEmpty(color, safeFallback);
+  if (
+    typeof CSS !== "undefined" &&
+    typeof CSS.supports === "function" &&
+    !CSS.supports("color", safeColor)
+  ) {
+    return safeFallback;
+  }
+  return safeColor;
+}
+
 function getWidgetTextOverrideColor() {
   return firstNonEmpty(readWidgetThemeCssVar("--widget-text-override"));
 }
@@ -2942,7 +2955,7 @@ function buildTimelinePreviewNode(preview, metrics) {
       );
       segmentNode.style.left = `${leftPercent}%`;
       segmentNode.style.width = `${Math.min(100 - leftPercent, widthPercent)}%`;
-      const segmentColor = resolveWidgetShapeColor(segment.color);
+      const segmentColor = resolveWidgetDataColor(segment.color);
       segmentNode.style.background = segmentColor;
       segmentNode.style.color = resolveWidgetReadableTextColor(
         segmentColor,
@@ -3008,7 +3021,7 @@ function buildPiePreviewNode(preview, metrics) {
   donutShell.style.setProperty("--widget-pie-size", `${donutSize}px`);
   const limitedEntries = preview.entries.slice(0, legendLimit).map((entry) => ({
     ...entry,
-    widgetColor: resolveWidgetShapeColor(entry.color),
+    widgetColor: resolveWidgetDataColor(entry.color),
   }));
   if (limitedEntries.length === 0 || preview.totalMinutes <= 0) {
     donut.style.background =
@@ -3313,7 +3326,7 @@ function buildItemListNode(widgetType, items, metrics, content = null) {
     });
 
     const accent = createElement("div", "widget-item-accent");
-    accent.style.background = resolveWidgetShapeColor(item.accent);
+    accent.style.background = resolveWidgetDataColor(item.accent);
     card.appendChild(accent);
 
     const main = createElement("div", "widget-item-main");
