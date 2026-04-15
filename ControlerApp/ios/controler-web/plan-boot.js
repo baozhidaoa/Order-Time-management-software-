@@ -1823,6 +1823,29 @@ function schedulePlanManagedModalTextAutofocusResume(modal) {
   return true;
 }
 
+function restorePlanManagedModalDraftSession(modal, draftSession, options = {}) {
+  const {
+    errorLabel = "恢复草稿失败:",
+    deferTextAutofocus = false,
+  } = options;
+  if (
+    !(modal instanceof HTMLElement) ||
+    !draftSession ||
+    typeof draftSession.restore !== "function"
+  ) {
+    return Promise.resolve(null);
+  }
+  if (deferTextAutofocus) {
+    schedulePlanManagedModalTextAutofocusResume(modal);
+  }
+  return Promise.resolve()
+    .then(() => draftSession.restore())
+    .catch((error) => {
+      console.error(errorLabel, error);
+      return null;
+    });
+}
+
 function appendPlanManagedModal(modal, role = "", options = {}) {
   if (!(modal instanceof HTMLElement)) {
     return null;
@@ -7563,16 +7586,10 @@ function showWeeklyGridPlanModal(planData = null) {
     modal,
     `draft:plan:weekly:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
   );
-  void weeklyPlanDraftSession
-    .restore()
-    .catch((error) => {
-      console.error("恢复周视图计划草稿失败:", error);
-    })
-    .finally(() => {
-      if (deferModalTextAutofocus) {
-        resumePlanManagedModalTextAutofocus(modal);
-      }
-    });
+  void restorePlanManagedModalDraftSession(modal, weeklyPlanDraftSession, {
+    errorLabel: "恢复周视图计划草稿失败:",
+    deferTextAutofocus: deferModalTextAutofocus,
+  });
 
   const discardWeeklyPlanDraft = () => {
     void weeklyPlanDraftSession.clear().catch((error) => {
@@ -8132,16 +8149,10 @@ function showPlanEditModal(planData = null) {
     modal,
     `draft:plan:main:${planData?.id || "new"}:${planData?._occurrenceDate || planData?.date || currentDate.toISOString().split("T")[0]}`,
   );
-  void planDraftSession
-    .restore()
-    .catch((error) => {
-      console.error("恢复计划草稿失败:", error);
-    })
-    .finally(() => {
-      if (deferModalTextAutofocus) {
-        resumePlanManagedModalTextAutofocus(modal);
-      }
-    });
+  void restorePlanManagedModalDraftSession(modal, planDraftSession, {
+    errorLabel: "恢复计划草稿失败:",
+    deferTextAutofocus: deferModalTextAutofocus,
+  });
 
   const discardPlanDraft = () => {
     void planDraftSession.clear().catch((error) => {

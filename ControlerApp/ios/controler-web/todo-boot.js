@@ -6788,14 +6788,23 @@
   const TODO_MANAGED_MODAL_SELECTOR =
     '.modal-overlay[data-todo-managed-modal="true"]';
 
-  function closeTodoManagedModals() {
+  function closeTodoManagedModals(options = {}) {
     if (typeof document === "undefined") {
       return;
     }
+    const exceptModal =
+      options?.except instanceof HTMLElement ? options.except : null;
     document.querySelectorAll(TODO_MANAGED_MODAL_SELECTOR).forEach((modal) => {
-      if (modal instanceof HTMLElement) {
-        closeModalElement(modal);
+      if (!(modal instanceof HTMLElement) || modal === exceptModal) {
+        return;
       }
+      if (
+        modal.__controlerRemovalQueued === "true" ||
+        modal.dataset.controlerModalClosing === "true"
+      ) {
+        return;
+      }
+      closeModalElement(modal);
     });
   }
 
@@ -6856,6 +6865,39 @@
       resumeTodoManagedModalTextAutofocus(modal);
     });
     return true;
+  }
+
+  function restoreTodoManagedModalDraftSession(
+    modal,
+    draftSession,
+    options = {},
+  ) {
+    const {
+      errorLabel = "恢复草稿失败:",
+      deferTextAutofocus = false,
+      activateAfterRestore = false,
+    } = options;
+    if (
+      !(modal instanceof HTMLElement) ||
+      !draftSession ||
+      typeof draftSession.restore !== "function"
+    ) {
+      return Promise.resolve(null);
+    }
+    if (deferTextAutofocus) {
+      scheduleTodoManagedModalTextAutofocusResume(modal);
+    }
+    return Promise.resolve()
+      .then(() => draftSession.restore())
+      .catch((error) => {
+        console.error(errorLabel, error);
+        return null;
+      })
+      .finally(() => {
+        if (activateAfterRestore && typeof draftSession.activate === "function") {
+          draftSession.activate();
+        }
+      });
   }
 
   function appendTodoManagedModal(modal, role = "", options = {}) {
@@ -7619,12 +7661,14 @@
   }
 
   function finalizeTodoModalChange(closeModal, options = {}) {
-    const { refreshView = true } = options;
+    const { refreshView = true, sourceModal = null } = options;
 
     if (typeof closeModal === "function") {
       closeModal();
     }
-    closeTodoManagedModals();
+    closeTodoManagedModals({
+      except: sourceModal,
+    });
 
     if (refreshView) {
       scheduleTodoInterfaceRefresh();
@@ -7637,6 +7681,7 @@
     const {
       closeModal = null,
       refreshView = true,
+      sourceModal = null,
       title = "正在保存数据",
       message = "正在写入待办与打卡数据，请稍候",
       perfAction = "todo-mutation",
@@ -7667,6 +7712,7 @@
         });
         finalizeTodoModalChange(closeModal, {
           refreshView,
+          sourceModal,
         });
         uiTools?.markPerfStage?.("todo-form-modal-hidden", {
           allowRepeat: true,
@@ -7854,9 +7900,23 @@
         handledTouchActions.set(actionButton, Date.now());
       }
       actionButton.blur?.();
-      Promise.resolve(handler(actionButton, event)).catch((error) => {
-        console.error("待办模态框按钮处理失败:", error);
-      });
+      Promise.resolve()
+        .then(() => handler(actionButton, event))
+        .catch((error) => {
+          console.error("待办模态框按钮处理失败:", error);
+          return false;
+        })
+        .finally(() => {
+          if (
+            modal instanceof HTMLElement &&
+            modal.isConnected &&
+            modal.__controlerRemovalQueued !== "true" &&
+            modal.dataset.controlerModalClosing !== "true" &&
+            typeof uiTools?.clearAndroidModalDismissPending === "function"
+          ) {
+            uiTools.clearAndroidModalDismissPending(modal);
+          }
+        });
     };
 
     modalContent.addEventListener("pointerup", listener);
@@ -10007,15 +10067,15 @@
         ${
           isEditMode
             ? `
-          <button class="bts" type="button" id="delete-todo-btn" data-todo-modal-action="delete-todo" style="background-color: var(--delete-btn);">
+          <button class="bts" type="button" id="delete-todo-btn" data-todo-modal-action="delete-todo" data-controler-modal-action-role="confirm" style="background-color: var(--delete-btn);">
             删除待办事项
           </button>
         `
             : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" type="button" id="cancel-todo-btn" data-todo-modal-action="cancel">取消</button>
-          <button class="bts" type="button" id="save-todo-btn" data-todo-modal-action="save">${isEditMode ? "保存更改" : "创建待办事项"}</button>
+          <button class="bts" type="button" id="cancel-todo-btn" data-todo-modal-action="cancel" data-controler-modal-action-role="cancel">取消</button>
+          <button class="bts" type="button" id="save-todo-btn" data-todo-modal-action="save" data-controler-modal-action-role="confirm">${isEditMode ? "保存更改" : "创建待办事项"}</button>
         </div>
       </div>
     </div>
@@ -10034,17 +10094,11 @@
       `draft:todo:${todo?.id || "new"}:${isEditMode ? "edit" : "create"}`,
       "todo",
     );
-    void todoDraftSession
-      .restore()
-      .catch((error) => {
-        console.error("恢复待办草稿失败:", error);
-      })
-      .finally(() => {
-        todoDraftSession.activate();
-        if (deferModalTextAutofocus) {
-          resumeTodoManagedModalTextAutofocus(modal);
-        }
-      });
+    void restoreTodoManagedModalDraftSession(modal, todoDraftSession, {
+      errorLabel: "恢复待办草稿失败:",
+      deferTextAutofocus: deferModalTextAutofocus,
+      activateAfterRestore: true,
+    });
     const discardTodoDraft = () => {
       void todoDraftSession.clear().catch((error) => {
         console.error("清理待办草稿失败:", error);
@@ -10359,6 +10413,7 @@
       {
         closeModal,
         refreshView,
+        sourceModal: modal,
         title: isEditMode ? "正在保存待办" : "正在创建待办",
         message: "正在写入待办与同步数据，请稍候",
         perfAction: isEditMode ? "todo-edit" : "todo-create",
@@ -10464,12 +10519,12 @@
       <div class="controler-form-modal-footer controler-form-modal-footer-inline todo-form-modal-footer" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
         ${
           isEditMode
-            ? '<button class="bts" type="button" id="delete-checkin-progress-btn" data-todo-modal-action="delete-progress" style="margin:0; background-color: var(--delete-btn);">删除</button>'
+            ? '<button class="bts" type="button" id="delete-checkin-progress-btn" data-todo-modal-action="delete-progress" data-controler-modal-action-role="confirm" style="margin:0; background-color: var(--delete-btn);">删除</button>'
             : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" type="button" id="cancel-checkin-btn" data-todo-modal-action="cancel" style="margin:0;">取消</button>
-          <button class="bts" type="button" id="save-checkin-btn" data-todo-modal-action="save" style="margin:0;">保存</button>
+          <button class="bts" type="button" id="cancel-checkin-btn" data-todo-modal-action="cancel" data-controler-modal-action-role="cancel" style="margin:0;">取消</button>
+          <button class="bts" type="button" id="save-checkin-btn" data-todo-modal-action="save" data-controler-modal-action-role="confirm" style="margin:0;">保存</button>
         </div>
       </div>
     </div>
@@ -10488,17 +10543,11 @@
       `draft:todo-progress:${todoId}:${existingRecord?.id || "new"}`,
       "todo-progress",
     );
-    void progressDraftSession
-      .restore()
-      .catch((error) => {
-        console.error("恢复进度草稿失败:", error);
-      })
-      .finally(() => {
-        progressDraftSession.activate();
-        if (deferModalTextAutofocus) {
-          resumeTodoManagedModalTextAutofocus(modal);
-        }
-      });
+    void restoreTodoManagedModalDraftSession(modal, progressDraftSession, {
+      errorLabel: "恢复进度草稿失败:",
+      deferTextAutofocus: deferModalTextAutofocus,
+      activateAfterRestore: true,
+    });
     const discardProgressDraft = () => {
       void progressDraftSession.clear().catch((error) => {
         console.error("清理进度草稿失败:", error);
@@ -10551,6 +10600,7 @@
         {
           closeModal,
           refreshView: true,
+          sourceModal: modal,
           title: existingRecord ? "正在保存进度" : "正在创建进度",
           message: "正在写入进度记录，请稍候",
           perfAction: existingRecord ? "progress-edit" : "progress-create",
@@ -10622,6 +10672,7 @@
         {
           closeModal,
           refreshView: true,
+          sourceModal: modal,
           title: "正在删除进度",
           message: "正在同步删除进度记录，请稍候",
           perfAction: "progress-delete",
@@ -11220,15 +11271,15 @@
         ${
           isEditMode
             ? `
-          <button class="bts" type="button" id="delete-checkin-btn" data-todo-modal-action="delete-checkin-item" style="background-color: var(--delete-btn);">
+          <button class="bts" type="button" id="delete-checkin-btn" data-todo-modal-action="delete-checkin-item" data-controler-modal-action-role="confirm" style="background-color: var(--delete-btn);">
             删除打卡项目
           </button>
         `
             : ""
         }
         <div class="controler-form-modal-footer-actions" style="display: flex; gap: 10px;">
-          <button class="bts" type="button" id="cancel-checkin-item-btn" data-todo-modal-action="cancel">取消</button>
-          <button class="bts" type="button" id="save-checkin-item-btn" data-todo-modal-action="save">${
+          <button class="bts" type="button" id="cancel-checkin-item-btn" data-todo-modal-action="cancel" data-controler-modal-action-role="cancel">取消</button>
+          <button class="bts" type="button" id="save-checkin-item-btn" data-todo-modal-action="save" data-controler-modal-action-role="confirm">${
             resumeMode
               ? "保存并继续"
               : isEditMode
@@ -11739,6 +11790,7 @@
       {
         closeModal,
         refreshView,
+        sourceModal: modal,
         title: progressTitle,
         message: progressMessage,
         perfAction,

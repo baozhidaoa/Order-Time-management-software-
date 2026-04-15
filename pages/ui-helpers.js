@@ -17,6 +17,7 @@
   const BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS = 180;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 28;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_MAX_ATTEMPTS = 40;
+  const ANDROID_MODAL_DISMISS_PENDING_MAX_MS = 2400;
   const ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS = 88;
   const ANDROID_KEYBOARD_TRANSITION_TRAILING_HEIGHT_PX = 18;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
@@ -3589,6 +3590,24 @@
         if (!(focusTarget instanceof HTMLElement)) {
           return;
         }
+        const focusModal = getAndroidModalAutofocusHost(focusTarget);
+        if (focusModal instanceof HTMLElement) {
+          const hadPendingDismiss =
+            getAndroidModalDismissPendingUntil(focusModal) > 0;
+          if (hadPendingDismiss) {
+            clearAndroidModalDismissPending(focusModal, {
+              releaseFreeze: false,
+            });
+          }
+          if (
+            hadPendingDismiss &&
+            focusModal.__controlerRemovalQueued !== "true" &&
+            focusModal.dataset.controlerModalClosing !== "true" &&
+            isAndroidModalDismissFreezeActive(focusModal)
+          ) {
+            clearAndroidModalDismissFreeze(focusModal);
+          }
+        }
         focusTarget.__controlerAndroidLastFocusInAt = Date.now();
         const hadPendingRetries =
           Array.isArray(focusTarget.__controlerAndroidFocusRetryTimers) &&
@@ -5572,6 +5591,58 @@
     );
   }
 
+  function getAndroidModalDismissPendingUntil(modal) {
+    const overlay = resolveModalOverlayElement(modal);
+    if (!(overlay instanceof HTMLElement)) {
+      return 0;
+    }
+    return Math.max(
+      0,
+      Number.parseInt(
+        overlay.dataset.controlerAndroidDismissPendingUntil || "0",
+        10,
+      ) || 0,
+    );
+  }
+
+  function isAndroidModalDismissPending(modal, now = Date.now()) {
+    return getAndroidModalDismissPendingUntil(modal) > now;
+  }
+
+  function markAndroidModalDismissPending(modal, options = {}) {
+    const overlay = resolveModalOverlayElement(modal);
+    if (!(overlay instanceof HTMLElement)) {
+      return null;
+    }
+    const durationMs = Math.max(
+      ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS,
+      Math.round(
+        Number.isFinite(Number(options.durationMs))
+          ? Number(options.durationMs)
+          : ANDROID_MODAL_DISMISS_PENDING_MAX_MS,
+      ),
+    );
+    overlay.dataset.controlerAndroidDismissPendingUntil = String(
+      Date.now() + durationMs,
+    );
+    return overlay;
+  }
+
+  function clearAndroidModalDismissPending(modal, options = {}) {
+    const overlay = resolveModalOverlayElement(modal);
+    if (!(overlay instanceof HTMLElement)) {
+      return null;
+    }
+    delete overlay.dataset.controlerAndroidDismissPendingUntil;
+    if (
+      options.releaseFreeze !== false &&
+      isAndroidModalDismissFreezeActive(overlay)
+    ) {
+      scheduleAndroidModalDismissFreezeRelease(overlay);
+    }
+    return overlay;
+  }
+
   function isAndroidModalDismissFreezeActive(modal) {
     const overlay = resolveModalOverlayElement(modal);
     return (
@@ -5805,6 +5876,7 @@
     }
     overlay.__controlerAndroidDismissFreezeReleaseTimer = 0;
     delete overlay.dataset.controlerAndroidDismissFreeze;
+    delete overlay.dataset.controlerAndroidDismissPendingUntil;
     [
       "--controler-modal-overlay-width",
       "--controler-modal-overlay-height",
@@ -5844,6 +5916,7 @@
       force: true,
     });
     delete overlay.dataset.controlerModalClosing;
+    delete overlay.dataset.controlerAndroidDismissPendingUntil;
     overlay.style.removeProperty("--controler-modal-close-duration");
     overlay.style.removeProperty("--controler-modal-close-backdrop-bg");
     overlay.style.removeProperty("--controler-modal-close-surface-bg");
@@ -6068,6 +6141,7 @@
     let attempts = 0;
     const releaseWhenSettled = () => {
       overlay.__controlerAndroidDismissFreezeReleaseTimer = 0;
+      const now = Date.now();
       if (
         !overlay.isConnected ||
         !isAndroidModalDismissFreezeActive(overlay)
@@ -6082,6 +6156,24 @@
           resync: false,
         });
         return;
+      }
+      if (isAndroidModalDismissPending(overlay, now)) {
+        overlay.__controlerAndroidDismissFreezeReleaseTimer = window.setTimeout(
+          releaseWhenSettled,
+          Math.min(
+            96,
+            Math.max(
+              ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS,
+              getAndroidModalDismissPendingUntil(overlay) - now,
+            ),
+          ),
+        );
+        return;
+      }
+      if (getAndroidModalDismissPendingUntil(overlay) > 0) {
+        clearAndroidModalDismissPending(overlay, {
+          releaseFreeze: false,
+        });
       }
       const activeControl = getActiveAndroidInteractiveTextControl();
       if (
@@ -9216,7 +9308,22 @@
       if (typeof event.stopImmediatePropagation === "function") {
         event.stopImmediatePropagation();
       }
-      handler(event, modal);
+      Promise.resolve()
+        .then(() => handler(event, modal))
+        .catch((error) => {
+          console.error("执行模态框遮罩关闭失败:", error);
+          return false;
+        })
+        .finally(() => {
+          if (
+            modal.isConnected &&
+            modal.__controlerRemovalQueued !== "true" &&
+            isVisibleModalOverlay(modal) &&
+            getAndroidModalDismissPendingUntil(modal) > 0
+          ) {
+            clearAndroidModalDismissPending(modal);
+          }
+        });
     });
     return modal;
   }
@@ -9329,6 +9436,18 @@
       return Number.NEGATIVE_INFINITY;
     }
     let score = 0;
+    if (
+      button.closest?.(
+        [
+          ".controler-form-modal-footer",
+          ".controler-form-modal-footer-actions",
+          ".themed-dialog-actions",
+          ".controler-themed-picker-actions",
+        ].join(", "),
+      )
+    ) {
+      score += 24;
+    }
     if (role === "confirm") {
       if (
         button.matches?.(
@@ -9546,6 +9665,7 @@
       return false;
     }
     clearPendingAndroidInteractiveActionReplay();
+    markAndroidModalDismissPending(overlay);
     const guardX = Number(options.x);
     const guardY = Number(options.y);
     window.setTimeout(() => {
@@ -9911,7 +10031,23 @@
           ),
         );
       }
-      handler(event, button);
+      Promise.resolve()
+        .then(() => handler(event, button))
+        .catch((error) => {
+          console.error("执行模态框按钮操作失败:", error);
+          return false;
+        })
+        .finally(() => {
+          if (
+            owningModal instanceof HTMLElement &&
+            owningModal.isConnected &&
+            owningModal.__controlerRemovalQueued !== "true" &&
+            isVisibleModalOverlay(owningModal) &&
+            getAndroidModalDismissPendingUntil(owningModal) > 0
+          ) {
+            clearAndroidModalDismissPending(owningModal);
+          }
+        });
     });
 
     return button;
@@ -15257,6 +15393,7 @@
     prepareModalOverlay,
     freezeAndroidModalDismissLayout,
     clearAndroidModalDismissFreeze,
+    clearAndroidModalDismissPending,
     resetModalOverlayPresentationState,
     activateModalInteractionShield,
     stopModalContentPropagation,
