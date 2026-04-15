@@ -440,8 +440,11 @@
   }
 
   function getAndroidVisibleViewportHeightCandidate() {
+    const visualViewportHeight = Math.round(window.visualViewport?.height || 0);
+    if (visualViewportHeight > 0) {
+      return visualViewportHeight;
+    }
     const candidates = [
-      Math.round(window.visualViewport?.height || 0),
       Math.round(window.innerHeight || 0),
       Math.round(document.documentElement?.clientHeight || 0),
       Math.round(document.body?.clientHeight || 0),
@@ -538,8 +541,12 @@
       ? rawKeyboardDelta > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX
       : rawKeyboardDelta > ANDROID_KEYBOARD_OPEN_THRESHOLD_PX;
     const viewportHeight =
-      rawNextKeyboardOpen && lastKeyboardViewportHeight > 0
-        ? Math.min(rawViewportHeight, lastKeyboardViewportHeight)
+      rawNextKeyboardOpen &&
+      lastKeyboardViewportHeight > 0 &&
+      rawViewportHeight > lastKeyboardViewportHeight &&
+      rawViewportHeight - lastKeyboardViewportHeight <=
+        ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
+        ? lastKeyboardViewportHeight
         : rawViewportHeight;
     const layoutViewportHeight = getAndroidLayoutViewportHeight(viewportHeight);
 

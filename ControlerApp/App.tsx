@@ -116,6 +116,7 @@ type BridgeEnvelopePayload = {
   direction?: string;
   intentId?: string;
   requestedAt?: unknown;
+  intentSequence?: unknown;
   sourcePage?: string;
   sourceHref?: string;
   targetPage?: string;
@@ -186,6 +187,7 @@ type NavigationRequestResult = 'intercept' | 'allow-default' | 'noop';
 type NavigationIntentStamp = {
   intentId: string;
   requestedAt: number;
+  sequence: number;
 };
 type LaunchContext = {
   active: boolean;
@@ -2242,12 +2244,19 @@ function readNavigationIntentStamp(
     0,
     Number.isFinite(Number(payload?.requestedAt)) ? Number(payload?.requestedAt) : 0,
   );
-  if (!intentId && requestedAt <= 0) {
+  const sequence = Math.max(
+    0,
+    Number.isFinite(Number(payload?.intentSequence))
+      ? Number(payload?.intentSequence)
+      : 0,
+  );
+  if (!intentId && requestedAt <= 0 && sequence <= 0) {
     return null;
   }
   return {
     intentId,
     requestedAt,
+    sequence,
   };
 }
 
@@ -2338,7 +2347,31 @@ export function compareNavigationIntentPriority(
   if (incomingRequestedAt < currentRequestedAt) {
     return -1;
   }
+  const currentSequence = Math.max(
+    0,
+    Number.isFinite(Number(current?.sequence)) ? Number(current?.sequence) : 0,
+  );
+  const incomingSequence = Math.max(
+    0,
+    Number.isFinite(Number(incoming?.sequence)) ? Number(incoming?.sequence) : 0,
+  );
+  if (incomingSequence > currentSequence) {
+    return 1;
+  }
+  if (incomingSequence < currentSequence) {
+    return -1;
+  }
   return 0;
+}
+
+function isNavigationIntentStale(
+  candidate: Partial<NavigationIntentStamp> | null | undefined,
+  latest: Partial<NavigationIntentStamp> | null | undefined,
+): boolean {
+  if (!candidate || !latest) {
+    return false;
+  }
+  return compareNavigationIntentPriority(candidate, latest) > 0;
 }
 
 type WebViewInteractivityOptions = {
@@ -4804,6 +4837,29 @@ function App({
     return Date.now() - watchdog.startedAt >= PAGE_SWITCH_LOAD_TIMEOUT_MS;
   };
 
+  const clearQueuedNavigationRequest = useCallback(
+    (reason = '') => {
+      const queuedRequest = queuedNavigationRequestRef.current;
+      if (!queuedRequest) {
+        return null;
+      }
+      queuedNavigationRequestRef.current = null;
+      logPerfMetric('perf.metric', {
+        stage: 'navigation-queue-cleared',
+        reason,
+        source: queuedRequest.source,
+        page:
+          typeof queuedRequest.payload.page === 'string'
+            ? queuedRequest.payload.page
+            : getPageByHref(queuedRequest.payload.href)?.key || '',
+        intentId: queuedRequest.intent?.intentId || '',
+        queuedForMs: Date.now() - queuedRequest.queuedAt,
+      });
+      return queuedRequest;
+    },
+    [logPerfMetric],
+  );
+
   const flushQueuedNavigationRequestIfReady = useCallback(
     (reason = 'queue-flush') => {
       const queuedRequest = queuedNavigationRequestRef.current;
@@ -4812,6 +4868,19 @@ function App({
         transitionStateRef.current ||
         busyLockBySlotRef.current[activeSlotRef.current]
       ) {
+        return false;
+      }
+
+      if (
+        queuedRequest.source === 'bridge' &&
+        latestBridgeNavigationIntentRef.current &&
+        (!queuedRequest.intent ||
+          isNavigationIntentStale(
+            queuedRequest.intent,
+            latestBridgeNavigationIntentRef.current,
+          ))
+      ) {
+        clearQueuedNavigationRequest(`${reason}:stale-intent`);
         return false;
       }
 
@@ -4832,7 +4901,7 @@ function App({
       });
       return navigationResult !== 'noop';
     },
-    [logPerfMetric],
+    [clearQueuedNavigationRequest, logPerfMetric],
   );
 
   const clearPendingTransition = (slot: WebViewSlot, reason = '') => {
@@ -6834,11 +6903,12 @@ function App({
         const pendingComparableUrl = currentTransition
           ? getComparableUrl(webViewSlotsRef.current[currentTransition.toSlot].uri)
           : '';
-        const queuedComparableUrl = queuedNavigationRequestRef.current
+        const currentQueuedRequest = queuedNavigationRequestRef.current;
+        const queuedComparableUrl = currentQueuedRequest
           ? getComparableUrl(
               resolvePageTarget(
                 webViewSlotsRef.current[activeSlot].uri,
-                queuedNavigationRequestRef.current.payload,
+                currentQueuedRequest.payload,
               )?.uri || '',
             )
           : '';
@@ -6873,8 +6943,34 @@ function App({
             });
           }
         } else if (ackState !== 'dropped-stale') {
+          const staleQueuedRequest =
+            currentQueuedRequest &&
+            currentQueuedRequest.source === 'bridge' &&
+            (requestedComparableUrl !== queuedComparableUrl ||
+              (!!incomingIntent &&
+                (!currentQueuedRequest.intent ||
+                  isNavigationIntentStale(
+                    currentQueuedRequest.intent,
+                    incomingIntent,
+                  ))));
+          if (staleQueuedRequest) {
+            clearQueuedNavigationRequest(
+              `bridge-direct-superseded:${targetPage || requestedComparableUrl || 'unknown'}`,
+            );
+          }
           navigationResult = requestPageNavigation(message.payload || {}, 'bridge');
           accepted = navigationResult === 'intercept';
+          if (
+            accepted &&
+            currentQueuedRequest &&
+            currentQueuedRequest.source === 'bridge' &&
+            requestedComparableUrl &&
+            requestedComparableUrl === queuedComparableUrl
+          ) {
+            clearQueuedNavigationRequest(
+              `bridge-direct-duplicate:${targetPage || requestedComparableUrl}`,
+            );
+          }
           ackState = accepted ? 'accepted-now' : 'rejected';
           ackReason = accepted ? 'dispatched' : 'navigation-noop';
         }

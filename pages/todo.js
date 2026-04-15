@@ -4992,6 +4992,130 @@
     );
   }
 
+  function normalizeReminderDateInputText(value, fallback = "") {
+    const normalizedText = String(value || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedText)) {
+      return normalizedText;
+    }
+    const fallbackText = String(fallback || "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(fallbackText) ? fallbackText : "";
+  }
+
+  function normalizeTodoReminderCustomTimeInputValue(
+    value,
+    fallback = "09:00",
+  ) {
+    return (
+      normalizeTodoTimeText(value) || normalizeTodoReminderTimeText(value, fallback)
+    );
+  }
+
+  function splitReminderDateTimeValueParts(
+    dateTimeValue,
+    fallbackDateText,
+    fallbackTimeText,
+    normalizeTimeText,
+  ) {
+    const normalizedValue = String(dateTimeValue || "").trim();
+    const separatorIndex = normalizedValue.indexOf("T");
+    const dateText =
+      separatorIndex >= 0
+        ? normalizedValue.slice(0, separatorIndex)
+        : normalizedValue;
+    const timeText =
+      separatorIndex >= 0 ? normalizedValue.slice(separatorIndex + 1) : "";
+    return {
+      dateText: normalizeReminderDateInputText(dateText, fallbackDateText),
+      timeText: normalizeTimeText(
+        timeText || fallbackTimeText,
+        fallbackTimeText,
+      ),
+    };
+  }
+
+  function buildReminderDateTimeValueFromParts(
+    dateText,
+    timeText,
+    fallbackDateText,
+    fallbackTimeText,
+    normalizeTimeText,
+  ) {
+    const normalizedDateText = normalizeReminderDateInputText(
+      dateText,
+      fallbackDateText,
+    );
+    const normalizedTimeText = normalizeTimeText(timeText, fallbackTimeText);
+    return normalizedDateText
+      ? `${normalizedDateText}T${normalizedTimeText}`
+      : "";
+  }
+
+  function resolveTodoReminderCustomInputParts(
+    baseDateText,
+    reminderConfig,
+    fallbackTimeText = "09:00",
+  ) {
+    const resolvedFallbackTime = normalizeTodoReminderCustomTimeInputValue(
+      fallbackTimeText,
+      "09:00",
+    );
+    const customDateTimeValue =
+      getReminderTools()?.buildRelativeCustomDateTimeValue?.(
+        baseDateText,
+        reminderConfig,
+        resolvedFallbackTime,
+      ) ||
+      buildReminderDateTimeValueFromParts(
+        baseDateText,
+        reminderConfig?.customTime || resolvedFallbackTime,
+        baseDateText,
+        resolvedFallbackTime,
+        normalizeTodoReminderCustomTimeInputValue,
+      );
+    return splitReminderDateTimeValueParts(
+      customDateTimeValue,
+      baseDateText,
+      resolvedFallbackTime,
+      normalizeTodoReminderCustomTimeInputValue,
+    );
+  }
+
+  function parseTodoReminderCustomInputParts(
+    dateText,
+    timeText,
+    baseDateText,
+    options = {},
+  ) {
+    const fallbackTimeText = normalizeTodoReminderCustomTimeInputValue(
+      options?.fallbackTime || "09:00",
+      "09:00",
+    );
+    const fallbackOffsetDays = normalizeTodoReminderOffsetDays(
+      options?.fallbackOffsetDays,
+      0,
+    );
+    const customDateTimeValue = buildReminderDateTimeValueFromParts(
+      dateText,
+      timeText,
+      baseDateText,
+      fallbackTimeText,
+      normalizeTodoReminderCustomTimeInputValue,
+    );
+    return (
+      getReminderTools()?.parseRelativeCustomDateTimeInput?.(
+        customDateTimeValue,
+        baseDateText,
+        {
+          fallbackTime: fallbackTimeText,
+          fallbackOffsetDays,
+        },
+      ) || {
+        customTime: fallbackTimeText,
+        customOffsetDays: fallbackOffsetDays,
+      }
+    );
+  }
+
   function getTodoReminderSectionHtml(todo = null, prefix = "todo") {
     const baseDateText = getTodoReminderBaseDate(todo);
     const reminderConfig = normalizeTodoNotificationConfig(todo?.notification, {
@@ -4999,12 +5123,11 @@
       dueDate: todo?.dueDate || baseDateText,
       startDate: todo?.startDate || baseDateText,
     });
-    const customDateTimeValue =
-      getReminderTools()?.buildRelativeCustomDateTimeValue?.(
-        baseDateText,
-        reminderConfig,
-        reminderConfig.customTime || "09:00",
-      ) || "";
+    const customReminderParts = resolveTodoReminderCustomInputParts(
+      baseDateText,
+      reminderConfig,
+      reminderConfig.customTime || "09:00",
+    );
 
     return `
     <div>
@@ -5031,20 +5154,53 @@
         <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
           提醒时间
         </label>
-        <input
-          type="datetime-local"
-          id="${prefix}-notification-custom-input"
-          value="${customDateTimeValue}"
-          style="
-            width: 100%;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--bg-quaternary);
-            background-color: var(--bg-quaternary);
-            color: var(--text-color);
-            font-size: 15px;
-          "
-        >
+        <div class="modal-date-range controler-form-modal-date-range" style="display: flex; gap: 10px;">
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
+              提醒日期
+            </label>
+            <input
+              type="date"
+              id="${prefix}-notification-custom-date-input"
+              class="modal-date-input themed-native-picker-input"
+              value="${customReminderParts.dateText}"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-quaternary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 15px;
+              "
+            >
+          </div>
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
+              提醒时间
+            </label>
+            <input
+              type="text"
+              id="${prefix}-notification-custom-time-input"
+              class="modal-date-input controler-time-text-input"
+              value="${customReminderParts.timeText}"
+              placeholder="？？：？？"
+              inputmode="numeric"
+              maxlength="5"
+              spellcheck="false"
+              autocomplete="off"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-quaternary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 15px;
+              "
+            >
+          </div>
+        </div>
         <div style="margin-top: 8px; color: var(--muted-text-color); font-size: 12px; line-height: 1.5;">
           若待办启用了重复或使用“开始日期 - 结束日期”模式，将按相同的相对提醒时间同步到后续重复日期。
         </div>
@@ -5060,8 +5216,11 @@
     const customWrap = modal.querySelector(
       `#${prefix}-notification-custom-wrap`,
     );
-    const customInput = modal.querySelector(
-      `#${prefix}-notification-custom-input`,
+    const customDateInput = modal.querySelector(
+      `#${prefix}-notification-custom-date-input`,
+    );
+    const customTimeInput = modal.querySelector(
+      `#${prefix}-notification-custom-time-input`,
     );
     const noneRadio = modal.querySelector(
       `input[name="${prefix}-notification-mode"][value="none"]`,
@@ -5080,8 +5239,8 @@
         options?.todoLike?.notification,
       ) || hasStoredReminderPreference(options?.todoLike?.notification);
     let reminderTouched = hasPersistedPreference;
-    let customInputDirty = false;
     let applyingDefaultMode = false;
+    let lastBaseDateText = startDateInput?.value || getLocalDateText();
 
     const syncReminderMode = () => {
       const activeMode =
@@ -5093,13 +5252,10 @@
     };
 
     const syncCustomReminderInput = () => {
-      if (!(customInput instanceof HTMLInputElement)) {
-        return;
-      }
-      const activeMode =
-        modal.querySelector(`input[name="${prefix}-notification-mode"]:checked`)
-          ?.value || "none";
-      if (activeMode !== "custom") {
+      if (
+        !(customDateInput instanceof HTMLInputElement) ||
+        !(customTimeInput instanceof HTMLInputElement)
+      ) {
         return;
       }
       const baseDateText = startDateInput?.value || getLocalDateText();
@@ -5107,25 +5263,26 @@
         startTimeInput?.value,
         endTimeInput?.value,
       );
-      if (!customInputDirty && !hasPersistedPreference && defaultSeed) {
-        customInput.value =
-          getReminderTools()?.buildRelativeCustomDateTimeValue?.(
-            baseDateText,
-            defaultSeed,
-            defaultSeed.customTime,
-          ) || `${baseDateText}T${defaultSeed.customTime}`;
-        return;
-      }
-      if (customInputDirty) {
-        return;
-      }
-      const timeText =
-        (customInput.value.includes("T")
-          ? customInput.value.split("T")[1]
-          : "") ||
-        defaultSeed?.customTime ||
-        "09:00";
-      customInput.value = `${baseDateText}T${timeText}`;
+      const currentConfig =
+        !hasPersistedPreference && !reminderTouched && defaultSeed
+          ? defaultSeed
+          : parseTodoReminderCustomInputParts(
+              customDateInput.value,
+              customTimeInput.value,
+              lastBaseDateText,
+              {
+                fallbackTime: defaultSeed?.customTime || "09:00",
+                fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
+              },
+            );
+      const nextParts = resolveTodoReminderCustomInputParts(
+        baseDateText,
+        currentConfig,
+        currentConfig.customTime || defaultSeed?.customTime || "09:00",
+      );
+      customDateInput.value = nextParts.dateText;
+      customTimeInput.value = nextParts.timeText;
+      lastBaseDateText = baseDateText;
     };
 
     const syncReminderDefaults = () => {
@@ -5155,13 +5312,16 @@
         syncCustomReminderInput();
       });
     });
-    customInput?.addEventListener("input", () => {
-      customInputDirty = true;
+    customDateInput?.addEventListener("change", () => {
+      reminderTouched = true;
+      syncCustomReminderInput();
+    });
+    customTimeInput?.addEventListener("input", () => {
       reminderTouched = true;
     });
-    customInput?.addEventListener("change", () => {
-      customInputDirty = true;
+    customTimeInput?.addEventListener("change", () => {
       reminderTouched = true;
+      syncCustomReminderInput();
     });
     startDateInput?.addEventListener("change", syncReminderDefaults);
     startTimeInput?.addEventListener("change", syncReminderDefaults);
@@ -5186,24 +5346,21 @@
         todoLike,
       );
     }
-    const customInputValue =
-      modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
     const defaultSeed = buildStartReminderSeed(
       todoLike?.startTime,
       todoLike?.endTime,
     );
-    const parsedCustomConfig =
-      getReminderTools()?.parseRelativeCustomDateTimeInput?.(
-        customInputValue,
-        baseDateText,
-        {
-          fallbackTime: defaultSeed?.customTime || "09:00",
-          fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
-        },
-      ) || {
-        customTime: defaultSeed?.customTime || "09:00",
-        customOffsetDays: defaultSeed?.customOffsetDays || 0,
-      };
+    const parsedCustomConfig = parseTodoReminderCustomInputParts(
+      modal.querySelector(`#${prefix}-notification-custom-date-input`)?.value ||
+        "",
+      modal.querySelector(`#${prefix}-notification-custom-time-input`)?.value ||
+        "",
+      baseDateText,
+      {
+        fallbackTime: defaultSeed?.customTime || "09:00",
+        fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
+      },
+    );
     return normalizeTodoNotificationConfig(
       {
         enabled: true,
@@ -5246,10 +5403,16 @@
           每天提醒时间
         </label>
         <input
-          type="time"
+          type="text"
           id="${prefix}-notification-time-input"
+          class="modal-date-input controler-time-text-input"
           value="${reminderConfig.customTime}"
           data-reminder-offset-days="${reminderConfig.customOffsetDays || 0}"
+          placeholder="？？：？？"
+          inputmode="numeric"
+          maxlength="5"
+          spellcheck="false"
+          autocomplete="off"
           style="
             width: 100%;
             padding: 10px;
@@ -5941,18 +6104,50 @@
     ).sort((left, right) => left - right);
   }
 
+  function normalizeTodoTimeText(value = "") {
+    const normalizedText = String(value || "").trim();
+    if (!normalizedText) {
+      return "";
+    }
+    const formatNormalizedTime = (hoursText, minutesText) => {
+      const hours = Number.parseInt(hoursText, 10);
+      const minutes = Number.parseInt(minutesText, 10);
+      if (
+        !Number.isFinite(hours) ||
+        !Number.isFinite(minutes) ||
+        hours < 0 ||
+        hours > 23 ||
+        minutes < 0 ||
+        minutes > 59
+      ) {
+        return "";
+      }
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    };
+    const explicitMatch = /^(\d{1,2}):(\d{1,2})$/.exec(normalizedText);
+    if (explicitMatch) {
+      return formatNormalizedTime(explicitMatch[1], explicitMatch[2]);
+    }
+    const minuteOnlyMatch = /^:(\d{1,2})$/.exec(normalizedText);
+    if (minuteOnlyMatch) {
+      return formatNormalizedTime("00", minuteOnlyMatch[1]);
+    }
+    const hourOnlyMatch = /^(\d{1,2}):?$/.exec(normalizedText);
+    if (hourOnlyMatch) {
+      return (
+        formatNormalizedTime(hourOnlyMatch[1], "00") ||
+        formatNormalizedTime("00", hourOnlyMatch[1])
+      );
+    }
+    return "";
+  }
+
   function normalizeTodoTimeRangeFields({
     startTime = "",
     endTime = "",
   } = {}) {
-    const normalizedStartTime =
-      typeof startTime === "string" && /^\d{2}:\d{2}$/.test(startTime.trim())
-        ? startTime.trim()
-        : "";
-    const normalizedEndTime =
-      typeof endTime === "string" && /^\d{2}:\d{2}$/.test(endTime.trim())
-        ? endTime.trim()
-        : "";
+    const normalizedStartTime = normalizeTodoTimeText(startTime);
+    const normalizedEndTime = normalizeTodoTimeText(endTime);
     return {
       startTime: normalizedStartTime,
       endTime: normalizedEndTime,
@@ -6410,7 +6605,23 @@
     if (!(modal instanceof HTMLElement) || !modal.isConnected) {
       return false;
     }
+    if (typeof uiTools?.resumeAndroidModalAutofocus === "function") {
+      return (
+        uiTools.resumeAndroidModalAutofocus(modal, {
+          ...getTodoManagedModalTextAutofocusOptions(),
+          clearDisableFlag: true,
+        }) || false
+      );
+    }
     delete modal.dataset.controlerDisableAutofocus;
+    const disableAutofocusUntil = Number.parseInt(
+      modal.dataset.controlerDisableAutofocusUntil || "0",
+      10,
+    );
+    if (disableAutofocusUntil > Date.now()) {
+      return false;
+    }
+    delete modal.dataset.controlerDisableAutofocusUntil;
     const activeControl = document.activeElement;
     if (activeControl instanceof HTMLElement && modal.contains(activeControl)) {
       return false;
@@ -9510,7 +9721,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="todo-start-time-input" class="modal-date-input themed-native-picker-input" value="${todo?.startTime || ""}" style="
+            <input type="text" id="todo-start-time-input" class="modal-date-input controler-time-text-input" value="${todo?.startTime || ""}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9524,7 +9735,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="todo-end-time-input" class="modal-date-input themed-native-picker-input" value="${todo?.endTime || ""}" style="
+            <input type="text" id="todo-end-time-input" class="modal-date-input controler-time-text-input" value="${todo?.endTime || ""}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9790,6 +10001,9 @@
       startTime,
       endTime,
     });
+    const hasInvalidTimeRangeInput =
+      (!!String(startTime || "").trim() && !normalizedTimeRange.startTime) ||
+      (!!String(endTime || "").trim() && !normalizedTimeRange.endTime);
     const reminderConfig = readTodoReminderConfig(
       modal,
       {
@@ -9816,6 +10030,14 @@
       normalizedSchedule.endDate < normalizedSchedule.startDate
     ) {
       void showTodoAlert("结束日期不能早于开始日期", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
+      return false;
+    }
+
+    if (hasInvalidTimeRangeInput) {
+      void showTodoAlert("请输入 24 小时制时间，格式如 13:00", {
         title: "无法保存待办事项",
         danger: true,
       });
@@ -10721,7 +10943,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="checkin-start-time-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.startTime || ""}" style="
+            <input type="text" id="checkin-start-time-input" class="modal-date-input controler-time-text-input" value="${modalItem?.startTime || ""}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -10735,7 +10957,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="checkin-end-time-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.endTime || ""}" style="
+            <input type="text" id="checkin-end-time-input" class="modal-date-input controler-time-text-input" value="${modalItem?.endTime || ""}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -10923,6 +11145,9 @@
       startTime,
       endTime,
     });
+    const hasInvalidTimeRangeInput =
+      (!!String(startTime || "").trim() && !normalizedTimeRange.startTime) ||
+      (!!String(endTime || "").trim() && !normalizedTimeRange.endTime);
     const todayText = getLocalDateText();
     const nowIso = new Date().toISOString();
     let effectiveEndDate = endDate;
@@ -10988,6 +11213,14 @@
 
       if (repeatType === "monthly" && repeatMonthDays.length === 0) {
         void showTodoAlert("请选择每月重复的日期", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
+        return false;
+      }
+
+      if (hasInvalidTimeRangeInput) {
+        void showTodoAlert("请输入 24 小时制时间，格式如 13:00", {
           title: "无法保存打卡项目",
           danger: true,
         });

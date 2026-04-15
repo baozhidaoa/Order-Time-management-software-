@@ -6895,7 +6895,7 @@ async function openStatsRecordEditModal(locator) {
   modal.style.display = "flex";
   modal.style.zIndex = "3200";
   modal.innerHTML = `
-    <div class="modal-content ms" style="padding: 22px; border-radius: 15px; width: min(520px, calc(100% - 24px)); max-width: min(520px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto;">
+    <div class="modal-content ms stats-record-editor-modal" style="padding: 22px; border-radius: 15px; width: min(520px, calc(100% - 24px)); max-width: min(520px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto;">
       <h3 style="margin: 0 0 16px 0; color: var(--text-color);">${isCreateMode ? "新增记录" : "编辑记录"}</h3>
       <div style="display:flex; flex-direction:column; gap: 12px;">
         <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">

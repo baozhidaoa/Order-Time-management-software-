@@ -1121,7 +1121,23 @@ function resumePlanManagedModalTextAutofocus(modal) {
   if (!(modal instanceof HTMLElement) || !modal.isConnected) {
     return false;
   }
+  if (typeof uiTools?.resumeAndroidModalAutofocus === "function") {
+    return (
+      uiTools.resumeAndroidModalAutofocus(modal, {
+        ...getPlanManagedModalTextAutofocusOptions(),
+        clearDisableFlag: true,
+      }) || false
+    );
+  }
   delete modal.dataset.controlerDisableAutofocus;
+  const disableAutofocusUntil = Number.parseInt(
+    modal.dataset.controlerDisableAutofocusUntil || "0",
+    10,
+  );
+  if (disableAutofocusUntil > Date.now()) {
+    return false;
+  }
+  delete modal.dataset.controlerDisableAutofocusUntil;
   const activeControl = document.activeElement;
   if (activeControl instanceof HTMLElement && modal.contains(activeControl)) {
     return false;
@@ -1759,6 +1775,122 @@ function getPlanReminderBaseDate(planLike = null) {
   );
 }
 
+function normalizeReminderDateInputText(value, fallback = "") {
+  const normalizedText = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedText)) {
+    return normalizedText;
+  }
+  const fallbackText = String(fallback || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(fallbackText) ? fallbackText : "";
+}
+
+function normalizePlanReminderCustomTimeInputValue(value, fallback = "09:00") {
+  return (
+    normalizePlanTimeText(value) || normalizePlanReminderTimeText(value, fallback)
+  );
+}
+
+function splitReminderDateTimeValueParts(
+  dateTimeValue,
+  fallbackDateText,
+  fallbackTimeText,
+  normalizeTimeText,
+) {
+  const normalizedValue = String(dateTimeValue || "").trim();
+  const separatorIndex = normalizedValue.indexOf("T");
+  const dateText =
+    separatorIndex >= 0
+      ? normalizedValue.slice(0, separatorIndex)
+      : normalizedValue;
+  const timeText =
+    separatorIndex >= 0 ? normalizedValue.slice(separatorIndex + 1) : "";
+  return {
+    dateText: normalizeReminderDateInputText(dateText, fallbackDateText),
+    timeText: normalizeTimeText(timeText || fallbackTimeText, fallbackTimeText),
+  };
+}
+
+function buildReminderDateTimeValueFromParts(
+  dateText,
+  timeText,
+  fallbackDateText,
+  fallbackTimeText,
+  normalizeTimeText,
+) {
+  const normalizedDateText = normalizeReminderDateInputText(
+    dateText,
+    fallbackDateText,
+  );
+  const normalizedTimeText = normalizeTimeText(timeText, fallbackTimeText);
+  return normalizedDateText ? `${normalizedDateText}T${normalizedTimeText}` : "";
+}
+
+function resolvePlanReminderCustomInputParts(
+  baseDateText,
+  reminderConfig,
+  fallbackTimeText = "09:00",
+) {
+  const resolvedFallbackTime = normalizePlanReminderCustomTimeInputValue(
+    fallbackTimeText,
+    "09:00",
+  );
+  const customDateTimeValue =
+    getReminderTools()?.buildRelativeCustomDateTimeValue?.(
+      baseDateText,
+      reminderConfig,
+      resolvedFallbackTime,
+    ) ||
+    buildReminderDateTimeValueFromParts(
+      baseDateText,
+      reminderConfig?.customTime || resolvedFallbackTime,
+      baseDateText,
+      resolvedFallbackTime,
+      normalizePlanReminderCustomTimeInputValue,
+    );
+  return splitReminderDateTimeValueParts(
+    customDateTimeValue,
+    baseDateText,
+    resolvedFallbackTime,
+    normalizePlanReminderCustomTimeInputValue,
+  );
+}
+
+function parsePlanReminderCustomInputParts(
+  dateText,
+  timeText,
+  baseDateText,
+  options = {},
+) {
+  const fallbackTimeText = normalizePlanReminderCustomTimeInputValue(
+    options?.fallbackTime || "09:00",
+    "09:00",
+  );
+  const fallbackOffsetDays = normalizePlanReminderOffsetDays(
+    options?.fallbackOffsetDays,
+    0,
+  );
+  const customDateTimeValue = buildReminderDateTimeValueFromParts(
+    dateText,
+    timeText,
+    baseDateText,
+    fallbackTimeText,
+    normalizePlanReminderCustomTimeInputValue,
+  );
+  return (
+    getReminderTools()?.parseRelativeCustomDateTimeInput?.(
+      customDateTimeValue,
+      baseDateText,
+      {
+        fallbackTime: fallbackTimeText,
+        fallbackOffsetDays,
+      },
+    ) || {
+      customTime: fallbackTimeText,
+      customOffsetDays: fallbackOffsetDays,
+    }
+  );
+}
+
 function getPlanReminderSectionHtml(planLike = null, prefix = "plan") {
   const baseDateText = getPlanReminderBaseDate(planLike);
   const reminderConfig = normalizePlanNotificationConfig(
@@ -1768,12 +1900,11 @@ function getPlanReminderSectionHtml(planLike = null, prefix = "plan") {
       date: baseDateText,
     },
   );
-  const customDateTimeValue =
-    getReminderTools()?.buildRelativeCustomDateTimeValue?.(
-      baseDateText,
-      reminderConfig,
-      planLike?.startTime || "09:00",
-    ) || "";
+  const customReminderParts = resolvePlanReminderCustomInputParts(
+    baseDateText,
+    reminderConfig,
+    planLike?.startTime || "09:00",
+  );
 
   return `
     <div>
@@ -1831,20 +1962,53 @@ function getPlanReminderSectionHtml(planLike = null, prefix = "plan") {
         <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
           自定义提醒时间
         </label>
-        <input
-          type="datetime-local"
-          id="${prefix}-notification-custom-input"
-          value="${customDateTimeValue}"
-          style="
-            width: 100%;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--bg-quaternary);
-            background-color: var(--bg-quaternary);
-            color: var(--text-color);
-            font-size: 15px;
-          "
-        >
+        <div class="modal-date-range controler-form-modal-date-range" style="display: flex; gap: 10px;">
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
+              提醒日期
+            </label>
+            <input
+              type="date"
+              id="${prefix}-notification-custom-date-input"
+              class="modal-date-input themed-native-picker-input"
+              value="${customReminderParts.dateText}"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-quaternary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 15px;
+              "
+            >
+          </div>
+          <div class="modal-date-field">
+            <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 13px;">
+              提醒时间
+            </label>
+            <input
+              type="text"
+              id="${prefix}-notification-custom-time-input"
+              class="modal-date-input controler-time-text-input"
+              value="${customReminderParts.timeText}"
+              placeholder="？？：？？"
+              inputmode="numeric"
+              maxlength="5"
+              spellcheck="false"
+              autocomplete="off"
+              style="
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid var(--bg-quaternary);
+                background-color: var(--bg-quaternary);
+                color: var(--text-color);
+                font-size: 15px;
+              "
+            >
+          </div>
+        </div>
         <div style="margin-top: 8px; color: var(--muted-text-color); font-size: 12px; line-height: 1.5;">
           若计划开启重复，将按相同的相对提醒时间应用到自动重复的计划上。
         </div>
@@ -1878,42 +2042,54 @@ function bindPlanReminderInputs(modal, prefix = "plan") {
 }
 
 function bindPlanReminderBaseDateSync(modal, prefix = "plan", options = {}) {
-  const customInput = modal.querySelector(
-    `#${prefix}-notification-custom-input`,
+  const customDateInput = modal.querySelector(
+    `#${prefix}-notification-custom-date-input`,
   );
-  if (!customInput) {
+  const customTimeInput = modal.querySelector(
+    `#${prefix}-notification-custom-time-input`,
+  );
+  if (
+    !(customDateInput instanceof HTMLInputElement) ||
+    !(customTimeInput instanceof HTMLInputElement)
+  ) {
     return;
   }
 
   const dateInput = modal.querySelector(options.dateSelector || "");
   const startTimeInput = modal.querySelector(options.startTimeSelector || "");
   const repeatInputs = modal.querySelectorAll(options.repeatSelector || "");
-  let customInputDirty = false;
+  let lastBaseDateText =
+    dateInput?.value || currentDate.toISOString().split("T")[0];
 
   const syncCustomReminderInput = () => {
-    if (customInputDirty) {
-      return;
-    }
-    const activeMode =
-      modal.querySelector(`input[name="${prefix}-notification-mode"]:checked`)
-        ?.value || "none";
-    if (activeMode !== "custom") {
-      return;
-    }
-    const baseDateText =
+    const nextBaseDateText =
       dateInput?.value || currentDate.toISOString().split("T")[0];
-    const timeText =
-      (customInput.value.includes("T")
-        ? customInput.value.split("T")[1]
-        : "") ||
-      startTimeInput?.value ||
-      "09:00";
-    customInput.value = `${baseDateText}T${timeText}`;
+    const defaultSeed = buildPlanStartReminderSeed(startTimeInput?.value);
+    const currentConfig = parsePlanReminderCustomInputParts(
+      customDateInput.value,
+      customTimeInput.value,
+      lastBaseDateText,
+      {
+        fallbackTime:
+          defaultSeed?.customTime || startTimeInput?.value || "09:00",
+        fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
+      },
+    );
+    const nextParts = resolvePlanReminderCustomInputParts(
+      nextBaseDateText,
+      currentConfig,
+      currentConfig.customTime ||
+        defaultSeed?.customTime ||
+        startTimeInput?.value ||
+        "09:00",
+    );
+    customDateInput.value = nextParts.dateText;
+    customTimeInput.value = nextParts.timeText;
+    lastBaseDateText = nextBaseDateText;
   };
 
-  customInput.addEventListener("change", () => {
-    customInputDirty = true;
-  });
+  customDateInput.addEventListener("change", syncCustomReminderInput);
+  customTimeInput.addEventListener("change", syncCustomReminderInput);
   dateInput?.addEventListener("change", syncCustomReminderInput);
   startTimeInput?.addEventListener("change", syncCustomReminderInput);
   repeatInputs.forEach((input) => {
@@ -1945,23 +2121,19 @@ function readPlanReminderConfig(modal, planLike = {}, prefix = "plan") {
   }
 
   if (mode === "custom") {
-    const customInputValue =
-      modal.querySelector(`#${prefix}-notification-custom-input`)?.value || "";
     const defaultSeed = buildPlanStartReminderSeed(planLike?.startTime);
-    const parsedCustomConfig =
-      getReminderTools()?.parseRelativeCustomDateTimeInput?.(
-        customInputValue,
-        baseDateText,
-        {
-          fallbackTime:
-            defaultSeed?.customTime || planLike?.startTime || "09:00",
-          fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
-        },
-      ) || {
-        customTime:
+    const parsedCustomConfig = parsePlanReminderCustomInputParts(
+      modal.querySelector(`#${prefix}-notification-custom-date-input`)?.value ||
+        "",
+      modal.querySelector(`#${prefix}-notification-custom-time-input`)?.value ||
+        "",
+      baseDateText,
+      {
+        fallbackTime:
           defaultSeed?.customTime || planLike?.startTime || "09:00",
-        customOffsetDays: defaultSeed?.customOffsetDays || 0,
-      };
+        fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
+      },
+    );
 
     return normalizePlanNotificationConfig(
       {
@@ -2467,15 +2639,47 @@ function getPlanRepeatSummaryText(planLike = null) {
   return "不重复";
 }
 
+function normalizePlanTimeText(value = "") {
+  const normalizedText = String(value || "").trim();
+  if (!normalizedText) {
+    return "";
+  }
+  const formatNormalizedTime = (hoursText, minutesText) => {
+    const hours = Number.parseInt(hoursText, 10);
+    const minutes = Number.parseInt(minutesText, 10);
+    if (
+      !Number.isFinite(hours) ||
+      !Number.isFinite(minutes) ||
+      hours < 0 ||
+      hours > 23 ||
+      minutes < 0 ||
+      minutes > 59
+    ) {
+      return "";
+    }
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+  const explicitMatch = /^(\d{1,2}):(\d{1,2})$/.exec(normalizedText);
+  if (explicitMatch) {
+    return formatNormalizedTime(explicitMatch[1], explicitMatch[2]);
+  }
+  const minuteOnlyMatch = /^:(\d{1,2})$/.exec(normalizedText);
+  if (minuteOnlyMatch) {
+    return formatNormalizedTime("00", minuteOnlyMatch[1]);
+  }
+  const hourOnlyMatch = /^(\d{1,2}):?$/.exec(normalizedText);
+  if (hourOnlyMatch) {
+    return (
+      formatNormalizedTime(hourOnlyMatch[1], "00") ||
+      formatNormalizedTime("00", hourOnlyMatch[1])
+    );
+  }
+  return "";
+}
+
 function normalizePlanTimeRangeFields({ startTime = "", endTime = "" } = {}) {
-  const normalizedStartTime =
-    typeof startTime === "string" && /^\d{2}:\d{2}$/.test(startTime.trim())
-      ? startTime.trim()
-      : "";
-  const normalizedEndTime =
-    typeof endTime === "string" && /^\d{2}:\d{2}$/.test(endTime.trim())
-      ? endTime.trim()
-      : "";
+  const normalizedStartTime = normalizePlanTimeText(startTime);
+  const normalizedEndTime = normalizePlanTimeText(endTime);
   return {
     startTime: normalizedStartTime,
     endTime: normalizedEndTime,
@@ -6552,7 +6756,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="weekly-plan-start-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.startTime || "09:00"}" style="
+            <input type="text" id="weekly-plan-start-time-input" class="modal-date-input controler-time-text-input" value="${planData?.startTime || "09:00"}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6566,7 +6770,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="weekly-plan-end-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.endTime || "10:00"}" style="
+            <input type="text" id="weekly-plan-end-time-input" class="modal-date-input controler-time-text-input" value="${planData?.endTime || "10:00"}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6816,6 +7020,9 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
     startTime,
     endTime,
   });
+  const hasInvalidTimeRangeInput =
+    (!!String(startTime || "").trim() && !normalizedTimeRange.startTime) ||
+    (!!String(endTime || "").trim() && !normalizedTimeRange.endTime);
   const reminderConfig = readPlanReminderConfig(
     modal,
     {
@@ -6857,6 +7064,14 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
 
   if (!startDate) {
     void showPlanAlert("请选择开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
+    return;
+  }
+
+  if (hasInvalidTimeRangeInput) {
+    void showPlanAlert("请输入 24 小时制时间，格式如 13:00", {
       title: "无法保存计划",
       danger: true,
     });
@@ -7098,7 +7313,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="plan-start-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.startTime || "09:00"}" style="
+            <input type="text" id="plan-start-time-input" class="modal-date-input controler-time-text-input" value="${planData?.startTime || "09:00"}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7112,7 +7327,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="plan-end-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.endTime || "10:00"}" style="
+            <input type="text" id="plan-end-time-input" class="modal-date-input controler-time-text-input" value="${planData?.endTime || "10:00"}" placeholder="？？：？？" inputmode="numeric" maxlength="5" spellcheck="false" autocomplete="off" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7365,6 +7580,9 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
     startTime,
     endTime,
   });
+  const hasInvalidTimeRangeInput =
+    (!!String(startTime || "").trim() && !normalizedTimeRange.startTime) ||
+    (!!String(endTime || "").trim() && !normalizedTimeRange.endTime);
   const reminderConfig = readPlanReminderConfig(
     modal,
     {
@@ -7408,6 +7626,14 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
 
   if (!startDate) {
     void showPlanAlert("请选择开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
+    return;
+  }
+
+  if (hasInvalidTimeRangeInput) {
+    void showPlanAlert("请输入 24 小时制时间，格式如 13:00", {
       title: "无法保存计划",
       danger: true,
     });

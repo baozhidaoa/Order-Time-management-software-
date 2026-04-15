@@ -1841,27 +1841,9 @@ function getCurrentDiaryMonthLabel() {
 }
 
 function getDiaryYearBounds() {
-  const currentYear = currentDate.getFullYear();
-  const nowYear = new Date().getFullYear();
-  let minYear = Math.min(
-    currentYear,
-    nowYear - DIARY_SELECTOR_YEAR_RANGE_OFFSET,
-  );
-  let maxYear = Math.max(
-    currentYear,
-    nowYear + DIARY_SELECTOR_YEAR_RANGE_OFFSET,
-  );
-  const monthMap = diaryDataIndex?.getDiaryEntriesByMonthMap?.() || new Map();
-  monthMap.forEach((_entries, monthKey) => {
-    const year = Number.parseInt(String(monthKey).slice(0, 4), 10);
-    if (Number.isFinite(year)) {
-      minYear = Math.min(minYear, year);
-      maxYear = Math.max(maxYear, year);
-    }
-  });
   return {
-    minYear,
-    maxYear,
+    minYear: 2000,
+    maxYear: new Date().getFullYear(),
   };
 }
 
@@ -1872,31 +1854,6 @@ function getDiaryYearsForSelector() {
     result.push(year);
   }
   return result;
-}
-
-function getNearestDiaryPickerOption(list) {
-  if (!(list instanceof HTMLElement)) {
-    return null;
-  }
-  const optionButtons = Array.from(
-    list.querySelectorAll(".diary-period-picker-option"),
-  );
-  if (!optionButtons.length) {
-    return null;
-  }
-  const listCenter = list.scrollTop + list.clientHeight / 2;
-  return optionButtons.reduce((nearest, candidate) => {
-    if (!(nearest instanceof HTMLElement)) {
-      return candidate;
-    }
-    const nearestDistance = Math.abs(
-      nearest.offsetTop + nearest.offsetHeight / 2 - listCenter,
-    );
-    const candidateDistance = Math.abs(
-      candidate.offsetTop + candidate.offsetHeight / 2 - listCenter,
-    );
-    return candidateDistance < nearestDistance ? candidate : nearest;
-  }, null);
 }
 
 function readDiaryPickerOptionValue(optionButton) {
@@ -2007,6 +1964,13 @@ function showDiarySingleColumnPickerDialog({
       if (previewPrimary instanceof HTMLElement) {
         previewPrimary.textContent = formatValueText(currentValue);
       }
+    };
+
+    const resolvePickerValue = (value) => {
+      const numericValue = Number(value);
+      return normalizedValues.includes(numericValue)
+        ? numericValue
+        : normalizedValues[0];
     };
 
     const clampPickerIndex = (index) =>
@@ -2370,28 +2334,34 @@ function ensureDiaryPeriodTriggerContent(button) {
 function syncDiaryPeriodSelectors() {
   const yearSelect = document.getElementById("diary-year-select");
   const monthSelect = document.getElementById("diary-month-select");
-  if (!(yearSelect instanceof HTMLButtonElement) || !(monthSelect instanceof HTMLButtonElement)) {
+  if (!(yearSelect instanceof HTMLSelectElement) || !(monthSelect instanceof HTMLSelectElement)) {
     return;
   }
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
-  const yearLabel = ensureDiaryPeriodTriggerContent(yearSelect);
-  const monthLabel = ensureDiaryPeriodTriggerContent(monthSelect);
-  if (yearLabel instanceof HTMLElement) {
-    yearLabel.textContent = `${currentYear}年`;
-    yearLabel.title = `${currentYear}年`;
-  }
-  if (monthLabel instanceof HTMLElement) {
-    monthLabel.textContent = `${currentMonth}月`;
-    monthLabel.title = `${currentMonth}月`;
-  }
-  yearSelect.dataset.value = String(currentYear);
-  monthSelect.dataset.value = String(currentMonth);
+  const yearOptions = getDiaryYearsForSelector();
+  yearSelect.innerHTML = yearOptions
+    .map((year) => `<option value="${year}">${year}年</option>`)
+    .join("");
+  monthSelect.innerHTML = Array.from(
+    { length: 12 },
+    (_, index) => `<option value="${index + 1}">${index + 1}月</option>`,
+  ).join("");
+  yearSelect.value = String(currentYear);
+  monthSelect.value = String(currentMonth);
   yearSelect.setAttribute("aria-label", `年份，当前 ${currentYear} 年`);
   monthSelect.setAttribute("aria-label", `月份，当前 ${currentMonth} 月`);
-  yearSelect.title = `${currentYear}年`;
-  monthSelect.title = `${currentMonth}月`;
+  uiTools?.enhanceNativeSelect?.(yearSelect, {
+    minWidth: 120,
+    matchTriggerWidth: true,
+  });
+  uiTools?.enhanceNativeSelect?.(monthSelect, {
+    minWidth: 110,
+    matchTriggerWidth: true,
+  });
+  uiTools?.refreshEnhancedSelect?.(yearSelect);
+  uiTools?.refreshEnhancedSelect?.(monthSelect);
 }
 
 function setCurrentDiaryMonth(year, month) {
@@ -2405,40 +2375,31 @@ function setCurrentDiaryMonth(year, month) {
 function initDiaryPeriodSelectors() {
   const yearSelect = document.getElementById("diary-year-select");
   const monthSelect = document.getElementById("diary-month-select");
-  if (!(yearSelect instanceof HTMLButtonElement) || !(monthSelect instanceof HTMLButtonElement)) {
+  if (!(yearSelect instanceof HTMLSelectElement) || !(monthSelect instanceof HTMLSelectElement)) {
     return;
   }
 
   syncDiaryPeriodSelectors();
-
-  yearSelect.addEventListener("click", async () => {
-    const { minYear, maxYear } = getDiaryYearBounds();
-    const yearValues = [];
-    for (let year = minYear; year <= maxYear; year += 1) {
-      yearValues.push(year);
-    }
-    const nextYear = await showDiarySingleColumnPickerDialog({
-      title: "选择年份",
-      secondaryText: "年份",
-      values: yearValues,
-      selectedValue: currentDate.getFullYear(),
-      formatValueText: (value) => `${value}年`,
-    });
+  uiTools?.enhanceNativeSelect?.(yearSelect, {
+    minWidth: 120,
+    matchTriggerWidth: true,
+  });
+  uiTools?.enhanceNativeSelect?.(monthSelect, {
+    minWidth: 110,
+    matchTriggerWidth: true,
+  });
+  yearSelect.addEventListener("change", () => {
+    const nextYear = Number.parseInt(yearSelect.value, 10);
     if (!Number.isFinite(nextYear) || nextYear === currentDate.getFullYear()) {
+      syncDiaryPeriodSelectors();
       return;
     }
     setCurrentDiaryMonth(nextYear, currentDate.getMonth() + 1);
   });
-
-  monthSelect.addEventListener("click", async () => {
-    const nextMonth = await showDiarySingleColumnPickerDialog({
-      title: "选择月份",
-      secondaryText: `${currentDate.getFullYear()}年`,
-      values: Array.from({ length: 12 }, (_, index) => index + 1),
-      selectedValue: currentDate.getMonth() + 1,
-      formatValueText: (value) => `${value}月`,
-    });
+  monthSelect.addEventListener("change", () => {
+    const nextMonth = Number.parseInt(monthSelect.value, 10);
     if (!Number.isFinite(nextMonth) || nextMonth === currentDate.getMonth() + 1) {
+      syncDiaryPeriodSelectors();
       return;
     }
     setCurrentDiaryMonth(currentDate.getFullYear(), nextMonth);

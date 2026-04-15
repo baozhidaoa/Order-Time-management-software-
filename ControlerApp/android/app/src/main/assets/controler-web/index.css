@@ -108,6 +108,11 @@
   --expand-surface-shadow:
     0 12px 24px rgba(0, 0, 0, 0.12);
   --ripple-color: rgba(255, 255, 255, 0.45);
+  --controler-keyboard-transition-cover-height: 0px;
+  --controler-keyboard-transition-cover-bg: var(
+    --surface-app,
+    var(--bg-primary, #ffffff)
+  );
   color-scheme: dark;
 }
 
@@ -686,6 +691,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   overscroll-behavior: contain;
   box-sizing: border-box;
   pointer-events: auto;
+  isolation: isolate;
 }
 
 body.flex.row .modal-overlay[data-controler-overlay-scope="content"] {
@@ -808,6 +814,16 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
 
 body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
+  --controler-modal-overlay-gap-fill-height: max(
+    0px,
+    calc(
+      var(--controler-stable-visual-viewport-height, 100dvh) -
+        var(
+          --controler-modal-overlay-height,
+          var(--controler-stable-visual-viewport-height, 100dvh)
+        )
+    )
+  );
   --controler-modal-overlay-inline-padding-left: max(
     10px,
     env(safe-area-inset-left, 0px)
@@ -859,6 +875,91 @@ body.controler-android-native .modal-overlay {
   align-items: center !important;
   justify-content: center !important;
   -webkit-tap-highlight-color: transparent;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-keyboard-aware-modal-overlay,
+body.controler-android-native .controler-keyboard-aware-modal-overlay {
+  --controler-modal-overlay-height: var(
+    --controler-stable-visual-viewport-height,
+    100dvh
+  ) !important;
+  --controler-modal-overlay-block-padding-bottom: calc(
+    10px + env(safe-area-inset-bottom, 0px) +
+      var(--controler-keyboard-inset, 0px)
+  ) !important;
+  min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  overflow-y: hidden !important;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-keyboard-aware-modal-overlay
+  .modal-content,
+body.controler-android-native
+  .controler-keyboard-aware-modal-overlay
+  .modal-content {
+  max-height: var(
+    --controler-modal-overlay-available-height,
+    calc(
+      var(--controler-stable-visual-viewport-height, 100dvh) -
+        max(24px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))
+    )
+  ) !important;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+body.controler-mobile-runtime.controler-android-native .modal-overlay::after,
+body.controler-android-native .modal-overlay::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--controler-modal-overlay-gap-fill-height, 0px);
+  background: var(--controler-perf-overlay-bg, var(--overlay-bg));
+  pointer-events: none;
+  z-index: -1;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay[data-controler-backdrop-visible="false"]::after,
+body.controler-android-native
+  .modal-overlay[data-controler-backdrop-visible="false"]::after,
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay.controler-themed-picker-overlay--anchored::after,
+body.controler-android-native
+  .modal-overlay.controler-themed-picker-overlay--anchored::after {
+  background: transparent !important;
+}
+
+body.controler-mobile-runtime.controler-android-native::before,
+body.controler-android-native::before {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--controler-keyboard-transition-cover-height, 0px);
+  background: var(
+    --controler-keyboard-transition-cover-bg,
+    var(--surface-app, var(--bg-primary, #ffffff))
+  );
+  pointer-events: none;
+  opacity: 0;
+  z-index: 950;
+  transition: opacity 80ms linear;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+body.controler-mobile-runtime.controler-android-native.controler-keyboard-transition-cover-active::before,
+body.controler-android-native.controler-keyboard-transition-cover-active::before {
+  opacity: 1;
 }
 
 body.controler-mobile-runtime,
@@ -3154,9 +3255,9 @@ body.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
   margin: 0;
 }
 
-body.page-stats .themed-native-picker-input,
-body.page-plan .themed-native-picker-input,
-body.page-todo .themed-native-picker-input {
+body.page-stats :is(.themed-native-picker-input, .controler-time-text-input),
+body.page-plan :is(.themed-native-picker-input, .controler-time-text-input),
+body.page-todo :is(.themed-native-picker-input, .controler-time-text-input) {
   width: 100%;
   box-sizing: border-box;
   min-height: 46px;
@@ -3175,15 +3276,15 @@ body.page-todo .themed-native-picker-input {
   -webkit-backdrop-filter: blur(15px) saturate(128%) !important;
 }
 
-body.page-stats .themed-native-picker-input:hover,
-body.page-plan .themed-native-picker-input:hover,
-body.page-todo .themed-native-picker-input:hover {
+body.page-stats :is(.themed-native-picker-input, .controler-time-text-input):hover,
+body.page-plan :is(.themed-native-picker-input, .controler-time-text-input):hover,
+body.page-todo :is(.themed-native-picker-input, .controler-time-text-input):hover {
   border-color: var(--accent-color) !important;
 }
 
-body.page-stats .themed-native-picker-input:focus,
-body.page-plan .themed-native-picker-input:focus,
-body.page-todo .themed-native-picker-input:focus {
+body.page-stats :is(.themed-native-picker-input, .controler-time-text-input):focus,
+body.page-plan :is(.themed-native-picker-input, .controler-time-text-input):focus,
+body.page-todo :is(.themed-native-picker-input, .controler-time-text-input):focus {
   outline: none;
   border-color: var(--accent-color) !important;
   box-shadow:
@@ -3196,6 +3297,949 @@ body.page-plan .themed-native-picker-input::-webkit-calendar-picker-indicator,
 body.page-todo .themed-native-picker-input::-webkit-calendar-picker-indicator {
   opacity: 0.78;
   cursor: pointer;
+}
+
+body.page-stats .controler-time-text-input::placeholder,
+body.page-plan .controler-time-text-input::placeholder,
+body.page-todo .controler-time-text-input::placeholder {
+  color: color-mix(in srgb, var(--muted-text-color) 76%, transparent);
+  letter-spacing: 0.08em;
+}
+
+body.controler-mobile-runtime
+  .themed-native-picker-input[data-controler-managed-picker="true"],
+body.controler-android-native
+  .themed-native-picker-input[data-controler-managed-picker="true"],
+body.controler-ios-native
+  .themed-native-picker-input[data-controler-managed-picker="true"] {
+  cursor: pointer;
+  caret-color: transparent;
+}
+
+.modal-content.controler-themed-picker-dialog {
+  --controler-themed-picker-gap: 12px;
+  --controler-themed-picker-shell-gap: 10px;
+  --controler-themed-picker-shell-padding: 12px;
+  --controler-themed-picker-field-gap: 8px;
+  --controler-themed-picker-field-label-gap: 4px;
+  --controler-themed-picker-grid-gap: 6px;
+  --controler-themed-picker-nav-size: 38px;
+  --controler-themed-picker-nav-radius: 12px;
+  --controler-themed-picker-day-size: 34px;
+  --controler-themed-picker-day-radius: 12px;
+  --controler-themed-picker-day-font-size: 14px;
+  --controler-themed-picker-weekday-font-size: 11px;
+  --controler-themed-picker-select-font-size: 13px;
+  --controler-themed-picker-action-height: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--controler-themed-picker-gap);
+  width: min(100%, var(--controler-themed-picker-dialog-width, 332px));
+  max-width: min(100%, var(--controler-themed-picker-dialog-width, 332px));
+  max-height: var(--controler-themed-picker-dialog-max-height, 396px);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.controler-themed-picker-overlay--anchored {
+  background: transparent !important;
+}
+
+.controler-themed-picker-inline-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.controler-themed-picker-inline-layer .modal-content {
+  pointer-events: auto;
+}
+
+.modal-content.controler-themed-picker-dialog:not(
+    .controler-themed-picker-dialog--anchored
+  ) {
+  padding: 14px;
+  border-radius: 20px;
+}
+
+.modal-content.controler-themed-picker-dialog--anchored {
+  --controler-themed-picker-gap: 8px;
+  --controler-themed-picker-shell-gap: 8px;
+  --controler-themed-picker-shell-padding: 0px;
+  --controler-themed-picker-field-gap: 6px;
+  --controler-themed-picker-grid-gap: 4px;
+  --controler-themed-picker-nav-size: 34px;
+  --controler-themed-picker-nav-radius: 10px;
+  --controler-themed-picker-day-size: 32px;
+  --controler-themed-picker-day-radius: 10px;
+  --controler-themed-picker-day-font-size: 13px;
+  --controler-themed-picker-weekday-font-size: 10px;
+  --controler-themed-picker-action-height: 34px;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid var(--expand-surface-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
+    var(--expand-surface-strong-bg);
+  box-shadow: var(--expand-surface-shadow);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.modal-content.controler-themed-picker-dialog--compact {
+  --controler-themed-picker-gap: 10px;
+  --controler-themed-picker-shell-gap: 8px;
+  --controler-themed-picker-shell-padding: 10px;
+  --controler-themed-picker-field-gap: 6px;
+  --controler-themed-picker-grid-gap: 4px;
+  --controler-themed-picker-nav-size: 34px;
+  --controler-themed-picker-nav-radius: 10px;
+  --controler-themed-picker-day-size: 32px;
+  --controler-themed-picker-day-radius: 10px;
+  --controler-themed-picker-day-font-size: 13px;
+  --controler-themed-picker-weekday-font-size: 10px;
+  --controler-themed-picker-action-height: 34px;
+}
+
+.modal-content.controler-themed-picker-dialog--compact:not(
+    .controler-themed-picker-dialog--anchored
+  ) {
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.modal-content.controler-themed-picker-dialog--tight {
+  --controler-themed-picker-gap: 8px;
+  --controler-themed-picker-shell-gap: 7px;
+  --controler-themed-picker-shell-padding: 8px;
+  --controler-themed-picker-field-gap: 5px;
+  --controler-themed-picker-grid-gap: 4px;
+  --controler-themed-picker-nav-size: 32px;
+  --controler-themed-picker-nav-radius: 10px;
+  --controler-themed-picker-day-size: 30px;
+  --controler-themed-picker-day-radius: 9px;
+  --controler-themed-picker-day-font-size: 12px;
+  --controler-themed-picker-weekday-font-size: 10px;
+  --controler-themed-picker-action-height: 32px;
+}
+
+.modal-content.controler-themed-picker-dialog--anchored .themed-dialog-title,
+.modal-content.controler-themed-picker-dialog--anchored .controler-themed-picker-preview {
+  display: none;
+}
+
+.modal-content.controler-themed-picker-dialog--time-only {
+  overflow: visible;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border-color);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 88%, transparent);
+}
+
+.modal-content.controler-themed-picker-dialog--compact
+  .controler-themed-picker-preview {
+  padding: 8px 10px;
+  border-radius: 14px;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-preview-secondary {
+  font-size: 12px;
+  color: var(--muted-text-color);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-preview-primary {
+  font-size: clamp(18px, 4vw, 28px);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--text-color);
+  text-wrap: balance;
+}
+
+.modal-content.controler-themed-picker-dialog--compact
+  .controler-themed-picker-preview-secondary {
+  font-size: 11px;
+}
+
+.modal-content.controler-themed-picker-dialog--compact
+  .controler-themed-picker-preview-primary {
+  font-size: clamp(16px, 4.6vw, 24px);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--controler-themed-picker-gap);
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog
+  :is(.controler-themed-picker-calendar-shell, .controler-themed-picker-time-shell) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--controler-themed-picker-shell-gap);
+  min-width: 0;
+  padding: var(--controler-themed-picker-shell-padding);
+  border-radius: 18px;
+  border: 1px solid var(--panel-border-color);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-strong-bg, var(--bg-secondary)) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 24px rgba(0, 0, 0, 0.12);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-shell.is-with-calendar {
+  padding-top: 2px;
+  border-top: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-shell.is-inline-options {
+  gap: 6px;
+}
+
+.modal-content.controler-themed-picker-dialog--anchored
+  :is(.controler-themed-picker-calendar-shell, .controler-themed-picker-time-shell) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-calendar-toolbar {
+  display: grid;
+  grid-template-columns: var(--controler-themed-picker-nav-size) minmax(0, 1fr) var(--controler-themed-picker-nav-size);
+  gap: var(--controler-themed-picker-field-gap);
+  align-items: start;
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog
+  :is(.controler-themed-picker-calendar-selects, .controler-themed-picker-time-fields) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--controler-themed-picker-field-gap);
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-select-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--controler-themed-picker-field-label-gap);
+  min-width: 0;
+  color: var(--text-color);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-select-field > span {
+  font-size: 11px;
+  color: var(--muted-text-color);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--controler-themed-picker-field-gap);
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-list-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--controler-themed-picker-field-label-gap);
+  min-width: 0;
+  color: var(--text-color);
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list-field
+  > span {
+  font-size: 11px;
+  color: var(--muted-text-color);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 148px;
+  max-height: min(188px, 42vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--panel-border-color) 82%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 82%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  scrollbar-width: none;
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list::-webkit-scrollbar {
+  display: none;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-select-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-select-field
+  :is(.native-select-enhancer, .tree-select-button) {
+  width: 100%;
+  min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-select-field
+  .tree-select-button {
+  min-height: var(--controler-themed-picker-action-height);
+  padding: 0 10px;
+  gap: 6px;
+  border-radius: 12px;
+  font-size: var(--controler-themed-picker-select-font-size);
+}
+
+.modal-content.controler-themed-picker-dialog .tree-select-menu {
+  min-width: 100%;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(236px, 44vh);
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.modal-content.controler-themed-picker-dialog .tree-select-option {
+  padding: 8px 10px;
+  font-size: 13px;
+  border-radius: 12px;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-list-option {
+  min-height: var(--controler-themed-picker-action-height);
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-strong-bg, var(--bg-secondary)) 74%, transparent);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-list-option:hover,
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-list-option:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-color) 28%, transparent);
+  transform: translateY(-1px);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-list-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent-color) 38%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-color) 24%, rgba(255, 255, 255, 0.06)),
+      rgba(255, 255, 255, 0)
+    ),
+    color-mix(in srgb, var(--panel-strong-bg, var(--bg-secondary)) 72%, var(--accent-color) 28%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 20px rgba(0, 0, 0, 0.12);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-list-option.is-disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-nav-btn {
+  min-width: var(--controler-themed-picker-nav-size);
+  width: var(--controler-themed-picker-nav-size);
+  min-height: var(--controler-themed-picker-nav-size);
+  border-radius: var(--controler-themed-picker-nav-radius);
+  border: 1px solid color-mix(in srgb, var(--panel-border-color) 84%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 88%, transparent);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 22px rgba(0, 0, 0, 0.12);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-nav-btn:hover,
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-nav-btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-color) 34%, transparent);
+  transform: translateY(-1px);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-nav-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--controler-themed-picker-grid-gap);
+  padding: 0 1px;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-calendar-weekdays > span {
+  text-align: center;
+  font-size: var(--controler-themed-picker-weekday-font-size);
+  font-weight: 600;
+  color: var(--muted-text-color);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--controler-themed-picker-grid-gap);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day {
+  min-height: var(--controler-themed-picker-day-size);
+  border-radius: var(--controler-themed-picker-day-radius);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 70%, transparent);
+  color: var(--text-color);
+  font: inherit;
+  font-size: var(--controler-themed-picker-day-font-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day:hover,
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-color) 28%, transparent);
+  transform: translateY(-1px);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day.is-outside-month {
+  color: color-mix(in srgb, var(--muted-text-color) 72%, transparent);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day.is-today {
+  border-color: color-mix(in srgb, var(--accent-color) 26%, transparent);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day.is-selected {
+  border-color: color-mix(in srgb, var(--accent-color) 38%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-color) 28%, rgba(255, 255, 255, 0.06)),
+      rgba(255, 255, 255, 0)
+    ),
+    color-mix(in srgb, var(--panel-strong-bg, var(--bg-secondary)) 72%, var(--accent-color) 28%);
+  color: var(--text-color);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(0, 0, 0, 0.14);
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-day.is-disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-actions {
+  margin-top: 0;
+  display: flex;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-actions .bts {
+  min-height: var(--controler-themed-picker-action-height);
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.modal-content.controler-themed-picker-dialog--tight .controler-themed-picker-calendar-toolbar {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: 6px;
+}
+
+.modal-content.controler-themed-picker-dialog--tight
+  :is(.controler-themed-picker-calendar-selects, .controler-themed-picker-time-fields) {
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+}
+
+.modal-content.controler-themed-picker-dialog--tight .controler-themed-picker-time-lists {
+  grid-template-columns: 1fr;
+}
+
+.modal-content.controler-themed-picker-dialog--tight [data-managed-picker-prev-month] {
+  justify-self: start;
+}
+
+.modal-content.controler-themed-picker-dialog--tight [data-managed-picker-next-month] {
+  justify-self: end;
+}
+
+body.controler-mobile-runtime .modal-content.controler-themed-picker-dialog,
+body.controler-android-native .modal-content.controler-themed-picker-dialog,
+body.controler-ios-native .modal-content.controler-themed-picker-dialog {
+  --controler-themed-picker-gap: 10px;
+  --controler-themed-picker-shell-gap: 8px;
+  --controler-themed-picker-shell-padding: 10px;
+  --controler-themed-picker-field-gap: 6px;
+  --controler-themed-picker-grid-gap: 4px;
+  --controler-themed-picker-nav-size: 34px;
+  --controler-themed-picker-nav-radius: 10px;
+  --controler-themed-picker-day-size: 32px;
+  --controler-themed-picker-day-radius: 10px;
+  --controler-themed-picker-day-font-size: 13px;
+  --controler-themed-picker-weekday-font-size: 10px;
+  --controler-themed-picker-action-height: 34px;
+  width: min(
+    var(--controler-themed-picker-dialog-width, 332px),
+    calc(100vw - 24px)
+  );
+  max-width: min(
+    var(--controler-themed-picker-dialog-width, 332px),
+    calc(100vw - 24px)
+  );
+  padding: 12px;
+  border-radius: 18px;
+}
+
+body.controler-mobile-runtime
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list,
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list,
+body.controler-ios-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list {
+  min-height: 140px;
+  max-height: min(176px, 38vh);
+}
+
+body.controler-android-native .modal-content.controler-themed-picker-dialog {
+  --controler-themed-picker-gap: 8px;
+  --controler-themed-picker-shell-gap: 6px;
+  --controler-themed-picker-shell-padding: 8px;
+  --controler-themed-picker-field-gap: 5px;
+  --controler-themed-picker-field-label-gap: 3px;
+  --controler-themed-picker-grid-gap: 3px;
+  --controler-themed-picker-nav-size: 28px;
+  --controler-themed-picker-nav-radius: 8px;
+  --controler-themed-picker-day-size: 26px;
+  --controler-themed-picker-day-radius: 8px;
+  --controler-themed-picker-day-font-size: 11px;
+  --controler-themed-picker-weekday-font-size: 9px;
+  --controler-themed-picker-select-font-size: 11px;
+  --controler-themed-picker-action-height: 28px;
+  width: min(
+    var(--controler-themed-picker-dialog-width, 218px),
+    calc(100vw - 32px)
+  );
+  max-width: min(
+    var(--controler-themed-picker-dialog-width, 218px),
+    calc(100vw - 32px)
+  );
+  padding: 8px;
+  border-radius: 14px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-preview {
+  padding: 7px 8px;
+  border-radius: 12px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-preview-secondary {
+  font-size: 10px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-preview-primary {
+  font-size: clamp(14px, 3.6vw, 18px);
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-select-field
+  > span,
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list-field
+  > span {
+  font-size: 10px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .tree-select-menu {
+  max-width: min(204px, calc(100vw - 28px));
+  max-height: min(148px, 30vh);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .tree-select-option,
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-list-option {
+  padding: 6px 8px;
+  font-size: 11px;
+  border-radius: 10px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-nav-btn {
+  font-size: 15px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions
+  .bts {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-time-list {
+  min-height: 96px;
+  max-height: min(
+    var(--controler-themed-picker-time-list-height, 124px),
+    28vh
+  );
+  border-radius: 12px;
+}
+
+body.controler-mobile-runtime
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions,
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions,
+body.controler-ios-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions {
+  gap: 6px;
+}
+
+body.controler-mobile-runtime
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions
+  .bts,
+body.controler-android-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions
+  .bts,
+body.controler-ios-native
+  .modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-actions
+  .bts {
+  flex: 1 1 96px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+@media (max-width: 760px) {
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal-overlay {
+    align-items: center !important;
+    justify-content: center !important;
+    --controler-modal-overlay-vertical-gap: 20px;
+    padding:
+      max(10px, env(safe-area-inset-top, 0px))
+      max(10px, env(safe-area-inset-right, 0px))
+      calc(10px + env(safe-area-inset-bottom, 0px))
+      max(10px, env(safe-area-inset-left, 0px)) !important;
+    overflow: hidden !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal {
+    width: min(
+      460px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-width: min(
+      460px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-height: min(
+      var(
+        --controler-modal-overlay-available-height,
+        calc(
+          var(--controler-modal-overlay-height) -
+            var(--controler-modal-overlay-vertical-gap)
+        )
+      ),
+      calc(
+        var(--controler-modal-overlay-height) -
+          var(--controler-modal-overlay-vertical-gap)
+      )
+    ) !important;
+    margin: auto 0;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding: 12px !important;
+    border-radius: 14px !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .plan-form-modal {
+    width: min(
+      560px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+    max-width: min(
+      560px,
+      var(--controler-modal-overlay-available-width, 100%)
+    ) !important;
+  }
+
+  body.page-stats:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .stats-date-field {
+    gap: 5px;
+  }
+
+  body.page-stats:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .stats-date-field
+    .date-input {
+    font-size: 12px;
+  }
+
+  body.page-stats:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    :is(.themed-native-picker-input, .controler-time-text-input),
+  body.page-plan:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    :is(.themed-native-picker-input, .controler-time-text-input),
+  body.page-todo:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    :is(.themed-native-picker-input, .controler-time-text-input) {
+    min-height: 42px;
+    padding: 9px 11px !important;
+    border-radius: 14px !important;
+    font-size: 13px !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    :is(.controler-form-modal-split, .modal-date-range) {
+    flex-direction: column;
+    flex-wrap: nowrap !important;
+    gap: 10px !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    :is(.controler-form-modal-time-range, .controler-form-modal-date-range) {
+    flex-direction: row !important;
+    align-items: flex-start;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    :is(.controler-form-modal-time-range, .controler-form-modal-date-range)
+    > div {
+    flex: 1 1 0;
+    min-width: 0 !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    .modal-date-field {
+    flex: 1 1 auto;
+    min-width: 0 !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    .modal-date-field
+    label {
+    font-size: 12px !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .controler-form-modal
+    .modal-date-input {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog {
+    --controler-themed-picker-gap: 10px;
+    --controler-themed-picker-shell-gap: 8px;
+    --controler-themed-picker-shell-padding: 10px;
+    --controler-themed-picker-field-gap: 6px;
+    --controler-themed-picker-grid-gap: 4px;
+    --controler-themed-picker-nav-size: 34px;
+    --controler-themed-picker-nav-radius: 10px;
+    --controler-themed-picker-day-size: 32px;
+    --controler-themed-picker-day-radius: 10px;
+    --controler-themed-picker-day-font-size: 13px;
+    --controler-themed-picker-weekday-font-size: 10px;
+    --controler-themed-picker-action-height: 34px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    .controler-themed-picker-preview {
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    .controler-themed-picker-preview-secondary {
+    font-size: 11px;
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    .controler-themed-picker-preview-primary {
+    font-size: clamp(16px, 4.2vw, 22px);
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    .controler-themed-picker-time-list {
+    min-height: 120px;
+    max-height: min(
+      var(--controler-themed-picker-time-list-height, 164px),
+      34vh
+    );
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    .tree-select-menu {
+    max-width: min(248px, calc(100vw - 24px));
+    max-height: min(188px, 34vh);
+  }
+
+  body:not(.controler-mobile-runtime):not(.controler-android-native):not(
+      .controler-ios-native
+    )
+    .modal-content.controler-themed-picker-dialog
+    :is(.tree-select-option, .controler-themed-picker-list-option) {
+    font-size: 12px;
+  }
 }
 
 .stats-section-panel {
@@ -3762,6 +4806,13 @@ body.page-stats #stats-container {
   overflow: hidden !important;
   overscroll-behavior: contain;
   touch-action: pan-y;
+  container-type: inline-size;
+  container-name: controler-modal-shell;
+}
+
+.stats-record-editor-modal {
+  container-type: inline-size;
+  container-name: controler-modal-shell;
 }
 
 .controler-form-modal-body,
@@ -3799,6 +4850,57 @@ body.page-stats #stats-container {
 .controler-form-modal-date-range > * {
   flex: 1 1 0;
   min-width: 0;
+}
+
+@container controler-modal-shell (max-width: 560px) {
+  .controler-form-modal :is(.controler-form-modal-split, .modal-date-range) {
+    flex-direction: column;
+    flex-wrap: nowrap !important;
+    gap: 10px !important;
+  }
+
+  .controler-form-modal
+    :is(.controler-form-modal-time-range, .controler-form-modal-date-range) {
+    flex-direction: row !important;
+    align-items: flex-start;
+  }
+
+  .controler-form-modal
+    :is(.controler-form-modal-time-range, .controler-form-modal-date-range)
+    > div {
+    flex: 1 1 0;
+    min-width: 0 !important;
+  }
+
+  :is(.controler-form-modal, .stats-record-editor-modal) .modal-date-field {
+    flex: 1 1 auto;
+    min-width: 0 !important;
+  }
+
+  :is(.controler-form-modal, .stats-record-editor-modal) .modal-date-field label {
+    font-size: 12px !important;
+  }
+
+  :is(.controler-form-modal, .stats-record-editor-modal)
+    :is(.modal-date-input, .themed-native-picker-input, .controler-time-text-input) {
+    min-height: 42px;
+    padding: 8px 10px !important;
+    border-radius: 14px !important;
+    font-size: 13px !important;
+  }
+
+  .controler-form-modal :is(.controler-form-modal-footer, .controler-form-modal-footer-actions) {
+    width: 100%;
+  }
+
+  .controler-form-modal .controler-form-modal-footer-actions {
+    justify-content: stretch;
+  }
+
+  .controler-form-modal .controler-form-modal-footer .bts {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
 }
 
 .controler-repeat-day-grid {
@@ -7405,9 +8507,9 @@ body.controler-android-native
     font-size: 12px !important;
   }
 
-  body.flex.row .controler-form-modal .modal-date-input,
-  body.controler-mobile-runtime .controler-form-modal .modal-date-input,
-  body.controler-android-native .controler-form-modal .modal-date-input {
+  body.flex.row .controler-form-modal :is(.modal-date-input, .controler-time-text-input),
+  body.controler-mobile-runtime .controler-form-modal :is(.modal-date-input, .controler-time-text-input),
+  body.controler-android-native .controler-form-modal :is(.modal-date-input, .controler-time-text-input) {
     padding: 8px 10px !important;
     font-size: 13px !important;
   }
@@ -9420,7 +10522,7 @@ body.page-diary .diary-main {
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 10px 24px rgba(0, 0, 0, 0.12);
   pointer-events: none;
-  z-index: 1;
+  z-index: 0;
 }
 
 .diary-period-picker-wheel-list {

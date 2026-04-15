@@ -268,6 +268,23 @@ describe('compareNavigationIntentPriority', () => {
       ),
     ).toBe(0);
   });
+
+  it('breaks requestedAt ties with the monotonic intent sequence', () => {
+    expect(
+      compareNavigationIntentPriority(
+        {
+          intentId: 'intent-a',
+          requestedAt: 200,
+          sequence: 1,
+        },
+        {
+          intentId: 'intent-b',
+          requestedAt: 200,
+          sequence: 2,
+        },
+      ),
+    ).toBe(1);
+  });
 });
 
 describe('isWebViewLayerInteractive', () => {

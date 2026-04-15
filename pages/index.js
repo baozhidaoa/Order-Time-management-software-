@@ -8044,6 +8044,7 @@ function showProjectCreateModal() {
   if (!modal) return;
 
   dismissTransientModalOverlays({ except: modal });
+  uiTools?.resetModalOverlayPresentationState?.(modal);
 
   // 重置表单
   document.getElementById("advanced-project-name").value = "";
@@ -8064,10 +8065,13 @@ function showProjectCreateModal() {
   modal.style.display = "flex";
   modal.style.zIndex = "2100";
   modal.style.pointerEvents = "auto";
+  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
+  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   window.requestAnimationFrame(() => {
     uiTools?.refreshEnhancedSelect?.(
       document.getElementById("parent-project-select"),
     );
+    uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   });
   focusAdvancedProjectNameInput();
 }
@@ -8991,6 +8995,7 @@ function openModal(options = {}) {
     buildTimerSessionSnapshotForPersistence(),
   );
   isModalOpen = true;
+  uiTools?.resetModalOverlayPresentationState?.(modal);
   modal.hidden = false;
   modal.style.display = "flex";
   modal.style.pointerEvents = "auto";
@@ -9110,11 +9115,15 @@ function closeModal(options = {}) {
   spendModalClickLocked = false;
   clearPendingSpendModalState();
   const modal = document.getElementById("modal-overlay");
+  uiTools?.freezeAndroidModalDismissLayout?.(modal);
   isModalOpen = false;
   uiTools?.releaseAndroidInteractiveTextControlFocus?.();
   if (modal) {
     modal.hidden = true;
     modal.style.display = "none";
+    uiTools?.clearAndroidModalDismissFreeze?.(modal, {
+      resync: false,
+    });
   }
   uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   modalProjectInputTargetManual = false;
@@ -10015,11 +10024,17 @@ function showStatistics(viewType) {
   // 添加点击外部关闭事件
   const modal = document.getElementById("advanced-modal-overlay");
   if (modal) {
-    modal.addEventListener("click", function (e) {
-      if (e.target === this) {
+    if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+      uiTools.bindModalBackdropDismiss(modal, () => {
         closeAdvancedModal();
-      }
-    });
+      });
+    } else {
+      modal.addEventListener("click", function (e) {
+        if (e.target === this) {
+          closeAdvancedModal();
+        }
+      });
+    }
   }
 }
 
@@ -12938,10 +12953,13 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
     resetTimerModalProjectInputTransientState();
     const modal = document.getElementById("modal-overlay");
     if (modal) {
+      uiTools?.resetModalOverlayPresentationState?.(modal);
       modal.hidden = false;
       modal.style.display = "flex";
       modal.style.pointerEvents = "auto";
       modal.style.zIndex = indexInitialDataLoaded ? "1000" : "2600";
+      uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
+      uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
     }
 
     const projectNameInput = document.getElementById("project-name-input");
@@ -14352,6 +14370,7 @@ async function loadRecordsFromStorage(options = {}) {
 function openAdvancedProjectModal() {
   const modal = document.getElementById("advanced-modal-overlay");
   if (!modal) return;
+  uiTools?.resetModalOverlayPresentationState?.(modal);
 
   // 获取输入框的值
   const input = document.getElementById("new-project-input");
@@ -14384,11 +14403,17 @@ function openAdvancedProjectModal() {
   refreshCreateProjectColorPalette({ forceSuggestion: true });
 
   // 显示弹窗
+  modal.hidden = false;
   modal.style.display = "flex";
+  modal.style.zIndex = "2100";
+  modal.style.pointerEvents = "auto";
+  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
+  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   window.requestAnimationFrame(() => {
     uiTools?.refreshEnhancedSelect?.(
       document.getElementById("parent-project-select"),
     );
+    uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   });
 }
 
@@ -14396,10 +14421,15 @@ function openAdvancedProjectModal() {
 function closeAdvancedModal() {
   const modal = document.getElementById("advanced-modal-overlay");
   if (modal) {
+    uiTools?.freezeAndroidModalDismissLayout?.(modal);
+    uiTools?.releaseAndroidInteractiveTextControlFocus?.();
     dismissTransientModalOverlays({ except: modal });
     modal.hidden = true;
     modal.style.display = "none";
     modal.style.pointerEvents = "none";
+    uiTools?.clearAndroidModalDismissFreeze?.(modal, {
+      resync: false,
+    });
   }
 }
 
@@ -14473,11 +14503,17 @@ function initIndexSecondaryBindings() {
 
   const advancedModal = document.getElementById("advanced-modal-overlay");
   if (advancedModal) {
-    advancedModal.addEventListener("click", function (e) {
-      if (e.target === this) {
+    if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+      uiTools.bindModalBackdropDismiss(advancedModal, () => {
         closeAdvancedModal();
-      }
-    });
+      });
+    } else {
+      advancedModal.addEventListener("click", function (e) {
+        if (e.target === this) {
+          closeAdvancedModal();
+        }
+      });
+    }
   }
 
   const toggleAdvancedBtn = document.getElementById("toggle-advanced-btn");
