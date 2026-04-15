@@ -6956,6 +6956,7 @@ public final class ControlerWidgetDataStore {
         if (
             "index".equals(normalized)
                 || "todo".equals(normalized)
+                || "diary".equals(normalized)
                 || "stats".equals(normalized)
                 || "plan".equals(normalized)
         ) {

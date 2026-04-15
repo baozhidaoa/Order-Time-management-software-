@@ -103,8 +103,11 @@ async function requestIndexConfirmation(message, options = {}) {
 }
 
 async function showIndexAlert(message, options = {}) {
-  if (uiTools?.alertDialog) {
-    await uiTools.alertDialog({
+  const alertDialog =
+    uiTools?.alertDialog ||
+    (typeof window !== "undefined" ? window.ControlerUI?.alertDialog : null);
+  if (typeof alertDialog === "function") {
+    await alertDialog({
       title: localizeIndexUiText(options.title || "提示"),
       message: localizeIndexUiText(message),
       confirmText: localizeIndexUiText(options.confirmText || "知道了"),
@@ -8172,13 +8175,19 @@ async function handleCreateProjectConfirm() {
 // 添加项目（普通）
 function addProject(projectName, options = {}) {
   if (!projectName || projectName.trim() === "") {
-    alert("请输入项目名称");
+    void showIndexAlert("请输入项目名称", {
+      title: "无法创建项目",
+      danger: true,
+    });
     return false;
   }
 
   // 检查是否已存在同名项目
   if (projects.some((p) => p.name === projectName)) {
-    alert("项目名称已存在，请使用其他名称");
+    void showIndexAlert("项目名称已存在，请使用其他名称", {
+      title: "无法创建项目",
+      danger: true,
+    });
     return false;
   }
 
@@ -8215,37 +8224,55 @@ function ensureProjectExists(projectName, options = {}) {
 // 添加项目（高级，带层级）
 function addProjectAdvanced(name, level, parentId, color, colorMode = "auto") {
   if (!name || name.trim() === "") {
-    alert("请输入项目名称");
+    void showIndexAlert("请输入项目名称", {
+      title: "无法创建项目",
+      danger: true,
+    });
     return false;
   }
 
   // 检查是否已存在同名项目
   if (projects.some((p) => p.name === name)) {
-    alert("项目名称已存在，请使用其他名称");
+    void showIndexAlert("项目名称已存在，请使用其他名称", {
+      title: "无法创建项目",
+      danger: true,
+    });
     return false;
   }
 
   // 验证层级关系
   if (level === 2 || level === 3) {
     if (!parentId) {
-      alert(`请为${level}级项目选择父级项目`);
+      void showIndexAlert(`请为${level}级项目选择父级项目`, {
+        title: "无法创建项目",
+        danger: true,
+      });
       return false;
     }
 
     // 检查父级项目是否存在
     const parentProject = projects.find((p) => p.id === parentId);
     if (!parentProject) {
-      alert("选择的父级项目不存在");
+      void showIndexAlert("选择的父级项目不存在", {
+        title: "无法创建项目",
+        danger: true,
+      });
       return false;
     }
 
     // 验证层级关系：2级项目的父级必须是1级，3级项目的父级必须是2级
     if (level === 2 && parentProject.level !== 1) {
-      alert("二级项目的父级必须是一级项目");
+      void showIndexAlert("二级项目的父级必须是一级项目", {
+        title: "无法创建项目",
+        danger: true,
+      });
       return false;
     }
     if (level === 3 && parentProject.level !== 2) {
-      alert("三级项目的父级必须是二级项目");
+      void showIndexAlert("三级项目的父级必须是二级项目", {
+        title: "无法创建项目",
+        danger: true,
+      });
       return false;
     }
   }

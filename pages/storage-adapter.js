@@ -7,6 +7,7 @@
   const BROWSER_STATE_KEY = "__controler_browser_state__";
   const MOBILE_MIRROR_STATE_KEY = "__controler_mobile_state__";
   const MOBILE_MIRROR_STATUS_KEY = "__controler_mobile_status__";
+  const MOBILE_MIRROR_COVERAGE_KEY = "__controler_mobile_coverage__";
   const MOBILE_MIRROR_PENDING_WRITE_KEY = "__controler_mobile_pending_write__";
   const MOBILE_MIRROR_PENDING_SESSION_KEY =
     "__controler_mobile_pending_session__";
@@ -4585,6 +4586,8 @@
         window.localStorage,
         MOBILE_MIRROR_PENDING_SESSION_KEY,
       ) || "";
+    const initialMirrorCoverageRaw =
+      nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_COVERAGE_KEY) || "";
     const initialMirrorPendingWrite =
       initialMirrorPendingWriteRaw === "1" ||
       initialMirrorPendingWriteRaw === "true";
@@ -4602,6 +4605,10 @@
         nativeMethods.removeItem?.call(
           window.localStorage,
           MOBILE_MIRROR_PENDING_SESSION_KEY,
+        );
+        nativeMethods.removeItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_COVERAGE_KEY,
         );
       } catch (error) {
         console.warn("清理失效的移动端 pending 镜像标记失败:", error);
@@ -4650,6 +4657,9 @@
       : initialMirrorState;
     const initialPendingWrite =
       initialMirrorPendingWrite && !shouldDiscardInitialPendingWrite;
+    const effectiveInitialMirrorCoverageRaw = initialMirrorPendingWrite
+      ? ""
+      : initialMirrorCoverageRaw;
     let cachedState = normalizeState(initialBootstrapState, {
       platform,
       useStateRecordsForProjectNormalization: false,
@@ -4677,6 +4687,7 @@
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
+    let lastMirroredCoverageJson = effectiveInitialMirrorCoverageRaw;
     let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
     let lastMirroredPendingSessionId = initialPendingWrite
       ? String(initialMirrorPendingSessionId || "").trim()
@@ -4771,6 +4782,67 @@
       });
       return nextCoverage;
     }
+
+    function normalizeManagedMirrorCoverageMetadata(rawMetadata = null) {
+      const parsedMetadata =
+        typeof rawMetadata === "string"
+          ? parseJsonSafely(rawMetadata, null)
+          : rawMetadata;
+      const source =
+        parsedMetadata &&
+        typeof parsedMetadata === "object" &&
+        !Array.isArray(parsedMetadata)
+          ? parsedMetadata
+          : {};
+      const coverage = createManagedSectionCoverage();
+      const sourceCoverage =
+        source.sectionCoverage &&
+        typeof source.sectionCoverage === "object" &&
+        !Array.isArray(source.sectionCoverage)
+          ? source.sectionCoverage
+          : {};
+      MANAGED_RANGE_SECTIONS.forEach((section) => {
+        const sectionPeriods = Array.isArray(sourceCoverage[section])
+          ? sourceCoverage[section]
+          : [];
+        sectionPeriods.forEach((periodId) => {
+          const normalizedPeriodId = String(periodId || "").trim();
+          if (normalizedPeriodId) {
+            coverage[section].add(normalizedPeriodId);
+          }
+        });
+      });
+      const fullyHydratedSections = new Set(
+        (Array.isArray(source.fullyHydratedSections)
+          ? source.fullyHydratedSections
+          : []
+        )
+          .map((section) => String(section || "").trim())
+          .filter((section) => MANAGED_RANGE_SECTIONS.includes(section)),
+      );
+      return {
+        coverage,
+        fullyHydratedSections,
+      };
+    }
+
+    function buildManagedMirrorCoverageMetadata() {
+      return {
+        fullyHydratedSections: MANAGED_RANGE_SECTIONS.filter((section) =>
+          managedFullyHydratedSections.has(section),
+        ),
+        sectionCoverage: MANAGED_RANGE_SECTIONS.reduce((result, section) => {
+          result[section] = Array.from(managedSectionCoverage?.[section] || []);
+          return result;
+        }, {}),
+      };
+    }
+
+    const initialManagedMirrorCoverage =
+      normalizeManagedMirrorCoverageMetadata(effectiveInitialMirrorCoverageRaw);
+    managedSectionCoverage = initialManagedMirrorCoverage.coverage;
+    managedFullyHydratedSections =
+      initialManagedMirrorCoverage.fullyHydratedSections;
 
     function normalizeChangedSectionsList(changedSections = []) {
       return normalizeChangedSectionEntries(changedSections);
@@ -5678,6 +5750,17 @@
             );
             lastMirroredStatusJson = nextStatusJson;
           }
+        }
+        const nextCoverageJson = JSON.stringify(
+          buildManagedMirrorCoverageMetadata(),
+        );
+        if (force || nextCoverageJson !== lastMirroredCoverageJson) {
+          nativeMethods.setItem?.call(
+            window.localStorage,
+            MOBILE_MIRROR_COVERAGE_KEY,
+            nextCoverageJson,
+          );
+          lastMirroredCoverageJson = nextCoverageJson;
         }
         const nextPendingWriteValue = hasPendingStateChanges ? "1" : "0";
         if (force || nextPendingWriteValue !== lastMirroredPendingWriteValue) {
@@ -7762,10 +7845,22 @@
           }
         },
         peekPageBootstrapState(pageKey, options = {}) {
+          const normalizedPage = normalizePageBootstrapKey(pageKey);
+          const normalizedOptions =
+            options && typeof options === "object" ? { ...options } : {};
+          const managedBootstrapOptions = stripAuthoritativeReadFlags(
+            normalizedOptions,
+          );
+          if (
+            shouldForceAuthoritativeRead(normalizedOptions) ||
+            !canServeManagedPageBootstrap(normalizedPage, managedBootstrapOptions)
+          ) {
+            return null;
+          }
           return buildPageBootstrapStateFromState(
             buildCurrentMergedState(),
-            pageKey,
-            options,
+            normalizedPage,
+            managedBootstrapOptions,
             {
               storageStatus: cachedStatus,
             },

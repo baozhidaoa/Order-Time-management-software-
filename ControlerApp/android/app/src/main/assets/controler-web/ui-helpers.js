@@ -354,6 +354,8 @@
   const ANDROID_PRESS_ANIMATION_MS = 360;
   const ANDROID_TOUCH_PRESS_POINTER_ID = -101;
   const ANDROID_NAV_PRESS_MIN_ACTIVE_MS = 92;
+  const APP_NAV_TOUCH_GUARD_MAX_MOVE_PX = 18;
+  const APP_NAV_TOUCH_GUARD_CANCEL_WINDOW_MS = 360;
   const ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR = [
     "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='hidden']):not(:disabled)",
     "textarea:not(:disabled)",
@@ -383,6 +385,7 @@
   let lastReportedBlockingOverlaySignature = "";
   let appNavigationInitialized = false;
   let appPageTransitionInitialized = false;
+  let appNavigationTouchGuardInitialized = false;
   let appPageTransitionLocked = false;
   let appPageLeavePreflightLocked = false;
   let deferredAppNavigationRequest = null;
@@ -425,6 +428,8 @@
   const ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS = 120;
   const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
+  let activeAppNavigationTouchGesture = null;
+  let lastCanceledAppNavigationTouchGesture = null;
   function normalizeAppPageEnterTransitionState(source = {}) {
     return {
       active: source?.active === true,
@@ -2338,6 +2343,240 @@
       target instanceof HTMLElement &&
       !!target.closest(".app-nav") &&
       target.hasAttribute("data-nav-page")
+    );
+  }
+
+  function resolveAppNavigationTouchGuardButton(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+    const matched = target.closest(".app-nav [data-nav-page]");
+    return matched instanceof HTMLButtonElement ? matched : null;
+  }
+
+  function clearStaleAppNavigationTouchGuardState() {
+    if (
+      lastCanceledAppNavigationTouchGesture &&
+      Date.now() - lastCanceledAppNavigationTouchGesture.canceledAt >
+        APP_NAV_TOUCH_GUARD_CANCEL_WINDOW_MS
+    ) {
+      lastCanceledAppNavigationTouchGesture = null;
+    }
+  }
+
+  function shouldTrackAppNavigationTouchGesture(event) {
+    if (!(event instanceof PointerEvent)) {
+      return false;
+    }
+    if (typeof event.button === "number" && event.button !== 0) {
+      return false;
+    }
+    const pointerType = String(event.pointerType || "").trim().toLowerCase();
+    return (
+      pointerType === "touch" ||
+      pointerType === "pen" ||
+      (!pointerType && isAndroidNativeRuntime())
+    );
+  }
+
+  function beginAppNavigationTouchGesture(button, event) {
+    if (!(button instanceof HTMLButtonElement) || !(event instanceof PointerEvent)) {
+      return null;
+    }
+    const point = {
+      clientX: Number(event.clientX) || 0,
+      clientY: Number(event.clientY) || 0,
+    };
+    activeAppNavigationTouchGesture = {
+      button,
+      pointerId: Number.isFinite(event.pointerId) ? event.pointerId : -1,
+      startX: point.clientX,
+      startY: point.clientY,
+      lastX: point.clientX,
+      lastY: point.clientY,
+      canceled: false,
+      startedAt: Date.now(),
+    };
+    return activeAppNavigationTouchGesture;
+  }
+
+  function cancelActiveAppNavigationTouchGesture() {
+    if (!activeAppNavigationTouchGesture) {
+      return null;
+    }
+    activeAppNavigationTouchGesture.canceled = true;
+    return activeAppNavigationTouchGesture;
+  }
+
+  function updateActiveAppNavigationTouchGesture(event) {
+    if (!(event instanceof PointerEvent) || !activeAppNavigationTouchGesture) {
+      return activeAppNavigationTouchGesture;
+    }
+    const gesture = activeAppNavigationTouchGesture;
+    if (
+      Number.isFinite(gesture.pointerId) &&
+      Number.isFinite(event.pointerId) &&
+      event.pointerId !== gesture.pointerId
+    ) {
+      return gesture;
+    }
+
+    const clientX = Number(event.clientX) || 0;
+    const clientY = Number(event.clientY) || 0;
+    gesture.lastX = clientX;
+    gesture.lastY = clientY;
+    const deltaX = clientX - gesture.startX;
+    const deltaY = clientY - gesture.startY;
+    if (
+      deltaX * deltaX + deltaY * deltaY >
+      APP_NAV_TOUCH_GUARD_MAX_MOVE_PX * APP_NAV_TOUCH_GUARD_MAX_MOVE_PX
+    ) {
+      gesture.canceled = true;
+      return gesture;
+    }
+
+    const hoveredButton =
+      typeof document.elementFromPoint === "function"
+        ? resolveAppNavigationTouchGuardButton(
+            document.elementFromPoint(clientX, clientY),
+          )
+        : null;
+    if (hoveredButton && hoveredButton === gesture.button) {
+      return gesture;
+    }
+    if (hoveredButton !== gesture.button) {
+      gesture.canceled = true;
+    }
+    return gesture;
+  }
+
+  function finalizeActiveAppNavigationTouchGesture(event = null, options = {}) {
+    if (!activeAppNavigationTouchGesture) {
+      clearStaleAppNavigationTouchGuardState();
+      return null;
+    }
+
+    const { forceCancel = false } = options;
+    const gesture = activeAppNavigationTouchGesture;
+    if (event instanceof PointerEvent) {
+      updateActiveAppNavigationTouchGesture(event);
+      if (
+        Number.isFinite(gesture.pointerId) &&
+        Number.isFinite(event.pointerId) &&
+        event.pointerId !== gesture.pointerId
+      ) {
+        return gesture;
+      }
+    }
+    if (forceCancel) {
+      gesture.canceled = true;
+    }
+    activeAppNavigationTouchGesture = null;
+    if (gesture.canceled) {
+      lastCanceledAppNavigationTouchGesture = {
+        button: gesture.button,
+        canceledAt: Date.now(),
+      };
+    } else {
+      lastCanceledAppNavigationTouchGesture = null;
+    }
+    return gesture;
+  }
+
+  function shouldSuppressAppNavigationTouchClick(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+      return false;
+    }
+    clearStaleAppNavigationTouchGuardState();
+    if (
+      activeAppNavigationTouchGesture &&
+      activeAppNavigationTouchGesture.button === button &&
+      activeAppNavigationTouchGesture.canceled
+    ) {
+      return true;
+    }
+    return (
+      lastCanceledAppNavigationTouchGesture?.button === button &&
+      Date.now() - lastCanceledAppNavigationTouchGesture.canceledAt <=
+        APP_NAV_TOUCH_GUARD_CANCEL_WINDOW_MS
+    );
+  }
+
+  function initAppNavigationTouchGestureGuard() {
+    if (
+      appNavigationTouchGuardInitialized ||
+      typeof window.PointerEvent !== "function"
+    ) {
+      return;
+    }
+    appNavigationTouchGuardInitialized = true;
+
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        clearStaleAppNavigationTouchGuardState();
+        if (!shouldTrackAppNavigationTouchGesture(event)) {
+          return;
+        }
+        const button = resolveAppNavigationTouchGuardButton(event.target);
+        if (!button) {
+          activeAppNavigationTouchGesture = null;
+          return;
+        }
+        beginAppNavigationTouchGesture(button, event);
+      },
+      true,
+    );
+    document.addEventListener(
+      "pointermove",
+      (event) => {
+        if (!shouldTrackAppNavigationTouchGesture(event)) {
+          return;
+        }
+        updateActiveAppNavigationTouchGesture(event);
+      },
+      true,
+    );
+    document.addEventListener(
+      "pointerup",
+      (event) => {
+        if (!shouldTrackAppNavigationTouchGesture(event)) {
+          return;
+        }
+        finalizeActiveAppNavigationTouchGesture(event);
+      },
+      true,
+    );
+    document.addEventListener(
+      "pointercancel",
+      (event) => {
+        if (!shouldTrackAppNavigationTouchGesture(event)) {
+          return;
+        }
+        finalizeActiveAppNavigationTouchGesture(event, {
+          forceCancel: true,
+        });
+      },
+      true,
+    );
+    document.addEventListener(
+      "click",
+      (event) => {
+        const button = resolveAppNavigationTouchGuardButton(event.target);
+        if (!button || !shouldSuppressAppNavigationTouchClick(button)) {
+          return;
+        }
+        finalizeActiveAppNavigationTouchGesture(null, {
+          forceCancel: true,
+        });
+        clearAndroidNavButtonFocus(button, true);
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
     );
   }
 
@@ -4599,6 +4838,7 @@
       return;
     }
     appPageTransitionInitialized = true;
+    initAppNavigationTouchGestureGuard();
 
     const bind = () => {
       applyAppPageEnterTransition();
@@ -7126,6 +7366,10 @@
     MODAL_INTERACTION_SHIELD_DURATION_MS,
     MODAL_ACTION_DEDUP_WINDOW_MS + 40,
   );
+  const MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS = Math.max(
+    MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+    520,
+  );
   let modalInteractionShield = null;
   let modalInteractionShieldTimer = 0;
   let modalInteractionSuppressionStartedAt = 0;
@@ -7255,6 +7499,90 @@
     modal.dataset.controlerModalFollowThroughProtectedUntil = String(
       Math.max(readModalFollowThroughProtectionUntil(modal), until),
     );
+    recordModalInteractionIntent(modal);
+    const modalContent = modal.querySelector(".modal-content");
+    if (modalContent instanceof HTMLElement) {
+      recordModalInteractionIntent(modalContent);
+    }
+    return until;
+  }
+
+  function readModalPointerSuppressionUntil(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return 0;
+    }
+    return (
+      Number.parseInt(
+        modal.dataset.controlerModalPointerSuppressedUntil || "0",
+        10,
+      ) || 0
+    );
+  }
+
+  function clearProtectedModalPointerSuppression(modal, { force = false } = {}) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    const timerId = modal.__controlerModalPointerSuppressionTimer;
+    if (timerId) {
+      window.clearTimeout(timerId);
+      modal.__controlerModalPointerSuppressionTimer = 0;
+    }
+    if (!force && Date.now() < readModalPointerSuppressionUntil(modal)) {
+      return;
+    }
+    const restoreValue = modal.dataset.controlerModalPointerEventsRestore || "";
+    if (restoreValue) {
+      modal.style.pointerEvents = restoreValue;
+    } else {
+      modal.style.removeProperty("pointer-events");
+    }
+    delete modal.dataset.controlerModalPointerEventsRestore;
+    delete modal.dataset.controlerModalPointerSuppressedUntil;
+  }
+
+  function scheduleProtectedModalPointerSuppressionRelease(modal) {
+    if (!(modal instanceof HTMLElement)) {
+      return;
+    }
+    const remainingMs = Math.max(
+      0,
+      readModalPointerSuppressionUntil(modal) - Date.now(),
+    );
+    const timerId = modal.__controlerModalPointerSuppressionTimer;
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+    modal.__controlerModalPointerSuppressionTimer = window.setTimeout(() => {
+      modal.__controlerModalPointerSuppressionTimer = 0;
+      clearProtectedModalPointerSuppression(modal);
+      if (Date.now() < readModalPointerSuppressionUntil(modal)) {
+        scheduleProtectedModalPointerSuppressionRelease(modal);
+      }
+    }, Math.max(32, remainingMs + 16));
+  }
+
+  function suspendModalPointerInteractions(
+    modal,
+    durationMs = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+  ) {
+    if (!(modal instanceof HTMLElement)) {
+      return 0;
+    }
+    const safeDuration = Math.max(
+      80,
+      Number(durationMs) || MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+    );
+    const until = Date.now() + safeDuration;
+    modal.dataset.controlerModalPointerSuppressedUntil = String(
+      Math.max(readModalPointerSuppressionUntil(modal), until),
+    );
+    if (!("controlerModalPointerEventsRestore" in modal.dataset)) {
+      modal.dataset.controlerModalPointerEventsRestore =
+        modal.style.pointerEvents || "";
+    }
+    modal.style.pointerEvents = "none";
+    scheduleProtectedModalPointerSuppressionRelease(modal);
     return until;
   }
 
@@ -7274,6 +7602,7 @@
       protectedUntil = Math.max(
         protectedUntil,
         protectModalFromFollowThrough(modal, durationMs),
+        suspendModalPointerInteractions(modal, durationMs),
       );
     });
     return protectedUntil;
@@ -7315,6 +7644,17 @@
       const eventTarget = event.target;
       const suppressionTarget =
         resolveModalInteractionSuppressionTarget(eventTarget);
+      if (
+        suppressionTarget instanceof HTMLElement &&
+        isModalFollowThroughProtected(suppressionTarget)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
       if (suppressionTarget instanceof HTMLElement) {
         recordModalInteractionIntent(suppressionTarget);
       }
@@ -7598,6 +7938,7 @@
       return;
     }
 
+    let closeProtectionDuration = MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS;
     if (modal instanceof HTMLElement) {
       const cleanupKeyboardShortcuts =
         modal.__controlerModalKeyboardShortcutsCleanup;
@@ -7609,10 +7950,16 @@
       resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
       clearAndroidFormModalKeyboardLiftObserver(modal);
-      protectVisibleParentModalsFromFollowThrough(modal);
+      protectModalFromFollowThrough(modal, closeProtectionDuration);
+      protectVisibleParentModalsFromFollowThrough(
+        modal,
+        closeProtectionDuration,
+      );
     }
 
-    activateModalInteractionShield();
+    activateModalInteractionShield(
+      MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+    );
 
     const customCloseHandler = modal.__controlerCloseModal;
     if (typeof customCloseHandler === "function") {
@@ -7633,6 +7980,17 @@
       return;
     }
 
+    if (modal instanceof HTMLElement) {
+      modal.style.opacity = "0";
+      modal.style.pointerEvents = "auto";
+      modal.style.backgroundColor = "transparent";
+      const modalContent = modal.querySelector(".modal-content");
+      if (modalContent instanceof HTMLElement) {
+        modalContent.style.visibility = "hidden";
+        modalContent.style.pointerEvents = "none";
+      }
+    }
+
     modal.__controlerRemovalQueued = "true";
     const removeModalElement = () => {
       modal.__controlerRemovalQueued = "false";
@@ -7648,7 +8006,12 @@
         ? window.requestAnimationFrame.bind(window)
         : (callback) => window.setTimeout(callback, 16);
     schedule(() => {
-      window.setTimeout(removeModalElement, MODAL_REMOVAL_DEFERRED_DELAY_MS);
+      window.setTimeout(
+        removeModalElement,
+        modal instanceof HTMLElement
+          ? closeProtectionDuration
+          : MODAL_REMOVAL_DEFERRED_DELAY_MS,
+      );
     });
   }
 
@@ -8103,6 +8466,16 @@
   function prepareModalOverlay(modal, options = {}) {
     if (!(modal instanceof HTMLElement)) return null;
 
+    clearProtectedModalPointerSuppression(modal, {
+      force: true,
+    });
+    modal.style.opacity = "";
+    modal.style.pointerEvents = "";
+    const modalContent = modal.querySelector(".modal-content");
+    if (modalContent instanceof HTMLElement) {
+      modalContent.style.visibility = "";
+      modalContent.style.pointerEvents = "";
+    }
     ensureAndroidFormModalKeyboardLiftSync();
 
     const persistent =
@@ -10855,6 +11228,7 @@
     closeModal,
     closeAllModals,
     prepareModalOverlay,
+    activateModalInteractionShield,
     stopModalContentPropagation,
     bindModalAction,
     bindModalBackdropDismiss,

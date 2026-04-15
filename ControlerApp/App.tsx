@@ -2257,6 +2257,13 @@ type BridgeNavigationDispatchPolicyOptions = {
   transitionBusy: boolean;
 };
 
+type WebViewNavigationDispatchPolicyOptions = {
+  isAndroid: boolean;
+  sourceSlot: WebViewSlot;
+  activeSlot: WebViewSlot;
+  transitionState: Pick<TransitionState, 'toSlot'> | null;
+};
+
 export function resolveBridgeNavigationDispatchPolicy({
   isAndroid,
   sourceSlot,
@@ -2269,6 +2276,31 @@ export function resolveBridgeNavigationDispatchPolicy({
   return {
     ignore: isAndroid && sourceSlot !== activeSlot,
     queue: transitionBusy,
+  };
+}
+
+export function resolveWebViewNavigationDispatchPolicy({
+  isAndroid,
+  sourceSlot,
+  activeSlot,
+  transitionState,
+}: WebViewNavigationDispatchPolicyOptions): {
+  ignore: boolean;
+} {
+  if (!isAndroid) {
+    return {
+      ignore: false,
+    };
+  }
+
+  if (sourceSlot === activeSlot || transitionState?.toSlot === sourceSlot) {
+    return {
+      ignore: false,
+    };
+  }
+
+  return {
+    ignore: true,
   };
 }
 
@@ -6987,6 +7019,19 @@ function App({
     }
 
     const currentTransition = transitionStateRef.current;
+    const dispatchPolicy = resolveWebViewNavigationDispatchPolicy({
+      isAndroid: IS_ANDROID,
+      sourceSlot: slot,
+      activeSlot: activeSlotRef.current,
+      transitionState: currentTransition
+        ? {
+            toSlot: currentTransition.toSlot,
+          }
+        : null,
+    });
+    if (dispatchPolicy.ignore) {
+      return false;
+    }
     if (
       currentTransition &&
       slot !== currentTransition.toSlot &&
@@ -7076,6 +7121,9 @@ function App({
       transform: [{scale: bootCardScale}],
     },
   );
+  const statusBarStyle = isLightBootTheme(shellBootTheme)
+    ? 'dark-content'
+    : 'light-content';
 
   const renderWebView = (slot: WebViewSlot) => {
     const slotState = webViewSlots[slot];
@@ -7112,6 +7160,7 @@ function App({
       styles.webviewLayer,
       {backgroundColor: shellBootTheme.screenBg},
     ];
+    let androidWebViewSurfaceStyle: object | null = null;
     const interactiveLayer = isWebViewLayerInteractive({
       isAndroid: IS_ANDROID,
       slot,
@@ -7156,6 +7205,29 @@ function App({
             ],
           }
         : null;
+    const androidHiddenSurfaceStyle = IS_ANDROID
+      ? {
+          opacity: 0.01,
+          transform: [{translateX: androidHiddenOffset}],
+        }
+      : null;
+    const androidPreparedLoadingSurfaceStyle =
+      currentTransition?.status === 'loading' &&
+      IS_ANDROID &&
+      slot === transitionLoadingSlot &&
+      slotPageReadyRef.current[slot]
+        ? {
+            opacity: 1,
+            transform: [
+              {
+                translateX: enteringOffset >= 0
+                  ? androidHiddenOffset
+                  : -androidHiddenOffset,
+              },
+              {scale: enteringScaleStart},
+            ],
+          }
+        : null;
 
     if (!currentTransition) {
       wrapperStyle = [
@@ -7165,6 +7237,9 @@ function App({
           ? styles.webviewLayerVisible
           : androidHiddenLayerStyle,
       ];
+      if (slot !== activeSlot) {
+        androidWebViewSurfaceStyle = androidHiddenSurfaceStyle;
+      }
     } else if (currentTransition.status === 'loading') {
       if (slot === currentTransition.fromSlot) {
         wrapperStyle = [
@@ -7181,12 +7256,14 @@ function App({
           {backgroundColor: shellBootTheme.screenBg},
           androidPreparedLoadingLayerStyle,
         ];
+        androidWebViewSurfaceStyle = androidPreparedLoadingSurfaceStyle;
       } else {
         wrapperStyle = [
           styles.webviewLayer,
           {backgroundColor: shellBootTheme.screenBg},
           androidHiddenLayerStyle,
         ];
+        androidWebViewSurfaceStyle = androidHiddenSurfaceStyle;
       }
     } else {
       if (slot === currentTransition.fromSlot) {
@@ -7247,6 +7324,7 @@ function App({
           {backgroundColor: shellBootTheme.screenBg},
           androidHiddenLayerStyle,
         ];
+        androidWebViewSurfaceStyle = androidHiddenSurfaceStyle;
       }
     }
 
@@ -7257,6 +7335,7 @@ function App({
         style={wrapperStyle}>
         <WebView
           ref={getWebViewRef(slot)}
+          pointerEvents={interactiveLayer ? 'auto' : 'none'}
           source={{uri: slotState.uri}}
           originWhitelist={['*']}
           javaScriptEnabled
@@ -7355,7 +7434,11 @@ function App({
           onShouldStartLoadWithRequest={request =>
             handleSlotShouldStartLoad(slot, slotState.revision, request.url || '')
           }
-          style={[styles.webview, {backgroundColor: shellBootTheme.screenBg}]}
+          style={[
+            styles.webview,
+            {backgroundColor: shellBootTheme.screenBg},
+            androidWebViewSurfaceStyle,
+          ]}
         />
       </Animated.View>
     );
@@ -7386,9 +7469,6 @@ function App({
 
   const activeUri = webViewSlots[activeSlot].uri;
   const activeBusyOverlay = busyOverlayBySlotRef.current[activeSlot];
-  const statusBarStyle = isLightBootTheme(shellBootTheme)
-    ? 'dark-content'
-    : 'light-content';
   const liveShellBlockingOverlay = resolveShellBlockingOverlayPayload({
     transitionState,
     activeBusyOverlay,

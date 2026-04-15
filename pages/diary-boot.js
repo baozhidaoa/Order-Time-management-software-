@@ -672,6 +672,7 @@ const DIARY_LIST_BATCH_SIZE = 60;
 const DIARY_SEARCH_DEBOUNCE_MS = 160;
 const DIARY_DRAFT_SAVE_DELAY_MS = 300;
 const DIARY_PREFETCH_MONTH_OFFSETS = Object.freeze([-1, 0, 1]);
+const DIARY_SELECTOR_YEAR_RANGE_OFFSET = 100;
 const DIARY_LOADING_OVERLAY_DELAY_MS = Math.max(
   0,
   Math.round(Number(uiTools?.pageLoadingOverlayDelayMs) || 120),
@@ -698,6 +699,9 @@ let diaryShellVisibilityBound = false;
 let diaryInitialHydrationPendingResume = false;
 let diaryExternalRefreshPendingResume = false;
 let diaryDeferredRuntimePendingResume = false;
+let diaryPendingExternalStorageRefresh = false;
+const diaryPendingPersistenceTasks = new Set();
+let diaryBeforePageLeaveGuardBound = false;
 const diaryExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -710,6 +714,21 @@ function isDiaryShellTransitionLoading() {
     return false;
   }
   return uiTools.getShellVisibilityState()?.transitionLoading === true;
+}
+
+function shouldDeferDiaryInitialHydration() {
+  return (
+    !diaryShellPageActive &&
+    !isDiaryShellTransitionLoading() &&
+    document.visibilityState === "hidden"
+  );
+}
+
+function startDiaryInitialHydration(options = {}) {
+  return hydrateDiaryInitialData({
+    mode: diaryInitialDataValidated ? "inline" : "fullscreen",
+    ...options,
+  });
 }
 
 function getDiaryNormalizedChangedSections(changedSections = []) {
@@ -1052,7 +1071,17 @@ function formatDateInputValue(date) {
 
 function parseDateInputValue(value) {
   if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const [year, month, day] = normalized.split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day);
 }
@@ -1120,6 +1149,38 @@ function escapeHtml(value) {
     };
     return htmlEscapeMap[char] || char;
   });
+}
+
+function normalizeDiaryColorInputValue(color) {
+  return String(color ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/[，]/g, ",")
+    .replace(/[（]/g, "(")
+    .replace(/[）]/g, ")")
+    .trim();
+}
+
+function toDiaryHexColor(color, fallback = "#4299E1") {
+  const normalizedColor = normalizeDiaryColorInputValue(color);
+  const hexMatch = normalizedColor.match(/^#([0-9a-f]{6})$/i);
+  if (hexMatch) {
+    return `#${hexMatch[1].toUpperCase()}`;
+  }
+  const rgbMatch = normalizedColor.match(
+    /^rgba?\(\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)\s*,\s*(25[0-5]|2[0-4]\d|1?\d?\d)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i,
+  );
+  if (rgbMatch) {
+    return `#${[rgbMatch[1], rgbMatch[2], rgbMatch[3]]
+      .map((channel) =>
+        Number(channel).toString(16).padStart(2, "0").toUpperCase(),
+      )
+      .join("")}`;
+  }
+  const normalizedFallback = normalizeDiaryColorInputValue(fallback);
+  if (/^#([0-9a-f]{6})$/i.test(normalizedFallback)) {
+    return normalizedFallback.toUpperCase();
+  }
+  return "#4299E1";
 }
 
 function getDiaryEntryPeriodId(entry) {
@@ -1371,6 +1432,18 @@ function normalizeDiaryPersistMeta(value = {}) {
   };
 }
 
+function persistDiaryFallbackSnapshot() {
+  try {
+    localStorage.setItem("diaryEntries", JSON.stringify(diaryEntries));
+    localStorage.setItem("diaryCategories", JSON.stringify(diaryCategories));
+    localStorage.setItem("guideState", JSON.stringify(readDiaryGuideState()));
+    return true;
+  } catch (error) {
+    console.error("写入日记本地兜底快照失败:", error);
+    return false;
+  }
+}
+
 function waitForDiaryUiPaint() {
   return new Promise((resolve) => {
     const schedule =
@@ -1380,6 +1453,35 @@ function waitForDiaryUiPaint() {
     schedule(() => {
       window.setTimeout(resolve, 0);
     });
+  });
+}
+
+function trackDiaryPersistenceTask(taskPromise) {
+  let trackedTask = null;
+  trackedTask = Promise.resolve(taskPromise).finally(() => {
+    diaryPendingPersistenceTasks.delete(trackedTask);
+  });
+  diaryPendingPersistenceTasks.add(trackedTask);
+  return trackedTask;
+}
+
+async function flushDiaryPendingPersistence() {
+  while (diaryPendingPersistenceTasks.size > 0) {
+    await Promise.allSettled(Array.from(diaryPendingPersistenceTasks));
+  }
+  return true;
+}
+
+function registerDiaryBeforePageLeaveGuard() {
+  if (diaryBeforePageLeaveGuardBound) {
+    return;
+  }
+  diaryBeforePageLeaveGuardBound = true;
+  uiTools?.registerBeforePageLeave?.(async () => {
+    if (diaryPendingPersistenceTasks.size <= 0) {
+      return true;
+    }
+    return flushDiaryPendingPersistence();
   });
 }
 
@@ -1428,6 +1530,7 @@ async function commitDiaryLocalChange({
         : "正在写入日记与分类数据，请稍候",
     delayMs: 0,
   });
+  const saveTask = saveDiaryData(persistMeta);
   try {
     await waitForDiaryUiPaint();
     if (typeof closeModal === "function") {
@@ -1439,22 +1542,22 @@ async function commitDiaryLocalChange({
       action: perfAction,
     });
   } catch (error) {
+    await Promise.resolve(saveTask).catch(() => false);
     setDiaryLoadingState({
       active: false,
     });
     throw error;
   }
-  if (typeof beforeClose === "function") {
-    void Promise.resolve(beforeClose()).catch((error) => {
-      console.error("清理日记草稿失败:", error);
-    });
-  }
-
-  const saved = await saveDiaryData(persistMeta);
+  const saved = await saveTask;
   setDiaryLoadingState({
     active: false,
   });
   if (saved) {
+    if (typeof beforeClose === "function") {
+      void Promise.resolve(beforeClose()).catch((error) => {
+        console.error("清理日记草稿失败:", error);
+      });
+    }
     uiTools?.markPerfStage?.("diary-form-storage-acked", {
       allowRepeat: true,
       action: perfAction,
@@ -1539,6 +1642,15 @@ function getDiaryLoadingOverlayController() {
     scopeFullscreenToInlineHost: false,
   }) || null;
   return diaryLoadingOverlayController;
+}
+
+function hideDiaryLoadingStateImmediately() {
+  return (
+    getDiaryLoadingOverlayController()?.setState({
+      active: false,
+      waitForSettledContent: false,
+    }) || Promise.resolve(false)
+  );
 }
 
 function withDiaryTimeout(promise, label = "日记数据加载") {
@@ -1635,12 +1747,20 @@ function pickPreferredDiaryLoadedState(primarySnapshot = null, fallbackSnapshot 
     : primarySnapshot;
 }
 
+function getDiaryCachedSnapshotPeriodIds() {
+  return [getDiaryCurrentPeriodId(currentDate)];
+}
+
 function readDiaryCachedSnapshotState() {
+  const isNativeApp = window.ControlerStorage?.isNativeApp === true;
+  const snapshotPeriodIds = isNativeApp
+    ? getDiaryCachedSnapshotPeriodIds()
+    : getDiaryPrefetchPeriodIds(currentDate);
   let preferredSnapshot = null;
   try {
     if (typeof window.ControlerStorage?.peekPageBootstrapState === "function") {
       const bootstrap = window.ControlerStorage.peekPageBootstrapState("diary", {
-        periodIds: getDiaryPrefetchPeriodIds(currentDate),
+        periodIds: snapshotPeriodIds,
       });
       const data =
         bootstrap?.data && typeof bootstrap.data === "object" ? bootstrap.data : null;
@@ -1654,13 +1774,16 @@ function readDiaryCachedSnapshotState() {
               Array.isArray(bootstrap.loadedPeriodIds) &&
               bootstrap.loadedPeriodIds.length
                 ? bootstrap.loadedPeriodIds
-                : getDiaryPrefetchPeriodIds(currentDate),
+                : snapshotPeriodIds,
           }),
         );
       }
     }
   } catch (error) {
     console.error("读取日记引导快照失败:", error);
+  }
+  if (isNativeApp) {
+    return preferredSnapshot;
   }
   try {
     const storageSnapshot =
@@ -1698,6 +1821,9 @@ function readDiaryCachedSnapshotState() {
 function bootstrapDiaryFromCachedSnapshot() {
   try {
     const snapshotState = readDiaryCachedSnapshotState();
+    if (!snapshotState) {
+      return false;
+    }
     applyDiaryLoadedState(snapshotState);
     renderDiaryGuideCard();
     renderCurrentView();
@@ -1760,6 +1886,86 @@ const diaryRefreshController = uiTools?.createAtomicRefreshController?.({
   },
 });
 
+function invalidateDiaryVisibleDataRequests() {
+  diaryLoadRequestId += 1;
+  diaryRefreshController?.invalidate?.();
+}
+
+function buildDiaryCurrentMonthEmptyState() {
+  return normalizeDiaryLoadedState({
+    entries: [],
+    categories: diaryCategories,
+    loadedPeriodIds: [getDiaryCurrentPeriodId(currentDate)],
+  });
+}
+
+function flushDiaryDeferredExternalRefreshIfNeeded() {
+  if (!diaryPendingExternalStorageRefresh) {
+    return;
+  }
+  if (diaryInitialHydrationPromise || !diaryInitialDataLoaded) {
+    return;
+  }
+  if (!diaryShellPageActive && !isDiaryShellTransitionLoading()) {
+    diaryExternalRefreshPendingResume = true;
+    return;
+  }
+  diaryPendingExternalStorageRefresh = false;
+  refreshDiaryFromExternalStorageChange();
+}
+
+async function waitForDiaryInitialHydrationWithDeadline(hydrationPromise) {
+  const timeoutMs = Math.max(
+    DIARY_STORAGE_REQUEST_TIMEOUT_MS + 1200,
+    5200,
+  );
+  const result = await Promise.race([
+    Promise.resolve(hydrationPromise).then((value) => ({
+      timedOut: false,
+      value,
+    })),
+    new Promise((resolve) => {
+      window.setTimeout(() => {
+        resolve({
+          timedOut: true,
+        });
+      }, timeoutMs);
+    }),
+  ]);
+
+  if (result?.timedOut !== true) {
+    return result?.value;
+  }
+
+  console.error("日记页首轮 hydration 超时，回退当前可用快照并转后台重试。");
+  invalidateDiaryVisibleDataRequests();
+  diaryInitialHydrationPromise = null;
+  await hideDiaryLoadingStateImmediately();
+  const fallbackSnapshot =
+    readDiaryCachedSnapshotState() || buildDiaryCurrentMonthEmptyState();
+  applyDiaryLoadedState(fallbackSnapshot);
+  renderDiaryGuideCard();
+  renderCurrentView();
+  diaryInitialDataLoaded = true;
+  diaryInitialDataValidated = false;
+  if (!diaryInitialReadyReported) {
+    await queueDiaryInitialReveal();
+  }
+  if (!diaryShellPageActive && !isDiaryShellTransitionLoading()) {
+    diaryInitialHydrationPendingResume = true;
+    return false;
+  }
+  window.setTimeout(() => {
+    void hydrateDiaryInitialData({
+      mode: "inline",
+      manageLoading: false,
+    }).catch((error) => {
+      console.error("重试日记页首轮 hydration 失败:", error);
+    });
+  }, 0);
+  return false;
+}
+
 function scheduleDiaryAdjacentPrefetch(anchorDate = currentDate) {
   const prefetchPeriodIds = getDiaryPrefetchPeriodIds(anchorDate);
   const currentPeriodId = getDiaryCurrentPeriodId(anchorDate);
@@ -1820,6 +2026,7 @@ function hydrateDiaryInitialData(options = {}) {
     reportFirstData: true,
   }).finally(() => {
     diaryInitialHydrationPromise = null;
+    flushDiaryDeferredExternalRefreshIfNeeded();
   });
 
   return diaryInitialHydrationPromise;
@@ -1856,6 +2063,7 @@ async function refreshDiaryVisibleData(options = {}) {
       return;
     }
     const appliedState = applyDiaryLoadedState(loadedState);
+    persistDiaryFallbackSnapshot();
     if (appliedState.shouldPersist) {
       void saveDiaryData(appliedState.persistMeta);
     }
@@ -1923,7 +2131,10 @@ async function refreshDiaryVisibleData(options = {}) {
     if (requestId !== diaryLoadRequestId) {
       return false;
     }
-    applyDiaryLoadedState(readDiaryCachedSnapshotState());
+    const cachedSnapshot = readDiaryCachedSnapshotState();
+    if (cachedSnapshot) {
+      applyDiaryLoadedState(cachedSnapshot);
+    }
     renderDiaryGuideCard();
     renderCurrentView();
     diaryInitialDataLoaded = true;
@@ -2082,65 +2293,63 @@ async function loadDiaryData(options = {}) {
   });
 }
 
-async function saveDiaryData(options = {}) {
+function saveDiaryData(options = {}) {
   const persistMeta = normalizeDiaryPersistMeta(options);
-  const changedPeriodIds = persistMeta.changedPeriodIds;
-  const categoriesChanged = persistMeta.categoriesChanged;
-  const guideStateChanged = persistMeta.guideStateChanged;
-  try {
-    const bundleStorage = window.ControlerStorage;
-    if (
-      typeof bundleStorage?.saveSectionRange === "function" &&
-      typeof bundleStorage?.replaceCoreState === "function"
-    ) {
-      const partialCore = {};
-      if (categoriesChanged) {
-        partialCore.diaryCategories = diaryCategories;
+  return trackDiaryPersistenceTask((async () => {
+    const changedPeriodIds = persistMeta.changedPeriodIds;
+    const categoriesChanged = persistMeta.categoriesChanged;
+    const guideStateChanged = persistMeta.guideStateChanged;
+    try {
+      const bundleStorage = window.ControlerStorage;
+      if (
+        typeof bundleStorage?.saveSectionRange === "function" &&
+        typeof bundleStorage?.replaceCoreState === "function"
+      ) {
+        const partialCore = {};
+        if (categoriesChanged) {
+          partialCore.diaryCategories = diaryCategories;
+        }
+        if (guideStateChanged) {
+          partialCore.guideState = readDiaryGuideState();
+        }
+        if (guideStateChanged && Object.keys(partialCore).length) {
+          await bundleStorage.replaceCoreState(partialCore, {
+            reason: "diary-guide-state",
+          });
+        }
+        const periodIds = changedPeriodIds.length
+          ? changedPeriodIds
+          : diaryLoadedPeriodIds.length
+            ? diaryLoadedPeriodIds.slice()
+            : [...new Set(diaryEntries.map((entry) => getDiaryEntryPeriodId(entry)))];
+        if (periodIds.length) {
+          await Promise.all(
+            periodIds.map((periodId) =>
+              bundleStorage.saveSectionRange("diaryEntries", {
+                periodId,
+                items: diaryEntries.filter(
+                  (entry) => getDiaryEntryPeriodId(entry) === periodId,
+                ),
+                mode: "replace",
+              }),
+            ),
+          );
+        }
+        if (categoriesChanged && !guideStateChanged) {
+          await bundleStorage.replaceCoreState(partialCore, {
+            reason: "core-replace",
+          });
+        }
+        persistDiaryFallbackSnapshot();
+        return true;
       }
-      if (guideStateChanged) {
-        partialCore.guideState = readDiaryGuideState();
-      }
-      if (guideStateChanged && Object.keys(partialCore).length) {
-        await bundleStorage.replaceCoreState(partialCore, {
-          reason: "diary-guide-state",
-        });
-      }
-      const periodIds = changedPeriodIds.length
-        ? changedPeriodIds
-        : diaryLoadedPeriodIds.length
-          ? diaryLoadedPeriodIds.slice()
-          : [...new Set(diaryEntries.map((entry) => getDiaryEntryPeriodId(entry)))];
-      if (periodIds.length) {
-        await Promise.all(
-          periodIds.map((periodId) =>
-            bundleStorage.saveSectionRange("diaryEntries", {
-              periodId,
-              items: diaryEntries.filter(
-                (entry) => getDiaryEntryPeriodId(entry) === periodId,
-              ),
-              mode: "replace",
-            }),
-          ),
-        );
-      }
-      if (categoriesChanged && !guideStateChanged) {
-        await bundleStorage.replaceCoreState(partialCore, {
-          reason: "core-replace",
-        });
-      }
-      return true;
-    }
 
-    localStorage.setItem("diaryEntries", JSON.stringify(diaryEntries));
-    localStorage.setItem("diaryCategories", JSON.stringify(diaryCategories));
-    if (guideStateChanged) {
-      localStorage.setItem("guideState", JSON.stringify(readDiaryGuideState()));
+      return persistDiaryFallbackSnapshot();
+    } catch (error) {
+      console.error("保存日记数据失败:", error);
+      return false;
     }
-    return true;
-  } catch (error) {
-    console.error("保存日记数据失败:", error);
-    return false;
-  }
+  })());
 }
 
 async function requestDiaryConfirmation(message, options = {}) {
@@ -2157,8 +2366,11 @@ async function requestDiaryConfirmation(message, options = {}) {
 }
 
 async function showDiaryAlert(message, options = {}) {
-  if (uiTools?.alertDialog) {
-    await uiTools.alertDialog({
+  const alertDialog =
+    uiTools?.alertDialog ||
+    (typeof window !== "undefined" ? window.ControlerUI?.alertDialog : null);
+  if (typeof alertDialog === "function") {
+    await alertDialog({
       title: localizeDiaryUiText(options.title || "提示"),
       message: localizeDiaryUiText(message),
       confirmText: localizeDiaryUiText(options.confirmText || "知道了"),
@@ -2193,7 +2405,38 @@ function entryMatchesDiarySearchQuery(entry) {
   }
 
   const keyword = diarySearchQuery.toLocaleLowerCase();
-  return [entry?.title, entry?.content].some((fieldValue) =>
+  const numericKeyword = keyword.replace(/\D+/g, "");
+  const categoryName = getCategoryById(entry?.categoryId)?.name || "";
+  const entryDate = String(entry?.date || "").trim();
+  const compactDate = entryDate.replace(/\D+/g, "");
+  const parsedDate = parseDateInputValue(entryDate);
+  const dateFragments = parsedDate
+    ? [
+        String(parsedDate.getFullYear()),
+        String(parsedDate.getMonth() + 1),
+        String(parsedDate.getDate()),
+        `${parsedDate.getMonth() + 1}-${parsedDate.getDate()}`,
+        `${parsedDate.getMonth() + 1}/${parsedDate.getDate()}`,
+      ]
+    : [];
+  const searchableFields = [
+    entry?.title,
+    entry?.content,
+    categoryName,
+    entryDate,
+    compactDate,
+    ...dateFragments,
+  ];
+
+  if (
+    numericKeyword &&
+    compactDate &&
+    compactDate.includes(numericKeyword)
+  ) {
+    return true;
+  }
+
+  return searchableFields.some((fieldValue) =>
     String(fieldValue || "").toLocaleLowerCase().includes(keyword),
   );
 }
@@ -2256,22 +2499,33 @@ function getCurrentDiaryMonthLabel() {
   return `${currentDate.getFullYear()}年${currentDate.getMonth() + 1}月`;
 }
 
-function getDiaryYearsForSelector() {
-  const yearSet = new Set([
-    currentDate.getFullYear(),
-    new Date().getFullYear(),
-  ]);
+function getDiaryYearBounds() {
+  const currentYear = currentDate.getFullYear();
+  const nowYear = new Date().getFullYear();
+  let minYear = Math.min(
+    currentYear,
+    nowYear - DIARY_SELECTOR_YEAR_RANGE_OFFSET,
+  );
+  let maxYear = Math.max(
+    currentYear,
+    nowYear + DIARY_SELECTOR_YEAR_RANGE_OFFSET,
+  );
   const monthMap = diaryDataIndex?.getDiaryEntriesByMonthMap?.() || new Map();
   monthMap.forEach((_entries, monthKey) => {
     const year = Number.parseInt(String(monthKey).slice(0, 4), 10);
     if (Number.isFinite(year)) {
-      yearSet.add(year);
+      minYear = Math.min(minYear, year);
+      maxYear = Math.max(maxYear, year);
     }
   });
+  return {
+    minYear,
+    maxYear,
+  };
+}
 
-  const yearList = Array.from(yearSet);
-  const minYear = Math.min(...yearList) - 3;
-  const maxYear = Math.max(...yearList) + 3;
+function getDiaryYearsForSelector() {
+  const { minYear, maxYear } = getDiaryYearBounds();
   const result = [];
   for (let year = maxYear; year >= minYear; year -= 1) {
     result.push(year);
@@ -2279,26 +2533,395 @@ function getDiaryYearsForSelector() {
   return result;
 }
 
+function getNearestDiaryPickerOption(list) {
+  if (!(list instanceof HTMLElement)) {
+    return null;
+  }
+  const optionButtons = Array.from(
+    list.querySelectorAll(".diary-period-picker-option"),
+  );
+  if (!optionButtons.length) {
+    return null;
+  }
+  const listCenter = list.scrollTop + list.clientHeight / 2;
+  return optionButtons.reduce((nearest, candidate) => {
+    if (!(nearest instanceof HTMLElement)) {
+      return candidate;
+    }
+    const nearestDistance = Math.abs(
+      nearest.offsetTop + nearest.offsetHeight / 2 - listCenter,
+    );
+    const candidateDistance = Math.abs(
+      candidate.offsetTop + candidate.offsetHeight / 2 - listCenter,
+    );
+    return candidateDistance < nearestDistance ? candidate : nearest;
+  }, null);
+}
+
+function readDiaryPickerOptionValue(optionButton) {
+  const nextValue =
+    optionButton instanceof HTMLElement
+      ? Number(optionButton.dataset.value)
+      : Number.NaN;
+  return Number.isFinite(nextValue) ? nextValue : null;
+}
+
+function scrollDiaryPickerOptionIntoCenter(list, optionButton, behavior = "auto") {
+  if (!(list instanceof HTMLElement) || !(optionButton instanceof HTMLElement)) {
+    return;
+  }
+  const targetTop = Math.max(
+    0,
+    optionButton.offsetTop - (list.clientHeight - optionButton.offsetHeight) / 2,
+  );
+  list.dataset.controlerDiaryPickerAutoScrolling = "true";
+  list.scrollTo({
+    top: targetTop,
+    behavior,
+  });
+  window.setTimeout(() => {
+    delete list.dataset.controlerDiaryPickerAutoScrolling;
+  }, behavior === "smooth" ? 260 : 80);
+}
+
+function showDiarySingleColumnPickerDialog({
+  title = "请选择",
+  values = [],
+  selectedValue = null,
+  secondaryText = "",
+  formatValueText = (value) => String(value ?? ""),
+} = {}) {
+  const normalizedValues = Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((value) => Number(value))
+        .filter(Number.isFinite),
+    ),
+  );
+  if (!normalizedValues.length) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const modal = document.createElement("div");
+    modal.className = "modal-overlay";
+    modal.style.display = "flex";
+    modal.style.zIndex = "4600";
+    modal.innerHTML = `
+      <div class="modal-content themed-dialog-card diary-period-picker-dialog ms" style="width:min(420px, calc(100vw - 24px)); max-width:min(420px, calc(100vw - 24px));">
+        <div class="themed-dialog-title">${title}</div>
+        <div class="diary-period-picker-preview">
+          <div class="diary-period-picker-preview-secondary" data-diary-picker-preview-secondary></div>
+          <div class="diary-period-picker-preview-primary" data-diary-picker-preview-primary></div>
+        </div>
+        <div class="diary-period-picker-wheel">
+          <div class="diary-period-picker-wheel-band" aria-hidden="true"></div>
+          <div class="diary-period-picker-wheel-list" data-diary-picker-list></div>
+        </div>
+        <div class="themed-dialog-actions diary-period-picker-actions">
+          <button type="button" class="bts" data-diary-picker-cancel style="margin:0;">取消</button>
+          <button type="button" class="bts" data-diary-picker-confirm style="margin:0;">设置</button>
+        </div>
+      </div>
+    `;
+
+    let currentValue = normalizedValues.includes(Number(selectedValue))
+      ? Number(selectedValue)
+      : normalizedValues[0];
+    const previewSecondary = modal.querySelector(
+      "[data-diary-picker-preview-secondary]",
+    );
+    const previewPrimary = modal.querySelector(
+      "[data-diary-picker-preview-primary]",
+    );
+    const list = modal.querySelector("[data-diary-picker-list]");
+    let scrollTimerId = 0;
+    let pickerTouchActive = false;
+    let dialogSettled = false;
+    const pickerEventCleanups = [];
+
+    const syncPreview = () => {
+      if (previewSecondary instanceof HTMLElement) {
+        previewSecondary.textContent = secondaryText || title;
+      }
+      if (previewPrimary instanceof HTMLElement) {
+        previewPrimary.textContent = formatValueText(currentValue);
+      }
+    };
+
+    const syncSelectedOptionState = () => {
+      if (!(list instanceof HTMLElement)) {
+        return;
+      }
+      list
+        .querySelectorAll(".diary-period-picker-option")
+        .forEach((optionButton) => {
+          const optionValue = Number(optionButton.dataset.value);
+          optionButton.classList.toggle(
+            "selected",
+            Number.isFinite(optionValue) && optionValue === currentValue,
+          );
+        });
+    };
+
+    const clearPendingSettle = () => {
+      if (!scrollTimerId) {
+        return;
+      }
+      window.clearTimeout(scrollTimerId);
+      scrollTimerId = 0;
+    };
+
+    const syncCurrentValueFromOption = (optionButton) => {
+      const nextValue = readDiaryPickerOptionValue(optionButton);
+      if (!Number.isFinite(nextValue)) {
+        return null;
+      }
+      if (nextValue !== currentValue) {
+        currentValue = nextValue;
+        syncPreview();
+      }
+      syncSelectedOptionState();
+      return nextValue;
+    };
+
+    const syncCurrentValueFromNearestOption = () => {
+      const nearestButton = getNearestDiaryPickerOption(list);
+      if (!(nearestButton instanceof HTMLElement)) {
+        return null;
+      }
+      syncCurrentValueFromOption(nearestButton);
+      return nearestButton;
+    };
+
+    const settleToNearestOption = (behavior = "auto") => {
+      if (dialogSettled || !(list instanceof HTMLElement)) {
+        return null;
+      }
+      const nearestButton = syncCurrentValueFromNearestOption();
+      if (nearestButton instanceof HTMLElement) {
+        scrollDiaryPickerOptionIntoCenter(list, nearestButton, behavior);
+      }
+      return nearestButton;
+    };
+
+    const scheduleSettleToNearestOption = (delayMs = 168, behavior = "auto") => {
+      clearPendingSettle();
+      scrollTimerId = window.setTimeout(() => {
+        scrollTimerId = 0;
+        if (pickerTouchActive || dialogSettled) {
+          return;
+        }
+        settleToNearestOption(behavior);
+      }, Math.max(180, Number(delayMs) || 0));
+    };
+
+    const readCommittedPreviewValue = () => {
+      const previewText = String(previewPrimary?.textContent || "").trim();
+      const matched = previewText.match(/-?\d+/);
+      if (!matched) {
+        return null;
+      }
+      const nextValue = Number(matched[0]);
+      return normalizedValues.includes(nextValue) ? nextValue : null;
+    };
+
+    const renderOptions = (behavior = "auto") => {
+      if (!(list instanceof HTMLElement)) {
+        return;
+      }
+      list.innerHTML = "";
+      normalizedValues.forEach((value) => {
+        const optionButton = document.createElement("button");
+        optionButton.type = "button";
+        optionButton.className = "diary-period-picker-option";
+        optionButton.dataset.value = String(value);
+        optionButton.textContent = formatValueText(value);
+        optionButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          currentValue = value;
+          syncPreview();
+          syncSelectedOptionState();
+          clearPendingSettle();
+          scrollDiaryPickerOptionIntoCenter(list, optionButton, "auto");
+        });
+        list.appendChild(optionButton);
+      });
+
+      syncSelectedOptionState();
+      const selectedButton = list.querySelector(".diary-period-picker-option.selected");
+      window.requestAnimationFrame?.(() => {
+        if (selectedButton instanceof HTMLElement) {
+          scrollDiaryPickerOptionIntoCenter(list, selectedButton, behavior);
+        }
+      });
+    };
+
+    list?.addEventListener("scroll", () => {
+      if (!(list instanceof HTMLElement)) {
+        return;
+      }
+      if (
+        dialogSettled ||
+        list.dataset.controlerDiaryPickerAutoScrolling === "true"
+      ) {
+        return;
+      }
+      syncCurrentValueFromNearestOption();
+      scheduleSettleToNearestOption(240, "auto");
+    });
+
+    const bindPickerEvent = (target, eventName, handler, options = undefined) => {
+      if (
+        !target ||
+        typeof target.addEventListener !== "function" ||
+        typeof target.removeEventListener !== "function"
+      ) {
+        return;
+      }
+      target.addEventListener(eventName, handler, options);
+      pickerEventCleanups.push(() => {
+        target.removeEventListener(eventName, handler, options);
+      });
+    };
+
+    const markPickerTouchStart = () => {
+      pickerTouchActive = true;
+      clearPendingSettle();
+    };
+    const markPickerTouchEnd = () => {
+      if (!pickerTouchActive) {
+        return;
+      }
+      pickerTouchActive = false;
+      scheduleSettleToNearestOption(240, "auto");
+    };
+    ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
+      bindPickerEvent(list, eventName, markPickerTouchStart, {
+        passive: eventName === "touchstart",
+      });
+    });
+    ["pointerup", "mouseup", "touchend", "touchcancel", "pointercancel"].forEach(
+      (eventName) => {
+        bindPickerEvent(window, eventName, markPickerTouchEnd, {
+          passive: eventName.startsWith("touch"),
+        });
+      },
+    );
+    if ("onscrollend" in HTMLElement.prototype) {
+      bindPickerEvent(list, "scrollend", () => {
+        if (pickerTouchActive || dialogSettled) {
+          return;
+        }
+        settleToNearestOption("auto");
+      });
+    }
+
+    const settleDialog = (result = null) => {
+      dialogSettled = true;
+      pickerTouchActive = false;
+      clearPendingSettle();
+      pickerEventCleanups.splice(0).forEach((cleanup) => {
+        try {
+          cleanup();
+        } catch (error) {
+          console.warn("清理日记滚轮选择器事件失败:", error);
+        }
+      });
+      modal.__controlerCloseModal = null;
+      if (typeof uiTools?.closeModal === "function") {
+        uiTools.closeModal(modal);
+      } else if (modal.parentNode) {
+        modal.parentNode.removeChild(modal);
+      }
+      window.setTimeout(() => {
+        resolve(result);
+      }, 120);
+    };
+
+    modal.__controlerCloseModal = () => settleDialog(null);
+    if (typeof uiTools?.prepareModalOverlay === "function") {
+      uiTools.prepareModalOverlay(modal, {
+        zIndex: 4600,
+        scope: "viewport",
+        keyboardConfirmSelector: "[data-diary-picker-confirm]",
+        keyboardCancelSelector: "[data-diary-picker-cancel]",
+      });
+      uiTools?.activateModalInteractionShield?.(180);
+    } else {
+      document.body.appendChild(modal);
+      uiTools?.stopModalContentPropagation?.(modal);
+    }
+
+    uiTools?.bindModalAction?.(modal, "[data-diary-picker-cancel]", () => {
+      settleDialog(null);
+    });
+    uiTools?.bindModalAction?.(modal, "[data-diary-picker-confirm]", () => {
+      const nearestButton = settleToNearestOption("auto");
+      const committedValue =
+        readCommittedPreviewValue() ??
+        readDiaryPickerOptionValue(nearestButton) ??
+        currentValue;
+      settleDialog(committedValue);
+    });
+    uiTools?.bindModalBackdropDismiss?.(modal, () => {
+      settleDialog(null);
+    });
+
+    syncPreview();
+    renderOptions();
+  });
+}
+
+function ensureDiaryPeriodTriggerContent(button) {
+  if (!(button instanceof HTMLButtonElement)) {
+    return null;
+  }
+  let label = button.querySelector("[data-diary-period-trigger-label]");
+  if (!(label instanceof HTMLElement)) {
+    button.textContent = "";
+    label = document.createElement("span");
+    label.className = "diary-period-trigger-label";
+    label.dataset.diaryPeriodTriggerLabel = "true";
+    button.appendChild(label);
+  }
+  let caret = button.querySelector(".diary-period-trigger-caret");
+  if (!(caret instanceof HTMLElement)) {
+    caret = document.createElement("span");
+    caret.className = "diary-period-trigger-caret";
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾";
+    button.appendChild(caret);
+  }
+  return label;
+}
+
 function syncDiaryPeriodSelectors() {
   const yearSelect = document.getElementById("diary-year-select");
   const monthSelect = document.getElementById("diary-month-select");
-  if (!yearSelect || !monthSelect) return;
+  if (!(yearSelect instanceof HTMLButtonElement) || !(monthSelect instanceof HTMLButtonElement)) {
+    return;
+  }
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
-
-  yearSelect.innerHTML = getDiaryYearsForSelector()
-    .map((year) => `<option value="${year}">${year}年</option>`)
-    .join("");
-  monthSelect.innerHTML = Array.from({ length: 12 }, (_, index) => {
-    const month = index + 1;
-    return `<option value="${month}">${month}月</option>`;
-  }).join("");
-
-  yearSelect.value = String(currentYear);
-  monthSelect.value = String(currentMonth);
-  uiTools?.enhanceNativeSelect?.(yearSelect, { minWidth: 120 });
-  uiTools?.enhanceNativeSelect?.(monthSelect, { minWidth: 110 });
+  const yearLabel = ensureDiaryPeriodTriggerContent(yearSelect);
+  const monthLabel = ensureDiaryPeriodTriggerContent(monthSelect);
+  if (yearLabel instanceof HTMLElement) {
+    yearLabel.textContent = `${currentYear}年`;
+    yearLabel.title = `${currentYear}年`;
+  }
+  if (monthLabel instanceof HTMLElement) {
+    monthLabel.textContent = `${currentMonth}月`;
+    monthLabel.title = `${currentMonth}月`;
+  }
+  yearSelect.dataset.value = String(currentYear);
+  monthSelect.dataset.value = String(currentMonth);
+  yearSelect.setAttribute("aria-label", `年份，当前 ${currentYear} 年`);
+  monthSelect.setAttribute("aria-label", `月份，当前 ${currentMonth} 月`);
+  yearSelect.title = `${currentYear}年`;
+  monthSelect.title = `${currentMonth}月`;
 }
 
 function setCurrentDiaryMonth(year, month) {
@@ -2312,19 +2935,42 @@ function setCurrentDiaryMonth(year, month) {
 function initDiaryPeriodSelectors() {
   const yearSelect = document.getElementById("diary-year-select");
   const monthSelect = document.getElementById("diary-month-select");
-  if (!yearSelect || !monthSelect) return;
+  if (!(yearSelect instanceof HTMLButtonElement) || !(monthSelect instanceof HTMLButtonElement)) {
+    return;
+  }
 
   syncDiaryPeriodSelectors();
-  uiTools?.enhanceNativeSelect?.(yearSelect, { minWidth: 120 });
-  uiTools?.enhanceNativeSelect?.(monthSelect, { minWidth: 110 });
 
-  yearSelect.addEventListener("change", () => {
-    const nextYear = Number(yearSelect.value) || currentDate.getFullYear();
+  yearSelect.addEventListener("click", async () => {
+    const { minYear, maxYear } = getDiaryYearBounds();
+    const yearValues = [];
+    for (let year = minYear; year <= maxYear; year += 1) {
+      yearValues.push(year);
+    }
+    const nextYear = await showDiarySingleColumnPickerDialog({
+      title: "选择年份",
+      secondaryText: "年份",
+      values: yearValues,
+      selectedValue: currentDate.getFullYear(),
+      formatValueText: (value) => `${value}年`,
+    });
+    if (!Number.isFinite(nextYear) || nextYear === currentDate.getFullYear()) {
+      return;
+    }
     setCurrentDiaryMonth(nextYear, currentDate.getMonth() + 1);
   });
 
-  monthSelect.addEventListener("change", () => {
-    const nextMonth = Number(monthSelect.value) || currentDate.getMonth() + 1;
+  monthSelect.addEventListener("click", async () => {
+    const nextMonth = await showDiarySingleColumnPickerDialog({
+      title: "选择月份",
+      secondaryText: `${currentDate.getFullYear()}年`,
+      values: Array.from({ length: 12 }, (_, index) => index + 1),
+      selectedValue: currentDate.getMonth() + 1,
+      formatValueText: (value) => `${value}月`,
+    });
+    if (!Number.isFinite(nextMonth) || nextMonth === currentDate.getMonth() + 1) {
+      return;
+    }
     setCurrentDiaryMonth(currentDate.getFullYear(), nextMonth);
   });
 }
@@ -2444,6 +3090,85 @@ function setDiarySearchQuery(nextQuery, options = {}) {
   }
 }
 
+function readDiaryRootPixelValue(propertyName, rootStyle = null) {
+  const computedRootStyle =
+    rootStyle ||
+    (typeof window.getComputedStyle === "function"
+      ? window.getComputedStyle(document.documentElement)
+      : null);
+  const nextValue = Number.parseFloat(
+    computedRootStyle?.getPropertyValue(propertyName) || "0",
+  );
+  return Number.isFinite(nextValue) ? Math.max(nextValue, 0) : 0;
+}
+
+function resolveDiarySearchViewportMetrics() {
+  const rootStyle =
+    typeof window.getComputedStyle === "function"
+      ? window.getComputedStyle(document.documentElement)
+      : null;
+  const visualViewport = window.visualViewport;
+  const viewportTop = Math.max(Number(visualViewport?.offsetTop) || 0, 0);
+  const viewportHeight = Math.max(
+    Number(visualViewport?.height) ||
+      Number(window.innerHeight) ||
+      Number(document.documentElement?.clientHeight) ||
+      Number(document.body?.clientHeight) ||
+      0,
+    0,
+  );
+  const stableViewportHeight = readDiaryRootPixelValue(
+    "--controler-stable-visual-viewport-height",
+    rootStyle,
+  );
+  const transitionKeyboardInset = readDiaryRootPixelValue(
+    "--controler-keyboard-transition-inset",
+    rootStyle,
+  );
+  const derivedKeyboardInset =
+    stableViewportHeight > 0
+      ? Math.max(stableViewportHeight - (viewportTop + viewportHeight), 0)
+      : 0;
+
+  return {
+    viewportTop,
+    viewportBottom: viewportTop + viewportHeight,
+    keyboardInsetPx: Math.max(transitionKeyboardInset, derivedKeyboardInset),
+  };
+}
+
+function isDiarySearchScrollHost(candidate) {
+  if (!(candidate instanceof HTMLElement)) {
+    return false;
+  }
+  const computedStyle =
+    typeof window.getComputedStyle === "function"
+      ? window.getComputedStyle(candidate)
+      : null;
+  const overflowY = String(computedStyle?.overflowY || "").toLowerCase();
+  return (
+    ["auto", "scroll", "overlay"].includes(overflowY) ||
+    candidate.scrollHeight > candidate.clientHeight + 1
+  );
+}
+
+function resolveDiarySearchScrollHost(searchInput) {
+  const candidates = [
+    searchInput?.closest?.(".app-main.diary-main"),
+    searchInput?.closest?.(".diary-main"),
+    searchInput?.closest?.(".app-main"),
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+  ];
+  return (
+    candidates.find((candidate) => isDiarySearchScrollHost(candidate)) ||
+    document.scrollingElement ||
+    document.documentElement ||
+    document.body
+  );
+}
+
 function initDiarySearchControls() {
   const searchInput = document.getElementById("diary-search-input");
   if (!searchInput) return;
@@ -2451,6 +3176,116 @@ function initDiarySearchControls() {
   diarySearchQuery = "";
   searchInput.value = "";
   syncDiarySearchControls();
+
+  let viewportSyncFrameId = 0;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  const cancelScheduled =
+    typeof window.cancelAnimationFrame === "function"
+      ? window.cancelAnimationFrame.bind(window)
+      : window.clearTimeout.bind(window);
+  let searchViewportSyncTimers = [];
+  let activeSearchScrollHost = null;
+  const syncSearchScrollHostClearance = (scrollHost, keyboardInsetPx = 0) => {
+    if (
+      activeSearchScrollHost instanceof HTMLElement &&
+      activeSearchScrollHost !== scrollHost
+    ) {
+      activeSearchScrollHost.style.removeProperty(
+        "--diary-search-keyboard-clearance",
+      );
+    }
+    activeSearchScrollHost =
+      scrollHost instanceof HTMLElement ? scrollHost : null;
+    if (!(activeSearchScrollHost instanceof HTMLElement)) {
+      return;
+    }
+    const nextInset = Math.max(0, Math.round(Number(keyboardInsetPx) || 0));
+    if (nextInset > 0) {
+      activeSearchScrollHost.style.setProperty(
+        "--diary-search-keyboard-clearance",
+        `${nextInset}px`,
+      );
+      return;
+    }
+    activeSearchScrollHost.style.removeProperty(
+      "--diary-search-keyboard-clearance",
+    );
+  };
+  const clearSearchScrollHostClearance = () => {
+    if (!(activeSearchScrollHost instanceof HTMLElement)) {
+      return;
+    }
+    activeSearchScrollHost.style.removeProperty(
+      "--diary-search-keyboard-clearance",
+    );
+    activeSearchScrollHost = null;
+  };
+  const syncSearchInputIntoViewport = () => {
+    viewportSyncFrameId = 0;
+    if (document.activeElement !== searchInput) {
+      clearSearchScrollHostClearance();
+      return;
+    }
+    const searchShell =
+      searchInput.closest(".diary-filter-shell") || searchInput;
+    if (!(searchShell instanceof HTMLElement)) {
+      return;
+    }
+    const scrollHost = resolveDiarySearchScrollHost(searchInput);
+    const { viewportTop, viewportBottom, keyboardInsetPx } =
+      resolveDiarySearchViewportMetrics();
+    syncSearchScrollHostClearance(scrollHost, keyboardInsetPx);
+
+    const shellRect = searchShell.getBoundingClientRect();
+    const targetTop = viewportTop + 10;
+    const targetBottom = viewportBottom - 18;
+    let scrollDelta = 0;
+    if (keyboardInsetPx > 0 && shellRect.top > targetTop + 4) {
+      scrollDelta = shellRect.top - targetTop;
+    } else if (shellRect.top < targetTop) {
+      scrollDelta = shellRect.top - targetTop;
+    } else if (shellRect.bottom > targetBottom) {
+      scrollDelta = shellRect.bottom - targetBottom;
+    }
+
+    if (Math.abs(scrollDelta) <= 1) {
+      return;
+    }
+
+    if (scrollHost instanceof HTMLElement && typeof scrollHost.scrollBy === "function") {
+      scrollHost.scrollBy({
+        top: scrollDelta,
+        behavior: "auto",
+      });
+      return;
+    }
+    window.scrollBy({
+      top: scrollDelta,
+      behavior: "auto",
+    });
+  };
+  const scheduleSearchInputViewportSync = () => {
+    if (viewportSyncFrameId) {
+      return;
+    }
+    viewportSyncFrameId = schedule(syncSearchInputIntoViewport);
+  };
+  const clearSearchInputViewportSync = () => {
+    if (!viewportSyncFrameId) {
+      searchViewportSyncTimers.forEach((timerId) => window.clearTimeout(timerId));
+      searchViewportSyncTimers = [];
+      clearSearchScrollHostClearance();
+      return;
+    }
+    cancelScheduled(viewportSyncFrameId);
+    viewportSyncFrameId = 0;
+    searchViewportSyncTimers.forEach((timerId) => window.clearTimeout(timerId));
+    searchViewportSyncTimers = [];
+    clearSearchScrollHostClearance();
+  };
 
   const handleSearchInput = () => {
     window.clearTimeout(diarySearchInputTimer);
@@ -2460,11 +3295,31 @@ function initDiarySearchControls() {
       });
     }, DIARY_SEARCH_DEBOUNCE_MS);
   };
+  const handleSearchFocus = () => {
+    searchViewportSyncTimers.forEach((timerId) => window.clearTimeout(timerId));
+    scheduleSearchInputViewportSync();
+    searchViewportSyncTimers = [72, 160, 320, 520].map((delay) =>
+      window.setTimeout(scheduleSearchInputViewportSync, delay),
+    );
+  };
 
   searchInput.addEventListener("input", handleSearchInput);
+  searchInput.addEventListener("focus", handleSearchFocus);
+  searchInput.addEventListener("blur", clearSearchInputViewportSync);
+  window.visualViewport?.addEventListener?.(
+    "resize",
+    scheduleSearchInputViewportSync,
+    { passive: true },
+  );
+  window.visualViewport?.addEventListener?.(
+    "scroll",
+    scheduleSearchInputViewportSync,
+    { passive: true },
+  );
   window.addEventListener("pageshow", () => {
     searchInput.value = "";
     setDiarySearchQuery("");
+    clearSearchInputViewportSync();
   });
 }
 
@@ -2486,12 +3341,17 @@ function renderCurrentView() {
 
 function renderMonthView(container) {
   const scale = getDiaryResponsiveScale();
+  const isCompactDiaryLayout = isCompactMobileLayout();
   const gridGap = Math.max(4, Math.round(6 * scale));
   const cellMinHeight = Math.max(82, Math.round(108 * scale));
   const cellPadding = Math.max(6, Math.round(8 * scale));
   const cellRadius = Math.max(8, Math.round(10 * scale));
-  const badgeFontSize = Math.max(10, Math.round(11 * scale));
-  const previewFontSize = Math.max(11, Math.round(12 * scale));
+  const badgeFontSize = isCompactDiaryLayout
+    ? Math.max(9, Math.round(10 * scale))
+    : Math.max(10, Math.round(11 * scale));
+  const previewFontSize = isCompactDiaryLayout
+    ? Math.max(9, Math.round(10 * scale))
+    : Math.max(11, Math.round(12 * scale));
   const titleFontSize = Math.max(16, Math.round(18 * scale));
   const visibleEntries = getVisibleDiaryEntriesForCurrentMonth();
   const entryByDate = new Map(
@@ -2570,6 +3430,7 @@ function renderMonthView(container) {
     cell.style.display = "flex";
     cell.style.flexDirection = "column";
     cell.style.gap = `${Math.max(4, Math.round(5 * scale))}px`;
+    cell.style.overflow = "hidden";
     cell.style.backgroundColor = inCurrentMonth
       ? "var(--bg-tertiary)"
       : "var(--bg-secondary)";
@@ -2585,14 +3446,21 @@ function renderMonthView(container) {
     dayNo.style.fontWeight = "bold";
     dayNo.style.color = "var(--text-color)";
     dayNo.style.fontSize = `${Math.max(12, Math.round(13 * scale))}px`;
+    dayNo.style.flex = "0 0 auto";
     cell.appendChild(dayNo);
 
     if (entry) {
       const tag = getCategoryById(entry.categoryId);
       const badge = document.createElement("div");
-      badge.style.display = "inline-flex";
-      badge.style.alignItems = "center";
-      badge.style.gap = "5px";
+      badge.style.display = "grid";
+      badge.style.gridTemplateColumns = `${Math.max(6, Math.round(8 * scale))}px minmax(0, 1fr)`;
+      badge.style.alignItems = "start";
+      badge.style.columnGap = `${Math.max(4, Math.round(4 * scale))}px`;
+      badge.style.width = "100%";
+      badge.style.maxWidth = "100%";
+      badge.style.minWidth = "0";
+      badge.style.flex = "0 0 auto";
+      badge.style.overflow = "hidden";
       badge.style.fontSize = `${badgeFontSize}px`;
       badge.style.color = "var(--text-color)";
       const colorDot = document.createElement("span");
@@ -2601,18 +3469,44 @@ function renderMonthView(container) {
       colorDot.style.height = `${Math.max(6, Math.round(8 * scale))}px`;
       colorDot.style.borderRadius = "50%";
       colorDot.style.background = tag?.color || "var(--accent-color)";
+      colorDot.style.flex = "0 0 auto";
+      colorDot.style.marginTop = "0.15em";
       badge.appendChild(colorDot);
 
       const badgeText = document.createElement("span");
       badgeText.textContent = tag?.name || "未分类";
+      badgeText.title = badgeText.textContent;
+      badgeText.style.display = "block";
+      badgeText.style.overflow = "hidden";
+      badgeText.style.textOverflow = "ellipsis";
+      badgeText.style.whiteSpace = "nowrap";
+      badgeText.style.lineHeight = "1.2";
+      badgeText.style.minWidth = "0";
+      badgeText.style.maxWidth = "100%";
+      badgeText.style.flex = "1 1 auto";
       badge.appendChild(badgeText);
       cell.appendChild(badge);
 
       const preview = document.createElement("div");
       preview.style.fontSize = `${previewFontSize}px`;
       preview.style.color = "var(--muted-text-color)";
-      preview.style.whiteSpace = "pre-wrap";
-      preview.textContent = entry.title || entry.content.slice(0, 20);
+      preview.style.flex = "1 1 auto";
+      preview.style.minHeight = "0";
+      preview.style.display = "-webkit-box";
+      preview.style.setProperty("-webkit-box-orient", "vertical");
+      preview.style.setProperty(
+        "-webkit-line-clamp",
+        isCompactDiaryLayout ? "4" : "5",
+      );
+      preview.style.overflow = "hidden";
+      preview.style.whiteSpace = "normal";
+      preview.style.overflowWrap = "break-word";
+      preview.style.wordBreak = "normal";
+      preview.style.lineBreak = "auto";
+      preview.style.writingMode = "horizontal-tb";
+      preview.style.lineHeight = "1.25";
+      preview.textContent = entry.title || entry.content || "（无正文）";
+      preview.title = preview.textContent;
       cell.appendChild(preview);
     } else {
       const empty = document.createElement("div");
@@ -2731,10 +3625,15 @@ function renderListView(container) {
 
       const titleNode = document.createElement("strong");
       titleNode.style.color = "var(--text-color)";
+      titleNode.style.flex = "1 1 auto";
+      titleNode.style.minWidth = "0";
+      titleNode.style.overflowWrap = "anywhere";
+      titleNode.style.wordBreak = "break-word";
       titleNode.textContent = entry.title || "未命名日记";
       topRow.appendChild(titleNode);
 
       const dateNode = document.createElement("span");
+      dateNode.style.flex = "0 0 auto";
       dateNode.style.fontSize = `${Math.max(11, Math.round(12 * scale))}px`;
       dateNode.style.color = "var(--muted-text-color)";
       dateNode.textContent = entry.date;
@@ -2745,8 +3644,19 @@ function renderListView(container) {
       contentNode.style.marginTop = "6px";
       contentNode.style.fontSize = `${contentFontSize}px`;
       contentNode.style.color = "var(--text-color)";
-      contentNode.style.whiteSpace = "pre-wrap";
-      contentNode.textContent = entry.content || "（无正文）";
+      contentNode.style.display = "-webkit-box";
+      contentNode.style.setProperty("-webkit-box-orient", "vertical");
+      contentNode.style.setProperty(
+        "-webkit-line-clamp",
+        isCompactMobileLayout() ? "4" : "5",
+      );
+      contentNode.style.overflow = "hidden";
+      contentNode.style.whiteSpace = "normal";
+      contentNode.style.overflowWrap = "anywhere";
+      contentNode.style.wordBreak = "break-word";
+      contentNode.style.lineHeight = "1.6";
+      contentNode.textContent =
+        String(entry.content || "").replace(/\s+/g, " ").trim() || "（无正文）";
       card.appendChild(contentNode);
 
       const categoryNode = document.createElement("div");
@@ -2842,6 +3752,11 @@ function refreshDiaryFromExternalStorageChange() {
     diaryExternalRefreshPendingResume = true;
     return;
   }
+  if (diaryInitialHydrationPromise && !diaryInitialDataValidated) {
+    diaryExternalStorageRefreshQueued = false;
+    diaryPendingExternalStorageRefresh = true;
+    return;
+  }
   diaryExternalStorageRefreshQueued = false;
   void refreshDiaryVisibleData({
     anchorDate: currentDate,
@@ -2887,11 +3802,12 @@ function bindDiaryShellVisibilityGate() {
       return;
     }
 
-    if (diaryInitialHydrationPendingResume) {
+    if (
+      diaryInitialHydrationPendingResume ||
+      (!diaryInitialDataLoaded && !diaryInitialHydrationPromise)
+    ) {
       diaryInitialHydrationPendingResume = false;
-      void hydrateDiaryInitialData({
-        mode: diaryInitialDataValidated ? "inline" : "fullscreen",
-      }).then((hydrated) => {
+      void startDiaryInitialHydration().then((hydrated) => {
         if (hydrated !== false) {
           flushDiaryPendingWidgetLaunchAction();
         }
@@ -2901,6 +3817,7 @@ function bindDiaryShellVisibilityGate() {
       diaryExternalRefreshPendingResume = false;
       refreshDiaryFromExternalStorageChange();
     }
+    flushDiaryDeferredExternalRefreshIfNeeded();
     if (diaryDeferredRuntimePendingResume) {
       diaryDeferredRuntimePendingResume = false;
       void ensureDiaryDeferredRuntimeLoaded();
@@ -3297,6 +4214,7 @@ function showDiaryModal(dateText, entryId = null) {
     uiTools.prepareModalOverlay(modal, {
       zIndex: 2200,
     });
+    uiTools?.activateModalInteractionShield?.(180);
   } else {
     document.body.appendChild(modal);
     uiTools?.stopModalContentPropagation?.(modal);
@@ -3442,13 +4360,13 @@ function showDiaryModal(dateText, entryId = null) {
       discardDraft: true,
     });
 
-  const saveAction = () => {
+  const saveAction = async () => {
     const title = modal.querySelector("#diary-title-input").value.trim();
     const content = modal.querySelector("#diary-content-input").value.trim();
     const categoryId = categorySelector.getValue();
 
     if (!title && !content) {
-      alert("请至少输入标题或正文");
+      await showDiaryAlert("请至少输入标题或正文");
       return;
     }
 
@@ -3551,6 +4469,7 @@ function showDiaryModal(dateText, entryId = null) {
 }
 
 function showCategoryModal() {
+  const defaultCategoryColor = "#4299E1";
   const modal = document.createElement("div");
   modal.className = "modal-overlay";
   modal.style.display = "flex";
@@ -3579,8 +4498,14 @@ function showCategoryModal() {
       <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 14px;">
         <input id="new-diary-category-name" type="text" placeholder="新分类名称" style="
           width:100%; padding:10px; border-radius:8px; border:1px solid var(--bg-tertiary);
-          background-color: var(--bg-quaternary); color: var(--text-color);">
-        <input id="new-diary-category-color" type="color" value="#4299e1" style="width: 58px; height: 40px; border:none; border-radius:8px;">
+          background-color: var(--bg-quaternary); color: var(--text-color);" autocomplete="off">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <button class="bts" type="button" id="new-diary-category-color-trigger" style="margin:0; display:inline-flex; align-items:center; gap:8px; min-width:0;">
+            <span id="new-diary-category-color-preview" aria-hidden="true" style="display:inline-block; width:16px; height:16px; border-radius:999px; background:${defaultCategoryColor}; box-shadow:0 0 0 1px rgba(255,255,255,0.16) inset;"></span>
+            <span>选择颜色</span>
+          </button>
+          <input id="new-diary-category-color" type="text" class="time-input" value="${defaultCategoryColor}" placeholder="#4299E1 或 rgb(66, 153, 225)" autocomplete="off" spellcheck="false" style="flex:1 1 180px; min-width:180px;">
+        </div>
       </div>
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button class="bts" type="button" id="cancel-diary-category-btn" data-diary-modal-action="cancel" style="margin:0;">取消</button>
@@ -3593,10 +4518,64 @@ function showCategoryModal() {
     uiTools.prepareModalOverlay(modal, {
       zIndex: 2200,
     });
+    uiTools?.activateModalInteractionShield?.(180);
   } else {
     document.body.appendChild(modal);
     uiTools?.stopModalContentPropagation?.(modal);
   }
+
+  const colorInput = modal.querySelector("#new-diary-category-color");
+  const colorPreview = modal.querySelector("#new-diary-category-color-preview");
+  const colorTrigger = modal.querySelector("#new-diary-category-color-trigger");
+  const syncCategoryColorUi = (rawColor = "", { commit = false } = {}) => {
+    const nextColor = toDiaryHexColor(rawColor, defaultCategoryColor);
+    if (colorPreview instanceof HTMLElement) {
+      colorPreview.style.background = nextColor;
+    }
+    if (colorTrigger instanceof HTMLElement) {
+      colorTrigger.setAttribute("aria-label", `选择颜色，当前为 ${nextColor}`);
+    }
+    if (commit && colorInput instanceof HTMLInputElement) {
+      colorInput.value = nextColor;
+    }
+    return nextColor;
+  };
+  syncCategoryColorUi(colorInput?.value || defaultCategoryColor, {
+    commit: true,
+  });
+  colorInput?.addEventListener("input", () => {
+    syncCategoryColorUi(colorInput.value);
+  });
+  colorInput?.addEventListener("change", () => {
+    syncCategoryColorUi(colorInput.value, {
+      commit: true,
+    });
+  });
+  colorInput?.addEventListener("blur", () => {
+    syncCategoryColorUi(colorInput.value, {
+      commit: true,
+    });
+  });
+  colorTrigger?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const nextColor = await uiTools?.showManagedColorPickerDialog?.({
+      title: "选择颜色",
+      initialColor: colorInput?.value || defaultCategoryColor,
+      confirmText: "设置",
+      cancelText: "取消",
+      zIndex: 4600,
+    });
+    if (!nextColor || !(colorInput instanceof HTMLInputElement)) {
+      return;
+    }
+    colorInput.value = toDiaryHexColor(nextColor, defaultCategoryColor);
+    syncCategoryColorUi(colorInput.value, {
+      commit: true,
+    });
+    colorInput.dispatchEvent(new Event("input", { bubbles: true }));
+    colorInput.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 
   let unbindModalActions = () => {};
   const closeModal = () => {
@@ -3610,15 +4589,18 @@ function showCategoryModal() {
     }
   };
 
-  const saveCategoryAction = () => {
+  const saveCategoryAction = async () => {
     const name = modal.querySelector("#new-diary-category-name").value.trim();
-    const color = modal.querySelector("#new-diary-category-color").value;
+    const color = toDiaryHexColor(
+      modal.querySelector("#new-diary-category-color").value,
+      defaultCategoryColor,
+    );
     if (!name) {
-      alert("请输入分类名称");
+      await showDiaryAlert("请输入分类名称");
       return;
     }
     if (diaryCategories.some((category) => category.name === name)) {
-      alert("分类名称已存在");
+      await showDiaryAlert("分类名称已存在");
       return;
     }
 
@@ -3859,14 +4841,23 @@ async function init() {
 
   applyDiaryDesktopWidgetMode();
   await waitForDiaryStorageReady();
+  registerDiaryBeforePageLeaveGuard();
   bindDiaryShellVisibilityGate();
+  bindDiaryExternalStorageRefresh();
   const bootstrappedFromSnapshot = bootstrapDiaryFromCachedSnapshot();
+  let hydrationPromise = null;
+  if (shouldDeferDiaryInitialHydration()) {
+    diaryInitialHydrationPendingResume = true;
+  } else {
+    hydrationPromise = startDiaryInitialHydration({
+      manageLoading: !bootstrappedFromSnapshot,
+    });
+  }
   initDiaryPeriodSelectors();
   initDiaryCategoryFilterSelector();
   initDiarySearchControls();
   initViewButtons();
   initDiaryWidgetLaunchAction();
-  bindDiaryExternalStorageRefresh();
   renderDiaryGuideCard();
   window.addEventListener("resize", () => {
     const nextCompactLayout = isCompactMobileLayout();
@@ -3876,13 +4867,7 @@ async function init() {
     }
   });
   try {
-    if (!diaryShellPageActive && !isDiaryShellTransitionLoading()) {
-      diaryInitialHydrationPendingResume = true;
-    } else {
-      const hydrationPromise = hydrateDiaryInitialData({
-        mode: diaryInitialDataValidated ? "inline" : "fullscreen",
-        manageLoading: !bootstrappedFromSnapshot,
-      });
+    if (hydrationPromise) {
       if (bootstrappedFromSnapshot) {
         void hydrationPromise.then((hydrated) => {
           if (hydrated !== false) {
@@ -3890,22 +4875,31 @@ async function init() {
           }
         });
       } else {
-        const hydrated = await hydrationPromise;
+        const hydrated =
+          await waitForDiaryInitialHydrationWithDeadline(hydrationPromise);
         if (hydrated !== false) {
           flushDiaryPendingWidgetLaunchAction();
         }
       }
     }
   } finally {
-    await queueDiaryInitialReveal();
+    if (diaryInitialDataValidated || bootstrappedFromSnapshot) {
+      await queueDiaryInitialReveal();
+    }
   }
   void ensureDiaryDeferredRuntimeLoaded();
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => {
+    void init().catch((error) => {
+      console.error("初始化日记页失败:", error);
+    });
+  });
 } else {
-  init();
+  void init().catch((error) => {
+    console.error("初始化日记页失败:", error);
+  });
 }
 
 

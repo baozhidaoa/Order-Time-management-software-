@@ -25,6 +25,7 @@ import App, {
   resolveShellBlockingOverlayPayload,
   resolveShellOverlayViewState,
   resolveBridgeNavigationDispatchPolicy,
+  resolveWebViewNavigationDispatchPolicy,
   resolveAppPageUri,
 } from '../App';
 
@@ -158,6 +159,62 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
     ).toEqual({
       ignore: false,
       queue: true,
+    });
+  });
+});
+
+describe('resolveWebViewNavigationDispatchPolicy', () => {
+  it('ignores android webview navigations from inactive cached slots', () => {
+    expect(
+      resolveWebViewNavigationDispatchPolicy({
+        isAndroid: true,
+        sourceSlot: 'secondary',
+        activeSlot: 'primary',
+        transitionState: null,
+      }),
+    ).toEqual({
+      ignore: true,
+    });
+  });
+
+  it('allows android webview navigations from the active slot', () => {
+    expect(
+      resolveWebViewNavigationDispatchPolicy({
+        isAndroid: true,
+        sourceSlot: 'primary',
+        activeSlot: 'primary',
+        transitionState: null,
+      }),
+    ).toEqual({
+      ignore: false,
+    });
+  });
+
+  it('allows the incoming transition slot to finish its expected load on android', () => {
+    expect(
+      resolveWebViewNavigationDispatchPolicy({
+        isAndroid: true,
+        sourceSlot: 'secondary',
+        activeSlot: 'primary',
+        transitionState: {
+          toSlot: 'secondary',
+        },
+      }),
+    ).toEqual({
+      ignore: false,
+    });
+  });
+
+  it('keeps non-android slots allowed so desktop parity is unchanged', () => {
+    expect(
+      resolveWebViewNavigationDispatchPolicy({
+        isAndroid: false,
+        sourceSlot: 'secondary',
+        activeSlot: 'primary',
+        transitionState: null,
+      }),
+    ).toEqual({
+      ignore: false,
     });
   });
 });

@@ -121,20 +121,36 @@
         <div class="diary-filter-shell page-control-card">
           <div class="diary-filter-row">
             <div class="diary-filter-field diary-filter-field--year">
-              <label for="diary-year-select" style="color: var(--text-color)"
+              <label id="diary-year-label" style="color: var(--text-color)"
                 >年份</label
               >
-              <select id="diary-year-select">
-                <option value="">加载中...</option>
-              </select>
+              <button
+                type="button"
+                id="diary-year-select"
+                class="diary-period-trigger tree-select-button"
+                aria-labelledby="diary-year-label diary-year-select"
+              >
+                <span class="diary-period-trigger-label" data-diary-period-trigger-label
+                  >加载中...</span
+                >
+                <span class="diary-period-trigger-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
             <div class="diary-filter-field diary-filter-field--month">
-              <label for="diary-month-select" style="color: var(--text-color)"
+              <label id="diary-month-label" style="color: var(--text-color)"
                 >月份</label
               >
-              <select id="diary-month-select">
-                <option value="">加载中...</option>
-              </select>
+              <button
+                type="button"
+                id="diary-month-select"
+                class="diary-period-trigger tree-select-button"
+                aria-labelledby="diary-month-label diary-month-select"
+              >
+                <span class="diary-period-trigger-label" data-diary-period-trigger-label
+                  >加载中...</span
+                >
+                <span class="diary-period-trigger-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
             <div class="diary-filter-field diary-filter-field--category">
               <label

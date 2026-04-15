@@ -3030,8 +3030,11 @@ async function requestPlanConfirmation(message, options = {}) {
 }
 
 async function showPlanAlert(message, options = {}) {
-  if (uiTools?.alertDialog) {
-    await uiTools.alertDialog({
+  const alertDialog =
+    uiTools?.alertDialog ||
+    (typeof window !== "undefined" ? window.ControlerUI?.alertDialog : null);
+  if (typeof alertDialog === "function") {
+    await alertDialog({
       title: localizePlanUiText(options.title || "提示"),
       message: localizePlanUiText(message),
       confirmText: localizePlanUiText(options.confirmText || "知道了"),
@@ -4254,7 +4257,10 @@ function initTimeSelector() {
       const startDateObj = parseDateInputValue(startDate?.value);
       const endDateObj = parseDateInputValue(endDate?.value);
       if (!startDateObj || !endDateObj) {
-        alert("请选择有效的开始日期和结束日期");
+        void showPlanAlert("请选择有效的开始日期和结束日期", {
+          title: "无法更新计划范围",
+          danger: true,
+        });
         return;
       }
 
@@ -5405,7 +5411,10 @@ function showYearGoalModal(year, scope = "annual", goalId = null) {
       modal.querySelector('input[name="year-goal-priority"]:checked')?.value ||
       "medium";
     if (!title) {
-      alert("请输入目标名称");
+      await showPlanAlert("请输入目标名称", {
+        title: "无法保存目标",
+        danger: true,
+      });
       return;
     }
 
@@ -6512,7 +6521,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="weekly-plan-start-date-input" class="modal-date-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
+            <input type="date" id="weekly-plan-start-date-input" class="modal-date-input themed-native-picker-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6526,7 +6535,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束日期
             </label>
-            <input type="date" id="weekly-plan-end-date-input" class="modal-date-input" value="${planData?.endDate || ""}" style="
+            <input type="date" id="weekly-plan-end-date-input" class="modal-date-input themed-native-picker-input" value="${planData?.endDate || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6543,7 +6552,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="weekly-plan-start-time-input" value="${planData?.startTime || "09:00"}" style="
+            <input type="time" id="weekly-plan-start-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.startTime || "09:00"}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6557,7 +6566,7 @@ function showWeeklyGridPlanModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="weekly-plan-end-time-input" value="${planData?.endTime || "10:00"}" style="
+            <input type="time" id="weekly-plan-end-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.endTime || "10:00"}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -6839,28 +6848,43 @@ async function saveWeeklyGridPlan(modal, planData, options = {}) {
 
   // 验证输入
   if (!name) {
-    alert("请输入计划名称");
+    void showPlanAlert("请输入计划名称", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (!startDate) {
-    alert("请选择开始日期");
+    void showPlanAlert("请选择开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (!normalizedTimeRange.startTime || !normalizedTimeRange.endTime) {
-    alert("请选择开始和结束时间");
+    void showPlanAlert("请选择开始和结束时间", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   // 检查结束时间是否晚于开始时间
   if (normalizedTimeRange.startTime >= normalizedTimeRange.endTime) {
-    alert("结束时间必须晚于开始时间");
+    void showPlanAlert("结束时间必须晚于开始时间", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (endDate && endDate < startDate) {
-    alert("结束日期不能早于开始日期");
+    void showPlanAlert("结束日期不能早于开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
@@ -7042,7 +7066,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="plan-start-date-input" class="modal-date-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
+            <input type="date" id="plan-start-date-input" class="modal-date-input themed-native-picker-input" value="${planData?.startDate || planData?.date || currentDate.toISOString().split("T")[0]}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7056,7 +7080,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束日期
             </label>
-            <input type="date" id="plan-end-date-input" class="modal-date-input" value="${planData?.endDate || ""}" style="
+            <input type="date" id="plan-end-date-input" class="modal-date-input themed-native-picker-input" value="${planData?.endDate || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7074,7 +7098,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="plan-start-time-input" value="${planData?.startTime || "09:00"}" style="
+            <input type="time" id="plan-start-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.startTime || "09:00"}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7088,7 +7112,7 @@ function showPlanEditModal(planData = null) {
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="plan-end-time-input" value="${planData?.endTime || "10:00"}" style="
+            <input type="time" id="plan-end-time-input" class="modal-date-input themed-native-picker-input" value="${planData?.endTime || "10:00"}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -7375,28 +7399,43 @@ async function savePlan(modal, isEditMode, planData, options = {}) {
 
   // 验证输入
   if (!name) {
-    alert("请输入计划名称");
+    void showPlanAlert("请输入计划名称", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (!startDate) {
-    alert("请选择开始日期");
+    void showPlanAlert("请选择开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (!normalizedTimeRange.startTime || !normalizedTimeRange.endTime) {
-    alert("请选择开始和结束时间");
+    void showPlanAlert("请选择开始和结束时间", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   // 检查结束时间是否晚于开始时间
   if (normalizedTimeRange.startTime >= normalizedTimeRange.endTime) {
-    alert("结束时间必须晚于开始时间");
+    void showPlanAlert("结束时间必须晚于开始时间", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
   if (endDate && endDate < startDate) {
-    alert("结束日期不能早于开始日期");
+    void showPlanAlert("结束日期不能早于开始日期", {
+      title: "无法保存计划",
+      danger: true,
+    });
     return;
   }
 
@@ -7650,7 +7689,10 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       if (opened) {
         return;
       }
-      alert(`未找到对应${linkedSourceLabel}源事项，无法编辑。`);
+      void showPlanAlert(`未找到对应${linkedSourceLabel}源事项，无法编辑。`, {
+        title: "无法编辑计划",
+        danger: true,
+      });
       return;
     }
     openRegularPlanEditor();
@@ -7674,7 +7716,10 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
         void refreshPlanFromExternalStorageChange();
         return;
       }
-      alert(`未找到对应${linkedSourceLabel}源事项，无法同步完成状态。`);
+      void showPlanAlert(`未找到对应${linkedSourceLabel}源事项，无法同步完成状态。`, {
+        title: "无法同步计划",
+        danger: true,
+      });
       return;
     }
     const index = plans.findIndex((p) => matchesId(p.id, plan.id));

@@ -7355,8 +7355,11 @@
   }
 
   async function showTodoAlert(message, options = {}) {
-    if (uiTools?.alertDialog) {
-      await uiTools.alertDialog({
+    const alertDialog =
+      uiTools?.alertDialog ||
+      (typeof window !== "undefined" ? window.ControlerUI?.alertDialog : null);
+    if (typeof alertDialog === "function") {
+      await alertDialog({
         title: options.title || "提示",
         message,
         confirmText: options.confirmText || "知道了",
@@ -9552,7 +9555,10 @@
     if (index !== -1) {
       todos.splice(index, 1);
     } else {
-      alert("删除失败：未找到该待办事项，请刷新后重试。");
+      void showTodoAlert("删除失败：未找到该待办事项，请刷新后重试。", {
+        title: "删除失败",
+        danger: true,
+      });
       return false;
     }
 
@@ -9672,7 +9678,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="todo-start-date-input" class="modal-date-input" value="${todo?.startDate || todo?.dueDate || getLocalDateText()}" style="
+            <input type="date" id="todo-start-date-input" class="modal-date-input themed-native-picker-input" value="${todo?.startDate || todo?.dueDate || getLocalDateText()}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9686,7 +9692,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束日期（可选）
             </label>
-            <input type="date" id="todo-end-date-input" class="modal-date-input" value="${todo?.endDate || ""}" style="
+            <input type="date" id="todo-end-date-input" class="modal-date-input themed-native-picker-input" value="${todo?.endDate || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9714,7 +9720,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="todo-start-time-input" class="modal-date-input" value="${todo?.startTime || ""}" style="
+            <input type="time" id="todo-start-time-input" class="modal-date-input themed-native-picker-input" value="${todo?.startTime || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9728,7 +9734,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="todo-end-time-input" class="modal-date-input" value="${todo?.endTime || ""}" style="
+            <input type="time" id="todo-end-time-input" class="modal-date-input themed-native-picker-input" value="${todo?.endTime || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -9975,7 +9981,10 @@
 
     // 验证输入
     if (!title) {
-      alert("请输入待办事项标题");
+      void showTodoAlert("请输入待办事项标题", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
       return false;
     }
 
@@ -10016,7 +10025,10 @@
       normalizedSchedule.startDate &&
       normalizedSchedule.endDate < normalizedSchedule.startDate
     ) {
-      alert("结束日期不能早于开始日期");
+      void showTodoAlert("结束日期不能早于开始日期", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
       return false;
     }
 
@@ -10024,7 +10036,10 @@
       (!!normalizedTimeRange.startTime && !normalizedTimeRange.endTime) ||
       (!normalizedTimeRange.startTime && !!normalizedTimeRange.endTime)
     ) {
-      alert("请同时选择开始时间和结束时间");
+      void showTodoAlert("请同时选择开始时间和结束时间", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
       return false;
     }
 
@@ -10033,7 +10048,10 @@
       normalizedTimeRange.endTime &&
       normalizedTimeRange.startTime >= normalizedTimeRange.endTime
     ) {
-      alert("结束时间必须晚于开始时间");
+      void showTodoAlert("结束时间必须晚于开始时间", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
       return false;
     }
 
@@ -10042,7 +10060,10 @@
       normalizedTimeRange.startTime &&
       !isSingleDayNonRepeatTodo
     ) {
-      alert("不重复的待办只有在开始日期和结束日期为同一天时才能设置时间");
+      void showTodoAlert("不重复的待办只有在开始日期和结束日期为同一天时才能设置时间", {
+        title: "无法保存待办事项",
+        danger: true,
+      });
       return false;
     }
 
@@ -10051,7 +10072,10 @@
       // 更新现有待办事项
       const index = todos.findIndex((t) => matchesId(t.id, todoData.id));
       if (index === -1) {
-        alert("保存失败：未找到该待办事项，请刷新后重试。");
+        void showTodoAlert("保存失败：未找到该待办事项，请刷新后重试。", {
+          title: "保存失败",
+          danger: true,
+        });
         return false;
       }
       const completionInput = modal.querySelector("#todo-completed-checkbox");
@@ -10275,7 +10299,10 @@
         .querySelector("#checkin-message-input")
         .value.trim();
       if (!message) {
-        alert("请输入进度内容");
+        await showTodoAlert("请输入进度内容", {
+          title: "无法保存进度",
+          danger: true,
+        });
         return false;
       }
 
@@ -10286,7 +10313,10 @@
         existingRecord?.id || null,
       );
       if (!saved) {
-        alert("保存失败，请刷新后重试");
+        await showTodoAlert("保存失败，请刷新后重试", {
+          title: "保存失败",
+          danger: true,
+        });
         return false;
       }
 
@@ -10870,7 +10900,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始日期
             </label>
-            <input type="date" id="checkin-start-date-input" class="modal-date-input" value="${modalItem?.startDate || getLocalDateText()}" style="
+            <input type="date" id="checkin-start-date-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.startDate || getLocalDateText()}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -10884,7 +10914,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束日期（可选）
             </label>
-            <input type="date" id="checkin-end-date-input" class="modal-date-input" value="${modalItem?.endDate || ""}" style="
+            <input type="date" id="checkin-end-date-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.endDate || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -10901,7 +10931,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               开始时间
             </label>
-            <input type="time" id="checkin-start-time-input" class="modal-date-input" value="${modalItem?.startTime || ""}" style="
+            <input type="time" id="checkin-start-time-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.startTime || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -10915,7 +10945,7 @@
             <label style="color: var(--text-color); display: block; margin-bottom: 5px; font-size: 14px;">
               结束时间
             </label>
-            <input type="time" id="checkin-end-time-input" class="modal-date-input" value="${modalItem?.endTime || ""}" style="
+            <input type="time" id="checkin-end-time-input" class="modal-date-input themed-native-picker-input" value="${modalItem?.endTime || ""}" style="
               width: 100%;
               padding: 10px;
               border-radius: 8px;
@@ -11130,13 +11160,19 @@
 
     // 验证输入
     if (!title) {
-      alert("请输入打卡项目标题");
+      void showTodoAlert("请输入打卡项目标题", {
+        title: "无法保存打卡项目",
+        danger: true,
+      });
       return false;
     }
 
     if (selectedStatus !== "ended") {
       if (!startDate) {
-        alert("请选择开始日期");
+        void showTodoAlert("请选择开始日期", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
 
@@ -11145,17 +11181,26 @@
       }
 
       if (effectiveEndDate && effectiveEndDate < startDate) {
-        alert("结束日期不能早于开始日期");
+        void showTodoAlert("结束日期不能早于开始日期", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
 
       if (repeatType === "weekly" && repeatWeekdays.length === 0) {
-        alert("请选择每周重复的日期");
+        void showTodoAlert("请选择每周重复的日期", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
 
       if (repeatType === "monthly" && repeatMonthDays.length === 0) {
-        alert("请选择每月重复的日期");
+        void showTodoAlert("请选择每月重复的日期", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
 
@@ -11163,7 +11208,10 @@
         (!!normalizedTimeRange.startTime && !normalizedTimeRange.endTime) ||
         (!normalizedTimeRange.startTime && !!normalizedTimeRange.endTime)
       ) {
-        alert("请同时选择开始时间和结束时间");
+        void showTodoAlert("请同时选择开始时间和结束时间", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
 
@@ -11172,7 +11220,10 @@
         normalizedTimeRange.endTime &&
         normalizedTimeRange.startTime >= normalizedTimeRange.endTime
       ) {
-        alert("结束时间必须晚于开始时间");
+        void showTodoAlert("结束时间必须晚于开始时间", {
+          title: "无法保存打卡项目",
+          danger: true,
+        });
         return false;
       }
     }
@@ -11200,7 +11251,10 @@
         matchesId(item.id, liveSameTitle.id),
       );
       if (sourceIndex === -1 || targetIndex === -1) {
-        alert("保存失败：未找到需要合并的打卡项目，请刷新后重试。");
+        void showTodoAlert("保存失败：未找到需要合并的打卡项目，请刷新后重试。", {
+          title: "保存失败",
+          danger: true,
+        });
         return false;
       }
       const sourceItem = hydrateCheckinItem(checkinItems[sourceIndex]);
@@ -11232,7 +11286,10 @@
         matchesId(item.id, itemData.id),
       );
       if (index === -1) {
-        alert("保存失败：未找到该打卡项目，请刷新后重试。");
+        void showTodoAlert("保存失败：未找到该打卡项目，请刷新后重试。", {
+          title: "保存失败",
+          danger: true,
+        });
         return false;
       }
       const currentItem = checkinItems[index];
@@ -11576,7 +11633,10 @@
     const previousCheckinItems = getTodoSectionStateSnapshot("checkinItems");
     const index = checkinItems.findIndex((c) => matchesId(c.id, itemId));
     if (index === -1) {
-      alert("删除失败：未找到该打卡项目，请刷新后重试。");
+      void showTodoAlert("删除失败：未找到该打卡项目，请刷新后重试。", {
+        title: "删除失败",
+        danger: true,
+      });
       return false;
     }
     const deletedAt = new Date().toISOString();

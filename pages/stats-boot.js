@@ -3220,8 +3220,11 @@ async function showStatsPersistenceFailureAlert(
     typeof failure.message === "string" && failure.message.trim()
       ? failure.message.trim()
       : fallbackMessage;
-  if (uiTools?.alertDialog) {
-    await uiTools.alertDialog({
+  const alertDialog =
+    uiTools?.alertDialog ||
+    (typeof window !== "undefined" ? window.ControlerUI?.alertDialog : null);
+  if (typeof alertDialog === "function") {
+    await alertDialog({
       title,
       message,
       confirmText: "知道了",
@@ -9364,16 +9367,9 @@ async function openStatsRecordEditModal(locator) {
   } else {
     const recordIndex = findStatsSourceRecordIndex(recordLocator);
     if (recordIndex < 0) {
-      if (uiTools?.alertDialog) {
-        await uiTools.alertDialog({
-          title: "未找到记录",
-          message: "当前记录已不存在，请刷新后重试。",
-          confirmText: "知道了",
-          danger: true,
-        });
-      } else {
-        window.alert("当前记录已不存在，请刷新后重试。");
-      }
+      await showStatsPersistenceFailureAlert("当前记录已不存在，请刷新后重试。", {
+        title: "未找到记录",
+      });
       void refreshStatsRangeData(true);
       return;
     }
@@ -9428,11 +9424,11 @@ async function openStatsRecordEditModal(locator) {
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
           <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
             <span>开始时间</span>
-            <input id="stats-record-start-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
+            <input id="stats-record-start-input" class="themed-native-picker-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
           </label>
           <label style="display:flex; flex-direction:column; gap:6px; color: var(--text-color);">
             <span>结束时间</span>
-            <input id="stats-record-end-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
+            <input id="stats-record-end-input" class="themed-native-picker-input" type="datetime-local" style="width:100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bg-tertiary); background: var(--bg-quaternary); color: var(--text-color); font-size: 15px;" />
           </label>
         </div>
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; color: var(--muted-text-color); font-size: 13px;">
@@ -9532,16 +9528,9 @@ async function openStatsRecordEditModal(locator) {
   const validateEditorForm = async () => {
     const nextName = resolveStatsProjectNameFromInput(nameInput?.value);
     if (!nextName) {
-      if (uiTools?.alertDialog) {
-        await uiTools.alertDialog({
-          title: isCreateMode ? "无法新增记录" : "无法保存记录",
-          message: "请输入项目名称",
-          confirmText: "知道了",
-          danger: true,
-        });
-      } else {
-        window.alert("请输入项目名称");
-      }
+      await showStatsPersistenceFailureAlert("请输入项目名称", {
+        title: isCreateMode ? "无法新增记录" : "无法保存记录",
+      });
       nameInput?.focus();
       return null;
     }
