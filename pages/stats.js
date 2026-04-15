@@ -195,23 +195,11 @@ function emitStatsRangeLoad(stage, payload = {}) {
 }
 
 function emitStatsDebugEvent(name, payload = {}) {
-  if (
-    typeof window === "undefined" ||
-    typeof window.ControlerNativeBridge?.emitEvent !== "function"
-  ) {
-    return;
-  }
-  window.ControlerNativeBridge.emitEvent(name, {
-    href: window.location.href,
-    ...payload,
-  });
+  return;
 }
 
 function emitStatsDebugPerf(reason, payload = {}) {
-  emitStatsDebugEvent("ui.debug-perf", {
-    reason,
-    ...payload,
-  });
+  return;
 }
 
 function parseStatsFlexibleDate(value) {

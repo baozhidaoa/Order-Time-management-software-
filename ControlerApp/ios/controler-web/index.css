@@ -670,6 +670,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   );
   --controler-modal-overlay-inline-gap: 24px;
   --controler-modal-overlay-vertical-gap: 24px;
+  --controler-modal-close-duration: 120ms;
   position: fixed;
   inset: 0;
   width: 100vw;
@@ -912,6 +913,114 @@ body.controler-android-native
   -webkit-backface-visibility: hidden;
 }
 
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"],
+body.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"] {
+  pointer-events: none !important;
+  background: transparent !important;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]::before,
+body.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(
+    --controler-modal-close-backdrop-bg,
+    var(--controler-perf-overlay-bg, var(--overlay-bg))
+  );
+  pointer-events: none;
+  z-index: 0;
+  animation: controler-modal-backdrop-close
+    var(--controler-modal-close-duration, 92ms)
+    cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]
+  .modal-content,
+body.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]
+  .modal-content {
+  position: relative;
+  z-index: 1;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  isolation: isolate;
+  animation: controler-modal-card-close
+    var(--controler-modal-close-duration, 92ms)
+    cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]
+  .modal-content::after,
+body.controler-android-native
+  .modal-overlay[data-controler-modal-closing="true"]
+  .modal-content::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(
+    --controler-modal-close-surface-bg,
+    var(--panel-bg, var(--bg-secondary))
+  );
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+  animation: controler-modal-surface-scrim-close
+    var(--controler-modal-close-duration, 92ms)
+    linear both;
+}
+
+@keyframes controler-modal-backdrop-close {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes controler-modal-card-close {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  48% {
+    opacity: 0.92;
+    transform: translate3d(0, 2px, 0) scale(0.998);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.995);
+  }
+}
+
+@keyframes controler-modal-surface-scrim-close {
+  from {
+    opacity: 0;
+  }
+
+  36% {
+    opacity: 0.42;
+  }
+
+  to {
+    opacity: 0.82;
+  }
+}
+
 body.controler-mobile-runtime.controler-android-native .modal-overlay::after,
 body.controler-android-native .modal-overlay::after {
   content: "";
@@ -951,8 +1060,9 @@ body.controler-android-native::before {
   pointer-events: none;
   opacity: 0;
   z-index: 950;
-  transition: opacity 80ms linear;
+  transition: opacity 72ms linear;
   transform: translateZ(0);
+  will-change: opacity;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
@@ -3441,6 +3551,7 @@ body.controler-ios-native
   padding: 10px 12px;
   border-radius: 16px;
   border: 1px solid var(--panel-border-color);
+  min-width: 0;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
     color-mix(in srgb, var(--panel-bg, var(--bg-secondary)) 88%, transparent);
@@ -3458,11 +3569,19 @@ body.controler-ios-native
 }
 
 .modal-content.controler-themed-picker-dialog .controler-themed-picker-preview-primary {
-  font-size: clamp(18px, 4vw, 28px);
-  line-height: 1.2;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  font-size: clamp(14px, 3.2vw, 19px);
+  line-height: 1.15;
   font-weight: 700;
   color: var(--text-color);
-  text-wrap: balance;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  text-wrap: nowrap;
 }
 
 .modal-content.controler-themed-picker-dialog--compact
@@ -3472,7 +3591,7 @@ body.controler-ios-native
 
 .modal-content.controler-themed-picker-dialog--compact
   .controler-themed-picker-preview-primary {
-  font-size: clamp(16px, 4.6vw, 24px);
+  font-size: clamp(13px, 3vw, 17px);
 }
 
 .modal-content.controler-themed-picker-dialog .controler-themed-picker-surface {
@@ -3522,29 +3641,31 @@ body.controler-ios-native
   display: grid;
   grid-template-columns: var(--controler-themed-picker-nav-size) minmax(0, 1fr) var(--controler-themed-picker-nav-size);
   gap: var(--controler-themed-picker-field-gap);
-  align-items: start;
+  align-items: center;
   min-width: 0;
 }
 
-.modal-content.controler-themed-picker-dialog
-  :is(.controler-themed-picker-calendar-selects, .controler-themed-picker-time-fields) {
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-calendar-selects,
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
   gap: var(--controler-themed-picker-field-gap);
+  align-items: center;
   min-width: 0;
+}
+
+.modal-content.controler-themed-picker-dialog .controler-themed-picker-time-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .modal-content.controler-themed-picker-dialog .controler-themed-picker-select-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--controler-themed-picker-field-label-gap);
+  display: block;
   min-width: 0;
   color: var(--text-color);
 }
 
 .modal-content.controler-themed-picker-dialog .controler-themed-picker-select-field > span {
-  font-size: 11px;
-  color: var(--muted-text-color);
+  display: none;
 }
 
 .modal-content.controler-themed-picker-dialog .controler-themed-picker-time-lists {
@@ -3604,16 +3725,30 @@ body.controler-ios-native
   :is(.native-select-enhancer, .tree-select-button) {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .modal-content.controler-themed-picker-dialog
   .controler-themed-picker-select-field
   .tree-select-button {
   min-height: var(--controler-themed-picker-action-height);
-  padding: 0 10px;
-  gap: 6px;
+  padding: 0 8px;
+  gap: 4px;
   border-radius: 12px;
-  font-size: var(--controler-themed-picker-select-font-size);
+  font-size: calc(var(--controler-themed-picker-select-font-size) - 1px);
+  justify-content: center;
+}
+
+.modal-content.controler-themed-picker-dialog
+  .controler-themed-picker-select-field
+  .tree-select-button-text {
+  flex: 1 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .modal-content.controler-themed-picker-dialog .tree-select-menu {
@@ -3821,12 +3956,18 @@ body.controler-ios-native
 }
 
 .modal-content.controler-themed-picker-dialog--tight .controler-themed-picker-calendar-toolbar {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  row-gap: 6px;
+  grid-template-columns: var(--controler-themed-picker-nav-size) minmax(0, 1fr) var(--controler-themed-picker-nav-size);
+  row-gap: 0;
 }
 
 .modal-content.controler-themed-picker-dialog--tight
-  :is(.controler-themed-picker-calendar-selects, .controler-themed-picker-time-fields) {
+.controler-themed-picker-calendar-selects {
+  grid-column: auto;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+}
+
+.modal-content.controler-themed-picker-dialog--tight
+  .controler-themed-picker-time-fields {
   grid-column: 1 / -1;
   grid-template-columns: 1fr;
 }
@@ -3926,7 +4067,7 @@ body.controler-android-native
 body.controler-android-native
   .modal-content.controler-themed-picker-dialog
   .controler-themed-picker-preview-primary {
-  font-size: clamp(14px, 3.6vw, 18px);
+  font-size: clamp(11px, 2.8vw, 14px);
 }
 
 body.controler-android-native
@@ -4209,7 +4350,7 @@ body.controler-ios-native
     )
     .modal-content.controler-themed-picker-dialog
     .controler-themed-picker-preview-primary {
-    font-size: clamp(16px, 4.2vw, 22px);
+    font-size: clamp(13px, 2.6vw, 17px);
   }
 
   body:not(.controler-mobile-runtime):not(.controler-android-native):not(
@@ -8251,6 +8392,21 @@ body.controler-android-native .controler-form-modal-overlay {
   align-items: center !important;
   justify-content: center !important;
   --controler-modal-overlay-vertical-gap: 20px;
+  --controler-modal-overlay-inline-padding-left: max(
+    10px,
+    env(safe-area-inset-left, 0px)
+  );
+  --controler-modal-overlay-inline-padding-right: max(
+    10px,
+    env(safe-area-inset-right, 0px)
+  );
+  --controler-modal-overlay-block-padding-top: max(
+    10px,
+    env(safe-area-inset-top, 0px)
+  );
+  --controler-modal-overlay-block-padding-bottom: calc(
+    10px + env(safe-area-inset-bottom, 0px)
+  );
   min-height: var(
     --controler-modal-overlay-height,
     var(
@@ -8273,10 +8429,10 @@ body.controler-android-native .controler-form-modal-overlay {
     )
   ) !important;
   padding:
-    max(10px, env(safe-area-inset-top, 0px))
-    max(10px, env(safe-area-inset-right, 0px))
-    calc(10px + env(safe-area-inset-bottom, 0px))
-    max(10px, env(safe-area-inset-left, 0px)) !important;
+    var(--controler-modal-overlay-block-padding-top)
+    var(--controler-modal-overlay-inline-padding-right)
+    var(--controler-modal-overlay-block-padding-bottom)
+    var(--controler-modal-overlay-inline-padding-left) !important;
   overflow: hidden !important;
 }
 
@@ -8290,44 +8446,31 @@ body.controler-android-native .controler-form-modal-overlay {
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-overlay,
 body.controler-android-native .controler-form-modal-overlay {
-  --controler-modal-footer-spare-space: 9999px;
-  --controler-modal-keyboard-lift: max(
-    0px,
-    calc(
-      var(--controler-keyboard-transition-inset, 0px) -
-        var(--controler-modal-footer-spare-space, 9999px)
-    )
-  );
-  min-height: var(
-    --controler-modal-overlay-height,
-    var(--controler-stable-visual-viewport-height, 100dvh)
+  --controler-modal-overlay-height: var(
+    --controler-stable-visual-viewport-height,
+    100dvh
   ) !important;
-  height: var(
-    --controler-modal-overlay-height,
-    var(--controler-stable-visual-viewport-height, 100dvh)
+  --controler-modal-overlay-block-padding-bottom: calc(
+    10px + env(safe-area-inset-bottom, 0px) +
+      var(--controler-keyboard-transition-inset, 0px)
   ) !important;
-  max-height: var(
-    --controler-modal-overlay-height,
-    var(--controler-stable-visual-viewport-height, 100dvh)
-  ) !important;
+  min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   overflow-y: hidden !important;
   overscroll-behavior: none !important;
 }
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-body,
 body.controler-android-native .controler-form-modal-body {
-  padding-bottom: calc(24px + var(--controler-modal-keyboard-lift, 0px));
-  scroll-padding-bottom: calc(24px + var(--controler-modal-keyboard-lift, 0px));
+  padding-bottom: 24px;
+  scroll-padding-bottom: 24px;
 }
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-footer,
 body.controler-android-native .controler-form-modal-footer {
-  transform: translate3d(
-    0,
-    calc(-1 * var(--controler-modal-keyboard-lift, 0px)),
-    0
-  );
-  will-change: transform;
+  transform: none;
+  will-change: auto;
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -11013,9 +11156,9 @@ body.controler-ios-native .page-loading-overlay {
   position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
-  min-height: 100vh !important;
-  height: 100vh !important;
-  max-height: none !important;
+  min-height: var(--controler-stable-visual-viewport-height, 100vh) !important;
+  height: var(--controler-stable-visual-viewport-height, 100vh) !important;
+  max-height: var(--controler-stable-visual-viewport-height, 100vh) !important;
   z-index: 9500 !important;
   border-radius: 0 !important;
   overflow: hidden !important;

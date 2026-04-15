@@ -26,7 +26,6 @@ const APP_PUBLIC_DESCRIPTION =
 const APP_PUBLIC_COPYRIGHT = "© 2026 Order contributors";
 const UI_PREFERENCES_FILE_NAME = "ui-preferences.json";
 const STARTUP_DEBUG_LOG_FILE_NAME = "startup-debug.log";
-const THEME_NAVIGATION_DEBUG_LOG_FILE_NAME = "theme-navigation-debug.log";
 const GPU_KILL_SWITCH_FILE_NAME = "gpu-kill-switch.json";
 const ENABLE_STARTUP_DEBUG_LOG = process.env.ORDER_STARTUP_DEBUG === "1";
 
@@ -58,14 +57,7 @@ function appendStartupDebugLog(message) {
 }
 
 function appendThemeNavigationDebugLog(entry = {}) {
-  const payload =
-    entry && typeof entry === "object" && !Array.isArray(entry)
-      ? { ...entry }
-      : { message: String(entry || "") };
-  appendAppDebugLogLine(
-    THEME_NAVIGATION_DEBUG_LOG_FILE_NAME,
-    JSON.stringify(payload),
-  );
+  return;
 }
 
 function getGpuKillSwitchPath() {
@@ -1937,18 +1929,6 @@ function setupIpcHandlers() {
       throw new Error(nativeText("dialog.emptyFilePath"));
     }
     return fs.promises.readFile(targetPath, "utf8");
-  });
-
-  ipcMain.on("debug:appendLog", (_event, payload = {}) => {
-    appendThemeNavigationDebugLog({
-      source: "renderer",
-      ...(payload && typeof payload === "object" && !Array.isArray(payload)
-        ? payload
-        : {
-            label: "renderer-log",
-            message: String(payload || ""),
-          }),
-    });
   });
 
   ipcMain.on("ui:pageReady", (event) => {

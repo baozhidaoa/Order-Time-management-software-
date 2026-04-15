@@ -296,15 +296,7 @@ const settingsExternalStorageRefreshCoordinator =
 window.ControlerUI?.markPerfStage?.("settings-script-loaded");
 
 function emitThemeEditDebugEvent(stage, detail = {}) {
-  try {
-    window.ControlerNativeBridge?.emitEvent?.("ui.debug-theme-edit-probe", {
-      href: window.location.href,
-      page: "settings",
-      stage: String(stage || "").trim() || "unknown",
-      visibilityState: document.visibilityState || "",
-      ...detail,
-    });
-  } catch (error) {}
+  return;
 }
 
 window.addEventListener(

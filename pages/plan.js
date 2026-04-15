@@ -1233,18 +1233,6 @@ function refreshPlanUiAfterMutation(options = {}) {
   }
 }
 
-function waitForPlanUiPaint() {
-  return new Promise((resolve) => {
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(() => {
-      window.setTimeout(resolve, 0);
-    });
-  });
-}
-
 async function runPlanBlockingMutation(options = {}, task = null) {
   const {
     closeModal = null,
@@ -1252,6 +1240,10 @@ async function runPlanBlockingMutation(options = {}, task = null) {
     message = "正在写入计划数据，请稍候",
     perfAction = "plan-mutation",
   } = options;
+  const loadingDelayMs =
+    uiTools?.getBlockingMutationOverlayDelayMs?.({
+      mode: "fullscreen",
+    }) ?? 1200;
   uiTools?.markPerfStage?.("plan-form-save-start", {
     allowRepeat: true,
     action: perfAction,
@@ -1261,10 +1253,9 @@ async function runPlanBlockingMutation(options = {}, task = null) {
     mode: "fullscreen",
     title,
     message,
-    delayMs: 0,
+    delayMs: loadingDelayMs,
   });
   try {
-    await waitForPlanUiPaint();
     if (typeof closeModal === "function") {
       closeModal();
     }

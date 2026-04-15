@@ -3413,23 +3413,11 @@ function buildIndexDebugScrollState(target) {
 }
 
 function emitIndexDebugEvent(name, payload = {}) {
-  if (
-    typeof window === "undefined" ||
-    typeof window.ControlerNativeBridge?.emitEvent !== "function"
-  ) {
-    return;
-  }
-  window.ControlerNativeBridge.emitEvent(name, {
-    href: window.location.href,
-    ...payload,
-  });
+  return;
 }
 
 function emitIndexDebugPerf(reason, payload = {}) {
-  emitIndexDebugEvent("ui.debug-perf", {
-    reason,
-    ...payload,
-  });
+  return;
 }
 
 function emitIndexStructuredLog(tag, payload = {}) {
@@ -3618,76 +3606,14 @@ function buildDebugHitState(target) {
 }
 
 function emitIndexDebugAction(reason, target = null, extra = {}) {
-  const recordList = document.getElementById("output");
-  emitIndexDebugEvent("ui.debug-action", {
-    reason,
-    target: describeDebugDomNode(target),
-    activeElement: describeDebugDomNode(document.activeElement),
-    recordListScroll: buildIndexDebugScrollState(recordList),
-    ...extra,
-  });
+  return;
 }
 
 function reportIndexDebugInteractivityState(
   reason = "manual",
   interaction = null,
 ) {
-  const spendButton = document.getElementById("spend");
-  const statsButton = document.querySelector('[data-nav-page="stats"]');
-  const hierarchyToggle = document.querySelector(
-    "#record-hierarchy-section .record-section-toggle",
-  );
-  const recordList = document.getElementById("output");
-  const modalOverlay = document.getElementById("modal-overlay");
-  const modalConfirmButton = document.getElementById("modal-confirm");
-  const projectNameInput = document.getElementById("project-name-input");
-  const firstProjectOption = document.querySelector(
-    "#existing-projects .project-option",
-  );
-  const renderedRecordCardCount =
-    recordList instanceof Element
-      ? recordList.querySelectorAll(".record-item").length
-      : 0;
-  const overlays = Array.from(
-    document.querySelectorAll(".page-loading-overlay, .modal-overlay"),
-  ).map((node) => {
-    const computedStyle = window.getComputedStyle(node);
-    return {
-      id: node.id || "",
-      className: node.className || "",
-      hidden: !!node.hidden,
-      display: computedStyle.display,
-      visibility: computedStyle.visibility,
-      pointerEvents: computedStyle.pointerEvents,
-      opacity: computedStyle.opacity,
-    };
-  });
-  emitIndexDebugEvent("ui.debug-state", {
-    reason,
-    bodyClass: document.body?.className || "",
-    htmlClass: document.documentElement?.className || "",
-    viewportWidth: Math.round(window.innerWidth || 0),
-    viewportHeight: Math.round(window.innerHeight || 0),
-    devicePixelRatio:
-      typeof window.devicePixelRatio === "number"
-        ? Number(window.devicePixelRatio.toFixed(3))
-        : null,
-    activeElement: describeDebugDomNode(document.activeElement),
-    interaction,
-    recordCount: Array.isArray(records) ? records.length : 0,
-    renderedRecordCardCount,
-    spendButton: buildDebugHitState(spendButton),
-    statsButton: buildDebugHitState(statsButton),
-    hierarchyToggle: buildDebugHitState(hierarchyToggle),
-    recordList: buildDebugHitState(recordList),
-    recordListScroll: buildIndexDebugScrollState(recordList),
-    documentScroll: buildIndexDebugScrollState(document.scrollingElement),
-    modalOverlay: buildDebugHitState(modalOverlay),
-    projectNameInput: buildDebugHitState(projectNameInput),
-    modalConfirmButton: buildDebugHitState(modalConfirmButton),
-    firstProjectOption: buildDebugHitState(firstProjectOption),
-    overlays,
-  });
+  return;
 }
 
 function bindIndexDebugInteractivityProbe() {
@@ -3748,11 +3674,7 @@ function bindIndexDebugInteractivityProbe() {
     recordList.addEventListener(
       "scroll",
       () => {
-        emitIndexDebugEvent("ui.debug-scroll", {
-          reason: "record-list-scroll",
-          target: describeDebugDomNode(recordList),
-          recordListScroll: buildIndexDebugScrollState(recordList),
-        });
+        return;
       },
       { passive: true },
     );
@@ -3760,11 +3682,7 @@ function bindIndexDebugInteractivityProbe() {
   window.addEventListener(
     "scroll",
     () => {
-      emitIndexDebugEvent("ui.debug-scroll", {
-        reason: "window-scroll",
-        target: describeDebugDomNode(document.scrollingElement),
-        documentScroll: buildIndexDebugScrollState(document.scrollingElement),
-      });
+      return;
     },
     { passive: true },
   );
@@ -3849,14 +3767,6 @@ function scheduleIndexUiCommit(callback) {
       : (task) => window.setTimeout(task, 16);
   schedule(() => {
     callback();
-  });
-}
-
-function waitForIndexUiPaint() {
-  return new Promise((resolve) => {
-    scheduleIndexUiCommit(() => {
-      window.setTimeout(resolve, 0);
-    });
   });
 }
 
@@ -11931,6 +11841,10 @@ async function handleIndexModalConfirmClick() {
       : ptn + 1;
     const willPersistRecord = predictedNextClickCount >= 2;
     if (willPersistRecord) {
+      const loadingDelayMs =
+        uiTools?.getBlockingMutationOverlayDelayMs?.({
+          mode: "fullscreen",
+        }) ?? 1200;
       uiTools?.markPerfStage?.("record-save-overlay-armed", {
         allowRepeat: true,
       });
@@ -11940,11 +11854,10 @@ async function handleIndexModalConfirmClick() {
         mode: "fullscreen",
         title: "正在保存记录",
         message: "正在写入新记录，请稍候后再切换页面。",
-        delayMs: 0,
+        delayMs: loadingDelayMs,
         lockNativeExit: false,
         delegateToNative: false,
       });
-      await waitForIndexUiPaint();
     }
     saveAttemptSnapshot = captureIndexModalSaveAttemptSnapshot();
     const spendAccepted = spend({

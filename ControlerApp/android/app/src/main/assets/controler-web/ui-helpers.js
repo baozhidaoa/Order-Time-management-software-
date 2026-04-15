@@ -11,10 +11,14 @@
   const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
   const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const MODAL_REMOVAL_DEFERRED_DELAY_MS = 24;
+  const MODAL_CLOSE_VISUAL_DURATION_MS = 84;
+  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 92;
+  const BLOCKING_MUTATION_FULLSCREEN_OVERLAY_DELAY_MS = 1200;
+  const BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS = 180;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 28;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_MAX_ATTEMPTS = 40;
-  const ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS = 140;
-  const ANDROID_KEYBOARD_TRANSITION_TRAILING_HEIGHT_PX = 28;
+  const ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS = 88;
+  const ANDROID_KEYBOARD_TRANSITION_TRAILING_HEIGHT_PX = 18;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -432,6 +436,7 @@
   let androidKeyboardTransitionCoverReleaseTimerId = 0;
   let androidKeyboardTransitionCoverHoldUntil = 0;
   let androidKeyboardTransitionCoverLastHeightPx = 0;
+  let androidKeyboardTransitionCoverLastInsetPx = 0;
   let androidKeyboardTransitionCoverLastBackground = "";
   let androidReactNativeAppNavLocked = false;
   let lastAndroidSoftInputRequestAt = 0;
@@ -4536,24 +4541,7 @@
   }
 
   function appendDesktopThemeTransitionLog(label, detail = {}) {
-    if (
-      !isDesktopElectronThemeTransitionRuntime() ||
-      typeof window.electronAPI?.debugAppendLog !== "function"
-    ) {
-      return;
-    }
-    try {
-      window.electronAPI.debugAppendLog({
-        label: `page-transition:${String(label || "").trim() || "event"}`,
-        page: resolveCurrentPagePerfKey(),
-        href: window.location.href,
-        ...(detail && typeof detail === "object" && !Array.isArray(detail)
-          ? detail
-          : {}),
-      });
-    } catch (_error) {
-      // Ignore logging failures.
-    }
+    return;
   }
 
   function parseAppPageTransitionJson(rawValue, fallback) {
@@ -5693,6 +5681,7 @@
       clearAndroidKeyboardTransitionCoverReleaseTimer();
       androidKeyboardTransitionCoverHoldUntil = 0;
       androidKeyboardTransitionCoverLastHeightPx = 0;
+      androidKeyboardTransitionCoverLastInsetPx = 0;
       androidKeyboardTransitionCoverLastBackground = "";
       writeAndroidKeyboardTransitionCoverState(0, "");
       return 0;
@@ -5708,12 +5697,24 @@
         ? window.getComputedStyle(root)
         : null;
     const transitionInsetPx = readAndroidKeyboardTransitionInsetPx(rootStyle);
+    const previousTransitionInsetPx = androidKeyboardTransitionCoverLastInsetPx;
+    const isClosingTransition =
+      transitionInsetPx > 0 && previousTransitionInsetPx > transitionInsetPx;
     const now = Date.now();
+    const coverShouldFollowTransition =
+      transitionInsetPx > 0 &&
+      (isClosingTransition ||
+        options.extendHold === true ||
+        (now < androidKeyboardTransitionCoverHoldUntil &&
+          previousTransitionInsetPx > 0));
 
-    if (transitionInsetPx > 0) {
+    if (coverShouldFollowTransition) {
       androidKeyboardTransitionCoverLastHeightPx = transitionInsetPx;
     }
-    if (transitionInsetPx > 0 || options.extendHold === true) {
+    if (
+      (transitionInsetPx > 0 && isClosingTransition) ||
+      options.extendHold === true
+    ) {
       androidKeyboardTransitionCoverHoldUntil = Math.max(
         androidKeyboardTransitionCoverHoldUntil,
         now + ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS,
@@ -5721,7 +5722,7 @@
     }
 
     const effectiveHeightPx =
-      transitionInsetPx > 0
+      coverShouldFollowTransition
         ? transitionInsetPx
         : now < androidKeyboardTransitionCoverHoldUntil &&
             androidKeyboardTransitionCoverLastHeightPx > 0
@@ -5740,6 +5741,7 @@
         androidKeyboardTransitionCoverLastBackground ||
         "var(--surface-app, var(--bg-primary, #ffffff))",
     );
+    androidKeyboardTransitionCoverLastInsetPx = transitionInsetPx;
 
     clearAndroidKeyboardTransitionCoverReleaseTimer();
     if (
@@ -5760,6 +5762,7 @@
     if (effectiveHeightPx <= 0 && transitionInsetPx <= 0) {
       androidKeyboardTransitionCoverHoldUntil = 0;
       androidKeyboardTransitionCoverLastHeightPx = 0;
+      androidKeyboardTransitionCoverLastInsetPx = 0;
       androidKeyboardTransitionCoverLastBackground = "";
     }
 
@@ -5840,42 +5843,87 @@
     clearProtectedModalPointerSuppression(overlay, {
       force: true,
     });
+    delete overlay.dataset.controlerModalClosing;
+    overlay.style.removeProperty("--controler-modal-close-duration");
+    overlay.style.removeProperty("--controler-modal-close-backdrop-bg");
+    overlay.style.removeProperty("--controler-modal-close-surface-bg");
     overlay.style.opacity = "";
     overlay.style.pointerEvents = "";
     overlay.style.backgroundColor =
       "var(--controler-perf-overlay-bg, var(--overlay-bg))";
+    overlay.style.visibility = "";
     const modalContent = overlay.querySelector(".modal-content");
     if (modalContent instanceof HTMLElement) {
+      modalContent.style.opacity = "";
+      modalContent.style.transform = "";
       modalContent.style.visibility = "";
       modalContent.style.pointerEvents = "";
     }
     return overlay;
   }
 
-  function applyClosingModalPresentation(modal) {
+  function applyClosingModalPresentation(modal, options = {}) {
     const overlay = resolveModalOverlayElement(modal);
     if (!(overlay instanceof HTMLElement)) {
       return null;
     }
-    const closingPointerEventsMode = String(
-      overlay.dataset.controlerClosingPointerEvents || "",
-    )
-      .trim()
-      .toLowerCase();
     const hideImmediately =
       overlay.dataset.controlerCloseHideImmediately === "true";
-    overlay.style.opacity = "0";
-    overlay.style.pointerEvents =
-      closingPointerEventsMode === "none" ? "none" : "auto";
+    const closeVisualDuration = Math.max(
+      0,
+      Math.round(
+        Number.isFinite(Number(options.closeVisualDuration))
+          ? Number(options.closeVisualDuration)
+          : 0,
+      ),
+    );
+    const closeBackdropBackground =
+      typeof window.getComputedStyle === "function"
+        ? resolveAndroidTransitionCoverBackgroundValue(
+            window.getComputedStyle(overlay),
+            "var(--controler-perf-overlay-bg, var(--overlay-bg))",
+          )
+        : "var(--controler-perf-overlay-bg, var(--overlay-bg))";
+    overlay.style.setProperty(
+      "--controler-modal-close-duration",
+      `${closeVisualDuration}ms`,
+    );
+    overlay.style.setProperty(
+      "--controler-modal-close-backdrop-bg",
+      closeBackdropBackground || "var(--controler-perf-overlay-bg, var(--overlay-bg))",
+    );
+    const modalContent = overlay.querySelector(".modal-content");
+    const closeSurfaceBackground =
+      modalContent instanceof HTMLElement &&
+      typeof window.getComputedStyle === "function"
+        ? resolveAndroidTransitionCoverBackgroundValue(
+            window.getComputedStyle(modalContent),
+            "var(--panel-bg, var(--bg-secondary))",
+          )
+        : "var(--panel-bg, var(--bg-secondary))";
+    overlay.style.setProperty(
+      "--controler-modal-close-surface-bg",
+      closeSurfaceBackground || "var(--panel-bg, var(--bg-secondary))",
+    );
+    overlay.style.pointerEvents = "none";
     overlay.style.backgroundColor = "transparent";
+    if (!hideImmediately && closeVisualDuration > 0) {
+      overlay.dataset.controlerModalClosing = "true";
+      overlay.style.opacity = "1";
+    } else {
+      delete overlay.dataset.controlerModalClosing;
+      overlay.style.opacity = "0";
+    }
     if (hideImmediately) {
       overlay.style.visibility = "hidden";
     }
 
-    const modalContent = overlay.querySelector(".modal-content");
     if (modalContent instanceof HTMLElement) {
-      modalContent.style.visibility = "hidden";
       modalContent.style.pointerEvents = "none";
+      if (hideImmediately || closeVisualDuration <= 0) {
+        modalContent.style.visibility = "hidden";
+        modalContent.style.opacity = "0";
+      }
     }
     return overlay;
   }
@@ -6070,16 +6118,7 @@
         ),
       );
     }
-    const computedRootStyle =
-      rootStyle ||
-      (typeof window.getComputedStyle === "function"
-        ? window.getComputedStyle(document.documentElement)
-        : null);
-    const keyboardInsetPx = readAndroidKeyboardTransitionInsetPx(
-      computedRootStyle,
-    );
-    const spareSpacePx = readAndroidFormModalFooterSpareSpacePx(overlay);
-    return Math.max(Math.round(keyboardInsetPx - spareSpacePx), 0);
+    return 0;
   }
 
   function shouldUseKeyboardAwareModalOverlay(modal) {
@@ -6127,13 +6166,6 @@
       return;
     }
 
-    const rootStyle =
-      typeof window.getComputedStyle === "function"
-        ? window.getComputedStyle(document.documentElement)
-        : null;
-    const stableViewportHeightPx = readAndroidStableViewportHeightPx(rootStyle);
-    const keyboardInsetPx = readAndroidKeyboardTransitionInsetPx(rootStyle);
-
     targetModals.forEach((candidate) => {
       const overlay = resolveFormModalOverlayElement(candidate);
       if (!(overlay instanceof HTMLElement)) {
@@ -6147,32 +6179,7 @@
         overlay.style.removeProperty("--controler-modal-keyboard-lift");
         return;
       }
-
-      const modalFooter = overlay.querySelector(".controler-form-modal-footer");
-      if (!(modalFooter instanceof HTMLElement)) {
-        overlay.style.removeProperty("--controler-modal-footer-spare-space");
-        overlay.style.removeProperty("--controler-modal-keyboard-lift");
-        return;
-      }
-
-      const viewportBottomPx =
-        stableViewportHeightPx > 0
-          ? stableViewportHeightPx
-          : getAndroidVisibleViewportBottomPx(rootStyle) + keyboardInsetPx;
-      const currentLiftPx = resolveAndroidFormModalKeyboardLiftPx(
-        overlay,
-        rootStyle,
-      );
-      const footerRect = modalFooter.getBoundingClientRect();
-      const naturalFooterBottomPx = footerRect.bottom + currentLiftPx;
-      const nextSpareSpacePx = Math.max(
-        viewportBottomPx - naturalFooterBottomPx - 12,
-        0,
-      );
-      overlay.style.setProperty(
-        "--controler-modal-footer-spare-space",
-        `${Math.round(nextSpareSpacePx)}px`,
-      );
+      overlay.style.removeProperty("--controler-modal-footer-spare-space");
       overlay.style.removeProperty("--controler-modal-keyboard-lift");
     });
   }
@@ -6211,33 +6218,6 @@
       return modal;
     }
     clearAndroidFormModalKeyboardLiftObserver(modal);
-    if (
-      !isAndroidNativeRuntime() ||
-      typeof ResizeObserver !== "function" ||
-      !modal.classList.contains("controler-form-modal-overlay")
-    ) {
-      return modal;
-    }
-
-    const observedElements = [
-      modal,
-      modal.querySelector(".controler-form-modal"),
-      modal.querySelector(".controler-form-modal-body"),
-      modal.querySelector(".controler-form-modal-footer"),
-    ].filter((element) => element instanceof HTMLElement);
-    if (observedElements.length === 0) {
-      return modal;
-    }
-
-    const observer = new ResizeObserver(() => {
-      scheduleAndroidFormModalKeyboardLiftSync(modal);
-    });
-    observedElements.forEach((element) => {
-      observer.observe(element);
-    });
-    modal.__controlerAndroidFormModalKeyboardLiftCleanup = () => {
-      observer.disconnect();
-    };
     return modal;
   }
 
@@ -6246,13 +6226,6 @@
       return;
     }
     androidFormModalKeyboardLiftSyncBound = true;
-    const handleSync = () => {
-      scheduleAndroidFormModalKeyboardLiftSync();
-    };
-    window.visualViewport?.addEventListener("resize", handleSync);
-    window.visualViewport?.addEventListener("scroll", handleSync);
-    window.addEventListener("resize", handleSync);
-    window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleSync);
   }
 
   function isContentScopedOverlayElement(overlay) {
@@ -7444,6 +7417,17 @@
     });
   }
 
+  function getBlockingMutationOverlayDelayMs(options = {}) {
+    const requestedMode = String(options?.mode || "").trim().toLowerCase();
+    const mode = requestedMode === "inline" ? "inline" : "fullscreen";
+    if (mode === "inline") {
+      return BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS;
+    }
+    return isReactNativeNavigationRuntime() || isCompactGestureLayout()
+      ? BLOCKING_MUTATION_FULLSCREEN_OVERLAY_DELAY_MS
+      : PAGE_LOADING_OVERLAY_DELAY_MS;
+  }
+
   function createAtomicRefreshController(options = {}) {
     const defaultDelayMs = Number.isFinite(options.defaultDelayMs)
       ? Math.max(0, Math.round(Number(options.defaultDelayMs)))
@@ -7961,6 +7945,9 @@
         !suppressedByShell &&
         !suppressedByAppPageEnterTransition &&
         !delegatedToNative;
+      if (actualVisible && resolvedMode === "fullscreen" && isAndroidNativeRuntime()) {
+        releaseAndroidInteractiveTextControlFocus();
+      }
       if (actualVisible && resolvedMode === "fullscreen") {
         moveOverlayToFullscreenHost();
       } else {
@@ -8706,6 +8693,19 @@
     );
   }
 
+  function resolveModalCloseVisualDuration(
+    modal,
+    fallbackDuration = isAndroidNativeRuntime()
+      ? ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS
+      : MODAL_CLOSE_VISUAL_DURATION_MS,
+  ) {
+    return resolveModalInteractionProtectionDuration(
+      modal,
+      fallbackDuration,
+      "controlerCloseVisualDurationMs",
+    );
+  }
+
   function protectVisibleParentModalsFromFollowThrough(
     sourceModal,
     durationMs = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
@@ -9075,6 +9075,11 @@
       MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
       "controlerCloseProtectionDurationMs",
     );
+    const closeVisualDuration =
+      modal instanceof HTMLElement &&
+      modal.dataset?.controlerCloseHideImmediately === "true"
+        ? 0
+        : resolveModalCloseVisualDuration(modal);
     if (modal instanceof HTMLElement) {
       freezeAndroidModalDismissLayout(modal);
       const cleanupKeyboardShortcuts =
@@ -9123,7 +9128,9 @@
     }
 
     if (modal instanceof HTMLElement) {
-      applyClosingModalPresentation(modal);
+      applyClosingModalPresentation(modal, {
+        closeVisualDuration,
+      });
     }
 
     releaseCoveredParentModalInteractions(modal, {
@@ -9148,7 +9155,7 @@
       window.setTimeout(
         removeModalElement,
         modal instanceof HTMLElement
-          ? closeProtectionDuration
+          ? Math.max(closeVisualDuration, MODAL_REMOVAL_DEFERRED_DELAY_MS)
           : MODAL_REMOVAL_DEFERRED_DELAY_MS,
       );
     });
@@ -10540,32 +10547,11 @@
   }
 
   function emitTreeSelectScrollLog(stage, payload = {}) {
-    const normalizedStage = String(stage || "").trim() || "unknown";
-    try {
-      console.info("[ui.tree-select-scroll]", {
-        stage: normalizedStage,
-        ...payload,
-      });
-    } catch (error) {
-      // Ignore logging failures.
-    }
-    emitUiDebugEvent("ui.debug-tree-select-scroll", {
-      stage: normalizedStage,
-      ...payload,
-    });
+    return;
   }
 
   function emitUiDebugEvent(name, payload = {}) {
-    if (
-      typeof window === "undefined" ||
-      typeof window.ControlerNativeBridge?.emitEvent !== "function"
-    ) {
-      return;
-    }
-    window.ControlerNativeBridge.emitEvent(name, {
-      href: window.location.href,
-      ...payload,
-    });
+    return;
   }
 
   function readScrollableElementDebugState(target) {
@@ -12298,14 +12284,12 @@
                 <div class="controler-themed-picker-calendar-toolbar">
                   <button type="button" class="controler-themed-picker-nav-btn" data-managed-picker-prev-month aria-label="上个月">‹</button>
                   <div class="controler-themed-picker-calendar-selects">
-                    <label class="controler-themed-picker-select-field">
-                      <span>年份</span>
-                      <select data-managed-picker-year></select>
-                    </label>
-                    <label class="controler-themed-picker-select-field">
-                      <span>月份</span>
-                      <select data-managed-picker-month></select>
-                    </label>
+                    <div class="controler-themed-picker-select-field">
+                      <select data-managed-picker-year aria-label="年份"></select>
+                    </div>
+                    <div class="controler-themed-picker-select-field">
+                      <select data-managed-picker-month aria-label="月份"></select>
+                    </div>
                   </div>
                   <button type="button" class="controler-themed-picker-nav-btn" data-managed-picker-next-month aria-label="下个月">›</button>
                 </div>
@@ -15296,6 +15280,7 @@
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
     resumeAndroidModalAutofocus,
+    releaseAndroidInteractiveTextControlFocus,
     initEditablePageTitles,
     getStoredCustomPageTitle,
     setStoredCustomPageTitle,
@@ -15310,6 +15295,7 @@
     hasPeriodOverlap,
     isSerializableEqual,
     pageLoadingOverlayDelayMs: PAGE_LOADING_OVERLAY_DELAY_MS,
+    getBlockingMutationOverlayDelayMs,
     createFrameScheduler,
     createDeferredRefreshController,
     createAtomicRefreshController,

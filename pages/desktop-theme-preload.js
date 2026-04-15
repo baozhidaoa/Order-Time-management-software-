@@ -86,24 +86,7 @@
   }
 
   function appendDesktopThemeDebugLog(label, detail = {}) {
-    try {
-      if (
-        window.electronAPI?.isElectron !== true ||
-        typeof window.electronAPI?.debugAppendLog !== "function"
-      ) {
-        return;
-      }
-      window.electronAPI.debugAppendLog({
-        label: `desktop-theme-preload:${String(label || "").trim() || "event"}`,
-        page: resolveCurrentPageKey(),
-        href: window.location.href,
-        ...(detail && typeof detail === "object" && !Array.isArray(detail)
-          ? detail
-          : {}),
-      });
-    } catch (_error) {
-      // Ignore logging failures.
-    }
+    return;
   }
 
   function parseJsonString(rawValue, fallback) {

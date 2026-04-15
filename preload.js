@@ -83,7 +83,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   dialogShowMessage: (options) =>
     ipcRenderer.invoke("dialog:showMessage", options),
   fsReadTextFile: (filePath) => ipcRenderer.invoke("fs:readTextFile", filePath),
-  debugAppendLog: (payload = {}) => ipcRenderer.send("debug:appendLog", payload),
   uiGetLanguage: () => ipcRenderer.invoke("ui:getLanguage"),
   uiSetLanguage: (language) => ipcRenderer.invoke("ui:setLanguage", language),
   uiPageReady: (payload = {}) => ipcRenderer.send("ui:pageReady", payload),

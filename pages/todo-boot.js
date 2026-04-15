@@ -7642,6 +7642,10 @@
       perfAction = "todo-mutation",
       delegateToNative = false,
     } = options;
+    const loadingDelayMs =
+      uiTools?.getBlockingMutationOverlayDelayMs?.({
+        mode: "fullscreen",
+      }) ?? 1200;
     uiTools?.markPerfStage?.("todo-form-save-start", {
       allowRepeat: true,
       action: perfAction,
@@ -7651,11 +7655,10 @@
       mode: "fullscreen",
       title,
       message,
-      delayMs: 0,
+      delayMs: loadingDelayMs,
       delegateToNative,
     });
     try {
-      await waitForTodoUiPaint();
       const result = typeof task === "function" ? await task() : true;
       if (result !== false) {
         uiTools?.markPerfStage?.("todo-form-storage-acked", {
@@ -7665,7 +7668,6 @@
         finalizeTodoModalChange(closeModal, {
           refreshView,
         });
-        await waitForTodoUiPaint();
         uiTools?.markPerfStage?.("todo-form-modal-hidden", {
           allowRepeat: true,
           action: perfAction,

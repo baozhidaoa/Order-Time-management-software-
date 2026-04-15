@@ -685,24 +685,7 @@
   }
 
   function appendDesktopThemeDebugLog(label, detail = {}) {
-    try {
-      if (
-        window.electronAPI?.isElectron !== true ||
-        typeof window.electronAPI?.debugAppendLog !== "function"
-      ) {
-        return;
-      }
-      window.electronAPI.debugAppendLog({
-        label: `theme-init:${String(label || "").trim() || "event"}`,
-        page: resolveCurrentThemeDebugPageKey(),
-        href: window.location.href,
-        ...(detail && typeof detail === "object" && !Array.isArray(detail)
-          ? detail
-          : {}),
-      });
-    } catch (_error) {
-      // Ignore logging failures.
-    }
+    return;
   }
 
   function parseJsonString(rawValue, fallback) {
@@ -2547,15 +2530,6 @@
           : {},
       };
       const nextLaunchThemeSyncSignature = JSON.stringify(launchThemeState);
-      window.ControlerNativeBridge?.emitEvent?.("ui.debug-launch-theme-sync", {
-        href: window.location.href,
-        themeId,
-        selectedTheme: themeId || DEFAULT_THEME_ID,
-        customThemeCount: matchedCustomTheme ? 1 : 0,
-        builtInOverrideCount: selectedOverride ? 1 : 0,
-        signatureChanged:
-          nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature,
-      });
       if (nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature) {
         lastLaunchThemeSyncSignature = nextLaunchThemeSyncSignature;
         void window.ControlerNativeBridge?.call?.("ui.setLaunchThemeState", {

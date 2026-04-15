@@ -785,18 +785,6 @@ function persistDiaryFallbackSnapshot() {
   }
 }
 
-function waitForDiaryUiPaint() {
-  return new Promise((resolve) => {
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(() => {
-      window.setTimeout(resolve, 0);
-    });
-  });
-}
-
 function trackDiaryPersistenceTask(taskPromise) {
   let trackedTask = null;
   trackedTask = Promise.resolve(taskPromise).finally(() => {
@@ -857,6 +845,10 @@ async function commitDiaryLocalChange({
   const persistMeta = normalizeDiaryPersistMeta(applyResult);
   syncDiaryDataIndex();
   const perfAction = failureTitle === "删除失败" ? "diary-delete" : "diary-save";
+  const loadingDelayMs =
+    uiTools?.getBlockingMutationOverlayDelayMs?.({
+      mode: "fullscreen",
+    }) ?? 1200;
   uiTools?.markPerfStage?.("diary-form-save-start", {
     allowRepeat: true,
     action: perfAction,
@@ -869,11 +861,10 @@ async function commitDiaryLocalChange({
       failureTitle === "删除失败"
         ? "正在同步删除日记数据，请稍候"
         : "正在写入日记与分类数据，请稍候",
-    delayMs: 0,
+    delayMs: loadingDelayMs,
   });
   const saveTask = saveDiaryData(persistMeta);
   try {
-    await waitForDiaryUiPaint();
     if (typeof closeModal === "function") {
       closeModal();
     }

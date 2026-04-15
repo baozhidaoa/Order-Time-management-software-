@@ -149,6 +149,8 @@ vite.config.ts.timestamp-*
 .tmp-widget-javac/
 .tmp-capacitor-javac/
 /tmp-*
+/tmp_window_dump.xml
+/TEMP_PLACEHOLDER
 
 # Local device data / recovery artifacts
 artifacts/device-live/

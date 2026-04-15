@@ -6663,18 +6663,6 @@ function App({
     if (message.type === 'bridge-event') {
       const eventName =
         typeof message.payload?.name === 'string' ? message.payload.name : '';
-      if (eventName.startsWith('ui.debug-')) {
-        console.info(
-          '[OrderWebState]',
-          JSON.stringify({
-            slot,
-            payload: {
-              ...(message.payload || {}),
-              name: eventName,
-            },
-          }),
-        );
-      }
       if (eventName === 'ui.language-changed') {
         persistShellLanguage(message.payload?.language).catch(
           () => undefined,
