@@ -6217,18 +6217,17 @@ body.page-record .record-output-surface > * {
       box-shadow 0.22s ease;
   }
 
-  body.controler-keyboard-open.flex.row > div:first-of-type {
-    height: auto !important;
+  body.controler-android-native.controler-keyboard-open.flex.row > div:first-of-type {
+    flex: 0 0 0 !important;
+    height: 0 !important;
     min-height: 0 !important;
-    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
   }
 
-  body.controler-keyboard-open.flex.row > div:first-of-type > .app-nav {
-    transform: translateY(
-      calc(var(--controler-keyboard-inset, 0px) + 18px)
-    );
-    opacity: 0;
-    pointer-events: none;
+  body.controler-android-native.controler-keyboard-open.flex.row > div:first-of-type > .app-nav {
+    display: none !important;
   }
 
   body.flex.row > div:first-of-type > .app-nav .bts {
@@ -9326,18 +9325,13 @@ body.page-diary #diary-search-input {
   width: 100%;
   min-width: 0;
   scroll-margin-top: 18px;
-  scroll-margin-bottom: calc(
-    32px + var(--controler-keyboard-transition-inset, 0px)
-  );
+  scroll-margin-bottom: 32px;
 }
 
 body.page-diary .diary-main {
-  --diary-search-keyboard-clearance: 0px;
-  padding-bottom: calc(8px + var(--diary-search-keyboard-clearance, 0px));
+  padding-bottom: 8px;
   scroll-padding-top: 16px;
-  scroll-padding-bottom: calc(
-    24px + var(--diary-search-keyboard-clearance, 0px)
-  );
+  scroll-padding-bottom: 24px;
 }
 
 .diary-period-picker-dialog {
@@ -9432,14 +9426,13 @@ body.page-diary .diary-main {
 .diary-period-picker-wheel-list {
   position: relative;
   z-index: 0;
-  display: flex;
-  flex-direction: column;
   height: 308px;
-  overflow-y: auto;
-  padding: 126px 0;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow: hidden;
+  padding: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  will-change: transform;
 }
 
 .diary-period-picker-wheel-list::-webkit-scrollbar {
@@ -9449,10 +9442,15 @@ body.page-diary .diary-main {
 }
 
 .diary-period-picker-option {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
+  height: 54px;
   min-height: 54px;
   padding: 0 16px;
   border: none;
@@ -9467,12 +9465,12 @@ body.page-diary .diary-main {
     color 0.18s ease,
     transform 0.18s ease,
     opacity 0.18s ease;
+  touch-action: manipulation;
 }
 
 .diary-period-picker-option.selected {
   color: var(--accent-color);
   font-weight: 700;
-  transform: scale(1.04);
 }
 
 .diary-period-picker-actions {
@@ -9493,10 +9491,7 @@ body.page-diary .diary-main {
 
 @media (max-width: 690px) {
   body.page-diary .diary-main {
-    padding-bottom: calc(
-      max(8px, calc(env(safe-area-inset-bottom, 0px) / 4)) +
-        var(--diary-search-keyboard-clearance, 0px)
-    );
+    padding-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) / 4));
   }
 }
 

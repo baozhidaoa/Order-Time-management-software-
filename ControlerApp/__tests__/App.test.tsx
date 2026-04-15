@@ -174,6 +174,7 @@ describe('resolveWebViewNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: true,
+      allowOnlyExpectedLoad: false,
     });
   });
 
@@ -187,6 +188,7 @@ describe('resolveWebViewNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: false,
+      allowOnlyExpectedLoad: false,
     });
   });
 
@@ -202,6 +204,7 @@ describe('resolveWebViewNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: false,
+      allowOnlyExpectedLoad: true,
     });
   });
 
@@ -215,6 +218,7 @@ describe('resolveWebViewNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: false,
+      allowOnlyExpectedLoad: false,
     });
   });
 });

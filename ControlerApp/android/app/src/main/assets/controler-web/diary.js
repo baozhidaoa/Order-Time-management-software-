@@ -1976,10 +1976,29 @@ function showDiarySingleColumnPickerDialog({
       "[data-diary-picker-preview-primary]",
     );
     const list = modal.querySelector("[data-diary-picker-list]");
-    let scrollTimerId = 0;
-    let pickerTouchActive = false;
     let dialogSettled = false;
     const pickerEventCleanups = [];
+    const pickerOptionHeightPx = 54;
+    const pickerVisibleRadius = 3;
+    const pickerSlotOffsets = Array.from(
+      {
+        length: pickerVisibleRadius * 2 + 1,
+      },
+      (_, index) => index - pickerVisibleRadius,
+    );
+    const pickerOptionButtons = [];
+    let selectedIndex = Math.max(
+      0,
+      normalizedValues.indexOf(currentValue),
+    );
+    let gestureActive = false;
+    let gestureMoved = false;
+    let gestureStartY = 0;
+    let gestureOffsetPx = 0;
+    let gestureStartTime = 0;
+    let gestureLastY = 0;
+    let gestureLastTime = 0;
+    let suppressOptionClick = false;
 
     const syncPreview = () => {
       if (previewSecondary instanceof HTMLElement) {
@@ -1990,128 +2009,156 @@ function showDiarySingleColumnPickerDialog({
       }
     };
 
-    const syncSelectedOptionState = () => {
+    const clampPickerIndex = (index) =>
+      Math.max(0, Math.min(normalizedValues.length - 1, Number(index) || 0));
+
+    const clampPickerIndexFloat = (index) =>
+      Math.max(
+        0,
+        Math.min(normalizedValues.length - 1, Number(index) || 0),
+      );
+
+    const syncPreviewValue = (nextIndex) => {
+      const resolvedIndex = clampPickerIndex(nextIndex);
+      const nextValue = normalizedValues[resolvedIndex] ?? normalizedValues[0];
+      if (nextValue !== currentValue) {
+        currentValue = nextValue;
+      }
+      syncPreview();
+      return currentValue;
+    };
+
+    const setCurrentValueByIndex = (nextIndex) => {
+      selectedIndex = clampPickerIndex(nextIndex);
+      syncPreviewValue(selectedIndex);
+      return currentValue;
+    };
+
+    const computeWheelVisualState = () => {
+      const rawIndex = clampPickerIndexFloat(
+        selectedIndex - gestureOffsetPx / pickerOptionHeightPx,
+      );
+      const visualIndex = clampPickerIndex(Math.round(rawIndex));
+      const visualOffsetPx = Math.max(
+        -pickerOptionHeightPx,
+        Math.min(
+          pickerOptionHeightPx,
+          (visualIndex - rawIndex) * pickerOptionHeightPx,
+        ),
+      );
+      return {
+        rawIndex,
+        visualIndex,
+        visualOffsetPx,
+      };
+    };
+
+    const renderWheelPosition = ({ animate = false } = {}) => {
       if (!(list instanceof HTMLElement)) {
         return;
       }
-      list
-        .querySelectorAll(".diary-period-picker-option")
-        .forEach((optionButton) => {
-          const optionValue = Number(optionButton.dataset.value);
-          optionButton.classList.toggle(
-            "selected",
-            Number.isFinite(optionValue) && optionValue === currentValue,
-          );
-        });
-    };
-
-    const clearPendingSettle = () => {
-      if (!scrollTimerId) {
-        return;
-      }
-      window.clearTimeout(scrollTimerId);
-      scrollTimerId = 0;
-    };
-
-    const syncCurrentValueFromOption = (optionButton) => {
-      const nextValue = readDiaryPickerOptionValue(optionButton);
-      if (!Number.isFinite(nextValue)) {
-        return null;
-      }
-      if (nextValue !== currentValue) {
-        currentValue = nextValue;
-        syncPreview();
-      }
-      syncSelectedOptionState();
-      return nextValue;
-    };
-
-    const syncCurrentValueFromNearestOption = () => {
-      const nearestButton = getNearestDiaryPickerOption(list);
-      if (!(nearestButton instanceof HTMLElement)) {
-        return null;
-      }
-      syncCurrentValueFromOption(nearestButton);
-      return nearestButton;
-    };
-
-    const settleToNearestOption = (behavior = "auto") => {
-      if (dialogSettled || !(list instanceof HTMLElement)) {
-        return null;
-      }
-      const nearestButton = syncCurrentValueFromNearestOption();
-      if (nearestButton instanceof HTMLElement) {
-        scrollDiaryPickerOptionIntoCenter(list, nearestButton, behavior);
-      }
-      return nearestButton;
-    };
-
-    const scheduleSettleToNearestOption = (delayMs = 168, behavior = "auto") => {
-      clearPendingSettle();
-      scrollTimerId = window.setTimeout(() => {
-        scrollTimerId = 0;
-        if (pickerTouchActive || dialogSettled) {
+      const { visualIndex, visualOffsetPx } = computeWheelVisualState();
+      const transitionValue = animate
+        ? "transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, color 180ms ease"
+        : "none";
+      syncPreviewValue(visualIndex);
+      pickerOptionButtons.forEach((optionButton) => {
+        if (!(optionButton instanceof HTMLElement)) {
           return;
         }
-        settleToNearestOption(behavior);
-      }, Math.max(180, Number(delayMs) || 0));
+        optionButton.style.transition = transitionValue;
+        const slotOffset = Number(optionButton.dataset.slotOffset || 0);
+        const valueIndex = visualIndex + slotOffset;
+        if (valueIndex < 0 || valueIndex >= normalizedValues.length) {
+          optionButton.hidden = true;
+          optionButton.style.display = "none";
+          optionButton.style.pointerEvents = "none";
+          optionButton.dataset.value = "";
+          optionButton.dataset.valueIndex = "";
+          optionButton.textContent = "";
+          return;
+        }
+        const optionValue = normalizedValues[valueIndex];
+        const optionText = formatValueText(optionValue);
+        if (optionButton.textContent !== optionText) {
+          optionButton.textContent = optionText;
+        }
+        optionButton.hidden = false;
+        optionButton.style.display = "flex";
+        optionButton.style.pointerEvents = gestureActive ? "none" : "auto";
+        optionButton.dataset.value = String(optionValue);
+        optionButton.dataset.valueIndex = String(valueIndex);
+        const isSelected = valueIndex === visualIndex;
+        optionButton.classList.toggle("selected", isSelected);
+        const distance = Math.abs(slotOffset);
+        optionButton.style.opacity = isSelected
+          ? "1"
+          : String(Math.max(0.16, 0.78 - distance * 0.18));
+        const scale = isSelected
+          ? 1.04
+          : Math.max(0.92, 1 - distance * 0.04);
+        const translateY = slotOffset * pickerOptionHeightPx + visualOffsetPx;
+        optionButton.style.transform = `translate3d(0, ${translateY}px, 0) translateY(-50%) scale(${scale.toFixed(
+          3,
+        )})`;
+      });
     };
 
-    const readCommittedPreviewValue = () => {
-      const previewText = String(previewPrimary?.textContent || "").trim();
-      const matched = previewText.match(/-?\d+/);
-      if (!matched) {
+    const readGestureClientY = (event) => {
+      if (!event) {
         return null;
       }
-      const nextValue = Number(matched[0]);
-      return normalizedValues.includes(nextValue) ? nextValue : null;
+      const touchPoint = event.touches?.[0] || event.changedTouches?.[0] || null;
+      const clientY =
+        typeof touchPoint?.clientY === "number"
+          ? touchPoint.clientY
+          : typeof event.clientY === "number"
+            ? event.clientY
+            : null;
+      return Number.isFinite(clientY) ? clientY : null;
     };
 
-    const renderOptions = (behavior = "auto") => {
+    const renderOptionSlots = (behavior = "auto") => {
       if (!(list instanceof HTMLElement)) {
         return;
       }
       list.innerHTML = "";
-      normalizedValues.forEach((value) => {
+      pickerOptionButtons.length = 0;
+      pickerSlotOffsets.forEach((slotOffset) => {
         const optionButton = document.createElement("button");
         optionButton.type = "button";
         optionButton.className = "diary-period-picker-option";
-        optionButton.dataset.value = String(value);
-        optionButton.textContent = formatValueText(value);
+        optionButton.dataset.slotOffset = String(slotOffset);
         optionButton.addEventListener("click", (event) => {
+          if (dialogSettled || gestureActive || suppressOptionClick) {
+            suppressOptionClick = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
-          currentValue = value;
-          syncPreview();
-          syncSelectedOptionState();
-          clearPendingSettle();
-          scrollDiaryPickerOptionIntoCenter(list, optionButton, "auto");
+          const nextIndex = Number(optionButton.dataset.valueIndex);
+          if (!Number.isFinite(nextIndex)) {
+            return;
+          }
+          gestureOffsetPx = 0;
+          setCurrentValueByIndex(nextIndex);
+          renderWheelPosition({
+            animate: true,
+          });
         });
         list.appendChild(optionButton);
+        pickerOptionButtons.push(optionButton);
       });
 
-      syncSelectedOptionState();
-      const selectedButton = list.querySelector(".diary-period-picker-option.selected");
+      setCurrentValueByIndex(selectedIndex);
       window.requestAnimationFrame?.(() => {
-        if (selectedButton instanceof HTMLElement) {
-          scrollDiaryPickerOptionIntoCenter(list, selectedButton, behavior);
-        }
+        renderWheelPosition({
+          animate: behavior === "smooth",
+        });
       });
     };
-
-    list?.addEventListener("scroll", () => {
-      if (!(list instanceof HTMLElement)) {
-        return;
-      }
-      if (
-        dialogSettled ||
-        list.dataset.controlerDiaryPickerAutoScrolling === "true"
-      ) {
-        return;
-      }
-      syncCurrentValueFromNearestOption();
-      scheduleSettleToNearestOption(240, "auto");
-    });
 
     const bindPickerEvent = (target, eventName, handler, options = undefined) => {
       if (
@@ -2127,42 +2174,129 @@ function showDiarySingleColumnPickerDialog({
       });
     };
 
-    const markPickerTouchStart = () => {
-      pickerTouchActive = true;
-      clearPendingSettle();
-    };
-    const markPickerTouchEnd = () => {
-      if (!pickerTouchActive) {
+    const beginPickerGesture = (event) => {
+      if (dialogSettled) {
         return;
       }
-      pickerTouchActive = false;
-      scheduleSettleToNearestOption(240, "auto");
+      const clientY = readGestureClientY(event);
+      if (!Number.isFinite(clientY)) {
+        return;
+      }
+      gestureActive = true;
+      gestureMoved = false;
+      suppressOptionClick = false;
+      gestureOffsetPx = 0;
+      gestureStartY = clientY;
+      gestureLastY = clientY;
+      gestureStartTime = Date.now();
+      gestureLastTime = gestureStartTime;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      renderWheelPosition();
     };
+
+    const updatePickerGesture = (event) => {
+      if (!gestureActive || dialogSettled) {
+        return;
+      }
+      const clientY = readGestureClientY(event);
+      if (!Number.isFinite(clientY)) {
+        return;
+      }
+      gestureOffsetPx = clientY - gestureStartY;
+      gestureLastY = clientY;
+      gestureLastTime = Date.now();
+      if (Math.abs(gestureOffsetPx) > 6) {
+        gestureMoved = true;
+        suppressOptionClick = true;
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      renderWheelPosition();
+    };
+
+    const finishPickerGesture = (event = null) => {
+      if (!gestureActive) {
+        return;
+      }
+      const clientY = readGestureClientY(event);
+      if (Number.isFinite(clientY)) {
+        gestureOffsetPx = clientY - gestureStartY;
+        gestureLastY = clientY;
+        gestureLastTime = Date.now();
+      }
+      const elapsedMs = Math.max(16, gestureLastTime - gestureStartTime);
+      const velocityPxPerMs = (gestureLastY - gestureStartY) / elapsedMs;
+      let projectedIndex =
+        selectedIndex - gestureOffsetPx / pickerOptionHeightPx;
+      if (Math.abs(velocityPxPerMs) > 0.45 && Math.abs(gestureOffsetPx) > 18) {
+        projectedIndex -= Math.sign(velocityPxPerMs) * 0.85;
+      }
+      gestureActive = false;
+      gestureOffsetPx = 0;
+      setCurrentValueByIndex(Math.round(projectedIndex));
+      if (event?.cancelable) {
+        event.preventDefault();
+      }
+      renderWheelPosition({
+        animate: true,
+      });
+      window.setTimeout(() => {
+        gestureMoved = false;
+        suppressOptionClick = false;
+      }, 0);
+    };
+
     ["pointerdown", "mousedown", "touchstart"].forEach((eventName) => {
-      bindPickerEvent(list, eventName, markPickerTouchStart, {
+      bindPickerEvent(list, eventName, beginPickerGesture, {
         passive: eventName === "touchstart",
+      });
+    });
+    ["pointermove", "mousemove", "touchmove"].forEach((eventName) => {
+      bindPickerEvent(window, eventName, updatePickerGesture, {
+        passive: false,
       });
     });
     ["pointerup", "mouseup", "touchend", "touchcancel", "pointercancel"].forEach(
       (eventName) => {
-        bindPickerEvent(window, eventName, markPickerTouchEnd, {
-          passive: eventName.startsWith("touch"),
+        bindPickerEvent(window, eventName, finishPickerGesture, {
+          passive: false,
         });
       },
     );
-    if ("onscrollend" in HTMLElement.prototype) {
-      bindPickerEvent(list, "scrollend", () => {
-        if (pickerTouchActive || dialogSettled) {
+    bindPickerEvent(
+      list,
+      "wheel",
+      (event) => {
+        if (dialogSettled) {
           return;
         }
-        settleToNearestOption("auto");
-      });
-    }
+        const direction = Math.sign(Number(event.deltaY) || 0);
+        if (!direction) {
+          return;
+        }
+        gestureActive = false;
+        gestureOffsetPx = 0;
+        suppressOptionClick = false;
+        setCurrentValueByIndex(selectedIndex + direction);
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        renderWheelPosition({
+          animate: true,
+        });
+      },
+      {
+        passive: false,
+      },
+    );
 
     const settleDialog = (result = null) => {
       dialogSettled = true;
-      pickerTouchActive = false;
-      clearPendingSettle();
+      gestureActive = false;
+      gestureOffsetPx = 0;
       pickerEventCleanups.splice(0).forEach((cleanup) => {
         try {
           cleanup();
@@ -2199,19 +2333,14 @@ function showDiarySingleColumnPickerDialog({
       settleDialog(null);
     });
     uiTools?.bindModalAction?.(modal, "[data-diary-picker-confirm]", () => {
-      const nearestButton = settleToNearestOption("auto");
-      const committedValue =
-        readCommittedPreviewValue() ??
-        readDiaryPickerOptionValue(nearestButton) ??
-        currentValue;
-      settleDialog(committedValue);
+      settleDialog(currentValue);
     });
     uiTools?.bindModalBackdropDismiss?.(modal, () => {
       settleDialog(null);
     });
 
     syncPreview();
-    renderOptions();
+    renderOptionSlots();
   });
 }
 
@@ -2431,23 +2560,7 @@ function setDiarySearchQuery(nextQuery, options = {}) {
   }
 }
 
-function readDiaryRootPixelValue(propertyName, rootStyle = null) {
-  const computedRootStyle =
-    rootStyle ||
-    (typeof window.getComputedStyle === "function"
-      ? window.getComputedStyle(document.documentElement)
-      : null);
-  const nextValue = Number.parseFloat(
-    computedRootStyle?.getPropertyValue(propertyName) || "0",
-  );
-  return Number.isFinite(nextValue) ? Math.max(nextValue, 0) : 0;
-}
-
 function resolveDiarySearchViewportMetrics() {
-  const rootStyle =
-    typeof window.getComputedStyle === "function"
-      ? window.getComputedStyle(document.documentElement)
-      : null;
   const visualViewport = window.visualViewport;
   const viewportTop = Math.max(Number(visualViewport?.offsetTop) || 0, 0);
   const viewportHeight = Math.max(
@@ -2458,23 +2571,10 @@ function resolveDiarySearchViewportMetrics() {
       0,
     0,
   );
-  const stableViewportHeight = readDiaryRootPixelValue(
-    "--controler-stable-visual-viewport-height",
-    rootStyle,
-  );
-  const transitionKeyboardInset = readDiaryRootPixelValue(
-    "--controler-keyboard-transition-inset",
-    rootStyle,
-  );
-  const derivedKeyboardInset =
-    stableViewportHeight > 0
-      ? Math.max(stableViewportHeight - (viewportTop + viewportHeight), 0)
-      : 0;
 
   return {
     viewportTop,
     viewportBottom: viewportTop + viewportHeight,
-    keyboardInsetPx: Math.max(transitionKeyboardInset, derivedKeyboardInset),
   };
 }
 
@@ -2528,46 +2628,9 @@ function initDiarySearchControls() {
       ? window.cancelAnimationFrame.bind(window)
       : window.clearTimeout.bind(window);
   let searchViewportSyncTimers = [];
-  let activeSearchScrollHost = null;
-  const syncSearchScrollHostClearance = (scrollHost, keyboardInsetPx = 0) => {
-    if (
-      activeSearchScrollHost instanceof HTMLElement &&
-      activeSearchScrollHost !== scrollHost
-    ) {
-      activeSearchScrollHost.style.removeProperty(
-        "--diary-search-keyboard-clearance",
-      );
-    }
-    activeSearchScrollHost =
-      scrollHost instanceof HTMLElement ? scrollHost : null;
-    if (!(activeSearchScrollHost instanceof HTMLElement)) {
-      return;
-    }
-    const nextInset = Math.max(0, Math.round(Number(keyboardInsetPx) || 0));
-    if (nextInset > 0) {
-      activeSearchScrollHost.style.setProperty(
-        "--diary-search-keyboard-clearance",
-        `${nextInset}px`,
-      );
-      return;
-    }
-    activeSearchScrollHost.style.removeProperty(
-      "--diary-search-keyboard-clearance",
-    );
-  };
-  const clearSearchScrollHostClearance = () => {
-    if (!(activeSearchScrollHost instanceof HTMLElement)) {
-      return;
-    }
-    activeSearchScrollHost.style.removeProperty(
-      "--diary-search-keyboard-clearance",
-    );
-    activeSearchScrollHost = null;
-  };
   const syncSearchInputIntoViewport = () => {
     viewportSyncFrameId = 0;
     if (document.activeElement !== searchInput) {
-      clearSearchScrollHostClearance();
       return;
     }
     const searchShell =
@@ -2576,17 +2639,13 @@ function initDiarySearchControls() {
       return;
     }
     const scrollHost = resolveDiarySearchScrollHost(searchInput);
-    const { viewportTop, viewportBottom, keyboardInsetPx } =
-      resolveDiarySearchViewportMetrics();
-    syncSearchScrollHostClearance(scrollHost, keyboardInsetPx);
+    const { viewportTop, viewportBottom } = resolveDiarySearchViewportMetrics();
 
     const shellRect = searchShell.getBoundingClientRect();
     const targetTop = viewportTop + 10;
     const targetBottom = viewportBottom - 18;
     let scrollDelta = 0;
-    if (keyboardInsetPx > 0 && shellRect.top > targetTop + 4) {
-      scrollDelta = shellRect.top - targetTop;
-    } else if (shellRect.top < targetTop) {
+    if (shellRect.top < targetTop) {
       scrollDelta = shellRect.top - targetTop;
     } else if (shellRect.bottom > targetBottom) {
       scrollDelta = shellRect.bottom - targetBottom;
@@ -2618,14 +2677,12 @@ function initDiarySearchControls() {
     if (!viewportSyncFrameId) {
       searchViewportSyncTimers.forEach((timerId) => window.clearTimeout(timerId));
       searchViewportSyncTimers = [];
-      clearSearchScrollHostClearance();
       return;
     }
     cancelScheduled(viewportSyncFrameId);
     viewportSyncFrameId = 0;
     searchViewportSyncTimers.forEach((timerId) => window.clearTimeout(timerId));
     searchViewportSyncTimers = [];
-    clearSearchScrollHostClearance();
   };
 
   const handleSearchInput = () => {

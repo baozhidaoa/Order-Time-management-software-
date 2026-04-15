@@ -27117,6 +27117,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     danger = false,
   } = {}) {
     return new Promise((resolve) => {
+      let dialogSettled = false;
       const modal = document.createElement("div");
       modal.className = "modal-overlay";
       modal.style.display = "flex";
@@ -27156,8 +27157,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const cleanup = (result) => {
+        if (dialogSettled) {
+          return;
+        }
+        dialogSettled = true;
         closeModal(modal);
-        resolve(result);
+        window.setTimeout(() => {
+          resolve(result);
+        }, Math.max(MODAL_ACTION_DEDUP_WINDOW_MS + 40, 180));
       };
 
       bindModalAction(modal, confirmButton, () => {

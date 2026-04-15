@@ -159,6 +159,7 @@ type TransitionState = {
   toSlot: WebViewSlot;
   direction: NavigationDirection;
   status: 'loading' | 'animating';
+  token: number;
   reuseCachedSlot?: boolean;
 };
 
@@ -2286,21 +2287,32 @@ export function resolveWebViewNavigationDispatchPolicy({
   transitionState,
 }: WebViewNavigationDispatchPolicyOptions): {
   ignore: boolean;
+  allowOnlyExpectedLoad: boolean;
 } {
   if (!isAndroid) {
     return {
       ignore: false,
+      allowOnlyExpectedLoad: false,
     };
   }
 
-  if (sourceSlot === activeSlot || transitionState?.toSlot === sourceSlot) {
+  if (sourceSlot === activeSlot) {
     return {
       ignore: false,
+      allowOnlyExpectedLoad: false,
+    };
+  }
+
+  if (transitionState?.toSlot === sourceSlot) {
+    return {
+      ignore: false,
+      allowOnlyExpectedLoad: true,
     };
   }
 
   return {
     ignore: true,
+    allowOnlyExpectedLoad: false,
   };
 }
 
@@ -2982,6 +2994,7 @@ function App({
     typeof setTimeout
   > | null>(null);
   const transitionWatchdogRef = useRef<{
+    token: number;
     startedAt: number;
     fromSlot: WebViewSlot;
     toSlot: WebViewSlot;
@@ -3202,6 +3215,12 @@ function App({
     }
   }
 
+  function cancelAllTransitionThemeFallbacks() {
+    WEBVIEW_SLOTS.forEach(slot => {
+      cancelTransitionThemeFallback(slot);
+    });
+  }
+
   const clearAndroidLoadedTransitionDelay = useCallback(() => {
     if (androidLoadedTransitionTimerRef.current !== null) {
       clearTimeout(androidLoadedTransitionTimerRef.current);
@@ -3225,10 +3244,7 @@ function App({
     return webViewSlotsRef.current[slot].revision === revision;
   }
 
-  function resetSlotVisualReadiness(slot: WebViewSlot, revision: number) {
-    if (!isCurrentSlotRevision(slot, revision)) {
-      return;
-    }
+  function resetSlotRuntimeState(slot: WebViewSlot, revision: number) {
     slotLoadCompletedRef.current[slot] = false;
     pendingBridgeMessagesBySlotRef.current[slot] = {
       revision,
@@ -3236,7 +3252,32 @@ function App({
     };
     slotPageReadyRef.current[slot] = false;
     slotThemeReadyRef.current[slot] = false;
+    shellVisibilitySignatureRef.current[slot] = '';
     cancelTransitionThemeFallback(slot);
+  }
+
+  function resetSlotVisualReadiness(slot: WebViewSlot, revision: number) {
+    if (!isCurrentSlotRevision(slot, revision)) {
+      return;
+    }
+    resetSlotRuntimeState(slot, revision);
+  }
+
+  function createTransitionToken() {
+    transitionTokenRef.current += 1;
+    return transitionTokenRef.current;
+  }
+
+  function invalidateTransitionToken() {
+    transitionTokenRef.current += 1;
+    return transitionTokenRef.current;
+  }
+
+  function isTransitionTokenCurrent(token: number) {
+    return (
+      transitionTokenRef.current === token &&
+      transitionStateRef.current?.token === token
+    );
   }
 
   function getTransitionThemeReadyFallbackDelayMs(slot: WebViewSlot) {
@@ -3259,28 +3300,41 @@ function App({
   }
 
   function scheduleTransitionThemeFallback(slot: WebViewSlot) {
+    const pendingTransition = transitionStateRef.current;
+    const comparableTargetUri = getComparableUrl(webViewSlotsRef.current[slot].uri);
+    if (
+      pendingTransition?.status !== 'loading' ||
+      pendingTransition.toSlot !== slot ||
+      !comparableTargetUri
+    ) {
+      cancelTransitionThemeFallback(slot);
+      return;
+    }
+
+    const transitionToken = pendingTransition.token;
+    const isCurrentPresentationRequest = () => {
+      const currentTransition = transitionStateRef.current;
+      return (
+        isTransitionTokenCurrent(transitionToken) &&
+        currentTransition?.status === 'loading' &&
+        currentTransition.toSlot === slot &&
+        getComparableUrl(webViewSlotsRef.current[slot].uri) === comparableTargetUri
+      );
+    };
+
     cancelTransitionThemeFallback(slot);
     const fallbackDeadlineAt =
       Date.now() + getTransitionThemeReadyFallbackDelayMs(slot);
     const finalizeAfterThemePaint = () => {
       transitionThemeFallbackFrameRef.current[slot] = requestAnimationFrame(() => {
         transitionThemeFallbackFrameRef.current[slot] = 0;
-        const pendingTransition = transitionStateRef.current;
-        if (
-          pendingTransition?.status === 'loading' &&
-          pendingTransition.toSlot === slot &&
-          slotPageReadyRef.current[slot]
-        ) {
+        if (isCurrentPresentationRequest() && slotPageReadyRef.current[slot]) {
           startLoadedTransition(slot);
         }
       });
     };
     const step = () => {
-      const pendingTransition = transitionStateRef.current;
-      if (
-        pendingTransition?.status !== 'loading' ||
-        pendingTransition.toSlot !== slot
-      ) {
+      if (!isCurrentPresentationRequest()) {
         transitionThemeFallbackFrameRef.current[slot] = 0;
         return;
       }
@@ -3939,6 +3993,7 @@ function App({
   }, []);
 
   const clearCachedSlot = useCallback((slot: WebViewSlot) => {
+    resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
     canGoBackBySlotRef.current[slot] = false;
     modalOpenBySlotRef.current[slot] = false;
     busyLockBySlotRef.current[slot] = false;
@@ -3946,7 +4001,6 @@ function App({
     edgeBackSwipeExclusionBySlotRef.current[slot] =
       createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
-    shellVisibilitySignatureRef.current[slot] = '';
     updateWebViewSlotsRef(webViewSlotsRef, slot, {
       uri: null,
       pageKey: '',
@@ -4120,17 +4174,19 @@ function App({
         return;
       }
 
+      const nextRevision = webViewSlotsRef.current[targetSlot].revision + 1;
+      resetSlotRuntimeState(targetSlot, nextRevision);
       updateWebViewSlotsRef(webViewSlotsRef, targetSlot, {
         uri: target.uri,
         pageKey: target.pageKey,
-        revision: webViewSlotsRef.current[targetSlot].revision + 1,
+        revision: nextRevision,
       });
       setWebViewSlots(current => ({
         ...current,
         [targetSlot]: {
           uri: target.uri,
           pageKey: target.pageKey,
-          revision: current[targetSlot].revision + 1,
+          revision: nextRevision,
         },
       }));
       preservedSlots.add(targetSlot);
@@ -4298,17 +4354,19 @@ function App({
         return false;
       }
 
+      const nextRevision = webViewSlotsRef.current[targetSlot].revision + 1;
+      resetSlotRuntimeState(targetSlot, nextRevision);
       updateWebViewSlotsRef(webViewSlotsRef, targetSlot, {
         uri: target.uri,
         pageKey: target.pageKey,
-        revision: webViewSlotsRef.current[targetSlot].revision + 1,
+        revision: nextRevision,
       });
       setWebViewSlots(current => ({
         ...current,
         [targetSlot]: {
           uri: target.uri,
           pageKey: target.pageKey,
-          revision: current[targetSlot].revision + 1,
+          revision: nextRevision,
         },
       }));
       markSlotUsed(targetSlot);
@@ -4593,12 +4651,13 @@ function App({
   }, [bootCardScale, bootOverlayOpacity, markAndroidStartupReady]);
 
   const resetWebViewPresentation = useCallback(() => {
-    transitionTokenRef.current += 1;
+    invalidateTransitionToken();
     isPageReadyRef.current = false;
     setIsPageReady(false);
     androidStartupReadyReportedRef.current = false;
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
+    cancelAllTransitionThemeFallbacks();
     bootOverlayOpacity.stopAnimation();
     bootCardScale.stopAnimation();
     transitionProgress.stopAnimation();
@@ -4627,6 +4686,9 @@ function App({
     };
     queuedNavigationRequestRef.current = null;
     latestBridgeNavigationIntentRef.current = null;
+    WEBVIEW_SLOTS.forEach(slot => {
+      resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
+    });
     transitionStateRef.current = null;
     setTransitionState(null);
   }, [
@@ -4787,9 +4849,11 @@ function App({
       toPage: webViewSlotsRef.current[currentTransition.toSlot].pageKey,
       reason,
     });
-    transitionTokenRef.current += 1;
+    invalidateTransitionToken();
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
+    cancelTransitionThemeFallback(currentTransition.fromSlot);
+    cancelTransitionThemeFallback(currentTransition.toSlot);
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     transitionStateRef.current = null;
@@ -4832,12 +4896,26 @@ function App({
   );
 
   const finalizeTransition = (completedTransition: TransitionState) => {
+    const currentTransition = transitionStateRef.current;
+    if (
+      !currentTransition ||
+      currentTransition.token !== completedTransition.token ||
+      currentTransition.fromSlot !== completedTransition.fromSlot ||
+      currentTransition.toSlot !== completedTransition.toSlot ||
+      transitionTokenRef.current !== completedTransition.token
+    ) {
+      return;
+    }
+
     const nextActiveSlot = completedTransition.toSlot;
     const previousSlot = completedTransition.fromSlot;
     const previousPageKey = webViewSlotsRef.current[previousSlot].pageKey;
 
+    invalidateTransitionToken();
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
+    cancelTransitionThemeFallback(previousSlot);
+    cancelTransitionThemeFallback(nextActiveSlot);
     canGoBackBySlotRef.current[previousSlot] = false;
     modalOpenBySlotRef.current[previousSlot] = false;
     busyLockBySlotRef.current[previousSlot] = false;
@@ -4881,6 +4959,8 @@ function App({
 
     const fallbackSlot = transition.fromSlot;
     const pendingSlot = transition.toSlot;
+    const fallbackRevision = webViewSlotsRef.current[fallbackSlot].revision + 1;
+    const pendingRevision = webViewSlotsRef.current[pendingSlot].revision;
     logPerfMetric('perf.metric', {
       stage: 'transition-fallback',
       fromSlot: transition.fromSlot,
@@ -4891,6 +4971,8 @@ function App({
       reason,
     });
     resetWebViewPresentation();
+    resetSlotRuntimeState(fallbackSlot, fallbackRevision);
+    resetSlotRuntimeState(pendingSlot, pendingRevision);
     activeSlotRef.current = fallbackSlot;
     setActiveSlot(fallbackSlot);
     webViewSlotsRef.current = {
@@ -4898,12 +4980,12 @@ function App({
       [fallbackSlot]: {
         uri: targetUri,
         pageKey: targetPageKey,
-        revision: webViewSlotsRef.current[fallbackSlot].revision + 1,
+        revision: fallbackRevision,
       },
       [pendingSlot]: {
         uri: null,
         pageKey: '',
-        revision: webViewSlotsRef.current[pendingSlot].revision,
+        revision: pendingRevision,
       },
     };
     setWebViewSlots(current => ({
@@ -4911,12 +4993,12 @@ function App({
       [fallbackSlot]: {
         uri: targetUri,
         pageKey: targetPageKey,
-        revision: current[fallbackSlot].revision + 1,
+        revision: fallbackRevision,
       },
       [pendingSlot]: {
         uri: null,
         pageKey: '',
-        revision: current[pendingSlot].revision,
+        revision: pendingRevision,
       },
     }));
     slotLastUsedAtRef.current[pendingSlot] = 0;
@@ -4936,6 +5018,7 @@ function App({
     const comparableTargetUri = getComparableUrl(targetUri);
     clearTransitionWatchdog();
     transitionWatchdogRef.current = {
+      token: transition.token,
       startedAt: Date.now(),
       fromSlot: transition.fromSlot,
       toSlot: transition.toSlot,
@@ -4949,11 +5032,14 @@ function App({
       const currentTransition = transitionStateRef.current;
       const pendingState = webViewSlotsRef.current[transition.toSlot];
       if (
+        !isTransitionTokenCurrent(transition.token) ||
         !watchdog ||
         !currentTransition ||
+        watchdog.token !== transition.token ||
         watchdog.fromSlot !== transition.fromSlot ||
         watchdog.toSlot !== transition.toSlot ||
         watchdog.comparableUri !== comparableTargetUri ||
+        currentTransition.token !== transition.token ||
         currentTransition.toSlot !== transition.toSlot ||
         getComparableUrl(pendingState.uri) !== comparableTargetUri
       ) {
@@ -4984,11 +5070,14 @@ function App({
           const graceTransition = transitionStateRef.current;
           const gracePendingState = webViewSlotsRef.current[transition.toSlot];
           if (
+            !isTransitionTokenCurrent(transition.token) ||
             !graceWatchdog ||
             !graceTransition ||
+            graceWatchdog.token !== transition.token ||
             graceWatchdog.fromSlot !== transition.fromSlot ||
             graceWatchdog.toSlot !== transition.toSlot ||
             graceWatchdog.comparableUri !== comparableTargetUri ||
+            graceTransition.token !== transition.token ||
             graceTransition.toSlot !== transition.toSlot ||
             getComparableUrl(gracePendingState.uri) !== comparableTargetUri
           ) {
@@ -5022,15 +5111,21 @@ function App({
 
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
+    const transitionToken = currentTransition.token;
     if (IS_ANDROID) {
       clearAndroidLoadedTransitionDelay();
       const settleTransition = () => {
         androidLoadedTransitionFrameRef.current = 0;
+        if (!isTransitionTokenCurrent(transitionToken)) {
+          return;
+        }
         androidLoadedTransitionTimerRef.current = setTimeout(() => {
           androidLoadedTransitionTimerRef.current = null;
           const pendingTransition = transitionStateRef.current;
           if (
+            !isTransitionTokenCurrent(transitionToken) ||
             !pendingTransition ||
+            pendingTransition.token !== transitionToken ||
             pendingTransition.toSlot !== slot ||
             pendingTransition.status === 'animating' ||
             !slotPageReadyRef.current[slot]
@@ -5041,9 +5136,17 @@ function App({
         }, ANDROID_READY_TO_PRESENT_SETTLE_MS);
       };
       androidLoadedTransitionFrameRef.current = requestAnimationFrame(() => {
-        androidLoadedTransitionFrameRef.current = requestAnimationFrame(
-          settleTransition,
-        );
+        if (!isTransitionTokenCurrent(transitionToken)) {
+          androidLoadedTransitionFrameRef.current = 0;
+          return;
+        }
+        androidLoadedTransitionFrameRef.current = requestAnimationFrame(() => {
+          if (!isTransitionTokenCurrent(transitionToken)) {
+            androidLoadedTransitionFrameRef.current = 0;
+            return;
+          }
+          settleTransition();
+        });
       });
       return;
     }
@@ -5113,11 +5216,13 @@ function App({
     }
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
+    const nextTransitionToken = createTransitionToken();
     const nextTransition: TransitionState = {
       fromSlot: currentSlot,
       toSlot: nextSlot,
       direction,
       status: 'loading',
+      token: nextTransitionToken,
       reuseCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
     };
     logPerfMetric('transition-start', {
@@ -5132,6 +5237,8 @@ function App({
     transitionStateRef.current = nextTransition;
     setTransitionState(nextTransition);
     if (nextSlotState.needsLoad) {
+      const nextRevision = webViewSlotsRef.current[nextSlot].revision + 1;
+      resetSlotRuntimeState(nextSlot, nextRevision);
       armTransitionWatchdog(
         nextTransition,
         target.uri,
@@ -5140,14 +5247,14 @@ function App({
       updateWebViewSlotsRef(webViewSlotsRef, nextSlot, {
         uri: target.uri,
         pageKey: target.pageKey,
-        revision: webViewSlotsRef.current[nextSlot].revision + 1,
+        revision: nextRevision,
       });
       setWebViewSlots(current => ({
         ...current,
         [nextSlot]: {
           uri: target.uri,
           pageKey: target.pageKey,
-          revision: current[nextSlot].revision + 1,
+          revision: nextRevision,
         },
       }));
     } else if (nextSlotState.slotReady) {
@@ -5406,11 +5513,21 @@ function App({
           } else {
             clearPendingWidgetLaunchAck();
           }
+          const primaryRevision = webViewSlotsRef.current.primary.revision + 1;
+          resetSlotRuntimeState('primary', primaryRevision);
+          resetSlotRuntimeState(
+            'secondary',
+            webViewSlotsRef.current.secondary.revision,
+          );
+          resetSlotRuntimeState(
+            'tertiary',
+            webViewSlotsRef.current.tertiary.revision,
+          );
           webViewSlotsRef.current = {
             primary: {
               uri: url,
               pageKey: initialPage.key,
-              revision: webViewSlotsRef.current.primary.revision + 1,
+              revision: primaryRevision,
             },
             secondary: {
               uri: null,
@@ -5427,7 +5544,7 @@ function App({
             primary: {
               uri: url,
               pageKey: initialPage.key,
-              revision: current.primary.revision + 1,
+              revision: primaryRevision,
             },
             secondary: {
               uri: null,
@@ -5599,11 +5716,12 @@ function App({
 
   useEffect(() => {
     return () => {
-      transitionTokenRef.current += 1;
+      invalidateTransitionToken();
       clearAndroidLoadedTransitionDelay();
       clearPendingWidgetLaunchAck();
       clearNavigationPrewarmTimer();
       clearTransitionWatchdog();
+      cancelAllTransitionThemeFallbacks();
       clearWidgetPrewarmTimer();
       transitionProgress.stopAnimation();
     };
@@ -6897,13 +7015,21 @@ function App({
 
     const currentActiveSlot = activeSlotRef.current;
     resetWebViewPresentation();
+    const activeRevision = webViewSlotsRef.current[currentActiveSlot].revision + 1;
+    resetSlotRuntimeState(currentActiveSlot, activeRevision);
+    WEBVIEW_SLOTS.forEach(slot => {
+      if (slot === currentActiveSlot) {
+        return;
+      }
+      resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
+    });
     const nextSlots = WEBVIEW_SLOTS.reduce<Record<WebViewSlot, WebViewSlotState>>(
       (acc, currentSlot) => {
         acc[currentSlot] =
           currentSlot === currentActiveSlot
             ? {
                 ...webViewSlotsRef.current[currentSlot],
-                revision: webViewSlotsRef.current[currentSlot].revision + 1,
+                revision: activeRevision,
               }
             : {
                 ...webViewSlotsRef.current[currentSlot],
@@ -6921,7 +7047,7 @@ function App({
           currentSlot === currentActiveSlot
             ? {
                 ...current[currentSlot],
-                revision: current[currentSlot].revision + 1,
+                revision: activeRevision,
               }
             : {
                 ...current[currentSlot],
@@ -7046,6 +7172,9 @@ function App({
         getComparableUrl(webViewSlotsRef.current[currentTransition.toSlot].uri)
     ) {
       return true;
+    }
+    if (dispatchPolicy.allowOnlyExpectedLoad) {
+      return false;
     }
 
     const navigationResult = requestPageNavigation(
