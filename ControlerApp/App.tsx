@@ -84,6 +84,7 @@ type NativeBridgeModule = {
   setLastVisiblePage?: (pageKey: string) => Promise<string>;
   showToast?: (message: string) => Promise<string>;
   showSoftInput?: () => Promise<string>;
+  restartSoftInput?: () => Promise<string>;
   markStartupReady?: () => Promise<string>;
 };
 
@@ -6620,6 +6621,14 @@ function App({
           );
         }
         return parseBridgeJson(await nativeBridge.showSoftInput());
+      case 'ui.restartSoftInput':
+        if (typeof nativeBridge.restartSoftInput !== 'function') {
+          throw createUnsupportedBridgeError(
+            '重置输入法连接',
+            'restarting the soft keyboard input connection',
+          );
+        }
+        return parseBridgeJson(await nativeBridge.restartSoftInput());
       default:
         throw new Error(`Unsupported native bridge method: ${method}`);
     }
@@ -6892,6 +6901,31 @@ function App({
           slot,
           ...(message.payload || {}),
         });
+        return;
+      }
+      if (
+        eventName === 'ui.android-input-trace' ||
+        eventName === 'ui.timer-modal-focus-trace'
+      ) {
+        const tracePayload =
+          message.payload && typeof message.payload === 'object'
+            ? message.payload
+            : {};
+        const traceTag =
+          eventName === 'ui.android-input-trace'
+            ? '[android-input-trace]'
+            : '[timer-modal-focus-trace]';
+        try {
+          console.info(
+            traceTag,
+            JSON.stringify({
+              slot,
+              ...(tracePayload || {}),
+            }),
+          );
+        } catch (_error) {
+          console.info(traceTag, tracePayload);
+        }
         return;
       }
       if (eventName === 'storage.changed') {

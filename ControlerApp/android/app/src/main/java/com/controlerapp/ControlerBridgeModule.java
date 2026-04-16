@@ -1371,6 +1371,39 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void restartSoftInput(Promise promise) {
+        Activity activity = getCurrentActivity();
+        if (activity == null) {
+            try {
+                JSONObject result = new JSONObject();
+                result.put("ok", false);
+                result.put("restarted", false);
+                result.put("shown", false);
+                result.put("focused", false);
+                result.put("served", false);
+                result.put("targetClass", "");
+                result.put("message", "当前没有可用的前台页面。");
+                promise.resolve(result.toString());
+            } catch (Exception error) {
+                promise.reject("restart_soft_input_failed", error);
+            }
+            return;
+        }
+
+        MAIN_HANDLER.post(() -> {
+            try {
+                Context context = activity;
+                InputMethodManager inputMethodManager =
+                    (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
+                restartSoftInputWithRetry(activity, inputMethodManager, 0, promise);
+            } catch (Exception error) {
+                Log.e(TAG, "restartSoftInput failed", error);
+                promise.reject("restart_soft_input_failed", error);
+            }
+        });
+    }
+
+    @ReactMethod
     public void markStartupReady(Promise promise) {
         try {
             ControlerLaunchSplashCoordinator.markStartupReady();
@@ -1467,6 +1500,111 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         } catch (Exception error) {
             Log.e(TAG, "showSoftInput failed", error);
             promise.reject("show_soft_input_failed", error);
+        }
+    }
+
+    private void restartSoftInputWithRetry(
+        Activity activity,
+        InputMethodManager inputMethodManager,
+        int attempt,
+        Promise promise
+    ) {
+        try {
+            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            WindowInsetsControllerCompat insetsController =
+                activity.getWindow() == null || targetView == null
+                    ? null
+                    : WindowCompat.getInsetsController(activity.getWindow(), targetView);
+            requestSoftInputTargetFocus(targetView);
+
+            boolean restarted = false;
+            if (inputMethodManager != null && targetView != null) {
+                inputMethodManager.restartInput(targetView);
+                restarted = true;
+            }
+
+            boolean imeVisible = isImeVisible(activity, targetView);
+            boolean focused = targetView != null && targetView.hasFocus();
+            boolean served =
+                inputMethodManager != null &&
+                targetView != null &&
+                inputMethodManager.isActive(targetView);
+            boolean shown = false;
+            boolean requestedViaInsets = false;
+            if (!imeVisible && targetView != null && inputMethodManager != null) {
+                shown =
+                    inputMethodManager.showSoftInput(
+                        targetView,
+                        InputMethodManager.SHOW_IMPLICIT
+                    );
+            }
+            if (!imeVisible && !shown && insetsController != null) {
+                insetsController.show(WindowInsetsCompat.Type.ime());
+                requestedViaInsets = true;
+            }
+            shown = shown || requestedViaInsets || imeVisible;
+
+            Log.d(
+                TAG,
+                "restartSoftInput target="
+                    + (targetView == null ? "null" : targetView.getClass().getName())
+                    + " focused="
+                    + focused
+                    + " served="
+                    + served
+                    + " shown="
+                    + shown
+                    + " imeVisible="
+                    + imeVisible
+                    + " restarted="
+                    + restarted
+                    + " requestedViaInsets="
+                    + requestedViaInsets
+                    + " attempt="
+                    + attempt
+            );
+
+            if (
+                shouldRetryShowSoftInput(activity, targetView, focused, served, shown)
+                    && attempt < 2
+            ) {
+                final int nextAttempt = attempt + 1;
+                final long retryDelayMs = nextAttempt == 1 ? 64L : 160L;
+                MAIN_HANDLER.postDelayed(
+                    () ->
+                        restartSoftInputWithRetry(
+                            activity,
+                            inputMethodManager,
+                            nextAttempt,
+                            promise
+                        ),
+                    retryDelayMs
+                );
+                return;
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("ok", targetView != null);
+            result.put("restarted", restarted);
+            result.put("shown", shown);
+            result.put("focused", focused);
+            result.put("served", served);
+            result.put(
+                "targetClass",
+                targetView == null ? "" : targetView.getClass().getName()
+            );
+            result.put(
+                "message",
+                targetView == null
+                    ? "未找到可聚焦的输入承载视图。"
+                    : restarted
+                        ? ""
+                        : "输入目标尚未接管输入法服务。"
+            );
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            Log.e(TAG, "restartSoftInput failed", error);
+            promise.reject("restart_soft_input_failed", error);
         }
     }
 

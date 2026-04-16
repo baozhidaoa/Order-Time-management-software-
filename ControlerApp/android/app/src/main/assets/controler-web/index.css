@@ -1967,6 +1967,22 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
   animation: none;
 }
 
+body.controler-mobile-runtime
+  .timer-session-modal
+  #next-project-suggestions.suggestion-popover {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+}
+
+body.controler-mobile-runtime
+  .timer-session-modal
+  #next-project-suggestions.suggestion-popover.visible {
+  max-height: min(240px, 30vh);
+}
+
 .existing-projects .project-option {
   padding: 10px 12px;
   margin: 0;

@@ -440,16 +440,230 @@
   let androidKeyboardTransitionCoverLastInsetPx = 0;
   let androidKeyboardTransitionCoverLastBackground = "";
   let androidModalKeyboardDismissGuardQueued = false;
+  let androidModalKeyboardDismissGuardToken = 0;
+  let androidModalKeyboardDismissGuardTimerIds = [];
   let androidModalKeyboardDismissGuardLastOpen = false;
   let androidReactNativeAppNavLocked = false;
+  let pendingAndroidInteractiveTextFocusTransferTimerId = 0;
+  let pendingAndroidInteractiveTextFocusTransferTarget = null;
+  let lastAndroidInteractiveTextFocusIntentAt = 0;
+  let lastAndroidInteractiveTextFocusIntentTarget = null;
   let lastAndroidSoftInputRequestAt = 0;
   const ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS = 320;
   const ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS = 420;
   const ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS = 120;
   const ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS = 960;
+  const ANDROID_MODAL_KEYBOARD_DISMISS_SYNC_DELAYS_MS = [0, 48, 120, 220, 360];
   const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
+  const androidPreferredModalFocusTargets = new WeakMap();
+  let lastAndroidAutofocusVisibleModal = null;
   let activeAppNavigationTouchGesture = null;
+  const ANDROID_INPUT_TRACE_ENABLED = false;
+
+  function getAndroidInputTraceTargetLabel(target) {
+    if (!(target instanceof HTMLElement)) {
+      return "null";
+    }
+    const tagName = String(target.tagName || "").toLowerCase();
+    const type =
+      typeof target.getAttribute === "function"
+        ? target.getAttribute("type") || ""
+        : "";
+    const id = target.id ? `#${target.id}` : "";
+    const className =
+      typeof target.className === "string" && target.className.trim()
+        ? `.${target.className.trim().replace(/\s+/g, ".")}`
+        : "";
+    const name =
+      typeof target.getAttribute === "function"
+        ? target.getAttribute("name") || ""
+        : "";
+    return `${tagName}${type ? `[type=${type}]` : ""}${id}${className}${
+      name ? `[name=${name}]` : ""
+    }`;
+  }
+
+  function traceAndroidInput(eventName, detail = {}) {
+    if (!ANDROID_INPUT_TRACE_ENABLED || !isAndroidNativeRuntime()) {
+      return;
+    }
+    const payload = {
+      ts: Date.now(),
+      event: eventName,
+      keyboardOpen: isAndroidKeyboardOpen(),
+      shellActive: isShellPageActive(),
+      shellLoading: isShellTransitionLoading(),
+      ...detail,
+    };
+    try {
+      console.error(`[android-input] ${JSON.stringify(payload)}`);
+    } catch (error) {
+      console.error("[android-input]", eventName, payload);
+    }
+    try {
+      window.ControlerNativeBridge?.emitEvent?.("ui.android-input-trace", {
+        href: window.location.href,
+        page: resolveCurrentPagePerfKey(),
+        trace: payload,
+      });
+    } catch (error) {}
+  }
+
+  function markAndroidInteractiveTextFocusIntent(target) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    lastAndroidInteractiveTextFocusIntentAt = Date.now();
+    lastAndroidInteractiveTextFocusIntentTarget = focusTarget;
+    rememberModalPreferredInteractiveTextControl(focusTarget);
+    return true;
+  }
+
+  function clearAndroidInteractiveTextFocusIntent(target = null) {
+    if (!(target instanceof HTMLElement)) {
+      lastAndroidInteractiveTextFocusIntentAt = 0;
+      lastAndroidInteractiveTextFocusIntentTarget = null;
+      return true;
+    }
+    const focusTarget =
+      resolveInteractiveTextControlTarget(target) || target;
+    const intentTarget = lastAndroidInteractiveTextFocusIntentTarget;
+    if (!(focusTarget instanceof HTMLElement) || !(intentTarget instanceof HTMLElement)) {
+      return false;
+    }
+    if (
+      intentTarget !== focusTarget &&
+      intentTarget.contains?.(focusTarget) !== true &&
+      focusTarget.contains?.(intentTarget) !== true
+    ) {
+      return false;
+    }
+    lastAndroidInteractiveTextFocusIntentAt = 0;
+    lastAndroidInteractiveTextFocusIntentTarget = null;
+    return true;
+  }
+
+  function hasRecentAndroidInteractiveTextFocusIntent(target, maxAgeMs = 480) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    const safeMaxAgeMs = Math.max(120, Number(maxAgeMs) || 480);
+    if (Date.now() - lastAndroidInteractiveTextFocusIntentAt > safeMaxAgeMs) {
+      return false;
+    }
+    const intentTarget = lastAndroidInteractiveTextFocusIntentTarget;
+    if (!(intentTarget instanceof HTMLElement)) {
+      return false;
+    }
+    return (
+      intentTarget === focusTarget ||
+      intentTarget.contains?.(focusTarget) === true ||
+      focusTarget.contains?.(intentTarget) === true
+    );
+  }
+
+  function clearPendingAndroidInteractiveTextFocusTransfer(target = null) {
+    if (
+      target instanceof HTMLElement &&
+      pendingAndroidInteractiveTextFocusTransferTarget instanceof HTMLElement
+    ) {
+      const requestedTarget =
+        resolveInteractiveTextControlTarget(target) || target;
+      const pendingTarget = pendingAndroidInteractiveTextFocusTransferTarget;
+      if (
+        requestedTarget !== pendingTarget &&
+        requestedTarget.contains?.(pendingTarget) !== true &&
+        pendingTarget.contains?.(requestedTarget) !== true
+      ) {
+        return false;
+      }
+    }
+    if (pendingAndroidInteractiveTextFocusTransferTimerId > 0) {
+      window.clearTimeout(pendingAndroidInteractiveTextFocusTransferTimerId);
+    }
+    pendingAndroidInteractiveTextFocusTransferTimerId = 0;
+    pendingAndroidInteractiveTextFocusTransferTarget = null;
+    return true;
+  }
+
+  function scheduleAndroidInteractiveTextFocusTransfer(target, options = {}) {
+    if (!isAndroidNativeRuntime()) {
+      return false;
+    }
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (
+      !(focusTarget instanceof HTMLElement) ||
+      !isVisibleInteractiveTextControl(focusTarget)
+    ) {
+      return false;
+    }
+
+    clearPendingAndroidInteractiveTextFocusTransfer();
+    pendingAndroidInteractiveTextFocusTransferTarget = focusTarget;
+    const delayMs = Math.max(0, Number(options.delayMs) || 84);
+    const shouldSelectText = options.selectText === true;
+    pendingAndroidInteractiveTextFocusTransferTimerId = window.setTimeout(() => {
+      pendingAndroidInteractiveTextFocusTransferTimerId = 0;
+      pendingAndroidInteractiveTextFocusTransferTarget = null;
+      if (
+        !focusTarget.isConnected ||
+        !isVisibleInteractiveTextControl(focusTarget) ||
+        shouldSuppressAndroidInteractiveTextFocus() ||
+        !hasRecentAndroidInteractiveTextFocusIntent(focusTarget, 960)
+      ) {
+        return;
+      }
+      const activeControl = getActiveAndroidInteractiveTextControl();
+      if (activeControl instanceof HTMLElement && activeControl !== focusTarget) {
+        return;
+      }
+      try {
+        focusTarget.focus({
+          preventScroll: true,
+        });
+      } catch (error) {
+        focusTarget.focus?.();
+      }
+      if (
+        shouldSelectText &&
+        isFocusedInteractiveTextControl(focusTarget) &&
+        typeof focusTarget.setSelectionRange === "function" &&
+        typeof focusTarget.value === "string"
+      ) {
+        const textLength = focusTarget.value.length;
+        try {
+          focusTarget.setSelectionRange(textLength, textLength);
+        } catch (error) {}
+      }
+      if (!isFocusedInteractiveTextControl(focusTarget) || isAndroidKeyboardOpen()) {
+        return;
+      }
+      window.setTimeout(() => {
+        if (
+          isFocusedInteractiveTextControl(focusTarget) &&
+          !isAndroidKeyboardOpen() &&
+          hasRecentAndroidInteractiveTextFocusIntent(focusTarget, 1200)
+        ) {
+          requestAndroidSoftInputForFocusedTarget(focusTarget, {
+            mode: "show",
+          });
+        }
+      }, 96);
+    }, delayMs);
+    return true;
+  }
   let lastCanceledAppNavigationTouchGesture = null;
   function normalizeAppPageEnterTransitionState(source = {}) {
     return {
@@ -524,6 +738,14 @@
       return;
     }
     androidAutofocusedModalRoots.delete(target);
+    androidPreferredModalFocusTargets.delete(target);
+    delete target.dataset.controlerPreferredTextFocusId;
+    delete target.dataset.controlerAutofocusRequestedAt;
+    delete target.dataset.controlerDisableAutofocus;
+    delete target.dataset.controlerDisableAutofocusUntil;
+    if (lastAndroidAutofocusVisibleModal === target) {
+      lastAndroidAutofocusVisibleModal = null;
+    }
   }
 
   function releaseAndroidModalAutofocusFromNode(node) {
@@ -930,11 +1152,7 @@
     if (!isAndroidNativeRuntime()) {
       return false;
     }
-    return (
-      shellVisibilityState.active === false ||
-      shellVisibilityState.transitionLoading === true ||
-      hasVisibleFullscreenBlockingOverlay()
-    );
+    return !isShellPageActive() || isShellTransitionLoading();
   }
 
   function applyShellVisibilityState(detail = {}) {
@@ -2820,6 +3038,82 @@
     return markModalAutofocusRequested(modal);
   }
 
+  function rememberModalPreferredInteractiveTextControl(target) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    const modal = getAndroidModalAutofocusHost(focusTarget);
+    if (!(modal instanceof HTMLElement)) {
+      return false;
+    }
+    androidPreferredModalFocusTargets.set(modal, focusTarget);
+    if (focusTarget.id) {
+      modal.dataset.controlerPreferredTextFocusId = focusTarget.id;
+    } else {
+      delete modal.dataset.controlerPreferredTextFocusId;
+    }
+    return true;
+  }
+
+  function resolveModalPreferredInteractiveTextControl(root) {
+    if (!(root instanceof HTMLElement)) {
+      return null;
+    }
+    const preferredTarget = androidPreferredModalFocusTargets.get(root);
+    if (
+      preferredTarget instanceof HTMLElement &&
+      preferredTarget.isConnected &&
+      root.contains(preferredTarget) &&
+      isVisibleInteractiveTextControl(preferredTarget)
+    ) {
+      return preferredTarget;
+    }
+    const preferredId = String(root.dataset.controlerPreferredTextFocusId || "").trim();
+    if (!preferredId || typeof root.querySelector !== "function") {
+      return null;
+    }
+    const selectorId =
+      typeof window.CSS?.escape === "function"
+        ? `#${window.CSS.escape(preferredId)}`
+        : `#${preferredId.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")}`;
+    const fallbackTarget = root.querySelector(selectorId);
+    if (
+      fallbackTarget instanceof HTMLElement &&
+      isVisibleInteractiveTextControl(fallbackTarget)
+    ) {
+      androidPreferredModalFocusTargets.set(root, fallbackTarget);
+      return fallbackTarget;
+    }
+    return null;
+  }
+
+  function shouldDeferToPreferredModalFocusTarget(target) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    const modal = getAndroidModalAutofocusHost(focusTarget);
+    if (!(modal instanceof HTMLElement)) {
+      return false;
+    }
+    const preferredTarget = resolveModalPreferredInteractiveTextControl(modal);
+    if (!(preferredTarget instanceof HTMLElement) || preferredTarget === focusTarget) {
+      return false;
+    }
+    return (
+      preferredTarget === document.activeElement ||
+      isFocusedInteractiveTextControl(preferredTarget) ||
+      hasRecentAndroidInteractiveTextFocusIntent(preferredTarget, 960)
+    );
+  }
+
   function getAndroidModalAutofocusHost(target) {
     if (!(target instanceof Element)) {
       return null;
@@ -2869,13 +3163,20 @@
     return !isAndroidModalAutofocusSuppressed(hostModal);
   }
 
-  function requestAndroidSoftInputForFocusedTarget(target) {
+  function requestAndroidSoftInputForFocusedTarget(target, options = {}) {
+    const targetLabel = getAndroidInputTraceTargetLabel(target);
     if (
       !isAndroidNativeRuntime() ||
       shouldSuppressAndroidInteractiveTextFocus() ||
       !(target instanceof HTMLElement) ||
       !isVisibleInteractiveTextControl(target)
     ) {
+      traceAndroidInput("request-soft-input-skipped", {
+        target: targetLabel,
+        suppressed: shouldSuppressAndroidInteractiveTextFocus(),
+        visible:
+          target instanceof HTMLElement ? isVisibleInteractiveTextControl(target) : false,
+      });
       return false;
     }
 
@@ -2887,6 +3188,12 @@
       !isFocusedInteractiveTextControl(target) ||
       typeof window.ControlerNativeBridge?.call !== "function"
     ) {
+      traceAndroidInput("request-soft-input-not-applicable", {
+        target: targetLabel,
+        shouldRequestSoftInput,
+        focused: isFocusedInteractiveTextControl(target),
+        hasBridge: typeof window.ControlerNativeBridge?.call === "function",
+      });
       return false;
     }
 
@@ -2896,13 +3203,25 @@
       Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0),
     );
     if (pendingUntil > now) {
+      traceAndroidInput("request-soft-input-dedup-pending", {
+        target: targetLabel,
+        pendingUntil,
+        now,
+      });
       return false;
     }
     if (now - lastAndroidSoftInputRequestAt < ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS) {
+      traceAndroidInput("request-soft-input-dedup-window", {
+        target: targetLabel,
+        lastRequestedAt: lastAndroidSoftInputRequestAt,
+        now,
+      });
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
     const requestIssuedAt = now;
+    const requestMode =
+      options?.mode === "show" ? "show" : options?.mode === "restart" ? "restart" : "restart";
     const requestToken = `controler-soft-input-${now}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -2910,6 +3229,11 @@
     target.__controlerAndroidSoftInputRequestIssuedAt = requestIssuedAt;
     target.__controlerAndroidSoftInputRequestPendingUntil =
       now + ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS;
+    traceAndroidInput("request-soft-input-start", {
+      target: targetLabel,
+      requestIssuedAt,
+      mode: requestMode,
+    });
     const restoreFocusIfNeeded = () => {
       if (
         target.__controlerAndroidSoftInputRequestToken !== requestToken ||
@@ -2930,8 +3254,33 @@
         target.focus?.();
       }
     };
-    void window.ControlerNativeBridge
-      .call("ui.showSoftInput")
+    const requestBridgeSoftInput = (methodName, allowFallback = false) =>
+      window.ControlerNativeBridge
+        .call(methodName)
+        .then((result) => ({
+          method: methodName,
+          result,
+        }))
+        .catch((error) => {
+          if (!allowFallback) {
+            throw error;
+          }
+          return window.ControlerNativeBridge.call("ui.showSoftInput").then((result) => ({
+            method: "ui.showSoftInput",
+            result,
+          }));
+        });
+    const primaryMethodName =
+      requestMode === "show" ? "ui.showSoftInput" : "ui.restartSoftInput";
+    const allowFallback = requestMode !== "show";
+    void requestBridgeSoftInput(primaryMethodName, allowFallback)
+      .then((bridgeResult) => {
+        traceAndroidInput("request-soft-input-result", {
+          target: targetLabel,
+          method: bridgeResult?.method || "",
+          result: bridgeResult?.result,
+        });
+      })
       .catch(() => undefined)
       .finally(() => {
         if (target.__controlerAndroidSoftInputRequestToken !== requestToken) {
@@ -2992,6 +3341,9 @@
       return false;
     }
     if (shouldSuppressAndroidInteractiveTextFocus()) {
+      traceAndroidInput("focus-control-suppressed", {
+        target: getAndroidInputTraceTargetLabel(target),
+      });
       return false;
     }
 
@@ -3003,13 +3355,29 @@
       !(focusTarget instanceof HTMLElement) ||
       !isVisibleInteractiveTextControl(focusTarget)
     ) {
+      traceAndroidInput("focus-control-skipped", {
+        target: getAndroidInputTraceTargetLabel(focusTarget || target),
+      });
+      return false;
+    }
+    if (shouldDeferToPreferredModalFocusTarget(focusTarget)) {
+      traceAndroidInput("focus-control-deferred-to-preferred-target", {
+        target: getAndroidInputTraceTargetLabel(focusTarget),
+      });
       return false;
     }
 
     markContainingModalAutofocusRequested(focusTarget);
+    rememberModalPreferredInteractiveTextControl(focusTarget);
+    traceAndroidInput("focus-control-start", {
+      target: getAndroidInputTraceTargetLabel(focusTarget),
+      forceFocus: options.forceFocus === true,
+      selectText: options.selectText === true,
+    });
 
     const selectText = options.selectText === true;
     const allowRefocus = options.forceFocus === true;
+    const focusRequestStartedAt = Date.now();
     const retrySequence = Array.isArray(options.retrySequence)
       ? options.retrySequence
           .map((delayMs) => Number(delayMs))
@@ -3030,6 +3398,35 @@
       focusTarget.__controlerAndroidFocusRetryTimers = [];
       focusTarget.__controlerAndroidFocusRetryToken = "";
     };
+    const shouldAbortFocusAttempt = () => {
+      if (
+        !focusTarget.isConnected ||
+        !isVisibleInteractiveTextControl(focusTarget)
+      ) {
+        traceAndroidInput("focus-control-abort-disconnected", {
+          target: getAndroidInputTraceTargetLabel(focusTarget),
+        });
+        return true;
+      }
+      if (
+        Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0) >
+        focusRequestStartedAt
+      ) {
+        traceAndroidInput("focus-control-abort-dismissed", {
+          target: getAndroidInputTraceTargetLabel(focusTarget),
+          dismissedAt: Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0),
+          startedAt: focusRequestStartedAt,
+        });
+        return true;
+      }
+      if (shouldDeferToPreferredModalFocusTarget(focusTarget)) {
+        traceAndroidInput("focus-control-abort-preferred-target", {
+          target: getAndroidInputTraceTargetLabel(focusTarget),
+        });
+        return true;
+      }
+      return false;
+    };
     const createRetryToken = () => {
       const nextToken = `controler-android-focus-${Date.now()}-${Math.random()
         .toString(36)
@@ -3047,10 +3444,8 @@
       }
       delays.forEach((delayMs) => {
         const timerId = window.setTimeout(() => {
-          if (
-            !focusTarget.isConnected ||
-            !isVisibleInteractiveTextControl(focusTarget)
-          ) {
+          if (shouldAbortFocusAttempt()) {
+            clearPendingFocusRetries();
             return;
           }
           if (
@@ -3095,10 +3490,7 @@
       });
     };
     const focusOnce = () => {
-      if (
-        !focusTarget.isConnected ||
-        !isVisibleInteractiveTextControl(focusTarget)
-      ) {
+      if (shouldAbortFocusAttempt()) {
         return false;
       }
 
@@ -3111,6 +3503,10 @@
       }
 
       const focusedNow = isFocusedInteractiveTextControl(focusTarget);
+      traceAndroidInput("focus-control-after-focus", {
+        target: getAndroidInputTraceTargetLabel(focusTarget),
+        focusedNow,
+      });
 
       if (
         focusedNow &&
@@ -3183,6 +3579,11 @@
     }
     const actionTarget = target.closest(ANDROID_INTERACTIVE_ACTION_SELECTOR);
     if (!(actionTarget instanceof HTMLElement)) {
+      return null;
+    }
+    if (
+      actionTarget.closest?.("[data-controler-keep-input-focus='true']")
+    ) {
       return null;
     }
     if (actionTarget.closest(".native-select-enhancer")) {
@@ -3346,8 +3747,22 @@
     if (!(focusTarget instanceof HTMLElement)) {
       return false;
     }
+    traceAndroidInput("release-focus", {
+      target: getAndroidInputTraceTargetLabel(focusTarget),
+    });
+    const hostModal = getAndroidModalAutofocusHost(focusTarget);
+    if (
+      hostModal instanceof HTMLElement &&
+      isVisibleModalOverlay(hostModal)
+    ) {
+      suppressAndroidModalAutofocus(
+        hostModal,
+        ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS,
+      );
+    }
     clearAndroidInteractiveTextControlPendingRetries(focusTarget);
     clearAndroidSoftInputRequestState(focusTarget);
+    clearAndroidInteractiveTextFocusIntent(focusTarget);
     focusTarget.__controlerAndroidSoftInputDismissedAt = Date.now();
     try {
       focusTarget.blur?.();
@@ -3408,7 +3823,12 @@
     if (scope instanceof HTMLElement) {
       scope.dataset.controlerAutofocusRequestedAt = String(Date.now());
     }
+    const preferredFocusTarget =
+      scope instanceof HTMLElement
+        ? resolveModalPreferredInteractiveTextControl(scope)
+        : null;
     const focusTarget =
+      preferredFocusTarget ||
       scope.querySelector?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
       scope.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
       null;
@@ -3556,28 +3976,74 @@
     focusTarget.__controlerAndroidSoftInputDismissedAt = Date.now();
     clearAndroidInteractiveTextControlPendingRetries(focusTarget);
     clearAndroidSoftInputRequestState(focusTarget);
+    clearAndroidInteractiveTextFocusIntent(focusTarget);
     suppressAndroidModalAutofocus(
       hostModal,
       ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS,
     );
+    traceAndroidInput("sync-keyboard-dismissed-blur", {
+      target: getAndroidInputTraceTargetLabel(focusTarget),
+    });
     try {
       focusTarget.blur?.();
     } catch (error) {}
     return true;
   }
 
-  function scheduleAndroidModalKeyboardDismissedFocusSync() {
-    if (androidModalKeyboardDismissGuardQueued) {
+  function clearAndroidModalKeyboardDismissedFocusSyncTimers() {
+    androidModalKeyboardDismissGuardTimerIds.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    androidModalKeyboardDismissGuardTimerIds = [];
+  }
+
+  function shouldContinueAndroidModalKeyboardDismissedFocusSync() {
+    if (isAndroidKeyboardOpen()) {
+      return true;
+    }
+    const activeControl = getActiveAndroidInteractiveTextControl();
+    if (
+      !(activeControl instanceof HTMLElement) ||
+      !isFocusedInteractiveTextControl(activeControl)
+    ) {
       return false;
     }
-    androidModalKeyboardDismissGuardQueued = true;
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(() => {
+    const hostModal = getAndroidModalAutofocusHost(activeControl);
+    return (
+      hostModal instanceof HTMLElement &&
+      isVisibleModalOverlay(hostModal) &&
+      hostModal.__controlerRemovalQueued !== "true" &&
+      hostModal.dataset.controlerModalClosing !== "true"
+    );
+  }
+
+  function scheduleAndroidModalKeyboardDismissedFocusSync() {
+    if (!isAndroidNativeRuntime()) {
+      androidModalKeyboardDismissGuardLastOpen = false;
+      clearAndroidModalKeyboardDismissedFocusSyncTimers();
       androidModalKeyboardDismissGuardQueued = false;
-      syncAndroidModalKeyboardDismissedFocusState();
+      return false;
+    }
+
+    const scheduleToken = ++androidModalKeyboardDismissGuardToken;
+    clearAndroidModalKeyboardDismissedFocusSyncTimers();
+    androidModalKeyboardDismissGuardQueued = true;
+    ANDROID_MODAL_KEYBOARD_DISMISS_SYNC_DELAYS_MS.forEach((delayMs, index) => {
+      const timerId = window.setTimeout(() => {
+        if (scheduleToken !== androidModalKeyboardDismissGuardToken) {
+          return;
+        }
+        syncAndroidModalKeyboardDismissedFocusState();
+        const isLastCheck =
+          index >= ANDROID_MODAL_KEYBOARD_DISMISS_SYNC_DELAYS_MS.length - 1;
+        if (isLastCheck || !shouldContinueAndroidModalKeyboardDismissedFocusSync()) {
+          if (scheduleToken === androidModalKeyboardDismissGuardToken) {
+            clearAndroidModalKeyboardDismissedFocusSyncTimers();
+            androidModalKeyboardDismissGuardQueued = false;
+          }
+        }
+      }, Math.max(0, Number(delayMs) || 0));
+      androidModalKeyboardDismissGuardTimerIds.push(timerId);
     });
     return true;
   }
@@ -3606,6 +4072,38 @@
         "pointerdown",
         (event) => {
           const targetElement = event.target instanceof Element ? event.target : null;
+          const targetTextControl = resolveInteractiveTextControlTarget(event.target);
+          const activeControl = getActiveAndroidInteractiveTextControl();
+          if (targetTextControl instanceof HTMLElement) {
+            markAndroidInteractiveTextFocusIntent(targetTextControl);
+            if (
+              activeControl instanceof HTMLElement &&
+              activeControl !== targetTextControl
+            ) {
+              scheduleAndroidInteractiveTextFocusTransfer(targetTextControl, {
+                delayMs: isAndroidKeyboardOpen() ? 96 : 48,
+              });
+            } else {
+              clearPendingAndroidInteractiveTextFocusTransfer(targetTextControl);
+            }
+            if (
+              isFocusedInteractiveTextControl(targetTextControl) &&
+              !isAndroidKeyboardOpen()
+            ) {
+              window.setTimeout(() => {
+                if (
+                  isFocusedInteractiveTextControl(targetTextControl) &&
+                  !isAndroidKeyboardOpen()
+                ) {
+                  requestAndroidSoftInputForFocusedTarget(targetTextControl, {
+                    mode: "show",
+                  });
+                }
+              }, 0);
+            }
+          } else {
+            clearPendingAndroidInteractiveTextFocusTransfer();
+          }
           if (
             pendingAndroidInteractiveActionReplay?.target instanceof HTMLElement &&
             (!targetElement ||
@@ -3621,7 +4119,6 @@
             return;
           }
 
-          const activeControl = getActiveAndroidInteractiveTextControl();
           const modalDismissIntent = resolveAndroidModalDismissIntent(event.target);
           const actionTarget = resolveAndroidInteractiveActionTarget(event.target);
           if (
@@ -3636,7 +4133,6 @@
             return;
           }
 
-          const targetTextControl = resolveInteractiveTextControlTarget(event.target);
           if (
             targetTextControl instanceof HTMLElement ||
             (actionTarget instanceof HTMLElement &&
@@ -3742,6 +4238,16 @@
         const hadPendingRetries =
           Array.isArray(focusTarget.__controlerAndroidFocusRetryTimers) &&
           focusTarget.__controlerAndroidFocusRetryTimers.length > 0;
+        const hadRecentFocusIntent =
+          hasRecentAndroidInteractiveTextFocusIntent(focusTarget);
+        rememberModalPreferredInteractiveTextControl(focusTarget);
+        clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
+        traceAndroidInput("focusin", {
+          target: getAndroidInputTraceTargetLabel(focusTarget),
+          hadPendingRetries,
+          hadRecentFocusIntent,
+          dismissedAt: Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0),
+        });
         clearAndroidInteractiveTextControlPendingRetries(focusTarget);
         if (hadPendingRetries) {
           requestAndroidSoftInputForFocusedTarget(focusTarget);
@@ -3756,11 +4262,16 @@
         if (!(focusTarget instanceof HTMLElement)) {
           return;
         }
+        traceAndroidInput("focusout", {
+          target: getAndroidInputTraceTargetLabel(focusTarget),
+        });
         window.setTimeout(() => {
           if (!isFocusedInteractiveTextControl(focusTarget)) {
+            clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
             clearAndroidInteractiveTextControlPendingRetries(focusTarget);
             focusTarget.__controlerAndroidSoftInputDismissedAt = Date.now();
             clearAndroidSoftInputRequestState(focusTarget);
+            clearAndroidInteractiveTextFocusIntent(focusTarget);
             const hostModal = getAndroidModalAutofocusHost(focusTarget);
             if (
               !(hostModal instanceof HTMLElement) ||
@@ -5565,6 +6076,29 @@
     return visibleModals[visibleModals.length - 1] || null;
   }
 
+  function shouldScheduleAndroidModalAutofocusForVisibleModal(modal) {
+    if (!isAndroidNativeRuntime()) {
+      lastAndroidAutofocusVisibleModal = null;
+      return false;
+    }
+    if (!(modal instanceof HTMLElement) || !isVisibleModalOverlay(modal)) {
+      lastAndroidAutofocusVisibleModal = null;
+      return false;
+    }
+    if (
+      lastAndroidAutofocusVisibleModal instanceof HTMLElement &&
+      (!lastAndroidAutofocusVisibleModal.isConnected ||
+        !isVisibleModalOverlay(lastAndroidAutofocusVisibleModal))
+    ) {
+      lastAndroidAutofocusVisibleModal = null;
+    }
+    if (lastAndroidAutofocusVisibleModal === modal) {
+      return false;
+    }
+    lastAndroidAutofocusVisibleModal = modal;
+    return true;
+  }
+
   function resolveModalOverlayElement(modal) {
     if (!(modal instanceof HTMLElement)) {
       return null;
@@ -5901,6 +6435,7 @@
     if (!(overlay instanceof HTMLElement)) {
       return null;
     }
+    resetAndroidModalAutofocusState(overlay);
     clearAndroidModalDismissFreeze(overlay, {
       resync: options.resync === true,
     });
@@ -6325,6 +6860,7 @@
     const body = document.body;
     const modalCount = getVisibleModalOverlays().length;
     const hasOpenModal = modalCount > 0;
+    const topVisibleModal = hasOpenModal ? getTopVisibleModal() : null;
     const hasBlockingLoadingOverlay = Array.from(
       document.querySelectorAll(".page-loading-overlay"),
     ).some((overlay) => isVisibleBlockingLoadingOverlay(overlay));
@@ -6352,7 +6888,7 @@
     syncAppNavigationButtonFocusability(document, {
       disableFocus: hasOpenModal || hasBlockingLoadingOverlay,
     });
-    if (hasOpenModal) {
+    if (shouldScheduleAndroidModalAutofocusForVisibleModal(topVisibleModal)) {
       scheduleAndroidModalAutofocus();
     }
     scheduleAndroidKeyboardTransitionCoverSync();
@@ -9282,22 +9818,27 @@
         modalBody.scrollTop + Math.max(fieldRect.top - bodyRect.top, 0);
       const fieldBottom =
         modalBody.scrollTop + Math.max(fieldRect.bottom - bodyRect.top, 0);
-      const topGap = 12;
-      const bottomGap = 20;
+      const topGap = 8;
+      const bottomGap = 12;
       let nextScrollTop = modalBody.scrollTop;
       const currentVisibleTop = modalBody.scrollTop + visibleTopOffset;
       const currentVisibleBottom = modalBody.scrollTop + visibleBottomOffset;
-      if (fieldBottom + bottomGap > currentVisibleBottom) {
-        nextScrollTop = Math.max(
-          fieldBottom + bottomGap - visibleBottomOffset,
-          0,
-        );
-      }
-      if (fieldTop - topGap < nextScrollTop + visibleTopOffset) {
-        nextScrollTop = Math.max(
-          fieldTop - topGap - visibleTopOffset,
-          0,
-        );
+      const minVisibleTop = currentVisibleTop + topGap;
+      const maxVisibleBottom = currentVisibleBottom - bottomGap;
+      const overshootBottom = fieldBottom - maxVisibleBottom;
+      const overshootTop = minVisibleTop - fieldTop;
+      if (overshootBottom > 0 && overshootTop <= 0) {
+        nextScrollTop = Math.max(modalBody.scrollTop + overshootBottom, 0);
+      } else if (overshootTop > 0 && overshootBottom <= 0) {
+        nextScrollTop = Math.max(modalBody.scrollTop - overshootTop, 0);
+      } else if (overshootBottom > 0 && overshootTop > 0) {
+        const scrollDownTop = Math.max(modalBody.scrollTop + overshootBottom, 0);
+        const scrollUpTop = Math.max(modalBody.scrollTop - overshootTop, 0);
+        nextScrollTop =
+          Math.abs(scrollDownTop - modalBody.scrollTop) <=
+          Math.abs(scrollUpTop - modalBody.scrollTop)
+            ? scrollDownTop
+            : scrollUpTop;
       }
       const maxScrollTop = Math.max(
         modalBody.scrollHeight - modalBody.clientHeight,
@@ -15631,6 +16172,9 @@
     bindVerticalDragScroll,
     bindWindowMoveHandle,
     markModalAutofocusRequested,
+    rememberModalPreferredInteractiveTextControl,
+    markAndroidInteractiveTextFocusIntent,
+    clearAndroidInteractiveTextFocusIntent,
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
     resumeAndroidModalAutofocus,

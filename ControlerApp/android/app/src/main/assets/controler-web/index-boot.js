@@ -2449,6 +2449,38 @@ let spendModalClickLocked = false;
 let lastSpendButtonAcceptedAt = 0;
 let modalProjectInputTarget = "project-name-input";
 let modalProjectInputTargetManual = false;
+let timerModalPendingFocusCancel = null;
+const TIMER_MODAL_FOCUS_TRACE_ENABLED = false;
+
+function traceTimerModalFocus(eventName, detail = {}) {
+  if (!TIMER_MODAL_FOCUS_TRACE_ENABLED) {
+    return;
+  }
+  const payload = {
+    ts: Date.now(),
+    event: eventName,
+    activeElementId:
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement.id || document.activeElement.tagName
+        : "",
+    modalProjectInputTarget,
+    modalProjectInputTargetManual,
+    ...detail,
+  };
+  try {
+    console.error(`[timer-modal-focus] ${JSON.stringify(payload)}`);
+  } catch (error) {
+    console.error("[timer-modal-focus]", eventName, detail);
+  }
+  try {
+    window.ControlerNativeBridge?.emitEvent?.("ui.timer-modal-focus-trace", {
+      href: window.location.href,
+      page: "index",
+      trace: payload,
+    });
+  } catch (error) {}
+}
+
 const TIMER_MODAL_PROJECT_INPUT_IDS = Object.freeze([
   "project-name-input",
   "next-project-input",
@@ -9306,6 +9338,7 @@ function commitPrimaryModalProjectInput(options = {}) {
     canonicalizeEmpty = false,
     allowCreate = false,
     refreshBaselineSnapshot = true,
+    suggestionForceShow = false,
   } = options;
   const rawValue = projectNameInput.value.trim();
   if (!rawValue) {
@@ -9316,7 +9349,11 @@ function commitPrimaryModalProjectInput(options = {}) {
     lastEnteredProjectName = "";
     updateProjectsList();
     updateExistingProjectsList();
-    renderProjectSuggestionsForInput("project-name-input", "", false);
+    renderProjectSuggestionsForInput(
+      "project-name-input",
+      "",
+      suggestionForceShow === true,
+    );
     persistTimerSessionState();
     if (refreshBaselineSnapshot) {
       refreshTimerSessionModalBaselineSnapshot();
@@ -9350,7 +9387,7 @@ function commitPrimaryModalProjectInput(options = {}) {
   renderProjectSuggestionsForInput(
     "project-name-input",
     projectNameInput.value,
-    false,
+    suggestionForceShow === true,
   );
   persistTimerSessionState();
   if (refreshBaselineSnapshot) {
@@ -9494,6 +9531,7 @@ function isModalProjectSelectionClickFallbackSuppressed(inputId) {
 }
 
 function resetTimerModalProjectInputTransientState() {
+  clearPendingTimerModalFocusRequest();
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
     clearModalProjectSelectionClickFallbackSuppression(inputId);
@@ -9520,6 +9558,29 @@ function hasRecentTimerModalProjectOptionInteraction(inputId, windowMs = 420) {
     return false;
   }
   return Date.now() - startedAt <= Math.max(0, Number(windowMs) || 0);
+}
+
+function shouldPreserveTimerModalSuggestionsOnKeyboardDismiss(input, inputId) {
+  if (
+    !(input instanceof HTMLInputElement) ||
+    !isTimerModalProjectInputId(inputId) ||
+    !isModalOpen
+  ) {
+    return false;
+  }
+  const popoverId = getProjectSuggestionPopoverId(inputId);
+  const popover = popoverId ? document.getElementById(popoverId) : null;
+  if (!(popover instanceof HTMLElement) || !popover.classList.contains("visible")) {
+    return false;
+  }
+  const dismissedAt = Math.max(
+    0,
+    Number(input.__controlerAndroidSoftInputDismissedAt || 0),
+  );
+  if (dismissedAt <= 0) {
+    return false;
+  }
+  return Date.now() - dismissedAt <= 1200;
 }
 
 function prepareTimerModalProjectOptionInteraction(inputId) {
@@ -9582,6 +9643,7 @@ function bindTimerModalProjectSelectionTarget(
       event.stopImmediatePropagation();
     }
     prepareTimerModalProjectOptionInteraction(inputId);
+    blurActiveTimerModalTextEntry();
     const selection = resolveSelection();
     if (!selection || typeof selection !== "object") {
       return false;
@@ -9921,6 +9983,102 @@ function getDefaultModalProjectInputTarget() {
   return "project-name-input";
 }
 
+function clearPendingTimerModalFocusRequest() {
+  if (typeof timerModalPendingFocusCancel === "function") {
+    try {
+      timerModalPendingFocusCancel();
+    } catch (error) {}
+  }
+  timerModalPendingFocusCancel = null;
+}
+
+function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
+  const modal = document.getElementById("modal-overlay");
+  if (!(modal instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+    return false;
+  }
+  const focusTarget =
+    target.closest(
+      "input:not([type='button']):not([type='submit']):not([type='reset']), textarea, select, [contenteditable='true']",
+    ) || target;
+  if (!(focusTarget instanceof HTMLElement) || !modal.contains(focusTarget)) {
+    return false;
+  }
+  traceTimerModalFocus("remember-interactive-focus-target", {
+    targetId: focusTarget.id || focusTarget.tagName,
+    markIntent: options.markIntent !== false,
+  });
+  uiTools?.markModalAutofocusRequested?.(modal);
+  uiTools?.rememberModalPreferredInteractiveTextControl?.(focusTarget);
+  if (options.markIntent !== false) {
+    uiTools?.markAndroidInteractiveTextFocusIntent?.(focusTarget);
+  }
+  return true;
+}
+
+function scheduleTimerModalProjectInputFocus(targetInputId) {
+  if (
+    targetInputId !== "project-name-input" &&
+    targetInputId !== "next-project-input"
+  ) {
+    return false;
+  }
+
+  clearPendingTimerModalFocusRequest();
+  const scheduleFocus =
+    typeof window.requestAnimationFrame === "function"
+      ? (callback) => {
+          const frameId = window.requestAnimationFrame(callback);
+          return () => window.cancelAnimationFrame?.(frameId);
+        }
+      : (callback) => {
+          const timerId = window.setTimeout(callback, 0);
+          return () => window.clearTimeout(timerId);
+        };
+  timerModalPendingFocusCancel = scheduleFocus(() => {
+    timerModalPendingFocusCancel = null;
+    if (!isModalOpen) {
+      return;
+    }
+    const modal = document.getElementById("modal-overlay");
+    if (!(modal instanceof HTMLElement) || modal.hidden || modal.style.display === "none") {
+      return;
+    }
+    const targetInput = document.getElementById(targetInputId);
+    if (!(targetInput instanceof HTMLElement)) {
+      return;
+    }
+    rememberTimerModalInteractiveFocusTarget(targetInput, {
+      markIntent: false,
+    });
+    const activeTextEntry = getActiveTimerModalTextEntry();
+    if (
+      activeTextEntry instanceof HTMLElement &&
+      activeTextEntry !== targetInput
+    ) {
+      traceTimerModalFocus("skip-pending-focus-active-other-input", {
+        targetInputId,
+        activeInputId: activeTextEntry.id || activeTextEntry.tagName,
+      });
+      return;
+    }
+    if (modalProjectInputTarget !== targetInputId) {
+      traceTimerModalFocus("skip-pending-focus-target-changed", {
+        targetInputId,
+        currentTarget: modalProjectInputTarget,
+        manual: modalProjectInputTargetManual,
+      });
+      return;
+    }
+    setModalProjectInputTarget(targetInputId, {
+      focus: true,
+      manual: modalProjectInputTargetManual === true,
+      nativeAssist: true,
+    });
+  });
+  return true;
+}
+
 function setModalProjectInputTarget(targetInputId, options = {}) {
   const {
     focus = false,
@@ -9937,6 +10095,13 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
 
   modalProjectInputTarget = targetInputId;
   modalProjectInputTargetManual = !!manual;
+  traceTimerModalFocus("set-target", {
+    targetInputId,
+    focus,
+    showSuggestions,
+    manual: modalProjectInputTargetManual,
+    nativeAssist,
+  });
   hideTimerModalProjectSuggestionsExcept(targetInputId);
   const targetInput = document.getElementById(targetInputId);
   if (!targetInput) return;
@@ -9947,12 +10112,18 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
       targetInput instanceof HTMLElement &&
       typeof uiTools?.focusAndroidInteractiveTextControl === "function"
     ) {
+      traceTimerModalFocus("focus-target-native-assist", {
+        targetInputId,
+      });
       uiTools.focusAndroidInteractiveTextControl(targetInput, {
         selectText: true,
         retryDelayMs: 96,
         retrySequence: [180],
       });
     } else {
+      traceTimerModalFocus("focus-target-dom-focus", {
+        targetInputId,
+      });
       targetInput.focus();
     }
   }
@@ -10050,33 +10221,81 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
     );
     const modalBodyRect = modalBody.getBoundingClientRect();
     const anchorRect = revealAnchor.getBoundingClientRect();
+    const anchorContainerRect = anchorContainer.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportTop = Math.max(0, Number(visualViewport?.offsetTop) || 0);
+    const viewportHeight = Math.max(
+      0,
+      Number(visualViewport?.height) ||
+        Number(window.innerHeight) ||
+        Number(document.documentElement?.clientHeight) ||
+        Number(document.body?.clientHeight) ||
+        0,
+    );
+    const viewportBottom = viewportTop + viewportHeight;
+    const bodyTop = modalBodyRect.top + viewportTop;
     const currentScrollTop = modalBody.scrollTop;
+    const popoverPosition =
+      visiblePopover instanceof HTMLElement
+        ? window.getComputedStyle(visiblePopover).position
+        : "";
+    const shouldRevealExpandedContainerBottom =
+      visiblePopover instanceof HTMLElement &&
+      popoverPosition !== "absolute" &&
+      popoverPosition !== "fixed";
     const anchorTop = currentScrollTop + (anchorRect.top - modalBodyRect.top);
+    const revealBottomRect = shouldRevealExpandedContainerBottom
+      ? anchorContainerRect
+      : anchorRect;
     const anchorBottom =
-      currentScrollTop + (anchorRect.bottom - modalBodyRect.top);
+      currentScrollTop + (revealBottomRect.bottom - modalBodyRect.top);
     const shouldReservePopoverHeight =
       visiblePopover instanceof HTMLElement &&
-      window.getComputedStyle(visiblePopover).position === "absolute";
+      popoverPosition === "absolute";
     const visiblePopoverHeight = shouldReservePopoverHeight
       ? Math.min(
           Math.max(visiblePopover.offsetHeight || 0, 0),
           Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
         )
       : 0;
-    const visibleBodyHeight = Math.max(modalBody.clientHeight, 120);
-    const minVisibleTop = currentScrollTop + 12;
-    const maxVisibleBottom = currentScrollTop + visibleBodyHeight;
-    const desiredBottom = anchorBottom + visiblePopoverHeight + 20;
+    const visibleTopOffset = Math.max(0, viewportTop - bodyTop);
+    const visibleBottomOffset = Math.max(
+      visibleTopOffset + 72,
+      Math.min(
+        modalBody.clientHeight,
+        Math.max(0, viewportBottom - bodyTop),
+      ),
+    );
+    const visibleBodyHeight = Math.max(visibleBottomOffset - visibleTopOffset, 120);
+    const reservedPopoverHeight = Math.min(
+      visiblePopoverHeight,
+      Math.max(56, Math.min(112, visibleBodyHeight * 0.28)),
+    );
+    const minVisibleTop = currentScrollTop + visibleTopOffset + 6;
+    const maxVisibleBottom = Math.max(
+      minVisibleTop + 64,
+      currentScrollTop + visibleBottomOffset - 10 - reservedPopoverHeight,
+    );
     const maxScrollTop = Math.max(
       modalBody.scrollHeight - modalBody.clientHeight,
       0,
     );
 
     let nextScrollTop = currentScrollTop;
-    if (anchorTop < minVisibleTop) {
-      nextScrollTop = Math.max(anchorTop - 12, 0);
-    } else if (desiredBottom > maxVisibleBottom) {
-      nextScrollTop = Math.max(desiredBottom - visibleBodyHeight, 0);
+    const overshootTop = minVisibleTop - anchorTop;
+    const overshootBottom = anchorBottom - maxVisibleBottom;
+    if (overshootTop > 0 && overshootBottom <= 0) {
+      nextScrollTop = Math.max(currentScrollTop - overshootTop, 0);
+    } else if (overshootBottom > 0 && overshootTop <= 0) {
+      nextScrollTop = Math.max(currentScrollTop + overshootBottom, 0);
+    } else if (overshootTop > 0 && overshootBottom > 0) {
+      const scrollUpTop = Math.max(currentScrollTop - overshootTop, 0);
+      const scrollDownTop = Math.max(currentScrollTop + overshootBottom, 0);
+      nextScrollTop =
+        Math.abs(scrollUpTop - currentScrollTop) <=
+        Math.abs(scrollDownTop - currentScrollTop)
+          ? scrollUpTop
+          : scrollDownTop;
     }
 
     if (Math.abs(nextScrollTop - currentScrollTop) > 1) {
@@ -11229,13 +11448,11 @@ function openModal(options = {}) {
       options.focusTargetId === "project-name-input"
         ? options.focusTargetId
         : getDefaultModalProjectInputTarget();
-    requestAnimationFrame(() => {
-      setModalProjectInputTarget(focusTargetId || defaultTarget, {
-        focus: true,
-        manual: false,
-        nativeAssist: true,
-      });
+    traceTimerModalFocus("open-modal-focus-request", {
+      focusTargetId,
+      defaultTarget,
     });
+    scheduleTimerModalProjectInputFocus(focusTargetId || defaultTarget);
   }
 
   resetShortenTimeInputs(false);
@@ -11545,6 +11762,7 @@ function initIndexModalBindings() {
   }
   indexModalBindingsInitialized = true;
 
+  const timerModalOverlay = document.getElementById("modal-overlay");
   const nextProjectInput = document.getElementById("next-project-input");
   const projectNameInput = document.getElementById("project-name-input");
   const currentSuggestionPopover = document.getElementById(
@@ -11553,6 +11771,46 @@ function initIndexModalBindings() {
   const nextSuggestionPopover = document.getElementById(
     "next-project-suggestions",
   );
+  if (timerModalOverlay instanceof HTMLElement) {
+    const syncTimerModalInteractiveFocusTarget = (target, options = {}) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      const didRemember = rememberTimerModalInteractiveFocusTarget(target, options);
+      const focusTarget =
+        target.closest(
+          "input:not([type='button']):not([type='submit']):not([type='reset']), textarea, select, [contenteditable='true']",
+        ) || target;
+      if (
+        focusTarget instanceof HTMLElement &&
+        (focusTarget.id === "project-name-input" ||
+          focusTarget.id === "next-project-input")
+      ) {
+        setModalProjectInputTarget(focusTarget.id, {
+          manual: true,
+        });
+      }
+      return didRemember;
+    };
+    timerModalOverlay.addEventListener(
+      "pointerdown",
+      (event) => {
+        syncTimerModalInteractiveFocusTarget(event.target, {
+          markIntent: true,
+        });
+      },
+      true,
+    );
+    timerModalOverlay.addEventListener(
+      "focusin",
+      (event) => {
+        syncTimerModalInteractiveFocusTarget(event.target, {
+          markIntent: false,
+        });
+      },
+      true,
+    );
+  }
 
   const bindProjectInputEvents = (input, inputId) => {
     if (!input) return;
@@ -11566,7 +11824,21 @@ function initIndexModalBindings() {
       }
     };
 
+    input.addEventListener("pointerdown", () => {
+      rememberTimerModalInteractiveFocusTarget(input);
+      clearPendingTimerModalFocusRequest();
+      setModalProjectInputTarget(inputId, {
+        manual: true,
+      });
+    });
     input.addEventListener("focus", () => {
+      traceTimerModalFocus("input-focus", {
+        inputId,
+      });
+      rememberTimerModalInteractiveFocusTarget(input, {
+        markIntent: false,
+      });
+      clearPendingTimerModalFocusRequest();
       clearModalProjectSuggestionHideTimer(inputId);
       setModalProjectInputTarget(inputId, {
         manual: true,
@@ -11577,6 +11849,10 @@ function initIndexModalBindings() {
       });
     });
     input.addEventListener("input", () => {
+      traceTimerModalFocus("input-input", {
+        inputId,
+        value: input.value,
+      });
       setModalProjectInputTarget(inputId, { manual: true });
       renderProjectSuggestionsForInput(inputId, input.value, true);
       if (inputId === "next-project-input") {
@@ -11596,14 +11872,25 @@ function initIndexModalBindings() {
       persistTimerSessionState();
     });
     input.addEventListener("blur", () => {
+      traceTimerModalFocus("input-blur", {
+        inputId,
+      });
+      const shouldPreserveSuggestionsOnBlur =
+        shouldPreserveTimerModalSuggestionsOnKeyboardDismiss(input, inputId);
       applyPathHint();
       if (inputId === "project-name-input") {
         commitPrimaryModalProjectInput({
           canonicalizeEmpty: true,
+          suggestionForceShow: shouldPreserveSuggestionsOnBlur,
         });
       } else {
         syncTimerModalExistingProjectQuickPickSelection();
         persistTimerSessionState();
+      }
+      if (shouldPreserveSuggestionsOnBlur) {
+        clearModalProjectSuggestionHideTimer(inputId);
+        renderProjectSuggestionsForInput(inputId, input.value, true);
+        return;
       }
       scheduleModalProjectSuggestionHide(
         inputId,
@@ -11755,6 +12042,8 @@ async function handleIndexModalConfirmClick() {
   if (indexModalConfirmPending) {
     return;
   }
+  hideAllProjectSuggestions();
+  blurActiveTimerModalTextEntry();
   setIndexModalConfirmPending(true);
   if (!indexInitialDataLoaded) {
     try {
@@ -12009,6 +12298,8 @@ function initIndexPrimaryBindings() {
       persistent: true,
       visible: !timerModal.hidden,
       close: () => closeModal(),
+      keyboardConfirmSelector: "#modal-confirm",
+      keyboardCancelSelector: "#modal-cancel",
     });
   }
 
@@ -12021,6 +12312,8 @@ function initIndexPrimaryBindings() {
       persistent: true,
       visible: !advancedModalRoot.hidden,
       close: () => closeAdvancedModal(),
+      keyboardConfirmSelector: "#advanced-modal-confirm",
+      keyboardCancelSelector: "#advanced-modal-cancel",
     });
   }
 
@@ -12036,24 +12329,31 @@ function initIndexPrimaryBindings() {
     });
   }
 
-  const modalCancelBtn = document.getElementById("modal-cancel");
-  if (modalCancelBtn) {
-    modalCancelBtn.addEventListener("click", function () {
-      closeModal();
-    });
-  }
+  const bindPrimaryModalAction = (modal, selector, handler) => {
+    const button =
+      selector instanceof Element ? selector : modal?.querySelector?.(selector);
+    if (!(button instanceof HTMLElement) || typeof handler !== "function") {
+      return null;
+    }
+    if (typeof uiTools?.bindModalAction === "function") {
+      return uiTools.bindModalAction(modal, button, handler);
+    }
+    button.addEventListener("click", handler);
+    return button;
+  };
 
-  const modalConfirmBtn = document.getElementById("modal-confirm");
-  if (modalConfirmBtn) {
-    modalConfirmBtn.addEventListener("click", function () {
-      void handleIndexModalConfirmClick();
-    });
-  }
+  bindPrimaryModalAction(timerModal, "#modal-cancel", () => {
+    closeModal();
+  });
+  bindPrimaryModalAction(timerModal, "#modal-confirm", () => {
+    void handleIndexModalConfirmClick();
+  });
 
   const shortenHoursInput = document.getElementById("shorten-hours");
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput) {
     shortenHoursInput.addEventListener("focus", () => {
+      clearPendingTimerModalFocusRequest();
       scheduleTimerSessionFieldReveal(shortenHoursInput, {
         delayMs: 0,
       });
@@ -12070,6 +12370,7 @@ function initIndexPrimaryBindings() {
   }
   if (shortenMinutesInput) {
     shortenMinutesInput.addEventListener("focus", () => {
+      clearPendingTimerModalFocusRequest();
       scheduleTimerSessionFieldReveal(shortenMinutesInput, {
         delayMs: 0,
       });
@@ -16654,11 +16955,23 @@ function initIndexSecondaryBindings() {
   const createProjectConfirmBtn = document.getElementById(
     "advanced-modal-confirm",
   );
+  const advancedModalOverlay = document.getElementById("advanced-modal-overlay");
+  const bindAdvancedModalAction = (selector, handler) => {
+    const button =
+      selector instanceof Element
+        ? selector
+        : advancedModalOverlay?.querySelector?.(selector);
+    if (!(button instanceof HTMLElement) || typeof handler !== "function") {
+      return null;
+    }
+    if (typeof uiTools?.bindModalAction === "function") {
+      return uiTools.bindModalAction(advancedModalOverlay, button, handler);
+    }
+    button.addEventListener("click", handler);
+    return button;
+  };
   if (createProjectConfirmBtn) {
-    createProjectConfirmBtn.addEventListener(
-      "click",
-      handleCreateProjectConfirm,
-    );
+    bindAdvancedModalAction(createProjectConfirmBtn, handleCreateProjectConfirm);
   }
 
   const newProjectInput = document.getElementById("new-project-input");
@@ -16673,14 +16986,12 @@ function initIndexSecondaryBindings() {
 
   const advancedCancelBtn = document.getElementById("advanced-modal-cancel");
   if (advancedCancelBtn) {
-    advancedCancelBtn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
+    bindAdvancedModalAction(advancedCancelBtn, function () {
       closeAdvancedModal();
     });
   }
 
-  const advancedModal = document.getElementById("advanced-modal-overlay");
+  const advancedModal = advancedModalOverlay;
   if (advancedModal) {
     if (typeof uiTools?.bindModalBackdropDismiss === "function") {
       uiTools.bindModalBackdropDismiss(advancedModal, () => {
