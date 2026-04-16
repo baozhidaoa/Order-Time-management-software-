@@ -1291,6 +1291,7 @@ const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.18 : 0.32;
 const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 128 : 84;
 const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = IS_ANDROID ? 0.6 : 0.75;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
+const ANDROID_IDLE_CACHE_TRIM_DELAY_MS = 220;
 const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
 const ANDROID_ASSET_WEB_VERSION_QUERY_PARAM = 'assetVersion';
 const ANDROID_ASSET_WEB_VERSION =
@@ -2326,6 +2327,32 @@ export function resolveWebViewNavigationDispatchPolicy({
   return {
     ignore: true,
     allowOnlyExpectedLoad: false,
+  };
+}
+
+function resolveShellSlotPresentationState({
+  slot,
+  activeSlot,
+  transitionState,
+}: {
+  slot: WebViewSlot;
+  activeSlot: WebViewSlot;
+  transitionState: Pick<TransitionState, 'status' | 'fromSlot' | 'toSlot'> | null;
+}): {
+  active: boolean;
+  transitionLoading: boolean;
+} {
+  const transitionLoading =
+    transitionState?.status === 'loading' && slot === transitionState.toSlot;
+  if (transitionState?.status === 'loading') {
+    return {
+      active: slot === transitionState.fromSlot,
+      transitionLoading,
+    };
+  }
+  return {
+    active: slot === activeSlot,
+    transitionLoading,
   };
 }
 
@@ -4077,6 +4104,33 @@ function App({
     [clearCachedSlot],
   );
 
+  const trimInactiveAndroidSlots = useCallback(
+    (reason: string) => {
+      if (!IS_ANDROID || transitionStateRef.current) {
+        return;
+      }
+      const trimmedPages = WEBVIEW_SLOTS.map(slot => ({
+        slot,
+        pageKey: webViewSlotsRef.current[slot].pageKey,
+        hasUri: !!webViewSlotsRef.current[slot].uri,
+      })).filter(
+        item => item.slot !== activeSlotRef.current && item.hasUri,
+      );
+      if (trimmedPages.length === 0) {
+        return;
+      }
+      clearInactiveCachedSlots();
+      logPerfMetric('webview-cache-trimmed', {
+        reason,
+        activeSlot: activeSlotRef.current,
+        activePage: webViewSlotsRef.current[activeSlotRef.current].pageKey,
+        trimmedSlots: trimmedPages.map(item => item.slot).join(','),
+        trimmedPages: trimmedPages.map(item => item.pageKey).join(','),
+      });
+    },
+    [clearInactiveCachedSlots, logPerfMetric],
+  );
+
   const isPageKeyHidden = useCallback((pageKey: AppPageKey | '') => {
     return pageKey !== '' && hiddenPageKeysRef.current.has(pageKey);
   }, []);
@@ -4471,10 +4525,6 @@ function App({
   const syncShellVisibility = useCallback((reason = 'shell-state') => {
     const loadingTransition = transitionStateRef.current;
     const activeSlot = activeSlotRef.current;
-    const presentedSlot =
-      loadingTransition?.status === 'loading'
-        ? loadingTransition.fromSlot
-        : activeSlot;
 
     WEBVIEW_SLOTS.forEach(slot => {
       const slotState = webViewSlotsRef.current[slot];
@@ -4483,26 +4533,24 @@ function App({
         return;
       }
 
-      const transitionLoading =
-        loadingTransition?.status === 'loading' &&
-        slot === loadingTransition.toSlot;
-      const activeDuringAndroidTransition =
-        IS_ANDROID &&
-        loadingTransition?.status === 'loading' &&
-        slot === loadingTransition.toSlot;
-      const suspendSourceSlotDuringAndroidTransition =
-        IS_ANDROID &&
-        loadingTransition?.status === 'loading' &&
-        slot === loadingTransition.fromSlot;
+      const shellPresentationState = resolveShellSlotPresentationState({
+        slot,
+        activeSlot,
+        transitionState: loadingTransition
+          ? {
+              status: loadingTransition.status,
+              fromSlot: loadingTransition.fromSlot,
+              toSlot: loadingTransition.toSlot,
+            }
+          : null,
+      });
       const payload = {
-        active: suspendSourceSlotDuringAndroidTransition
-          ? false
-          : slot === presentedSlot || activeDuringAndroidTransition,
+        active: shellPresentationState.active,
         slot,
         reason,
         page: slotState.pageKey,
         href: slotState.uri,
-        transitionLoading,
+        transitionLoading: shellPresentationState.transitionLoading,
       };
       const signature = JSON.stringify(payload);
       if (shellVisibilitySignatureRef.current[slot] === signature) {
@@ -5006,6 +5054,7 @@ function App({
     setTransitionState(null);
     transitionProgress.setValue(0);
     clearHiddenCachedSlots();
+    trimInactiveAndroidSlots('transition-complete');
     if (queuedNavigationRequestRef.current) {
       requestAnimationFrame(() => {
         flushQueuedNavigationRequestIfReady('transition-complete');
@@ -5949,6 +5998,29 @@ function App({
     dispatchQueuedWidgetLaunchIfReady,
     isPageReady,
     transitionState,
+    webViewSlots,
+  ]);
+
+  useEffect(() => {
+    if (!IS_ANDROID || bootError || !isPageReady || transitionState) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (transitionStateRef.current || !isPageReadyRef.current) {
+        return;
+      }
+      trimInactiveAndroidSlots('page-idle');
+    }, ANDROID_IDLE_CACHE_TRIM_DELAY_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    activeSlot,
+    bootError,
+    isPageReady,
+    transitionState,
+    trimInactiveAndroidSlots,
     webViewSlots,
   ]);
 
@@ -7415,10 +7487,18 @@ function App({
     const currentTransition = transitionState;
     const transitionLoadingSlot =
       currentTransition?.status === 'loading' ? currentTransition.toSlot : null;
-    const shellSlotActive =
-      currentTransition?.status === 'loading'
-        ? IS_ANDROID && slot === transitionLoadingSlot
-        : slot === activeSlot;
+    const shellPresentationState = resolveShellSlotPresentationState({
+      slot,
+      activeSlot,
+      transitionState: currentTransition
+        ? {
+            status: currentTransition.status,
+            fromSlot: currentTransition.fromSlot,
+            toSlot: currentTransition.toSlot,
+          }
+        : null,
+    });
+    const shellSlotActive = shellPresentationState.active;
     const panelWidth = Math.max(webViewHostWidth, 1);
     const androidHiddenOffset = Math.max(Math.round(panelWidth * 1.35), 96);
     const enterDistance =
@@ -7647,7 +7727,7 @@ function App({
                 reason: 'bootstrap',
                 page: slotState.pageKey,
                 href: slotState.uri,
-                transitionLoading: slot === transitionLoadingSlot,
+                transitionLoading: shellPresentationState.transitionLoading,
               },
               sharedThemeStateRef.current,
               runtimeSessionIdRef.current,

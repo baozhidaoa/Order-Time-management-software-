@@ -6814,8 +6814,9 @@
 
   function getTodoManagedModalTextAutofocusOptions() {
     return {
-      delayMs: 40,
-      retryDelayMs: 120,
+      delayMs: 0,
+      retryDelayMs: 72,
+      retrySequence: [72],
       selectText: true,
     };
   }
@@ -6857,11 +6858,25 @@
     if (!(modal instanceof HTMLElement)) {
       return false;
     }
+    const pendingFrameId = Number(
+      modal.__controlerTodoManagedAutofocusFrameId || 0,
+    );
+    if (pendingFrameId > 0) {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(pendingFrameId);
+      } else {
+        window.clearTimeout(pendingFrameId);
+      }
+    }
     const schedule =
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
         : (callback) => window.setTimeout(callback, 0);
-    schedule(() => {
+    modal.__controlerTodoManagedAutofocusFrameId = schedule(() => {
+      modal.__controlerTodoManagedAutofocusFrameId = 0;
+      if (!modal.isConnected || modal.hidden || modal.style.display === "none") {
+        return;
+      }
       resumeTodoManagedModalTextAutofocus(modal);
     });
     return true;
@@ -6942,215 +6957,6 @@
         );
       }
     }
-  }
-
-  function scheduleTodoFormModalFieldReveal(modal, target, options = {}) {
-    if (
-      !(modal instanceof HTMLElement) ||
-      !(target instanceof HTMLElement) ||
-      !document.body?.classList.contains("controler-mobile-runtime")
-    ) {
-      return false;
-    }
-
-    const modalBody = modal.querySelector(".controler-form-modal-body");
-    const field =
-      target.closest(".controler-form-modal-body > *") ||
-      target.closest(".form-group") ||
-      target;
-    if (
-      !(modalBody instanceof HTMLElement) ||
-      !(field instanceof HTMLElement)
-    ) {
-      return false;
-    }
-
-    const delayMs = Math.max(
-      0,
-      Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
-    );
-    const getFooterOverlayInsetPx = () => {
-      const overlay =
-        modal.closest?.(".controler-form-modal-overlay") ||
-        modal.closest?.(".modal-overlay");
-      if (!(overlay instanceof HTMLElement)) {
-        return 0;
-      }
-      if (
-        typeof uiTools?.resolveAndroidFormModalKeyboardLiftPx === "function"
-      ) {
-        return uiTools.resolveAndroidFormModalKeyboardLiftPx(overlay);
-      }
-      const normalized = Number.parseFloat(
-        String(
-          window
-            .getComputedStyle(overlay)
-            .getPropertyValue("--controler-modal-keyboard-lift") || "",
-        ).trim(),
-      );
-      return Number.isFinite(normalized) ? Math.max(normalized, 0) : 0;
-    };
-    const reveal = () => {
-      if (
-        !modal.isConnected ||
-        !modalBody.isConnected ||
-        !field.isConnected ||
-        modalBody.clientHeight <= 0
-      ) {
-        return;
-      }
-
-      const modalBodyRect = modalBody.getBoundingClientRect();
-      const fieldRect = field.getBoundingClientRect();
-      const fieldTop =
-        modalBody.scrollTop + Math.max(fieldRect.top - modalBodyRect.top, 0);
-      const fieldBottom =
-        modalBody.scrollTop + Math.max(fieldRect.bottom - modalBodyRect.top, 0);
-      const desiredBottom = fieldBottom + 20;
-      const visibleBodyHeight = Math.max(
-        modalBody.clientHeight - getFooterOverlayInsetPx(),
-        120,
-      );
-      const maxScrollTop = Math.max(
-        modalBody.scrollHeight - modalBody.clientHeight,
-        0,
-      );
-      const nextScrollTop = Math.min(
-        Math.max(
-          Math.max(fieldTop - 12, 0),
-          Math.max(desiredBottom - visibleBodyHeight, 0),
-        ),
-        maxScrollTop,
-      );
-      modalBody.scrollTop = nextScrollTop;
-    };
-    const runReveal = () => {
-      window.setTimeout(reveal, delayMs);
-    };
-
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(runReveal);
-    } else {
-      runReveal();
-    }
-
-    return true;
-  }
-
-  function bindTodoFormModalFieldReveal(modal) {
-    if (!(modal instanceof HTMLElement)) {
-      return () => {};
-    }
-
-    const isAndroidNative =
-      document.body?.classList.contains("controler-android-native") === true;
-    const revealTimerIds = new Set();
-    const scheduleFrame =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    const cancelFrame =
-      typeof window.cancelAnimationFrame === "function"
-        ? window.cancelAnimationFrame.bind(window)
-        : window.clearTimeout.bind(window);
-    let viewportRevealFrameId = 0;
-    const clearPendingRevealTimers = () => {
-      revealTimerIds.forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      revealTimerIds.clear();
-    };
-    const scheduleActiveReveal = () => {
-      if (viewportRevealFrameId) {
-        return;
-      }
-      viewportRevealFrameId = scheduleFrame(() => {
-        viewportRevealFrameId = 0;
-        if (!modal.isConnected) {
-          cleanup();
-          return;
-        }
-        const activeElement = document.activeElement;
-        if (
-          !(activeElement instanceof HTMLElement) ||
-          !modal.contains(activeElement) ||
-          !activeElement.matches?.("input, textarea, select")
-        ) {
-          return;
-        }
-        scheduleTodoFormModalFieldReveal(modal, activeElement, {
-          delayMs: 0,
-        });
-      });
-    };
-    const queueReveal = (target, delays = []) => {
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      clearPendingRevealTimers();
-      const normalizedDelays = Array.from(
-        new Set(
-          (Array.isArray(delays) ? delays : [delays])
-            .map((delayMs) => Math.max(0, Number(delayMs) || 0))
-            .filter((delayMs) => Number.isFinite(delayMs)),
-        ),
-      );
-      normalizedDelays.forEach((delayMs) => {
-        const timerId = window.setTimeout(() => {
-          revealTimerIds.delete(timerId);
-          scheduleTodoFormModalFieldReveal(modal, target, {
-            delayMs: 0,
-          });
-        }, delayMs);
-        revealTimerIds.add(timerId);
-      });
-    };
-    const handleFocusIn = (event) => {
-      const target = event?.target;
-      if (
-        !(target instanceof HTMLElement) ||
-        !target.matches?.("input, textarea, select")
-      ) {
-        return;
-      }
-      queueReveal(target, 0);
-      if (!isAndroidNative) {
-        scheduleActiveReveal();
-      }
-    };
-    const handleViewportResize = () => {
-      if (!modal.isConnected) {
-        cleanup();
-        return;
-      }
-      if (isAndroidNative) {
-        return;
-      }
-      scheduleActiveReveal();
-    };
-    const cleanup = () => {
-      if (viewportRevealFrameId) {
-        cancelFrame(viewportRevealFrameId);
-        viewportRevealFrameId = 0;
-      }
-      clearPendingRevealTimers();
-      modal.removeEventListener("focusin", handleFocusIn);
-      window.visualViewport?.removeEventListener(
-        "resize",
-        handleViewportResize,
-      );
-      window.visualViewport?.removeEventListener(
-        "scroll",
-        handleViewportResize,
-      );
-    };
-
-    modal.addEventListener("focusin", handleFocusIn);
-    if (!isAndroidNative) {
-      window.visualViewport?.addEventListener("resize", handleViewportResize);
-      window.visualViewport?.addEventListener("scroll", handleViewportResize);
-    }
-    return cleanup;
   }
 
   function getTopVisibleTodoModalOverlayZIndex(fallbackZIndex = 2000) {
@@ -10140,7 +9946,6 @@
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
-    const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
     const todoDraftSession = createTodoModalDraftSession(
       modal,
       `draft:todo:${todo?.id || "new"}:${isEditMode ? "edit" : "create"}`,
@@ -10158,7 +9963,6 @@
     };
     const closeTodoModal = (options = {}) => {
       todoDraftSession.destroy();
-      unbindViewportReveal();
       unbindModalActions();
       closeModalElement(modal);
       if (options?.discardDraft === true) {
@@ -10586,7 +10390,6 @@
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
-    const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
     const progressDraftSession = createTodoModalDraftSession(
       modal,
       `draft:todo-progress:${todoId}:${existingRecord?.id || "new"}`,
@@ -10605,7 +10408,6 @@
     const closeModal = (options = {}) => {
       progressDraftSession.destroy();
       unbindModalActions();
-      unbindViewportReveal();
       closeModalElement(modal);
       if (options?.discardDraft === true) {
         discardProgressDraft();
@@ -11345,10 +11147,8 @@
     uiTools?.stopModalContentPropagation?.(modal);
 
     let unbindModalActions = () => {};
-    const unbindViewportReveal = bindTodoFormModalFieldReveal(modal);
     const unbindModalStateSync = bindCheckinModalInputState(modal);
     const closeCheckinItemModal = () => {
-      unbindViewportReveal();
       unbindModalStateSync();
       unbindModalActions();
       closeModalElement(modal);
@@ -13062,14 +12862,20 @@
       renderTodoWorkspace();
       todoPlanSidebarInitialized = true;
       let initialReadySnapshot = snapshot;
+      const shouldForceFreshTransitionBootstrap =
+        window.ControlerStorage?.isNativeApp === true &&
+        (!todoShellPageActive || isTodoShellTransitionLoading());
       const shouldBlockInitialReveal =
         window.ControlerStorage?.isNativeApp === true &&
-        !hasTodoWorkspaceRenderableData(snapshot);
+        (shouldForceFreshTransitionBootstrap ||
+          !hasTodoWorkspaceRenderableData(snapshot));
       if (shouldBlockInitialReveal) {
         uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
-          reason: todoBootstrappedFromPageBootstrap
-            ? "empty-bootstrap"
-            : "empty-initial-snapshot",
+          reason: shouldForceFreshTransitionBootstrap
+            ? "transition-bootstrap"
+            : todoBootstrappedFromPageBootstrap
+              ? "empty-bootstrap"
+              : "empty-initial-snapshot",
           ...buildTodoWorkspacePerfDetail(snapshot),
         });
         await waitForTodoStorageReady();

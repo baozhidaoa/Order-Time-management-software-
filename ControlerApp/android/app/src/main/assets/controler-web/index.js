@@ -7696,31 +7696,6 @@ function syncTimerModalExistingProjectQuickPickSelection() {
     });
 }
 
-function parseTimerModalPixelValue(value) {
-  const normalized = Number.parseFloat(String(value || "").trim());
-  return Number.isFinite(normalized) ? normalized : 0;
-}
-
-function getTimerModalFooterOverlayInsetPx(modal) {
-  const overlay =
-    modal?.closest?.(".controler-form-modal-overlay") ||
-    modal?.closest?.(".modal-overlay");
-  if (!(overlay instanceof HTMLElement)) {
-    return 0;
-  }
-  if (typeof uiTools?.resolveAndroidFormModalKeyboardLiftPx === "function") {
-    return uiTools.resolveAndroidFormModalKeyboardLiftPx(overlay);
-  }
-  return Math.max(
-    0,
-    parseTimerModalPixelValue(
-      window
-        .getComputedStyle(overlay)
-        .getPropertyValue("--controler-modal-keyboard-lift"),
-    ),
-  );
-}
-
 function scheduleTimerSessionFieldReveal(target, options = {}) {
   if (
     !(target instanceof HTMLElement) ||
@@ -7778,11 +7753,7 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
           Math.max(visiblePopover.scrollHeight || 0, 0) || 220,
         )
       : 0;
-    const footerOverlayInsetPx = getTimerModalFooterOverlayInsetPx(modal);
-    const visibleBodyHeight = Math.max(
-      modalBody.clientHeight - footerOverlayInsetPx,
-      120,
-    );
+    const visibleBodyHeight = Math.max(modalBody.clientHeight, 120);
     const minVisibleTop = currentScrollTop + 12;
     const maxVisibleBottom = currentScrollTop + visibleBodyHeight;
     const desiredBottom = anchorBottom + visiblePopoverHeight + 20;
@@ -7975,13 +7946,10 @@ function showProjectCreateModal() {
   modal.style.display = "flex";
   modal.style.zIndex = "2100";
   modal.style.pointerEvents = "auto";
-  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
-  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   window.requestAnimationFrame(() => {
     uiTools?.refreshEnhancedSelect?.(
       document.getElementById("parent-project-select"),
     );
-    uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   });
   focusAdvancedProjectNameInput();
 }
@@ -8972,13 +8940,6 @@ function openModal(options = {}) {
     sanitizeShortenDurationInput(shortenMinutesInput, { max: 59 });
   }
   updateRemainingTimeDisplay();
-  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
-  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
-  if (typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(() => {
-      uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
-    });
-  }
 
   if (modalDurationTimer) {
     clearInterval(modalDurationTimer);
@@ -12871,8 +12832,6 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
       modal.style.display = "flex";
       modal.style.pointerEvents = "auto";
       modal.style.zIndex = indexInitialDataLoaded ? "1000" : "2600";
-      uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
-      uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
     }
 
     const projectNameInput = document.getElementById("project-name-input");
@@ -14320,13 +14279,10 @@ function openAdvancedProjectModal() {
   modal.style.display = "flex";
   modal.style.zIndex = "2100";
   modal.style.pointerEvents = "auto";
-  uiTools?.syncAndroidFormModalKeyboardLift?.(modal);
-  uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   window.requestAnimationFrame(() => {
     uiTools?.refreshEnhancedSelect?.(
       document.getElementById("parent-project-select"),
     );
-    uiTools?.scheduleAndroidFormModalKeyboardLiftSync?.(modal);
   });
 }
 
@@ -14730,7 +14686,12 @@ async function init() {
     initIndexModalBindings();
     bindIndexDebugInteractivityProbe();
     initIndexWidgetLaunchAction();
-    const bootstrappedSnapshot = bootstrapIndexFromCachedSnapshot();
+    const shouldForceFreshTransitionBootstrap =
+      window.ControlerStorage?.isNativeApp === true &&
+      (!indexShellPageActive || isIndexShellTransitionLoading());
+    const bootstrappedSnapshot = shouldForceFreshTransitionBootstrap
+      ? null
+      : bootstrapIndexFromCachedSnapshot();
     if (bootstrappedSnapshot) {
       await commitIndexWorkspaceSnapshot({
         markFirstCommit: true,

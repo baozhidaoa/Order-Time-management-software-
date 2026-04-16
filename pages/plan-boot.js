@@ -879,6 +879,14 @@ function capturePlanModalDraftFields(modal) {
 
 function applyPlanModalDraftFields(modal, fields = {}) {
   const source = fields && typeof fields === "object" ? fields : {};
+  const dispatchControlEvents = (control, eventNames = []) => {
+    if (!(control instanceof HTMLElement)) {
+      return;
+    }
+    eventNames.forEach((eventName) => {
+      control.dispatchEvent(new Event(eventName, { bubbles: true }));
+    });
+  };
   Object.keys(source).forEach((key) => {
     const idSelector = `#${escapePlanSelectorValue(key)}`;
     const namedControls = Array.from(
@@ -887,9 +895,17 @@ function applyPlanModalDraftFields(modal, fields = {}) {
     );
     const controlById = modal?.querySelector?.(idSelector) || null;
     if (namedControls.length && namedControls[0]?.type === "radio") {
+      const changedControls = [];
       namedControls.forEach((control) => {
-        control.checked = String(control.value) === String(source[key] ?? "");
-        control.dispatchEvent(new Event("change", { bubbles: true }));
+        const nextChecked = String(control.value) === String(source[key] ?? "");
+        if (!!control.checked === nextChecked) {
+          return;
+        }
+        control.checked = nextChecked;
+        changedControls.push(control);
+      });
+      changedControls.forEach((control) => {
+        dispatchControlEvents(control, ["change"]);
       });
       return;
     }
@@ -899,9 +915,17 @@ function applyPlanModalDraftFields(modal, fields = {}) {
       Array.isArray(source[key])
     ) {
       const selectedValues = new Set(source[key].map((value) => String(value)));
+      const changedControls = [];
       namedControls.forEach((control) => {
-        control.checked = selectedValues.has(String(control.value));
-        control.dispatchEvent(new Event("change", { bubbles: true }));
+        const nextChecked = selectedValues.has(String(control.value));
+        if (!!control.checked === nextChecked) {
+          return;
+        }
+        control.checked = nextChecked;
+        changedControls.push(control);
+      });
+      changedControls.forEach((control) => {
+        dispatchControlEvents(control, ["change"]);
       });
       return;
     }
@@ -909,21 +933,68 @@ function applyPlanModalDraftFields(modal, fields = {}) {
     if (!targetControl) {
       return;
     }
+    let didChange = false;
     if (targetControl.type === "checkbox") {
-      targetControl.checked = !!source[key];
+      const nextChecked = !!source[key];
+      if (!!targetControl.checked !== nextChecked) {
+        targetControl.checked = nextChecked;
+        didChange = true;
+      }
     } else {
-      targetControl.value = source[key] ?? "";
+      const nextValue = source[key] ?? "";
+      if (String(targetControl.value ?? "") !== String(nextValue)) {
+        targetControl.value = nextValue;
+        didChange = true;
+      }
     }
-    targetControl.dispatchEvent(new Event("input", { bubbles: true }));
-    targetControl.dispatchEvent(new Event("change", { bubbles: true }));
+    if (!didChange) {
+      return;
+    }
+    dispatchControlEvents(targetControl, ["input", "change"]);
   });
 }
 
 function createPlanModalDraftSession(modal, draftKey) {
   let timer = 0;
+  let persistenceActive = false;
+  const registeredControls = [];
   const initialFieldsSignature = JSON.stringify(
     capturePlanModalDraftFields(modal),
   );
+  const scheduleSave = () => {
+    if (!persistenceActive) {
+      return;
+    }
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      void persistDraft();
+    }, PLAN_DRAFT_SAVE_DELAY_MS);
+  };
+  const bindFieldPersistence = () => {
+    if (persistenceActive) {
+      return true;
+    }
+    const controls = Array.from(
+      modal?.querySelectorAll?.("input, textarea, select") || [],
+    );
+    controls.forEach((control) => {
+      if (!(control instanceof HTMLElement)) {
+        return;
+      }
+      control.addEventListener("input", scheduleSave);
+      control.addEventListener("change", scheduleSave);
+      registeredControls.push(control);
+    });
+    persistenceActive = true;
+    return true;
+  };
+  const unbindFieldPersistence = () => {
+    registeredControls.splice(0).forEach((control) => {
+      control.removeEventListener("input", scheduleSave);
+      control.removeEventListener("change", scheduleSave);
+    });
+    persistenceActive = false;
+  };
   const persistDraft = async () => {
     if (
       !modal?.isConnected ||
@@ -948,12 +1019,6 @@ function createPlanModalDraftSession(modal, draftKey) {
       },
     );
   };
-  const scheduleSave = () => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => {
-      void persistDraft();
-    }, PLAN_DRAFT_SAVE_DELAY_MS);
-  };
   const handlePageHide = () => {
     void persistDraft();
   };
@@ -962,13 +1027,12 @@ function createPlanModalDraftSession(modal, draftKey) {
       void persistDraft();
     }
   };
-  modal?.querySelectorAll?.("input, textarea, select")?.forEach?.((control) => {
-    control.addEventListener("input", scheduleSave);
-    control.addEventListener("change", scheduleSave);
-  });
   window.addEventListener("pagehide", handlePageHide);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   return {
+    activate() {
+      return bindFieldPersistence();
+    },
     async restore() {
       if (typeof window.ControlerStorage?.getDraft !== "function") {
         return null;
@@ -997,6 +1061,7 @@ function createPlanModalDraftSession(modal, draftKey) {
     },
     destroy() {
       window.clearTimeout(timer);
+      unbindFieldPersistence();
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     },
@@ -1770,8 +1835,9 @@ function isPlanManagedModalDeferredAutofocusRuntime() {
 
 function getPlanManagedModalTextAutofocusOptions() {
   return {
-    delayMs: 40,
-    retryDelayMs: 120,
+    delayMs: 0,
+    retryDelayMs: 72,
+    retrySequence: [72],
     selectText: true,
   };
 }
@@ -1813,11 +1879,23 @@ function schedulePlanManagedModalTextAutofocusResume(modal) {
   if (!(modal instanceof HTMLElement)) {
     return false;
   }
+  const pendingFrameId = Number(modal.__controlerPlanManagedAutofocusFrameId || 0);
+  if (pendingFrameId > 0) {
+    if (typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(pendingFrameId);
+    } else {
+      window.clearTimeout(pendingFrameId);
+    }
+  }
   const schedule =
     typeof window.requestAnimationFrame === "function"
       ? window.requestAnimationFrame.bind(window)
       : (callback) => window.setTimeout(callback, 0);
-  schedule(() => {
+  modal.__controlerPlanManagedAutofocusFrameId = schedule(() => {
+    modal.__controlerPlanManagedAutofocusFrameId = 0;
+    if (!modal.isConnected || modal.hidden || modal.style.display === "none") {
+      return;
+    }
     resumePlanManagedModalTextAutofocus(modal);
   });
   return true;
@@ -1827,6 +1905,7 @@ function restorePlanManagedModalDraftSession(modal, draftSession, options = {}) 
   const {
     errorLabel = "恢复草稿失败:",
     deferTextAutofocus = false,
+    activateAfterRestore = false,
   } = options;
   if (
     !(modal instanceof HTMLElement) ||
@@ -1843,6 +1922,11 @@ function restorePlanManagedModalDraftSession(modal, draftSession, options = {}) 
     .catch((error) => {
       console.error(errorLabel, error);
       return null;
+    })
+    .finally(() => {
+      if (activateAfterRestore && typeof draftSession.activate === "function") {
+        draftSession.activate();
+      }
     });
 }
 
@@ -2731,6 +2815,11 @@ function bindPlanReminderBaseDateSync(modal, prefix = "plan", options = {}) {
   const dateInput = modal.querySelector(options.dateSelector || "");
   const startTimeInput = modal.querySelector(options.startTimeSelector || "");
   const repeatInputs = modal.querySelectorAll(options.repeatSelector || "");
+  const hasPersistedPreference =
+    getReminderTools()?.hasStoredReminderPreference?.(
+      options?.planLike?.notification,
+    ) || hasStoredReminderPreference(options?.planLike?.notification);
+  let reminderTouched = hasPersistedPreference;
   let lastBaseDateText =
     dateInput?.value || currentDate.toISOString().split("T")[0];
 
@@ -2738,16 +2827,19 @@ function bindPlanReminderBaseDateSync(modal, prefix = "plan", options = {}) {
     const nextBaseDateText =
       dateInput?.value || currentDate.toISOString().split("T")[0];
     const defaultSeed = buildPlanStartReminderSeed(startTimeInput?.value);
-    const currentConfig = parsePlanReminderCustomInputParts(
-      customDateInput.value,
-      customTimeInput.value,
-      lastBaseDateText,
-      {
-        fallbackTime:
-          defaultSeed?.customTime || startTimeInput?.value || "09:00",
-        fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
-      },
-    );
+    const currentConfig =
+      !hasPersistedPreference && !reminderTouched && defaultSeed
+        ? defaultSeed
+        : parsePlanReminderCustomInputParts(
+            customDateInput.value,
+            customTimeInput.value,
+            lastBaseDateText,
+            {
+              fallbackTime:
+                defaultSeed?.customTime || startTimeInput?.value || "09:00",
+              fallbackOffsetDays: defaultSeed?.customOffsetDays || 0,
+            },
+          );
     const nextParts = resolvePlanReminderCustomInputParts(
       nextBaseDateText,
       currentConfig,
@@ -2761,8 +2853,17 @@ function bindPlanReminderBaseDateSync(modal, prefix = "plan", options = {}) {
     lastBaseDateText = nextBaseDateText;
   };
 
-  customDateInput.addEventListener("change", syncCustomReminderInput);
-  customTimeInput.addEventListener("change", syncCustomReminderInput);
+  customDateInput.addEventListener("change", () => {
+    reminderTouched = true;
+    syncCustomReminderInput();
+  });
+  customTimeInput.addEventListener("input", () => {
+    reminderTouched = true;
+  });
+  customTimeInput.addEventListener("change", () => {
+    reminderTouched = true;
+    syncCustomReminderInput();
+  });
   dateInput?.addEventListener("change", syncCustomReminderInput);
   startTimeInput?.addEventListener("change", syncCustomReminderInput);
   repeatInputs.forEach((input) => {
@@ -7581,6 +7682,7 @@ function showWeeklyGridPlanModal(planData = null) {
     dateSelector: "#weekly-plan-start-date-input",
     startTimeSelector: "#weekly-plan-start-time-input",
     repeatSelector: 'input[name="weekly-plan-repeat"]',
+    planLike: planData,
   });
   const weeklyPlanDraftSession = createPlanModalDraftSession(
     modal,
@@ -7589,6 +7691,7 @@ function showWeeklyGridPlanModal(planData = null) {
   void restorePlanManagedModalDraftSession(modal, weeklyPlanDraftSession, {
     errorLabel: "恢复周视图计划草稿失败:",
     deferTextAutofocus: deferModalTextAutofocus,
+    activateAfterRestore: true,
   });
 
   const discardWeeklyPlanDraft = () => {
@@ -8144,6 +8247,7 @@ function showPlanEditModal(planData = null) {
     dateSelector: "#plan-start-date-input",
     startTimeSelector: "#plan-start-time-input",
     repeatSelector: 'input[name="plan-repeat"]',
+    planLike: planData,
   });
   const planDraftSession = createPlanModalDraftSession(
     modal,
@@ -8152,6 +8256,7 @@ function showPlanEditModal(planData = null) {
   void restorePlanManagedModalDraftSession(modal, planDraftSession, {
     errorLabel: "恢复计划草稿失败:",
     deferTextAutofocus: deferModalTextAutofocus,
+    activateAfterRestore: true,
   });
 
   const discardPlanDraft = () => {
@@ -9022,6 +9127,9 @@ async function loadInitialPlanWorkspace() {
   const initialPeriodIds = getPlanPeriodIdsForVisibleView();
   const initialView = currentView;
   const requestId = ++planLoadRequestId;
+  const shouldForceFreshInitialRead =
+    window.ControlerStorage?.isNativeApp === true &&
+    (!planShellPageActive || isPlanShellTransitionLoading());
   const runInitialLoad = async () => {
     await ensurePlanStorageBootstrapReady({
       allowBridgeBootstrap: true,
@@ -9041,6 +9149,7 @@ async function loadInitialPlanWorkspace() {
           view: initialView,
           basePlans: plans,
           loadedPeriodIds: planLoadedPeriodIds,
+          fresh: shouldForceFreshInitialRead,
         });
         if (requestId !== planLoadRequestId) {
           return;
@@ -9093,6 +9202,7 @@ async function loadInitialPlanWorkspace() {
       () =>
         readPlanWorkspace({
           periodIds: initialPeriodIds,
+          fresh: shouldForceFreshInitialRead,
         }),
       {
         delayMs: 0,

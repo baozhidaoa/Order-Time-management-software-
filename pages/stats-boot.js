@@ -12821,13 +12821,22 @@ async function init() {
     const initialScope = getStatsLoadScope();
     const canPrepareInitialData =
       statsShellPageActive || isStatsShellTransitionLoading();
+    const shouldForceFreshTransitionBootstrap =
+      window.ControlerStorage?.isNativeApp === true &&
+      (!statsShellPageActive || isStatsShellTransitionLoading());
     const shouldPreferBootstrapForInitialRender =
-      window.ControlerStorage?.isNativeApp === true && canPrepareInitialData;
-    const bootstrappedFromSnapshot =
-      bootstrapStatsFromCachedSnapshot(initialScope);
+      window.ControlerStorage?.isNativeApp === true &&
+      statsShellPageActive &&
+      !isStatsShellTransitionLoading() &&
+      canPrepareInitialData;
+    const bootstrappedFromSnapshot = shouldForceFreshTransitionBootstrap
+      ? false
+      : bootstrapStatsFromCachedSnapshot(initialScope);
     if (!bootstrappedFromSnapshot) {
       const initialLoadFresh =
-        canPrepareInitialData && !shouldPreferBootstrapForInitialRender;
+        canPrepareInitialData &&
+        (shouldForceFreshTransitionBootstrap ||
+          !shouldPreferBootstrapForInitialRender);
       await loadData(initialScope, {
         fresh: initialLoadFresh,
       });

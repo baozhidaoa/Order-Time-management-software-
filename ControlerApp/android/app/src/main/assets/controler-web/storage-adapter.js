@@ -8036,7 +8036,10 @@
           const managedBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
+          const shouldBypassManagedBootstrapCache =
+            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           if (
+            shouldBypassManagedBootstrapCache ||
             shouldForceAuthoritativeRead(normalizedOptions) ||
             !canServeManagedPageBootstrap(normalizedPage, managedBootstrapOptions)
           ) {
@@ -8058,9 +8061,11 @@
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
+          const shouldBypassManagedBootstrapCache =
+            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
             normalizedOptions,
-          );
+          ) || shouldBypassManagedBootstrapCache;
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
@@ -8068,7 +8073,7 @@
             normalizedPage,
             nativeBootstrapOptions,
           );
-          if (isManagedShellInactive()) {
+          if (isManagedShellInactive() && !forceAuthoritativeBootstrap) {
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
           }

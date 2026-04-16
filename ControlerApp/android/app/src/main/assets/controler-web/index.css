@@ -885,10 +885,6 @@ body.controler-android-native .controler-keyboard-aware-modal-overlay {
     --controler-stable-visual-viewport-height,
     100dvh
   ) !important;
-  --controler-modal-overlay-block-padding-bottom: calc(
-    10px + env(safe-area-inset-bottom, 0px) +
-      var(--controler-keyboard-inset, 0px)
-  ) !important;
   min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
@@ -1047,29 +1043,14 @@ body.controler-android-native
 
 body.controler-mobile-runtime.controler-android-native::before,
 body.controler-android-native::before {
-  content: "";
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--controler-keyboard-transition-cover-height, 0px);
-  background: var(
-    --controler-keyboard-transition-cover-bg,
-    var(--surface-app, var(--bg-primary, #ffffff))
-  );
-  pointer-events: none;
-  opacity: 0;
-  z-index: 950;
-  transition: opacity 72ms linear;
-  transform: translateZ(0);
-  will-change: opacity;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  content: none;
+  display: none;
 }
 
 body.controler-mobile-runtime.controler-android-native.controler-keyboard-transition-cover-active::before,
 body.controler-android-native.controler-keyboard-transition-cover-active::before {
-  opacity: 1;
+  content: none;
+  display: none;
 }
 
 body.controler-mobile-runtime,
@@ -4972,7 +4953,13 @@ body.page-stats #stats-container {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  scroll-padding-bottom: 24px;
+  padding-bottom: calc(
+    var(--controler-form-modal-body-base-bottom-space, 0px) +
+      var(--controler-form-modal-body-extra-bottom-space, 0px)
+  );
+  scroll-padding-bottom: calc(
+    24px + var(--controler-form-modal-body-extra-bottom-space, 0px)
+  );
   padding-right: 2px;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -7482,15 +7469,15 @@ body.page-diary .diary-editor-toolbar {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
 }
 
 body.page-diary .diary-editor-toolbar-group {
   display: inline-flex;
   flex-wrap: nowrap;
-  gap: 5px;
-  padding: 4px;
-  border-radius: 14px;
+  gap: 4px;
+  padding: 3px 4px;
+  border-radius: 13px;
   width: max-content;
   max-width: 100%;
   flex: 0 0 auto;
@@ -7518,8 +7505,8 @@ body.page-diary .diary-editor-toolbar-group.is-action-group {
 
 body.page-diary .diary-editor-toolbar-btn {
   border: none;
-  border-radius: 14px;
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 6px 10px;
   min-width: 0;
   min-height: 0;
   flex: 0 0 auto;
@@ -7528,7 +7515,7 @@ body.page-diary .diary-editor-toolbar-btn {
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
     color-mix(in srgb, var(--bg-quaternary) 72%, transparent);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 1.2;
   white-space: nowrap;
@@ -7543,14 +7530,14 @@ body.page-diary .diary-editor-toolbar-btn.is-active {
 body.page-diary .diary-editor-toolbar-btn.is-style-pill {
   min-width: 0;
   min-height: 0;
-  border-radius: 14px;
-  font-size: 13px;
+  border-radius: 12px;
+  font-size: 12px;
   font-weight: 720;
 }
 
 body.page-diary .diary-editor-toolbar-btn.is-icon-btn {
-  min-width: 42px;
-  font-size: 18px;
+  min-width: 34px;
+  font-size: 16px;
   font-weight: 500;
 }
 
@@ -7736,14 +7723,14 @@ body.page-diary .diary-editor-choice-actions {
 
   body.page-diary .diary-editor-toolbar-group {
     gap: 4px;
-    padding: 4px;
+    padding: 3px 4px;
     border-radius: 12px;
   }
 
   body.page-diary .diary-editor-toolbar-btn {
     min-width: 0;
     min-height: 0;
-    padding: 7px 10px;
+    padding: 6px 9px;
     border-radius: 12px;
     font-size: 12px;
   }
@@ -7755,8 +7742,8 @@ body.page-diary .diary-editor-choice-actions {
   }
 
   body.page-diary .diary-editor-toolbar-btn.is-icon-btn {
-    min-width: 38px;
-    font-size: 16px;
+    min-width: 32px;
+    font-size: 15px;
   }
 
   body.page-diary .diary-list-image-thumb {
@@ -9004,10 +8991,6 @@ body.controler-android-native .controler-form-modal-overlay {
     --controler-stable-visual-viewport-height,
     100dvh
   ) !important;
-  --controler-modal-overlay-block-padding-bottom: calc(
-    10px + env(safe-area-inset-bottom, 0px) +
-      var(--controler-keyboard-transition-inset, 0px)
-  ) !important;
   min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
@@ -9017,8 +9000,7 @@ body.controler-android-native .controler-form-modal-overlay {
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-body,
 body.controler-android-native .controler-form-modal-body {
-  padding-bottom: 24px;
-  scroll-padding-bottom: 24px;
+  --controler-form-modal-body-base-bottom-space: 24px;
 }
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-footer,
