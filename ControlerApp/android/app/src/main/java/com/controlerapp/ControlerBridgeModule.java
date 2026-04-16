@@ -1769,6 +1769,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (targetView == null) {
             return;
         }
+        if (targetView.hasFocus()) {
+            return;
+        }
         try {
             targetView.requestFocusFromTouch();
         } catch (Exception ignored) {

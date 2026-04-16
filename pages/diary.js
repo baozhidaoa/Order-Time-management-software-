@@ -4541,12 +4541,28 @@ function ensureDiaryEditorHasContentBlock(editor) {
   if (!(editor instanceof HTMLElement)) {
     return;
   }
-  if (!editor.innerHTML.trim()) {
-    editor.innerHTML = "<p><br></p>";
+  const childNodes = Array.from(editor.childNodes || []);
+  const hasMeaningfulChild = childNodes.some((node) => {
+    if (node instanceof HTMLBRElement) {
+      return false;
+    }
+    if (node instanceof Text) {
+      return String(node.textContent || "").trim().length > 0;
+    }
+    return true;
+  });
+  if (!hasMeaningfulChild) {
+    const paragraph = document.createElement("p");
+    paragraph.appendChild(document.createElement("br"));
+    editor.replaceChildren(paragraph);
     return;
   }
   if (!editor.querySelector("p, blockquote, ul, ol, .diary-image-block")) {
-    editor.innerHTML = `<p>${editor.innerHTML}</p>`;
+    const paragraph = document.createElement("p");
+    while (editor.firstChild) {
+      paragraph.appendChild(editor.firstChild);
+    }
+    editor.appendChild(paragraph);
   }
 }
 
@@ -4672,8 +4688,8 @@ function buildDiaryEditorSnapshot(runtime) {
       signature: "",
     };
   }
-  ensureDiaryEditorHasContentBlock(runtime.elements.editor);
   const editorClone = runtime.elements.editor.cloneNode(true);
+  ensureDiaryEditorHasContentBlock(editorClone);
   editorClone
     .querySelectorAll(".diary-editor-image-resize-handle, .diary-editor-image-remove-btn")
     .forEach((node) => node.remove());
@@ -7012,7 +7028,6 @@ function openDiaryEditorPage(dateText, entryId = null) {
       return;
     }
     runtime.markUserInteracted?.();
-    ensureDiaryEditorHasContentBlock(runtime.elements.editor);
     setDiaryEditorSaveState(runtime, "pending");
     refreshDiaryEditorFooter(runtime);
     scheduleDraftSave();

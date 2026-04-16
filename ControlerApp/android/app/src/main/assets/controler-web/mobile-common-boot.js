@@ -21585,7 +21585,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     lastAndroidSoftInputRequestAt = now;
     const requestIssuedAt = now;
     const requestMode =
-      options?.mode === "show" ? "show" : options?.mode === "restart" ? "restart" : "restart";
+      options?.mode === "restart" ? "restart" : "show";
     const requestToken = `controler-soft-input-${now}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;

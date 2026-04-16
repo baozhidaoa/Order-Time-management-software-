@@ -2450,6 +2450,9 @@ let lastSpendButtonAcceptedAt = 0;
 let modalProjectInputTarget = "project-name-input";
 let modalProjectInputTargetManual = false;
 let timerModalPendingFocusCancel = null;
+let timerModalSuggestionPreserveInputId = "";
+let timerModalSuggestionPreserveUntil = 0;
+let timerModalSkipNextOutsideSuggestionHideUntil = 0;
 const TIMER_MODAL_FOCUS_TRACE_ENABLED = false;
 
 function traceTimerModalFocus(eventName, detail = {}) {
@@ -9432,6 +9435,62 @@ function getActiveTimerModalTextEntry() {
   return null;
 }
 
+function isTimerModalProjectSuggestionVisible(inputId) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return false;
+  }
+  const popoverId = getProjectSuggestionPopoverId(inputId);
+  const popover = popoverId ? document.getElementById(popoverId) : null;
+  return popover instanceof HTMLElement && popover.classList.contains("visible");
+}
+
+function hasVisibleTimerModalProjectSuggestions() {
+  return TIMER_MODAL_PROJECT_INPUT_IDS.some((inputId) =>
+    isTimerModalProjectSuggestionVisible(inputId),
+  );
+}
+
+function clearTimerModalSuggestionDismissPreserveState() {
+  timerModalSuggestionPreserveInputId = "";
+  timerModalSuggestionPreserveUntil = 0;
+  timerModalSkipNextOutsideSuggestionHideUntil = 0;
+}
+
+function markTimerModalSuggestionDismissPreserve(inputId, windowMs = 420) {
+  if (!isTimerModalProjectInputId(inputId)) {
+    return false;
+  }
+  const now = Date.now();
+  const safeWindowMs = Math.max(180, Number(windowMs) || 420);
+  timerModalSuggestionPreserveInputId = inputId;
+  timerModalSuggestionPreserveUntil = now + safeWindowMs;
+  timerModalSkipNextOutsideSuggestionHideUntil = now + safeWindowMs;
+  return true;
+}
+
+function hasRecentTimerModalSuggestionDismissPreserve(inputId, now = Date.now()) {
+  if (
+    !isTimerModalProjectInputId(inputId) ||
+    timerModalSuggestionPreserveInputId !== inputId
+  ) {
+    return false;
+  }
+  if (timerModalSuggestionPreserveUntil <= now) {
+    clearTimerModalSuggestionDismissPreserveState();
+    return false;
+  }
+  return true;
+}
+
+function shouldSkipNextTimerModalSuggestionOutsideHide(now = Date.now()) {
+  if (timerModalSkipNextOutsideSuggestionHideUntil <= now) {
+    timerModalSkipNextOutsideSuggestionHideUntil = 0;
+    return false;
+  }
+  timerModalSkipNextOutsideSuggestionHideUntil = 0;
+  return true;
+}
+
 function blurActiveTimerModalTextEntry(options = {}) {
   const activeTextEntry = getActiveTimerModalTextEntry();
   const fallbackTarget =
@@ -9532,6 +9591,7 @@ function isModalProjectSelectionClickFallbackSuppressed(inputId) {
 
 function resetTimerModalProjectInputTransientState() {
   clearPendingTimerModalFocusRequest();
+  clearTimerModalSuggestionDismissPreserveState();
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
     clearModalProjectSelectionClickFallbackSuppression(inputId);
@@ -9568,19 +9628,20 @@ function shouldPreserveTimerModalSuggestionsOnKeyboardDismiss(input, inputId) {
   ) {
     return false;
   }
-  const popoverId = getProjectSuggestionPopoverId(inputId);
-  const popover = popoverId ? document.getElementById(popoverId) : null;
-  if (!(popover instanceof HTMLElement) || !popover.classList.contains("visible")) {
+  if (!isTimerModalProjectSuggestionVisible(inputId)) {
     return false;
   }
   const dismissedAt = Math.max(
     0,
     Number(input.__controlerAndroidSoftInputDismissedAt || 0),
   );
-  if (dismissedAt <= 0) {
-    return false;
-  }
-  return Date.now() - dismissedAt <= 1200;
+  const now = Date.now();
+  const preservedByKeyboardDismiss =
+    dismissedAt > 0 && now - dismissedAt <= 1200;
+  return (
+    preservedByKeyboardDismiss ||
+    hasRecentTimerModalSuggestionDismissPreserve(inputId, now)
+  );
 }
 
 function prepareTimerModalProjectOptionInteraction(inputId) {
@@ -9752,6 +9813,7 @@ function hideTimerModalProjectSuggestionsExcept(activeInputId = "") {
 }
 
 function hideAllProjectSuggestions() {
+  clearTimerModalSuggestionDismissPreserveState();
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
     hideProjectSuggestions(inputId);
@@ -11403,6 +11465,7 @@ function openModal(options = {}) {
   );
   isModalOpen = true;
   uiTools?.resetModalOverlayPresentationState?.(modal);
+  modal.dataset.controlerDisableAutofocus = "true";
   modal.hidden = false;
   modal.style.display = "flex";
   modal.style.pointerEvents = "auto";
@@ -11825,6 +11888,7 @@ function initIndexModalBindings() {
     };
 
     input.addEventListener("pointerdown", () => {
+      clearTimerModalSuggestionDismissPreserveState();
       rememberTimerModalInteractiveFocusTarget(input);
       clearPendingTimerModalFocusRequest();
       setModalProjectInputTarget(inputId, {
@@ -11832,6 +11896,7 @@ function initIndexModalBindings() {
       });
     });
     input.addEventListener("focus", () => {
+      clearTimerModalSuggestionDismissPreserveState();
       traceTimerModalFocus("input-focus", {
         inputId,
       });
@@ -11922,7 +11987,10 @@ function initIndexModalBindings() {
       if (!isTimerModalBlankDismissTarget(target)) {
         return false;
       }
-      return getActiveTimerModalTextEntry() instanceof HTMLElement;
+      return (
+        getActiveTimerModalTextEntry() instanceof HTMLElement ||
+        hasVisibleTimerModalProjectSuggestions()
+      );
     };
 
     timerModalBody.addEventListener("pointerdown", (event) => {
@@ -11994,8 +12062,27 @@ function initIndexModalBindings() {
       ) {
         return;
       }
-      hideAllProjectSuggestions();
-      blurActiveTimerModalTextEntry();
+      const activeTextEntry = getActiveTimerModalTextEntry();
+      const activeProjectInputId = getTimerModalProjectInputIdFromElement(
+        activeTextEntry,
+      );
+      clearPendingTimerModalFocusRequest();
+      if (
+        activeProjectInputId &&
+        isTimerModalProjectSuggestionVisible(activeProjectInputId)
+      ) {
+        markTimerModalSuggestionDismissPreserve(activeProjectInputId);
+        blurActiveTimerModalTextEntry({
+          fallbackTarget: activeTextEntry,
+        });
+        return;
+      }
+      if (hasVisibleTimerModalProjectSuggestions()) {
+        hideAllProjectSuggestions();
+      }
+      blurActiveTimerModalTextEntry({
+        fallbackTarget: activeTextEntry,
+      });
     });
   }
 
@@ -12031,6 +12118,10 @@ function initIndexModalBindings() {
       existingProjects?.contains(target);
 
     if (isInputArea) {
+      return;
+    }
+
+    if (shouldSkipNextTimerModalSuggestionOutsideHide()) {
       return;
     }
 
