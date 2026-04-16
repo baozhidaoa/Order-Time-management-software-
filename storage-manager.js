@@ -1,6 +1,7 @@
 const fs = require("fs-extra");
 const path = require("path");
 const crypto = require("crypto");
+const { pathToFileURL } = require("url");
 const guideBundle = require(path.join(__dirname, "pages", "guide-bundle.js"));
 const bundleHelper = require(path.join(__dirname, "pages", "storage-bundle.js"));
 const externalImportHelper = require(path.join(
@@ -25,6 +26,7 @@ const SHARED_ARRAY_KEYS = Object.freeze([
   "dailyCheckins",
   "checkins",
   "diaryEntries",
+  "diaryMediaAssets",
   "diaryCategories",
   "customThemes",
 ]);
@@ -111,6 +113,17 @@ const STORAGE_SCHEMA_VERSION = 3;
 const PROTECTION_MODE_OFF = "off";
 const PROTECTION_MODE_READONLY = "readonly_due_to_load_failure";
 const PROTECTION_MODE_BLOCKED = "blocked_due_to_persist_failure";
+const DIARY_MEDIA_MIME_BY_EXTENSION = Object.freeze({
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+});
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -193,6 +206,56 @@ function normalizeRebuildPeriodIds(periodIds = []) {
         .filter(Boolean),
     ),
   ).sort((left, right) => String(left).localeCompare(String(right)));
+}
+
+function inferDiaryMediaMimeType(fileName = "", fallback = "") {
+  const normalizedFallback = String(fallback || "").trim().toLowerCase();
+  if (normalizedFallback) {
+    return normalizedFallback;
+  }
+  const extension = String(path.extname(String(fileName || "")) || "")
+    .replace(/^\./, "")
+    .trim()
+    .toLowerCase();
+  return DIARY_MEDIA_MIME_BY_EXTENSION[extension] || "";
+}
+
+function parseDiaryMediaDataUrl(value = "") {
+  const text = String(value || "").trim();
+  const match = text.match(/^data:([^;,]+)?;base64,(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  try {
+    return {
+      mimeType: String(match[1] || "").trim().toLowerCase(),
+      buffer: Buffer.from(match[2], "base64"),
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function collectReferencedDiaryAssetIds(entries = []) {
+  const assetIds = new Set();
+  bundleHelper.ensureArray(entries).forEach((entry) => {
+    const attachments = Array.isArray(entry?.attachments) ? entry.attachments : [];
+    attachments.forEach((attachment) => {
+      const assetId = String(attachment?.assetId || "").trim();
+      if (assetId) {
+        assetIds.add(assetId);
+      }
+    });
+  });
+  return assetIds;
+}
+
+function filterDiaryMediaAssetsByReferencedIds(assetEntries = [], referencedAssetIds = new Set()) {
+  const normalizedAssets = bundleHelper.normalizeDiaryMediaManifest(assetEntries);
+  if (!(referencedAssetIds instanceof Set) || referencedAssetIds.size <= 0) {
+    return [];
+  }
+  return normalizedAssets.filter((entry) => referencedAssetIds.has(entry.assetId));
 }
 
 function buildSqlPlaceholders(count = 0) {
@@ -581,6 +644,7 @@ class StorageManager {
       checkins: [],
       yearlyGoals: {},
       diaryEntries: [],
+      diaryMediaAssets: [],
       diaryCategories: [],
       customThemes: [],
       builtInThemeOverrides: {},
@@ -942,6 +1006,9 @@ class StorageManager {
         next[key] = bundleHelper.cloneValue(source[key]);
       },
     );
+    next.diaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+      source.diaryMediaAssets,
+    );
 
     if (typeof bundleHelper.repairPathNamedRecordProjects === "function") {
       const pathRepairResult = bundleHelper.repairPathNamedRecordProjects(
@@ -1280,6 +1347,191 @@ class StorageManager {
   getManifestPath(root = this.getBundleRoot()) { return path.join(root, bundleHelper.MANIFEST_FILE_NAME); }
   getCorePath(root = this.getBundleRoot()) { return path.join(root, bundleHelper.CORE_FILE_NAME); }
   getRecurringPlansPath(root = this.getBundleRoot()) { return path.join(root, bundleHelper.RECURRING_PLANS_FILE_NAME); }
+  getDiaryMediaDirectory(root = this.getBundleRoot()) {
+    return path.join(root, bundleHelper.DIARY_MEDIA_DIR_NAME);
+  }
+  getDiaryMediaAssetEntries(root = this.getBundleRoot()) {
+    return bundleHelper.normalizeDiaryMediaManifest(
+      this.readManifestSync(root)?.assets?.diaryMedia,
+    );
+  }
+  getDiaryMediaAssetEntry(assetId, root = this.getBundleRoot()) {
+    const normalizedAssetId = String(assetId || "").trim();
+    if (!normalizedAssetId) {
+      return null;
+    }
+    return (
+      this.getDiaryMediaAssetEntries(root).find(
+        (entry) => entry.assetId === normalizedAssetId,
+      ) || null
+    );
+  }
+  updateDiaryMediaAssetEntries(assetEntries = [], root = this.getBundleRoot()) {
+    const manifest =
+      this.readManifestSync(root) || bundleHelper.createEmptyBundle().manifest;
+    const core = this.readCoreSync(root);
+    manifest.assets = {
+      ...(manifest.assets && typeof manifest.assets === "object"
+        ? manifest.assets
+        : {}),
+      diaryMedia: bundleHelper.normalizeDiaryMediaManifest(assetEntries),
+    };
+    manifest.lastModified = new Date().toISOString();
+    core.lastModified = manifest.lastModified;
+    this.writeJsonFileSync(this.getCorePath(root), core);
+    this.writeJsonFileSync(this.getManifestPath(root), manifest);
+    this.cachedStorageSnapshot = null;
+    this.protectionMode = PROTECTION_MODE_OFF;
+    this.clearPersistErrorState();
+    this.markKnownFileVersion({ includeHash: true });
+    return manifest.assets.diaryMedia;
+  }
+  saveDiaryImageAsset(options = {}) {
+    this.ensureStorageReady();
+    const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
+    const sourceOptions =
+      options && typeof options === "object" && !Array.isArray(options)
+        ? options
+        : {};
+    const parsedDataUrl = parseDiaryMediaDataUrl(sourceOptions.dataUrl);
+    let buffer = parsedDataUrl?.buffer || null;
+    if (!buffer && typeof sourceOptions.dataBase64 === "string") {
+      buffer = Buffer.from(sourceOptions.dataBase64, "base64");
+    }
+    if (!buffer && typeof sourceOptions.filePath === "string" && sourceOptions.filePath.trim()) {
+      buffer = fs.readFileSync(path.resolve(sourceOptions.filePath.trim()));
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length <= 0) {
+      throw new Error("缺少可写入的日记图片数据");
+    }
+    const assetId =
+      typeof sourceOptions.assetId === "string" && sourceOptions.assetId.trim()
+        ? sourceOptions.assetId.trim()
+        : `diary_media_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const mimeType = inferDiaryMediaMimeType(
+      sourceOptions.fileName || sourceOptions.filePath || "",
+      sourceOptions.mimeType || parsedDataUrl?.mimeType || "",
+    );
+    const relativePath = bundleHelper.buildDiaryMediaRelativePath(assetId, {
+      mimeType,
+      extension: String(path.extname(sourceOptions.fileName || sourceOptions.filePath || ""))
+        .replace(/^\./, "")
+        .trim()
+        .toLowerCase(),
+    });
+    if (!relativePath) {
+      throw new Error("无法为日记图片生成目标路径");
+    }
+    const absolutePath = path.join(root, relativePath);
+    fs.ensureDirSync(path.dirname(absolutePath));
+    fs.writeFileSync(absolutePath, buffer);
+    const nextEntry = bundleHelper.normalizeDiaryMediaAssetEntry({
+      assetId,
+      file: relativePath,
+      mimeType,
+      width: sourceOptions.width,
+      height: sourceOptions.height,
+      sizeBytes: buffer.length,
+      updatedAt: new Date().toISOString(),
+      compressionMode: sourceOptions.compressionMode,
+    });
+    const nextEntries = this.getDiaryMediaAssetEntries(root).filter(
+      (entry) => entry.assetId !== assetId,
+    );
+    nextEntries.push(nextEntry);
+    this.updateDiaryMediaAssetEntries(nextEntries, root);
+    return {
+      ...nextEntry,
+      absolutePath,
+      uri: pathToFileURL(absolutePath).toString(),
+    };
+  }
+  resolveDiaryImageUri(options = {}) {
+    this.ensureStorageReady();
+    const root = this.getBundleRoot(this.storagePath);
+    const assetId =
+      typeof options?.assetId === "string" && options.assetId.trim()
+        ? options.assetId.trim()
+        : typeof options?.id === "string" && options.id.trim()
+          ? options.id.trim()
+          : "";
+    if (!assetId) {
+      return null;
+    }
+    const entry = this.getDiaryMediaAssetEntry(assetId, root);
+    if (!entry) {
+      return null;
+    }
+    const absolutePath = path.join(root, entry.file);
+    return {
+      ...entry,
+      absolutePath,
+      exists: fs.existsSync(absolutePath),
+      uri: fs.existsSync(absolutePath) ? pathToFileURL(absolutePath).toString() : "",
+    };
+  }
+  deleteDiaryImageAssets(options = {}) {
+    this.ensureStorageReady();
+    const root = this.getBundleRoot(this.storagePath);
+    this.assertStorageWritable(root);
+    const sourceOptions =
+      options && typeof options === "object" && !Array.isArray(options)
+        ? options
+        : {};
+    const assetIds = new Set(
+      (Array.isArray(sourceOptions.assetIds) ? sourceOptions.assetIds : [])
+        .map((assetId) => String(assetId || "").trim())
+        .filter(Boolean),
+    );
+    const keepAssetIds = new Set(
+      (Array.isArray(sourceOptions.keepAssetIds) ? sourceOptions.keepAssetIds : [])
+        .map((assetId) => String(assetId || "").trim())
+        .filter(Boolean),
+    );
+    const existingEntries = this.getDiaryMediaAssetEntries(root);
+    const deletedAssetIds = [];
+    const keptEntries = existingEntries.filter((entry) => {
+      const shouldDelete =
+        assetIds.size > 0
+          ? assetIds.has(entry.assetId)
+          : keepAssetIds.size > 0
+            ? !keepAssetIds.has(entry.assetId)
+            : false;
+      if (!shouldDelete) {
+        return true;
+      }
+      deletedAssetIds.push(entry.assetId);
+      fs.removeSync(path.join(root, entry.file));
+      return false;
+    });
+    if (deletedAssetIds.length > 0 || keepAssetIds.size > 0) {
+      this.updateDiaryMediaAssetEntries(keptEntries, root);
+    }
+    return {
+      deletedAssetIds,
+      remainingAssetCount: keptEntries.length,
+    };
+  }
+  copyDiaryMediaAssetsFromRoot(sourceRoot, targetRoot, assetEntries = []) {
+    const normalizedSourceRoot = path.resolve(String(sourceRoot || "").trim());
+    const normalizedTargetRoot = path.resolve(String(targetRoot || "").trim());
+    if (!normalizedSourceRoot || !normalizedTargetRoot) {
+      return [];
+    }
+    const copiedAssetIds = [];
+    bundleHelper.normalizeDiaryMediaManifest(assetEntries).forEach((assetEntry) => {
+      const sourcePath = path.join(normalizedSourceRoot, assetEntry.file);
+      const targetPath = path.join(normalizedTargetRoot, assetEntry.file);
+      if (!fs.existsSync(sourcePath)) {
+        return;
+      }
+      fs.ensureDirSync(path.dirname(targetPath));
+      fs.copySync(sourcePath, targetPath, { overwrite: true });
+      copiedAssetIds.push(assetEntry.assetId);
+    });
+    return copiedAssetIds;
+  }
   getSidecarNamespaceKey(storagePath = this.storagePath) {
     const root = this.getBundleRoot(storagePath);
     return crypto.createHash("sha1").update(path.resolve(root)).digest("hex");
@@ -2977,6 +3229,11 @@ class StorageManager {
         }
       });
     });
+    bundleHelper
+      .normalizeDiaryMediaManifest(manifest?.assets?.diaryMedia)
+      .forEach((assetEntry) => {
+        files.push(path.join(root, assetEntry.file));
+      });
     return files;
   }
 
@@ -3056,6 +3313,17 @@ class StorageManager {
           };
           return summary;
         }, {}),
+      assets: {
+        diaryMedia: bundleHelper
+          .normalizeDiaryMediaManifest(safeManifest?.assets?.diaryMedia)
+          .map((entry) => ({
+            assetId: entry.assetId,
+            file: entry.file,
+            mimeType: entry.mimeType,
+            sizeBytes: entry.sizeBytes,
+            updatedAt: entry.updatedAt,
+          })),
+      },
     };
     const manifestSummarySignature = crypto
       .createHash("sha1")
@@ -3078,6 +3346,21 @@ class StorageManager {
       coreModifiedAt: coreVersion.modifiedAt,
       recurringToken: recurringVersion.token,
       recurringModifiedAt: recurringVersion.modifiedAt,
+      diaryMediaToken: crypto
+        .createHash("sha1")
+        .update(
+          JSON.stringify(
+            bundleHelper
+              .normalizeDiaryMediaManifest(manifest?.assets?.diaryMedia)
+              .map((entry) => ({
+                assetId: entry.assetId,
+                file: entry.file,
+                sizeBytes: entry.sizeBytes,
+                updatedAt: entry.updatedAt,
+              })),
+          ),
+        )
+        .digest("hex"),
     };
   }
 
@@ -3086,7 +3369,8 @@ class StorageManager {
       left?.manifestSummarySignature === right?.manifestSummarySignature &&
       left?.manifestToken === right?.manifestToken &&
       left?.coreToken === right?.coreToken &&
-      left?.recurringToken === right?.recurringToken
+      left?.recurringToken === right?.recurringToken &&
+      left?.diaryMediaToken === right?.diaryMediaToken
     );
   }
 
@@ -4215,6 +4499,7 @@ class StorageManager {
 
   buildBundlePayloadFromState(rawState, root, options = {}) {
     const storagePath = this.getBundleDisplayPath(root);
+    const previousManifest = this.readManifestSync(root);
     const integrityRecovery = this.appendInvalidRecoveryItems(
       createEmptyRecoveryState(),
       options.invalidItems || this.inspectStateIntegrity(rawState).invalidItems,
@@ -4232,13 +4517,37 @@ class StorageManager {
       pendingWriteCount: Number.isFinite(options.pendingWriteCount) ? options.pendingWriteCount : 0,
       invalidItems: integrityRecovery.invalidItems,
     });
+    const referencedDiaryAssetIds = collectReferencedDiaryAssetIds(
+      normalized.diaryEntries,
+    );
+    const fallbackDiaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+      previousManifest?.assets?.diaryMedia,
+    );
+    const explicitDiaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+      normalized.diaryMediaAssets,
+    );
+    const diaryMediaAssetLookup = new Map();
+    fallbackDiaryMediaAssets.forEach((entry) => {
+      diaryMediaAssetLookup.set(entry.assetId, entry);
+    });
+    explicitDiaryMediaAssets.forEach((entry) => {
+      diaryMediaAssetLookup.set(entry.assetId, entry);
+    });
+    normalized.diaryMediaAssets =
+      referencedDiaryAssetIds.size > 0
+        ? Array.from(referencedDiaryAssetIds)
+            .map((assetId) => diaryMediaAssetLookup.get(assetId) || null)
+            .filter(Boolean)
+        : [];
     return bundleHelper.splitLegacyState(normalized, {
       storagePath,
       storageDirectory: root,
       userDataPath: this.userDataPath,
       documentsPath: this.documentsPath,
       fileName: this.getBundleSyncFileName(),
-      legacyBackups: Array.isArray(options.legacyBackups) ? options.legacyBackups : this.readManifestSync(root)?.legacyBackups || [],
+      legacyBackups: Array.isArray(options.legacyBackups)
+        ? options.legacyBackups
+        : previousManifest?.legacyBackups || [],
     });
   }
 
@@ -4259,6 +4568,11 @@ class StorageManager {
         }
       });
     });
+    bundleHelper
+      .normalizeDiaryMediaManifest(payload?.manifest?.assets?.diaryMedia)
+      .forEach((assetEntry) => {
+        desiredFiles.add(assetEntry.file);
+      });
     this.writeJsonFileSync(this.getManifestPath(root), payload.manifest);
     bundleHelper.PARTITIONED_SECTIONS.forEach((section) => {
       (previousManifest?.sections?.[section]?.partitions || []).forEach((partition) => {
@@ -4268,6 +4582,13 @@ class StorageManager {
         if (!desiredFiles.has(partition.file)) fs.removeSync(path.join(root, partition.file));
       });
     });
+    bundleHelper
+      .normalizeDiaryMediaManifest(previousManifest?.assets?.diaryMedia)
+      .forEach((assetEntry) => {
+        if (!desiredFiles.has(assetEntry.file)) {
+          fs.removeSync(path.join(root, assetEntry.file));
+        }
+      });
   }
 
   writeBundleFromState(root, rawState, options = {}) {
@@ -4808,6 +5129,23 @@ class StorageManager {
       fileName: this.getBundleSyncFileName(),
       autoSyncEnabled: true,
     };
+    const referencedDiaryAssetIds = collectReferencedDiaryAssetIds(next.diaryEntries);
+    const currentDiaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+      current.diaryMediaAssets,
+    );
+    const importedDiaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+      importedWithProjectMapping.diaryMediaAssets,
+    );
+    const diaryMediaLookup = new Map();
+    currentDiaryMediaAssets.forEach((entry) => {
+      diaryMediaLookup.set(entry.assetId, entry);
+    });
+    importedDiaryMediaAssets.forEach((entry) => {
+      diaryMediaLookup.set(entry.assetId, entry);
+    });
+    next.diaryMediaAssets = Array.from(referencedDiaryAssetIds)
+      .map((assetId) => diaryMediaLookup.get(assetId) || null)
+      .filter(Boolean);
     const mergedState = this.normalizeStorageData(next, {
       storagePath,
       touchModified: true,
@@ -4815,6 +5153,7 @@ class StorageManager {
     });
     return {
       state: mergedState,
+      importedDiaryMediaAssets,
       ...this.buildImportMetrics(importedWithProjectMapping, {
         matchedProjects: projectReconciliation.matchedProjects,
         createdProjects: projectReconciliation.createdProjects,
@@ -5689,7 +6028,21 @@ class StorageManager {
           : null;
         const nextState = mergedResult?.state || imported;
         const metrics = mergedResult || this.buildImportMetrics(imported);
-        this.writeBundleFromState(this.getBundleRoot(this.storagePath), nextState, { touchModified: true, touchSyncSave: true });
+        const targetRoot = this.getBundleRoot(this.storagePath);
+        this.writeBundleFromState(targetRoot, nextState, {
+          touchModified: true,
+          touchSyncSave: true,
+        });
+        const importedDiaryMediaAssets = bundleHelper.normalizeDiaryMediaManifest(
+          mergedResult?.importedDiaryMediaAssets || imported.diaryMediaAssets,
+        );
+        if (importedDiaryMediaAssets.length > 0) {
+          this.copyDiaryMediaAssetsFromRoot(
+            tempRoot,
+            targetRoot,
+            importedDiaryMediaAssets,
+          );
+        }
         this.cachedStorageSnapshot = null;
         this.markKnownFileVersion({ includeHash: true });
         this.emitChange("import", { source: "import:zip" });

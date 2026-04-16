@@ -43,6 +43,10 @@ type NativeBridgeModule = {
   getStorageDraft?: (optionsJson?: string) => Promise<string>;
   setStorageDraft?: (optionsJson?: string) => Promise<string>;
   removeStorageDraft?: (optionsJson?: string) => Promise<string>;
+  pickDiaryImages?: (optionsJson?: string) => Promise<string>;
+  saveDiaryImageAsset?: (optionsJson?: string) => Promise<string>;
+  resolveDiaryImageUri?: (optionsJson?: string) => Promise<string>;
+  deleteDiaryImageAssets?: (optionsJson?: string) => Promise<string>;
   getAutoBackupStatus?: () => Promise<string>;
   updateAutoBackupSettings?: (settingsJson: string) => Promise<string>;
   runAutoBackupNow?: () => Promise<string>;
@@ -6133,6 +6137,70 @@ function App({
             JSON.stringify({
               key: typeof payload.key === 'string' ? payload.key : '',
             }),
+          ),
+        );
+      case 'storage.pickDiaryImages':
+        if (typeof nativeBridge.pickDiaryImages !== 'function') {
+          throw createUnsupportedBridgeError(
+            '选择日记图片',
+            'picking diary images',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.pickDiaryImages(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
+          ),
+        );
+      case 'storage.saveDiaryImageAsset':
+        if (typeof nativeBridge.saveDiaryImageAsset !== 'function') {
+          throw createUnsupportedBridgeError(
+            '保存日记图片',
+            'saving a diary image asset',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.saveDiaryImageAsset(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
+          ),
+        );
+      case 'storage.resolveDiaryImageUri':
+        if (typeof nativeBridge.resolveDiaryImageUri !== 'function') {
+          throw createUnsupportedBridgeError(
+            '解析日记图片',
+            'resolving a diary image uri',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.resolveDiaryImageUri(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
+          ),
+        );
+      case 'storage.deleteDiaryImageAssets':
+        if (typeof nativeBridge.deleteDiaryImageAssets !== 'function') {
+          throw createUnsupportedBridgeError(
+            '删除日记图片',
+            'deleting diary image assets',
+          );
+        }
+        return parseBridgeJson(
+          await nativeBridge.deleteDiaryImageAssets(
+            JSON.stringify(
+              payload.options && typeof payload.options === 'object'
+                ? payload.options
+                : {},
+            ),
           ),
         );
       case 'storage.getAutoBackupStatus':

@@ -3547,6 +3547,32 @@
             event.stopImmediatePropagation();
           }
 
+          const modalDismissOverlay =
+            modalDismissIntent?.modal instanceof HTMLElement
+              ? modalDismissIntent.modal
+              : null;
+          if (modalDismissOverlay instanceof HTMLElement) {
+            const closeProtectionDuration = resolveModalInteractionProtectionDuration(
+              modalDismissOverlay,
+              MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+              "controlerCloseProtectionDurationMs",
+            );
+            freezeAndroidModalDismissLayout(modalDismissOverlay);
+            protectVisibleParentModalsFromFollowThrough(
+              modalDismissOverlay,
+              closeProtectionDuration,
+            );
+            activateModalInteractionShield(
+              resolveModalInteractionShieldDuration(
+                modalDismissOverlay,
+                Math.max(
+                  closeProtectionDuration,
+                  ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS + 160,
+                ),
+              ),
+            );
+          }
+
           const activeControlModal = getAndroidModalAutofocusHost(activeControl);
           if (activeControlModal instanceof HTMLElement) {
             suppressAndroidModalAutofocus(activeControlModal, 760);
@@ -3557,7 +3583,6 @@
             activeControl.blur?.();
           } catch (error) {}
           if (modalDismissIntent?.modal instanceof HTMLElement) {
-            freezeAndroidModalDismissLayout(modalDismissIntent.modal);
             dispatchAndroidModalDismissIntent(modalDismissIntent, {
               x: event.clientX,
               y: event.clientY,
@@ -8918,7 +8943,15 @@
         passive: eventName === "touchstart",
       });
     });
-    ["pointerup", "mouseup", "touchend", "click"].forEach((eventName) => {
+    [
+      "pointerdown",
+      "mousedown",
+      "touchstart",
+      "pointerup",
+      "mouseup",
+      "touchend",
+      "click",
+    ].forEach((eventName) => {
       document.addEventListener(eventName, suppressEvent, true);
     });
   }
@@ -9394,6 +9427,27 @@
     });
   }
 
+  const MODAL_ACTION_AREA_SELECTOR = [
+    ".controler-form-modal-footer",
+    ".controler-form-modal-footer-actions",
+    ".themed-dialog-actions",
+    ".controler-themed-picker-actions",
+    ".plan-detail-modal-actions",
+    ".settings-theme-editor-modal-footer",
+    ".modal-buttons",
+  ].join(", ");
+
+  function isModalActionAreaTarget(button, modal = null) {
+    if (!(button instanceof HTMLElement)) {
+      return false;
+    }
+    const actionArea = button.closest?.(MODAL_ACTION_AREA_SELECTOR);
+    if (!(actionArea instanceof HTMLElement)) {
+      return false;
+    }
+    return !(modal instanceof HTMLElement) || modal.contains(actionArea);
+  }
+
   function resolveModalShortcutButtonBySelector(modal, selector) {
     const normalizedSelector = String(selector || "").trim();
     if (!normalizedSelector || !(modal instanceof HTMLElement)) {
@@ -9436,16 +9490,7 @@
       return Number.NEGATIVE_INFINITY;
     }
     let score = 0;
-    if (
-      button.closest?.(
-        [
-          ".controler-form-modal-footer",
-          ".controler-form-modal-footer-actions",
-          ".themed-dialog-actions",
-          ".controler-themed-picker-actions",
-        ].join(", "),
-      )
-    ) {
+    if (isModalActionAreaTarget(button)) {
       score += 24;
     }
     if (role === "confirm") {
@@ -9652,6 +9697,13 @@
     if (isAndroidModalDismissActionTarget(cancelButton, actionTarget)) {
       return {
         kind: "cancel",
+        modal: topModal,
+        target: actionTarget,
+      };
+    }
+    if (isModalActionAreaTarget(actionTarget, topModal)) {
+      return {
+        kind: "action",
         modal: topModal,
         target: actionTarget,
       };

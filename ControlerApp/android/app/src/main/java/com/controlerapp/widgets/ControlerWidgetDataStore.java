@@ -13,12 +13,14 @@ import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
 import android.util.AtomicFile;
+import android.util.Base64;
 import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -74,6 +76,7 @@ public final class ControlerWidgetDataStore {
     public static final String BUNDLE_MANIFEST_FILE_NAME = "bundle-manifest.json";
     public static final String BUNDLE_CORE_FILE_NAME = "core.json";
     public static final String BUNDLE_RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+    public static final String DIARY_MEDIA_DIR_NAME = "diary-media";
     private static final String[] PARTITIONED_SECTION_KEYS = new String[] {
         "records",
         "diaryEntries",
@@ -762,6 +765,35 @@ public final class ControlerWidgetDataStore {
         ArrayList<JSONObject> sortedPlans = jsonArrayToObjectList(nextPlans);
         sortJsonItems("plans", sortedPlans);
         nextRoot.put("plans", buildJsonArrayFromObjects(sortedPlans));
+        Set<String> referencedDiaryAssetIds =
+            collectReferencedDiaryAssetIds(nextRoot.optJSONArray("diaryEntries"));
+        JSONArray mergedDiaryMediaAssets = normalizeDiaryMediaAssets(
+            currentRoot.optJSONArray("diaryMediaAssets")
+        );
+        JSONArray incomingDiaryMediaAssets = normalizeDiaryMediaAssets(
+            incomingRoot.optJSONArray("diaryMediaAssets")
+        );
+        JSONObject diaryMediaById = new JSONObject();
+        for (int index = 0; index < mergedDiaryMediaAssets.length(); index += 1) {
+            JSONObject entry = mergedDiaryMediaAssets.optJSONObject(index);
+            if (entry != null) {
+                diaryMediaById.put(entry.optString("assetId", ""), cloneJsonObject(entry));
+            }
+        }
+        for (int index = 0; index < incomingDiaryMediaAssets.length(); index += 1) {
+            JSONObject entry = incomingDiaryMediaAssets.optJSONObject(index);
+            if (entry != null) {
+                diaryMediaById.put(entry.optString("assetId", ""), cloneJsonObject(entry));
+            }
+        }
+        JSONArray nextDiaryMediaAssets = new JSONArray();
+        for (String assetId : referencedDiaryAssetIds) {
+            JSONObject entry = diaryMediaById.optJSONObject(assetId);
+            if (entry != null) {
+                nextDiaryMediaAssets.put(cloneJsonObject(entry));
+            }
+        }
+        nextRoot.put("diaryMediaAssets", nextDiaryMediaAssets);
         nextRoot.put(
             "createdAt",
             firstNonEmpty(
@@ -2206,6 +2238,14 @@ public final class ControlerWidgetDataStore {
         }
 
         JSONObject normalizedRoot = normalizeRoot(context, root, false, rebuildProjectDurationCaches);
+        normalizedRoot.put(
+            "diaryMediaAssets",
+            normalizeDiaryMediaAssets(
+                manifest.optJSONObject("assets") == null
+                    ? null
+                    : manifest.optJSONObject("assets").optJSONArray("diaryMedia")
+            )
+        );
         logStorageTrace(
             "loadBundleRoot",
             "finish",
@@ -3912,8 +3952,13 @@ public final class ControlerWidgetDataStore {
             ensureJsonArray(normalized, "dailyCheckins");
             ensureJsonArray(normalized, "checkins");
             ensureJsonArray(normalized, "diaryEntries");
+            ensureJsonArray(normalized, "diaryMediaAssets");
             ensureJsonArray(normalized, "diaryCategories");
             ensureJsonArray(normalized, "customThemes");
+            normalized.put(
+                "diaryMediaAssets",
+                normalizeDiaryMediaAssets(normalized.optJSONArray("diaryMediaAssets"))
+            );
             ensureJsonObject(normalized, "yearlyGoals");
             ensureJsonObject(normalized, "builtInThemeOverrides");
             ensureJsonObject(normalized, "tableScaleSettings");
@@ -4016,6 +4061,230 @@ public final class ControlerWidgetDataStore {
         return object;
     }
 
+    private static String normalizeDiaryMediaExtension(String value) {
+        String normalized = String.valueOf(value == null ? "" : value)
+            .trim()
+            .replaceFirst("^\\.+", "")
+            .toLowerCase(Locale.US);
+        return normalized.matches("^[a-z0-9]{2,8}$") ? normalized : "";
+    }
+
+    private static String inferDiaryMediaMimeType(String fileName, String fallbackMimeType) {
+        String normalizedFallback =
+            String.valueOf(fallbackMimeType == null ? "" : fallbackMimeType)
+                .trim()
+                .toLowerCase(Locale.US);
+        if (!TextUtils.isEmpty(normalizedFallback)) {
+            return normalizedFallback;
+        }
+        String lowerName = String.valueOf(fileName == null ? "" : fileName)
+            .trim()
+            .toLowerCase(Locale.US);
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerName.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerName.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (lowerName.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (lowerName.endsWith(".heic")) {
+            return "image/heic";
+        }
+        if (lowerName.endsWith(".heif")) {
+            return "image/heif";
+        }
+        if (lowerName.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (lowerName.endsWith(".svg")) {
+            return "image/svg+xml";
+        }
+        return "";
+    }
+
+    private static String extensionForDiaryMimeType(String mimeType, String fallbackFileName) {
+        String normalizedMime = String.valueOf(mimeType == null ? "" : mimeType)
+            .trim()
+            .toLowerCase(Locale.US);
+        if ("image/jpeg".equals(normalizedMime)) {
+            return "jpg";
+        }
+        if ("image/png".equals(normalizedMime)) {
+            return "png";
+        }
+        if ("image/webp".equals(normalizedMime)) {
+            return "webp";
+        }
+        if ("image/gif".equals(normalizedMime)) {
+            return "gif";
+        }
+        if ("image/heic".equals(normalizedMime)) {
+            return "heic";
+        }
+        if ("image/heif".equals(normalizedMime)) {
+            return "heif";
+        }
+        if ("image/bmp".equals(normalizedMime)) {
+            return "bmp";
+        }
+        if ("image/svg+xml".equals(normalizedMime)) {
+            return "svg";
+        }
+        String extension = normalizeDiaryMediaExtension(getBundleRelativeFileName(fallbackFileName));
+        if (!TextUtils.isEmpty(extension)) {
+            return extension;
+        }
+        int lastDotIndex =
+            String.valueOf(fallbackFileName == null ? "" : fallbackFileName).lastIndexOf('.');
+        if (lastDotIndex >= 0) {
+            return normalizeDiaryMediaExtension(
+                String.valueOf(fallbackFileName).substring(lastDotIndex + 1)
+            );
+        }
+        return "";
+    }
+
+    private static String buildDiaryMediaRelativePath(
+        String assetId,
+        String mimeType,
+        String fallbackFileName
+    ) {
+        String normalizedAssetId = String.valueOf(assetId == null ? "" : assetId)
+            .trim()
+            .replaceAll("[^a-zA-Z0-9._-]+", "-");
+        if (TextUtils.isEmpty(normalizedAssetId)) {
+            return "";
+        }
+        String extension = extensionForDiaryMimeType(mimeType, fallbackFileName);
+        return DIARY_MEDIA_DIR_NAME
+            + "/"
+            + normalizedAssetId
+            + (TextUtils.isEmpty(extension) ? "" : "." + extension);
+    }
+
+    private static JSONObject normalizeDiaryMediaAssetEntry(JSONObject entry) {
+        try {
+            if (entry == null) {
+                return null;
+            }
+            String assetId = sanitizeJsonString(
+                firstNonEmpty(entry.optString("assetId", ""), entry.optString("id", ""))
+            );
+            if (TextUtils.isEmpty(assetId)) {
+                return null;
+            }
+            String mimeType = inferDiaryMediaMimeType(
+                firstNonEmpty(entry.optString("file", ""), entry.optString("path", "")),
+                entry.optString("mimeType", "")
+            );
+            String file = normalizeBundleRelativePath(
+                firstNonEmpty(
+                    entry.optString("file", ""),
+                    entry.optString("path", ""),
+                    buildDiaryMediaRelativePath(assetId, mimeType, entry.optString("file", ""))
+                )
+            );
+            if (TextUtils.isEmpty(file) || !file.startsWith(DIARY_MEDIA_DIR_NAME + "/")) {
+                file = buildDiaryMediaRelativePath(assetId, mimeType, entry.optString("file", ""));
+            }
+            if (TextUtils.isEmpty(file)) {
+                return null;
+            }
+            JSONObject normalized = new JSONObject();
+            normalized.put("assetId", assetId);
+            normalized.put("file", file);
+            normalized.put("mimeType", mimeType);
+            normalized.put("width", Math.max(0, entry.optInt("width", 0)));
+            normalized.put("height", Math.max(0, entry.optInt("height", 0)));
+            normalized.put("sizeBytes", Math.max(0L, entry.optLong("sizeBytes", 0L)));
+            normalized.put(
+                "updatedAt",
+                sanitizeJsonString(entry.optString("updatedAt", isoNow()))
+            );
+            normalized.put(
+                "compressionMode",
+                "original".equals(entry.optString("compressionMode", ""))
+                    ? "original"
+                    : "compressed"
+            );
+            return normalized;
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static JSONArray normalizeDiaryMediaAssets(JSONArray assets) {
+        JSONArray normalized = new JSONArray();
+        Set<String> seenAssetIds = new HashSet<>();
+        if (assets == null) {
+            return normalized;
+        }
+        for (int index = 0; index < assets.length(); index += 1) {
+            JSONObject entry = normalizeDiaryMediaAssetEntry(assets.optJSONObject(index));
+            if (entry == null) {
+                continue;
+            }
+            String assetId = entry.optString("assetId", "");
+            if (TextUtils.isEmpty(assetId) || seenAssetIds.contains(assetId)) {
+                continue;
+            }
+            seenAssetIds.add(assetId);
+            normalized.put(entry);
+        }
+        return normalized;
+    }
+
+    private static Set<String> collectReferencedDiaryAssetIds(JSONArray diaryEntries) {
+        Set<String> assetIds = new LinkedHashSet<>();
+        if (diaryEntries == null) {
+            return assetIds;
+        }
+        for (int index = 0; index < diaryEntries.length(); index += 1) {
+            JSONObject entry = diaryEntries.optJSONObject(index);
+            JSONArray attachments = entry == null ? null : entry.optJSONArray("attachments");
+            if (attachments == null) {
+                continue;
+            }
+            for (int attachmentIndex = 0; attachmentIndex < attachments.length(); attachmentIndex += 1) {
+                JSONObject attachment = attachments.optJSONObject(attachmentIndex);
+                if (attachment == null) {
+                    continue;
+                }
+                String assetId = sanitizeJsonString(attachment.optString("assetId", ""));
+                if (!TextUtils.isEmpty(assetId)) {
+                    assetIds.add(assetId);
+                }
+            }
+        }
+        return assetIds;
+    }
+
+    private static JSONArray filterDiaryMediaAssetsByReferencedIds(
+        JSONArray assets,
+        Set<String> referencedAssetIds
+    ) {
+        JSONArray filtered = new JSONArray();
+        if (referencedAssetIds == null || referencedAssetIds.isEmpty()) {
+            return filtered;
+        }
+        JSONArray normalizedAssets = normalizeDiaryMediaAssets(assets);
+        for (int index = 0; index < normalizedAssets.length(); index += 1) {
+            JSONObject entry = normalizedAssets.optJSONObject(index);
+            if (entry == null) {
+                continue;
+            }
+            if (referencedAssetIds.contains(entry.optString("assetId", ""))) {
+                filtered.put(cloneJsonObject(entry));
+            }
+        }
+        return filtered;
+    }
+
     private static String isoNow() {
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
         format.setTimeZone(TimeZone.getTimeZone("UTC"));
@@ -4076,6 +4345,15 @@ public final class ControlerWidgetDataStore {
             manifest.put("createdAt", createdAt);
             manifest.put("lastModified", lastModified);
             manifest.put("sections", sections);
+            manifest.put(
+                "assets",
+                new JSONObject().put(
+                    "diaryMedia",
+                    normalizeDiaryMediaAssets(
+                        root == null ? null : root.optJSONArray("diaryMediaAssets")
+                    )
+                )
+            );
             manifest.put("legacyBackups", new JSONArray());
         } catch (Exception error) {
             error.printStackTrace();
@@ -4356,6 +4634,22 @@ public final class ControlerWidgetDataStore {
                 }
             }
         }
+        JSONObject assets = manifest.optJSONObject("assets");
+        JSONArray diaryMedia = assets == null ? null : assets.optJSONArray("diaryMedia");
+        if (diaryMedia != null) {
+            for (int index = 0; index < diaryMedia.length(); index += 1) {
+                JSONObject entry = normalizeDiaryMediaAssetEntry(
+                    diaryMedia.optJSONObject(index)
+                );
+                if (entry == null) {
+                    continue;
+                }
+                String file = entry.optString("file", "");
+                if (!TextUtils.isEmpty(file)) {
+                    files.add(file);
+                }
+            }
+        }
         return files;
     }
 
@@ -4515,6 +4809,263 @@ public final class ControlerWidgetDataStore {
             parent.mkdirs();
         }
         writeTextToFile(target, content);
+    }
+
+    private static byte[] readAllBytes(InputStream inputStream) throws Exception {
+        if (inputStream == null) {
+            return new byte[0];
+        }
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int readLength;
+        while ((readLength = inputStream.read(buffer)) >= 0) {
+            if (readLength == 0) {
+                continue;
+            }
+            outputStream.write(buffer, 0, readLength);
+        }
+        return outputStream.toByteArray();
+    }
+
+    private static byte[] readBundleBytes(Context context, String relativePath) throws Exception {
+        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+            Uri treeUri = getCustomStorageDirectoryUri(context);
+            Uri documentUri = resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                relativePath,
+                false,
+                false
+            );
+            if (documentUri == null) {
+                return new byte[0];
+            }
+            InputStream inputStream = context.getContentResolver().openInputStream(documentUri);
+            try {
+                return readAllBytes(inputStream);
+            } finally {
+                if (inputStream != null) {
+                    inputStream.close();
+                }
+            }
+        }
+
+        File root = getDefaultBundleRootDirectory(context);
+        File target = new File(root, relativePath.replace("/", File.separator));
+        if (!target.exists()) {
+            return new byte[0];
+        }
+        InputStream inputStream = new FileInputStream(target);
+        try {
+            return readAllBytes(inputStream);
+        } finally {
+            inputStream.close();
+        }
+    }
+
+    private static void writeBundleBytes(Context context, String relativePath, byte[] content)
+        throws Exception {
+        byte[] safeContent = content == null ? new byte[0] : content;
+        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
+            Uri treeUri = getCustomStorageDirectoryUri(context);
+            Uri documentUri = resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                relativePath,
+                true,
+                false
+            );
+            if (documentUri == null) {
+                throw new Exception("无法写入 bundle 二进制文件");
+            }
+            OutputStream outputStream = context.getContentResolver().openOutputStream(documentUri, "w");
+            if (outputStream == null) {
+                throw new Exception("无法打开 bundle 二进制写入流");
+            }
+            try {
+                outputStream.write(safeContent);
+                outputStream.flush();
+            } finally {
+                outputStream.close();
+            }
+            return;
+        }
+
+        File root = getDefaultBundleRootDirectory(context);
+        File target = new File(root, relativePath.replace("/", File.separator));
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        OutputStream outputStream = new FileOutputStream(target, false);
+        try {
+            outputStream.write(safeContent);
+            outputStream.flush();
+        } finally {
+            outputStream.close();
+        }
+    }
+
+    private static String buildDataUriFromBytes(byte[] bytes, String mimeType) {
+        byte[] safeBytes = bytes == null ? new byte[0] : bytes;
+        if (safeBytes.length <= 0) {
+            return "";
+        }
+        String normalizedMime =
+            TextUtils.isEmpty(mimeType) ? "image/jpeg" : mimeType.trim().toLowerCase(Locale.US);
+        return "data:"
+            + normalizedMime
+            + ";base64,"
+            + Base64.encodeToString(safeBytes, Base64.NO_WRAP);
+    }
+
+    private static JSONArray readDiaryMediaManifestEntries(Context context) throws Exception {
+        JSONObject manifest = readBundleManifest(context);
+        JSONObject assets = manifest == null ? null : manifest.optJSONObject("assets");
+        return normalizeDiaryMediaAssets(assets == null ? null : assets.optJSONArray("diaryMedia"));
+    }
+
+    private static void writeDiaryMediaManifestEntries(Context context, JSONArray assetEntries)
+        throws Exception {
+        JSONObject manifest = readBundleManifest(context);
+        if (manifest == null) {
+            manifest = buildStorageManifest(normalizeRoot(context, new JSONObject(), false));
+        }
+        JSONObject assets = manifest.optJSONObject("assets");
+        if (assets == null) {
+            assets = new JSONObject();
+            manifest.put("assets", assets);
+        }
+        assets.put("diaryMedia", normalizeDiaryMediaAssets(assetEntries));
+        touchBundleMetadata(context, manifest);
+    }
+
+    private static JSONObject findDiaryMediaAssetEntry(Context context, String assetId)
+        throws Exception {
+        String normalizedAssetId = sanitizeJsonString(assetId);
+        if (TextUtils.isEmpty(normalizedAssetId)) {
+            return null;
+        }
+        JSONArray entries = readDiaryMediaManifestEntries(context);
+        for (int index = 0; index < entries.length(); index += 1) {
+            JSONObject entry = entries.optJSONObject(index);
+            if (
+                entry != null &&
+                normalizedAssetId.equals(entry.optString("assetId", ""))
+            ) {
+                return cloneJsonObject(entry);
+            }
+        }
+        return null;
+    }
+
+    public static synchronized JSONObject saveDiaryImageAsset(
+        Context context,
+        JSONObject assetPayload,
+        byte[] content
+    ) throws Exception {
+        ensureBundleStorageReady(context);
+        JSONObject normalizedEntry = normalizeDiaryMediaAssetEntry(assetPayload);
+        if (normalizedEntry == null) {
+            throw new Exception("无效的日记图片资源描述。");
+        }
+        writeBundleBytes(context, normalizedEntry.optString("file", ""), content);
+        JSONArray entries = readDiaryMediaManifestEntries(context);
+        JSONArray nextEntries = new JSONArray();
+        String assetId = normalizedEntry.optString("assetId", "");
+        for (int index = 0; index < entries.length(); index += 1) {
+            JSONObject entry = entries.optJSONObject(index);
+            if (
+                entry == null ||
+                assetId.equals(entry.optString("assetId", ""))
+            ) {
+                continue;
+            }
+            nextEntries.put(cloneJsonObject(entry));
+        }
+        nextEntries.put(cloneJsonObject(normalizedEntry));
+        writeDiaryMediaManifestEntries(context, nextEntries);
+        return cloneJsonObject(normalizedEntry);
+    }
+
+    public static synchronized JSONObject resolveDiaryImageUri(
+        Context context,
+        JSONObject options
+    ) throws Exception {
+        ensureBundleStorageReady(context);
+        String assetId =
+            sanitizeJsonString(
+                firstNonEmpty(
+                    options == null ? "" : options.optString("assetId", ""),
+                    options == null ? "" : options.optString("id", "")
+                )
+            );
+        if (TextUtils.isEmpty(assetId)) {
+            return null;
+        }
+        JSONObject entry = findDiaryMediaAssetEntry(context, assetId);
+        if (entry == null) {
+            return null;
+        }
+        byte[] bytes = readBundleBytes(context, entry.optString("file", ""));
+        JSONObject result = cloneJsonObject(entry);
+        result.put("exists", bytes.length > 0);
+        result.put("uri", buildDataUriFromBytes(bytes, entry.optString("mimeType", "")));
+        return result;
+    }
+
+    public static synchronized JSONObject deleteDiaryImageAssets(
+        Context context,
+        JSONObject options
+    ) throws Exception {
+        ensureBundleStorageReady(context);
+        Set<String> targetAssetIds = new LinkedHashSet<>();
+        Set<String> keepAssetIds = new LinkedHashSet<>();
+        JSONArray assetIds = options == null ? null : options.optJSONArray("assetIds");
+        if (assetIds != null) {
+            for (int index = 0; index < assetIds.length(); index += 1) {
+                String assetId = sanitizeJsonString(assetIds.optString(index, ""));
+                if (!TextUtils.isEmpty(assetId)) {
+                    targetAssetIds.add(assetId);
+                }
+            }
+        }
+        JSONArray keepIds = options == null ? null : options.optJSONArray("keepAssetIds");
+        if (keepIds != null) {
+            for (int index = 0; index < keepIds.length(); index += 1) {
+                String assetId = sanitizeJsonString(keepIds.optString(index, ""));
+                if (!TextUtils.isEmpty(assetId)) {
+                    keepAssetIds.add(assetId);
+                }
+            }
+        }
+        JSONArray entries = readDiaryMediaManifestEntries(context);
+        JSONArray nextEntries = new JSONArray();
+        JSONArray deletedAssetIds = new JSONArray();
+        for (int index = 0; index < entries.length(); index += 1) {
+            JSONObject entry = entries.optJSONObject(index);
+            if (entry == null) {
+                continue;
+            }
+            String assetId = entry.optString("assetId", "");
+            boolean shouldDelete =
+                !targetAssetIds.isEmpty()
+                    ? targetAssetIds.contains(assetId)
+                    : !keepAssetIds.isEmpty() && !keepAssetIds.contains(assetId);
+            if (!shouldDelete) {
+                nextEntries.put(cloneJsonObject(entry));
+                continue;
+            }
+            deleteBundlePath(context, entry.optString("file", ""));
+            deletedAssetIds.put(assetId);
+        }
+        if (deletedAssetIds.length() > 0 || !keepAssetIds.isEmpty()) {
+            writeDiaryMediaManifestEntries(context, nextEntries);
+        }
+        JSONObject result = new JSONObject();
+        result.put("deletedAssetIds", deletedAssetIds);
+        result.put("remainingAssetCount", nextEntries.length());
+        return result;
     }
 
     private static File getDefaultBundleRootDirectory(Context context) {
@@ -6075,7 +6626,49 @@ public final class ControlerWidgetDataStore {
             }
             root.put(section, mergedItems);
         }
+        root.put(
+            "diaryMediaAssets",
+            normalizeDiaryMediaAssets(
+                manifest.optJSONObject("assets") == null
+                    ? null
+                    : manifest.optJSONObject("assets").optJSONArray("diaryMedia")
+            )
+        );
         return root;
+    }
+
+    public static void copyDiaryMediaAssetsFromDirectory(
+        Context context,
+        File sourceDirectory,
+        JSONArray assetEntries
+    ) throws Exception {
+        if (sourceDirectory == null || !sourceDirectory.exists()) {
+            return;
+        }
+        JSONArray normalizedAssets = normalizeDiaryMediaAssets(assetEntries);
+        for (int index = 0; index < normalizedAssets.length(); index += 1) {
+            JSONObject entry = normalizedAssets.optJSONObject(index);
+            if (entry == null) {
+                continue;
+            }
+            String relativePath = entry.optString("file", "");
+            if (TextUtils.isEmpty(relativePath)) {
+                continue;
+            }
+            File sourceFile = new File(
+                sourceDirectory,
+                relativePath.replace("/", File.separator)
+            );
+            if (!sourceFile.exists()) {
+                continue;
+            }
+            InputStream inputStream = new FileInputStream(sourceFile);
+            try {
+                writeBundleBytes(context, relativePath, readAllBytes(inputStream));
+            } finally {
+                inputStream.close();
+            }
+        }
     }
 
     private static String readTextFromUri(Context context, Uri uri) throws Exception {

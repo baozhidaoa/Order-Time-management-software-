@@ -14,6 +14,8 @@
     "storage.selectFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.selectDirectory": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.pickImportSourceFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
+    "storage.pickDiaryImages": INTERACTIVE_MESSAGE_TIMEOUT_MS,
+    "storage.saveDiaryImageAsset": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.inspectImportSourceFile": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,
     "storage.previewExternalImport": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,
     "storage.importSource": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,

@@ -209,6 +209,7 @@
     "checkins",
     "yearlyGoals",
     "diaryEntries",
+    "diaryMediaAssets",
     "diaryCategories",
     "guideState",
     "customThemes",
@@ -336,6 +337,7 @@
     checkins: [],
     yearlyGoals: {},
     diaryEntries: [],
+    diaryMediaAssets: [],
     diaryCategories: [],
     guideState: getDefaultGuideStateFallback(),
     customThemes: [],
@@ -485,6 +487,98 @@
     } catch (error) {
       return String(value);
     }
+  }
+
+  function readBrowserFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : "");
+      reader.onerror = () =>
+        reject(reader.error || new Error("读取图片文件失败"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function measureBrowserImageDataUrl(dataUrl) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        resolve({
+          width: Math.max(0, Math.round(Number(image.naturalWidth) || 0)),
+          height: Math.max(0, Math.round(Number(image.naturalHeight) || 0)),
+        });
+      };
+      image.onerror = () => {
+        resolve({
+          width: 0,
+          height: 0,
+        });
+      };
+      image.src = dataUrl;
+    });
+  }
+
+  async function describeBrowserImageFile(file) {
+    if (!(file instanceof File)) {
+      return null;
+    }
+    const dataUrl = await readBrowserFileAsDataUrl(file);
+    const dimensions = await measureBrowserImageDataUrl(dataUrl);
+    return {
+      fileName: typeof file.name === "string" ? file.name : "",
+      mimeType: typeof file.type === "string" ? file.type : "",
+      sizeBytes: Number.isFinite(file.size) ? Math.max(0, Number(file.size)) : 0,
+      lastModified: Number.isFinite(file.lastModified)
+        ? Math.max(0, Math.round(Number(file.lastModified)))
+        : 0,
+      dataUrl,
+      width: dimensions.width,
+      height: dimensions.height,
+      sourceKind: "browser-file",
+    };
+  }
+
+  function pickDiaryImagesFromBrowser(options = {}) {
+    return new Promise((resolve) => {
+      if (!(document?.body instanceof HTMLElement)) {
+        resolve([]);
+        return;
+      }
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept =
+        typeof options.accept === "string" && options.accept.trim()
+          ? options.accept.trim()
+          : "image/*";
+      input.multiple = options.multiple !== false;
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      input.style.width = "1px";
+      input.style.height = "1px";
+      const cleanup = () => {
+        input.value = "";
+        input.remove();
+      };
+      input.addEventListener(
+        "change",
+        () => {
+          const files = Array.from(input.files || []);
+          Promise.all(files.map((file) => describeBrowserImageFile(file)))
+            .then((items) => {
+              cleanup();
+              resolve(items.filter(Boolean));
+            })
+            .catch(() => {
+              cleanup();
+              resolve([]);
+            });
+        },
+        { once: true },
+      );
+      document.body.appendChild(input);
+      input.click();
+    });
   }
 
   function parseJsonSafely(rawValue, fallback = null) {
@@ -975,8 +1069,13 @@
     if (!Array.isArray(base.dailyCheckins)) base.dailyCheckins = [];
     if (!Array.isArray(base.checkins)) base.checkins = [];
     if (!Array.isArray(base.diaryEntries)) base.diaryEntries = [];
+    if (!Array.isArray(base.diaryMediaAssets)) base.diaryMediaAssets = [];
     if (!Array.isArray(base.diaryCategories)) base.diaryCategories = [];
     if (!Array.isArray(base.customThemes)) base.customThemes = [];
+    base.diaryMediaAssets =
+      typeof storageBundle?.normalizeDiaryMediaManifest === "function"
+        ? storageBundle.normalizeDiaryMediaManifest(base.diaryMediaAssets)
+        : base.diaryMediaAssets;
     if (!base.yearlyGoals || typeof base.yearlyGoals !== "object") {
       base.yearlyGoals = {};
     }
@@ -2738,6 +2837,33 @@
       async getStorageStatus() {
         return null;
       },
+      async pickDiaryImages(options = {}) {
+        if (typeof extra.pickDiaryImages === "function") {
+          return extra.pickDiaryImages(options);
+        }
+        return null;
+      },
+      async saveDiaryImageAsset(options = {}) {
+        if (typeof extra.saveDiaryImageAsset === "function") {
+          return extra.saveDiaryImageAsset(options);
+        }
+        return null;
+      },
+      async resolveDiaryImageUri(options = {}) {
+        if (typeof extra.resolveDiaryImageUri === "function") {
+          return extra.resolveDiaryImageUri(options);
+        }
+        return null;
+      },
+      async deleteDiaryImageAssets(options = {}) {
+        if (typeof extra.deleteDiaryImageAssets === "function") {
+          return extra.deleteDiaryImageAssets(options);
+        }
+        return {
+          deletedAssetIds: [],
+          remainingAssetCount: 0,
+        };
+      },
       async appendJournal(ops = [], options = {}) {
         const normalizedOperations = coalesceStorageJournalOperations(ops);
         const metadata = collectStorageJournalMetadata(normalizedOperations);
@@ -4307,6 +4433,65 @@
             return null;
           }
           return electronAPI.storageShareLatestBackup();
+        },
+        async pickDiaryImages(options = {}) {
+          return pickDiaryImagesFromBrowser(options);
+        },
+        async saveDiaryImageAsset(options = {}) {
+          if (typeof electronAPI.storageSaveDiaryImageAsset !== "function") {
+            return null;
+          }
+          const result = await electronAPI.storageSaveDiaryImageAsset(options);
+          if (
+            result &&
+            typeof result === "object" &&
+            typeof result.assetId === "string" &&
+            result.assetId.trim()
+          ) {
+            const currentState = readState();
+            const existingAssets = Array.isArray(currentState?.diaryMediaAssets)
+              ? currentState.diaryMediaAssets.filter(
+                  (entry) => entry?.assetId !== result.assetId,
+                )
+              : [];
+            assignState({
+              ...currentState,
+              diaryMediaAssets: [...existingAssets, cloneValue(result)],
+            });
+          }
+          return result;
+        },
+        async resolveDiaryImageUri(options = {}) {
+          if (typeof electronAPI.storageResolveDiaryImageUri !== "function") {
+            return null;
+          }
+          return electronAPI.storageResolveDiaryImageUri(options);
+        },
+        async deleteDiaryImageAssets(options = {}) {
+          if (typeof electronAPI.storageDeleteDiaryImageAssets !== "function") {
+            return {
+              deletedAssetIds: [],
+              remainingAssetCount: 0,
+            };
+          }
+          const result = await electronAPI.storageDeleteDiaryImageAssets(options);
+          const deletedAssetIds = new Set(
+            (Array.isArray(result?.deletedAssetIds) ? result.deletedAssetIds : [])
+              .map((assetId) => String(assetId || "").trim())
+              .filter(Boolean),
+          );
+          if (deletedAssetIds.size > 0) {
+            const currentState = readState();
+            assignState({
+              ...currentState,
+              diaryMediaAssets: Array.isArray(currentState?.diaryMediaAssets)
+                ? currentState.diaryMediaAssets.filter(
+                    (entry) => !deletedAssetIds.has(String(entry?.assetId || "").trim()),
+                  )
+                : [],
+            });
+          }
+          return result;
         },
         async loadSectionRange(section, scope = {}) {
           if (typeof electronAPI.storageLoadSectionRange !== "function") {
@@ -8177,6 +8362,109 @@
               throw new Error("分享最新备份超时，请稍候重试。");
             }
             throw error instanceof Error ? error : new Error(message);
+          }
+        },
+        async pickDiaryImages(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.pickDiaryImages",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (Array.isArray(parsed)) {
+              return parsed;
+            }
+            if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
+              return parsed.items;
+            }
+          } catch (error) {
+            console.error("选择 React Native 日记图片失败，回退浏览器文件选择:", error);
+          }
+          return pickDiaryImagesFromBrowser(options);
+        },
+        async saveDiaryImageAsset(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.saveDiaryImageAsset",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (parsed && typeof parsed === "object") {
+              const currentState = readState();
+              const existingAssets = Array.isArray(currentState?.diaryMediaAssets)
+                ? currentState.diaryMediaAssets.filter(
+                    (entry) => entry?.assetId !== parsed.assetId,
+                  )
+                : [];
+              assignState({
+                ...currentState,
+                diaryMediaAssets: [...existingAssets, cloneValue(parsed)],
+              });
+              hasManagedCoreSnapshot = true;
+              persistMirrorSnapshot(true);
+              return parsed;
+            }
+          } catch (error) {
+            console.error("保存 React Native 日记图片资源失败:", error);
+          }
+          return null;
+        },
+        async resolveDiaryImageUri(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.resolveDiaryImageUri",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (parsed && typeof parsed === "object") {
+              return parsed;
+            }
+          } catch (error) {
+            console.error("解析 React Native 日记图片 URI 失败:", error);
+          }
+          return null;
+        },
+        async deleteDiaryImageAssets(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.deleteDiaryImageAssets",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            const deletedAssetIds = new Set(
+              (Array.isArray(parsed?.deletedAssetIds) ? parsed.deletedAssetIds : [])
+                .map((assetId) => String(assetId || "").trim())
+                .filter(Boolean),
+            );
+            if (deletedAssetIds.size > 0) {
+              const currentState = readState();
+              assignState({
+                ...currentState,
+                diaryMediaAssets: Array.isArray(currentState?.diaryMediaAssets)
+                  ? currentState.diaryMediaAssets.filter(
+                      (entry) => !deletedAssetIds.has(String(entry?.assetId || "").trim()),
+                    )
+                  : [],
+              });
+              hasManagedCoreSnapshot = true;
+              persistMirrorSnapshot(true);
+            }
+            return parsed && typeof parsed === "object"
+              ? parsed
+              : {
+                  deletedAssetIds: [],
+                  remainingAssetCount: Array.isArray(readState()?.diaryMediaAssets)
+                    ? readState().diaryMediaAssets.length
+                    : 0,
+                };
+          } catch (error) {
+            console.error("删除 React Native 日记图片资源失败:", error);
+            return {
+              deletedAssetIds: [],
+              remainingAssetCount: Array.isArray(readState()?.diaryMediaAssets)
+                ? readState().diaryMediaAssets.length
+                : 0,
+            };
           }
         },
         async loadSectionRange(section, scope = {}) {

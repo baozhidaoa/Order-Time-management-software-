@@ -12,6 +12,7 @@
   const CORE_FILE_NAME = "core.json";
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+  const DIARY_MEDIA_DIR_NAME = "diary-media";
   const PROJECT_DURATION_CACHE_VERSION = 2;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -63,6 +64,16 @@
     "diaryEntries",
     "diaryCategories",
   ]);
+  const DIARY_MEDIA_EXTENSION_BY_MIME = Object.freeze({
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+  });
   const RECURRING_PLAN_VIRTUAL_PERIOD_ID = "__recurring__";
   const HARD_RECOVERY_REASONS = new Set([
     "invalid-item",
@@ -121,6 +132,124 @@
 
   function ensureObject(value, fallback = {}) {
     return isPlainObject(value) ? value : fallback;
+  }
+
+  function normalizeDiaryMediaFileExtension(value) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/^\.+/, "")
+      .toLowerCase();
+    return /^[a-z0-9]{2,8}$/.test(normalized) ? normalized : "";
+  }
+
+  function getDiaryMediaExtensionForMimeType(mimeType = "", fallback = "") {
+    const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+    if (
+      normalizedMimeType &&
+      Object.prototype.hasOwnProperty.call(
+        DIARY_MEDIA_EXTENSION_BY_MIME,
+        normalizedMimeType,
+      )
+    ) {
+      return DIARY_MEDIA_EXTENSION_BY_MIME[normalizedMimeType];
+    }
+    return normalizeDiaryMediaFileExtension(fallback);
+  }
+
+  function buildDiaryMediaRelativePath(assetId = "", options = {}) {
+    const normalizedAssetId = String(assetId || "")
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, "-");
+    if (!normalizedAssetId) {
+      return "";
+    }
+    const extension = getDiaryMediaExtensionForMimeType(
+      options.mimeType,
+      options.extension,
+    );
+    return `${DIARY_MEDIA_DIR_NAME}/${normalizedAssetId}${extension ? `.${extension}` : ""}`;
+  }
+
+  function normalizeDiaryMediaRelativePath(value = "", options = {}) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+    if (
+      normalized &&
+      normalized.startsWith(`${DIARY_MEDIA_DIR_NAME}/`) &&
+      !normalized.includes("..")
+    ) {
+      return normalized;
+    }
+    return buildDiaryMediaRelativePath(options.assetId, {
+      mimeType: options.mimeType,
+      extension: options.extension,
+    });
+  }
+
+  function normalizeDiaryMediaAssetEntry(entry = {}) {
+    const source = ensureObject(entry, {});
+    const assetId =
+      typeof source.assetId === "string" && source.assetId.trim()
+        ? source.assetId.trim()
+        : typeof source.id === "string" && source.id.trim()
+          ? source.id.trim()
+          : "";
+    if (!assetId) {
+      return null;
+    }
+    const mimeType =
+      typeof source.mimeType === "string" && source.mimeType.trim()
+        ? source.mimeType.trim().toLowerCase()
+        : "";
+    const relativePath = normalizeDiaryMediaRelativePath(
+      source.file || source.path || source.relativePath || "",
+      {
+        assetId,
+        mimeType,
+        extension: source.extension,
+      },
+    );
+    if (!relativePath) {
+      return null;
+    }
+    const width = Number.isFinite(source.width)
+      ? Math.max(0, Math.round(Number(source.width)))
+      : 0;
+    const height = Number.isFinite(source.height)
+      ? Math.max(0, Math.round(Number(source.height)))
+      : 0;
+    return {
+      assetId,
+      file: relativePath,
+      mimeType,
+      width,
+      height,
+      sizeBytes: Number.isFinite(source.sizeBytes)
+        ? Math.max(0, Math.round(Number(source.sizeBytes)))
+        : 0,
+      updatedAt:
+        typeof source.updatedAt === "string" && source.updatedAt.trim()
+          ? source.updatedAt.trim()
+          : "",
+      compressionMode:
+        source.compressionMode === "original" ? "original" : "compressed",
+    };
+  }
+
+  function normalizeDiaryMediaManifest(entries = []) {
+    const byAssetId = new Map();
+    ensureArray(entries).forEach((entry) => {
+      const normalized = normalizeDiaryMediaAssetEntry(entry);
+      if (!normalized) {
+        return;
+      }
+      byAssetId.set(normalized.assetId, normalized);
+    });
+    return Array.from(byAssetId.values()).sort((left, right) =>
+      String(left.assetId).localeCompare(String(right.assetId)),
+    );
   }
 
   function createEmptyRecoverySummary() {
@@ -1253,6 +1382,7 @@
       checkins: [],
       yearlyGoals: {},
       diaryEntries: [],
+      diaryMediaAssets: [],
       diaryCategories: [],
       customThemes: [],
       builtInThemeOverrides: {},
@@ -1896,6 +2026,9 @@
           count: recurringPlans.length,
         },
       },
+      assets: {
+        diaryMedia: normalizeDiaryMediaManifest(source.diaryMediaAssets),
+      },
       legacyBackups: ensureArray(options.legacyBackups).slice(),
     };
     PARTITIONED_SECTIONS.forEach((section) => {
@@ -1927,6 +2060,9 @@
       }
     });
     nextState.recovery = normalizeRecoveryState(nextState.recovery);
+    nextState.diaryMediaAssets = normalizeDiaryMediaManifest(
+      ensureObject(manifest.assets, {}).diaryMedia,
+    );
     PARTITIONED_SECTIONS.forEach((section) => {
       const sectionPartitions = partitionMap[section];
       const items = [];
@@ -2072,6 +2208,11 @@
             ? Math.max(0, Number(sections.plansRecurring.count))
             : 0,
         },
+      },
+      assets: {
+        diaryMedia: normalizeDiaryMediaManifest(
+          ensureObject(source.assets, {}).diaryMedia,
+        ),
       },
       legacyBackups: ensureArray(source.legacyBackups),
     };
@@ -2358,6 +2499,7 @@
     splitLegacyState,
     buildLegacyStateFromBundle,
     buildPartitionFingerprint,
+    buildDiaryMediaRelativePath,
     buildPartitionMergeKey,
     mergePartitionItems,
     validateItemsForPeriod,
@@ -2367,7 +2509,11 @@
     inspectProjectCollectionIntegrity,
     inspectSectionCollectionIntegrity,
     groupItemsByPeriod,
+    normalizeDiaryMediaAssetEntry,
+    normalizeDiaryMediaManifest,
+    normalizeDiaryMediaRelativePath,
     isRecurringPlan,
     sortPartitionItems,
+    DIARY_MEDIA_DIR_NAME,
   };
 });

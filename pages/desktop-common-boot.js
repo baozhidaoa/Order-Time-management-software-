@@ -164,6 +164,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "saveStorageSectionRange",
     "replaceStorageCoreState",
     "replaceStorageRecurringPlans",
+    "pickDiaryImages",
+    "saveDiaryImageAsset",
+    "resolveDiaryImageUri",
+    "deleteDiaryImageAssets",
     "probeStorageStateVersion",
     "exportStorageBundle",
     "importStorageSource",
@@ -207,6 +211,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       bundleExportImport: false,
       nativeReminders: false,
       recordPartitionPatch: false,
+      diaryImages: false,
       widgets: false,
       widgetKinds: [],
       launchActions: [],
@@ -248,6 +253,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       bundleExportImport: true,
       nativeReminders: true,
       recordPartitionPatch: true,
+      diaryImages: true,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -266,6 +272,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       bundleExportImport: true,
       nativeReminders: true,
       recordPartitionPatch: true,
+      diaryImages: true,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -284,6 +291,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       bundleExportImport: true,
       nativeReminders: true,
       recordPartitionPatch: false,
+      diaryImages: true,
       widgets: true,
       widgetKinds: WIDGET_KIND_IDS,
       launchActions: LAUNCH_ACTION_IDS,
@@ -388,6 +396,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "storage.selectFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.selectDirectory": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.pickImportSourceFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
+    "storage.pickDiaryImages": INTERACTIVE_MESSAGE_TIMEOUT_MS,
+    "storage.saveDiaryImageAsset": INTERACTIVE_MESSAGE_TIMEOUT_MS,
     "storage.inspectImportSourceFile": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,
     "storage.previewExternalImport": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,
     "storage.importSource": HEAVY_IMPORT_MESSAGE_TIMEOUT_MS,
@@ -1073,6 +1083,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const CORE_FILE_NAME = "core.json";
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
+  const DIARY_MEDIA_DIR_NAME = "diary-media";
   const PROJECT_DURATION_CACHE_VERSION = 2;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -1124,6 +1135,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "diaryEntries",
     "diaryCategories",
   ]);
+  const DIARY_MEDIA_EXTENSION_BY_MIME = Object.freeze({
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+  });
   const RECURRING_PLAN_VIRTUAL_PERIOD_ID = "__recurring__";
   const HARD_RECOVERY_REASONS = new Set([
     "invalid-item",
@@ -1182,6 +1203,124 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function ensureObject(value, fallback = {}) {
     return isPlainObject(value) ? value : fallback;
+  }
+
+  function normalizeDiaryMediaFileExtension(value) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/^\.+/, "")
+      .toLowerCase();
+    return /^[a-z0-9]{2,8}$/.test(normalized) ? normalized : "";
+  }
+
+  function getDiaryMediaExtensionForMimeType(mimeType = "", fallback = "") {
+    const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+    if (
+      normalizedMimeType &&
+      Object.prototype.hasOwnProperty.call(
+        DIARY_MEDIA_EXTENSION_BY_MIME,
+        normalizedMimeType,
+      )
+    ) {
+      return DIARY_MEDIA_EXTENSION_BY_MIME[normalizedMimeType];
+    }
+    return normalizeDiaryMediaFileExtension(fallback);
+  }
+
+  function buildDiaryMediaRelativePath(assetId = "", options = {}) {
+    const normalizedAssetId = String(assetId || "")
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, "-");
+    if (!normalizedAssetId) {
+      return "";
+    }
+    const extension = getDiaryMediaExtensionForMimeType(
+      options.mimeType,
+      options.extension,
+    );
+    return `${DIARY_MEDIA_DIR_NAME}/${normalizedAssetId}${extension ? `.${extension}` : ""}`;
+  }
+
+  function normalizeDiaryMediaRelativePath(value = "", options = {}) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+    if (
+      normalized &&
+      normalized.startsWith(`${DIARY_MEDIA_DIR_NAME}/`) &&
+      !normalized.includes("..")
+    ) {
+      return normalized;
+    }
+    return buildDiaryMediaRelativePath(options.assetId, {
+      mimeType: options.mimeType,
+      extension: options.extension,
+    });
+  }
+
+  function normalizeDiaryMediaAssetEntry(entry = {}) {
+    const source = ensureObject(entry, {});
+    const assetId =
+      typeof source.assetId === "string" && source.assetId.trim()
+        ? source.assetId.trim()
+        : typeof source.id === "string" && source.id.trim()
+          ? source.id.trim()
+          : "";
+    if (!assetId) {
+      return null;
+    }
+    const mimeType =
+      typeof source.mimeType === "string" && source.mimeType.trim()
+        ? source.mimeType.trim().toLowerCase()
+        : "";
+    const relativePath = normalizeDiaryMediaRelativePath(
+      source.file || source.path || source.relativePath || "",
+      {
+        assetId,
+        mimeType,
+        extension: source.extension,
+      },
+    );
+    if (!relativePath) {
+      return null;
+    }
+    const width = Number.isFinite(source.width)
+      ? Math.max(0, Math.round(Number(source.width)))
+      : 0;
+    const height = Number.isFinite(source.height)
+      ? Math.max(0, Math.round(Number(source.height)))
+      : 0;
+    return {
+      assetId,
+      file: relativePath,
+      mimeType,
+      width,
+      height,
+      sizeBytes: Number.isFinite(source.sizeBytes)
+        ? Math.max(0, Math.round(Number(source.sizeBytes)))
+        : 0,
+      updatedAt:
+        typeof source.updatedAt === "string" && source.updatedAt.trim()
+          ? source.updatedAt.trim()
+          : "",
+      compressionMode:
+        source.compressionMode === "original" ? "original" : "compressed",
+    };
+  }
+
+  function normalizeDiaryMediaManifest(entries = []) {
+    const byAssetId = new Map();
+    ensureArray(entries).forEach((entry) => {
+      const normalized = normalizeDiaryMediaAssetEntry(entry);
+      if (!normalized) {
+        return;
+      }
+      byAssetId.set(normalized.assetId, normalized);
+    });
+    return Array.from(byAssetId.values()).sort((left, right) =>
+      String(left.assetId).localeCompare(String(right.assetId)),
+    );
   }
 
   function createEmptyRecoverySummary() {
@@ -2314,6 +2453,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       checkins: [],
       yearlyGoals: {},
       diaryEntries: [],
+      diaryMediaAssets: [],
       diaryCategories: [],
       customThemes: [],
       builtInThemeOverrides: {},
@@ -2957,6 +3097,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           count: recurringPlans.length,
         },
       },
+      assets: {
+        diaryMedia: normalizeDiaryMediaManifest(source.diaryMediaAssets),
+      },
       legacyBackups: ensureArray(options.legacyBackups).slice(),
     };
     PARTITIONED_SECTIONS.forEach((section) => {
@@ -2988,6 +3131,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     });
     nextState.recovery = normalizeRecoveryState(nextState.recovery);
+    nextState.diaryMediaAssets = normalizeDiaryMediaManifest(
+      ensureObject(manifest.assets, {}).diaryMedia,
+    );
     PARTITIONED_SECTIONS.forEach((section) => {
       const sectionPartitions = partitionMap[section];
       const items = [];
@@ -3133,6 +3279,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? Math.max(0, Number(sections.plansRecurring.count))
             : 0,
         },
+      },
+      assets: {
+        diaryMedia: normalizeDiaryMediaManifest(
+          ensureObject(source.assets, {}).diaryMedia,
+        ),
       },
       legacyBackups: ensureArray(source.legacyBackups),
     };
@@ -3419,6 +3570,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     splitLegacyState,
     buildLegacyStateFromBundle,
     buildPartitionFingerprint,
+    buildDiaryMediaRelativePath,
     buildPartitionMergeKey,
     mergePartitionItems,
     validateItemsForPeriod,
@@ -3428,8 +3580,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     inspectProjectCollectionIntegrity,
     inspectSectionCollectionIntegrity,
     groupItemsByPeriod,
+    normalizeDiaryMediaAssetEntry,
+    normalizeDiaryMediaManifest,
+    normalizeDiaryMediaRelativePath,
     isRecurringPlan,
     sortPartitionItems,
+    DIARY_MEDIA_DIR_NAME,
   };
 });
 
@@ -3646,6 +3802,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "checkins",
     "yearlyGoals",
     "diaryEntries",
+    "diaryMediaAssets",
     "diaryCategories",
     "guideState",
     "customThemes",
@@ -3773,6 +3930,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     checkins: [],
     yearlyGoals: {},
     diaryEntries: [],
+    diaryMediaAssets: [],
     diaryCategories: [],
     guideState: getDefaultGuideStateFallback(),
     customThemes: [],
@@ -3922,6 +4080,98 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } catch (error) {
       return String(value);
     }
+  }
+
+  function readBrowserFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : "");
+      reader.onerror = () =>
+        reject(reader.error || new Error("读取图片文件失败"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function measureBrowserImageDataUrl(dataUrl) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        resolve({
+          width: Math.max(0, Math.round(Number(image.naturalWidth) || 0)),
+          height: Math.max(0, Math.round(Number(image.naturalHeight) || 0)),
+        });
+      };
+      image.onerror = () => {
+        resolve({
+          width: 0,
+          height: 0,
+        });
+      };
+      image.src = dataUrl;
+    });
+  }
+
+  async function describeBrowserImageFile(file) {
+    if (!(file instanceof File)) {
+      return null;
+    }
+    const dataUrl = await readBrowserFileAsDataUrl(file);
+    const dimensions = await measureBrowserImageDataUrl(dataUrl);
+    return {
+      fileName: typeof file.name === "string" ? file.name : "",
+      mimeType: typeof file.type === "string" ? file.type : "",
+      sizeBytes: Number.isFinite(file.size) ? Math.max(0, Number(file.size)) : 0,
+      lastModified: Number.isFinite(file.lastModified)
+        ? Math.max(0, Math.round(Number(file.lastModified)))
+        : 0,
+      dataUrl,
+      width: dimensions.width,
+      height: dimensions.height,
+      sourceKind: "browser-file",
+    };
+  }
+
+  function pickDiaryImagesFromBrowser(options = {}) {
+    return new Promise((resolve) => {
+      if (!(document?.body instanceof HTMLElement)) {
+        resolve([]);
+        return;
+      }
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept =
+        typeof options.accept === "string" && options.accept.trim()
+          ? options.accept.trim()
+          : "image/*";
+      input.multiple = options.multiple !== false;
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      input.style.width = "1px";
+      input.style.height = "1px";
+      const cleanup = () => {
+        input.value = "";
+        input.remove();
+      };
+      input.addEventListener(
+        "change",
+        () => {
+          const files = Array.from(input.files || []);
+          Promise.all(files.map((file) => describeBrowserImageFile(file)))
+            .then((items) => {
+              cleanup();
+              resolve(items.filter(Boolean));
+            })
+            .catch(() => {
+              cleanup();
+              resolve([]);
+            });
+        },
+        { once: true },
+      );
+      document.body.appendChild(input);
+      input.click();
+    });
   }
 
   function parseJsonSafely(rawValue, fallback = null) {
@@ -4412,8 +4662,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!Array.isArray(base.dailyCheckins)) base.dailyCheckins = [];
     if (!Array.isArray(base.checkins)) base.checkins = [];
     if (!Array.isArray(base.diaryEntries)) base.diaryEntries = [];
+    if (!Array.isArray(base.diaryMediaAssets)) base.diaryMediaAssets = [];
     if (!Array.isArray(base.diaryCategories)) base.diaryCategories = [];
     if (!Array.isArray(base.customThemes)) base.customThemes = [];
+    base.diaryMediaAssets =
+      typeof storageBundle?.normalizeDiaryMediaManifest === "function"
+        ? storageBundle.normalizeDiaryMediaManifest(base.diaryMediaAssets)
+        : base.diaryMediaAssets;
     if (!base.yearlyGoals || typeof base.yearlyGoals !== "object") {
       base.yearlyGoals = {};
     }
@@ -6175,6 +6430,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       async getStorageStatus() {
         return null;
       },
+      async pickDiaryImages(options = {}) {
+        if (typeof extra.pickDiaryImages === "function") {
+          return extra.pickDiaryImages(options);
+        }
+        return null;
+      },
+      async saveDiaryImageAsset(options = {}) {
+        if (typeof extra.saveDiaryImageAsset === "function") {
+          return extra.saveDiaryImageAsset(options);
+        }
+        return null;
+      },
+      async resolveDiaryImageUri(options = {}) {
+        if (typeof extra.resolveDiaryImageUri === "function") {
+          return extra.resolveDiaryImageUri(options);
+        }
+        return null;
+      },
+      async deleteDiaryImageAssets(options = {}) {
+        if (typeof extra.deleteDiaryImageAssets === "function") {
+          return extra.deleteDiaryImageAssets(options);
+        }
+        return {
+          deletedAssetIds: [],
+          remainingAssetCount: 0,
+        };
+      },
       async appendJournal(ops = [], options = {}) {
         const normalizedOperations = coalesceStorageJournalOperations(ops);
         const metadata = collectStorageJournalMetadata(normalizedOperations);
@@ -7744,6 +8026,65 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             return null;
           }
           return electronAPI.storageShareLatestBackup();
+        },
+        async pickDiaryImages(options = {}) {
+          return pickDiaryImagesFromBrowser(options);
+        },
+        async saveDiaryImageAsset(options = {}) {
+          if (typeof electronAPI.storageSaveDiaryImageAsset !== "function") {
+            return null;
+          }
+          const result = await electronAPI.storageSaveDiaryImageAsset(options);
+          if (
+            result &&
+            typeof result === "object" &&
+            typeof result.assetId === "string" &&
+            result.assetId.trim()
+          ) {
+            const currentState = readState();
+            const existingAssets = Array.isArray(currentState?.diaryMediaAssets)
+              ? currentState.diaryMediaAssets.filter(
+                  (entry) => entry?.assetId !== result.assetId,
+                )
+              : [];
+            assignState({
+              ...currentState,
+              diaryMediaAssets: [...existingAssets, cloneValue(result)],
+            });
+          }
+          return result;
+        },
+        async resolveDiaryImageUri(options = {}) {
+          if (typeof electronAPI.storageResolveDiaryImageUri !== "function") {
+            return null;
+          }
+          return electronAPI.storageResolveDiaryImageUri(options);
+        },
+        async deleteDiaryImageAssets(options = {}) {
+          if (typeof electronAPI.storageDeleteDiaryImageAssets !== "function") {
+            return {
+              deletedAssetIds: [],
+              remainingAssetCount: 0,
+            };
+          }
+          const result = await electronAPI.storageDeleteDiaryImageAssets(options);
+          const deletedAssetIds = new Set(
+            (Array.isArray(result?.deletedAssetIds) ? result.deletedAssetIds : [])
+              .map((assetId) => String(assetId || "").trim())
+              .filter(Boolean),
+          );
+          if (deletedAssetIds.size > 0) {
+            const currentState = readState();
+            assignState({
+              ...currentState,
+              diaryMediaAssets: Array.isArray(currentState?.diaryMediaAssets)
+                ? currentState.diaryMediaAssets.filter(
+                    (entry) => !deletedAssetIds.has(String(entry?.assetId || "").trim()),
+                  )
+                : [],
+            });
+          }
+          return result;
         },
         async loadSectionRange(section, scope = {}) {
           if (typeof electronAPI.storageLoadSectionRange !== "function") {
@@ -11614,6 +11955,109 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               throw new Error("分享最新备份超时，请稍候重试。");
             }
             throw error instanceof Error ? error : new Error(message);
+          }
+        },
+        async pickDiaryImages(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.pickDiaryImages",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (Array.isArray(parsed)) {
+              return parsed;
+            }
+            if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
+              return parsed.items;
+            }
+          } catch (error) {
+            console.error("选择 React Native 日记图片失败，回退浏览器文件选择:", error);
+          }
+          return pickDiaryImagesFromBrowser(options);
+        },
+        async saveDiaryImageAsset(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.saveDiaryImageAsset",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (parsed && typeof parsed === "object") {
+              const currentState = readState();
+              const existingAssets = Array.isArray(currentState?.diaryMediaAssets)
+                ? currentState.diaryMediaAssets.filter(
+                    (entry) => entry?.assetId !== parsed.assetId,
+                  )
+                : [];
+              assignState({
+                ...currentState,
+                diaryMediaAssets: [...existingAssets, cloneValue(parsed)],
+              });
+              hasManagedCoreSnapshot = true;
+              persistMirrorSnapshot(true);
+              return parsed;
+            }
+          } catch (error) {
+            console.error("保存 React Native 日记图片资源失败:", error);
+          }
+          return null;
+        },
+        async resolveDiaryImageUri(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.resolveDiaryImageUri",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            if (parsed && typeof parsed === "object") {
+              return parsed;
+            }
+          } catch (error) {
+            console.error("解析 React Native 日记图片 URI 失败:", error);
+          }
+          return null;
+        },
+        async deleteDiaryImageAssets(options = {}) {
+          try {
+            const rawPayload = await reactNativeBridge.call(
+              "storage.deleteDiaryImageAssets",
+              { options },
+            );
+            const parsed = parseJsonSafely(rawPayload, null);
+            const deletedAssetIds = new Set(
+              (Array.isArray(parsed?.deletedAssetIds) ? parsed.deletedAssetIds : [])
+                .map((assetId) => String(assetId || "").trim())
+                .filter(Boolean),
+            );
+            if (deletedAssetIds.size > 0) {
+              const currentState = readState();
+              assignState({
+                ...currentState,
+                diaryMediaAssets: Array.isArray(currentState?.diaryMediaAssets)
+                  ? currentState.diaryMediaAssets.filter(
+                      (entry) => !deletedAssetIds.has(String(entry?.assetId || "").trim()),
+                    )
+                  : [],
+              });
+              hasManagedCoreSnapshot = true;
+              persistMirrorSnapshot(true);
+            }
+            return parsed && typeof parsed === "object"
+              ? parsed
+              : {
+                  deletedAssetIds: [],
+                  remainingAssetCount: Array.isArray(readState()?.diaryMediaAssets)
+                    ? readState().diaryMediaAssets.length
+                    : 0,
+                };
+          } catch (error) {
+            console.error("删除 React Native 日记图片资源失败:", error);
+            return {
+              deletedAssetIds: [],
+              remainingAssetCount: Array.isArray(readState()?.diaryMediaAssets)
+                ? readState().diaryMediaAssets.length
+                : 0,
+            };
           }
         },
         async loadSectionRange(section, scope = {}) {
@@ -21462,6 +21906,32 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             event.stopImmediatePropagation();
           }
 
+          const modalDismissOverlay =
+            modalDismissIntent?.modal instanceof HTMLElement
+              ? modalDismissIntent.modal
+              : null;
+          if (modalDismissOverlay instanceof HTMLElement) {
+            const closeProtectionDuration = resolveModalInteractionProtectionDuration(
+              modalDismissOverlay,
+              MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+              "controlerCloseProtectionDurationMs",
+            );
+            freezeAndroidModalDismissLayout(modalDismissOverlay);
+            protectVisibleParentModalsFromFollowThrough(
+              modalDismissOverlay,
+              closeProtectionDuration,
+            );
+            activateModalInteractionShield(
+              resolveModalInteractionShieldDuration(
+                modalDismissOverlay,
+                Math.max(
+                  closeProtectionDuration,
+                  ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS + 160,
+                ),
+              ),
+            );
+          }
+
           const activeControlModal = getAndroidModalAutofocusHost(activeControl);
           if (activeControlModal instanceof HTMLElement) {
             suppressAndroidModalAutofocus(activeControlModal, 760);
@@ -21472,7 +21942,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             activeControl.blur?.();
           } catch (error) {}
           if (modalDismissIntent?.modal instanceof HTMLElement) {
-            freezeAndroidModalDismissLayout(modalDismissIntent.modal);
             dispatchAndroidModalDismissIntent(modalDismissIntent, {
               x: event.clientX,
               y: event.clientY,
@@ -26833,7 +27302,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         passive: eventName === "touchstart",
       });
     });
-    ["pointerup", "mouseup", "touchend", "click"].forEach((eventName) => {
+    [
+      "pointerdown",
+      "mousedown",
+      "touchstart",
+      "pointerup",
+      "mouseup",
+      "touchend",
+      "click",
+    ].forEach((eventName) => {
       document.addEventListener(eventName, suppressEvent, true);
     });
   }
@@ -27309,6 +27786,27 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
+  const MODAL_ACTION_AREA_SELECTOR = [
+    ".controler-form-modal-footer",
+    ".controler-form-modal-footer-actions",
+    ".themed-dialog-actions",
+    ".controler-themed-picker-actions",
+    ".plan-detail-modal-actions",
+    ".settings-theme-editor-modal-footer",
+    ".modal-buttons",
+  ].join(", ");
+
+  function isModalActionAreaTarget(button, modal = null) {
+    if (!(button instanceof HTMLElement)) {
+      return false;
+    }
+    const actionArea = button.closest?.(MODAL_ACTION_AREA_SELECTOR);
+    if (!(actionArea instanceof HTMLElement)) {
+      return false;
+    }
+    return !(modal instanceof HTMLElement) || modal.contains(actionArea);
+  }
+
   function resolveModalShortcutButtonBySelector(modal, selector) {
     const normalizedSelector = String(selector || "").trim();
     if (!normalizedSelector || !(modal instanceof HTMLElement)) {
@@ -27351,16 +27849,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return Number.NEGATIVE_INFINITY;
     }
     let score = 0;
-    if (
-      button.closest?.(
-        [
-          ".controler-form-modal-footer",
-          ".controler-form-modal-footer-actions",
-          ".themed-dialog-actions",
-          ".controler-themed-picker-actions",
-        ].join(", "),
-      )
-    ) {
+    if (isModalActionAreaTarget(button)) {
       score += 24;
     }
     if (role === "confirm") {
@@ -27567,6 +28056,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (isAndroidModalDismissActionTarget(cancelButton, actionTarget)) {
       return {
         kind: "cancel",
+        modal: topModal,
+        target: actionTarget,
+      };
+    }
+    if (isModalActionAreaTarget(actionTarget, topModal)) {
+      return {
+        kind: "action",
         modal: topModal,
         target: actionTarget,
       };

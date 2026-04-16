@@ -2,6 +2,7 @@ package com.controlerapp;
 
 import android.Manifest;
 import android.app.AlarmManager;
+import android.content.ClipData;
 import android.content.ActivityNotFoundException;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -29,6 +30,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.database.Cursor;
+import android.util.Base64;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.widget.Toast;
 
 import com.controlerapp.widgets.ControlerWidgetDataStore;
@@ -54,6 +58,7 @@ import org.json.JSONTokener;
 
 import java.io.BufferedReader;
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -72,6 +77,7 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -94,6 +100,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final int REQUEST_NOTIFICATION_PERMISSION = 41023;
     private static final int REQUEST_IMPORT_STORAGE_SOURCE = 41024;
     private static final int REQUEST_PICK_IMPORT_SOURCE = 41025;
+    private static final int REQUEST_PICK_DIARY_IMAGES = 41026;
     private static final String SWITCH_ACTION_ADOPTED_EXISTING = "adopted-existing";
     private static final String SWITCH_ACTION_SEEDED_CURRENT = "seeded-current";
     private static final String ROOT_ARRAY_PATH = "$";
@@ -263,6 +270,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private static final class PreparedDiaryImageAsset {
+        final byte[] bytes;
+        final String mimeType;
+        final int width;
+        final int height;
+
+        PreparedDiaryImageAsset(byte[] bytes, String mimeType, int width, int height) {
+            this.bytes = bytes == null ? new byte[0] : bytes;
+            this.mimeType = mimeType == null ? "" : mimeType;
+            this.width = Math.max(0, width);
+            this.height = Math.max(0, height);
+        }
+    }
+
     private Promise pendingSelectStorageFilePromise = null;
     private Promise pendingSelectStorageDirectoryPromise = null;
     private Promise pendingNotificationPermissionPromise = null;
@@ -271,6 +292,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private JSONObject pendingImportStorageSourceOptions = null;
     private Promise pendingPickImportSourcePromise = null;
     private JSONObject pendingPickImportSourceOptions = null;
+    private Promise pendingPickDiaryImagesPromise = null;
+    private JSONObject pendingPickDiaryImagesOptions = null;
     private String cachedImportPayloadUri = "";
     private Object cachedImportPayload = null;
     private final ExecutorService storageSideEffectExecutor =
@@ -409,6 +432,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     handleImportStorageSourceSelectionResult(resultCode, intent);
                 } else if (requestCode == REQUEST_PICK_IMPORT_SOURCE) {
                     handlePickImportSourceSelectionResult(resultCode, intent);
+                } else if (requestCode == REQUEST_PICK_DIARY_IMAGES) {
+                    handlePickDiaryImagesSelectionResult(resultCode, intent);
                 }
             }
         };
@@ -1922,6 +1947,127 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void pickDiaryImages(String optionsJson, Promise promise) {
+        Activity activity = getCurrentActivity();
+        if (activity == null) {
+            promise.reject("storage_diary_image_pick_unavailable", "当前没有可用的 Activity。");
+            return;
+        }
+        if (pendingPickDiaryImagesPromise != null) {
+            promise.reject("storage_diary_image_pick_busy", "已有图片选择请求在进行中。");
+            return;
+        }
+        try {
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("image/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, options.optBoolean("multiple", true));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            pendingPickDiaryImagesPromise = promise;
+            pendingPickDiaryImagesOptions = options;
+            activity.startActivityForResult(intent, REQUEST_PICK_DIARY_IMAGES);
+        } catch (ActivityNotFoundException error) {
+            pendingPickDiaryImagesPromise = null;
+            pendingPickDiaryImagesOptions = null;
+            promise.reject(
+                "storage_diary_image_pick_unavailable",
+                "当前设备不支持选择图片。"
+            );
+        } catch (Exception error) {
+            pendingPickDiaryImagesPromise = null;
+            pendingPickDiaryImagesOptions = null;
+            promise.reject("storage_diary_image_pick_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void saveDiaryImageAsset(String optionsJson, Promise promise) {
+        try {
+            ReactApplicationContext context = getReactApplicationContext();
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            String sourceUriText =
+                String.valueOf(
+                    firstNonEmpty(
+                        options.optString("sourceUri", ""),
+                        options.optString("uri", "")
+                    )
+                ).trim();
+            if (TextUtils.isEmpty(sourceUriText)) {
+                promise.reject("storage_diary_image_save_missing_uri", "缺少图片来源 URI。");
+                return;
+            }
+            Uri sourceUri = Uri.parse(sourceUriText);
+            PreparedDiaryImageAsset prepared =
+                prepareDiaryImageAsset(context, sourceUri, options);
+            String assetId = String.valueOf(options.optString("assetId", "")).trim();
+            if (TextUtils.isEmpty(assetId)) {
+                assetId =
+                    "diary_media_" + UUID.randomUUID().toString().replace("-", "");
+            }
+            JSONObject assetPayload = new JSONObject();
+            assetPayload.put("assetId", assetId);
+            assetPayload.put(
+                "mimeType",
+                inferImageMimeTypeFromName(
+                    resolveDocumentName(sourceUri),
+                    prepared.mimeType
+                )
+            );
+            assetPayload.put("width", prepared.width);
+            assetPayload.put("height", prepared.height);
+            assetPayload.put("sizeBytes", prepared.bytes.length);
+            assetPayload.put(
+                "compressionMode",
+                "original".equals(options.optString("compressionMode", ""))
+                    ? "original"
+                    : "compressed"
+            );
+            JSONObject saved =
+                ControlerWidgetDataStore.saveDiaryImageAsset(
+                    context,
+                    assetPayload,
+                    prepared.bytes
+                );
+            saved.put("uri", buildDataUriFromBytes(prepared.bytes, saved.optString("mimeType", "")));
+            promise.resolve(saved.toString());
+        } catch (Exception error) {
+            promise.reject("storage_diary_image_save_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void resolveDiaryImageUri(String optionsJson, Promise promise) {
+        try {
+            ReactApplicationContext context = getReactApplicationContext();
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            JSONObject result =
+                ControlerWidgetDataStore.resolveDiaryImageUri(context, options);
+            promise.resolve(result == null ? "null" : result.toString());
+        } catch (Exception error) {
+            promise.reject("storage_diary_image_resolve_failed", error);
+        }
+    }
+
+    @ReactMethod
+    public void deleteDiaryImageAssets(String optionsJson, Promise promise) {
+        try {
+            ReactApplicationContext context = getReactApplicationContext();
+            JSONObject options =
+                TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            promise.resolve(
+                ControlerWidgetDataStore.deleteDiaryImageAssets(context, options).toString()
+            );
+        } catch (Exception error) {
+            promise.reject("storage_diary_image_delete_failed", error);
+        }
+    }
+
+    @ReactMethod
     public void inspectImportSourceFile(String optionsJson, Promise promise) {
         try {
             ReactApplicationContext context = getReactApplicationContext();
@@ -2482,6 +2628,273 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private ArrayList<Uri> collectSelectedUris(Intent intent) {
+        LinkedHashSet<Uri> uris = new LinkedHashSet<>();
+        if (intent != null && intent.getData() != null) {
+            uris.add(intent.getData());
+        }
+        ClipData clipData = intent == null ? null : intent.getClipData();
+        if (clipData != null) {
+            for (int index = 0; index < clipData.getItemCount(); index += 1) {
+                ClipData.Item item = clipData.getItemAt(index);
+                Uri uri = item == null ? null : item.getUri();
+                if (uri != null) {
+                    uris.add(uri);
+                }
+            }
+        }
+        return new ArrayList<>(uris);
+    }
+
+    private byte[] readAllBytes(InputStream inputStream) throws Exception {
+        if (inputStream == null) {
+            return new byte[0];
+        }
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int readLength;
+        while ((readLength = inputStream.read(buffer)) >= 0) {
+            if (readLength == 0) {
+                continue;
+            }
+            outputStream.write(buffer, 0, readLength);
+        }
+        return outputStream.toByteArray();
+    }
+
+    private String inferImageMimeTypeFromName(String fileName, String fallbackMimeType) {
+        String normalizedFallback =
+            String.valueOf(fallbackMimeType == null ? "" : fallbackMimeType)
+                .trim()
+                .toLowerCase(Locale.US);
+        if (!TextUtils.isEmpty(normalizedFallback)) {
+            return normalizedFallback;
+        }
+        String lowerName = String.valueOf(fileName == null ? "" : fileName)
+            .trim()
+            .toLowerCase(Locale.US);
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerName.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lowerName.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (lowerName.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (lowerName.endsWith(".heic")) {
+            return "image/heic";
+        }
+        if (lowerName.endsWith(".heif")) {
+            return "image/heif";
+        }
+        if (lowerName.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (lowerName.endsWith(".svg")) {
+            return "image/svg+xml";
+        }
+        return "";
+    }
+
+    private int[] resolveImageBounds(Context context, Uri uri) {
+        InputStream inputStream = null;
+        try {
+            inputStream = context.getContentResolver().openInputStream(uri);
+            if (inputStream == null) {
+                return new int[] { 0, 0 };
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeStream(inputStream, null, options);
+            return new int[] {
+                Math.max(0, options.outWidth),
+                Math.max(0, options.outHeight),
+            };
+        } catch (Exception error) {
+            return new int[] { 0, 0 };
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private int calculateDiaryImageSampleSize(int width, int height, int maxEdge) {
+        int sampleSize = 1;
+        int safeWidth = Math.max(1, width);
+        int safeHeight = Math.max(1, height);
+        int targetEdge = Math.max(1, maxEdge);
+        while (Math.max(safeWidth / sampleSize, safeHeight / sampleSize) > targetEdge * 2) {
+            sampleSize *= 2;
+        }
+        return Math.max(1, sampleSize);
+    }
+
+    private PreparedDiaryImageAsset prepareDiaryImageAsset(
+        Context context,
+        Uri sourceUri,
+        JSONObject options
+    ) throws Exception {
+        String compressionMode =
+            "original".equals(String.valueOf(options.optString("compressionMode", "")))
+                ? "original"
+                : "compressed";
+        String fileName = resolveDocumentName(sourceUri);
+        String sourceMimeType = inferImageMimeTypeFromName(
+            fileName,
+            context.getContentResolver().getType(sourceUri)
+        );
+        int[] originalBounds = resolveImageBounds(context, sourceUri);
+        InputStream originalInputStream = context.getContentResolver().openInputStream(sourceUri);
+        if (originalInputStream == null) {
+            throw new Exception("无法读取所选图片。");
+        }
+        byte[] originalBytes;
+        try {
+            originalBytes = readAllBytes(originalInputStream);
+        } finally {
+            originalInputStream.close();
+        }
+        if (!"compressed".equals(compressionMode)) {
+            return new PreparedDiaryImageAsset(
+                originalBytes,
+                sourceMimeType,
+                originalBounds[0],
+                originalBounds[1]
+            );
+        }
+
+        BitmapFactory.Options decodeOptions = new BitmapFactory.Options();
+        decodeOptions.inSampleSize =
+            calculateDiaryImageSampleSize(originalBounds[0], originalBounds[1], 2048);
+        InputStream decodeInputStream = context.getContentResolver().openInputStream(sourceUri);
+        Bitmap bitmap = null;
+        Bitmap scaledBitmap = null;
+        try {
+            if (decodeInputStream != null) {
+                bitmap = BitmapFactory.decodeStream(decodeInputStream, null, decodeOptions);
+            }
+        } finally {
+            if (decodeInputStream != null) {
+                decodeInputStream.close();
+            }
+        }
+        if (bitmap == null) {
+            return new PreparedDiaryImageAsset(
+                originalBytes,
+                sourceMimeType,
+                originalBounds[0],
+                originalBounds[1]
+            );
+        }
+        int width = Math.max(1, bitmap.getWidth());
+        int height = Math.max(1, bitmap.getHeight());
+        int maxEdge = Math.max(width, height);
+        if (maxEdge > 2048) {
+            float scale = 2048f / (float) maxEdge;
+            int targetWidth = Math.max(1, Math.round(width * scale));
+            int targetHeight = Math.max(1, Math.round(height * scale));
+            scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true);
+        } else {
+            scaledBitmap = bitmap;
+        }
+        boolean usePng = scaledBitmap.hasAlpha();
+        Bitmap.CompressFormat format =
+            usePng ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
+        String mimeType = usePng ? "image/png" : "image/jpeg";
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            scaledBitmap.compress(format, usePng ? 100 : 88, outputStream);
+            return new PreparedDiaryImageAsset(
+                outputStream.toByteArray(),
+                mimeType,
+                Math.max(0, scaledBitmap.getWidth()),
+                Math.max(0, scaledBitmap.getHeight())
+            );
+        } finally {
+            if (scaledBitmap != bitmap && scaledBitmap != null) {
+                scaledBitmap.recycle();
+            }
+            if (bitmap != null) {
+                bitmap.recycle();
+            }
+            outputStream.close();
+        }
+    }
+
+    private String buildDataUriFromBytes(byte[] bytes, String mimeType) {
+        if (bytes == null || bytes.length <= 0) {
+            return "";
+        }
+        String normalizedMime =
+            TextUtils.isEmpty(mimeType) ? "image/jpeg" : mimeType.trim().toLowerCase(Locale.US);
+        return "data:"
+            + normalizedMime
+            + ";base64,"
+            + Base64.encodeToString(bytes, Base64.NO_WRAP);
+    }
+
+    private JSONObject buildPickedDiaryImagePayload(Context context, Uri uri) throws Exception {
+        String displayName = resolveDocumentName(uri);
+        String mimeType = inferImageMimeTypeFromName(
+            displayName,
+            context.getContentResolver().getType(uri)
+        );
+        int[] bounds = resolveImageBounds(context, uri);
+        JSONObject payload = new JSONObject();
+        payload.put("uri", uri.toString());
+        payload.put(
+            "fileName",
+            TextUtils.isEmpty(displayName) ? JSONObject.NULL : displayName
+        );
+        payload.put(
+            "mimeType",
+            TextUtils.isEmpty(mimeType) ? JSONObject.NULL : mimeType
+        );
+        payload.put("sizeBytes", Math.max(0L, queryDocumentSize(context, uri)));
+        payload.put("width", Math.max(0, bounds[0]));
+        payload.put("height", Math.max(0, bounds[1]));
+        return payload;
+    }
+
+    private void handlePickDiaryImagesSelectionResult(int resultCode, Intent intent) {
+        Promise promise = pendingPickDiaryImagesPromise;
+        pendingPickDiaryImagesPromise = null;
+        pendingPickDiaryImagesOptions = null;
+        if (promise == null) {
+            return;
+        }
+        if (resultCode != Activity.RESULT_OK || intent == null) {
+            promise.resolve("{\"items\":[]}");
+            return;
+        }
+        ReactApplicationContext context = getReactApplicationContext();
+        try {
+            JSONArray items = new JSONArray();
+            for (Uri uri : collectSelectedUris(intent)) {
+                if (uri == null) {
+                    continue;
+                }
+                int permissionFlags = intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                if (permissionFlags == 0) {
+                    permissionFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                }
+                context.getContentResolver().takePersistableUriPermission(uri, permissionFlags);
+                items.put(buildPickedDiaryImagePayload(context, uri));
+            }
+            promise.resolve(new JSONObject().put("items", items).toString());
+        } catch (Exception error) {
+            promise.reject("storage_diary_image_pick_failed", error);
+        }
+    }
+
     private void handleStorageFileSelectionResult(int resultCode, Intent intent) {
         Promise promise = pendingSelectStorageFilePromise;
         pendingSelectStorageFilePromise = null;
@@ -2704,6 +3117,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 if (!saved) {
                     throw new Exception("导入 ZIP bundle 失败。");
                 }
+                ControlerWidgetDataStore.copyDiaryMediaAssetsFromDirectory(
+                    context,
+                    bundleRoot,
+                    importedRoot.optJSONArray("diaryMediaAssets")
+                );
                 return new JSONObject()
                     .put("ok", true)
                     .put("type", "zip")
@@ -4296,6 +4714,35 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
         }
         return "controler-data.json";
+    }
+
+    private long queryDocumentSize(Context context, Uri uri) {
+        Uri targetUri = resolveMetadataQueryUri(uri);
+        if (context == null || targetUri == null) {
+            return 0L;
+        }
+        Cursor cursor = null;
+        try {
+            cursor = context.getContentResolver().query(
+                targetUri,
+                new String[] { OpenableColumns.SIZE },
+                null,
+                null,
+                null
+            );
+            if (cursor != null && cursor.moveToFirst()) {
+                int columnIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (columnIndex >= 0 && !cursor.isNull(columnIndex)) {
+                    return Math.max(0L, cursor.getLong(columnIndex));
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return 0L;
     }
 
     private SharedPreferences getAutoBackupPreferences(Context context) {

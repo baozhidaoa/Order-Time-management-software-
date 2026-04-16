@@ -7485,7 +7485,7 @@
       allowRepeat: true,
       action: perfAction,
     });
-    await setTodoLoadingState({
+    setTodoLoadingState({
       active: true,
       mode: "fullscreen",
       title,
@@ -7494,12 +7494,7 @@
       delegateToNative,
     });
     try {
-      const result = typeof task === "function" ? await task() : true;
-      if (result !== false) {
-        uiTools?.markPerfStage?.("todo-form-storage-acked", {
-          allowRepeat: true,
-          action: perfAction,
-        });
+      if (typeof closeModal === "function") {
         finalizeTodoModalChange(closeModal, {
           refreshView,
           sourceModal,
@@ -7509,9 +7504,16 @@
           action: perfAction,
         });
       }
+      const result = typeof task === "function" ? await task() : true;
+      if (result !== false) {
+        uiTools?.markPerfStage?.("todo-form-storage-acked", {
+          allowRepeat: true,
+          action: perfAction,
+        });
+      }
       return result;
     } finally {
-      await setTodoLoadingState({
+      setTodoLoadingState({
         active: false,
         delegateToNative,
       });
@@ -7635,9 +7637,59 @@
     return false;
   }
 
+  function bindTodoFormBackdropDismiss(modal, closeHandler) {
+    if (
+      !(modal instanceof HTMLElement) ||
+      typeof closeHandler !== "function" ||
+      modal.dataset.todoFormBackdropDismissBound === "true"
+    ) {
+      return modal;
+    }
+    modal.dataset.todoFormBackdropDismissBound = "true";
+    if (typeof uiTools?.bindModalBackdropDismiss === "function") {
+      uiTools.bindModalBackdropDismiss(modal, closeHandler);
+      return modal;
+    }
+    modal.addEventListener("click", (event) => {
+      if (event.target !== modal) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      closeHandler(event);
+    });
+    return modal;
+  }
+
   function bindTodoModalActions(modal, handlers = {}) {
     const modalContent = modal?.querySelector?.(".modal-content") || modal;
     if (!modalContent) {
+      return () => {};
+    }
+
+    if (typeof uiTools?.bindModalAction === "function") {
+      Array.from(
+        modalContent.querySelectorAll?.("[data-todo-modal-action]") || [],
+      ).forEach((actionButton) => {
+        if (
+          !(actionButton instanceof HTMLElement) ||
+          actionButton.dataset.todoModalActionBound === "true"
+        ) {
+          return;
+        }
+        const actionName = String(actionButton.dataset.todoModalAction || "").trim();
+        const handler = handlers[actionName];
+        if (typeof handler !== "function") {
+          return;
+        }
+        actionButton.dataset.todoModalActionBound = "true";
+        uiTools.bindModalAction(modal, actionButton, (event, button) => {
+          const resolvedButton =
+            button instanceof HTMLElement ? button : actionButton;
+          resolvedButton.blur?.();
+          return handler(resolvedButton, event);
+        });
+      });
       return () => {};
     }
 
@@ -9998,14 +10050,11 @@
       ),
     });
 
-    // 点击外部关闭
-    modal.addEventListener("click", function (e) {
-      if (e.target === this) {
-        closeTodoModal({
-          discardDraft: true,
-        });
-      }
-    });
+    bindTodoFormBackdropDismiss(modal, () =>
+      closeTodoModal({
+        discardDraft: true,
+      }),
+    );
   }
 
   // 保存待办事项
@@ -10508,13 +10557,11 @@
       ),
     });
 
-    modal.addEventListener("click", function (event) {
-      if (event.target === this) {
-        closeModal({
-          discardDraft: true,
-        });
-      }
-    });
+    bindTodoFormBackdropDismiss(modal, () =>
+      closeModal({
+        discardDraft: true,
+      }),
+    );
   }
 
   // 更新统计信息
@@ -11150,11 +11197,8 @@
       ),
     });
 
-    // 点击外部关闭
-    modal.addEventListener("click", function (e) {
-      if (e.target === this) {
-        closeCheckinItemModal();
-      }
+    bindTodoFormBackdropDismiss(modal, () => {
+      closeCheckinItemModal();
     });
     if (deferModalTextAutofocus) {
       scheduleTodoManagedModalTextAutofocusResume(modal);

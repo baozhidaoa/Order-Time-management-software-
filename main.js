@@ -841,6 +841,18 @@ function importStorageSource(options) {
   return storageManager.importSource(options);
 }
 
+function saveDiaryImageAsset(options = {}) {
+  return storageManager.saveDiaryImageAsset(options);
+}
+
+function resolveDiaryImageUri(options = {}) {
+  return storageManager.resolveDiaryImageUri(options);
+}
+
+function deleteDiaryImageAssets(options = {}) {
+  return storageManager.deleteDiaryImageAssets(options);
+}
+
 async function shareLatestAutoBackup() {
   const status = getAutoBackupStatus();
   const latestBackupPath =
@@ -1760,6 +1772,18 @@ function setupIpcHandlers() {
 
   ipcMain.handle("storage:replaceRecurringPlans", async (event, items) => {
     return replaceStorageRecurringPlans(items);
+  });
+
+  ipcMain.handle("storage:saveDiaryImageAsset", async (_event, options = {}) => {
+    return saveDiaryImageAsset(options);
+  });
+
+  ipcMain.handle("storage:resolveDiaryImageUri", async (_event, options = {}) => {
+    return resolveDiaryImageUri(options);
+  });
+
+  ipcMain.handle("storage:deleteDiaryImageAssets", async (_event, options = {}) => {
+    return deleteDiaryImageAssets(options);
   });
 
   ipcMain.handle("storage:exportBundle", async (event, options) => {

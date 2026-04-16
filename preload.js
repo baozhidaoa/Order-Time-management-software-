@@ -65,6 +65,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("storage:replaceCoreState", partialCore, options),
   storageReplaceRecurringPlans: (items) =>
     ipcRenderer.invoke("storage:replaceRecurringPlans", items),
+  storageSaveDiaryImageAsset: (options = {}) =>
+    ipcRenderer.invoke("storage:saveDiaryImageAsset", options),
+  storageResolveDiaryImageUri: (options = {}) =>
+    ipcRenderer.invoke("storage:resolveDiaryImageUri", options),
+  storageDeleteDiaryImageAssets: (options = {}) =>
+    ipcRenderer.invoke("storage:deleteDiaryImageAssets", options),
   storageExportBundle: (options) =>
     ipcRenderer.invoke("storage:exportBundle", options),
   storageImportSource: (options) =>
