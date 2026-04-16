@@ -12,10 +12,10 @@
   const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const MODAL_REMOVAL_DEFERRED_DELAY_MS = 24;
   const MODAL_CLOSE_VISUAL_DURATION_MS = 84;
-  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 92;
+  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 128;
   const BLOCKING_MUTATION_FULLSCREEN_OVERLAY_DELAY_MS = 1200;
   const BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS = 180;
-  const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 28;
+  const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 36;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_MAX_ATTEMPTS = 40;
   const ANDROID_MODAL_DISMISS_PENDING_MAX_MS = 2400;
   const ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS = 88;
@@ -369,8 +369,8 @@
     "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='hidden']):not(:disabled)",
     "textarea:not(:disabled)",
     "select:not(:disabled)",
-    "[contenteditable='true']",
-    "[contenteditable]:not([contenteditable='false'])",
+    "[contenteditable='true']:not([data-controler-android-focus-assist='false'])",
+    "[contenteditable]:not([contenteditable='false']):not([data-controler-android-focus-assist='false'])",
   ].join(", ");
   const ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR = [
     "input[type='text']:not(:disabled)",
@@ -381,8 +381,8 @@
     "input[type='password']:not(:disabled)",
     "input[type='number']:not(:disabled)",
     "textarea:not(:disabled)",
-    "[contenteditable='true']",
-    "[contenteditable]:not([contenteditable='false'])",
+    "[contenteditable='true']:not([data-controler-android-focus-assist='false'])",
+    "[contenteditable]:not([contenteditable='false']):not([data-controler-android-focus-assist='false'])",
   ].join(", ");
   let modalHistoryObserver = null;
   let modalHistorySyncQueued = false;
@@ -6449,7 +6449,6 @@
     if (!(overlay instanceof HTMLElement)) {
       return null;
     }
-    const wasFreezeActive = isAndroidModalDismissFreezeActive(overlay);
     const releaseTimerId = Number(
       overlay.__controlerAndroidDismissFreezeReleaseTimer || 0,
     );
@@ -6468,12 +6467,8 @@
       "--controler-modal-overlay-inline-padding-right",
       "--controler-modal-overlay-block-padding-top",
       "--controler-modal-overlay-block-padding-bottom",
-      "--controler-modal-dismiss-cover-bg",
     ].forEach((propertyName) => {
       overlay.style.removeProperty(propertyName);
-    });
-    scheduleAndroidKeyboardTransitionCoverSync({
-      extendHold: wasFreezeActive,
     });
     return overlay;
   }
@@ -6630,11 +6625,6 @@
       overlayHeightPx - paddingTopPx - paddingBottomPx,
       0,
     );
-    const dismissCoverBackground = resolveAndroidTransitionCoverBackgroundValue(
-      computedStyle,
-      "var(--controler-perf-overlay-bg, var(--overlay-bg))",
-    );
-
     overlay.dataset.controlerAndroidDismissFreeze = "true";
     if (overlayWidthPx > 0) {
       overlay.style.setProperty(
@@ -6672,14 +6662,6 @@
       "--controler-modal-overlay-block-padding-bottom",
       `${Math.round(paddingBottomPx)}px`,
     );
-    overlay.style.setProperty(
-      "--controler-modal-dismiss-cover-bg",
-      dismissCoverBackground,
-    );
-    androidKeyboardTransitionCoverLastBackground = dismissCoverBackground;
-    scheduleAndroidKeyboardTransitionCoverSync({
-      extendHold: true,
-    });
     return overlay;
   }
 
@@ -8998,6 +8980,23 @@
     return until;
   }
 
+  function protectOpeningModalFromFollowThrough(
+    modal,
+    durationMs = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+  ) {
+    if (!(modal instanceof HTMLElement)) {
+      return 0;
+    }
+    return protectModalFromFollowThrough(
+      modal,
+      resolveModalInteractionProtectionDuration(
+        modal,
+        durationMs,
+        "controlerOpenProtectionDurationMs",
+      ),
+    );
+  }
+
   function readModalPointerSuppressionUntil(modal) {
     if (!(modal instanceof HTMLElement)) {
       return 0;
@@ -10727,6 +10726,9 @@
       mountHost.appendChild(modal);
     } else if (!modal.isConnected && document.body) {
       document.body.appendChild(modal);
+    }
+    if (options.visible !== false) {
+      protectOpeningModalFromFollowThrough(modal);
     }
     freezeCoveredParentModalInteractions(modal);
     bindContentScopedModalViewportSync(modal);

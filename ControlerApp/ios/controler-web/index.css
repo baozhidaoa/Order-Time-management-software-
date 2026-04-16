@@ -905,6 +905,20 @@ body.controler-android-native .controler-keyboard-aware-modal-overlay {
   height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   overflow-y: hidden !important;
+  transition:
+    clip-path 132ms cubic-bezier(0.22, 1, 0.36, 1),
+    -webkit-clip-path 132ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
+  .controler-keyboard-aware-modal-overlay,
+body.controler-android-native.controler-keyboard-open
+  .controler-keyboard-aware-modal-overlay {
+  will-change: clip-path;
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -947,7 +961,7 @@ body.controler-android-native
   pointer-events: none;
   z-index: 0;
   animation: controler-modal-backdrop-close
-    var(--controler-modal-close-duration, 92ms)
+    var(--controler-modal-close-duration, 120ms)
     cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -963,7 +977,7 @@ body.controler-android-native
   overflow: hidden !important;
   isolation: isolate;
   animation: controler-modal-card-close
-    var(--controler-modal-close-duration, 92ms)
+    var(--controler-modal-close-duration, 120ms)
     cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: opacity, transform;
   backface-visibility: hidden;
@@ -988,13 +1002,17 @@ body.controler-android-native
   opacity: 0;
   z-index: 2;
   animation: controler-modal-surface-scrim-close
-    var(--controler-modal-close-duration, 92ms)
+    var(--controler-modal-close-duration, 120ms)
     linear both;
 }
 
 @keyframes controler-modal-backdrop-close {
   from {
     opacity: 1;
+  }
+
+  52% {
+    opacity: 0.72;
   }
 
   to {
@@ -1008,14 +1026,14 @@ body.controler-android-native
     transform: none;
   }
 
-  48% {
-    opacity: 0.92;
-    transform: translate3d(0, 2px, 0) scale(0.998);
+  56% {
+    opacity: 0.94;
+    transform: translate3d(0, 1px, 0) scale(0.999);
   }
 
   to {
     opacity: 0;
-    transform: translate3d(0, 6px, 0) scale(0.995);
+    transform: translate3d(0, 4px, 0) scale(0.997);
   }
 }
 
@@ -1024,12 +1042,12 @@ body.controler-android-native
     opacity: 0;
   }
 
-  36% {
-    opacity: 0.42;
+  48% {
+    opacity: 0.18;
   }
 
   to {
-    opacity: 0.82;
+    opacity: 0.52;
   }
 }
 

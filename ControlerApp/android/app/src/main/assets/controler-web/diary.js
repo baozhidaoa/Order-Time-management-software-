@@ -6435,16 +6435,7 @@ function createDiaryEditorToolbar(runtime) {
   };
   toolbar.addEventListener("pointerdown", beginToolbarInteraction, true);
   toolbar.addEventListener("mousedown", beginToolbarInteraction, true);
-  toolbar.addEventListener(
-    "touchstart",
-    beginToolbarInteraction,
-    {
-      capture: true,
-      passive: false,
-    },
-  );
   toolbar.addEventListener("pointercancel", resetToolbarInteraction, true);
-  toolbar.addEventListener("touchcancel", resetToolbarInteraction, true);
   toolbar.querySelectorAll(".diary-editor-toolbar-btn").forEach((button) => {
     button.tabIndex = -1;
     button.addEventListener("click", (event) => {
@@ -6684,7 +6675,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
         </div>
         <div class="diary-editor-field diary-editor-field--content">
           <span class="diary-editor-label">正文</span>
-          <div id="diary-editor-content" class="diary-editor-content" contenteditable="true" spellcheck="true"></div>
+          <div id="diary-editor-content" class="diary-editor-content" contenteditable="true" spellcheck="true" data-controler-android-focus-assist="false"></div>
         </div>
         <div class="diary-editor-image-actions">
           <button class="diary-editor-secondary-btn" type="button" data-controler-keep-input-focus="true" data-diary-editor-action="insert-image">上传图片</button>
@@ -7159,6 +7150,28 @@ function openDiaryEditorPage(dateText, entryId = null) {
     event.preventDefault();
     runtime.handleChange?.();
   };
+  runtime.handleEditorFocus = () => {
+    runtime.markUserInteracted?.();
+    runtime.syncToolbarState();
+    if (
+      !isDiaryEditorAndroidNativeRuntime() ||
+      typeof window.ControlerNativeBridge?.call !== "function"
+    ) {
+      return;
+    }
+    window.setTimeout(() => {
+      if (runtime.destroyed || document.activeElement !== runtime.elements.editor) {
+        return;
+      }
+      const keyboardOpen =
+        document.documentElement?.classList.contains("controler-keyboard-open") === true ||
+        document.body?.classList.contains("controler-keyboard-open") === true;
+      if (keyboardOpen) {
+        return;
+      }
+      void window.ControlerNativeBridge.call("ui.showSoftInput").catch(() => undefined);
+    }, 0);
+  };
   runtime.handleOverlayPointerDown = (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!target) {
@@ -7242,12 +7255,17 @@ function openDiaryEditorPage(dateText, entryId = null) {
   runtime.elements.editor.addEventListener("pointerdown", runtime.markUserInteracted, true);
   runtime.elements.editor.addEventListener("mouseup", runtime.syncToolbarState);
   runtime.elements.editor.addEventListener("keyup", runtime.syncToolbarState);
-  runtime.elements.editor.addEventListener("focus", runtime.markUserInteracted, true);
-  runtime.elements.editor.addEventListener("focus", runtime.syncToolbarState);
+  runtime.elements.editor.addEventListener("focus", runtime.handleEditorFocus, true);
   runtime.elements.editor.addEventListener("click", (event) => {
     if (!(event.target instanceof HTMLElement) || !event.target.closest(".diary-image-block")) {
       clearDiaryEditorFigureSelection(runtime);
     }
+    window.setTimeout(() => {
+      saveDiaryEditorSelection(runtime, {
+        preserveExisting: true,
+      });
+      runtime.syncToolbarState();
+    }, 0);
   });
   runtime.elements.editor.addEventListener("paste", (event) => {
     const text = event.clipboardData?.getData("text/plain");

@@ -2288,10 +2288,12 @@ export function resolveBridgeNavigationDispatchPolicy({
 }: BridgeNavigationDispatchPolicyOptions): {
   ignore: boolean;
   queue: boolean;
+  drop: boolean;
 } {
   return {
     ignore: isAndroid && sourceSlot !== activeSlot,
-    queue: transitionBusy,
+    queue: !isAndroid && transitionBusy,
+    drop: isAndroid && transitionBusy,
   };
 }
 
@@ -7079,6 +7081,24 @@ function App({
           (requestedComparableUrl === pendingComparableUrl ||
             requestedComparableUrl === queuedComparableUrl ||
             (navigationLocked && requestedComparableUrl === currentComparableUrl));
+        const shouldDropDuringTransition =
+          dispatchPolicy.drop && !navigationLocked;
+        if (
+          ackState !== 'dropped-stale' &&
+          shouldDropDuringTransition &&
+          !!requestedComparableUrl &&
+          requestedComparableUrl === pendingComparableUrl
+        ) {
+          accepted = true;
+          ackState = 'accepted-now';
+          ackReason = 'duplicate-target-loading';
+        } else if (
+          ackState !== 'dropped-stale' &&
+          shouldDropDuringTransition
+        ) {
+          ackState = 'dropped-stale';
+          ackReason = 'transition-busy';
+        }
         const shouldQueue = dispatchPolicy.queue || navigationLocked;
         if (ackState !== 'dropped-stale' && shouldQueue) {
           accepted = true;

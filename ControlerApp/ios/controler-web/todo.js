@@ -5968,13 +5968,6 @@
       event.stopPropagation();
     };
 
-    const handleDeletePointerUp = (event) => {
-      if (event.pointerType === "mouse") {
-        return;
-      }
-      void triggerDeleteAction(event);
-    };
-
     const handleDeleteActivate = (event) => {
       void triggerDeleteAction(event);
     };
@@ -5986,7 +5979,6 @@
     surface.addEventListener("lostpointercapture", handlePointerEnd);
     surface.addEventListener("click", handleClickCapture, true);
     deleteButton.addEventListener("pointerdown", handleDeletePointerDown);
-    deleteButton.addEventListener("pointerup", handleDeletePointerUp);
     deleteButton.addEventListener("click", handleDeleteActivate);
 
     const api = {
@@ -6008,7 +6000,6 @@
           "pointerdown",
           handleDeletePointerDown,
         );
-        deleteButton.removeEventListener("pointerup", handleDeletePointerUp);
         deleteButton.removeEventListener("click", handleDeleteActivate);
         delete shell.__todoSwipeDeleteApi;
       },
@@ -6059,6 +6050,7 @@
     );
     deleteButton.title =
       options.kind === "checkin" ? "删除打卡项目" : "删除待办事项";
+    deleteButton.style.touchAction = "manipulation";
     actions.appendChild(deleteButton);
 
     const surface = document.createElement("div");

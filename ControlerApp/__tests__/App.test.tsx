@@ -131,10 +131,11 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
     ).toEqual({
       ignore: true,
       queue: false,
+      drop: false,
     });
   });
 
-  it('queues android bridge navigation while a transition is busy', () => {
+  it('drops android bridge navigation while a transition is busy', () => {
     expect(
       resolveBridgeNavigationDispatchPolicy({
         isAndroid: true,
@@ -144,7 +145,8 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
       }),
     ).toEqual({
       ignore: false,
-      queue: true,
+      queue: false,
+      drop: true,
     });
   });
 
@@ -159,6 +161,7 @@ describe('resolveBridgeNavigationDispatchPolicy', () => {
     ).toEqual({
       ignore: false,
       queue: true,
+      drop: false,
     });
   });
 });
