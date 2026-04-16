@@ -5470,18 +5470,34 @@ function focusDiaryEditor(runtime, options = {}) {
   selection.addRange(range);
 }
 
-function saveDiaryEditorSelection(runtime) {
+function saveDiaryEditorSelection(runtime, options = {}) {
   const editor = runtime?.elements?.editor;
   if (!(editor instanceof HTMLElement)) {
     return null;
   }
+  const preserveExisting = options.preserveExisting === true;
+  const existingRange = runtime?.savedSelectionRange;
+  const getExistingRange = () =>
+    existingRange instanceof Range && editor.contains(existingRange.commonAncestorContainer)
+      ? existingRange.cloneRange()
+      : null;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount <= 0) {
+    const fallbackRange = preserveExisting ? getExistingRange() : null;
+    if (fallbackRange instanceof Range) {
+      runtime.savedSelectionRange = fallbackRange.cloneRange();
+      return fallbackRange;
+    }
     runtime.savedSelectionRange = null;
     return null;
   }
   const range = selection.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) {
+    const fallbackRange = preserveExisting ? getExistingRange() : null;
+    if (fallbackRange instanceof Range) {
+      runtime.savedSelectionRange = fallbackRange.cloneRange();
+      return fallbackRange;
+    }
     runtime.savedSelectionRange = null;
     return null;
   }
@@ -5961,6 +5977,136 @@ function isDiaryEditorRangeBlockquoted(editor, range) {
   );
 }
 
+function collectDiaryTextStyleContainersForBlock(block, containers = []) {
+  if (!(block instanceof HTMLElement)) {
+    return containers;
+  }
+  if (block.matches("p")) {
+    containers.push(block);
+    return containers;
+  }
+  if (block.matches("ul, ol")) {
+    Array.from(block.children || []).forEach((child) => {
+      collectDiaryTextStyleContainersForBlock(child, containers);
+    });
+    return containers;
+  }
+  if (block.matches("li")) {
+    const blockChildren = Array.from(block.children || []).filter(
+      (child) => child instanceof HTMLElement && child.matches("p, ul, ol"),
+    );
+    if (blockChildren.length) {
+      blockChildren.forEach((child) => {
+        collectDiaryTextStyleContainersForBlock(child, containers);
+      });
+      return containers;
+    }
+    containers.push(block);
+    return containers;
+  }
+  return containers;
+}
+
+function getDiaryTextStyleTokenForContainer(container) {
+  if (!(container instanceof HTMLElement)) {
+    return DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
+  }
+  const meaningfulChildNodes = Array.from(container.childNodes || []).filter((node) => {
+    if (node instanceof Text) {
+      return String(node.textContent || "").replace(/\u200B/g, "").trim().length > 0;
+    }
+    return true;
+  });
+  if (!meaningfulChildNodes.length) {
+    return DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
+  }
+  if (meaningfulChildNodes.length === 1) {
+    const onlyChild = meaningfulChildNodes[0];
+    if (onlyChild instanceof HTMLElement && onlyChild.matches("[data-size]")) {
+      return (
+        normalizeDiaryFontSizeToken(onlyChild.getAttribute("data-size") || "") ||
+        DIARY_EDITOR_TEXT_STYLE_TOKENS.body
+      );
+    }
+  }
+  return container.querySelector("[data-size], font")
+    ? ""
+    : DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
+}
+
+function applyDiaryTextStyleToContainer(container, token) {
+  if (!(container instanceof HTMLElement)) {
+    return false;
+  }
+  const normalizedToken =
+    normalizeDiaryFontSizeToken(token) || DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
+  unwrapDiaryElements(container, "[data-size], font");
+  container.normalize();
+  if (normalizedToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body) {
+    return true;
+  }
+  const wrapper = document.createElement("span");
+  wrapper.setAttribute("data-size", normalizedToken);
+  while (container.firstChild) {
+    wrapper.appendChild(container.firstChild);
+  }
+  if (!wrapper.firstChild) {
+    wrapper.appendChild(document.createElement("br"));
+  }
+  container.appendChild(wrapper);
+  return true;
+}
+
+function toggleDiaryBlockTextStyleAtCaret(runtime, options = {}) {
+  const editor = runtime?.elements?.editor;
+  if (!(editor instanceof HTMLElement)) {
+    return false;
+  }
+  const range = getDiaryEditorActionRange(runtime);
+  if (!(range instanceof Range) || !range.collapsed) {
+    return false;
+  }
+  const nextToken =
+    normalizeDiaryFontSizeToken(options.textStyleToken) || DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
+  const selectedBlocks = getDiaryEditorSelectedBlocks(editor, range).filter(
+    (block) => block instanceof HTMLElement && !block.matches(".diary-image-block"),
+  );
+  if (!selectedBlocks.length) {
+    return false;
+  }
+  const styleContainers = selectedBlocks.flatMap((block) =>
+    collectDiaryTextStyleContainersForBlock(block),
+  );
+  if (!styleContainers.length) {
+    return false;
+  }
+  const currentTokens = styleContainers.map((container) =>
+    getDiaryTextStyleTokenForContainer(container),
+  );
+  if (
+    nextToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body &&
+    currentTokens.every((token) => token === DIARY_EDITOR_TEXT_STYLE_TOKENS.body)
+  ) {
+    return false;
+  }
+  const resolvedToken =
+    nextToken !== DIARY_EDITOR_TEXT_STYLE_TOKENS.body &&
+    currentTokens.every((token) => token === nextToken)
+      ? DIARY_EDITOR_TEXT_STYLE_TOKENS.body
+      : nextToken;
+  const marker = createDiaryCaretMarker();
+  range.insertNode(marker);
+  styleContainers.forEach((container) => {
+    applyDiaryTextStyleToContainer(container, resolvedToken);
+  });
+  pruneEmptyDiaryInlineWrappers(editor);
+  editor.normalize();
+  ensureDiaryEditorHasContentBlock(editor);
+  return restoreDiaryCaretFromMarker(runtime, marker, {
+    syncWindowSelection: options.syncWindowSelection,
+  });
+}
+
 function applyDiaryInlineStyleAtCaret(runtime, options = {}) {
   const editor = runtime?.elements?.editor;
   if (!(editor instanceof HTMLElement)) {
@@ -6222,7 +6368,8 @@ function applyDiaryInlineWrapper(runtime, options = {}) {
     unwrapDiaryElements(fragment, cleanupSelector);
   }
   let insertedNodes = [];
-  if (uniformActive && options.toggle !== false) {
+  const unwrapOnly = options.unwrapOnly === true;
+  if (unwrapOnly || (uniformActive && options.toggle !== false)) {
     insertedNodes = Array.from(fragment.childNodes);
     range.insertNode(fragment);
   } else {
@@ -6729,6 +6876,10 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
   let handled = false;
   if (action === "font-size") {
     handled =
+      toggleDiaryBlockTextStyleAtCaret(runtime, {
+        textStyleToken: normalizedSizeToken,
+        syncWindowSelection,
+      }) ||
       applyDiaryInlineWrapper(runtime, {
         tagName: "span",
         cleanupSelector: "[data-size], font",
@@ -6736,16 +6887,7 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
         isUniformActive: (editor, range) =>
           isDiaryEditorRangeUniformFontSize(editor, range, normalizedSizeToken),
         textStyleToken: normalizedSizeToken,
-        syncWindowSelection,
-      }) ||
-      toggleDiaryInlineStyleAtCaret(runtime, {
-        activeSelector: "[data-size]",
-        textStyleToken: normalizedSizeToken,
-        syncWindowSelection,
-      }) ||
-      applyDiaryInlineStyleAtCaret(runtime, {
-        tagName: "span",
-        textStyleToken: normalizedSizeToken,
+        unwrapOnly: normalizedSizeToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body,
         syncWindowSelection,
       });
   } else if (action === "bold") {
@@ -6931,9 +7073,15 @@ function createDiaryEditorToolbar(runtime) {
     }
     event.stopPropagation();
     runtime.toolbarInteractionActive = true;
+    saveDiaryEditorSelection(runtime, {
+      preserveExisting: true,
+    });
     runtime.toolbarSelectionHadEditorFocus =
-      document.activeElement === runtime?.elements?.editor;
-    saveDiaryEditorSelection(runtime);
+      document.activeElement === runtime?.elements?.editor ||
+      (runtime.savedSelectionRange instanceof Range &&
+        runtime.elements?.editor?.contains(
+          runtime.savedSelectionRange.commonAncestorContainer,
+        ));
     runtime.toolbarSavedSelectionRange =
       runtime.savedSelectionRange instanceof Range
         ? runtime.savedSelectionRange.cloneRange()
@@ -6946,7 +7094,16 @@ function createDiaryEditorToolbar(runtime) {
   };
   toolbar.addEventListener("pointerdown", beginToolbarInteraction, true);
   toolbar.addEventListener("mousedown", beginToolbarInteraction, true);
+  toolbar.addEventListener(
+    "touchstart",
+    beginToolbarInteraction,
+    {
+      capture: true,
+      passive: false,
+    },
+  );
   toolbar.addEventListener("pointercancel", resetToolbarInteraction, true);
+  toolbar.addEventListener("touchcancel", resetToolbarInteraction, true);
   toolbar.querySelectorAll(".diary-editor-toolbar-btn").forEach((button) => {
     button.tabIndex = -1;
     button.addEventListener("click", (event) => {
@@ -6973,6 +7130,11 @@ function showDiaryEditorChoiceDialog() {
     const modal = document.createElement("div");
     modal.className = "modal-overlay";
     modal.style.zIndex = "2600";
+    modal.dataset.controlerCloseProtectionDurationMs = "220";
+    modal.dataset.controlerActionProtectionDurationMs = "220";
+    modal.dataset.controlerInteractionShieldDurationMs = "220";
+    modal.dataset.controlerClosingPointerEvents = "none";
+    modal.dataset.controlerCloseHideImmediately = "true";
     modal.innerHTML = `
       <div class="modal-content ms diary-editor-choice-modal">
         <h3>图片上传方式</h3>
@@ -6998,7 +7160,7 @@ function showDiaryEditorChoiceDialog() {
       }
       window.setTimeout(() => {
         resolve(result);
-      }, 64);
+      }, 180);
     };
     modal.__controlerCloseModal = () => settleDialog("");
     if (typeof uiTools?.prepareModalOverlay === "function") {
@@ -7007,28 +7169,40 @@ function showDiaryEditorChoiceDialog() {
         scope: "viewport",
       });
       uiTools?.activateModalInteractionShield?.(180);
+      uiTools?.bindModalAction?.(modal, '[data-choice="compressed"]', () => {
+        settleDialog("compressed");
+      });
+      uiTools?.bindModalAction?.(modal, '[data-choice="original"]', () => {
+        settleDialog("original");
+      });
+      uiTools?.bindModalAction?.(modal, '[data-choice="cancel"]', () => {
+        settleDialog("");
+      });
+      uiTools?.bindModalBackdropDismiss?.(modal, () => {
+        settleDialog("");
+      });
     } else {
       document.body.appendChild(modal);
       uiTools?.stopModalContentPropagation?.(modal);
+      modal.addEventListener("click", (event) => {
+        const choiceButton =
+          event.target instanceof HTMLElement
+            ? event.target.closest("[data-choice]")
+            : null;
+        if (choiceButton instanceof HTMLElement) {
+          const choice = choiceButton.dataset.choice || "cancel";
+          event.preventDefault();
+          event.stopPropagation();
+          settleDialog(choice === "cancel" ? "" : choice);
+          return;
+        }
+        if (event.target === modal) {
+          event.preventDefault();
+          event.stopPropagation();
+          settleDialog("");
+        }
+      });
     }
-    modal.addEventListener("click", (event) => {
-      const choiceButton =
-        event.target instanceof HTMLElement
-          ? event.target.closest("[data-choice]")
-          : null;
-      if (choiceButton instanceof HTMLElement) {
-        const choice = choiceButton.dataset.choice || "cancel";
-        event.preventDefault();
-        event.stopPropagation();
-        settleDialog(choice === "cancel" ? "" : choice);
-        return;
-      }
-      if (event.target === modal) {
-        event.preventDefault();
-        event.stopPropagation();
-        settleDialog("");
-      }
-    });
   });
 }
 

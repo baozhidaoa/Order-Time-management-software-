@@ -7333,9 +7333,11 @@ function goToToday() {
 }
 
 // 显示计划编辑弹窗
-function showPlanEditModal(planData = null) {
+function showPlanEditModal(planData = null, options = {}) {
   // 如果传入了计划数据，是编辑模式；否则是创建模式
   const isEditMode = !!planData && !!planData.id;
+  const replaceModal =
+    options?.replaceModal instanceof HTMLElement ? options.replaceModal : null;
   const completionChecked = planData?._occurrenceDate
     ? getPlanCompletionState(planData, planData._occurrenceDate)
     : !!planData?.isCompleted;
@@ -7559,6 +7561,10 @@ function showPlanEditModal(planData = null) {
     zIndex: 2000,
     deferTextAutofocus: deferModalTextAutofocus,
   });
+  if (replaceModal && replaceModal !== modal) {
+    replaceModal.dataset.controlerCloseHideImmediately = "true";
+    removePlanModalElement(replaceModal);
+  }
   bindPlanFormModalEventShield(modal);
   createPlanColorController({
     input: modal.querySelector("#plan-color-input"),
@@ -8004,22 +8010,12 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
   };
   modal.__controlerCloseModal = closeDetailModal;
 
-  const openRegularPlanEditor = () => {
-    setTimeout(
-      () =>
-        showPlanEditModal({
-          ...plan,
-          _occurrenceDate: detailDate,
-        }),
-      100,
-    );
-  };
-
   const editPlanAction = async () => {
-    closeDetailModal();
     if (linkedPlan) {
       const opened = await openLinkedPlanSourceEditor(plan);
       if (opened) {
+        modal.dataset.controlerCloseHideImmediately = "true";
+        closeDetailModal();
         return;
       }
       void showPlanAlert(`未找到对应${linkedSourceLabel}源事项，无法编辑。`, {
@@ -8028,7 +8024,15 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       });
       return;
     }
-    openRegularPlanEditor();
+    showPlanEditModal(
+      {
+        ...plan,
+        _occurrenceDate: detailDate,
+      },
+      {
+        replaceModal: modal,
+      },
+    );
   };
 
   const deletePlanAction = async () => {

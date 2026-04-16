@@ -1155,6 +1155,13 @@
     return !isShellPageActive() || isShellTransitionLoading();
   }
 
+  function shouldBlockReactNativeShellNavigationInteraction() {
+    return (
+      isReactNativeNavigationRuntime() &&
+      (!isShellPageActive() || isShellTransitionLoading())
+    );
+  }
+
   function applyShellVisibilityState(detail = {}) {
     const nextState = normalizeShellVisibilityState(detail);
     const nextStateEnteringActiveTransitionLoading =
@@ -1210,11 +1217,8 @@
 
     lastShellVisibilityStateSignature = nextSignature;
     Object.assign(shellVisibilityState, nextState);
-    if (
-      isAndroidReactNativeNavigationRuntime() &&
-      (!nextState.active || !pendingNativeNavigationRequest)
-    ) {
-      setAndroidReactNativeAppNavLocked(false);
+    if (isAndroidReactNativeNavigationRuntime()) {
+      syncAndroidReactNativeAppNavLock();
     }
     if (nextState.active !== false) {
       syncAndroidNativeBootstrapTransitionOverlay();
@@ -1290,6 +1294,9 @@
       return false;
     }
     if (shellVisibilityState.active === false) {
+      return false;
+    }
+    if (shouldBlockReactNativeShellNavigationInteraction()) {
       return false;
     }
     if (hasVisibleBlockingOverlay()) {
@@ -1782,7 +1789,7 @@
           return;
         }
         const timedOutRequest = clearPendingNativeNavigationRequest();
-        setAndroidReactNativeAppNavLocked(false);
+        syncAndroidReactNativeAppNavLock();
         if (isAndroidReactNativeNavigationRuntime()) {
           resetAppPageTransitionRuntimeState();
           return;
@@ -1860,7 +1867,7 @@
         return;
       }
 
-      setAndroidReactNativeAppNavLocked(false);
+      syncAndroidReactNativeAppNavLock();
       if (ackState === "dropped-stale") {
         return;
       }
@@ -3221,7 +3228,11 @@
     lastAndroidSoftInputRequestAt = now;
     const requestIssuedAt = now;
     const requestMode =
-      options?.mode === "restart" ? "restart" : "show";
+      options?.mode === "show"
+        ? "show"
+        : options?.mode === "restart"
+          ? "restart"
+          : "restart";
     const requestToken = `controler-soft-input-${now}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -4251,6 +4262,18 @@
         clearAndroidInteractiveTextControlPendingRetries(focusTarget);
         if (hadPendingRetries) {
           requestAndroidSoftInputForFocusedTarget(focusTarget);
+        } else if (hadRecentFocusIntent && !isAndroidKeyboardOpen()) {
+          window.setTimeout(() => {
+            if (
+              isFocusedInteractiveTextControl(focusTarget) &&
+              !isAndroidKeyboardOpen() &&
+              hasRecentAndroidInteractiveTextFocusIntent(focusTarget, 1200)
+            ) {
+              requestAndroidSoftInputForFocusedTarget(focusTarget, {
+                mode: "show",
+              });
+            }
+          }, 0);
         }
       },
       true,
@@ -4339,6 +4362,18 @@
       androidReactNativeAppNavLocked,
     );
     clearAndroidAppNavigationTransientState(document);
+  }
+
+  function syncAndroidReactNativeAppNavLock() {
+    if (!isAndroidReactNativeNavigationRuntime()) {
+      return false;
+    }
+    const shouldLock =
+      shellVisibilityState.active !== false &&
+      (shellVisibilityState.transitionLoading === true ||
+        !!pendingNativeNavigationRequest);
+    setAndroidReactNativeAppNavLocked(shouldLock);
+    return shouldLock;
   }
 
   function isAndroidReactNativeAppNavLocked() {
@@ -4721,6 +4756,7 @@
     clearAppPageTransitionClasses();
     clearPendingNativeNavigationRequest();
     clearNativeNavigationRetryTimer();
+    syncAndroidReactNativeAppNavLock();
     if (hideOverlay) {
       setAppPageLeaveOverlayState({
         active: false,
@@ -5598,6 +5634,10 @@
     if (!navigationRequest) {
       return false;
     }
+    if (shouldBlockReactNativeShellNavigationInteraction()) {
+      syncAndroidReactNativeAppNavLock();
+      return false;
+    }
     const currentItem = getCurrentAppNavigationItem();
     const targetHref = navigationRequest.targetHref;
     if (!targetHref) {
@@ -5641,7 +5681,7 @@
       if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
         return true;
       }
-      setAndroidReactNativeAppNavLocked(false);
+      syncAndroidReactNativeAppNavLock();
     }
 
     appPageLeavePreflightLocked = true;
@@ -5661,7 +5701,7 @@
           targetHref,
         });
         if (!canLeave) {
-          setAndroidReactNativeAppNavLocked(false);
+          syncAndroidReactNativeAppNavLock();
           resetAppPageTransitionRuntimeState();
           return;
         }
@@ -5699,7 +5739,7 @@
             currentItem,
           );
           if (!dispatched) {
-            setAndroidReactNativeAppNavLocked(false);
+            syncAndroidReactNativeAppNavLock();
             shouldUnlock = false;
             performAppNavigation(finalTargetHref, finalNavigationOptions);
             return;
@@ -5722,11 +5762,11 @@
         performAppNavigation(finalTargetHref, finalNavigationOptions);
       } catch (error) {
         console.error("执行页面切换失败:", error);
-        setAndroidReactNativeAppNavLocked(false);
+        syncAndroidReactNativeAppNavLock();
         resetAppPageTransitionRuntimeState();
       } finally {
         if (shouldUnlock) {
-          setAndroidReactNativeAppNavLocked(false);
+          syncAndroidReactNativeAppNavLock();
           resetAppPageTransitionRuntimeState();
         }
       }
@@ -5735,6 +5775,10 @@
   }
 
   function navigateAppPage(pageKey) {
+    if (shouldBlockReactNativeShellNavigationInteraction()) {
+      syncAndroidReactNativeAppNavLock();
+      return false;
+    }
     const normalizedKey = String(pageKey || "").trim();
     const targetItem = APP_NAV_ITEMS.find((item) => item.key === normalizedKey);
     if (!targetItem) {
@@ -5756,6 +5800,10 @@
   }
 
   function navigateAppHref(targetHref, options = {}) {
+    if (shouldBlockReactNativeShellNavigationInteraction()) {
+      syncAndroidReactNativeAppNavLock();
+      return false;
+    }
     const targetItem = resolveAppNavigationItemByHref(targetHref);
     if (!targetItem) {
       return false;

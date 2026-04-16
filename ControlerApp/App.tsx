@@ -7929,12 +7929,7 @@ function App({
       <View
         accessible={false}
         pointerEvents="auto"
-        style={[
-          styles.shellBlockingOverlayTouchBlocker,
-          !isPageReady
-            ? styles.shellBlockingOverlayTouchBlockerFullscreen
-            : null,
-        ]}
+        style={styles.shellBlockingOverlayTouchBlocker}
       />
     </Animated.View>
   ) : null;
@@ -8016,7 +8011,6 @@ const styles = StyleSheet.create({
   },
   transitionTouchBlocker: {
     ...StyleSheet.absoluteFillObject,
-    bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
     zIndex: 9,
     backgroundColor: 'transparent',
   },
@@ -8050,11 +8044,7 @@ const styles = StyleSheet.create({
   },
   shellBlockingOverlayTouchBlocker: {
     ...StyleSheet.absoluteFillObject,
-    bottom: EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT,
     backgroundColor: 'transparent',
-  },
-  shellBlockingOverlayTouchBlockerFullscreen: {
-    bottom: 0,
   },
   center: {
     flex: 1,

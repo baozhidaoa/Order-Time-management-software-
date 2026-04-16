@@ -815,6 +815,10 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
 
 body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
+  --controler-modal-overlay-visible-bottom-inset: max(
+    0px,
+    var(--controler-keyboard-transition-inset, 0px)
+  );
   --controler-modal-overlay-gap-fill-height: max(
     0px,
     calc(
@@ -865,6 +869,18 @@ body.controler-android-native .modal-overlay {
   max-height: var(--controler-modal-overlay-height) !important;
   margin: 0 !important;
   transform: none !important;
+  clip-path: inset(
+    0
+    0
+    var(--controler-modal-overlay-visible-bottom-inset)
+    0
+  );
+  -webkit-clip-path: inset(
+    0
+    0
+    var(--controler-modal-overlay-visible-bottom-inset)
+    0
+  );
   padding:
     var(--controler-modal-overlay-block-padding-top)
     var(--controler-modal-overlay-inline-padding-right)
@@ -1025,7 +1041,7 @@ body.controler-android-native .modal-overlay::after {
   right: 0;
   bottom: 0;
   height: var(--controler-modal-overlay-gap-fill-height, 0px);
-  background: var(--controler-perf-overlay-bg, var(--overlay-bg));
+  background: transparent;
   pointer-events: none;
   z-index: -1;
 }
@@ -1969,6 +1985,9 @@ body.controler-mobile-runtime .timer-session-modal .suggestion-popover.visible {
 
 body.controler-mobile-runtime
   .timer-session-modal
+  #project-name-suggestions.suggestion-popover,
+body.controler-mobile-runtime
+  .timer-session-modal
   #next-project-suggestions.suggestion-popover {
   position: absolute;
   top: calc(100% + 2px);
@@ -1977,6 +1996,9 @@ body.controler-mobile-runtime
   z-index: 40;
 }
 
+body.controler-mobile-runtime
+  .timer-session-modal
+  #project-name-suggestions.suggestion-popover.visible,
 body.controler-mobile-runtime
   .timer-session-modal
   #next-project-suggestions.suggestion-popover.visible {
