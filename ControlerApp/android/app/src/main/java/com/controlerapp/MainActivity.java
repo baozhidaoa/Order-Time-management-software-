@@ -65,7 +65,7 @@ public class MainActivity extends ReactActivity {
     getWindow()
         .setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED);
     applyShellWindowChrome();
     ControlerStartupTrace.captureLaunchIntent(getIntent());
     ControlerStartupTrace.mark("main_activity_created");

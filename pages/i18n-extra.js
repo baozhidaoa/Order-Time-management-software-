@@ -1,6 +1,9 @@
 (() => {
   const LANGUAGE_EVENT = "controler:language-changed";
   const USER_LANGUAGE_CHOICE_KEY = "controler:user-language-choice";
+  const EDITABLE_I18N_SKIP_SELECTOR =
+    "[contenteditable]:not([contenteditable='false'])";
+  const EDITABLE_I18N_SKIP_ATTR = "data-controler-i18n-editable-skip";
   const MONTH_NAMES = [
     "Jan",
     "Feb",
@@ -1116,8 +1119,44 @@
       !(parent instanceof Element) ||
       parent.tagName === "SCRIPT" ||
       parent.tagName === "STYLE" ||
+      parent.closest(EDITABLE_I18N_SKIP_SELECTOR) instanceof Element ||
       !!parent.closest("[data-i18n-skip='true']")
     );
+  }
+
+  function syncEditableI18nProtection(root = document) {
+    const markEditableHost = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return;
+      }
+      const isEditableHost =
+        element.matches?.(EDITABLE_I18N_SKIP_SELECTOR) === true;
+      const isOwnedProtection =
+        element.getAttribute(EDITABLE_I18N_SKIP_ATTR) === "true";
+      if (isEditableHost) {
+        if (!element.hasAttribute("data-i18n-skip")) {
+          element.setAttribute("data-i18n-skip", "true");
+          element.setAttribute(EDITABLE_I18N_SKIP_ATTR, "true");
+        }
+        return;
+      }
+      if (isOwnedProtection) {
+        element.removeAttribute("data-i18n-skip");
+        element.removeAttribute(EDITABLE_I18N_SKIP_ATTR);
+      }
+    };
+
+    if (root instanceof HTMLElement) {
+      markEditableHost(root);
+    }
+
+    const scope = root instanceof Element || root instanceof Document ? root : document;
+    scope.querySelectorAll?.(EDITABLE_I18N_SKIP_SELECTOR).forEach((element) => {
+      markEditableHost(element);
+    });
+    scope.querySelectorAll?.(`[${EDITABLE_I18N_SKIP_ATTR}="true"]`).forEach((element) => {
+      markEditableHost(element);
+    });
   }
 
   function applyTextTranslation(node) {
@@ -1174,6 +1213,8 @@
   function applyTranslations(root = document.documentElement) {
     if (!root) return;
 
+    syncEditableI18nProtection(root instanceof Document ? root.documentElement : root);
+
     if (root instanceof Element) {
       applyElementTranslation(root);
     }
@@ -1197,10 +1238,14 @@
 
   function handleMutations(mutations) {
     mutations.forEach((mutation) => {
+      if (mutation.type === "attributes") {
+        syncEditableI18nProtection(mutation.target);
+      }
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.TEXT_NODE) {
           applyTextTranslation(node);
         } else if (node.nodeType === Node.ELEMENT_NODE) {
+          syncEditableI18nProtection(node);
           applyTranslations(node);
         }
       });
@@ -1221,6 +1266,8 @@
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
+      attributes: true,
+      attributeFilter: ["contenteditable"],
     });
 
     window.addEventListener(LANGUAGE_EVENT, () => {

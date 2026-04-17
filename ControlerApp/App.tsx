@@ -85,6 +85,7 @@ type NativeBridgeModule = {
   showToast?: (message: string) => Promise<string>;
   showSoftInput?: () => Promise<string>;
   restartSoftInput?: () => Promise<string>;
+  getSoftInputState?: () => Promise<string>;
   markStartupReady?: () => Promise<string>;
 };
 
@@ -6631,6 +6632,14 @@ function App({
           );
         }
         return parseBridgeJson(await nativeBridge.restartSoftInput());
+      case 'ui.getSoftInputState':
+        if (typeof nativeBridge.getSoftInputState !== 'function') {
+          throw createUnsupportedBridgeError(
+            '读取输入法状态',
+            'reading the soft keyboard state',
+          );
+        }
+        return parseBridgeJson(await nativeBridge.getSoftInputState());
       default:
         throw new Error(`Unsupported native bridge method: ${method}`);
     }

@@ -28,11 +28,13 @@ import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.database.Cursor;
 import android.util.Base64;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.widget.Toast;
 
 import com.controlerapp.widgets.ControlerWidgetDataStore;
@@ -86,6 +88,7 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -101,6 +104,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     private static final int REQUEST_IMPORT_STORAGE_SOURCE = 41024;
     private static final int REQUEST_PICK_IMPORT_SOURCE = 41025;
     private static final int REQUEST_PICK_DIARY_IMAGES = 41026;
+    private static final int IME_VISIBLE_INSET_THRESHOLD_DP = 24;
     private static final String SWITCH_ACTION_ADOPTED_EXISTING = "adopted-existing";
     private static final String SWITCH_ACTION_SEEDED_CURRENT = "seeded-current";
     private static final String ROOT_ARRAY_PATH = "$";
@@ -1404,6 +1408,44 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void getSoftInputState(Promise promise) {
+        Activity activity = getCurrentActivity();
+        try {
+            JSONObject result = new JSONObject();
+            if (activity == null) {
+                result.put("ok", false);
+                result.put("reportedVisible", false);
+                result.put("actualVisible", false);
+                result.put("imeBottomInset", 0);
+                result.put("navigationBottomInset", 0);
+                result.put("targetClass", "");
+                result.put("message", "当前没有可用的前台页面。");
+                promise.resolve(result.toString());
+                return;
+            }
+
+            Context context = activity;
+            InputMethodManager inputMethodManager =
+                (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
+            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            ImeVisibilityState imeState = readImeVisibilityState(activity, targetView);
+            result.put("ok", true);
+            result.put("reportedVisible", imeState.reportedVisible);
+            result.put("actualVisible", imeState.actualVisible);
+            result.put("imeBottomInset", imeState.imeBottomInset);
+            result.put("navigationBottomInset", imeState.navigationBottomInset);
+            result.put(
+                "targetClass",
+                targetView == null ? "" : targetView.getClass().getName()
+            );
+            result.put("message", "");
+            promise.resolve(result.toString());
+        } catch (Exception error) {
+            promise.reject("get_soft_input_state_failed", error);
+        }
+    }
+
+    @ReactMethod
     public void markStartupReady(Promise promise) {
         try {
             ControlerLaunchSplashCoordinator.markStartupReady();
@@ -1415,6 +1457,75 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private static final class ImeVisibilityState {
+        final boolean reportedVisible;
+        final boolean actualVisible;
+        final int imeBottomInset;
+        final int navigationBottomInset;
+
+        ImeVisibilityState(
+            boolean reportedVisible,
+            boolean actualVisible,
+            int imeBottomInset,
+            int navigationBottomInset
+        ) {
+            this.reportedVisible = reportedVisible;
+            this.actualVisible = actualVisible;
+            this.imeBottomInset = imeBottomInset;
+            this.navigationBottomInset = navigationBottomInset;
+        }
+    }
+
+    private void scheduleShowSoftInputAfterRestartIfNeeded(
+        Activity activity,
+        InputMethodManager inputMethodManager,
+        View targetView,
+        boolean imeVisible,
+        int attempt
+    ) {
+        if (
+            activity == null
+                || inputMethodManager == null
+                || targetView == null
+                || isLikelySoftInputHost(targetView)
+                || imeVisible
+                || attempt != 0
+        ) {
+            return;
+        }
+        MAIN_HANDLER.postDelayed(
+            () -> {
+                try {
+                    if (
+                        !targetView.isAttachedToWindow()
+                            || !targetView.hasWindowFocus()
+                            || !targetView.hasFocus()
+                            || !inputMethodManager.isActive(targetView)
+                            || readImeVisibilityState(activity, targetView).actualVisible
+                    ) {
+                        return;
+                    }
+                    notifySoftInputViewClicked(inputMethodManager, targetView);
+                    boolean shown =
+                        requestInputMethodVisibility(
+                            inputMethodManager,
+                            targetView,
+                            InputMethodManager.SHOW_FORCED
+                        );
+                    Log.d(
+                        TAG,
+                        "showSoftInputAfterRestart target="
+                            + targetView.getClass().getName()
+                            + " shown="
+                            + shown
+                    );
+                } catch (Exception ignored) {
+                }
+            },
+            280L
+        );
+    }
+
     private void showSoftInputWithRetry(
         Activity activity,
         InputMethodManager inputMethodManager,
@@ -1422,53 +1533,120 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         Promise promise
     ) {
         try {
+            normalizeActivitySoftInputMode(activity);
             View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            boolean webViewTarget = isLikelySoftInputHost(targetView);
             WindowInsetsControllerCompat insetsController =
                 activity.getWindow() == null || targetView == null
                     ? null
                     : WindowCompat.getInsetsController(activity.getWindow(), targetView);
             requestSoftInputTargetFocus(targetView);
-            boolean imeVisible = isImeVisible(activity, targetView);
 
+            ImeVisibilityState initialImeState = readImeVisibilityState(activity, targetView);
             boolean focused = targetView != null && targetView.hasFocus();
             boolean served =
                 inputMethodManager != null &&
                 targetView != null &&
                 inputMethodManager.isActive(targetView);
-            boolean shown = false;
+            boolean imeVisibleBefore = initialImeState.actualVisible;
+            boolean requestedViaInputMethod = false;
+            boolean requestedViaForcedInputMethod = false;
+            boolean requestedViaViewClick = false;
             boolean requestedViaInsets = false;
-            if (!imeVisible && served && inputMethodManager != null && targetView != null) {
-                shown =
-                    inputMethodManager.showSoftInput(
+            if (
+                !imeVisibleBefore
+                    && !webViewTarget
+                    && inputMethodManager != null
+                    && targetView != null
+                    && (focused || served || isLikelySoftInputHost(targetView))
+            ) {
+                requestedViaViewClick =
+                    notifySoftInputViewClicked(inputMethodManager, targetView);
+            }
+            if (
+                !imeVisibleBefore &&
+                !webViewTarget &&
+                (focused || served) &&
+                inputMethodManager != null &&
+                targetView != null
+            ) {
+                requestedViaInputMethod =
+                    requestInputMethodVisibility(
+                        inputMethodManager,
                         targetView,
-                        InputMethodManager.SHOW_IMPLICIT
+                        resolveSoftInputShowFlags(attempt)
                     );
             }
-            if (!imeVisible && !shown && insetsController != null) {
+            ImeVisibilityState afterInputMethodState = readImeVisibilityState(activity, targetView);
+            if (
+                !afterInputMethodState.actualVisible
+                    && !webViewTarget
+                    && shouldUseForcedSoftInputShowFallback(
+                        attempt,
+                        targetView,
+                        focused,
+                        served
+                    )
+                    && inputMethodManager != null
+                    && targetView != null
+            ) {
+                requestedViaForcedInputMethod =
+                    requestInputMethodVisibility(
+                        inputMethodManager,
+                        targetView,
+                        InputMethodManager.SHOW_FORCED
+                    );
+            }
+            if (!afterInputMethodState.actualVisible && insetsController != null) {
                 insetsController.show(WindowInsetsCompat.Type.ime());
                 requestedViaInsets = true;
             }
-            shown = shown || requestedViaInsets || imeVisible;
+            ImeVisibilityState finalImeState = readImeVisibilityState(activity, targetView);
+            boolean imeVisible = finalImeState.actualVisible;
+            boolean shown =
+                imeVisible
+                    || requestedViaInputMethod
+                    || requestedViaForcedInputMethod
+                    || requestedViaInsets;
 
             Log.d(
                 TAG,
                 "showSoftInput target="
                     + (targetView == null ? "null" : targetView.getClass().getName())
+                    + " webViewTarget="
+                    + webViewTarget
                     + " focused="
                     + focused
                     + " served="
                     + served
                     + " shown="
                     + shown
+                    + " requestedViaInputMethod="
+                    + requestedViaInputMethod
+                    + " requestedViaForcedInputMethod="
+                    + requestedViaForcedInputMethod
+                    + " requestedViaViewClick="
+                    + requestedViaViewClick
                     + " imeVisible="
                     + imeVisible
+                    + " imeReportedVisible="
+                    + finalImeState.reportedVisible
+                    + " imeBottomInset="
+                    + finalImeState.imeBottomInset
+                    + " navBottomInset="
+                    + finalImeState.navigationBottomInset
                     + " requestedViaInsets="
                     + requestedViaInsets
                     + " attempt="
                     + attempt
             );
-
-            if (shouldRetryShowSoftInput(activity, targetView, focused, served, shown)
+            if (
+                shouldRetryShowSoftInput(
+                    activity,
+                    targetView,
+                    focused,
+                    imeVisible
+                )
                 && attempt < 2) {
                 final int nextAttempt = attempt + 1;
                 final long retryDelayMs = nextAttempt == 1 ? 96L : 220L;
@@ -1484,6 +1662,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             result.put("shown", shown);
             result.put("focused", focused);
             result.put("served", served);
+            result.put("reportedVisible", finalImeState.reportedVisible);
+            result.put("actualVisible", finalImeState.actualVisible);
             result.put(
                 "targetClass",
                 targetView == null ? "" : targetView.getClass().getName()
@@ -1510,39 +1690,86 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         Promise promise
     ) {
         try {
+            normalizeActivitySoftInputMode(activity);
             View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            if (isLikelySoftInputHost(targetView)) {
+                showSoftInputWithRetry(activity, inputMethodManager, attempt, promise);
+                return;
+            }
             WindowInsetsControllerCompat insetsController =
                 activity.getWindow() == null || targetView == null
                     ? null
                     : WindowCompat.getInsetsController(activity.getWindow(), targetView);
             requestSoftInputTargetFocus(targetView);
 
+            ImeVisibilityState initialImeState = readImeVisibilityState(activity, targetView);
             boolean restarted = false;
-            if (inputMethodManager != null && targetView != null) {
+            if (
+                !initialImeState.actualVisible
+                    && inputMethodManager != null
+                    && targetView != null
+                    && attempt == 0
+            ) {
                 inputMethodManager.restartInput(targetView);
                 restarted = true;
             }
-
-            boolean imeVisible = isImeVisible(activity, targetView);
             boolean focused = targetView != null && targetView.hasFocus();
             boolean served =
                 inputMethodManager != null &&
                 targetView != null &&
                 inputMethodManager.isActive(targetView);
-            boolean shown = false;
+            boolean imeVisibleBefore = initialImeState.actualVisible;
+            boolean requestedViaInputMethod = false;
+            boolean requestedViaForcedInputMethod = false;
+            boolean requestedViaViewClick = false;
             boolean requestedViaInsets = false;
-            if (!imeVisible && targetView != null && inputMethodManager != null) {
-                shown =
-                    inputMethodManager.showSoftInput(
+            if (
+                !imeVisibleBefore
+                    && inputMethodManager != null
+                    && targetView != null
+                    && (focused || served || isLikelySoftInputHost(targetView))
+            ) {
+                requestedViaViewClick =
+                    notifySoftInputViewClicked(inputMethodManager, targetView);
+            }
+            if (!imeVisibleBefore && targetView != null && inputMethodManager != null) {
+                requestedViaInputMethod =
+                    requestInputMethodVisibility(
+                        inputMethodManager,
                         targetView,
-                        InputMethodManager.SHOW_IMPLICIT
+                        resolveSoftInputShowFlags(attempt)
                     );
             }
-            if (!imeVisible && !shown && insetsController != null) {
+            ImeVisibilityState afterInputMethodState = readImeVisibilityState(activity, targetView);
+            if (
+                !afterInputMethodState.actualVisible
+                    && shouldUseForcedSoftInputShowFallback(
+                        attempt,
+                        targetView,
+                        focused,
+                        served
+                    )
+                    && inputMethodManager != null
+                    && targetView != null
+            ) {
+                requestedViaForcedInputMethod =
+                    requestInputMethodVisibility(
+                        inputMethodManager,
+                        targetView,
+                        InputMethodManager.SHOW_FORCED
+                    );
+            }
+            if (!afterInputMethodState.actualVisible && insetsController != null) {
                 insetsController.show(WindowInsetsCompat.Type.ime());
                 requestedViaInsets = true;
             }
-            shown = shown || requestedViaInsets || imeVisible;
+            ImeVisibilityState finalImeState = readImeVisibilityState(activity, targetView);
+            boolean imeVisible = finalImeState.actualVisible;
+            boolean shown =
+                imeVisible
+                    || requestedViaInputMethod
+                    || requestedViaForcedInputMethod
+                    || requestedViaInsets;
 
             Log.d(
                 TAG,
@@ -1554,8 +1781,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     + served
                     + " shown="
                     + shown
+                    + " requestedViaInputMethod="
+                    + requestedViaInputMethod
+                    + " requestedViaForcedInputMethod="
+                    + requestedViaForcedInputMethod
+                    + " requestedViaViewClick="
+                    + requestedViaViewClick
                     + " imeVisible="
                     + imeVisible
+                    + " imeReportedVisible="
+                    + finalImeState.reportedVisible
+                    + " imeBottomInset="
+                    + finalImeState.imeBottomInset
+                    + " navBottomInset="
+                    + finalImeState.navigationBottomInset
                     + " restarted="
                     + restarted
                     + " requestedViaInsets="
@@ -1564,8 +1803,21 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     + attempt
             );
 
+            scheduleShowSoftInputAfterRestartIfNeeded(
+                activity,
+                inputMethodManager,
+                targetView,
+                imeVisible,
+                attempt
+            );
+
             if (
-                shouldRetryShowSoftInput(activity, targetView, focused, served, shown)
+                shouldRetryShowSoftInput(
+                    activity,
+                    targetView,
+                    focused,
+                    imeVisible
+                )
                     && attempt < 2
             ) {
                 final int nextAttempt = attempt + 1;
@@ -1589,6 +1841,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             result.put("shown", shown);
             result.put("focused", focused);
             result.put("served", served);
+            result.put("reportedVisible", finalImeState.reportedVisible);
+            result.put("actualVisible", finalImeState.actualVisible);
             result.put(
                 "targetClass",
                 targetView == null ? "" : targetView.getClass().getName()
@@ -1612,15 +1866,13 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         Activity activity,
         View targetView,
         boolean focused,
-        boolean served,
-        boolean shown
+        boolean imeVisible
     ) {
         if (activity == null || targetView == null) {
             return false;
         }
         if (
-            shown
-                || served
+            imeVisible
                 || !targetView.isAttachedToWindow()
                 || !targetView.hasWindowFocus()
                 || !isViewHierarchyVisible(targetView)
@@ -1769,6 +2021,24 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (targetView == null) {
             return;
         }
+        if (isLikelySoftInputHost(targetView)) {
+            if (targetView.hasFocus()) {
+                return;
+            }
+            try {
+                targetView.requestFocus();
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+        try {
+            targetView.setFocusable(true);
+        } catch (Exception ignored) {
+        }
+        try {
+            targetView.setFocusableInTouchMode(true);
+        } catch (Exception ignored) {
+        }
         if (targetView.hasFocus()) {
             return;
         }
@@ -1782,21 +2052,163 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
-    private boolean isImeVisible(Activity activity, View targetView) {
-        if (activity == null) {
+    private int resolveSoftInputShowFlags(int attempt) {
+        return attempt > 0
+            ? InputMethodManager.SHOW_FORCED
+            : InputMethodManager.SHOW_IMPLICIT;
+    }
+
+    private boolean shouldUseForcedSoftInputShowFallback(
+        int attempt,
+        View targetView,
+        boolean focused,
+        boolean served
+    ) {
+        return attempt > 0 && targetView != null && (focused || served || isLikelySoftInputHost(targetView));
+    }
+
+    private boolean notifySoftInputViewClicked(
+        InputMethodManager inputMethodManager,
+        View targetView
+    ) {
+        if (inputMethodManager == null || targetView == null) {
             return false;
+        }
+        try {
+            inputMethodManager.viewClicked(targetView);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean requestInputMethodVisibility(
+        InputMethodManager inputMethodManager,
+        View targetView,
+        int flags
+    ) {
+        if (inputMethodManager == null || targetView == null) {
+            return false;
+        }
+        try {
+            return inputMethodManager.showSoftInput(targetView, flags);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void normalizeActivitySoftInputMode(Activity activity) {
+        if (activity == null || activity.getWindow() == null) {
+            return;
+        }
+        try {
+            activity
+                .getWindow()
+                .setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
+                );
+        } catch (Exception ignored) {
+        }
+    }
+
+    private int dpToPx(Context context, int dp) {
+        if (context == null || dp <= 0) {
+            return 0;
+        }
+        return Math.round(
+            dp * context.getResources().getDisplayMetrics().density
+        );
+    }
+
+    private ImeVisibilityState readImeVisibilityState(Activity activity, View targetView) {
+        if (activity == null) {
+            return new ImeVisibilityState(false, false, 0, 0);
         }
         View decorView =
             activity.getWindow() == null ? null : activity.getWindow().getDecorView();
         View insetsView = targetView != null ? targetView : decorView;
         if (insetsView == null) {
-            return false;
+            return new ImeVisibilityState(false, false, 0, 0);
         }
         try {
             WindowInsetsCompat windowInsets = ViewCompat.getRootWindowInsets(insetsView);
-            return windowInsets != null && windowInsets.isVisible(WindowInsetsCompat.Type.ime());
+            if (windowInsets == null) {
+                return new ImeVisibilityState(false, false, 0, 0);
+            }
+            Insets imeInsets = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            Insets navigationInsets =
+                windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            int imeBottomInset = imeInsets != null ? Math.max(0, imeInsets.bottom) : 0;
+            int navigationBottomInset =
+                navigationInsets != null ? Math.max(0, navigationInsets.bottom) : 0;
+            InputMethodManager inputMethodManager =
+                (InputMethodManager)
+                    activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            int inputMethodVisibleHeight =
+                readInputMethodWindowVisibleHeightPx(inputMethodManager);
+            int obscuredBottomInset = readFallbackImeBottomInsetPx(targetView, decorView);
+            int effectiveImeBottomInset =
+                Math.max(
+                    imeBottomInset,
+                    Math.max(obscuredBottomInset, inputMethodVisibleHeight)
+                );
+            int visibilityThresholdPx = dpToPx(insetsView.getContext(), IME_VISIBLE_INSET_THRESHOLD_DP);
+            boolean reportedVisible =
+                windowInsets.isVisible(WindowInsetsCompat.Type.ime());
+            boolean actualVisible =
+                effectiveImeBottomInset >
+                    navigationBottomInset + Math.max(visibilityThresholdPx, 0);
+            return new ImeVisibilityState(
+                reportedVisible || actualVisible,
+                actualVisible,
+                effectiveImeBottomInset,
+                navigationBottomInset
+            );
         } catch (Exception error) {
-            return false;
+            return new ImeVisibilityState(false, false, 0, 0);
+        }
+    }
+
+    private int readFallbackImeBottomInsetPx(View targetView, View decorView) {
+        View rootView = targetView != null ? targetView.getRootView() : decorView;
+        if (rootView == null) {
+            return 0;
+        }
+        try {
+            Rect visibleFrame = new Rect();
+            rootView.getWindowVisibleDisplayFrame(visibleFrame);
+            int visibleBottom = Math.max(0, visibleFrame.bottom);
+            if (visibleBottom <= 0) {
+                return 0;
+            }
+            int[] locationOnScreen = new int[] {0, 0};
+            rootView.getLocationOnScreen(locationOnScreen);
+            int rootBottomOnScreen =
+                Math.max(0, locationOnScreen[1]) + Math.max(0, rootView.getHeight());
+            if (rootBottomOnScreen <= 0) {
+                return 0;
+            }
+            return Math.max(0, rootBottomOnScreen - visibleBottom);
+        } catch (Exception error) {
+            return 0;
+        }
+    }
+
+    private int readInputMethodWindowVisibleHeightPx(InputMethodManager inputMethodManager) {
+        if (inputMethodManager == null) {
+            return 0;
+        }
+        try {
+            java.lang.reflect.Method visibleHeightMethod =
+                InputMethodManager.class.getMethod("getInputMethodWindowVisibleHeight");
+            Object rawValue = visibleHeightMethod.invoke(inputMethodManager);
+            if (!(rawValue instanceof Number)) {
+                return 0;
+            }
+            return Math.max(0, ((Number) rawValue).intValue());
+        } catch (Exception error) {
+            return 0;
         }
     }
 

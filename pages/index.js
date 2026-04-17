@@ -7125,6 +7125,113 @@ function getActiveTimerModalTextEntry() {
   return null;
 }
 
+function readTimerModalAndroidKeyboardTransitionInsetPx() {
+  const root = document.documentElement;
+  const body = document.body;
+  const isAndroidRuntime =
+    root?.classList.contains("controler-android-native") === true ||
+    body?.classList.contains("controler-android-native") === true;
+  if (!isAndroidRuntime || typeof window.getComputedStyle !== "function") {
+    return 0;
+  }
+  const insetValue = window
+    .getComputedStyle(root)
+    .getPropertyValue("--controler-keyboard-transition-inset");
+  const parsedInset = Number.parseFloat(String(insetValue || "").trim());
+  return Number.isFinite(parsedInset) ? Math.max(0, parsedInset) : 0;
+}
+
+function getTimerSessionFieldRevealState(modalBody) {
+  if (!(modalBody instanceof HTMLElement)) {
+    return null;
+  }
+  const existingState = modalBody.__controlerTimerSessionFieldRevealState;
+  if (existingState && typeof existingState === "object") {
+    return existingState;
+  }
+  const nextState = {
+    latchedExtraBottomSpacePx: 0,
+    autoRevealLocked: false,
+  };
+  modalBody.__controlerTimerSessionFieldRevealState = nextState;
+  return nextState;
+}
+
+function clearTimerSessionFieldRevealState(modal = null) {
+  const scope =
+    modal instanceof HTMLElement
+      ? modal
+      : document.getElementById("modal-overlay");
+  if (!(scope instanceof HTMLElement)) {
+    return false;
+  }
+  scope.querySelectorAll(".controler-form-modal-body").forEach((modalBody) => {
+    if (!(modalBody instanceof HTMLElement)) {
+      return;
+    }
+    modalBody.style.removeProperty(
+      "--controler-form-modal-body-extra-bottom-space",
+    );
+    delete modalBody.__controlerTimerSessionFieldRevealState;
+  });
+  return true;
+}
+
+function syncTimerSessionFieldRevealSpacing(modalBody) {
+  if (!(modalBody instanceof HTMLElement)) {
+    return 0;
+  }
+  const revealState = getTimerSessionFieldRevealState(modalBody);
+  const modalBodyRect = modalBody.getBoundingClientRect();
+  const visualViewport = window.visualViewport;
+  const viewportTop = Math.max(0, Number(visualViewport?.offsetTop) || 0);
+  const viewportHeight = Math.max(
+    0,
+    Number(visualViewport?.height) ||
+      Number(window.innerHeight) ||
+      Number(document.documentElement?.clientHeight) ||
+      Number(document.body?.clientHeight) ||
+      0,
+  );
+  const viewportBottom = viewportTop + viewportHeight;
+  const bodyTop = modalBodyRect.top + viewportTop;
+  const bodyBottom = modalBodyRect.bottom + viewportTop;
+  const hiddenBottomPx = Math.max(0, bodyBottom - viewportBottom);
+  const currentExtraBottomSpacePx = Math.max(
+    0,
+    Math.max(
+      Number.parseFloat(
+        String(
+          modalBody.style.getPropertyValue(
+            "--controler-form-modal-body-extra-bottom-space",
+          ) || "",
+        ).trim(),
+      ) || 0,
+      Math.round(Number(revealState?.latchedExtraBottomSpacePx) || 0),
+    ),
+  );
+  const nextExtraBottomSpacePx =
+    hiddenBottomPx > 0
+      ? Math.max(currentExtraBottomSpacePx, Math.round(hiddenBottomPx))
+      : currentExtraBottomSpacePx;
+  if (nextExtraBottomSpacePx > 0) {
+    if (revealState) {
+      revealState.latchedExtraBottomSpacePx = nextExtraBottomSpacePx;
+    }
+    modalBody.style.setProperty(
+      "--controler-form-modal-body-extra-bottom-space",
+      `${nextExtraBottomSpacePx}px`,
+    );
+    return nextExtraBottomSpacePx;
+  }
+  modalBody.style.removeProperty("--controler-form-modal-body-extra-bottom-space");
+  if (revealState) {
+    revealState.latchedExtraBottomSpacePx = 0;
+    revealState.autoRevealLocked = false;
+  }
+  return 0;
+}
+
 function isTimerModalProjectSuggestionVisible(inputId) {
   if (!isTimerModalProjectInputId(inputId)) {
     return false;
@@ -7968,9 +8075,23 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
       return;
     }
 
+    syncTimerSessionFieldRevealSpacing(modalBody);
+    const revealState = getTimerSessionFieldRevealState(modalBody);
+    const isRevealLocked =
+      Math.max(
+        0,
+        Math.round(Number(revealState?.latchedExtraBottomSpacePx) || 0),
+      ) > 0 || revealState?.autoRevealLocked === true;
     const visiblePopover = anchorContainer.querySelector?.(
       ".suggestion-popover.visible",
     );
+    if (
+      visiblePopover instanceof HTMLElement &&
+      readTimerModalAndroidKeyboardTransitionInsetPx() > 0 &&
+      !(getActiveTimerModalTextEntry() instanceof HTMLElement)
+    ) {
+      return;
+    }
     const modalBodyRect = modalBody.getBoundingClientRect();
     const anchorRect = revealAnchor.getBoundingClientRect();
     const anchorContainerRect = anchorContainer.getBoundingClientRect();
@@ -8036,7 +8157,7 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
     let nextScrollTop = currentScrollTop;
     const overshootTop = minVisibleTop - anchorTop;
     const overshootBottom = anchorBottom - maxVisibleBottom;
-    if (overshootTop > 0 && overshootBottom <= 0) {
+    if (!isRevealLocked && overshootTop > 0 && overshootBottom <= 0) {
       nextScrollTop = Math.max(currentScrollTop - overshootTop, 0);
     } else if (overshootBottom > 0 && overshootTop <= 0) {
       nextScrollTop = Math.max(currentScrollTop + overshootBottom, 0);
@@ -8044,14 +8165,18 @@ function scheduleTimerSessionFieldReveal(target, options = {}) {
       const scrollUpTop = Math.max(currentScrollTop - overshootTop, 0);
       const scrollDownTop = Math.max(currentScrollTop + overshootBottom, 0);
       nextScrollTop =
+        !isRevealLocked &&
         Math.abs(scrollUpTop - currentScrollTop) <=
-        Math.abs(scrollDownTop - currentScrollTop)
+          Math.abs(scrollDownTop - currentScrollTop)
           ? scrollUpTop
           : scrollDownTop;
     }
 
     if (Math.abs(nextScrollTop - currentScrollTop) > 1) {
       modalBody.scrollTop = Math.min(nextScrollTop, maxScrollTop);
+      if (revealState) {
+        revealState.autoRevealLocked = true;
+      }
     }
   };
   const runReveal = () => {
@@ -9155,6 +9280,7 @@ function openModal(options = {}) {
   );
   isModalOpen = true;
   uiTools?.resetModalOverlayPresentationState?.(modal);
+  clearTimerSessionFieldRevealState(modal);
   modal.dataset.controlerDisableAutofocus = "true";
   modal.hidden = false;
   modal.style.display = "flex";

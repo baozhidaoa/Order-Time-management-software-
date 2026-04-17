@@ -381,11 +381,161 @@
   const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
   const ANDROID_KEYBOARD_BASELINE_SESSION_KEY =
     "__controler_android_keyboard_baseline__";
+  const ANDROID_NATIVE_KEYBOARD_POLL_INTERVAL_MS = 96;
+  const ANDROID_NATIVE_KEYBOARD_FOCUS_POLL_HOLD_MS = 1600;
+  const ANDROID_NATIVE_KEYBOARD_BLUR_POLL_HOLD_MS = 480;
+  const ANDROID_NATIVE_KEYBOARD_TRACK_SELECTOR = [
+    "input[type='text']:not(:disabled)",
+    "input[type='search']:not(:disabled)",
+    "input[type='email']:not(:disabled)",
+    "input[type='url']:not(:disabled)",
+    "input[type='tel']:not(:disabled)",
+    "input[type='password']:not(:disabled)",
+    "input[type='number']:not(:disabled)",
+    "textarea:not(:disabled)",
+    "[contenteditable='true']",
+    "[contenteditable]:not([contenteditable='false'])",
+  ].join(", ");
   let keyboardViewportBaseHeight = 0;
   let lastKeyboardViewportHeight = 0;
   let keyboardOpenPeakInset = 0;
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
+  let nativeAndroidKeyboardInsetPx = 0;
+  let nativeAndroidKeyboardTransitionInsetPx = 0;
+  let nativeAndroidKeyboardVisible = false;
+  let nativeAndroidKeyboardPollTimerId = 0;
+  let nativeAndroidKeyboardPollInFlight = false;
+  let nativeAndroidKeyboardPollHoldUntil = 0;
+
+  function isAndroidNativeKeyboardTrackTarget(target = document.activeElement) {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    return target.matches?.(ANDROID_NATIVE_KEYBOARD_TRACK_SELECTOR) === true;
+  }
+
+  function normalizeNativeAndroidSoftInputState(rawState) {
+    const source =
+      rawState && typeof rawState === "object" && !Array.isArray(rawState)
+        ? rawState
+        : {};
+    const imeBottomInset = Math.max(
+      0,
+      Math.round(Number(source.imeBottomInset) || 0),
+    );
+    const navigationBottomInset = Math.max(
+      0,
+      Math.round(Number(source.navigationBottomInset) || 0),
+    );
+    const visibleBottomInset = Math.max(0, imeBottomInset - navigationBottomInset);
+    return {
+      reportedVisible: source.reportedVisible === true,
+      actualVisible: source.actualVisible === true,
+      imeBottomInset,
+      navigationBottomInset,
+      visibleBottomInset,
+    };
+  }
+
+  function shouldTrackNativeAndroidKeyboardState(now = Date.now()) {
+    return (
+      getNativeHostPlatform() === "android" &&
+      isReactNativeApp() &&
+      (
+        nativeAndroidKeyboardTransitionInsetPx > 0 ||
+        nativeAndroidKeyboardVisible ||
+        isAndroidNativeKeyboardTrackTarget() ||
+        now < nativeAndroidKeyboardPollHoldUntil
+      )
+    );
+  }
+
+  function clearNativeAndroidKeyboardPollTimer() {
+    if (nativeAndroidKeyboardPollTimerId > 0) {
+      window.clearTimeout(nativeAndroidKeyboardPollTimerId);
+      nativeAndroidKeyboardPollTimerId = 0;
+    }
+  }
+
+  function armNativeAndroidKeyboardPolling(holdDurationMs = 0) {
+    if (!(holdDurationMs > 0)) {
+      return;
+    }
+    nativeAndroidKeyboardPollHoldUntil = Math.max(
+      nativeAndroidKeyboardPollHoldUntil,
+      Date.now() + Math.max(0, Math.round(Number(holdDurationMs) || 0)),
+    );
+  }
+
+  async function syncNativeAndroidKeyboardState() {
+    if (getNativeHostPlatform() !== "android" || !isReactNativeApp()) {
+      return;
+    }
+    if (nativeAndroidKeyboardPollInFlight) {
+      return;
+    }
+    if (!shouldTrackNativeAndroidKeyboardState()) {
+      clearNativeAndroidKeyboardPollTimer();
+      if (
+        nativeAndroidKeyboardInsetPx > 0 ||
+        nativeAndroidKeyboardTransitionInsetPx > 0 ||
+        nativeAndroidKeyboardVisible
+      ) {
+        nativeAndroidKeyboardInsetPx = 0;
+        nativeAndroidKeyboardTransitionInsetPx = 0;
+        nativeAndroidKeyboardVisible = false;
+        applyKeyboardOpenState();
+      }
+      return;
+    }
+
+    nativeAndroidKeyboardPollInFlight = true;
+    clearNativeAndroidKeyboardPollTimer();
+    try {
+      const nextState = normalizeNativeAndroidSoftInputState(
+        await window.ControlerNativeBridge.call("ui.getSoftInputState"),
+      );
+      const nextKeyboardTransitionInsetPx = nextState.visibleBottomInset;
+      const nextKeyboardInsetPx = nextState.actualVisible
+        ? nextState.visibleBottomInset
+        : 0;
+      const nextKeyboardVisible =
+        nextState.actualVisible ||
+        nextState.reportedVisible ||
+        nextKeyboardTransitionInsetPx > 0;
+      const changed =
+        nextKeyboardInsetPx !== nativeAndroidKeyboardInsetPx ||
+        nextKeyboardTransitionInsetPx !== nativeAndroidKeyboardTransitionInsetPx ||
+        nextKeyboardVisible !== nativeAndroidKeyboardVisible;
+      nativeAndroidKeyboardInsetPx = nextKeyboardInsetPx;
+      nativeAndroidKeyboardTransitionInsetPx = nextKeyboardTransitionInsetPx;
+      nativeAndroidKeyboardVisible = nextKeyboardVisible;
+      if (changed) {
+        applyKeyboardOpenState();
+      }
+    } catch (error) {
+    } finally {
+      nativeAndroidKeyboardPollInFlight = false;
+      if (shouldTrackNativeAndroidKeyboardState()) {
+        nativeAndroidKeyboardPollTimerId = window.setTimeout(() => {
+          nativeAndroidKeyboardPollTimerId = 0;
+          void syncNativeAndroidKeyboardState();
+        }, ANDROID_NATIVE_KEYBOARD_POLL_INTERVAL_MS);
+        return;
+      }
+      if (
+        nativeAndroidKeyboardInsetPx > 0 ||
+        nativeAndroidKeyboardTransitionInsetPx > 0 ||
+        nativeAndroidKeyboardVisible
+      ) {
+        nativeAndroidKeyboardInsetPx = 0;
+        nativeAndroidKeyboardTransitionInsetPx = 0;
+        nativeAndroidKeyboardVisible = false;
+        applyKeyboardOpenState();
+      }
+    }
+  }
 
   function readPersistedAndroidKeyboardBaseline(viewportWidth = 0) {
     try {
@@ -603,23 +753,43 @@
       rawKeyboardDelta <= ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
         ? 0
         : rawKeyboardDelta;
+    const effectiveKeyboardTransitionDelta = Math.max(
+      transitionKeyboardDelta,
+      nativeAndroidKeyboardTransitionInsetPx,
+    );
+    const effectiveKeyboardInset = Math.max(
+      appliedKeyboardDelta,
+      nativeAndroidKeyboardInsetPx,
+    );
+    const effectiveKeyboardOpen =
+      nextKeyboardOpen ||
+      nativeAndroidKeyboardVisible ||
+      effectiveKeyboardInset > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX;
     root?.style.setProperty(
       "--controler-keyboard-inset",
-      `${appliedKeyboardDelta}px`,
+      `${effectiveKeyboardInset}px`,
     );
     root?.style.setProperty(
       "--controler-keyboard-transition-inset",
-      `${transitionKeyboardDelta}px`,
+      `${effectiveKeyboardTransitionDelta}px`,
     );
-    keyboardOpen = nextKeyboardOpen;
-    lastKeyboardViewportHeight = nextKeyboardOpen
+    keyboardOpen = effectiveKeyboardOpen;
+    lastKeyboardViewportHeight = effectiveKeyboardOpen
       ? viewportHeight
       : rawViewportHeight;
-    root?.classList.toggle("controler-keyboard-open", keyboardOpen);
-    body?.classList.toggle("controler-keyboard-open", keyboardOpen);
+    root?.classList.toggle("controler-keyboard-open", effectiveKeyboardOpen);
+    body?.classList.toggle("controler-keyboard-open", effectiveKeyboardOpen);
+    root?.classList.toggle(
+      "controler-keyboard-visual-inset-active",
+      effectiveKeyboardTransitionDelta > 0,
+    );
+    body?.classList.toggle(
+      "controler-keyboard-visual-inset-active",
+      effectiveKeyboardTransitionDelta > 0,
+    );
 
     if (
-      !keyboardOpen &&
+      !effectiveKeyboardOpen &&
       Math.abs(layoutViewportHeight - viewportHeight) <
         ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX &&
       viewportBaseCandidateHeight >=
@@ -633,6 +803,10 @@
 
   function syncKeyboardOpenState() {
     applyKeyboardOpenState();
+    if (shouldTrackNativeAndroidKeyboardState()) {
+      armNativeAndroidKeyboardPolling(ANDROID_NATIVE_KEYBOARD_BLUR_POLL_HOLD_MS);
+      void syncNativeAndroidKeyboardState();
+    }
 
     if (!keyboardStateFrameId) {
       const schedule =
@@ -671,10 +845,34 @@
 
   window.addEventListener(BRIDGE_EVENT_NAME, resyncRuntimeClasses);
   window.addEventListener("pageshow", resyncRuntimeClasses);
+  document.addEventListener("focusin", (event) => {
+    if (!isAndroidNativeKeyboardTrackTarget(event.target)) {
+      return;
+    }
+    armNativeAndroidKeyboardPolling(ANDROID_NATIVE_KEYBOARD_FOCUS_POLL_HOLD_MS);
+    void syncNativeAndroidKeyboardState();
+  });
+  document.addEventListener("focusout", (event) => {
+    if (
+      !isAndroidNativeKeyboardTrackTarget(event.target) &&
+      !nativeAndroidKeyboardVisible &&
+      nativeAndroidKeyboardTransitionInsetPx <= 0
+    ) {
+      return;
+    }
+    armNativeAndroidKeyboardPolling(ANDROID_NATIVE_KEYBOARD_BLUR_POLL_HOLD_MS);
+    void syncNativeAndroidKeyboardState();
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       resyncRuntimeClasses();
+      if (shouldTrackNativeAndroidKeyboardState()) {
+        armNativeAndroidKeyboardPolling(ANDROID_NATIVE_KEYBOARD_BLUR_POLL_HOLD_MS);
+        void syncNativeAndroidKeyboardState();
+      }
+      return;
     }
+    clearNativeAndroidKeyboardPollTimer();
   });
   window.visualViewport?.addEventListener("resize", syncKeyboardOpenState);
   window.visualViewport?.addEventListener("scroll", syncKeyboardOpenState);

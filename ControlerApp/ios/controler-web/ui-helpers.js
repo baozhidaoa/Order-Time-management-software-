@@ -449,6 +449,7 @@
   let lastAndroidInteractiveTextFocusIntentAt = 0;
   let lastAndroidInteractiveTextFocusIntentTarget = null;
   let lastAndroidSoftInputRequestAt = 0;
+  const modalInteractionIntentTimestamps = new WeakMap();
   const ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS = 320;
   const ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS = 420;
   const ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS = 120;
@@ -508,6 +509,23 @@
         trace: payload,
       });
     } catch (error) {}
+  }
+
+  function isAndroidFocusAssistOptedOut(target) {
+    return (
+      target instanceof HTMLElement &&
+      target.dataset?.controlerAndroidFocusAssist === "false"
+    );
+  }
+
+  function isAndroidInteractiveTextControlCandidate(target) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    if (target.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR)) {
+      return true;
+    }
+    return target.isContentEditable === true && !isAndroidFocusAssistOptedOut(target);
   }
 
   function markAndroidInteractiveTextFocusIntent(target) {
@@ -3121,6 +3139,25 @@
     );
   }
 
+  function hasPendingAndroidInteractiveTextFocusWork(target, now = Date.now()) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    const hasPendingRetries =
+      Array.isArray(focusTarget.__controlerAndroidFocusRetryTimers) &&
+      focusTarget.__controlerAndroidFocusRetryTimers.length > 0;
+    const hasPendingSoftInputRequest =
+      Number(focusTarget.__controlerAndroidSoftInputRequestPendingUntil || 0) > now;
+    const hasPendingTransfer =
+      pendingAndroidInteractiveTextFocusTransferTimerId > 0 &&
+      pendingAndroidInteractiveTextFocusTransferTarget === focusTarget;
+    return hasPendingRetries || hasPendingSoftInputRequest || hasPendingTransfer;
+  }
+
   function getAndroidModalAutofocusHost(target) {
     if (!(target instanceof Element)) {
       return null;
@@ -3189,7 +3226,7 @@
 
     const shouldRequestSoftInput =
       target.matches?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
-      target.isContentEditable === true;
+      isAndroidInteractiveTextControlCandidate(target);
     if (
       !shouldRequestSoftInput ||
       !isFocusedInteractiveTextControl(target) ||
@@ -3227,12 +3264,7 @@
     }
     lastAndroidSoftInputRequestAt = now;
     const requestIssuedAt = now;
-    const requestMode =
-      options?.mode === "show"
-        ? "show"
-        : options?.mode === "restart"
-          ? "restart"
-          : "restart";
+    const requestMode = options?.mode === "restart" ? "restart" : "show";
     const requestToken = `controler-soft-input-${now}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -3244,6 +3276,7 @@
       target: targetLabel,
       requestIssuedAt,
       mode: requestMode,
+      effectiveMode: requestMode,
     });
     const restoreFocusIfNeeded = () => {
       if (
@@ -3282,8 +3315,8 @@
           }));
         });
     const primaryMethodName =
-      requestMode === "show" ? "ui.showSoftInput" : "ui.restartSoftInput";
-    const allowFallback = requestMode !== "show";
+      requestMode === "restart" ? "ui.restartSoftInput" : "ui.showSoftInput";
+    const allowFallback = requestMode === "restart";
     void requestBridgeSoftInput(primaryMethodName, allowFallback)
       .then((bridgeResult) => {
         traceAndroidInput("request-soft-input-result", {
@@ -3334,8 +3367,7 @@
     }
     const activeInteractiveTarget =
       resolveInteractiveTextControlTarget(activeElement) ||
-      (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
-      activeElement.isContentEditable === true
+      (isAndroidInteractiveTextControlCandidate(activeElement)
         ? activeElement
         : null);
     if (
@@ -3474,8 +3506,7 @@
           ) {
             const activeInteractiveTarget =
               resolveInteractiveTextControlTarget(activeElement) ||
-              (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
-              activeElement.isContentEditable === true
+              (isAndroidInteractiveTextControlCandidate(activeElement)
                 ? activeElement
                 : null);
             if (
@@ -3577,8 +3608,7 @@
     const activeElement = document.activeElement;
     return activeElement instanceof HTMLElement
       ? resolveInteractiveTextControlTarget(activeElement) ||
-          (activeElement.matches?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
-          activeElement.isContentEditable === true
+          (isAndroidInteractiveTextControlCandidate(activeElement)
             ? activeElement
             : null)
       : null;
@@ -3927,9 +3957,17 @@
       const recentAutofocusRequestedAt = Number(
         modal.dataset.controlerAutofocusRequestedAt || 0,
       );
-      if (
+      const autofocusPendingTarget =
+        resolveModalPreferredInteractiveTextControl(modal) ||
+        modal.querySelector?.(ANDROID_PRIMARY_TEXT_ENTRY_SELECTOR) ||
+        modal.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR) ||
+        null;
+      const hasRecentAutofocusRequest =
         recentAutofocusRequestedAt > 0 &&
-        Date.now() - recentAutofocusRequestedAt < 420
+        Date.now() - recentAutofocusRequestedAt < 420;
+      if (
+        hasRecentAutofocusRequest &&
+        hasPendingAndroidInteractiveTextFocusWork(autofocusPendingTarget)
       ) {
         androidAutofocusedModalRoots.add(modal);
         return;
@@ -6485,6 +6523,7 @@
     clearProtectedModalPointerSuppression(overlay, {
       force: true,
     });
+    clearManagedModalFieldRevealState(overlay);
     delete overlay.dataset.controlerModalClosing;
     delete overlay.dataset.controlerAndroidDismissPendingUntil;
     overlay.style.removeProperty("--controler-modal-close-duration");
@@ -6493,7 +6532,7 @@
     overlay.style.opacity = "";
     overlay.style.pointerEvents = "";
     overlay.style.backgroundColor =
-      "var(--controler-perf-overlay-bg, var(--overlay-bg))";
+      "var(--controler-modal-backdrop-color, var(--overlay-bg))";
     overlay.style.visibility = "";
     const modalContent = overlay.querySelector(".modal-content");
     if (modalContent instanceof HTMLElement) {
@@ -6501,6 +6540,11 @@
       modalContent.style.transform = "";
       modalContent.style.visibility = "";
       modalContent.style.pointerEvents = "";
+    }
+    if (overlay.dataset?.controlerModalPersistent === "true") {
+      syncKeyboardAwareModalOverlay(overlay);
+      bindContentScopedModalViewportSync(overlay);
+      bindManagedModalFieldReveal(overlay);
     }
     return overlay;
   }
@@ -6520,20 +6564,25 @@
           : 0,
       ),
     );
+    const storedBackdropBackground = normalizeAndroidTransitionCoverBackground(
+      overlay.style.getPropertyValue("--controler-modal-dismiss-cover-bg"),
+    );
     const closeBackdropBackground =
-      typeof window.getComputedStyle === "function"
+      storedBackdropBackground ||
+      (typeof window.getComputedStyle === "function"
         ? resolveAndroidTransitionCoverBackgroundValue(
             window.getComputedStyle(overlay),
-            "var(--controler-perf-overlay-bg, var(--overlay-bg))",
+            "var(--controler-modal-backdrop-color, var(--overlay-bg))",
           )
-        : "var(--controler-perf-overlay-bg, var(--overlay-bg))";
+        : "var(--controler-modal-backdrop-color, var(--overlay-bg))");
     overlay.style.setProperty(
       "--controler-modal-close-duration",
       `${closeVisualDuration}ms`,
     );
     overlay.style.setProperty(
       "--controler-modal-close-backdrop-bg",
-      closeBackdropBackground || "var(--controler-perf-overlay-bg, var(--overlay-bg))",
+      closeBackdropBackground ||
+        "var(--controler-modal-backdrop-color, var(--overlay-bg))",
     );
     const modalContent = overlay.querySelector(".modal-content");
     const closeSurfaceBackground =
@@ -6744,10 +6793,7 @@
     if (!(overlay instanceof HTMLElement)) {
       return false;
     }
-    if (
-      overlay.classList.contains("controler-form-modal-overlay") ||
-      overlay.classList.contains("controler-themed-picker-overlay")
-    ) {
+    if (overlay.classList.contains("controler-themed-picker-overlay")) {
       return false;
     }
     return !!overlay.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR);
@@ -8867,13 +8913,17 @@
       return 0;
     }
     const timestamp = Date.now();
-    target.dataset.controlerModalInteractionIntentAt = String(timestamp);
+    modalInteractionIntentTimestamps.set(target, timestamp);
     return timestamp;
   }
 
   function readModalInteractionIntentAt(target) {
     if (!(target instanceof HTMLElement)) {
       return 0;
+    }
+    const timestamp = Number(modalInteractionIntentTimestamps.get(target) || 0);
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      return timestamp;
     }
     return (
       Number.parseInt(
@@ -9653,7 +9703,9 @@
       const cleanupManagedFieldReveal = modal.__controlerManagedFieldRevealCleanup;
       if (typeof cleanupManagedFieldReveal === "function") {
         modal.__controlerManagedFieldRevealCleanup = null;
-        cleanupManagedFieldReveal();
+        cleanupManagedFieldReveal({
+          preserveLatchedLayout: true,
+        });
       }
       resetAndroidModalAutofocusState(modal);
       resetModalEdgeSwipePresentation(modal);
@@ -9769,6 +9821,40 @@
     return modalBody instanceof HTMLElement ? modalBody : null;
   }
 
+  function getManagedModalFieldRevealState(modalBody) {
+    if (!(modalBody instanceof HTMLElement)) {
+      return null;
+    }
+    const existingState = modalBody.__controlerManagedFieldRevealState;
+    if (existingState && typeof existingState === "object") {
+      return existingState;
+    }
+    const nextState = {
+      latchedExtraBottomSpacePx: 0,
+      autoRevealLocked: false,
+    };
+    modalBody.__controlerManagedFieldRevealState = nextState;
+    return nextState;
+  }
+
+  function clearManagedModalFieldRevealState(modal) {
+    const overlay = resolveModalOverlayElement(modal);
+    const scope = overlay instanceof HTMLElement ? overlay : modal;
+    if (!(scope instanceof HTMLElement)) {
+      return false;
+    }
+    scope.querySelectorAll(".controler-form-modal-body").forEach((modalBody) => {
+      if (!(modalBody instanceof HTMLElement)) {
+        return;
+      }
+      modalBody.style.removeProperty(
+        "--controler-form-modal-body-extra-bottom-space",
+      );
+      delete modalBody.__controlerManagedFieldRevealState;
+    });
+    return true;
+  }
+
   function readManagedModalFieldRevealViewportMetrics() {
     const visualViewport = window.visualViewport;
     const viewportTop = Math.max(0, Number(visualViewport?.offsetTop) || 0);
@@ -9793,23 +9879,47 @@
     }
     if (!isManagedModalFieldRevealRuntime()) {
       modalBody.style.removeProperty("--controler-form-modal-body-extra-bottom-space");
+      delete modalBody.__controlerManagedFieldRevealState;
       return 0;
     }
+    const revealState = getManagedModalFieldRevealState(modalBody);
     const bodyRect = modalBody.getBoundingClientRect();
     const { viewportTop, viewportBottom } =
       readManagedModalFieldRevealViewportMetrics();
     const bodyTop = bodyRect.top + viewportTop;
     const bodyBottom = bodyRect.bottom + viewportTop;
     const hiddenBottomPx = Math.max(0, bodyBottom - viewportBottom);
-    if (hiddenBottomPx > 0) {
+    const currentExtraBottomSpacePx = Math.max(
+      0,
+      Math.max(
+        parseUiHelperPixelValue(
+          modalBody.style.getPropertyValue(
+            "--controler-form-modal-body-extra-bottom-space",
+          ),
+        ),
+        Math.round(Number(revealState?.latchedExtraBottomSpacePx) || 0),
+      ),
+    );
+    const nextExtraBottomSpacePx =
+      hiddenBottomPx > 0
+        ? Math.max(currentExtraBottomSpacePx, Math.round(hiddenBottomPx))
+        : currentExtraBottomSpacePx;
+    if (nextExtraBottomSpacePx > 0) {
+      if (revealState) {
+        revealState.latchedExtraBottomSpacePx = nextExtraBottomSpacePx;
+      }
       modalBody.style.setProperty(
         "--controler-form-modal-body-extra-bottom-space",
-        `${Math.round(hiddenBottomPx)}px`,
+        `${Math.round(nextExtraBottomSpacePx)}px`,
       );
-    } else {
-      modalBody.style.removeProperty("--controler-form-modal-body-extra-bottom-space");
+      return nextExtraBottomSpacePx;
     }
-    return hiddenBottomPx;
+    modalBody.style.removeProperty("--controler-form-modal-body-extra-bottom-space");
+    if (revealState) {
+      revealState.latchedExtraBottomSpacePx = 0;
+      revealState.autoRevealLocked = false;
+    }
+    return 0;
   }
 
   function scheduleManagedModalFieldReveal(modal, target, options = {}) {
@@ -9847,6 +9957,12 @@
       }
 
       syncManagedModalFieldRevealSpacing(modal, modalBody);
+      const revealState = getManagedModalFieldRevealState(modalBody);
+      const isRevealLocked =
+        Math.max(
+          0,
+          Math.round(Number(revealState?.latchedExtraBottomSpacePx) || 0),
+        ) > 0 || revealState?.autoRevealLocked === true;
       const bodyRect = modalBody.getBoundingClientRect();
       const fieldRect = field.getBoundingClientRect();
       const { viewportTop, viewportBottom } =
@@ -9876,14 +9992,15 @@
       const overshootTop = minVisibleTop - fieldTop;
       if (overshootBottom > 0 && overshootTop <= 0) {
         nextScrollTop = Math.max(modalBody.scrollTop + overshootBottom, 0);
-      } else if (overshootTop > 0 && overshootBottom <= 0) {
+      } else if (!isRevealLocked && overshootTop > 0 && overshootBottom <= 0) {
         nextScrollTop = Math.max(modalBody.scrollTop - overshootTop, 0);
       } else if (overshootBottom > 0 && overshootTop > 0) {
         const scrollDownTop = Math.max(modalBody.scrollTop + overshootBottom, 0);
         const scrollUpTop = Math.max(modalBody.scrollTop - overshootTop, 0);
         nextScrollTop =
+          isRevealLocked ||
           Math.abs(scrollDownTop - modalBody.scrollTop) <=
-          Math.abs(scrollUpTop - modalBody.scrollTop)
+            Math.abs(scrollUpTop - modalBody.scrollTop)
             ? scrollDownTop
             : scrollUpTop;
       }
@@ -9894,6 +10011,9 @@
       const clampedScrollTop = Math.min(nextScrollTop, maxScrollTop);
       if (Math.abs(clampedScrollTop - modalBody.scrollTop) > 1) {
         modalBody.scrollTop = clampedScrollTop;
+        if (revealState) {
+          revealState.autoRevealLocked = true;
+        }
       }
     };
     const runReveal = () => {
@@ -9914,7 +10034,9 @@
     }
     const existingCleanup = modal.__controlerManagedFieldRevealCleanup;
     if (typeof existingCleanup === "function") {
-      existingCleanup();
+      existingCleanup({
+        preserveLatchedLayout: true,
+      });
     }
     if (
       !isManagedModalFieldRevealRuntime() ||
@@ -10002,7 +10124,7 @@
       }
       scheduleActiveReveal();
     };
-    const cleanup = () => {
+    const cleanup = (options = {}) => {
       if (viewportRevealFrameId) {
         cancelFrame(viewportRevealFrameId);
         viewportRevealFrameId = 0;
@@ -10013,15 +10135,9 @@
       window.removeEventListener("orientationchange", handleViewportChange);
       window.visualViewport?.removeEventListener("resize", handleViewportChange);
       window.visualViewport?.removeEventListener("scroll", handleViewportChange);
-      modal
-        .querySelectorAll(".controler-form-modal-body")
-        .forEach((modalBody) => {
-          if (modalBody instanceof HTMLElement) {
-            modalBody.style.removeProperty(
-              "--controler-form-modal-body-extra-bottom-space",
-            );
-          }
-        });
+      if (options?.preserveLatchedLayout !== true) {
+        clearManagedModalFieldRevealState(modal);
+      }
       if (modal.__controlerManagedFieldRevealCleanup === cleanup) {
         modal.__controlerManagedFieldRevealCleanup = null;
       }
@@ -10700,7 +10816,13 @@
         ? window.getComputedStyle(scopedHost).borderRadius || ""
         : "";
     modal.style.backgroundColor =
-      "var(--controler-perf-overlay-bg, var(--overlay-bg))";
+      "var(--controler-modal-backdrop-color, var(--overlay-bg))";
+    modal.style.setProperty(
+      "--controler-modal-dismiss-cover-bg",
+      modal.dataset.controlerBackdropVisible === "false"
+        ? "transparent"
+        : "var(--controler-modal-backdrop-paint)",
+    );
     modal.style.display = options.visible === false ? "none" : "flex";
     modal.style.alignItems = options.alignItems || "center";
     modal.style.justifyContent = options.justifyContent || "center";

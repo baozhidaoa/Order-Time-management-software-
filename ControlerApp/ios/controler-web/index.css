@@ -657,6 +657,17 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
 
 /* 弹窗样式 */
 .modal-overlay {
+  --controler-modal-backdrop-color: var(
+    --controler-modal-backdrop-base-color,
+    var(--controler-perf-overlay-bg, var(--overlay-bg))
+  );
+  --controler-modal-backdrop-paint:
+    radial-gradient(
+      circle at top,
+      rgba(var(--accent-color-rgb), 0.1),
+      transparent 32%
+    ),
+    var(--controler-modal-backdrop-color);
   --controler-modal-overlay-width: min(
     100vw,
     var(--controler-visual-viewport-width, 100vw)
@@ -677,13 +688,7 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
   min-height: var(--controler-stable-visual-viewport-height, 100dvh);
   height: var(--controler-stable-visual-viewport-height, 100dvh);
   max-height: var(--controler-stable-visual-viewport-height, 100dvh);
-  background:
-    radial-gradient(
-      circle at top,
-      rgba(var(--accent-color-rgb), 0.1),
-      transparent 32%
-    ),
-    var(--controler-perf-overlay-bg, var(--overlay-bg));
+  background: var(--controler-modal-backdrop-paint);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -817,6 +822,7 @@ body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
   --controler-modal-overlay-visible-bottom-inset: max(
     0px,
+    var(--controler-keyboard-inset, 0px),
     var(--controler-keyboard-transition-inset, 0px)
   );
   --controler-modal-overlay-gap-fill-height: max(
@@ -904,21 +910,53 @@ body.controler-android-native .controler-keyboard-aware-modal-overlay {
   min-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
   max-height: var(--controler-stable-visual-viewport-height, 100dvh) !important;
+  background: var(
+    --controler-modal-dismiss-cover-bg,
+    var(--controler-modal-backdrop-paint)
+  ) !important;
   overflow-y: hidden !important;
-  transition:
-    clip-path 132ms cubic-bezier(0.22, 1, 0.36, 1),
-    -webkit-clip-path 132ms cubic-bezier(0.22, 1, 0.36, 1);
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  transition: none !important;
   will-change: auto;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  transform: none !important;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
 }
 
-body.controler-mobile-runtime.controler-android-native.controler-keyboard-open
-  .controler-keyboard-aware-modal-overlay,
-body.controler-android-native.controler-keyboard-open
-  .controler-keyboard-aware-modal-overlay {
-  will-change: clip-path;
+body.controler-mobile-runtime.controler-android-native
+  .controler-keyboard-aware-modal-overlay::before,
+body.controler-android-native
+  .controler-keyboard-aware-modal-overlay::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--controler-modal-overlay-visible-bottom-inset, 0px);
+  background: var(
+    --controler-keyboard-transition-cover-bg,
+    var(--surface-app, var(--bg-primary, #ffffff))
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-keyboard-aware-modal-overlay
+  > *,
+body.controler-android-native
+  .controler-keyboard-aware-modal-overlay
+  > * {
+  position: relative;
+  z-index: 1;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-keyboard-aware-modal-overlay[data-controler-backdrop-visible="false"]::before,
+body.controler-android-native
+  .controler-keyboard-aware-modal-overlay[data-controler-backdrop-visible="false"]::before {
+  background: transparent !important;
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -934,9 +972,9 @@ body.controler-android-native
         max(24px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))
     )
   ) !important;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  transform: none !important;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -956,7 +994,7 @@ body.controler-android-native
   inset: 0;
   background: var(
     --controler-modal-close-backdrop-bg,
-    var(--controler-perf-overlay-bg, var(--overlay-bg))
+    var(--controler-modal-backdrop-color, var(--overlay-bg))
   );
   pointer-events: none;
   z-index: 0;
@@ -9057,6 +9095,28 @@ body.controler-android-native .controler-form-modal-overlay {
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-body,
 body.controler-android-native .controler-form-modal-body {
   --controler-form-modal-body-base-bottom-space: 24px;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-form-modal-overlay.controler-keyboard-aware-modal-overlay
+  :is(.controler-form-modal-body, .existing-projects, .suggestion-popover),
+body.controler-android-native
+  .controler-form-modal-overlay.controler-keyboard-aware-modal-overlay
+  :is(.controler-form-modal-body, .existing-projects, .suggestion-popover) {
+  contain: layout style;
+  transform: none !important;
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+
+body.controler-mobile-runtime.controler-android-native
+  .controler-form-modal-overlay.controler-keyboard-aware-modal-overlay
+  :is(.suggestion-popover, .suggestion-item),
+body.controler-android-native
+  .controler-form-modal-overlay.controler-keyboard-aware-modal-overlay
+  :is(.suggestion-popover, .suggestion-item) {
+  backdrop-filter: var(--controler-perf-surface-blur) !important;
+  -webkit-backdrop-filter: var(--controler-perf-surface-blur) !important;
 }
 
 body.controler-mobile-runtime.controler-android-native .controler-form-modal-footer,
