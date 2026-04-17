@@ -1049,8 +1049,8 @@ body.controler-android-native
     opacity: 1;
   }
 
-  52% {
-    opacity: 0.72;
+  72% {
+    opacity: 0.9;
   }
 
   to {
@@ -1064,14 +1064,14 @@ body.controler-android-native
     transform: none;
   }
 
-  56% {
-    opacity: 0.94;
-    transform: translate3d(0, 1px, 0) scale(0.999);
+  72% {
+    opacity: 0.9;
+    transform: translate3d(0, 1px, 0) scale(0.998);
   }
 
   to {
     opacity: 0;
-    transform: translate3d(0, 4px, 0) scale(0.997);
+    transform: translate3d(0, 4px, 0) scale(0.996);
   }
 }
 
@@ -3401,10 +3401,6 @@ body.page-stats.stats-toolbar-bootstrap-pending .stats-main > :not(#stats-loadin
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-}
-
-body.page-stats.stats-toolbar-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #stats-loading-overlay[hidden] {
-  display: flex !important;
 }
 
 body.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
@@ -10946,10 +10942,6 @@ body.page-plan.plan-bootstrap-pending .plan-main > :not(#plan-loading-overlay) {
   pointer-events: none;
 }
 
-body.page-plan.plan-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #plan-loading-overlay[hidden] {
-  display: flex !important;
-}
-
 body.page-plan.plan-bootstrap-ready .planner-dashboard {
   opacity: 1;
   visibility: visible;
@@ -10965,10 +10957,6 @@ body.page-record.record-bootstrap-pending .record-main > :not(#record-loading-ov
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-}
-
-body.page-record.record-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #record-loading-overlay[hidden] {
-  display: flex !important;
 }
 
 body.page-record.record-bootstrap-ready .record-main > :not(#record-loading-overlay) {
@@ -10988,10 +10976,6 @@ body.page-todo.todo-bootstrap-pending .todo-main > :not(#todo-loading-overlay) {
   pointer-events: none;
 }
 
-body.page-todo.todo-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #todo-loading-overlay[hidden] {
-  display: flex !important;
-}
-
 body.page-todo.todo-bootstrap-ready .todo-main > :not(#todo-loading-overlay) {
   opacity: 1;
   visibility: visible;
@@ -11009,10 +10993,6 @@ body.page-diary.diary-bootstrap-pending .diary-main > :not(#diary-loading-overla
   pointer-events: none;
 }
 
-body.page-diary.diary-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #diary-loading-overlay[hidden] {
-  display: flex !important;
-}
-
 body.page-diary.diary-bootstrap-ready .diary-main > :not(#diary-loading-overlay) {
   opacity: 1;
   visibility: visible;
@@ -11028,10 +11008,6 @@ body.page-settings.settings-bootstrap-pending .settings-main > :not(#settings-ba
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-}
-
-body.page-settings.settings-bootstrap-pending:not(.controler-android-native):not(.controler-ios-native) #settings-backup-overlay[hidden] {
-  display: flex !important;
 }
 
 body.page-settings.settings-bootstrap-ready .settings-main > :not(#settings-backup-overlay) {

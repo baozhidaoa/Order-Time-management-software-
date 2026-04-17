@@ -1487,7 +1487,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             activity == null
                 || inputMethodManager == null
                 || targetView == null
-                || isLikelySoftInputHost(targetView)
                 || imeVisible
                 || attempt != 0
         ) {
@@ -1498,7 +1497,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 try {
                     if (
                         !targetView.isAttachedToWindow()
-                            || !targetView.hasWindowFocus()
+                            || !hasSoftInputWindowFocus(activity, targetView)
                             || !targetView.hasFocus()
                             || !inputMethodManager.isActive(targetView)
                             || readImeVisibilityState(activity, targetView).actualVisible
@@ -1548,6 +1547,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 inputMethodManager != null &&
                 targetView != null &&
                 inputMethodManager.isActive(targetView);
+            boolean restartedInputConnection = false;
             boolean imeVisibleBefore = initialImeState.actualVisible;
             boolean requestedViaInputMethod = false;
             boolean requestedViaForcedInputMethod = false;
@@ -1555,18 +1555,25 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             boolean requestedViaInsets = false;
             if (
                 !imeVisibleBefore
-                    && !webViewTarget
                     && inputMethodManager != null
                     && targetView != null
-                    && (focused || served || isLikelySoftInputHost(targetView))
+                    && (focused || served || webViewTarget)
+            ) {
+                restartedInputConnection =
+                    restartSoftInputConnection(inputMethodManager, targetView);
+            }
+            if (
+                !imeVisibleBefore
+                    && inputMethodManager != null
+                    && targetView != null
+                    && (focused || served || webViewTarget)
             ) {
                 requestedViaViewClick =
                     notifySoftInputViewClicked(inputMethodManager, targetView);
             }
             if (
                 !imeVisibleBefore &&
-                !webViewTarget &&
-                (focused || served) &&
+                (focused || served || webViewTarget) &&
                 inputMethodManager != null &&
                 targetView != null
             ) {
@@ -1580,7 +1587,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             ImeVisibilityState afterInputMethodState = readImeVisibilityState(activity, targetView);
             if (
                 !afterInputMethodState.actualVisible
-                    && !webViewTarget
                     && shouldUseForcedSoftInputShowFallback(
                         attempt,
                         targetView,
@@ -1627,6 +1633,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     + requestedViaForcedInputMethod
                     + " requestedViaViewClick="
                     + requestedViaViewClick
+                    + " restartedInputConnection="
+                    + restartedInputConnection
                     + " imeVisible="
                     + imeVisible
                     + " imeReportedVisible="
@@ -1645,7 +1653,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     activity,
                     targetView,
                     focused,
-                    imeVisible
+                    imeVisible,
+                    attempt
                 )
                 && attempt < 2) {
                 final int nextAttempt = attempt + 1;
@@ -1692,10 +1701,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         try {
             normalizeActivitySoftInputMode(activity);
             View targetView = resolveSoftInputTarget(activity, inputMethodManager);
-            if (isLikelySoftInputHost(targetView)) {
-                showSoftInputWithRetry(activity, inputMethodManager, attempt, promise);
-                return;
-            }
+            boolean webViewTarget = isLikelySoftInputHost(targetView);
             WindowInsetsControllerCompat insetsController =
                 activity.getWindow() == null || targetView == null
                     ? null
@@ -1708,10 +1714,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 !initialImeState.actualVisible
                     && inputMethodManager != null
                     && targetView != null
-                    && attempt == 0
+                    && (attempt == 0 || webViewTarget)
             ) {
-                inputMethodManager.restartInput(targetView);
-                restarted = true;
+                restarted = restartSoftInputConnection(inputMethodManager, targetView);
             }
             boolean focused = targetView != null && targetView.hasFocus();
             boolean served =
@@ -1727,12 +1732,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 !imeVisibleBefore
                     && inputMethodManager != null
                     && targetView != null
-                    && (focused || served || isLikelySoftInputHost(targetView))
+                    && (focused || served || webViewTarget)
             ) {
                 requestedViaViewClick =
                     notifySoftInputViewClicked(inputMethodManager, targetView);
             }
-            if (!imeVisibleBefore && targetView != null && inputMethodManager != null) {
+            if (
+                !imeVisibleBefore
+                    && targetView != null
+                    && inputMethodManager != null
+                    && (focused || served || webViewTarget)
+            ) {
                 requestedViaInputMethod =
                     requestInputMethodVisibility(
                         inputMethodManager,
@@ -1816,7 +1826,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                     activity,
                     targetView,
                     focused,
-                    imeVisible
+                    imeVisible,
+                    attempt
                 )
                     && attempt < 2
             ) {
@@ -1866,7 +1877,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         Activity activity,
         View targetView,
         boolean focused,
-        boolean imeVisible
+        boolean imeVisible,
+        int attempt
     ) {
         if (activity == null || targetView == null) {
             return false;
@@ -1874,16 +1886,23 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         if (
             imeVisible
                 || !targetView.isAttachedToWindow()
-                || !targetView.hasWindowFocus()
                 || !isViewHierarchyVisible(targetView)
         ) {
             return false;
+        }
+        if (!hasSoftInputWindowFocus(activity, targetView)) {
+            return attempt < 2;
         }
         View currentFocus = activity.getCurrentFocus();
         View decorView =
             activity.getWindow() == null ? null : activity.getWindow().getDecorView();
         View decorFocus = decorView == null ? null : decorView.findFocus();
-        return focused || targetView == currentFocus || targetView == decorFocus;
+        return (
+            focused ||
+            targetView == currentFocus ||
+            targetView == decorFocus ||
+            isLikelySoftInputHost(targetView)
+        );
     }
 
     private View resolveSoftInputTarget(
@@ -2022,8 +2041,20 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             return;
         }
         if (isLikelySoftInputHost(targetView)) {
+            try {
+                targetView.setFocusable(true);
+            } catch (Exception ignored) {
+            }
+            try {
+                targetView.setFocusableInTouchMode(true);
+            } catch (Exception ignored) {
+            }
             if (targetView.hasFocus()) {
                 return;
+            }
+            try {
+                targetView.requestFocusFromTouch();
+            } catch (Exception ignored) {
             }
             try {
                 targetView.requestFocus();
@@ -2049,6 +2080,32 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         try {
             targetView.requestFocus();
         } catch (Exception ignored) {
+        }
+    }
+
+    private boolean hasSoftInputWindowFocus(Activity activity, View targetView) {
+        if (targetView != null && targetView.hasWindowFocus()) {
+            return true;
+        }
+        if (activity == null || activity.getWindow() == null) {
+            return false;
+        }
+        View decorView = activity.getWindow().getDecorView();
+        return decorView != null && decorView.hasWindowFocus();
+    }
+
+    private boolean restartSoftInputConnection(
+        InputMethodManager inputMethodManager,
+        View targetView
+    ) {
+        if (inputMethodManager == null || targetView == null) {
+            return false;
+        }
+        try {
+            inputMethodManager.restartInput(targetView);
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 

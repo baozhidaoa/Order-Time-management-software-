@@ -20579,6 +20579,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         active: false,
       });
     }
+    if (
+      !allowRepeat &&
+      appPageLeaveOverlayVisible &&
+      !isReactNativeNavigationRuntime()
+    ) {
+      setAppPageLeaveOverlayState({
+        active: false,
+      });
+    }
     if (shouldReportToElectron) {
       electronApi.uiPageReady({
         href: window.location.href,
@@ -22706,6 +22715,47 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return true;
   }
 
+  function scheduleAndroidFocusedTextControlSoftInputRecovery(reason = "") {
+    if (!isAndroidNativeRuntime()) {
+      return false;
+    }
+    const activeControl = getActiveAndroidInteractiveTextControl();
+    if (
+      !(activeControl instanceof HTMLElement) ||
+      !isFocusedInteractiveTextControl(activeControl) ||
+      isAndroidKeyboardOpen()
+    ) {
+      return false;
+    }
+    const hasRecentIntent = hasRecentAndroidInteractiveTextFocusIntent(
+      activeControl,
+      2400,
+    );
+    const hasPendingWork = hasPendingAndroidInteractiveTextFocusWork(activeControl);
+    if (!hasRecentIntent && !hasPendingWork) {
+      return false;
+    }
+    window.setTimeout(() => {
+      if (
+        !isFocusedInteractiveTextControl(activeControl) ||
+        isAndroidKeyboardOpen() ||
+        !isVisibleInteractiveTextControl(activeControl)
+      ) {
+        return;
+      }
+      traceAndroidInput("window-focus-soft-input-recovery", {
+        target: getAndroidInputTraceTargetLabel(activeControl),
+        reason,
+        hasRecentIntent,
+        hasPendingWork,
+      });
+      requestAndroidSoftInputForFocusedTarget(activeControl, {
+        mode: hasPendingWork ? "restart" : "show",
+      });
+    }, 72);
+    return true;
+  }
+
   function initAndroidInteractiveTextAssist() {
     if (androidInteractiveTextAssistInitialized || !isAndroidNativeRuntime()) {
       return;
@@ -22724,6 +22774,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       "orientationchange",
       handleAndroidKeyboardViewportChange,
     );
+    window.addEventListener("focus", () => {
+      scheduleAndroidFocusedTextControlSoftInputRecovery("window-focus");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        return;
+      }
+      scheduleAndroidFocusedTextControlSoftInputRecovery(
+        "visibility-active",
+      );
+    });
     if (!androidInteractiveActionFocusBypassInitialized) {
       androidInteractiveActionFocusBypassInitialized = true;
       document.addEventListener(
@@ -24257,7 +24318,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } else {
       clearAppPageEnterTransitionState();
     }
-    resetAppPageTransitionRuntimeState({ clearStoredState: false });
+    resetAppPageTransitionRuntimeState({
+      clearStoredState: false,
+      hideOverlay: !hasPageBootstrapPendingBodyState(),
+    });
     clearAppPageTransitionState();
     syncAndroidNativeBootstrapTransitionOverlay();
   }
@@ -28797,6 +28861,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (typeof event.stopImmediatePropagation === "function") {
         event.stopImmediatePropagation();
       }
+      const actionProtectionDuration = resolveModalInteractionProtectionDuration(
+        modal,
+        MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+      );
+      protectVisibleParentModalsFromFollowThrough(
+        modal,
+        actionProtectionDuration,
+      );
+      activateModalInteractionShield(
+        resolveModalInteractionShieldDuration(
+          modal,
+          Math.max(actionProtectionDuration, 180),
+        ),
+      );
       Promise.resolve()
         .then(() => handler(event, modal))
         .catch((error) => {

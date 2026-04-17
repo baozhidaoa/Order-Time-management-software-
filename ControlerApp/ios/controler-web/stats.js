@@ -180,13 +180,15 @@ function waitForStatsStorageReady() {
 
 function emitStatsRangeLoad(stage, payload = {}) {
   const normalizedStage = String(stage || "").trim() || "unknown";
-  try {
-    console.info("[stats.range-load]", {
-      stage: normalizedStage,
-      ...payload,
-    });
-  } catch (error) {
-    // Ignore logging failures.
+  if (window.__CONTROLER_PERF_DEBUG__ === true) {
+    try {
+      console.info("[stats.range-load]", {
+        stage: normalizedStage,
+        ...payload,
+      });
+    } catch (error) {
+      // Ignore logging failures.
+    }
   }
   emitStatsDebugPerf("stats.range-load", {
     stage: normalizedStage,

@@ -1146,6 +1146,9 @@ function emitIndexDebugPerf(reason, payload = {}) {
 }
 
 function emitIndexStructuredLog(tag, payload = {}) {
+  if (window.__CONTROLER_PERF_DEBUG__ !== true) {
+    return;
+  }
   try {
     console.info(
       `[${String(tag || "").trim() || "index"}]`,

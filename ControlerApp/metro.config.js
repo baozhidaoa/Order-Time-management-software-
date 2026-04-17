@@ -14,6 +14,9 @@ if (typeof os.availableParallelism !== 'function') {
  *
  * @type {import('metro-config').MetroConfig}
  */
-const config = {};
+const config = {
+  maxWorkers: 1,
+  stickyWorkers: false,
+};
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), config);
