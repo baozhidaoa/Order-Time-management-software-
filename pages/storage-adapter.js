@@ -8517,10 +8517,11 @@
               persistMirrorSnapshot(true);
               return parsed;
             }
+            throw new Error("Native diary image save returned an empty payload.");
           } catch (error) {
             console.error("保存 React Native 日记图片资源失败:", error);
+            throw error;
           }
-          return null;
         },
         async resolveDiaryImageUri(options = {}) {
           try {

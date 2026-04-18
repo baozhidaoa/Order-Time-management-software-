@@ -2326,6 +2326,11 @@ function initSettingsCollapsibleSections() {
       !(body instanceof HTMLElement) ||
       !(inner instanceof HTMLElement)
     ) {
+      const initialExpanded = card.classList.contains("is-expanded")
+        ? true
+        : card.classList.contains("is-collapsed")
+          ? false
+          : true;
       const heading = content.querySelector("h2, h3, h4");
       if (!(heading instanceof HTMLElement)) {
         return;
@@ -2346,16 +2351,18 @@ function initSettingsCollapsibleSections() {
         </span>
         <span class="settings-collapse-toggle-icon" aria-hidden="true"></span>
       `;
+      toggle.setAttribute("aria-expanded", initialExpanded ? "true" : "false");
 
       content.style.display = "flex";
       content.style.flexDirection = "column";
       content.style.alignItems = "stretch";
       content.style.width = "100%";
-      body.style.display = "none";
+      body.hidden = !initialExpanded;
+      body.style.display = initialExpanded ? "block" : "none";
       body.style.width = "100%";
-      body.style.height = "0px";
-      body.style.maxHeight = "0px";
-      body.style.overflow = "hidden";
+      body.style.height = initialExpanded ? "auto" : "0px";
+      body.style.maxHeight = initialExpanded ? "none" : "0px";
+      body.style.overflow = initialExpanded ? "visible" : "hidden";
       inner.style.display = "block";
       inner.style.width = "100%";
       inner.style.height = "auto";
@@ -2383,8 +2390,8 @@ function initSettingsCollapsibleSections() {
       inner,
       expanded:
         card.classList.contains("is-expanded") ||
-        toggle.getAttribute("aria-expanded") === "true" ||
-        !body.hidden,
+        (!card.classList.contains("is-collapsed") &&
+          (toggle.getAttribute("aria-expanded") === "true" || !body.hidden)),
     };
 
     toggle.addEventListener("click", () => {

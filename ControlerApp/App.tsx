@@ -6915,31 +6915,6 @@ function App({
         });
         return;
       }
-      if (
-        eventName === 'ui.android-input-trace' ||
-        eventName === 'ui.timer-modal-focus-trace'
-      ) {
-        const tracePayload =
-          message.payload && typeof message.payload === 'object'
-            ? message.payload
-            : {};
-        const traceTag =
-          eventName === 'ui.android-input-trace'
-            ? '[android-input-trace]'
-            : '[timer-modal-focus-trace]';
-        try {
-          console.info(
-            traceTag,
-            JSON.stringify({
-              slot,
-              ...(tracePayload || {}),
-            }),
-          );
-        } catch (_error) {
-          console.info(traceTag, tracePayload);
-        }
-        return;
-      }
       if (eventName === 'storage.changed') {
         if (shouldRefreshShellThemeForSections(message.payload?.changedSections)) {
           refreshShellBootThemeFromNative().catch(() => undefined);

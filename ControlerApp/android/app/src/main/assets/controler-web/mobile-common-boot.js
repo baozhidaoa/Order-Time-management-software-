@@ -19225,61 +19225,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const androidPreferredModalFocusTargets = new WeakMap();
   let lastAndroidAutofocusVisibleModal = null;
   let activeAppNavigationTouchGesture = null;
-  const ANDROID_INPUT_TRACE_ENABLED = false;
-
-  function getAndroidInputTraceTargetLabel(target) {
-    if (!(target instanceof HTMLElement)) {
-      return "null";
-    }
-    const tagName = String(target.tagName || "").toLowerCase();
-    const type =
-      typeof target.getAttribute === "function"
-        ? target.getAttribute("type") || ""
-        : "";
-    const id = target.id ? `#${target.id}` : "";
-    const className =
-      typeof target.className === "string" && target.className.trim()
-        ? `.${target.className.trim().replace(/\s+/g, ".")}`
-        : "";
-    const name =
-      typeof target.getAttribute === "function"
-        ? target.getAttribute("name") || ""
-        : "";
-    return `${tagName}${type ? `[type=${type}]` : ""}${id}${className}${
-      name ? `[name=${name}]` : ""
-    }`;
-  }
-
-  function traceAndroidInput(eventName, detail = {}) {
-    if (!ANDROID_INPUT_TRACE_ENABLED || !isAndroidNativeRuntime()) {
-      return;
-    }
-    const payload = {
-      ts: Date.now(),
-      event: eventName,
-      keyboardOpen: isAndroidKeyboardOpen(),
-      shellActive: isShellPageActive(),
-      shellLoading: isShellTransitionLoading(),
-      ...detail,
-    };
-    try {
-      console.error(`[android-input] ${JSON.stringify(payload)}`);
-    } catch (error) {
-      console.error("[android-input]", eventName, payload);
-    }
-    try {
-      window.ControlerNativeBridge?.emitEvent?.("ui.android-input-trace", {
-        href: window.location.href,
-        page: resolveCurrentPagePerfKey(),
-        trace: payload,
-      });
-    } catch (error) {}
-  }
 
   function isAndroidFocusAssistOptedOut(target) {
     return (
       target instanceof HTMLElement &&
       target.dataset?.controlerAndroidFocusAssist === "false"
+    );
+  }
+
+  function isManagedAndroidTextFocusTarget(target) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    return (
+      focusTarget.dataset?.controlerManagedAndroidFocus === "true" ||
+      focusTarget.closest?.("[data-controler-managed-android-focus='true']") instanceof
+        HTMLElement
     );
   }
 
@@ -22067,19 +22032,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function requestAndroidSoftInputForFocusedTarget(target, options = {}) {
-    const targetLabel = getAndroidInputTraceTargetLabel(target);
     if (
       !isAndroidNativeRuntime() ||
       shouldSuppressAndroidInteractiveTextFocus() ||
       !(target instanceof HTMLElement) ||
       !isVisibleInteractiveTextControl(target)
     ) {
-      traceAndroidInput("request-soft-input-skipped", {
-        target: targetLabel,
-        suppressed: shouldSuppressAndroidInteractiveTextFocus(),
-        visible:
-          target instanceof HTMLElement ? isVisibleInteractiveTextControl(target) : false,
-      });
       return false;
     }
 
@@ -22091,12 +22049,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !isFocusedInteractiveTextControl(target) ||
       typeof window.ControlerNativeBridge?.call !== "function"
     ) {
-      traceAndroidInput("request-soft-input-not-applicable", {
-        target: targetLabel,
-        shouldRequestSoftInput,
-        focused: isFocusedInteractiveTextControl(target),
-        hasBridge: typeof window.ControlerNativeBridge?.call === "function",
-      });
       return false;
     }
 
@@ -22106,19 +22058,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0),
     );
     if (pendingUntil > now) {
-      traceAndroidInput("request-soft-input-dedup-pending", {
-        target: targetLabel,
-        pendingUntil,
-        now,
-      });
       return false;
     }
     if (now - lastAndroidSoftInputRequestAt < ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS) {
-      traceAndroidInput("request-soft-input-dedup-window", {
-        target: targetLabel,
-        lastRequestedAt: lastAndroidSoftInputRequestAt,
-        now,
-      });
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
@@ -22131,12 +22073,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     target.__controlerAndroidSoftInputRequestIssuedAt = requestIssuedAt;
     target.__controlerAndroidSoftInputRequestPendingUntil =
       now + ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS;
-    traceAndroidInput("request-soft-input-start", {
-      target: targetLabel,
-      requestIssuedAt,
-      mode: requestMode,
-      effectiveMode: requestMode,
-    });
     const restoreFocusIfNeeded = () => {
       if (
         target.__controlerAndroidSoftInputRequestToken !== requestToken ||
@@ -22177,13 +22113,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       requestMode === "restart" ? "ui.restartSoftInput" : "ui.showSoftInput";
     const allowFallback = requestMode === "restart";
     void requestBridgeSoftInput(primaryMethodName, allowFallback)
-      .then((bridgeResult) => {
-        traceAndroidInput("request-soft-input-result", {
-          target: targetLabel,
-          method: bridgeResult?.method || "",
-          result: bridgeResult?.result,
-        });
-      })
+      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
         if (target.__controlerAndroidSoftInputRequestToken !== requestToken) {
@@ -22243,9 +22173,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
     if (shouldSuppressAndroidInteractiveTextFocus()) {
-      traceAndroidInput("focus-control-suppressed", {
-        target: getAndroidInputTraceTargetLabel(target),
-      });
       return false;
     }
 
@@ -22257,25 +22184,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !(focusTarget instanceof HTMLElement) ||
       !isVisibleInteractiveTextControl(focusTarget)
     ) {
-      traceAndroidInput("focus-control-skipped", {
-        target: getAndroidInputTraceTargetLabel(focusTarget || target),
-      });
       return false;
     }
     if (shouldDeferToPreferredModalFocusTarget(focusTarget)) {
-      traceAndroidInput("focus-control-deferred-to-preferred-target", {
-        target: getAndroidInputTraceTargetLabel(focusTarget),
-      });
       return false;
     }
 
     markContainingModalAutofocusRequested(focusTarget);
     rememberModalPreferredInteractiveTextControl(focusTarget);
-    traceAndroidInput("focus-control-start", {
-      target: getAndroidInputTraceTargetLabel(focusTarget),
-      forceFocus: options.forceFocus === true,
-      selectText: options.selectText === true,
-    });
 
     const selectText = options.selectText === true;
     const allowRefocus = options.forceFocus === true;
@@ -22305,26 +22221,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         !focusTarget.isConnected ||
         !isVisibleInteractiveTextControl(focusTarget)
       ) {
-        traceAndroidInput("focus-control-abort-disconnected", {
-          target: getAndroidInputTraceTargetLabel(focusTarget),
-        });
         return true;
       }
       if (
         Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0) >
         focusRequestStartedAt
       ) {
-        traceAndroidInput("focus-control-abort-dismissed", {
-          target: getAndroidInputTraceTargetLabel(focusTarget),
-          dismissedAt: Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0),
-          startedAt: focusRequestStartedAt,
-        });
         return true;
       }
       if (shouldDeferToPreferredModalFocusTarget(focusTarget)) {
-        traceAndroidInput("focus-control-abort-preferred-target", {
-          target: getAndroidInputTraceTargetLabel(focusTarget),
-        });
         return true;
       }
       return false;
@@ -22404,10 +22309,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
 
       const focusedNow = isFocusedInteractiveTextControl(focusTarget);
-      traceAndroidInput("focus-control-after-focus", {
-        target: getAndroidInputTraceTargetLabel(focusTarget),
-        focusedNow,
-      });
 
       if (
         focusedNow &&
@@ -22647,9 +22548,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(focusTarget instanceof HTMLElement)) {
       return false;
     }
-    traceAndroidInput("release-focus", {
-      target: getAndroidInputTraceTargetLabel(focusTarget),
-    });
     const hostModal = getAndroidModalAutofocusHost(focusTarget);
     if (
       hostModal instanceof HTMLElement &&
@@ -22882,9 +22780,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       hostModal,
       ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS,
     );
-    traceAndroidInput("sync-keyboard-dismissed-blur", {
-      target: getAndroidInputTraceTargetLabel(focusTarget),
-    });
     try {
       focusTarget.blur?.();
     } catch (error) {}
@@ -22961,6 +22856,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       return false;
     }
+    if (isManagedAndroidTextFocusTarget(activeControl)) {
+      return false;
+    }
     const hasRecentIntent = hasRecentAndroidInteractiveTextFocusIntent(
       activeControl,
       2400,
@@ -22977,12 +22875,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ) {
         return;
       }
-      traceAndroidInput("window-focus-soft-input-recovery", {
-        target: getAndroidInputTraceTargetLabel(activeControl),
-        reason,
-        hasRecentIntent,
-        hasPendingWork,
-      });
       requestAndroidSoftInputForFocusedTarget(activeControl, {
         mode: hasPendingWork ? "restart" : "show",
       });
@@ -23028,31 +22920,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const targetTextControl = resolveInteractiveTextControlTarget(event.target);
           const activeControl = getActiveAndroidInteractiveTextControl();
           if (targetTextControl instanceof HTMLElement) {
-            markAndroidInteractiveTextFocusIntent(targetTextControl);
-            if (
-              activeControl instanceof HTMLElement &&
-              activeControl !== targetTextControl
-            ) {
-              scheduleAndroidInteractiveTextFocusTransfer(targetTextControl, {
-                delayMs: isAndroidKeyboardOpen() ? 96 : 48,
-              });
+            const managedFocusTarget =
+              isManagedAndroidTextFocusTarget(targetTextControl);
+            if (!managedFocusTarget) {
+              markAndroidInteractiveTextFocusIntent(targetTextControl);
+              if (
+                activeControl instanceof HTMLElement &&
+                activeControl !== targetTextControl
+              ) {
+                scheduleAndroidInteractiveTextFocusTransfer(targetTextControl, {
+                  delayMs: isAndroidKeyboardOpen() ? 96 : 48,
+                });
+              } else {
+                clearPendingAndroidInteractiveTextFocusTransfer(targetTextControl);
+              }
+              if (
+                isFocusedInteractiveTextControl(targetTextControl) &&
+                !isAndroidKeyboardOpen()
+              ) {
+                window.setTimeout(() => {
+                  if (
+                    isFocusedInteractiveTextControl(targetTextControl) &&
+                    !isAndroidKeyboardOpen()
+                  ) {
+                    requestAndroidSoftInputForFocusedTarget(targetTextControl, {
+                      mode: "show",
+                    });
+                  }
+                }, 0);
+              }
             } else {
               clearPendingAndroidInteractiveTextFocusTransfer(targetTextControl);
-            }
-            if (
-              isFocusedInteractiveTextControl(targetTextControl) &&
-              !isAndroidKeyboardOpen()
-            ) {
-              window.setTimeout(() => {
-                if (
-                  isFocusedInteractiveTextControl(targetTextControl) &&
-                  !isAndroidKeyboardOpen()
-                ) {
-                  requestAndroidSoftInputForFocusedTarget(targetTextControl, {
-                    mode: "show",
-                  });
-                }
-              }, 0);
             }
           } else {
             clearPendingAndroidInteractiveTextFocusTransfer();
@@ -23195,12 +23093,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           hasRecentAndroidInteractiveTextFocusIntent(focusTarget);
         rememberModalPreferredInteractiveTextControl(focusTarget);
         clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
-        traceAndroidInput("focusin", {
-          target: getAndroidInputTraceTargetLabel(focusTarget),
-          hadPendingRetries,
-          hadRecentFocusIntent,
-          dismissedAt: Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0),
-        });
         clearAndroidInteractiveTextControlPendingRetries(focusTarget);
         if (hadPendingRetries) {
           requestAndroidSoftInputForFocusedTarget(focusTarget);
@@ -23227,9 +23119,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         if (!(focusTarget instanceof HTMLElement)) {
           return;
         }
-        traceAndroidInput("focusout", {
-          target: getAndroidInputTraceTargetLabel(focusTarget),
-        });
         window.setTimeout(() => {
           if (!isFocusedInteractiveTextControl(focusTarget)) {
             clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
@@ -29074,6 +28963,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
     }
     if (
+      modal.dataset.controlerManagedFieldReveal === "false" ||
       !isManagedModalFieldRevealRuntime() ||
       !(resolveManagedModalFieldRevealBody(modal) instanceof HTMLElement)
     ) {

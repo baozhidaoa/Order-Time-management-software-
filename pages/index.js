@@ -139,39 +139,11 @@ let spendModalClickLocked = false;
 let lastSpendButtonAcceptedAt = 0;
 let modalProjectInputTarget = "project-name-input";
 let modalProjectInputTargetManual = false;
+let timerModalPendingFocusCancel = null;
 let timerModalSuggestionPreserveInputId = "";
 let timerModalSuggestionPreserveUntil = 0;
 let timerModalSkipNextOutsideSuggestionHideUntil = 0;
-const TIMER_MODAL_FOCUS_TRACE_ENABLED = false;
-
-function traceTimerModalFocus(eventName, detail = {}) {
-  if (!TIMER_MODAL_FOCUS_TRACE_ENABLED) {
-    return;
-  }
-  const payload = {
-    ts: Date.now(),
-    event: eventName,
-    activeElementId:
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement.id || document.activeElement.tagName
-        : "",
-    modalProjectInputTarget,
-    modalProjectInputTargetManual,
-    ...detail,
-  };
-  try {
-    console.error(`[timer-modal-focus] ${JSON.stringify(payload)}`);
-  } catch (error) {
-    console.error("[timer-modal-focus]", eventName, detail);
-  }
-  try {
-    window.ControlerNativeBridge?.emitEvent?.("ui.timer-modal-focus-trace", {
-      href: window.location.href,
-      page: "index",
-      trace: payload,
-    });
-  } catch (error) {}
-}
+const TIMER_MODAL_SUGGESTION_FIRST_FOCUS_DELAY_MS = 48;
 
 const TIMER_MODAL_PROJECT_INPUT_IDS = Object.freeze([
   "project-name-input",
@@ -7128,6 +7100,57 @@ function getActiveTimerModalTextEntry() {
   return null;
 }
 
+function isTimerModalAndroidKeyboardOpen() {
+  return (
+    document.documentElement?.classList.contains("controler-keyboard-open") ===
+      true ||
+    document.body?.classList.contains("controler-keyboard-open") === true
+  );
+}
+
+function hasPendingTimerModalSoftInputRequest(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0) > Date.now();
+}
+
+function shouldScheduleTimerModalProjectInputFocus(inputId) {
+  if (!isModalOpen || !isAndroidNativeRuntimeForIndex()) {
+    return false;
+  }
+
+  const input = document.getElementById(inputId);
+  if (!(input instanceof HTMLInputElement)) {
+    return false;
+  }
+
+  if (document.activeElement === input && input.matches?.(":focus")) {
+    return !isTimerModalAndroidKeyboardOpen();
+  }
+
+  const activeTextEntry = getActiveTimerModalTextEntry();
+  if (activeTextEntry instanceof HTMLElement && activeTextEntry !== input) {
+    return true;
+  }
+  if (isTimerModalAndroidKeyboardOpen()) {
+    return false;
+  }
+
+  const modal = document.getElementById("modal-overlay");
+  if (
+    !(modal instanceof HTMLElement) ||
+    modal.hidden ||
+    modal.style.display === "none" ||
+    modal.dataset.controlerModalClosing === "true" ||
+    Number(modal.__controlerPersistentHideTimer || 0) > 0
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function readTimerModalAndroidKeyboardTransitionInsetPx() {
   const root = document.documentElement;
   const body = document.body;
@@ -7177,6 +7200,19 @@ function clearTimerSessionFieldRevealState(modal = null) {
     );
     delete modalBody.__controlerTimerSessionFieldRevealState;
   });
+  return true;
+}
+
+function collapseTimerSessionFieldRevealSpacing(modalBody) {
+  if (!(modalBody instanceof HTMLElement)) {
+    return false;
+  }
+  modalBody.style.removeProperty("--controler-form-modal-body-extra-bottom-space");
+  const revealState = modalBody.__controlerTimerSessionFieldRevealState;
+  if (revealState && typeof revealState === "object") {
+    revealState.latchedExtraBottomSpacePx = 0;
+    revealState.autoRevealLocked = false;
+  }
   return true;
 }
 
@@ -7390,6 +7426,7 @@ function isModalProjectSelectionClickFallbackSuppressed(inputId) {
 }
 
 function resetTimerModalProjectInputTransientState() {
+  clearPendingTimerModalFocusRequest();
   clearTimerModalSuggestionDismissPreserveState();
   TIMER_MODAL_PROJECT_INPUT_IDS.forEach((inputId) => {
     clearModalProjectSuggestionHideTimer(inputId);
@@ -7447,6 +7484,7 @@ function prepareTimerModalProjectOptionInteraction(inputId) {
   if (!isTimerModalProjectInputId(inputId)) {
     return false;
   }
+  clearPendingTimerModalFocusRequest();
   markTimerModalProjectOptionInteraction(inputId);
   clearModalProjectSuggestionHideTimer(inputId);
   return true;
@@ -7844,6 +7882,15 @@ function getDefaultModalProjectInputTarget() {
   return "project-name-input";
 }
 
+function clearPendingTimerModalFocusRequest() {
+  if (typeof timerModalPendingFocusCancel === "function") {
+    try {
+      timerModalPendingFocusCancel();
+    } catch (error) {}
+  }
+  timerModalPendingFocusCancel = null;
+}
+
 function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
   const modal = document.getElementById("modal-overlay");
   if (!(modal instanceof HTMLElement) || !(target instanceof HTMLElement)) {
@@ -7856,11 +7903,6 @@ function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
   if (!(focusTarget instanceof HTMLElement) || !modal.contains(focusTarget)) {
     return false;
   }
-  traceTimerModalFocus("remember-interactive-focus-target", {
-    targetId: focusTarget.id || focusTarget.tagName,
-    markIntent: options.markIntent !== false,
-    requestAutofocus: options.requestAutofocus === true,
-  });
   if (options.requestAutofocus === true) {
     uiTools?.markModalAutofocusRequested?.(modal);
   }
@@ -7868,6 +7910,116 @@ function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
   if (options.markIntent !== false) {
     uiTools?.markAndroidInteractiveTextFocusIntent?.(focusTarget);
   }
+  return true;
+}
+
+function scheduleTimerModalProjectInputFocus(targetInputId, options = {}) {
+  if (
+    targetInputId !== "project-name-input" &&
+    targetInputId !== "next-project-input"
+  ) {
+    return false;
+  }
+
+  clearPendingTimerModalFocusRequest();
+  const focusDelayMs = Math.max(
+    0,
+    Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
+  );
+  let frameId = 0;
+  let timerId = 0;
+  let cancelled = false;
+
+  const cancelScheduledFocus = () => {
+    cancelled = true;
+    if (frameId > 0 && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(frameId);
+    }
+    frameId = 0;
+    if (timerId > 0) {
+      window.clearTimeout(timerId);
+    }
+    timerId = 0;
+    if (timerModalPendingFocusCancel === cancelScheduledFocus) {
+      timerModalPendingFocusCancel = null;
+    }
+  };
+
+  const runFocus = () => {
+    if (cancelled) {
+      return;
+    }
+    if (timerModalPendingFocusCancel === cancelScheduledFocus) {
+      timerModalPendingFocusCancel = null;
+    }
+    if (!isModalOpen) {
+      return;
+    }
+    const modal = document.getElementById("modal-overlay");
+    if (
+      !(modal instanceof HTMLElement) ||
+      modal.hidden ||
+      modal.style.display === "none" ||
+      modal.dataset.controlerModalClosing === "true" ||
+      Number(modal.__controlerPersistentHideTimer || 0) > 0
+    ) {
+      return;
+    }
+    const targetInput = document.getElementById(targetInputId);
+    if (!(targetInput instanceof HTMLElement)) {
+      return;
+    }
+    const targetAlreadyFocused =
+      document.activeElement === targetInput && targetInput.matches?.(":focus");
+    if (targetAlreadyFocused && isTimerModalAndroidKeyboardOpen()) {
+      return;
+    }
+    if (targetAlreadyFocused && hasPendingTimerModalSoftInputRequest(targetInput)) {
+      return;
+    }
+    rememberTimerModalInteractiveFocusTarget(targetInput, {
+      markIntent: false,
+    });
+    const activeTextEntry = getActiveTimerModalTextEntry();
+    if (
+      activeTextEntry instanceof HTMLElement &&
+      activeTextEntry !== targetInput
+    ) {
+      return;
+    }
+    if (modalProjectInputTarget !== targetInputId) {
+      return;
+    }
+    setModalProjectInputTarget(targetInputId, {
+      focus: true,
+      manual: modalProjectInputTargetManual === true,
+      nativeAssist: true,
+    });
+  };
+
+  const queueDelayedFocus = () => {
+    if (cancelled) {
+      return;
+    }
+    if (focusDelayMs > 0) {
+      timerId = window.setTimeout(() => {
+        timerId = 0;
+        runFocus();
+      }, focusDelayMs);
+      return;
+    }
+    runFocus();
+  };
+
+  timerModalPendingFocusCancel = cancelScheduledFocus;
+  if (typeof window.requestAnimationFrame === "function") {
+    frameId = window.requestAnimationFrame(() => {
+      frameId = 0;
+      queueDelayedFocus();
+    });
+    return true;
+  }
+  queueDelayedFocus();
   return true;
 }
 
@@ -7887,20 +8039,9 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
 
   modalProjectInputTarget = targetInputId;
   modalProjectInputTargetManual = !!manual;
-  traceTimerModalFocus("set-target", {
-    targetInputId,
-    focus,
-    showSuggestions,
-    manual: modalProjectInputTargetManual,
-    nativeAssist,
-  });
   hideTimerModalProjectSuggestionsExcept(targetInputId);
   const targetInput = document.getElementById(targetInputId);
   if (!targetInput) return;
-
-  if (showSuggestions) {
-    renderProjectSuggestionsForInput(targetInputId, targetInput.value, true);
-  }
 
   if (focus) {
     if (
@@ -7908,20 +8049,18 @@ function setModalProjectInputTarget(targetInputId, options = {}) {
       targetInput instanceof HTMLElement &&
       typeof uiTools?.focusAndroidInteractiveTextControl === "function"
     ) {
-      traceTimerModalFocus("focus-target-native-assist", {
-        targetInputId,
-      });
       uiTools.focusAndroidInteractiveTextControl(targetInput, {
         selectText: true,
         retryDelayMs: 64,
         retrySequence: [64, 160, 280],
       });
     } else {
-      traceTimerModalFocus("focus-target-dom-focus", {
-        targetInputId,
-      });
       targetInput.focus();
     }
+  }
+
+  if (showSuggestions) {
+    renderProjectSuggestionsForInput(targetInputId, targetInput.value, true);
   }
 }
 
@@ -9263,7 +9402,8 @@ function openModal(options = {}) {
     renderNextProjectSuggestions(nextProjectInput.value, false);
     syncTimerModalExistingProjectQuickPickSelection();
   }
-  const defaultTarget = getDefaultModalProjectInputTarget() || "project-name-input";
+  const defaultTarget = "project-name-input";
+  setModalProjectInputTarget(defaultTarget);
   if (options.focusInput === true) {
     uiTools?.markModalAutofocusRequested?.(modal);
     const focusTargetId =
@@ -9271,17 +9411,7 @@ function openModal(options = {}) {
       options.focusTargetId === "project-name-input"
         ? options.focusTargetId
         : getDefaultModalProjectInputTarget();
-    traceTimerModalFocus("open-modal-focus-request", {
-      focusTargetId,
-      defaultTarget,
-    });
-    setModalProjectInputTarget(focusTargetId || defaultTarget, {
-      showSuggestions: true,
-      focus: true,
-      nativeAssist: isAndroidNativeRuntimeForIndex(),
-    });
-  } else {
-    setModalProjectInputTarget(defaultTarget);
+    scheduleTimerModalProjectInputFocus(focusTargetId || defaultTarget);
   }
 
   resetShortenTimeInputs(false);
@@ -9347,6 +9477,7 @@ function closeModal(options = {}) {
   if (indexModalConfirmPending && options?.force !== true) {
     return false;
   }
+  clearPendingTimerModalFocusRequest();
   const modal = document.getElementById("modal-overlay");
   uiTools?.cancelAndroidInteractiveTextFocusWork?.(modal);
   if (options?.discardUnsavedClick !== false) {
@@ -9637,6 +9768,7 @@ function initIndexModalBindings() {
     timerModalOverlay.addEventListener(
       "pointerdown",
       (event) => {
+        clearPendingTimerModalFocusRequest();
         syncTimerModalInteractiveFocusTarget(event.target, {
           markIntent: true,
         });
@@ -9669,25 +9801,28 @@ function initIndexModalBindings() {
     input.addEventListener("pointerdown", (event) => {
       clearTimerModalSuggestionDismissPreserveState();
       rememberTimerModalInteractiveFocusTarget(input);
+      clearPendingTimerModalFocusRequest();
+      const shouldScheduleFocus =
+        shouldScheduleTimerModalProjectInputFocus(inputId);
+      const inputAlreadyFocused =
+        document.activeElement === input && input.matches?.(":focus");
       setModalProjectInputTarget(inputId, {
         manual: true,
-        showSuggestions: true,
-        focus: true,
-        nativeAssist: isAndroidNativeRuntimeForIndex(),
+        showSuggestions: shouldScheduleFocus || inputAlreadyFocused,
       });
-      traceTimerModalFocus("input-pointerdown-focus", {
-        inputId,
-        nativeAssist: isAndroidNativeRuntimeForIndex(),
+      if (!shouldScheduleFocus) {
+        return;
+      }
+      scheduleTimerModalProjectInputFocus(inputId, {
+        delayMs: TIMER_MODAL_SUGGESTION_FIRST_FOCUS_DELAY_MS,
       });
     });
     input.addEventListener("focus", () => {
       clearTimerModalSuggestionDismissPreserveState();
-      traceTimerModalFocus("input-focus", {
-        inputId,
-      });
       rememberTimerModalInteractiveFocusTarget(input, {
         markIntent: false,
       });
+      clearPendingTimerModalFocusRequest();
       clearModalProjectSuggestionHideTimer(inputId);
       setModalProjectInputTarget(inputId, {
         manual: true,
@@ -9698,10 +9833,6 @@ function initIndexModalBindings() {
       });
     });
     input.addEventListener("input", () => {
-      traceTimerModalFocus("input-input", {
-        inputId,
-        value: input.value,
-      });
       setModalProjectInputTarget(inputId, { manual: true });
       renderProjectSuggestionsForInput(inputId, input.value, true);
       if (inputId === "next-project-input") {
@@ -9721,9 +9852,6 @@ function initIndexModalBindings() {
       persistTimerSessionState();
     });
     input.addEventListener("blur", () => {
-      traceTimerModalFocus("input-blur", {
-        inputId,
-      });
       const shouldPreserveSuggestionsOnBlur =
         shouldPreserveTimerModalSuggestionsOnKeyboardDismiss(input, inputId);
       applyPathHint();
@@ -9850,6 +9978,7 @@ function initIndexModalBindings() {
       const activeProjectInputId = getTimerModalProjectInputIdFromElement(
         activeTextEntry,
       );
+      clearPendingTimerModalFocusRequest();
       if (
         activeProjectInputId &&
         isTimerModalProjectSuggestionVisible(activeProjectInputId)
@@ -9873,14 +10002,21 @@ function initIndexModalBindings() {
     if (!isModalOpen) {
       return;
     }
-    const activeTarget =
-      getActiveTimerModalTextEntry() ||
-      document.getElementById(getDefaultModalProjectInputTarget());
+    const activeTarget = getActiveTimerModalTextEntry();
     if (activeTarget instanceof HTMLElement) {
       scheduleTimerSessionFieldReveal(activeTarget, {
         delayMs,
       });
+      return;
     }
+    if (!(timerModalBody instanceof HTMLElement)) {
+      return;
+    }
+    if (isTimerModalAndroidKeyboardOpen()) {
+      syncTimerSessionFieldRevealSpacing(timerModalBody);
+      return;
+    }
+    collapseTimerSessionFieldRevealSpacing(timerModalBody);
   };
 
   window.visualViewport?.addEventListener("resize", () => {
@@ -10087,12 +10223,7 @@ async function handleIndexModalConfirmClick() {
     setProjectInputValue("project-name-input", nextProject);
     setProjectInputValue("next-project-input", "");
     resetShortenTimeInputs(false);
-    if (isModalOpen) {
-      setModalProjectInputTarget("next-project-input", { manual: false });
-    } else {
-      modalProjectInputTarget = "next-project-input";
-      modalProjectInputTargetManual = false;
-    }
+    setModalProjectInputTarget("next-project-input", { manual: false });
     persistTimerSessionState();
     const persistenceResult = await settleIndexTrackedPersistenceTasks(
       currentPersistenceTasks,
@@ -10234,6 +10365,7 @@ function initIndexPrimaryBindings() {
   const shortenMinutesInput = document.getElementById("shorten-minutes");
   if (shortenHoursInput) {
     shortenHoursInput.addEventListener("focus", () => {
+      clearPendingTimerModalFocusRequest();
       scheduleTimerSessionFieldReveal(shortenHoursInput, {
         delayMs: 0,
       });
@@ -10250,6 +10382,7 @@ function initIndexPrimaryBindings() {
   }
   if (shortenMinutesInput) {
     shortenMinutesInput.addEventListener("focus", () => {
+      clearPendingTimerModalFocusRequest();
       scheduleTimerSessionFieldReveal(shortenMinutesInput, {
         delayMs: 0,
       });
