@@ -180,13 +180,15 @@ function waitForStatsStorageReady() {
 
 function emitStatsRangeLoad(stage, payload = {}) {
   const normalizedStage = String(stage || "").trim() || "unknown";
-  try {
-    console.info("[stats.range-load]", {
-      stage: normalizedStage,
-      ...payload,
-    });
-  } catch (error) {
-    // Ignore logging failures.
+  if (window.__CONTROLER_PERF_DEBUG__ === true) {
+    try {
+      console.info("[stats.range-load]", {
+        stage: normalizedStage,
+        ...payload,
+      });
+    } catch (error) {
+      // Ignore logging failures.
+    }
   }
   emitStatsDebugPerf("stats.range-load", {
     stage: normalizedStage,
@@ -1059,7 +1061,8 @@ function shouldRefreshStatsForExternalChange(detail = {}) {
   const recordsChanged = changedSections.includes("records");
   const checkinsChanged =
     changedSections.includes("dailyCheckins") ||
-    changedSections.includes("checkinItems");
+    changedSections.includes("checkinItems") ||
+    changedSections.includes("checkinHistorySummary");
   const projectsChanged =
     changedSections.includes("projects") || changedSections.includes("core");
   if (!recordsChanged && !checkinsChanged && !projectsChanged) {
@@ -10961,7 +10964,57 @@ function loadCheckinHeatmapData() {
         : typeof window.ControlerStorage?.dump === "function"
           ? window.ControlerStorage.dump()?.checkinItems
           : JSON.parse(localStorage.getItem("checkinItems") || "[]");
-    const daily =
+    const summary =
+      typeof window.ControlerStorage?.getStateValue === "function"
+        ? window.ControlerStorage.getStateValue("checkinHistorySummary")
+        : typeof window.ControlerStorage?.dump === "function"
+          ? window.ControlerStorage.dump()?.checkinHistorySummary
+          : JSON.parse(localStorage.getItem("checkinHistorySummary") || "{}");
+    const normalizeSummary = (source) => {
+      const safeSource =
+        source && typeof source === "object" && !Array.isArray(source)
+          ? source
+          : {};
+      const normalized = {};
+      Object.keys(safeSource).forEach((itemId) => {
+        const normalizedItemId = String(itemId || "").trim();
+        if (!normalizedItemId) {
+          return;
+        }
+        const entry = safeSource[itemId];
+        const checkedDates = Array.from(
+          new Set(
+            (Array.isArray(entry?.checkedDates) ? entry.checkedDates : [])
+              .map((dateText) =>
+                typeof dateText === "string" ? dateText.trim().slice(0, 10) : "",
+              )
+              .filter((dateText) => /^\d{4}-\d{2}-\d{2}$/.test(dateText)),
+          ),
+        ).sort();
+        normalized[normalizedItemId] = {
+          checkedDaysCount: checkedDates.length,
+          checkedDates,
+          updatedAt:
+            typeof entry?.updatedAt === "string" && entry.updatedAt.trim()
+              ? entry.updatedAt.trim()
+              : "",
+        };
+      });
+      return normalized;
+    };
+    const normalizedSummary = normalizeSummary(summary);
+    const hasSummary = Object.keys(normalizedSummary).length > 0;
+    const dailyFromSummary = Object.entries(normalizedSummary).flatMap(
+      ([itemId, entry]) =>
+        (Array.isArray(entry?.checkedDates) ? entry.checkedDates : []).map(
+          (dateText) => ({
+            itemId,
+            date: dateText,
+            checked: true,
+          }),
+        ),
+    );
+    const dailyFallback =
       typeof window.ControlerStorage?.getStateValue === "function"
         ? window.ControlerStorage.getStateValue("dailyCheckins")
         : typeof window.ControlerStorage?.dump === "function"
@@ -10969,11 +11022,16 @@ function loadCheckinHeatmapData() {
           : JSON.parse(localStorage.getItem("dailyCheckins") || "[]");
     return {
       items: Array.isArray(items) ? items : [],
-      daily: Array.isArray(daily) ? daily : [],
+      summary: normalizedSummary,
+      daily: hasSummary
+        ? dailyFromSummary
+        : Array.isArray(dailyFallback)
+          ? dailyFallback
+          : [],
     };
   } catch (error) {
     console.error("加载打卡数据失败:", error);
-    return { items: [], daily: [] };
+    return { items: [], summary: {}, daily: [] };
   }
 }
 

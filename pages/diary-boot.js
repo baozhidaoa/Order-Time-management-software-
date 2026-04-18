@@ -674,6 +674,7 @@ const DIARY_DRAFT_SAVE_DELAY_MS = 300;
 const DIARY_AUTOSAVE_DELAY_MS = 2400;
 const DIARY_EDITOR_IMAGE_LONG_PRESS_MS = 320;
 const DIARY_EDITOR_NATIVE_INPUT_RESTART_DELAY_MS = 24;
+const DIARY_EDITOR_CLOSE_VISUAL_DURATION_MS = 216;
 const DIARY_IMAGE_URI_CACHE_LIMIT = 96;
 const DIARY_CONTENT_VERSION = 2;
 const DIARY_LIST_PREVIEW_IMAGE_LIMIT = 2;
@@ -716,6 +717,40 @@ let diaryDeferredRuntimePendingResume = false;
 let diaryPendingExternalStorageRefresh = false;
 let diaryEditorRuntime = null;
 const diaryImageUriCache = new Map();
+
+function parseDiaryCssDurationMs(rawValue, fallbackMs = 0) {
+  const normalizedValue = String(rawValue || "").trim();
+  if (!normalizedValue) {
+    return Math.max(0, Math.round(Number(fallbackMs) || 0));
+  }
+  const durationMatch = normalizedValue.match(/^(-?\d*\.?\d+)(ms|s)$/i);
+  if (!durationMatch) {
+    return Math.max(0, Math.round(Number(fallbackMs) || 0));
+  }
+  const numericValue = Number(durationMatch[1]);
+  if (!Number.isFinite(numericValue)) {
+    return Math.max(0, Math.round(Number(fallbackMs) || 0));
+  }
+  const durationMs =
+    String(durationMatch[2] || "").toLowerCase() === "s"
+      ? numericValue * 1000
+      : numericValue;
+  return Math.max(0, Math.round(durationMs));
+}
+
+function readDiaryEditorCloseVisualDurationMs(overlay) {
+  if (
+    !(overlay instanceof HTMLElement) ||
+    typeof window.getComputedStyle !== "function"
+  ) {
+    return DIARY_EDITOR_CLOSE_VISUAL_DURATION_MS;
+  }
+  const computedStyle = window.getComputedStyle(overlay);
+  return parseDiaryCssDurationMs(
+    computedStyle.getPropertyValue("--controler-diary-editor-close-duration"),
+    DIARY_EDITOR_CLOSE_VISUAL_DURATION_MS,
+  );
+}
 const diaryImageUriPendingRequests = new Map();
 const diaryPendingPersistenceTasks = new Set();
 let diaryBeforePageLeaveGuardBound = false;
@@ -2527,25 +2562,31 @@ async function commitDiaryLocalChange({
 
   const persistMeta = normalizeDiarySaveOptions(applyResult);
   syncDiaryDataIndex();
-  const perfAction = failureTitle === "删除失败" ? "diary-delete" : "diary-save";
-  const loadingDelayMs =
-    uiTools?.getBlockingMutationOverlayDelayMs?.({
-      mode: "fullscreen",
-    }) ?? 1200;
+  const isDeleteMutation = failureTitle === "删除失败";
+  const perfAction = isDeleteMutation ? "diary-delete" : "diary-save";
+  const loadingDelayMs = isDeleteMutation
+    ? 0
+    : (
+        uiTools?.getBlockingMutationOverlayDelayMs?.({
+          mode: "fullscreen",
+        }) ?? 1200
+      );
   uiTools?.markPerfStage?.("diary-form-save-start", {
     allowRepeat: true,
     action: perfAction,
   });
-  setDiaryLoadingState({
-    active: true,
-    mode: "fullscreen",
-    title: failureTitle === "删除失败" ? "正在删除日记" : "正在保存日记",
-    message:
-      failureTitle === "删除失败"
-        ? "正在同步删除日记数据，请稍候"
-        : "正在写入日记与分类数据，请稍候",
-    delayMs: loadingDelayMs,
-  });
+  const showLoadingTask = isDeleteMutation
+    ? showDiaryDeleteLoadingState()
+    : setDiaryLoadingState({
+        active: true,
+        mode: "fullscreen",
+        title: "正在保存日记",
+        message: "正在写入日记与分类数据，请稍候",
+        delayMs: loadingDelayMs,
+      });
+  if (isDeleteMutation) {
+    await showLoadingTask;
+  }
   const saveTask = saveDiaryData(persistMeta);
   try {
     if (typeof closeModal === "function") {
@@ -2901,6 +2942,7 @@ function setDiaryLoadingState(options = {}) {
     mode = "inline",
     title = "正在加载数据中",
     delayMs = 0,
+    delegateToNative = undefined,
     message =
       mode === "fullscreen"
         ? "正在读取当前月份的日记与分类，请稍候"
@@ -2922,11 +2964,24 @@ function setDiaryLoadingState(options = {}) {
     title,
     message,
     delayMs,
+    delegateToNative,
     settledRoot,
     settleQuietWindowMs,
     settleMaxWaitMs,
     settleMinQuietFrames,
     waitForSettledContent,
+  });
+}
+
+function showDiaryDeleteLoadingState(options = {}) {
+  return setDiaryLoadingState({
+    active: true,
+    mode: "fullscreen",
+    title: "正在删除日记",
+    message: "正在同步删除日记数据，请稍候",
+    delayMs: 0,
+    delegateToNative: false,
+    ...options,
   });
 }
 
@@ -3443,6 +3498,10 @@ async function requestDiaryConfirmation(message, options = {}) {
       confirmText: localizeDiaryUiText(options.confirmText || "确定"),
       cancelText: localizeDiaryUiText(options.cancelText || "取消"),
       danger: !!options.danger,
+      beforeConfirmClose:
+        typeof options.beforeConfirmClose === "function"
+          ? options.beforeConfirmClose
+          : null,
     });
   }
   return confirm(localizeDiaryUiText(message));
@@ -4997,6 +5056,7 @@ async function confirmDiaryModalDelete({
   deleteOperation,
   notFoundMessage = "未找到要删除的内容",
   beforeClose = null,
+  beforeConfirmClose = null,
   closeModal,
   failureTitle = "删除失败",
   failureMessage = "删除后保存失败，已恢复删除前内容。",
@@ -5012,6 +5072,7 @@ async function confirmDiaryModalDelete({
     confirmText: "删除",
     cancelText: "取消",
     danger: true,
+    beforeConfirmClose,
   });
   if (!confirmed) {
     return false;
@@ -5938,6 +5999,13 @@ function updateDiaryEditorSelection(runtime, range, options = {}) {
   return true;
 }
 
+function isDiaryEditorRangeMeaningfullyExpanded(range) {
+  if (!(range instanceof Range) || range.collapsed) {
+    return false;
+  }
+  return String(range.toString() || "").replace(/\u200B/g, "").length > 0;
+}
+
 function createDiaryCaretMarker() {
   const marker = document.createElement("span");
   marker.dataset.diaryCaretMarker = "true";
@@ -5988,6 +6056,38 @@ function createDiarySelectionHolder() {
   const holder = document.createElement("span");
   holder.dataset.diarySelectionHolder = "true";
   return holder;
+}
+
+function createDiarySelectionBoundaryMarker(kind = "start") {
+  const marker = document.createElement("span");
+  marker.dataset.diarySelectionBoundaryMarker = kind === "end" ? "end" : "start";
+  marker.textContent = "\u200B";
+  marker.style.display = "inline-block";
+  marker.style.width = "0";
+  marker.style.overflow = "hidden";
+  marker.style.pointerEvents = "none";
+  marker.setAttribute("aria-hidden", "true");
+  return marker;
+}
+
+function restoreDiarySelectionFromMarkers(runtime, startMarker, endMarker, options = {}) {
+  if (
+    !(startMarker instanceof HTMLElement) ||
+    !(endMarker instanceof HTMLElement) ||
+    !startMarker.isConnected ||
+    !endMarker.isConnected
+  ) {
+    startMarker?.remove?.();
+    endMarker?.remove?.();
+    return false;
+  }
+  const range = document.createRange();
+  range.setStartAfter(startMarker);
+  range.setEndBefore(endMarker);
+  const updated = updateDiaryEditorSelection(runtime, range, options);
+  startMarker.remove();
+  endMarker.remove();
+  return updated;
 }
 
 function splitDiaryInlineAncestorAroundNode(node, ancestor) {
@@ -6400,6 +6500,26 @@ function getDiaryTextStyleTokenForContainer(container) {
     : DIARY_EDITOR_TEXT_STYLE_TOKENS.body;
 }
 
+function isDiaryInlineStyleUniformForContainer(container, selector) {
+  if (!(container instanceof HTMLElement) || !selector) {
+    return false;
+  }
+  const meaningfulChildNodes = Array.from(container.childNodes || []).filter((node) => {
+    if (node instanceof Text) {
+      return String(node.textContent || "").replace(/\u200B/g, "").trim().length > 0;
+    }
+    return true;
+  });
+  if (!meaningfulChildNodes.length) {
+    return false;
+  }
+  if (meaningfulChildNodes.length === 1) {
+    const onlyChild = meaningfulChildNodes[0];
+    return onlyChild instanceof HTMLElement && onlyChild.matches(selector);
+  }
+  return false;
+}
+
 function applyDiaryTextStyleToContainer(container, token) {
   if (!(container instanceof HTMLElement)) {
     return false;
@@ -6413,6 +6533,43 @@ function applyDiaryTextStyleToContainer(container, token) {
   }
   const wrapper = document.createElement("span");
   wrapper.setAttribute("data-size", normalizedToken);
+  while (container.firstChild) {
+    wrapper.appendChild(container.firstChild);
+  }
+  if (!wrapper.firstChild) {
+    wrapper.appendChild(document.createElement("br"));
+  }
+  container.appendChild(wrapper);
+  return true;
+}
+
+function applyDiaryInlineStyleToContainer(container, options = {}) {
+  if (!(container instanceof HTMLElement)) {
+    return false;
+  }
+  const cleanupSelector =
+    typeof options.cleanupSelector === "string" && options.cleanupSelector.trim()
+      ? options.cleanupSelector.trim()
+      : "";
+  const tagName =
+    typeof options.tagName === "string" && options.tagName.trim()
+      ? options.tagName.trim()
+      : "span";
+  if (cleanupSelector) {
+    unwrapDiaryElements(container, cleanupSelector);
+  }
+  container.normalize();
+  if (options.unwrapOnly === true) {
+    return true;
+  }
+  const wrapper = document.createElement(tagName);
+  if (typeof options.attributes === "object" && options.attributes) {
+    Object.entries(options.attributes).forEach(([key, value]) => {
+      if (typeof value === "string" && value) {
+        wrapper.setAttribute(key, value);
+      }
+    });
+  }
   while (container.firstChild) {
     wrapper.appendChild(container.firstChild);
   }
@@ -6464,6 +6621,59 @@ function toggleDiaryBlockTextStyleAtCaret(runtime, options = {}) {
   range.insertNode(marker);
   styleContainers.forEach((container) => {
     applyDiaryTextStyleToContainer(container, resolvedToken);
+  });
+  pruneEmptyDiaryInlineWrappers(editor);
+  editor.normalize();
+  ensureDiaryEditorHasContentBlock(editor);
+  return restoreDiaryCaretFromMarker(runtime, marker, {
+    syncWindowSelection: options.syncWindowSelection,
+  });
+}
+
+function toggleDiaryBlockInlineStyleAtCaret(runtime, options = {}) {
+  const editor = runtime?.elements?.editor;
+  if (!(editor instanceof HTMLElement)) {
+    return false;
+  }
+  const range = getDiaryEditorActionRange(runtime);
+  if (!(range instanceof Range) || !range.collapsed) {
+    return false;
+  }
+  const cleanupSelector =
+    typeof options.cleanupSelector === "string" && options.cleanupSelector.trim()
+      ? options.cleanupSelector.trim()
+      : "";
+  if (!cleanupSelector) {
+    return false;
+  }
+  const selectedBlocks = getDiaryEditorSelectedBlocks(editor, range).filter(
+    (block) => block instanceof HTMLElement && !block.matches(".diary-image-block"),
+  );
+  if (!selectedBlocks.length) {
+    return false;
+  }
+  const styleContainers = selectedBlocks.flatMap((block) =>
+    collectDiaryTextStyleContainersForBlock(block),
+  );
+  if (!styleContainers.length) {
+    return false;
+  }
+  const activeSelector =
+    typeof options.activeSelector === "string" && options.activeSelector.trim()
+      ? options.activeSelector.trim()
+      : cleanupSelector;
+  const shouldUnwrap = styleContainers.every((container) =>
+    isDiaryInlineStyleUniformForContainer(container, activeSelector),
+  );
+  const marker = createDiaryCaretMarker();
+  range.insertNode(marker);
+  styleContainers.forEach((container) => {
+    applyDiaryInlineStyleToContainer(container, {
+      tagName: options.tagName,
+      attributes: options.attributes,
+      cleanupSelector,
+      unwrapOnly: shouldUnwrap,
+    });
   });
   pruneEmptyDiaryInlineWrappers(editor);
   editor.normalize();
@@ -6741,7 +6951,11 @@ function applyDiaryInlineWrapper(runtime, options = {}) {
   const unwrapOnly = options.unwrapOnly === true;
   const effectiveUnwrapOnly = unwrapOnly || (uniformActive && options.toggle !== false);
   const holder = createDiarySelectionHolder();
+  const startMarker = createDiarySelectionBoundaryMarker("start");
+  const endMarker = createDiarySelectionBoundaryMarker("end");
+  holder.appendChild(startMarker);
   holder.appendChild(range.extractContents());
+  holder.appendChild(endMarker);
   range.insertNode(holder);
   if (cleanupSelector) {
     unwrapDiaryElements(holder, cleanupSelector);
@@ -6755,8 +6969,7 @@ function applyDiaryInlineWrapper(runtime, options = {}) {
   });
   pruneEmptyDiaryInlineWrappers(editor);
   editor.normalize();
-  selectDiaryInsertedNodes(runtime, insertedNodes.filter(Boolean), {
-    selectContents: true,
+  restoreDiarySelectionFromMarkers(runtime, startMarker, endMarker, {
     syncWindowSelection: options.syncWindowSelection,
   });
   traceDiaryEditorDebug(runtime, "inline-wrapper-end", {
@@ -7240,6 +7453,10 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
     value,
   });
   const syncWindowSelection = runtime?.toolbarSelectionHadEditorFocus === true;
+  const actionRange = getDiaryEditorActionRange(runtime);
+  const hasExpandedSelection =
+    isDiaryEditorRangeMeaningfullyExpanded(actionRange) ||
+    runtime?.toolbarSelectionHadExpandedText === true;
   const schedule =
     typeof window !== "undefined" &&
     typeof window.requestAnimationFrame === "function"
@@ -7252,28 +7469,50 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
   let handled = false;
   if (action === "font-size") {
     handled =
-      toggleDiaryBlockTextStyleAtCaret(runtime, {
-        textStyleToken: normalizedSizeToken,
-        syncWindowSelection,
-      }) ||
-      applyDiaryInlineWrapper(runtime, {
-        tagName: "span",
-        cleanupSelector: "[data-size], font",
-        activeSelector: `[data-size="${escapeCssSelector(normalizedSizeToken)}"]`,
-        isUniformActive: (editor, range) =>
-          isDiaryEditorRangeUniformFontSize(editor, range, normalizedSizeToken),
-        textStyleToken: normalizedSizeToken,
-        unwrapOnly: normalizedSizeToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body,
-        syncWindowSelection,
-      });
+      (hasExpandedSelection
+        ? applyDiaryInlineWrapper(runtime, {
+            tagName: "span",
+            cleanupSelector: "[data-size], font",
+            activeSelector: `[data-size="${escapeCssSelector(normalizedSizeToken)}"]`,
+            isUniformActive: (editor, range) =>
+              isDiaryEditorRangeUniformFontSize(editor, range, normalizedSizeToken),
+            textStyleToken: normalizedSizeToken,
+            unwrapOnly: normalizedSizeToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body,
+            syncWindowSelection,
+          }) ||
+          toggleDiaryBlockTextStyleAtCaret(runtime, {
+            textStyleToken: normalizedSizeToken,
+            syncWindowSelection,
+          })
+        : toggleDiaryBlockTextStyleAtCaret(runtime, {
+            textStyleToken: normalizedSizeToken,
+            syncWindowSelection,
+          }) ||
+          applyDiaryInlineWrapper(runtime, {
+            tagName: "span",
+            cleanupSelector: "[data-size], font",
+            activeSelector: `[data-size="${escapeCssSelector(normalizedSizeToken)}"]`,
+            isUniformActive: (editor, range) =>
+              isDiaryEditorRangeUniformFontSize(editor, range, normalizedSizeToken),
+            textStyleToken: normalizedSizeToken,
+            unwrapOnly: normalizedSizeToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body,
+            syncWindowSelection,
+          }));
   } else if (action === "bold") {
     handled =
-      applyDiaryInlineWrapper(runtime, {
-        tagName: "strong",
-        cleanupSelector: "strong, b",
-        activeSelector: "strong, b",
-        syncWindowSelection,
-      }) ||
+      (hasExpandedSelection
+        ? applyDiaryInlineWrapper(runtime, {
+            tagName: "strong",
+            cleanupSelector: "strong, b",
+            activeSelector: "strong, b",
+            syncWindowSelection,
+          })
+        : toggleDiaryBlockInlineStyleAtCaret(runtime, {
+            tagName: "strong",
+            cleanupSelector: "strong, b",
+            activeSelector: "strong, b",
+            syncWindowSelection,
+          })) ||
       toggleDiaryInlineStyleAtCaret(runtime, {
         activeSelector: "strong, b",
         syncWindowSelection,
@@ -7284,12 +7523,19 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
       });
   } else if (action === "italic") {
     handled =
-      applyDiaryInlineWrapper(runtime, {
-        tagName: "em",
-        cleanupSelector: "em, i",
-        activeSelector: "em, i",
-        syncWindowSelection,
-      }) ||
+      (hasExpandedSelection
+        ? applyDiaryInlineWrapper(runtime, {
+            tagName: "em",
+            cleanupSelector: "em, i",
+            activeSelector: "em, i",
+            syncWindowSelection,
+          })
+        : toggleDiaryBlockInlineStyleAtCaret(runtime, {
+            tagName: "em",
+            cleanupSelector: "em, i",
+            activeSelector: "em, i",
+            syncWindowSelection,
+          })) ||
       toggleDiaryInlineStyleAtCaret(runtime, {
         activeSelector: "em, i",
         syncWindowSelection,
@@ -7300,12 +7546,19 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
       });
   } else if (action === "underline") {
     handled =
-      applyDiaryInlineWrapper(runtime, {
-        tagName: "u",
-        cleanupSelector: "u",
-        activeSelector: "u",
-        syncWindowSelection,
-      }) ||
+      (hasExpandedSelection
+        ? applyDiaryInlineWrapper(runtime, {
+            tagName: "u",
+            cleanupSelector: "u",
+            activeSelector: "u",
+            syncWindowSelection,
+          })
+        : toggleDiaryBlockInlineStyleAtCaret(runtime, {
+            tagName: "u",
+            cleanupSelector: "u",
+            activeSelector: "u",
+            syncWindowSelection,
+          })) ||
       toggleDiaryInlineStyleAtCaret(runtime, {
         activeSelector: "u",
         syncWindowSelection,
@@ -7467,11 +7720,15 @@ function createDiaryEditorToolbar(runtime) {
       runtime.savedSelectionRange instanceof Range
         ? runtime.savedSelectionRange.cloneRange()
         : null;
+    runtime.toolbarSelectionHadExpandedText = isDiaryEditorRangeMeaningfullyExpanded(
+      runtime.toolbarSavedSelectionRange,
+    );
   };
   const resetToolbarInteraction = () => {
     runtime.toolbarInteractionActive = false;
     runtime.toolbarSelectionHadEditorFocus = false;
     runtime.toolbarSavedSelectionRange = null;
+    runtime.toolbarSelectionHadExpandedText = false;
   };
   toolbar.addEventListener("pointerdown", beginToolbarInteraction, true);
   toolbar.addEventListener("mousedown", beginToolbarInteraction, true);
@@ -7506,8 +7763,6 @@ function showDiaryEditorChoiceDialog() {
     modal.dataset.controlerCloseProtectionDurationMs = "220";
     modal.dataset.controlerActionProtectionDurationMs = "220";
     modal.dataset.controlerInteractionShieldDurationMs = "220";
-    modal.dataset.controlerClosingPointerEvents = "none";
-    modal.dataset.controlerCloseHideImmediately = "true";
     modal.innerHTML = `
       <div class="modal-content ms diary-editor-choice-modal">
         <h3>图片上传方式</h3>
@@ -7533,7 +7788,7 @@ function showDiaryEditorChoiceDialog() {
       }
       window.setTimeout(() => {
         resolve(result);
-      }, 180);
+      }, 220);
     };
     modal.__controlerCloseModal = () => settleDialog("");
     if (typeof uiTools?.prepareModalOverlay === "function") {
@@ -7667,6 +7922,79 @@ async function insertDiaryImagesIntoEditor(runtime) {
   }
 }
 
+function isDiaryEditorKeyboardOpen() {
+  return (
+    document.documentElement?.classList.contains("controler-keyboard-open") === true ||
+    document.body?.classList.contains("controler-keyboard-open") === true
+  );
+}
+
+async function dismissDiaryEditorKeyboard(runtime, options = {}) {
+  const titleInput = runtime?.elements?.titleInput;
+  const editor = runtime?.elements?.editor;
+  const activeElement = document.activeElement;
+  const hadFocusedEditorField =
+    activeElement instanceof HTMLElement &&
+    (activeElement === titleInput || activeElement === editor);
+  const shouldWait =
+    isDiaryEditorKeyboardOpen() ||
+    (window.ControlerStorage?.isNativeApp === true && hadFocusedEditorField);
+  if (!shouldWait) {
+    return false;
+  }
+  if (typeof uiTools?.releaseAndroidInteractiveTextControlFocus === "function") {
+    uiTools.releaseAndroidInteractiveTextControlFocus();
+  }
+  if (titleInput instanceof HTMLElement) {
+    titleInput.blur?.();
+  }
+  if (editor instanceof HTMLElement) {
+    editor.blur?.();
+    window.getSelection()?.removeAllRanges?.();
+  }
+  const minDelayMs = Math.max(80, Math.round(Number(options.minDelayMs) || 120));
+  const maxWaitMs = Math.max(minDelayMs, Math.round(Number(options.maxWaitMs) || 520));
+  const startedAt = Date.now();
+  await new Promise((resolve) => {
+    const poll = () => {
+      const elapsedMs = Date.now() - startedAt;
+      if ((!isDiaryEditorKeyboardOpen() && elapsedMs >= minDelayMs) || elapsedMs >= maxWaitMs) {
+        resolve();
+        return;
+      }
+      window.setTimeout(poll, 36);
+    };
+    window.setTimeout(poll, 36);
+  });
+  return true;
+}
+
+async function closeDiaryEditorAfterKeyboardDismiss(runtime, options = {}) {
+  if (!runtime || runtime.destroyed || runtime.closingAfterKeyboardDismiss === true) {
+    return false;
+  }
+  runtime.closingAfterKeyboardDismiss = true;
+  try {
+    const keyboardDismissed = await dismissDiaryEditorKeyboard(runtime, {
+      minDelayMs: 120,
+      maxWaitMs: 560,
+    });
+    if (keyboardDismissed) {
+      runtime.lastKeyboardDismissBeforeCloseAt = Date.now();
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 64);
+      });
+    }
+    return runtime.close?.({
+      reason: typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "done",
+    });
+  } finally {
+    runtime.closingAfterKeyboardDismiss = false;
+  }
+}
+
 function openDiaryEditorPage(dateText, entryId = null) {
   if (isDiaryEditorVisible()) {
     diaryEditorRuntime.pendingOpen = {
@@ -7683,6 +8011,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
   const normalizedEntry = existingEntry ? normalizeDiaryEntry(existingEntry).value : null;
   const overlay = document.createElement("div");
   overlay.className = "diary-editor-overlay";
+  overlay.dataset.controlerModalParentSurface = "true";
   overlay.innerHTML = `
     <div class="diary-editor-page">
       <div class="diary-editor-topbar">
@@ -7752,8 +8081,12 @@ function openDiaryEditorPage(dateText, entryId = null) {
     savedSelectionRange: null,
     toolbarSavedSelectionRange: null,
     toolbarSelectionHadEditorFocus: false,
+    toolbarSelectionHadExpandedText: false,
     toolbarSyncQueued: false,
     toolbarInteractionActive: false,
+    closingAfterKeyboardDismiss: false,
+    lastKeyboardDismissBeforeCloseAt: 0,
+    closeAnimationPromise: null,
     nativeInputRestartTimer: 0,
     nativeInputRestartQueued: false,
     categorySelector: null,
@@ -7802,6 +8135,9 @@ function openDiaryEditorPage(dateText, entryId = null) {
       }
       if (runtime.suppressHistoryPopClose) {
         runtime.suppressHistoryPopClose = false;
+        return;
+      }
+      if (history.state?.__controlerDiaryEditorToken === runtime.historyToken) {
         return;
       }
       void runtime.close?.({
@@ -8024,6 +8360,42 @@ function openDiaryEditorPage(dateText, entryId = null) {
     }
   };
 
+  const animateDiaryEditorClose = async () => {
+    const closeRoot = runtime?.root;
+    if (
+      !(closeRoot instanceof HTMLElement) ||
+      !closeRoot.isConnected ||
+      runtime.destroyed
+    ) {
+      return false;
+    }
+    if (runtime.closeAnimationPromise) {
+      return runtime.closeAnimationPromise;
+    }
+    const recentlyDismissedKeyboard =
+      Date.now() - Number(runtime.lastKeyboardDismissBeforeCloseAt || 0) < 420;
+    const closeVisualDurationMs = readDiaryEditorCloseVisualDurationMs(closeRoot);
+    runtime.closeAnimationPromise = new Promise((resolve) => {
+      const startAnimation = () => {
+        if (!(closeRoot instanceof HTMLElement) || !closeRoot.isConnected) {
+          resolve(false);
+          return;
+        }
+        closeRoot.classList.add("is-closing");
+        closeRoot.setAttribute("aria-hidden", "true");
+        window.setTimeout(resolve, closeVisualDurationMs);
+      };
+      if (recentlyDismissedKeyboard) {
+        window.setTimeout(startAnimation, 48);
+        return;
+      }
+      startAnimation();
+    }).finally(() => {
+      runtime.closeAnimationPromise = null;
+    });
+    return runtime.closeAnimationPromise;
+  };
+
   const flushEditor = async ({ closeAfter = false, reason = "flush" } = {}) => {
     window.clearTimeout(runtime.draftTimer);
     window.clearTimeout(runtime.autosaveTimer);
@@ -8036,6 +8408,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
       await removeDiaryEditorDraft(runtime);
       await cleanupDiaryEditorUnreferencedAssets(runtime, snapshot);
       if (closeAfter) {
+        await animateDiaryEditorClose();
         destroyEditor();
       }
       return true;
@@ -8060,6 +8433,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
         maxWaitMs: 520,
         minQuietFrames: 3,
       });
+      await animateDiaryEditorClose();
       destroyEditor();
     }
     return true;
@@ -8074,6 +8448,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
       confirmText: "删除",
       cancelText: "取消",
       danger: true,
+      beforeConfirmClose: () => showDiaryDeleteLoadingState(),
     });
     if (!confirmed) {
       return;
@@ -8112,6 +8487,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
       return;
     }
     syncDiaryDataIndex();
+    await showDiaryDeleteLoadingState();
     const saved = await saveDiaryData({
       changedPeriodIds: [getDiaryEntryPeriodId(targetEntry || { date: dateText })],
       guideStateChanged,
@@ -8122,6 +8498,13 @@ function openDiaryEditorPage(dateText, entryId = null) {
     if (!saved) {
       restoreDiaryMutationSnapshot(mutationSnapshot);
       setDiaryEditorSaveState(runtime, "error");
+      await setDiaryLoadingState({
+        active: false,
+        settledRoot: ".diary-main",
+        settleQuietWindowMs: 72,
+        settleMaxWaitMs: 520,
+        settleMinQuietFrames: 3,
+      });
       await showDiaryAlert("删除失败，已恢复删除前内容。", {
         title: "删除失败",
         danger: true,
@@ -8136,7 +8519,15 @@ function openDiaryEditorPage(dateText, entryId = null) {
       maxWaitMs: 520,
       minQuietFrames: 3,
     });
+    await animateDiaryEditorClose();
     destroyEditor();
+    await setDiaryLoadingState({
+      active: false,
+      settledRoot: ".diary-main",
+      settleQuietWindowMs: 72,
+      settleMaxWaitMs: 520,
+      settleMinQuietFrames: 3,
+    });
   };
 
   runtime.categorySelector = createDiaryCategorySelector(
@@ -8373,6 +8764,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
     clearDiaryEditorFigureSelection(runtime);
     runtime.savedSelectionRange = null;
     runtime.toolbarSavedSelectionRange = null;
+    runtime.toolbarSelectionHadExpandedText = false;
     ensureDiaryEditorHasContentBlock(nextEditor);
     enhanceDiaryEditorFigures(runtime);
     bindEditorElement(nextEditor);
@@ -8415,7 +8807,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
     });
   });
   runtime.elements.doneButton?.addEventListener("click", () => {
-    void runtime.close({
+    void closeDiaryEditorAfterKeyboardDismiss(runtime, {
       reason: "done",
     });
   });
@@ -8797,6 +9189,7 @@ function showDiaryModalLegacy(dateText, entryId = null) {
     }
     void confirmDiaryModalDelete({
       confirmMessage: "确定删除该日记吗？",
+      beforeConfirmClose: () => showDiaryDeleteLoadingState(),
       deleteOperation: () => {
         const targetEntry = findDiaryEntry(dateText, activeEntryId);
         if (!deleteDiaryEntry(activeEntryId, dateText)) {

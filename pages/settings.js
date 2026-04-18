@@ -2286,6 +2286,13 @@ function syncSettingsCollapsibleSectionLayout(section) {
   section.inner.style.overflow = "";
 }
 
+function updateSettingsCollapseToggleHint(toggle, expanded) {
+  const hint = toggle?.querySelector(".settings-collapse-toggle-hint");
+  if (hint instanceof HTMLElement) {
+    hint.textContent = expanded ? "点击收起" : "点击展开";
+  }
+}
+
 function setSettingsCollapsibleExpanded(section, expanded, { immediate = false } = {}) {
   if (!section?.card || !section?.content || !section?.header || !section?.body || !section?.inner) {
     return;
@@ -2306,52 +2313,67 @@ function initSettingsCollapsibleSections() {
     }
 
     const content = card.querySelector(".settings-card-content");
-    const heading = content?.querySelector("h2, h3, h4");
-    if (!(content instanceof HTMLElement) || !(heading instanceof HTMLElement)) {
+    if (!(content instanceof HTMLElement)) {
       return;
     }
 
-    const titleText = heading.textContent?.trim() || "设置";
-    const body = document.createElement("div");
-    body.className = "settings-collapsible-body";
-    const inner = document.createElement("div");
-    inner.className = "settings-collapsible-body-inner";
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "settings-collapse-toggle";
-    toggle.innerHTML = `
-      <span class="settings-collapse-toggle-copy">
-        <span class="settings-collapse-toggle-title">${titleText}</span>
-        <span class="settings-collapse-toggle-hint">点击展开</span>
-      </span>
-      <span class="settings-collapse-toggle-icon" aria-hidden="true"></span>
-    `;
+    let toggle = content.querySelector(".settings-collapse-toggle");
+    let body = content.querySelector(".settings-collapsible-body");
+    let inner = body?.querySelector(".settings-collapsible-body-inner");
+
+    if (
+      !(toggle instanceof HTMLButtonElement) ||
+      !(body instanceof HTMLElement) ||
+      !(inner instanceof HTMLElement)
+    ) {
+      const heading = content.querySelector("h2, h3, h4");
+      if (!(heading instanceof HTMLElement)) {
+        return;
+      }
+
+      const titleText = heading.textContent?.trim() || "设置";
+      body = document.createElement("div");
+      body.className = "settings-collapsible-body";
+      inner = document.createElement("div");
+      inner.className = "settings-collapsible-body-inner";
+      toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "settings-collapse-toggle";
+      toggle.innerHTML = `
+        <span class="settings-collapse-toggle-copy">
+          <span class="settings-collapse-toggle-title">${titleText}</span>
+          <span class="settings-collapse-toggle-hint">点击展开</span>
+        </span>
+        <span class="settings-collapse-toggle-icon" aria-hidden="true"></span>
+      `;
+
+      content.style.display = "flex";
+      content.style.flexDirection = "column";
+      content.style.alignItems = "stretch";
+      content.style.width = "100%";
+      body.style.display = "none";
+      body.style.width = "100%";
+      body.style.height = "0px";
+      body.style.maxHeight = "0px";
+      body.style.overflow = "hidden";
+      inner.style.display = "block";
+      inner.style.width = "100%";
+      inner.style.height = "auto";
+      inner.style.maxHeight = "none";
+      inner.style.overflow = "visible";
+
+      const nodesToMove = Array.from(content.childNodes).filter((node) => node !== heading);
+      nodesToMove.forEach((node) => {
+        inner.appendChild(node);
+      });
+      body.appendChild(inner);
+      content.innerHTML = "";
+      content.appendChild(toggle);
+      content.appendChild(body);
+    }
 
     card.dataset.settingsCollapsibleReady = "true";
     card.classList.add("settings-card--collapsible");
-    content.style.display = "flex";
-    content.style.flexDirection = "column";
-    content.style.alignItems = "stretch";
-    content.style.width = "100%";
-    body.style.display = "none";
-    body.style.width = "100%";
-    body.style.height = "0px";
-    body.style.maxHeight = "0px";
-    body.style.overflow = "hidden";
-    inner.style.display = "block";
-    inner.style.width = "100%";
-    inner.style.height = "auto";
-    inner.style.maxHeight = "none";
-    inner.style.overflow = "visible";
-
-    const nodesToMove = Array.from(content.childNodes).filter((node) => node !== heading);
-    nodesToMove.forEach((node) => {
-      inner.appendChild(node);
-    });
-    body.appendChild(inner);
-    content.innerHTML = "";
-    content.appendChild(toggle);
-    content.appendChild(body);
 
     const section = {
       card,
@@ -2359,14 +2381,15 @@ function initSettingsCollapsibleSections() {
       header: toggle,
       body,
       inner,
-      expanded: false,
+      expanded:
+        card.classList.contains("is-expanded") ||
+        toggle.getAttribute("aria-expanded") === "true" ||
+        !body.hidden,
     };
 
     toggle.addEventListener("click", () => {
       setSettingsCollapsibleExpanded(section, !section.expanded);
-      toggle.querySelector(".settings-collapse-toggle-hint").textContent = section.expanded
-        ? "点击收起"
-        : "点击展开";
+      updateSettingsCollapseToggleHint(toggle, section.expanded);
       scheduleSettingsCollapsibleRefresh();
     });
 
@@ -2381,7 +2404,8 @@ function initSettingsCollapsibleSections() {
     }
 
     settingsCollapsibleSections.push(section);
-    setSettingsCollapsibleExpanded(section, false, { immediate: true });
+    setSettingsCollapsibleExpanded(section, section.expanded, { immediate: true });
+    updateSettingsCollapseToggleHint(toggle, section.expanded);
     card.removeAttribute("data-settings-collapsible-pending");
   });
 }

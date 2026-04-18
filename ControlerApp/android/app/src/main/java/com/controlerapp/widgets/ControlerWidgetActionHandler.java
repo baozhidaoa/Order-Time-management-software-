@@ -27,6 +27,7 @@ import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Locale;
@@ -422,6 +423,124 @@ public final class ControlerWidgetActionHandler {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private static JSONArray buildStringArray(ArrayList<String> values) {
+        JSONArray items = new JSONArray();
+        if (values == null) {
+            return items;
+        }
+        for (String value : values) {
+            String normalizedValue = value == null ? "" : value.trim();
+            if (!TextUtils.isEmpty(normalizedValue)) {
+                items.put(normalizedValue);
+            }
+        }
+        return items;
+    }
+
+    private static String normalizeCheckinHistorySummaryDate(String value) {
+        String normalizedValue = value == null ? "" : value.trim();
+        if (normalizedValue.length() > 10) {
+            normalizedValue = normalizedValue.substring(0, 10);
+        }
+        if (
+            normalizedValue.length() != 10
+                || normalizedValue.charAt(4) != '-'
+                || normalizedValue.charAt(7) != '-'
+        ) {
+            return "";
+        }
+        return normalizedValue;
+    }
+
+    private static ArrayList<String> normalizeCheckinHistorySummaryDates(JSONArray values) {
+        ArrayList<String> normalizedDates = new ArrayList<>();
+        if (values == null) {
+            return normalizedDates;
+        }
+        for (int index = 0; index < values.length(); index += 1) {
+            String normalizedDate =
+                normalizeCheckinHistorySummaryDate(values.optString(index, ""));
+            if (!TextUtils.isEmpty(normalizedDate) && !normalizedDates.contains(normalizedDate)) {
+                normalizedDates.add(normalizedDate);
+            }
+        }
+        Collections.sort(normalizedDates);
+        return normalizedDates;
+    }
+
+    private static void updateCheckinHistorySummary(
+        JSONObject summary,
+        String itemId,
+        String dateText,
+        boolean nextChecked,
+        String updatedAt
+    ) throws Exception {
+        if (summary == null) {
+            return;
+        }
+        String normalizedItemId = itemId == null ? "" : itemId.trim();
+        String normalizedDate = normalizeCheckinHistorySummaryDate(dateText);
+        if (TextUtils.isEmpty(normalizedItemId) || TextUtils.isEmpty(normalizedDate)) {
+            return;
+        }
+        JSONObject currentEntry = summary.optJSONObject(normalizedItemId);
+        ArrayList<String> checkedDates =
+            normalizeCheckinHistorySummaryDates(
+                currentEntry == null ? null : currentEntry.optJSONArray("checkedDates")
+            );
+        checkedDates.remove(normalizedDate);
+        if (nextChecked) {
+            checkedDates.add(normalizedDate);
+            Collections.sort(checkedDates);
+        }
+
+        JSONObject nextEntry = new JSONObject();
+        nextEntry.put("checkedDaysCount", checkedDates.size());
+        nextEntry.put("checkedDates", buildStringArray(checkedDates));
+        nextEntry.put(
+            "updatedAt",
+            TextUtils.isEmpty(updatedAt)
+                ? (currentEntry == null ? "" : currentEntry.optString("updatedAt", "").trim())
+                : updatedAt.trim()
+        );
+        summary.put(normalizedItemId, nextEntry);
+    }
+
+    private static void persistCheckinMutation(
+        Context context,
+        JSONObject checkinHistorySummary,
+        String periodId,
+        JSONArray dailyCheckins
+    ) throws Exception {
+        JSONObject sectionPayload = new JSONObject();
+        sectionPayload.put("periodId", periodId);
+        sectionPayload.put("items", dailyCheckins == null ? new JSONArray() : dailyCheckins);
+        sectionPayload.put("mode", "replace");
+
+        JSONObject sectionOp = new JSONObject();
+        sectionOp.put("kind", "saveSectionRange");
+        sectionOp.put("section", "dailyCheckins");
+        sectionOp.put("payload", sectionPayload);
+
+        JSONObject partialCore = new JSONObject();
+        partialCore.put(
+            "checkinHistorySummary",
+            checkinHistorySummary == null ? new JSONObject() : checkinHistorySummary
+        );
+
+        JSONObject coreOp = new JSONObject();
+        coreOp.put("kind", "replaceCoreState");
+        coreOp.put("partialCore", partialCore);
+
+        JSONArray operations = new JSONArray();
+        operations.put(sectionOp);
+        operations.put(coreOp);
+
+        JSONObject payload = new JSONObject();
+        payload.put("ops", operations);
+        ControlerWidgetDataStore.appendStorageJournal(context, payload);
     }
 
     private static void logWidgetAction(
@@ -1107,8 +1226,12 @@ public final class ControlerWidgetActionHandler {
         try {
             JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(context);
             JSONArray checkinItems = coreState.optJSONArray("checkinItems");
+            JSONObject checkinHistorySummary = coreState.optJSONObject("checkinHistorySummary");
             if (checkinItems == null) {
                 checkinItems = new JSONArray();
+            }
+            if (checkinHistorySummary == null) {
+                checkinHistorySummary = new JSONObject();
             }
             String periodId = today.length() >= 7 ? today.substring(0, 7) : "";
             String nowText = isoNow();
@@ -1240,16 +1363,20 @@ public final class ControlerWidgetActionHandler {
                     }
                     entry.put("checked", nextChecked);
                     entry.put("time", nowText);
+                    updateCheckinHistorySummary(
+                        checkinHistorySummary,
+                        targetId,
+                        today,
+                        nextChecked,
+                        nowText
+                    );
 
                     try {
-                        JSONObject payload = new JSONObject();
-                        payload.put("periodId", periodId);
-                        payload.put("items", dailyCheckins);
-                        payload.put("mode", "replace");
-                        ControlerWidgetDataStore.saveStorageSectionRange(
+                        persistCheckinMutation(
                             context,
-                            "dailyCheckins",
-                            payload
+                            checkinHistorySummary,
+                            periodId,
+                            dailyCheckins
                         );
                     } catch (Exception error) {
                         ControlerWidgetPendingActionStore.clear(
@@ -1284,7 +1411,7 @@ public final class ControlerWidgetActionHandler {
 
                     emitForegroundStorageChanged(
                         context,
-                        new String[] { "dailyCheckins" },
+                        new String[] { "dailyCheckins", "checkinHistorySummary" },
                         buildChangedPeriodsPayload("dailyCheckins", periodId),
                         "android-widget-direct-action"
                     );
@@ -1362,16 +1489,20 @@ public final class ControlerWidgetActionHandler {
                 );
             }
             dailyCheckins.put(newEntry);
+            updateCheckinHistorySummary(
+                checkinHistorySummary,
+                targetId,
+                today,
+                true,
+                nowText
+            );
 
             try {
-                JSONObject payload = new JSONObject();
-                payload.put("periodId", periodId);
-                payload.put("items", dailyCheckins);
-                payload.put("mode", "replace");
-                ControlerWidgetDataStore.saveStorageSectionRange(
+                persistCheckinMutation(
                     context,
-                    "dailyCheckins",
-                    payload
+                    checkinHistorySummary,
+                    periodId,
+                    dailyCheckins
                 );
             } catch (Exception error) {
                 ControlerWidgetPendingActionStore.clear(
@@ -1406,7 +1537,7 @@ public final class ControlerWidgetActionHandler {
 
             emitForegroundStorageChanged(
                 context,
-                new String[] { "dailyCheckins" },
+                new String[] { "dailyCheckins", "checkinHistorySummary" },
                 buildChangedPeriodsPayload("dailyCheckins", periodId),
                 "android-widget-direct-action"
             );

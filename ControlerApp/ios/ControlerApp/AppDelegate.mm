@@ -1,6 +1,7 @@
 #import "AppDelegate.h"
 
 #import <CommonCrypto/CommonDigest.h>
+#import <ImageIO/ImageIO.h>
 #import <math.h>
 #import <React/RCTBridgeModule.h>
 #import <React/RCTBundleURLProvider.h>
@@ -44,6 +45,7 @@ static NSString * const kWidgetLaunchSource = @"ios-widget";
 static NSString * const kNotificationLaunchSource = @"ios-notification";
 static NSString * const kWidgetAppGroupIdentifier = @"group.com.controlerapp.shared";
 static NSString * const kWidgetSnapshotFileName = @"widget-snapshot.json";
+static NSString * const kDiaryMediaDirectoryName = @"diary-media";
 
 static NSString *ControlerTrimmedString(id value)
 {
@@ -91,6 +93,121 @@ static id ControlerDeepCopyJSON(id value)
   return error || !object ? value : object;
 }
 
+static NSDictionary<NSString *, NSString *> *ControlerDiaryMediaExtensionByMime(void)
+{
+  static NSDictionary<NSString *, NSString *> *map = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    map = @{
+      @"image/jpeg": @"jpg",
+      @"image/jpg": @"jpg",
+      @"image/png": @"png",
+      @"image/webp": @"webp",
+      @"image/gif": @"gif",
+      @"image/bmp": @"bmp",
+      @"image/heic": @"heic",
+      @"image/heif": @"heif",
+      @"image/tiff": @"tiff",
+      @"image/svg+xml": @"svg",
+    };
+  });
+  return map;
+}
+
+static NSDictionary<NSString *, NSString *> *ControlerDiaryMediaMimeByExtension(void)
+{
+  static NSDictionary<NSString *, NSString *> *map = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    map = @{
+      @"jpg": @"image/jpeg",
+      @"jpeg": @"image/jpeg",
+      @"png": @"image/png",
+      @"webp": @"image/webp",
+      @"gif": @"image/gif",
+      @"bmp": @"image/bmp",
+      @"heic": @"image/heic",
+      @"heif": @"image/heif",
+      @"tif": @"image/tiff",
+      @"tiff": @"image/tiff",
+      @"svg": @"image/svg+xml",
+    };
+  });
+  return map;
+}
+
+static NSString *ControlerNormalizeDiaryMediaFileExtension(id value)
+{
+  NSString *normalized = [[[ControlerTrimmedString(value) stringByReplacingOccurrencesOfString:@"." withString:@""] lowercaseString] copy];
+  return normalized.length > 0 && ControlerMatchesRegex(normalized, @"^[a-z0-9]{2,8}$") ? normalized : @"";
+}
+
+static NSString *ControlerDiaryMediaExtensionForMimeType(id mimeType, id fallback)
+{
+  NSString *normalizedMimeType = [[ControlerTrimmedString(mimeType) lowercaseString] copy];
+  NSString *mapped = ControlerDiaryMediaExtensionByMime()[normalizedMimeType];
+  if (mapped.length > 0) return mapped;
+  return ControlerNormalizeDiaryMediaFileExtension(fallback);
+}
+
+static NSString *ControlerInferDiaryMediaMimeType(NSString *fileName, NSString *fallback)
+{
+  NSString *normalizedFallback = [[ControlerTrimmedString(fallback) lowercaseString] copy];
+  if (normalizedFallback.length > 0) return normalizedFallback;
+  NSString *extension = ControlerNormalizeDiaryMediaFileExtension([ControlerTrimmedString(fileName) pathExtension]);
+  NSString *mapped = ControlerDiaryMediaMimeByExtension()[extension];
+  return mapped.length > 0 ? mapped : @"";
+}
+
+static NSString *ControlerBuildDiaryMediaRelativePath(NSString *assetId, NSDictionary *options)
+{
+  NSString *normalizedAssetId = [[ControlerTrimmedString(assetId) stringByReplacingOccurrencesOfString:@"[^a-zA-Z0-9._-]+" withString:@"-" options:NSRegularExpressionSearch range:NSMakeRange(0, ControlerTrimmedString(assetId).length)] copy];
+  if (normalizedAssetId.length == 0) return @"";
+  NSString *extension = ControlerDiaryMediaExtensionForMimeType(options[@"mimeType"], options[@"extension"]);
+  return extension.length > 0
+    ? [NSString stringWithFormat:@"%@/%@.%@", kDiaryMediaDirectoryName, normalizedAssetId, extension]
+    : [NSString stringWithFormat:@"%@/%@", kDiaryMediaDirectoryName, normalizedAssetId];
+}
+
+static NSDictionary *ControlerNormalizeDiaryMediaAssetEntry(id entry)
+{
+  NSDictionary *source = ControlerEnsureDictionary(entry);
+  NSString *assetId = ControlerOptionalTrimmedString(source[@"assetId"]) ?: ControlerOptionalTrimmedString(source[@"id"]);
+  if (assetId.length == 0) return nil;
+  NSString *mimeType = [[ControlerTrimmedString(source[@"mimeType"]) lowercaseString] copy];
+  NSString *relativePath = [[ControlerTrimmedString(source[@"file"] ?: source[@"path"] ?: source[@"relativePath"]) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] copy];
+  if (relativePath.length == 0 || ![relativePath hasPrefix:[kDiaryMediaDirectoryName stringByAppendingString:@"/"]] || [relativePath containsString:@".."]) {
+    relativePath = ControlerBuildDiaryMediaRelativePath(assetId, @{
+      @"mimeType": mimeType ?: @"",
+      @"extension": ControlerJSONValue(source[@"extension"]),
+    });
+  }
+  if (relativePath.length == 0) return nil;
+  return @{
+    @"assetId": assetId,
+    @"file": relativePath,
+    @"mimeType": mimeType ?: @"",
+    @"width": @(MAX(0, [source[@"width"] integerValue])),
+    @"height": @(MAX(0, [source[@"height"] integerValue])),
+    @"sizeBytes": @(MAX(0, [source[@"sizeBytes"] integerValue])),
+    @"updatedAt": ControlerOptionalTrimmedString(source[@"updatedAt"]) ?: @"",
+    @"compressionMode": [ControlerTrimmedString(source[@"compressionMode"]) isEqualToString:@"original"] ? @"original" : @"compressed",
+  };
+}
+
+static NSArray *ControlerNormalizeDiaryMediaManifest(id entries)
+{
+  NSMutableDictionary<NSString *, NSDictionary *> *byAssetId = [NSMutableDictionary dictionary];
+  for (id entryValue in ControlerEnsureArray(entries)) {
+    NSDictionary *entry = ControlerNormalizeDiaryMediaAssetEntry(entryValue);
+    if (!entry) continue;
+    byAssetId[ControlerTrimmedString(entry[@"assetId"])] = entry;
+  }
+  return [[byAssetId allValues] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+    return [ControlerTrimmedString(left[@"assetId"]) compare:ControlerTrimmedString(right[@"assetId"])];
+  }];
+}
+
 static BOOL ControlerMatchesRegex(NSString *text, NSString *pattern)
 {
   if (text.length == 0 || pattern.length == 0) return NO;
@@ -112,7 +229,7 @@ static NSArray<NSString *> *ControlerSharedArrayKeys(void)
   static NSArray<NSString *> *keys = nil;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
-    keys = @[@"projects", @"records", @"plans", @"todos", @"checkinItems", @"dailyCheckins", @"checkins", @"diaryEntries", @"diaryCategories", @"customThemes"];
+    keys = @[@"projects", @"records", @"plans", @"todos", @"checkinItems", @"dailyCheckins", @"checkins", @"diaryEntries", @"diaryMediaAssets", @"diaryCategories", @"customThemes"];
   });
   return keys;
 }
@@ -470,6 +587,315 @@ RCT_EXPORT_MODULE(ControlerBridge);
   return [root stringByAppendingPathComponent:@"backups"];
 }
 
+- (NSString *)diaryMediaRootPathForSelection:(NSDictionary *)selection
+{
+  NSString *mode = ControlerOptionalTrimmedString(selection[@"mode"]);
+  if ([mode isEqualToString:kStorageModeFile]) {
+    NSString *parentPath = ControlerOptionalTrimmedString(selection[@"parentPath"]);
+    if (parentPath.length > 0) return parentPath;
+  }
+  return [self bundleDirectoryPathForSelection:selection];
+}
+
+- (NSString *)temporaryPickedDiaryImagesPath
+{
+  return [NSTemporaryDirectory() stringByAppendingPathComponent:@"order-picked-diary-images"];
+}
+
+- (NSString *)temporaryPickedDiaryImagePathForName:(NSString *)fileName
+{
+  NSString *extension = ControlerNormalizeDiaryMediaFileExtension([ControlerTrimmedString(fileName) pathExtension]);
+  NSString *fileStem = [NSString stringWithFormat:@"picked-%@", [NSUUID UUID].UUIDString];
+  return [[self temporaryPickedDiaryImagesPath] stringByAppendingPathComponent:(extension.length > 0 ? [fileStem stringByAppendingPathExtension:extension] : fileStem)];
+}
+
+- (NSDictionary *)diaryImageDimensionsFromData:(NSData *)data
+{
+  if (data.length == 0) return @{@"width": @(0), @"height": @(0)};
+  CGImageSourceRef imageSource = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+  if (!imageSource) return @{@"width": @(0), @"height": @(0)};
+  NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(imageSource, 0, NULL));
+  CFRelease(imageSource);
+  return @{
+    @"width": @(MAX(0, [properties[(NSString *)kCGImagePropertyPixelWidth] integerValue])),
+    @"height": @(MAX(0, [properties[(NSString *)kCGImagePropertyPixelHeight] integerValue])),
+  };
+}
+
+- (NSDictionary *)pickedDiaryImageDescriptorFromURL:(NSURL *)url error:(NSError **)error
+{
+  if (![url isKindOfClass:[NSURL class]]) {
+    if (error) *error = [self bridgeErrorWithDescription:@"无效的图片来源。" code:1031];
+    return nil;
+  }
+  NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:error];
+  if (data.length == 0) {
+    if (error && !*error) *error = [self bridgeErrorWithDescription:@"读取所选图片失败。" code:1032];
+    return nil;
+  }
+  NSString *fileName = url.lastPathComponent ?: @"image";
+  NSString *mimeType = @"";
+#if __has_include(<UniformTypeIdentifiers/UniformTypeIdentifiers.h>)
+  if (@available(iOS 14.0, *)) {
+    UTType *contentType = nil;
+    [url getResourceValue:&contentType forKey:NSURLContentTypeKey error:nil];
+    mimeType = ControlerOptionalTrimmedString(contentType.preferredMIMEType) ?: @"";
+  }
+#endif
+  mimeType = ControlerInferDiaryMediaMimeType(fileName, mimeType);
+  NSString *tempPath = [self temporaryPickedDiaryImagePathForName:fileName];
+  if (![self ensureDirectoryAtPath:[tempPath stringByDeletingLastPathComponent] error:error]) return nil;
+  if (![data writeToFile:tempPath options:NSDataWritingAtomic error:error]) return nil;
+  NSDictionary *dimensions = [self diaryImageDimensionsFromData:data];
+  return @{
+    @"uri": [[NSURL fileURLWithPath:tempPath] absoluteString],
+    @"sourceUri": [[NSURL fileURLWithPath:tempPath] absoluteString],
+    @"fileName": fileName,
+    @"mimeType": mimeType ?: @"",
+    @"sizeBytes": @(MAX(0, [data length])),
+    @"width": @(MAX(0, [dimensions[@"width"] integerValue])),
+    @"height": @(MAX(0, [dimensions[@"height"] integerValue])),
+    @"sourceKind": @"ios-document-picker",
+  };
+}
+
+- (NSArray *)pickedDiaryImagePayloadFromURLs:(NSArray<NSURL *> *)urls error:(NSError **)error
+{
+  NSMutableArray *items = [NSMutableArray array];
+  NSError *firstError = nil;
+  for (NSURL *url in urls) {
+    if (![url isKindOfClass:[NSURL class]]) continue;
+    BOOL didAccess = [url startAccessingSecurityScopedResource];
+    @try {
+      NSError *itemError = nil;
+      NSDictionary *item = [self pickedDiaryImageDescriptorFromURL:url error:&itemError];
+      if (item) [items addObject:item];
+      else if (!firstError) firstError = itemError;
+    } @finally {
+      if (didAccess) [url stopAccessingSecurityScopedResource];
+    }
+  }
+  if (items.count == 0 && error) *error = firstError ?: [self bridgeErrorWithDescription:@"未选择可用的图片文件。" code:1033];
+  return items;
+}
+
+- (NSArray *)readDiaryMediaAssetEntriesForSelection:(NSDictionary *)selection error:(NSError **)error
+{
+  NSString *mode = ControlerOptionalTrimmedString(selection[@"mode"]);
+  if ([mode isEqualToString:kStorageModeFile]) {
+    NSDictionary *state = [self readFileStorageStateForSelection:selection error:error];
+    return ControlerNormalizeDiaryMediaManifest(state[@"diaryMediaAssets"]);
+  }
+  NSDictionary *paths = [self bundlePathsForSelection:selection];
+  NSDictionary *manifest = [self normalizedManifest:[self jsonObjectFromFile:paths[@"manifest"] fallback:nil]];
+  return ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary(manifest[@"assets"])[@"diaryMedia"]);
+}
+
+- (NSArray *)updateDiaryMediaAssetEntries:(NSArray *)assetEntries forSelection:(NSDictionary *)selection error:(NSError **)error
+{
+  NSArray *normalizedEntries = ControlerNormalizeDiaryMediaManifest(assetEntries);
+  NSString *mode = ControlerOptionalTrimmedString(selection[@"mode"]);
+  NSString *updatedAt = [self isoNow];
+  if ([mode isEqualToString:kStorageModeFile]) {
+    NSDictionary *existingState = [self readFileStorageStateForSelection:selection error:nil] ?: [self normalizedState:@{} touchModified:NO touchSyncSave:NO];
+    NSMutableDictionary *nextState = [existingState mutableCopy];
+    nextState[@"diaryMediaAssets"] = ControlerDeepCopyJSON(normalizedEntries) ?: @[];
+    NSDictionary *normalizedState = [self normalizedState:nextState touchModified:YES touchSyncSave:NO];
+    NSString *targetPath = ControlerOptionalTrimmedString(selection[@"path"]);
+    if (![self writeJsonObject:normalizedState toFile:targetPath error:error]) return nil;
+    return normalizedEntries;
+  }
+  NSDictionary *paths = [self bundlePathsForSelection:selection];
+  NSDictionary *manifest = [self normalizedManifest:[self jsonObjectFromFile:paths[@"manifest"] fallback:nil]] ?: [self normalizedManifest:[self splitStateIntoBundle:@{} legacyBackups:nil touchModified:NO touchSyncSave:NO][@"manifest"]];
+  NSMutableDictionary *nextManifest = [manifest mutableCopy];
+  NSMutableDictionary *assets = [ControlerEnsureDictionary(nextManifest[@"assets"]) mutableCopy];
+  if (!assets) assets = [NSMutableDictionary dictionary];
+  assets[@"diaryMedia"] = ControlerDeepCopyJSON(normalizedEntries) ?: @[];
+  nextManifest[@"assets"] = assets;
+  nextManifest[@"lastModified"] = updatedAt;
+  NSMutableDictionary *core = [ControlerEnsureDictionary([self jsonObjectFromFile:paths[@"core"] fallback:@{}]) mutableCopy];
+  if (!core) core = [NSMutableDictionary dictionary];
+  core[@"lastModified"] = updatedAt;
+  if (![self writeJsonObject:core toFile:paths[@"core"] error:error]) return nil;
+  if (![self writeJsonObject:nextManifest toFile:paths[@"manifest"] error:error]) return nil;
+  return normalizedEntries;
+}
+
+- (NSDictionary *)saveDiaryImageAssetWithOptions:(NSDictionary *)options error:(NSError **)error
+{
+  if ([self storageNeedsRecovery]) {
+    if (error) *error = [self storageRecoveryError];
+    return nil;
+  }
+  NSError *selectionError = nil;
+  NSDictionary *selection = [self resolvedStorageSelectionWithError:&selectionError];
+  if (!selection) {
+    if (error) *error = selectionError;
+    return nil;
+  }
+  NSDictionary *source = ControlerEnsureDictionary(options);
+  NSString *dataUrl = ControlerTrimmedString(source[@"dataUrl"]);
+  NSString *dataBase64 = ControlerTrimmedString(source[@"dataBase64"]);
+  NSString *sourceUri = ControlerOptionalTrimmedString(source[@"sourceUri"]) ?: ControlerOptionalTrimmedString(source[@"uri"]);
+  NSString *fileName = ControlerOptionalTrimmedString(source[@"fileName"]);
+  NSString *mimeType = @"";
+  NSData *imageData = nil;
+  if (dataUrl.length > 0 && [dataUrl hasPrefix:@"data:"]) {
+    NSRange markerRange = [dataUrl rangeOfString:@";base64," options:NSCaseInsensitiveSearch];
+    if (markerRange.location != NSNotFound && markerRange.location > 5) {
+      mimeType = [[dataUrl substringWithRange:NSMakeRange(5, markerRange.location - 5)] lowercaseString];
+      NSString *encoded = [dataUrl substringFromIndex:(markerRange.location + markerRange.length)];
+      imageData = [[NSData alloc] initWithBase64EncodedString:encoded options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    }
+  }
+  if (!imageData && dataBase64.length > 0) {
+    imageData = [[NSData alloc] initWithBase64EncodedString:dataBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters];
+  }
+  if (!imageData && sourceUri.length > 0) {
+    NSURL *sourceURL = [sourceUri containsString:@"://"] ? [NSURL URLWithString:sourceUri] : [NSURL fileURLWithPath:sourceUri];
+    if (sourceURL && !fileName.length) fileName = sourceURL.lastPathComponent ?: @"";
+    imageData = sourceURL ? [NSData dataWithContentsOfURL:sourceURL options:NSDataReadingMappedIfSafe error:error] : nil;
+  }
+  if (imageData.length == 0) {
+    [self releaseStorageSelectionAccess:selection];
+    if (error && !*error) *error = [self bridgeErrorWithDescription:@"缺少可保存的日记图片数据。" code:1034];
+    return nil;
+  }
+  mimeType = ControlerInferDiaryMediaMimeType(fileName, ControlerOptionalTrimmedString(source[@"mimeType"]) ?: mimeType);
+  NSString *assetId = ControlerOptionalTrimmedString(source[@"assetId"]);
+  if (assetId.length == 0) assetId = [NSString stringWithFormat:@"diary_media_%@", [[NSUUID UUID].UUIDString stringByReplacingOccurrencesOfString:@"-" withString:@""]];
+  NSString *relativePath = ControlerBuildDiaryMediaRelativePath(assetId, @{
+    @"mimeType": mimeType ?: @"",
+    @"extension": ControlerJSONValue([ControlerTrimmedString(fileName) pathExtension]),
+  });
+  NSString *rootPath = [self diaryMediaRootPathForSelection:selection];
+  NSString *absolutePath = [rootPath stringByAppendingPathComponent:relativePath];
+  NSDictionary *dimensions = [self diaryImageDimensionsFromData:imageData];
+  NSDictionary *entry = ControlerNormalizeDiaryMediaAssetEntry(@{
+    @"assetId": assetId,
+    @"file": relativePath,
+    @"mimeType": mimeType ?: @"",
+    @"width": source[@"width"] ?: dimensions[@"width"],
+    @"height": source[@"height"] ?: dimensions[@"height"],
+    @"sizeBytes": @([imageData length]),
+    @"updatedAt": [self isoNow],
+    @"compressionMode": ControlerOptionalTrimmedString(source[@"compressionMode"]) ?: @"compressed",
+  });
+  if (![self ensureDirectoryAtPath:[absolutePath stringByDeletingLastPathComponent] error:error]) {
+    [self releaseStorageSelectionAccess:selection];
+    return nil;
+  }
+  if (![imageData writeToFile:absolutePath options:NSDataWritingAtomic error:error]) {
+    [self releaseStorageSelectionAccess:selection];
+    return nil;
+  }
+  NSArray *existingEntries = [self readDiaryMediaAssetEntriesForSelection:selection error:nil];
+  NSMutableArray *nextEntries = [NSMutableArray array];
+  for (id entryValue in existingEntries) {
+    NSDictionary *existingEntry = ControlerEnsureDictionary(entryValue);
+    if ([ControlerTrimmedString(existingEntry[@"assetId"]) isEqualToString:assetId]) continue;
+    [nextEntries addObject:existingEntry];
+  }
+  if (entry) [nextEntries addObject:entry];
+  NSArray *persistedEntries = [self updateDiaryMediaAssetEntries:nextEntries forSelection:selection error:error];
+  [self releaseStorageSelectionAccess:selection];
+  if (!persistedEntries) return nil;
+  return @{
+    @"assetId": entry[@"assetId"] ?: assetId,
+    @"file": entry[@"file"] ?: relativePath,
+    @"mimeType": entry[@"mimeType"] ?: (mimeType ?: @""),
+    @"width": entry[@"width"] ?: dimensions[@"width"],
+    @"height": entry[@"height"] ?: dimensions[@"height"],
+    @"sizeBytes": entry[@"sizeBytes"] ?: @([imageData length]),
+    @"updatedAt": entry[@"updatedAt"] ?: [self isoNow],
+    @"compressionMode": entry[@"compressionMode"] ?: @"compressed",
+    @"uri": [[NSURL fileURLWithPath:absolutePath] absoluteString],
+  };
+}
+
+- (NSDictionary *)resolveDiaryImageUriWithOptions:(NSDictionary *)options error:(NSError **)error
+{
+  NSError *selectionError = nil;
+  NSDictionary *selection = [self resolvedStorageSelectionWithError:&selectionError];
+  if (!selection) {
+    if (error) *error = selectionError;
+    return nil;
+  }
+  NSString *assetId = ControlerOptionalTrimmedString(options[@"assetId"]) ?: ControlerOptionalTrimmedString(options[@"id"]);
+  if (assetId.length == 0) {
+    [self releaseStorageSelectionAccess:selection];
+    return nil;
+  }
+  NSDictionary *matchedEntry = nil;
+  for (id entryValue in [self readDiaryMediaAssetEntriesForSelection:selection error:nil]) {
+    NSDictionary *entry = ControlerEnsureDictionary(entryValue);
+    if ([ControlerTrimmedString(entry[@"assetId"]) isEqualToString:assetId]) {
+      matchedEntry = entry;
+      break;
+    }
+  }
+  NSString *absolutePath = matchedEntry ? [[self diaryMediaRootPathForSelection:selection] stringByAppendingPathComponent:ControlerTrimmedString(matchedEntry[@"file"])] : @"";
+  BOOL exists = matchedEntry && [[self fileManager] fileExistsAtPath:absolutePath];
+  [self releaseStorageSelectionAccess:selection];
+  if (!matchedEntry) return nil;
+  NSMutableDictionary *result = [matchedEntry mutableCopy];
+  result[@"exists"] = @(exists);
+  result[@"uri"] = exists ? [[NSURL fileURLWithPath:absolutePath] absoluteString] : @"";
+  return result;
+}
+
+- (NSDictionary *)deleteDiaryImageAssetsWithOptions:(NSDictionary *)options error:(NSError **)error
+{
+  if ([self storageNeedsRecovery]) {
+    if (error) *error = [self storageRecoveryError];
+    return nil;
+  }
+  NSError *selectionError = nil;
+  NSDictionary *selection = [self resolvedStorageSelectionWithError:&selectionError];
+  if (!selection) {
+    if (error) *error = selectionError;
+    return nil;
+  }
+  NSDictionary *source = ControlerEnsureDictionary(options);
+  NSMutableSet<NSString *> *targetAssetIds = [NSMutableSet set];
+  for (id assetIdValue in ControlerEnsureArray(source[@"assetIds"])) {
+    NSString *assetId = ControlerTrimmedString(assetIdValue);
+    if (assetId.length > 0) [targetAssetIds addObject:assetId];
+  }
+  NSMutableSet<NSString *> *keepAssetIds = [NSMutableSet set];
+  for (id assetIdValue in ControlerEnsureArray(source[@"keepAssetIds"])) {
+    NSString *assetId = ControlerTrimmedString(assetIdValue);
+    if (assetId.length > 0) [keepAssetIds addObject:assetId];
+  }
+  NSArray *existingEntries = [self readDiaryMediaAssetEntriesForSelection:selection error:nil];
+  NSMutableArray *keptEntries = [NSMutableArray array];
+  NSMutableArray *deletedAssetIds = [NSMutableArray array];
+  NSString *rootPath = [self diaryMediaRootPathForSelection:selection];
+  for (id entryValue in existingEntries) {
+    NSDictionary *entry = ControlerEnsureDictionary(entryValue);
+    NSString *assetId = ControlerTrimmedString(entry[@"assetId"]);
+    BOOL shouldDelete = targetAssetIds.count > 0
+      ? [targetAssetIds containsObject:assetId]
+      : (keepAssetIds.count > 0 ? ![keepAssetIds containsObject:assetId] : NO);
+    if (!shouldDelete) {
+      [keptEntries addObject:entry];
+      continue;
+    }
+    [deletedAssetIds addObject:assetId];
+    NSString *relativePath = ControlerTrimmedString(entry[@"file"]);
+    if (relativePath.length > 0) [[self fileManager] removeItemAtPath:[rootPath stringByAppendingPathComponent:relativePath] error:nil];
+  }
+  if ((deletedAssetIds.count > 0 || keepAssetIds.count > 0) && ![self updateDiaryMediaAssetEntries:keptEntries forSelection:selection error:error]) {
+    [self releaseStorageSelectionAccess:selection];
+    return nil;
+  }
+  [self releaseStorageSelectionAccess:selection];
+  return @{
+    @"deletedAssetIds": deletedAssetIds,
+    @"remainingAssetCount": @(keptEntries.count),
+  };
+}
+
 - (NSString *)sha1HexForString:(NSString *)value
 {
   NSData *data = [ControlerTrimmedString(value ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
@@ -709,6 +1135,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
   NSString *now = [self isoNow];
   NSMutableDictionary *next = [NSMutableDictionary dictionary];
   for (NSString *key in ControlerSharedArrayKeys()) next[key] = ControlerDeepCopyJSON(ControlerEnsureArray(source[key])) ?: @[];
+  next[@"diaryMediaAssets"] = ControlerDeepCopyJSON(ControlerNormalizeDiaryMediaManifest(source[@"diaryMediaAssets"])) ?: @[];
   next[@"yearlyGoals"] = ControlerDeepCopyJSON(ControlerEnsureDictionary(source[@"yearlyGoals"])) ?: @{};
   next[@"guideState"] = ControlerNormalizedGuideState(ControlerEnsureDictionary(source[@"guideState"]));
   next[@"builtInThemeOverrides"] = ControlerDeepCopyJSON(ControlerEnsureDictionary(source[@"builtInThemeOverrides"])) ?: @{};
@@ -800,7 +1227,19 @@ RCT_EXPORT_MODULE(ControlerBridge);
     [partitions sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) { return [ControlerTrimmedString(left[@"periodId"]) compare:ControlerTrimmedString(right[@"periodId"])]; }];
     sections[section] = @{@"periodUnit": kPeriodUnit, @"partitions": partitions};
   }
-  return @{@"formatVersion": @(kBundleFormatVersion), @"bundleMode": kBundleMode, @"createdAt": ControlerOptionalTrimmedString(source[@"createdAt"]) ?: [self isoNow], @"lastModified": ControlerOptionalTrimmedString(source[@"lastModified"]) ?: ControlerOptionalTrimmedString(source[@"createdAt"]) ?: [self isoNow], @"sections": sections, @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(source[@"legacyBackups"])) ?: @[]};
+  return @{
+    @"formatVersion": @(kBundleFormatVersion),
+    @"bundleMode": kBundleMode,
+    @"createdAt": ControlerOptionalTrimmedString(source[@"createdAt"]) ?: [self isoNow],
+    @"lastModified": ControlerOptionalTrimmedString(source[@"lastModified"]) ?: ControlerOptionalTrimmedString(source[@"createdAt"]) ?: [self isoNow],
+    @"sections": sections,
+    @"assets": @{
+      @"diaryMedia": ControlerDeepCopyJSON(
+        ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary(source[@"assets"])[@"diaryMedia"])
+      ) ?: @[],
+    },
+    @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(source[@"legacyBackups"])) ?: @[],
+  };
 }
 
 - (NSDictionary *)sectionManifestForSection:(NSString *)section partitionBuckets:(NSDictionary *)partitionBuckets
@@ -843,7 +1282,24 @@ RCT_EXPORT_MODULE(ControlerBridge);
   sections[@"core"] = @{@"file": kBundleCoreFileName};
   sections[@"plansRecurring"] = @{@"file": kBundleRecurringPlansFileName, @"count": @(recurringPlans.count)};
   for (NSString *section in ControlerPartitionedSections()) sections[section] = [self sectionManifestForSection:section partitionBuckets:partitionMap[section]];
-  return @{@"manifest": @{@"formatVersion": @(kBundleFormatVersion), @"bundleMode": kBundleMode, @"createdAt": normalized[@"createdAt"] ?: [self isoNow], @"lastModified": normalized[@"lastModified"] ?: normalized[@"createdAt"] ?: [self isoNow], @"sections": sections, @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(legacyBackups)) ?: @[]}, @"core": core, @"recurringPlans": recurringPlans, @"partitionMap": partitionMap};
+  return @{
+    @"manifest": @{
+      @"formatVersion": @(kBundleFormatVersion),
+      @"bundleMode": kBundleMode,
+      @"createdAt": normalized[@"createdAt"] ?: [self isoNow],
+      @"lastModified": normalized[@"lastModified"] ?: normalized[@"createdAt"] ?: [self isoNow],
+      @"sections": sections,
+      @"assets": @{
+        @"diaryMedia": ControlerDeepCopyJSON(
+          ControlerNormalizeDiaryMediaManifest(normalized[@"diaryMediaAssets"])
+        ) ?: @[],
+      },
+      @"legacyBackups": ControlerDeepCopyJSON(ControlerEnsureArray(legacyBackups)) ?: @[],
+    },
+    @"core": core,
+    @"recurringPlans": recurringPlans,
+    @"partitionMap": partitionMap,
+  };
 }
 
 - (NSDictionary *)buildLegacyStateFromBundlePayload:(NSDictionary *)payload
@@ -858,6 +1314,9 @@ RCT_EXPORT_MODULE(ControlerBridge);
     for (NSString *periodId in [[sectionBuckets allKeys] sortedArrayUsingSelector:@selector(compare:)]) [items addObjectsFromArray:ControlerEnsureArray(sectionBuckets[periodId])];
     state[section] = [self sortedItems:items forSection:section];
   }
+  state[@"diaryMediaAssets"] = ControlerDeepCopyJSON(
+    ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary(manifest[@"assets"])[@"diaryMedia"])
+  ) ?: @[];
   state[@"plans"] = [self sortedItems:[ControlerEnsureArray(state[@"plans"]) arrayByAddingObjectsFromArray:ControlerEnsureArray(payload[@"recurringPlans"])] forSection:@"plans"];
   state[@"createdAt"] = ControlerOptionalTrimmedString(state[@"createdAt"]) ?: manifest[@"createdAt"] ?: [self isoNow];
   state[@"lastModified"] = ControlerOptionalTrimmedString(state[@"lastModified"]) ?: manifest[@"lastModified"] ?: state[@"createdAt"];
@@ -986,12 +1445,26 @@ RCT_EXPORT_MODULE(ControlerBridge);
       if (![self writeJsonObject:[self createPartitionEnvelopeForSection:section periodId:periodId items:sectionBuckets[periodId] fingerprint:nil] toFile:[directory stringByAppendingPathComponent:relativePath] error:error]) return NO;
     }
   }
+  NSString *sourceAssetRoot = [self storageDirectoryPath];
+  for (id assetValue in ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary(ControlerEnsureDictionary(payload[@"manifest"])[@"assets"])[@"diaryMedia"])) {
+    NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(assetValue)[@"file"]);
+    if (relativePath.length == 0) continue;
+    [desiredFiles addObject:relativePath];
+    NSString *sourcePath = [sourceAssetRoot stringByAppendingPathComponent:relativePath];
+    NSString *targetPath = [directory stringByAppendingPathComponent:relativePath];
+    if ([sourcePath isEqualToString:targetPath] || ![[self fileManager] fileExistsAtPath:sourcePath]) continue;
+    if (![self copyItemAtPath:sourcePath toPath:targetPath error:error]) return NO;
+  }
   NSDictionary *oldSections = ControlerEnsureDictionary([self normalizedManifest:previousManifest][@"sections"]);
   for (NSString *section in ControlerPartitionedSections()) {
     for (id partitionValue in ControlerEnsureArray(ControlerEnsureDictionary(oldSections[section])[@"partitions"])) {
       NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(partitionValue)[@"file"]);
       if (relativePath.length > 0 && ![desiredFiles containsObject:relativePath]) [[self fileManager] removeItemAtPath:[directory stringByAppendingPathComponent:relativePath] error:nil];
     }
+  }
+  for (id assetValue in ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary([self normalizedManifest:previousManifest][@"assets"])[@"diaryMedia"])) {
+    NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(assetValue)[@"file"]);
+    if (relativePath.length > 0 && ![desiredFiles containsObject:relativePath]) [[self fileManager] removeItemAtPath:[directory stringByAppendingPathComponent:relativePath] error:nil];
   }
   return [self writeJsonObject:payload[@"manifest"] toFile:[directory stringByAppendingPathComponent:kBundleManifestFileName] error:error];
 }
@@ -1062,6 +1535,10 @@ RCT_EXPORT_MODULE(ControlerBridge);
   NSDictionary *sections = ControlerEnsureDictionary(normalized[@"sections"]);
   for (NSString *section in ControlerPartitionedSections()) for (id partitionValue in ControlerEnsureArray(ControlerEnsureDictionary(sections[section])[@"partitions"])) {
     NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(partitionValue)[@"file"]);
+    if (relativePath.length > 0) [paths addObject:relativePath];
+  }
+  for (id assetValue in ControlerNormalizeDiaryMediaManifest(ControlerEnsureDictionary(normalized[@"assets"])[@"diaryMedia"])) {
+    NSString *relativePath = ControlerOptionalTrimmedString(ControlerEnsureDictionary(assetValue)[@"file"]);
     if (relativePath.length > 0) [paths addObject:relativePath];
   }
   return paths;
@@ -2546,12 +3023,13 @@ RCT_EXPORT_MODULE(ControlerBridge);
 {
   NSString *purpose = ControlerTrimmedString(context[@"purpose"]);
   if ([purpose isEqualToString:@"select-directory"]) return @[@"public.folder"];
+  if ([purpose isEqualToString:@"pick-diary-images"]) return @[@"public.image"];
   NSString *accept = ControlerTrimmedString(ControlerEnsureDictionary(context[@"options"])[@"accept"]);
   if ([accept isEqualToString:@"json"]) return @[@"public.json"];
   return @[@"public.json", @"com.pkware.zip-archive"];
 }
 
-- (void)resolvePendingDocumentPickerWithPayload:(NSDictionary *)payload
+- (void)resolvePendingDocumentPickerWithPayload:(id)payload
 {
   RCTPromiseResolveBlock resolve = self.pendingDocumentPickerResolve;
   self.pendingDocumentPickerResolve = nil;
@@ -2589,11 +3067,13 @@ RCT_EXPORT_MODULE(ControlerBridge);
       NSArray<UTType *> *types = nil;
       if ([purpose isEqualToString:@"select-directory"]) {
         types = @[UTTypeFolder];
+      } else if ([purpose isEqualToString:@"pick-diary-images"]) {
+        types = @[UTTypeImage];
       } else {
         NSString *accept = ControlerTrimmedString(ControlerEnsureDictionary(context[@"options"])[@"accept"]);
         types = [accept isEqualToString:@"json"] ? @[UTTypeJSON] : @[UTTypeJSON, UTTypeZIP];
       }
-      picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
+      picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:[purpose isEqualToString:@"pick-diary-images"]];
     }
 #endif
     if (!picker) {
@@ -2601,7 +3081,11 @@ RCT_EXPORT_MODULE(ControlerBridge);
     }
 
     picker.delegate = self;
-    picker.allowsMultipleSelection = NO;
+    BOOL diaryImagePicker = [ControlerTrimmedString(context[@"purpose"]) isEqualToString:@"pick-diary-images"];
+    NSDictionary *pickerOptions = ControlerEnsureDictionary(context[@"options"]);
+    picker.allowsMultipleSelection =
+      diaryImagePicker &&
+      (pickerOptions[@"multiple"] == nil || [pickerOptions[@"multiple"] boolValue]);
     self.pendingDocumentPickerResolve = resolve;
     self.pendingDocumentPickerReject = reject;
     self.pendingDocumentPickerContext = context ?: @{};
@@ -2609,31 +3093,36 @@ RCT_EXPORT_MODULE(ControlerBridge);
   });
 }
 
-- (void)handlePickedDocumentURL:(NSURL *)url
+- (void)handlePickedDocumentURLs:(NSArray<NSURL *> *)urls
 {
   NSDictionary *context = self.pendingDocumentPickerContext ?: @{};
   NSString *purpose = ControlerTrimmedString(context[@"purpose"]);
-  BOOL didAccess = [url startAccessingSecurityScopedResource];
-  @try {
-    NSError *error = nil;
-    NSDictionary *payload = nil;
-    if ([purpose isEqualToString:@"import-source"]) {
-      payload = [self importStorageSourceFromURL:url options:ControlerEnsureDictionary(context[@"options"]) error:&error];
-    } else if ([purpose isEqualToString:@"select-file"]) {
-      payload = [self switchToStorageFileURL:url displayName:(url.lastPathComponent ?: @"controler-data.json") error:&error];
-    } else if ([purpose isEqualToString:@"select-directory"]) {
-      payload = [self switchToStorageDirectoryURL:url displayName:(url.lastPathComponent ?: @"已选择目录") error:&error];
-    } else {
-      error = [self bridgeErrorWithDescription:@"未知的 iOS 文档选择上下文。" code:1014];
+  NSURL *url = urls.firstObject;
+  NSError *error = nil;
+  id payload = nil;
+  if ([purpose isEqualToString:@"pick-diary-images"]) {
+    payload = [self pickedDiaryImagePayloadFromURLs:urls error:&error];
+  } else {
+    BOOL didAccess = [url startAccessingSecurityScopedResource];
+    @try {
+      if ([purpose isEqualToString:@"import-source"]) {
+        payload = [self importStorageSourceFromURL:url options:ControlerEnsureDictionary(context[@"options"]) error:&error];
+      } else if ([purpose isEqualToString:@"select-file"]) {
+        payload = [self switchToStorageFileURL:url displayName:(url.lastPathComponent ?: @"controler-data.json") error:&error];
+      } else if ([purpose isEqualToString:@"select-directory"]) {
+        payload = [self switchToStorageDirectoryURL:url displayName:(url.lastPathComponent ?: @"已选择目录") error:&error];
+      } else {
+        error = [self bridgeErrorWithDescription:@"未知的 iOS 文档选择上下文。" code:1014];
+      }
+    } @finally {
+      if (didAccess) [url stopAccessingSecurityScopedResource];
     }
-    if (error) {
-      [self rejectPendingDocumentPickerWithCode:@"document_picker_failed" message:error.localizedDescription error:error];
-      return;
-    }
-    [self resolvePendingDocumentPickerWithPayload:payload];
-  } @finally {
-    if (didAccess) [url stopAccessingSecurityScopedResource];
   }
+  if (error) {
+    [self rejectPendingDocumentPickerWithCode:@"document_picker_failed" message:error.localizedDescription error:error];
+    return;
+  }
+  [self resolvePendingDocumentPickerWithPayload:payload];
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
@@ -2643,12 +3132,11 @@ RCT_EXPORT_MODULE(ControlerBridge);
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
-  NSURL *targetURL = urls.firstObject;
-  if (!targetURL) {
+  if (urls.count == 0) {
     [self resolvePendingDocumentPickerWithPayload:nil];
     return;
   }
-  [self handlePickedDocumentURL:targetURL];
+  [self handlePickedDocumentURLs:urls];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url
@@ -2657,7 +3145,7 @@ RCT_EXPORT_MODULE(ControlerBridge);
     [self resolvePendingDocumentPickerWithPayload:nil];
     return;
   }
-  [self handlePickedDocumentURL:url];
+  [self handlePickedDocumentURLs:@[url]];
 }
 
 RCT_REMAP_METHOD(getStartUrl,
@@ -2891,6 +3379,102 @@ RCT_REMAP_METHOD(removeStorageDraft,
   }
   [[self fileManager] removeItemAtPath:[self draftFilePathForKey:key] error:nil];
   resolve(@"true");
+}
+
+RCT_REMAP_METHOD(pickDiaryImages,
+                 pickDiaryImagesWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_diary_image_pick_failed", @"解析图片选择参数失败。", parseError);
+    return;
+  }
+  [self presentDocumentPickerForContext:@{
+    @"purpose": @"pick-diary-images",
+    @"options": ControlerEnsureDictionary(optionsObject),
+  } resolver:resolve rejecter:reject];
+}
+
+RCT_REMAP_METHOD(saveDiaryImageAsset,
+                 saveDiaryImageAssetWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSError *storageError = nil;
+  if (![self ensureStorageReady:&storageError]) {
+    reject(@"storage_diary_image_save_failed", storageError.localizedDescription, storageError);
+    return;
+  }
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_diary_image_save_failed", @"解析图片保存参数失败。", parseError);
+    return;
+  }
+  NSError *error = nil;
+  NSDictionary *savedAsset = [self saveDiaryImageAssetWithOptions:ControlerEnsureDictionary(optionsObject) error:&error];
+  if (!savedAsset) {
+    reject(@"storage_diary_image_save_failed", (error.localizedDescription ?: @"保存日记图片失败。"), error);
+    return;
+  }
+  resolve([self serializeObject:savedAsset]);
+}
+
+RCT_REMAP_METHOD(resolveDiaryImageUri,
+                 resolveDiaryImageUriWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSError *storageError = nil;
+  if (![self ensureStorageReady:&storageError]) {
+    reject(@"storage_diary_image_resolve_failed", storageError.localizedDescription, storageError);
+    return;
+  }
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_diary_image_resolve_failed", @"解析图片 URI 参数失败。", parseError);
+    return;
+  }
+  NSError *error = nil;
+  NSDictionary *resolved = [self resolveDiaryImageUriWithOptions:ControlerEnsureDictionary(optionsObject) error:&error];
+  if (error) {
+    reject(@"storage_diary_image_resolve_failed", error.localizedDescription, error);
+    return;
+  }
+  resolve(resolved ? [self serializeObject:resolved] : @"null");
+}
+
+RCT_REMAP_METHOD(deleteDiaryImageAssets,
+                 deleteDiaryImageAssetsWithJson:(NSString *)optionsJson
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSError *storageError = nil;
+  if (![self ensureStorageReady:&storageError]) {
+    reject(@"storage_diary_image_delete_failed", storageError.localizedDescription, storageError);
+    return;
+  }
+  NSData *optionsData = [ControlerTrimmedString(optionsJson) dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *parseError = nil;
+  id optionsObject = optionsData.length > 0 ? [NSJSONSerialization JSONObjectWithData:optionsData options:NSJSONReadingMutableContainers error:&parseError] : @{};
+  if (parseError || ![optionsObject isKindOfClass:[NSDictionary class]]) {
+    reject(@"storage_diary_image_delete_failed", @"解析图片删除参数失败。", parseError);
+    return;
+  }
+  NSError *error = nil;
+  NSDictionary *result = [self deleteDiaryImageAssetsWithOptions:ControlerEnsureDictionary(optionsObject) error:&error];
+  if (!result) {
+    reject(@"storage_diary_image_delete_failed", (error.localizedDescription ?: @"删除日记图片失败。"), error);
+    return;
+  }
+  resolve([self serializeObject:result]);
 }
 
 RCT_REMAP_METHOD(loadStorageSectionRange,

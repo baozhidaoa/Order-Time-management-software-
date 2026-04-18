@@ -205,6 +205,7 @@
     "plans",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "dailyCheckins",
     "checkins",
     "yearlyGoals",
@@ -235,6 +236,7 @@
     "plans",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "dailyCheckins",
     "checkins",
     "yearlyGoals",
@@ -250,6 +252,7 @@
     "projects",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "yearlyGoals",
     "diaryCategories",
     "guideState",
@@ -333,6 +336,7 @@
     plans: [],
     todos: [],
     checkinItems: [],
+    checkinHistorySummary: {},
     dailyCheckins: [],
     checkins: [],
     yearlyGoals: {},
@@ -460,6 +464,57 @@
     } catch (error) {
       return value;
     }
+  }
+
+  function normalizeCheckinHistorySummaryDateList(values = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) =>
+            typeof value === "string" ? value.trim().slice(0, 10) : "",
+          )
+          .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)),
+      ),
+    ).sort();
+  }
+
+  function normalizeCheckinHistorySummaryEntry(entry = {}) {
+    const source =
+      entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    const checkedDates = normalizeCheckinHistorySummaryDateList(
+      source.checkedDates,
+    );
+    const explicitCount = Math.max(
+      0,
+      Math.round(Number(source.checkedDaysCount) || 0),
+    );
+    return {
+      checkedDaysCount:
+        checkedDates.length > 0 ? checkedDates.length : explicitCount,
+      checkedDates,
+      updatedAt:
+        typeof source.updatedAt === "string" && source.updatedAt.trim()
+          ? source.updatedAt.trim()
+          : "",
+    };
+  }
+
+  function normalizeCheckinHistorySummary(summary = {}) {
+    const source =
+      summary && typeof summary === "object" && !Array.isArray(summary)
+        ? summary
+        : {};
+    const normalized = {};
+    Object.keys(source).forEach((itemId) => {
+      const normalizedItemId = String(itemId || "").trim();
+      if (!normalizedItemId) {
+        return;
+      }
+      normalized[normalizedItemId] = normalizeCheckinHistorySummaryEntry(
+        source[itemId],
+      );
+    });
+    return normalized;
   }
 
   function safeDeserialize(rawValue) {
@@ -916,9 +971,19 @@
       !Array.isArray(stripResult.payload)
         ? stripResult.payload
         : {};
+    const normalizedPayload = {
+      ...source,
+      ...(Object.prototype.hasOwnProperty.call(source, "checkinHistorySummary")
+        ? {
+            checkinHistorySummary: normalizeCheckinHistorySummary(
+              source.checkinHistorySummary,
+            ),
+          }
+        : {}),
+    };
     if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
       return {
-        payload: source,
+        payload: normalizedPayload,
         projects: [],
         repaired: stripResult.repaired,
       };
@@ -926,7 +991,7 @@
     const projectResult = normalizeProjectCollection(source.projects, options);
     return {
       payload: {
-        ...source,
+        ...normalizedPayload,
         projects: cloneValue(projectResult.projects),
       },
       projects: projectResult.projects,
@@ -1066,6 +1131,17 @@
     if (!Array.isArray(base.plans)) base.plans = [];
     if (!Array.isArray(base.todos)) base.todos = [];
     if (!Array.isArray(base.checkinItems)) base.checkinItems = [];
+    if (
+      !base.checkinHistorySummary ||
+      typeof base.checkinHistorySummary !== "object" ||
+      Array.isArray(base.checkinHistorySummary)
+    ) {
+      base.checkinHistorySummary = {};
+    } else {
+      base.checkinHistorySummary = normalizeCheckinHistorySummary(
+        base.checkinHistorySummary,
+      );
+    }
     if (!Array.isArray(base.dailyCheckins)) base.dailyCheckins = [];
     if (!Array.isArray(base.checkins)) base.checkins = [];
     if (!Array.isArray(base.diaryEntries)) base.diaryEntries = [];
@@ -1691,6 +1767,9 @@
         checkinItems: cloneValue(
           Array.isArray(state?.checkinItems) ? state.checkinItems : [],
         ),
+        checkinHistorySummary: normalizeCheckinHistorySummary(
+          state?.checkinHistorySummary,
+        ),
         todayDailyCheckins: cloneValue(dailyRange.items),
         recentCheckins: cloneValue(checkinRange.items),
       };
@@ -1869,6 +1948,11 @@
           todos: cloneValue(legacyPageData.todos || fallback.data.todos),
           checkinItems: cloneValue(
             legacyPageData.checkinItems || fallback.data.checkinItems,
+          ),
+          checkinHistorySummary: normalizeCheckinHistorySummary(
+            legacyPageData.checkinHistorySummary ||
+              fallback.data.checkinHistorySummary ||
+              {},
           ),
           todayDailyCheckins: cloneValue(
             legacyPageData.todayDailyCheckins ||
@@ -2119,6 +2203,11 @@
           todos: cloneValue(coreState?.todos || fallback.data.todos || []),
           checkinItems: cloneValue(
             coreState?.checkinItems || fallback.data.checkinItems || [],
+          ),
+          checkinHistorySummary: normalizeCheckinHistorySummary(
+            coreState?.checkinHistorySummary ||
+              fallback.data.checkinHistorySummary ||
+              {},
           ),
           todayDailyCheckins: cloneValue(dailyRange?.items || []),
           recentCheckins: cloneValue(checkinRange?.items || []),
@@ -7393,6 +7482,9 @@
         projects: cloneValue(sourceState?.projects || []),
         todos: cloneValue(sourceState?.todos || []),
         checkinItems: cloneValue(sourceState?.checkinItems || []),
+        checkinHistorySummary: normalizeCheckinHistorySummary(
+          sourceState?.checkinHistorySummary,
+        ),
         yearlyGoals: cloneValue(sourceState?.yearlyGoals || {}),
         diaryCategories: cloneValue(sourceState?.diaryCategories || []),
         guideState:
@@ -7446,6 +7538,14 @@
         checkinItems: Array.isArray(normalizedCorePayload?.checkinItems)
           ? normalizedCorePayload.checkinItems
           : currentCoreSnapshot.checkinItems,
+        checkinHistorySummary:
+          normalizedCorePayload?.checkinHistorySummary &&
+          typeof normalizedCorePayload.checkinHistorySummary === "object" &&
+          !Array.isArray(normalizedCorePayload.checkinHistorySummary)
+            ? normalizeCheckinHistorySummary(
+                normalizedCorePayload.checkinHistorySummary,
+              )
+            : currentCoreSnapshot.checkinHistorySummary,
         yearlyGoals: isPlainObject(normalizedCorePayload?.yearlyGoals)
           ? normalizedCorePayload.yearlyGoals
           : currentCoreSnapshot.yearlyGoals,
@@ -7707,6 +7807,12 @@
             checkinItems: Array.isArray(data.checkinItems)
               ? data.checkinItems
               : [],
+            checkinHistorySummary:
+              data?.checkinHistorySummary &&
+              typeof data.checkinHistorySummary === "object" &&
+              !Array.isArray(data.checkinHistorySummary)
+                ? data.checkinHistorySummary
+                : {},
           },
           pageBootstrap,
         );
@@ -8061,11 +8167,11 @@
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
             normalizedOptions,
-          ) || shouldBypassManagedBootstrapCache;
+          );
+          const shouldBypassManagedBootstrapCache =
+            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
@@ -8080,10 +8186,12 @@
           const canUseManagedBootstrapFastPath =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
+            !shouldBypassManagedBootstrapCache &&
             canUseManagedBootstrap;
           const preferManagedBootstrap =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
+            !shouldBypassManagedBootstrapCache &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =

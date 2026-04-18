@@ -3996,6 +3996,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "plans",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "dailyCheckins",
     "checkins",
     "yearlyGoals",
@@ -4026,6 +4027,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "plans",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "dailyCheckins",
     "checkins",
     "yearlyGoals",
@@ -4041,6 +4043,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     "projects",
     "todos",
     "checkinItems",
+    "checkinHistorySummary",
     "yearlyGoals",
     "diaryCategories",
     "guideState",
@@ -4124,6 +4127,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     plans: [],
     todos: [],
     checkinItems: [],
+    checkinHistorySummary: {},
     dailyCheckins: [],
     checkins: [],
     yearlyGoals: {},
@@ -4251,6 +4255,57 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     } catch (error) {
       return value;
     }
+  }
+
+  function normalizeCheckinHistorySummaryDateList(values = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) =>
+            typeof value === "string" ? value.trim().slice(0, 10) : "",
+          )
+          .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)),
+      ),
+    ).sort();
+  }
+
+  function normalizeCheckinHistorySummaryEntry(entry = {}) {
+    const source =
+      entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    const checkedDates = normalizeCheckinHistorySummaryDateList(
+      source.checkedDates,
+    );
+    const explicitCount = Math.max(
+      0,
+      Math.round(Number(source.checkedDaysCount) || 0),
+    );
+    return {
+      checkedDaysCount:
+        checkedDates.length > 0 ? checkedDates.length : explicitCount,
+      checkedDates,
+      updatedAt:
+        typeof source.updatedAt === "string" && source.updatedAt.trim()
+          ? source.updatedAt.trim()
+          : "",
+    };
+  }
+
+  function normalizeCheckinHistorySummary(summary = {}) {
+    const source =
+      summary && typeof summary === "object" && !Array.isArray(summary)
+        ? summary
+        : {};
+    const normalized = {};
+    Object.keys(source).forEach((itemId) => {
+      const normalizedItemId = String(itemId || "").trim();
+      if (!normalizedItemId) {
+        return;
+      }
+      normalized[normalizedItemId] = normalizeCheckinHistorySummaryEntry(
+        source[itemId],
+      );
+    });
+    return normalized;
   }
 
   function safeDeserialize(rawValue) {
@@ -4707,9 +4762,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       !Array.isArray(stripResult.payload)
         ? stripResult.payload
         : {};
+    const normalizedPayload = {
+      ...source,
+      ...(Object.prototype.hasOwnProperty.call(source, "checkinHistorySummary")
+        ? {
+            checkinHistorySummary: normalizeCheckinHistorySummary(
+              source.checkinHistorySummary,
+            ),
+          }
+        : {}),
+    };
     if (!Object.prototype.hasOwnProperty.call(source, "projects")) {
       return {
-        payload: source,
+        payload: normalizedPayload,
         projects: [],
         repaired: stripResult.repaired,
       };
@@ -4717,7 +4782,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const projectResult = normalizeProjectCollection(source.projects, options);
     return {
       payload: {
-        ...source,
+        ...normalizedPayload,
         projects: cloneValue(projectResult.projects),
       },
       projects: projectResult.projects,
@@ -4857,6 +4922,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!Array.isArray(base.plans)) base.plans = [];
     if (!Array.isArray(base.todos)) base.todos = [];
     if (!Array.isArray(base.checkinItems)) base.checkinItems = [];
+    if (
+      !base.checkinHistorySummary ||
+      typeof base.checkinHistorySummary !== "object" ||
+      Array.isArray(base.checkinHistorySummary)
+    ) {
+      base.checkinHistorySummary = {};
+    } else {
+      base.checkinHistorySummary = normalizeCheckinHistorySummary(
+        base.checkinHistorySummary,
+      );
+    }
     if (!Array.isArray(base.dailyCheckins)) base.dailyCheckins = [];
     if (!Array.isArray(base.checkins)) base.checkins = [];
     if (!Array.isArray(base.diaryEntries)) base.diaryEntries = [];
@@ -5482,6 +5558,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         checkinItems: cloneValue(
           Array.isArray(state?.checkinItems) ? state.checkinItems : [],
         ),
+        checkinHistorySummary: normalizeCheckinHistorySummary(
+          state?.checkinHistorySummary,
+        ),
         todayDailyCheckins: cloneValue(dailyRange.items),
         recentCheckins: cloneValue(checkinRange.items),
       };
@@ -5660,6 +5739,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           todos: cloneValue(legacyPageData.todos || fallback.data.todos),
           checkinItems: cloneValue(
             legacyPageData.checkinItems || fallback.data.checkinItems,
+          ),
+          checkinHistorySummary: normalizeCheckinHistorySummary(
+            legacyPageData.checkinHistorySummary ||
+              fallback.data.checkinHistorySummary ||
+              {},
           ),
           todayDailyCheckins: cloneValue(
             legacyPageData.todayDailyCheckins ||
@@ -5910,6 +5994,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           todos: cloneValue(coreState?.todos || fallback.data.todos || []),
           checkinItems: cloneValue(
             coreState?.checkinItems || fallback.data.checkinItems || [],
+          ),
+          checkinHistorySummary: normalizeCheckinHistorySummary(
+            coreState?.checkinHistorySummary ||
+              fallback.data.checkinHistorySummary ||
+              {},
           ),
           todayDailyCheckins: cloneValue(dailyRange?.items || []),
           recentCheckins: cloneValue(checkinRange?.items || []),
@@ -11184,6 +11273,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         projects: cloneValue(sourceState?.projects || []),
         todos: cloneValue(sourceState?.todos || []),
         checkinItems: cloneValue(sourceState?.checkinItems || []),
+        checkinHistorySummary: normalizeCheckinHistorySummary(
+          sourceState?.checkinHistorySummary,
+        ),
         yearlyGoals: cloneValue(sourceState?.yearlyGoals || {}),
         diaryCategories: cloneValue(sourceState?.diaryCategories || []),
         guideState:
@@ -11237,6 +11329,14 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         checkinItems: Array.isArray(normalizedCorePayload?.checkinItems)
           ? normalizedCorePayload.checkinItems
           : currentCoreSnapshot.checkinItems,
+        checkinHistorySummary:
+          normalizedCorePayload?.checkinHistorySummary &&
+          typeof normalizedCorePayload.checkinHistorySummary === "object" &&
+          !Array.isArray(normalizedCorePayload.checkinHistorySummary)
+            ? normalizeCheckinHistorySummary(
+                normalizedCorePayload.checkinHistorySummary,
+              )
+            : currentCoreSnapshot.checkinHistorySummary,
         yearlyGoals: isPlainObject(normalizedCorePayload?.yearlyGoals)
           ? normalizedCorePayload.yearlyGoals
           : currentCoreSnapshot.yearlyGoals,
@@ -11498,6 +11598,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             checkinItems: Array.isArray(data.checkinItems)
               ? data.checkinItems
               : [],
+            checkinHistorySummary:
+              data?.checkinHistorySummary &&
+              typeof data.checkinHistorySummary === "object" &&
+              !Array.isArray(data.checkinHistorySummary)
+                ? data.checkinHistorySummary
+                : {},
           },
           pageBootstrap,
         );
@@ -11852,11 +11958,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const normalizedPage = normalizePageBootstrapKey(pageKey);
           const normalizedOptions =
             options && typeof options === "object" ? { ...options } : {};
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
             normalizedOptions,
-          ) || shouldBypassManagedBootstrapCache;
+          );
+          const shouldBypassManagedBootstrapCache =
+            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
@@ -11871,10 +11977,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const canUseManagedBootstrapFastPath =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
+            !shouldBypassManagedBootstrapCache &&
             canUseManagedBootstrap;
           const preferManagedBootstrap =
             !forceAuthoritativeBootstrap &&
             nativeInitializationSettled &&
+            !shouldBypassManagedBootstrapCache &&
             hasPendingStateChanges &&
             hasManagedCoreSnapshot;
           const shouldHydrateManagedMirror =
@@ -18620,8 +18728,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MODAL_EDGE_SWIPE_RESET_DURATION_MS = 180;
   const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const MODAL_REMOVAL_DEFERRED_DELAY_MS = 24;
-  const MODAL_CLOSE_VISUAL_DURATION_MS = 84;
-  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 128;
+  const MODAL_CLOSE_VISUAL_DURATION_MS = 176;
+  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 216;
   const BLOCKING_MUTATION_FULLSCREEN_OVERLAY_DELAY_MS = 1200;
   const BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS = 180;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 36;
@@ -19220,6 +19328,48 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     pendingAndroidInteractiveTextFocusTransferTimerId = 0;
     pendingAndroidInteractiveTextFocusTransferTarget = null;
     return true;
+  }
+
+  function cancelAndroidInteractiveTextFocusWork(target) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    const focusTargets = new Set();
+    const registerFocusTarget = (candidate) => {
+      const focusTarget =
+        candidate instanceof HTMLElement
+          ? resolveInteractiveTextControlTarget(candidate) || candidate
+          : resolveInteractiveTextControlTarget(candidate);
+      if (!(focusTarget instanceof HTMLElement)) {
+        return false;
+      }
+      focusTargets.add(focusTarget);
+      return true;
+    };
+
+    registerFocusTarget(target);
+    target
+      .querySelectorAll?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR)
+      ?.forEach?.((node) => {
+        registerFocusTarget(node);
+      });
+
+    const cancelledAt = Date.now();
+    let didCancel = clearPendingAndroidInteractiveTextFocusTransfer(target);
+    releaseAndroidModalAutofocusFromNode(target);
+    focusTargets.forEach((focusTarget) => {
+      clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
+      clearAndroidInteractiveTextControlPendingRetries(focusTarget);
+      clearAndroidSoftInputRequestState(focusTarget);
+      clearAndroidInteractiveTextFocusIntent(focusTarget);
+      focusTarget.__controlerAndroidSoftInputDismissedAt = Math.max(
+        Number(focusTarget.__controlerAndroidSoftInputDismissedAt || 0),
+        cancelledAt,
+      );
+      didCancel = true;
+    });
+    return didCancel;
   }
 
   function scheduleAndroidInteractiveTextFocusTransfer(target, options = {}) {
@@ -21811,6 +21961,25 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return getAndroidModalAutofocusSuppressionUntil(modal) > now;
   }
 
+  function isAndroidModalAutofocusHostEligible(modal) {
+    const overlay = resolveModalOverlayElement(modal);
+    if (!(overlay instanceof HTMLElement)) {
+      return false;
+    }
+    if (!isVisibleModalOverlay(overlay)) {
+      return false;
+    }
+    if (
+      overlay.__controlerRemovalQueued === "true" ||
+      overlay.dataset.controlerModalClosing === "true" ||
+      getAndroidModalDismissPendingUntil(overlay) > 0 ||
+      isAndroidModalDismissFreezeActive(overlay)
+    ) {
+      return false;
+    }
+    return !isAndroidModalAutofocusSuppressed(overlay);
+  }
+
   function shouldAllowAndroidModalAutofocus(target) {
     if (shouldSuppressAndroidInteractiveTextFocus()) {
       return false;
@@ -21819,10 +21988,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(hostModal instanceof HTMLElement)) {
       return true;
     }
-    if (!isVisibleModalOverlay(hostModal)) {
-      return false;
-    }
-    return !isAndroidModalAutofocusSuppressed(hostModal);
+    return isAndroidModalAutofocusHostEligible(hostModal);
   }
 
   function requestAndroidSoftInputForFocusedTarget(target, options = {}) {
@@ -22457,7 +22623,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (options.clearDisableFlag === true) {
       delete modal.dataset.controlerDisableAutofocus;
     }
-    if (isAndroidModalAutofocusSuppressed(modal)) {
+    if (!isAndroidModalAutofocusHostEligible(modal)) {
       return false;
     }
     delete modal.dataset.controlerDisableAutofocusUntil;
@@ -22536,17 +22702,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     schedule(() => {
       androidModalAutofocusQueued = false;
       const modal = getTopVisibleModal();
-      if (!(modal instanceof HTMLElement) || !isVisibleModalOverlay(modal)) {
-        return;
-      }
-      if (modal.dataset.controlerDisableAutofocus === "true") {
-        return;
-      }
-      const disableAutofocusUntil = Number.parseInt(
-        modal.dataset.controlerDisableAutofocusUntil || "0",
-        10,
-      );
-      if (disableAutofocusUntil > Date.now()) {
+      if (
+        !(modal instanceof HTMLElement) ||
+        !isAndroidModalAutofocusHostEligible(modal)
+      ) {
         return;
       }
       delete modal.dataset.controlerDisableAutofocusUntil;
@@ -24821,6 +24980,39 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return isVisibleOverlayElement(modal, "modal-overlay");
   }
 
+  const MODAL_PARENT_SURFACE_SELECTOR =
+    '.modal-overlay, [data-controler-modal-parent-surface="true"]';
+
+  function isVisibleModalParentSurface(surface) {
+    if (!(surface instanceof HTMLElement)) {
+      return false;
+    }
+    if (surface.classList.contains("modal-overlay")) {
+      return isVisibleModalOverlay(surface);
+    }
+    if (surface.dataset?.controlerModalParentSurface !== "true") {
+      return false;
+    }
+    if (!surface.isConnected) {
+      return false;
+    }
+    const computed = window.getComputedStyle(surface);
+    return (
+      computed.display !== "none" &&
+      computed.visibility !== "hidden" &&
+      !surface.hasAttribute("hidden")
+    );
+  }
+
+  function getVisibleModalParentSurfaces() {
+    if (typeof document === "undefined") {
+      return [];
+    }
+    return Array.from(
+      document.querySelectorAll(MODAL_PARENT_SURFACE_SELECTOR),
+    ).filter((surface) => isVisibleModalParentSurface(surface));
+  }
+
   function getVisibleModalOverlays() {
     if (typeof document === "undefined") {
       return [];
@@ -24840,7 +25032,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       lastAndroidAutofocusVisibleModal = null;
       return false;
     }
-    if (!(modal instanceof HTMLElement) || !isVisibleModalOverlay(modal)) {
+    if (
+      !(modal instanceof HTMLElement) ||
+      !isAndroidModalAutofocusHostEligible(modal)
+    ) {
       lastAndroidAutofocusVisibleModal = null;
       return false;
     }
@@ -25189,6 +25384,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(overlay instanceof HTMLElement)) {
       return null;
     }
+    const pendingPersistentHideTimer = Number(
+      overlay.__controlerPersistentHideTimer || 0,
+    );
+    if (pendingPersistentHideTimer > 0) {
+      window.clearTimeout(pendingPersistentHideTimer);
+      overlay.__controlerPersistentHideTimer = 0;
+    }
     resetAndroidModalAutofocusState(overlay);
     clearAndroidModalDismissFreeze(overlay, {
       resync: options.resync === true,
@@ -25201,14 +25403,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     delete overlay.dataset.controlerAndroidDismissPendingUntil;
     overlay.style.removeProperty("--controler-modal-close-duration");
     overlay.style.removeProperty("--controler-modal-close-backdrop-bg");
-    overlay.style.removeProperty("--controler-modal-close-surface-bg");
+    overlay.style.removeProperty("background");
     overlay.style.opacity = "";
     overlay.style.pointerEvents = "";
-    overlay.style.backgroundColor =
-      "var(--controler-modal-backdrop-color, var(--overlay-bg))";
+    overlay.style.backgroundColor = "";
+    overlay.style.transition = "";
     overlay.style.visibility = "";
     const modalContent = overlay.querySelector(".modal-content");
     if (modalContent instanceof HTMLElement) {
+      modalContent.style.transition = "";
       modalContent.style.opacity = "";
       modalContent.style.transform = "";
       modalContent.style.visibility = "";
@@ -25222,13 +25425,83 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return overlay;
   }
 
+  function hidePersistentModalOverlay(modal, options = {}) {
+    const overlay = resolveModalOverlayElement(modal);
+    if (!(overlay instanceof HTMLElement)) {
+      scheduleModalHistorySync();
+      scheduleNativeEdgeBackSwipeExclusionSync(document);
+      return null;
+    }
+
+    const closeProtectionDuration = resolveModalInteractionProtectionDuration(
+      overlay,
+      MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
+      "controlerCloseProtectionDurationMs",
+    );
+    const closeVisualDuration = resolveModalCloseVisualDuration(overlay);
+    const shieldDuration = resolveModalInteractionShieldDuration(
+      overlay,
+      closeProtectionDuration,
+    );
+    const pendingPersistentHideTimer = Number(
+      overlay.__controlerPersistentHideTimer || 0,
+    );
+    if (pendingPersistentHideTimer > 0) {
+      window.clearTimeout(pendingPersistentHideTimer);
+      overlay.__controlerPersistentHideTimer = 0;
+    }
+
+    cancelAndroidInteractiveTextFocusWork(overlay);
+    freezeAndroidModalDismissLayout(overlay);
+    protectModalFromFollowThrough(overlay, closeProtectionDuration);
+    protectVisibleParentModalsFromFollowThrough(
+      overlay,
+      closeProtectionDuration,
+    );
+    activateModalInteractionShield(shieldDuration);
+    applyClosingModalPresentation(overlay, {
+      closeVisualDuration,
+    });
+    releaseCoveredParentModalInteractions(overlay, {
+      delayMs: resolveCoveredParentModalReleaseDelay(closeProtectionDuration),
+    });
+
+    const finalizeHide = () => {
+      overlay.__controlerPersistentHideTimer = 0;
+      overlay.hidden = true;
+      overlay.style.display = "none";
+      overlay.style.pointerEvents = "none";
+      clearAndroidModalDismissFreeze(overlay, {
+        resync: options.resync === true,
+      });
+      scheduleModalHistorySync();
+      scheduleNativeEdgeBackSwipeExclusionSync(document);
+    };
+
+    if (closeVisualDuration <= 0) {
+      finalizeHide();
+      return overlay;
+    }
+
+    const schedule =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    schedule(() => {
+      overlay.__controlerPersistentHideTimer = window.setTimeout(
+        finalizeHide,
+        Math.max(closeVisualDuration, MODAL_REMOVAL_DEFERRED_DELAY_MS),
+      );
+    });
+    return overlay;
+  }
+
   function applyClosingModalPresentation(modal, options = {}) {
     const overlay = resolveModalOverlayElement(modal);
     if (!(overlay instanceof HTMLElement)) {
       return null;
     }
-    const hideImmediately =
-      overlay.dataset.controlerCloseHideImmediately === "true";
     const closeVisualDuration = Math.max(
       0,
       Math.round(
@@ -25255,37 +25528,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     overlay.style.setProperty(
       "--controler-modal-close-backdrop-bg",
       closeBackdropBackground ||
-        "var(--controler-modal-backdrop-color, var(--overlay-bg))",
+        "var(--controler-modal-backdrop-paint)",
     );
     const modalContent = overlay.querySelector(".modal-content");
-    const closeSurfaceBackground =
-      modalContent instanceof HTMLElement &&
-      typeof window.getComputedStyle === "function"
-        ? resolveAndroidTransitionCoverBackgroundValue(
-            window.getComputedStyle(modalContent),
-            "var(--panel-bg, var(--bg-secondary))",
-          )
-        : "var(--panel-bg, var(--bg-secondary))";
-    overlay.style.setProperty(
-      "--controler-modal-close-surface-bg",
-      closeSurfaceBackground || "var(--panel-bg, var(--bg-secondary))",
-    );
     overlay.style.pointerEvents = "none";
-    overlay.style.backgroundColor = "transparent";
-    if (!hideImmediately && closeVisualDuration > 0) {
+    if (closeVisualDuration > 0) {
       overlay.dataset.controlerModalClosing = "true";
-      overlay.style.opacity = "1";
     } else {
       delete overlay.dataset.controlerModalClosing;
       overlay.style.opacity = "0";
     }
-    if (hideImmediately) {
-      overlay.style.visibility = "hidden";
-    }
 
     if (modalContent instanceof HTMLElement) {
       modalContent.style.pointerEvents = "none";
-      if (hideImmediately || closeVisualDuration <= 0) {
+      if (closeVisualDuration <= 0) {
         modalContent.style.visibility = "hidden";
         modalContent.style.opacity = "0";
       }
@@ -27663,9 +27919,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(element instanceof HTMLElement)) {
       return null;
     }
-    return element.classList.contains("modal-overlay")
-      ? element
-      : element.closest(".modal-overlay");
+    if (element.matches(MODAL_PARENT_SURFACE_SELECTOR)) {
+      return element;
+    }
+    return element.closest(MODAL_PARENT_SURFACE_SELECTOR);
   }
 
   function readModalFollowThroughProtectionUntil(modal) {
@@ -27900,7 +28157,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           (modal) => modal instanceof HTMLElement && modal.isConnected,
         )
       : [];
-    const visibleParentModals = getVisibleModalOverlays().filter(
+    const visibleParentModals = getVisibleModalParentSurfaces().filter(
       (modal) => modal !== sourceModal,
     );
     if (!visibleParentModals.length) {
@@ -27949,14 +28206,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     fallbackDuration = MODAL_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
     datasetKey = "controlerActionProtectionDurationMs",
   ) {
+    const requestedDuration =
+      Number.isFinite(Number(fallbackDuration)) && Number(fallbackDuration) > 0
+        ? Math.max(80, Number(fallbackDuration))
+        : 80;
     if (!(modal instanceof HTMLElement)) {
-      return Math.max(80, Number(fallbackDuration) || 0);
+      return requestedDuration;
     }
+    const androidFastDismissProtectionFloor =
+      isAndroidNativeRuntime() &&
+      (
+        modal.dataset?.controlerCloseHideImmediately === "true" ||
+        String(modal.dataset?.controlerClosingPointerEvents || "").trim() === "none"
+      )
+        ? ANDROID_INTERACTIVE_ACTION_CLICK_BYPASS_WINDOW_MS + 160
+        : 0;
     const datasetValue = Number.parseInt(modal.dataset?.[datasetKey] || "", 10);
     if (Number.isFinite(datasetValue) && datasetValue > 0) {
-      return Math.max(80, datasetValue);
+      return Math.max(80, datasetValue, androidFastDismissProtectionFloor);
     }
-    return Math.max(80, Number(fallbackDuration) || 0);
+    return Math.max(requestedDuration, androidFastDismissProtectionFloor);
   }
 
   function resolveModalInteractionShieldDuration(
@@ -27990,7 +28259,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!(sourceModal instanceof HTMLElement)) {
       return 0;
     }
-    const visibleModals = getVisibleModalOverlays();
+    const visibleModals = getVisibleModalParentSurfaces();
     let protectedUntil = 0;
     visibleModals.forEach((modal) => {
       if (modal === sourceModal) {
@@ -28360,13 +28629,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       MODAL_CLOSE_FOLLOW_THROUGH_PROTECTION_DURATION_MS,
       "controlerCloseProtectionDurationMs",
     );
-    const closeVisualDuration =
-      modal instanceof HTMLElement &&
-      modal.dataset?.controlerCloseHideImmediately === "true"
-        ? 0
-        : resolveModalCloseVisualDuration(modal);
+    const closeVisualDuration = resolveModalCloseVisualDuration(modal);
     if (modal instanceof HTMLElement) {
+      cancelAndroidInteractiveTextFocusWork(modal);
       freezeAndroidModalDismissLayout(modal);
+      clearModalEdgeSwipeCleanupTimer(modal);
       const cleanupKeyboardShortcuts =
         modal.__controlerModalKeyboardShortcutsCleanup;
       if (typeof cleanupKeyboardShortcuts === "function") {
@@ -28381,7 +28648,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         });
       }
       resetAndroidModalAutofocusState(modal);
-      resetModalEdgeSwipePresentation(modal);
       clearContentScopedModalViewportSync(modal);
       protectModalFromFollowThrough(modal, closeProtectionDuration);
       protectVisibleParentModalsFromFollowThrough(
@@ -28403,14 +28669,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     if (modal.dataset?.controlerModalPersistent === "true") {
-      modal.hidden = true;
-      modal.style.display = "none";
-      releaseCoveredParentModalInteractions(modal, {
-        delayMs: resolveCoveredParentModalReleaseDelay(closeProtectionDuration),
+      hidePersistentModalOverlay(modal, {
+        resync: true,
       });
       scheduleAndroidModalDismissFreezeRelease(modal);
-      scheduleModalHistorySync();
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
       return;
     }
 
@@ -30179,9 +30441,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     confirmText = "确定",
     cancelText = null,
     danger = false,
+    beforeConfirmClose = null,
   } = {}) {
     return new Promise((resolve) => {
       let dialogSettled = false;
+      let confirmPending = false;
       const modal = document.createElement("div");
       modal.className = "modal-overlay";
       modal.style.display = "flex";
@@ -30231,8 +30495,33 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }, Math.max(MODAL_ACTION_DEDUP_WINDOW_MS + 40, 180));
       };
 
-      bindModalAction(modal, confirmButton, () => {
-        cleanup(true);
+      bindModalAction(modal, confirmButton, async () => {
+        if (dialogSettled || confirmPending) {
+          return;
+        }
+        confirmPending = true;
+        if (confirmButton instanceof HTMLButtonElement) {
+          confirmButton.disabled = true;
+        }
+        try {
+          if (typeof beforeConfirmClose === "function") {
+            const beforeCloseResult = await beforeConfirmClose();
+            if (beforeCloseResult === false) {
+              if (confirmButton instanceof HTMLButtonElement) {
+                confirmButton.disabled = false;
+              }
+              confirmPending = false;
+              return;
+            }
+          }
+          cleanup(true);
+        } catch (error) {
+          console.error("执行确认弹窗关闭前逻辑失败:", error);
+          if (confirmButton instanceof HTMLButtonElement) {
+            confirmButton.disabled = false;
+          }
+          confirmPending = false;
+        }
       });
       bindModalAction(modal, cancelButton, () => {
         cleanup(false);
@@ -30261,6 +30550,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       confirmText: options.confirmText || "确定",
       cancelText: options.cancelText || "取消",
       danger: !!options.danger,
+      beforeConfirmClose:
+        typeof options.beforeConfirmClose === "function"
+          ? options.beforeConfirmClose
+          : null,
     });
   }
 
@@ -35010,6 +35303,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     applyAppNavigationVisibility,
     closeModal,
     closeAllModals,
+    hidePersistentModalOverlay,
     prepareModalOverlay,
     freezeAndroidModalDismissLayout,
     clearAndroidModalDismissFreeze,
@@ -35034,6 +35328,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     rememberModalPreferredInteractiveTextControl,
     markAndroidInteractiveTextFocusIntent,
     clearAndroidInteractiveTextFocusIntent,
+    cancelAndroidInteractiveTextFocusWork,
     focusAndroidInteractiveTextControl,
     autofocusInteractiveTextControl,
     resumeAndroidModalAutofocus,

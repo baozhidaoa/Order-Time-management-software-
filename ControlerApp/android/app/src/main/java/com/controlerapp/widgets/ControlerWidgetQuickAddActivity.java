@@ -333,7 +333,9 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
                 });
                 ControlerWidgetActionHandler.emitStorageChangedToForeground(
                     getApplicationContext(),
-                    new String[] {isTodoWidget ? "todos" : "checkinItems"},
+                    isTodoWidget
+                        ? new String[] {"todos"}
+                        : new String[] {"checkinItems", "checkinHistorySummary"},
                     null,
                     "android-widget-quick-add"
                 );
@@ -858,8 +860,12 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
     private void saveCheckin(String title) throws Exception {
         JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(this);
         JSONArray checkinItems = coreState.optJSONArray("checkinItems");
+        JSONObject checkinHistorySummary = coreState.optJSONObject("checkinHistorySummary");
         if (checkinItems == null) {
             checkinItems = new JSONArray();
+        }
+        if (checkinHistorySummary == null) {
+            checkinHistorySummary = new JSONObject();
         }
         String today = todayText();
         JSONArray repeatWeekdays = new JSONArray();
@@ -888,13 +894,16 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         item.put("repeatWeekdays", repeatWeekdays);
         item.put("startDate", today);
         item.put("endDate", TextUtils.isEmpty(checkinEndDate) ? "" : checkinEndDate);
-        item.put("createdAt", isoNow());
+        String nowText = isoNow();
+        item.put("createdAt", nowText);
         item.put("type", "checkin");
         item.put("notification", JSONObject.NULL);
         checkinItems.put(item);
+        ensureCheckinHistorySummaryEntry(checkinHistorySummary, item.optString("id", ""), nowText);
 
         JSONObject partialCore = new JSONObject();
         partialCore.put("checkinItems", checkinItems);
+        partialCore.put("checkinHistorySummary", checkinHistorySummary);
         ControlerWidgetDataStore.replaceStorageCoreState(this, partialCore);
     }
 
@@ -950,6 +959,28 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         return prefix
             + Long.toString(System.currentTimeMillis(), 36)
             + Integer.toHexString((int) (Math.random() * 0xFFFFFF));
+    }
+
+    private static void ensureCheckinHistorySummaryEntry(
+        JSONObject summary,
+        String itemId,
+        String updatedAt
+    ) throws Exception {
+        if (summary == null) {
+            return;
+        }
+        String normalizedItemId = TextUtils.isEmpty(itemId) ? "" : itemId.trim();
+        if (
+            TextUtils.isEmpty(normalizedItemId)
+                || summary.optJSONObject(normalizedItemId) != null
+        ) {
+            return;
+        }
+        JSONObject entry = new JSONObject();
+        entry.put("checkedDaysCount", 0);
+        entry.put("checkedDates", new JSONArray());
+        entry.put("updatedAt", TextUtils.isEmpty(updatedAt) ? "" : updatedAt.trim());
+        summary.put(normalizedItemId, entry);
     }
 
     private static String isoNow() {

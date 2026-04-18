@@ -2454,6 +2454,7 @@ let timerModalSuggestionPreserveInputId = "";
 let timerModalSuggestionPreserveUntil = 0;
 let timerModalSkipNextOutsideSuggestionHideUntil = 0;
 const TIMER_MODAL_FOCUS_TRACE_ENABLED = false;
+const TIMER_MODAL_SUGGESTION_FIRST_FOCUS_DELAY_MS = 72;
 
 function traceTimerModalFocus(eventName, detail = {}) {
   if (!TIMER_MODAL_FOCUS_TRACE_ENABLED) {
@@ -2541,6 +2542,7 @@ const INDEX_LOADING_OVERLAY_DELAY_MS = Math.max(
 );
 const INDEX_PERSISTENCE_RETRY_DELAY_MS = 900;
 const INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS = 1800;
+const INDEX_MODAL_CONFIRM_PERSISTENCE_BUDGET_MS = 1600;
 const INDEX_WIDGET_LAUNCH_CONFIRM_MAX_WAIT_MS = 1200;
 const INDEX_RECENT_SAVE_EMPTY_GUARD_MS = 8000;
 const MOBILE_TABLE_SCALE_RATIO = 0.82;
@@ -9438,6 +9440,50 @@ function getActiveTimerModalTextEntry() {
   return null;
 }
 
+function isTimerModalAndroidKeyboardOpen() {
+  return (
+    document.documentElement?.classList.contains("controler-keyboard-open") ===
+      true ||
+    document.body?.classList.contains("controler-keyboard-open") === true
+  );
+}
+
+function shouldStageTimerModalProjectInputFocus(inputId) {
+  if (!isModalOpen || !isAndroidNativeRuntimeForIndex()) {
+    return false;
+  }
+
+  const input = document.getElementById(inputId);
+  if (!(input instanceof HTMLInputElement)) {
+    return false;
+  }
+
+  if (document.activeElement === input && input.matches?.(":focus")) {
+    return false;
+  }
+
+  if (isTimerModalAndroidKeyboardOpen()) {
+    return false;
+  }
+
+  if (getActiveTimerModalTextEntry() instanceof HTMLElement) {
+    return false;
+  }
+
+  const modal = document.getElementById("modal-overlay");
+  if (
+    !(modal instanceof HTMLElement) ||
+    modal.hidden ||
+    modal.style.display === "none" ||
+    modal.dataset.controlerModalClosing === "true" ||
+    Number(modal.__controlerPersistentHideTimer || 0) > 0
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function readTimerModalAndroidKeyboardTransitionInsetPx() {
   const root = document.documentElement;
   const body = document.body;
@@ -9758,6 +9804,7 @@ function prepareTimerModalProjectOptionInteraction(inputId) {
   if (!isTimerModalProjectInputId(inputId)) {
     return false;
   }
+  clearPendingTimerModalFocusRequest();
   markTimerModalProjectOptionInteraction(inputId);
   clearModalProjectSuggestionHideTimer(inputId);
   return true;
@@ -10179,8 +10226,11 @@ function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
   traceTimerModalFocus("remember-interactive-focus-target", {
     targetId: focusTarget.id || focusTarget.tagName,
     markIntent: options.markIntent !== false,
+    requestAutofocus: options.requestAutofocus === true,
   });
-  uiTools?.markModalAutofocusRequested?.(modal);
+  if (options.requestAutofocus === true) {
+    uiTools?.markModalAutofocusRequested?.(modal);
+  }
   uiTools?.rememberModalPreferredInteractiveTextControl?.(focusTarget);
   if (options.markIntent !== false) {
     uiTools?.markAndroidInteractiveTextFocusIntent?.(focusTarget);
@@ -10188,7 +10238,7 @@ function rememberTimerModalInteractiveFocusTarget(target, options = {}) {
   return true;
 }
 
-function scheduleTimerModalProjectInputFocus(targetInputId) {
+function scheduleTimerModalProjectInputFocus(targetInputId, options = {}) {
   if (
     targetInputId !== "project-name-input" &&
     targetInputId !== "next-project-input"
@@ -10197,23 +10247,47 @@ function scheduleTimerModalProjectInputFocus(targetInputId) {
   }
 
   clearPendingTimerModalFocusRequest();
-  const scheduleFocus =
-    typeof window.requestAnimationFrame === "function"
-      ? (callback) => {
-          const frameId = window.requestAnimationFrame(callback);
-          return () => window.cancelAnimationFrame?.(frameId);
-        }
-      : (callback) => {
-          const timerId = window.setTimeout(callback, 0);
-          return () => window.clearTimeout(timerId);
-        };
-  timerModalPendingFocusCancel = scheduleFocus(() => {
-    timerModalPendingFocusCancel = null;
+  const focusDelayMs = Math.max(
+    0,
+    Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0,
+  );
+  let frameId = 0;
+  let timerId = 0;
+  let cancelled = false;
+
+  const cancelScheduledFocus = () => {
+    cancelled = true;
+    if (frameId > 0 && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(frameId);
+    }
+    frameId = 0;
+    if (timerId > 0) {
+      window.clearTimeout(timerId);
+    }
+    timerId = 0;
+    if (timerModalPendingFocusCancel === cancelScheduledFocus) {
+      timerModalPendingFocusCancel = null;
+    }
+  };
+
+  const runFocus = () => {
+    if (cancelled) {
+      return;
+    }
+    if (timerModalPendingFocusCancel === cancelScheduledFocus) {
+      timerModalPendingFocusCancel = null;
+    }
     if (!isModalOpen) {
       return;
     }
     const modal = document.getElementById("modal-overlay");
-    if (!(modal instanceof HTMLElement) || modal.hidden || modal.style.display === "none") {
+    if (
+      !(modal instanceof HTMLElement) ||
+      modal.hidden ||
+      modal.style.display === "none" ||
+      modal.dataset.controlerModalClosing === "true" ||
+      Number(modal.__controlerPersistentHideTimer || 0) > 0
+    ) {
       return;
     }
     const targetInput = document.getElementById(targetInputId);
@@ -10247,7 +10321,31 @@ function scheduleTimerModalProjectInputFocus(targetInputId) {
       manual: modalProjectInputTargetManual === true,
       nativeAssist: true,
     });
-  });
+  };
+
+  const queueDelayedFocus = () => {
+    if (cancelled) {
+      return;
+    }
+    if (focusDelayMs > 0) {
+      timerId = window.setTimeout(() => {
+        timerId = 0;
+        runFocus();
+      }, focusDelayMs);
+      return;
+    }
+    runFocus();
+  };
+
+  timerModalPendingFocusCancel = cancelScheduledFocus;
+  if (typeof window.requestAnimationFrame === "function") {
+    frameId = window.requestAnimationFrame(() => {
+      frameId = 0;
+      queueDelayedFocus();
+    });
+    return true;
+  }
+  queueDelayedFocus();
   return true;
 }
 
@@ -10615,15 +10713,24 @@ function getTopVisibleModalOverlayZIndex(fallbackZIndex = 1000) {
 }
 
 function focusAdvancedProjectNameInput() {
+  const modal = document.getElementById("advanced-modal-overlay");
   const input = document.getElementById("advanced-project-name");
-  if (!(input instanceof HTMLInputElement)) {
+  if (!(modal instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
     return;
   }
   uiTools?.markModalAutofocusRequested?.(
-    document.getElementById("advanced-modal-overlay"),
+    modal,
   );
 
   requestAnimationFrame(() => {
+    if (
+      modal.hidden ||
+      modal.style.display === "none" ||
+      modal.dataset.controlerModalClosing === "true" ||
+      Number(modal.__controlerPersistentHideTimer || 0) > 0
+    ) {
+      return;
+    }
     if (typeof uiTools?.focusAndroidInteractiveTextControl === "function") {
       uiTools.focusAndroidInteractiveTextControl(input, {
         forceFocus: true,
@@ -10912,9 +11019,12 @@ function save(options = {}) {
   applyIndexProjectRecordDurationChanges({
     addedRecords: [record],
   });
-  saveRecordsToStorage();
+  const persistenceTask = saveRecordsToStorage();
   updateProjectTotals();
-  return record;
+  return {
+    record,
+    persistenceTask,
+  };
 }
 
 function getRecordNameInputElement(recordId) {
@@ -11687,10 +11797,32 @@ function openModal(options = {}) {
 }
 
 // 关闭弹窗
+function hideIndexPersistentModalOverlay(modal) {
+  if (!(modal instanceof HTMLElement)) {
+    return;
+  }
+  if (typeof uiTools?.hidePersistentModalOverlay === "function") {
+    uiTools.hidePersistentModalOverlay(modal, {
+      resync: false,
+    });
+    return;
+  }
+  uiTools?.freezeAndroidModalDismissLayout?.(modal);
+  modal.hidden = true;
+  modal.style.display = "none";
+  modal.style.pointerEvents = "none";
+  uiTools?.clearAndroidModalDismissFreeze?.(modal, {
+    resync: false,
+  });
+}
+
 function closeModal(options = {}) {
   if (indexModalConfirmPending && options?.force !== true) {
     return false;
   }
+  clearPendingTimerModalFocusRequest();
+  const modal = document.getElementById("modal-overlay");
+  uiTools?.cancelAndroidInteractiveTextFocusWork?.(modal);
   if (options?.discardUnsavedClick !== false) {
     commitPrimaryModalProjectInput({
       canonicalizeEmpty: true,
@@ -11704,17 +11836,9 @@ function closeModal(options = {}) {
     : null;
   spendModalClickLocked = false;
   clearPendingSpendModalState();
-  const modal = document.getElementById("modal-overlay");
-  uiTools?.freezeAndroidModalDismissLayout?.(modal);
   isModalOpen = false;
   uiTools?.releaseAndroidInteractiveTextControlFocus?.();
-  if (modal) {
-    modal.hidden = true;
-    modal.style.display = "none";
-    uiTools?.clearAndroidModalDismissFreeze?.(modal, {
-      resync: false,
-    });
-  }
+  hideIndexPersistentModalOverlay(modal);
   uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   modalProjectInputTargetManual = false;
   resetTimerModalProjectInputTransientState();
@@ -11987,6 +12111,7 @@ function initIndexModalBindings() {
     timerModalOverlay.addEventListener(
       "pointerdown",
       (event) => {
+        clearPendingTimerModalFocusRequest();
         syncTimerModalInteractiveFocusTarget(event.target, {
           markIntent: true,
         });
@@ -12016,12 +12141,26 @@ function initIndexModalBindings() {
       }
     };
 
-    input.addEventListener("pointerdown", () => {
+    input.addEventListener("pointerdown", (event) => {
       clearTimerModalSuggestionDismissPreserveState();
       rememberTimerModalInteractiveFocusTarget(input);
       clearPendingTimerModalFocusRequest();
+      const shouldStageFocus = shouldStageTimerModalProjectInputFocus(inputId);
+      const inputAlreadyFocused =
+        document.activeElement === input && input.matches?.(":focus");
       setModalProjectInputTarget(inputId, {
         manual: true,
+        showSuggestions: shouldStageFocus || inputAlreadyFocused,
+      });
+      if (!shouldStageFocus) {
+        return;
+      }
+      traceTimerModalFocus("input-pointerdown-stage-focus", {
+        inputId,
+      });
+      event.preventDefault();
+      scheduleTimerModalProjectInputFocus(inputId, {
+        delayMs: TIMER_MODAL_SUGGESTION_FIRST_FOCUS_DELAY_MS,
       });
     });
     input.addEventListener("focus", () => {
@@ -12278,6 +12417,7 @@ async function handleIndexModalConfirmClick() {
 
   let saveAttemptSnapshot = null;
   let saveTransactionId = 0;
+  let finishSaveTransactionOnExit = true;
   try {
     const projectNameInput = document.getElementById("project-name-input");
     const nextProjectInput = document.getElementById("next-project-input");
@@ -12310,25 +12450,6 @@ async function handleIndexModalConfirmClick() {
       ? Math.max(0, Math.floor(Number(pendingBaseState.ptn))) + 1
       : ptn + 1;
     const willPersistRecord = predictedNextClickCount >= 2;
-    if (willPersistRecord) {
-      const loadingDelayMs =
-        uiTools?.getBlockingMutationOverlayDelayMs?.({
-          mode: "fullscreen",
-        }) ?? 1200;
-      uiTools?.markPerfStage?.("record-save-overlay-armed", {
-        allowRepeat: true,
-      });
-      saveTransactionId = beginIndexSaveTransaction();
-      setIndexLoadingState({
-        active: true,
-        mode: "fullscreen",
-        title: "正在保存记录",
-        message: "正在写入新记录，请稍候后再切换页面。",
-        delayMs: loadingDelayMs,
-        lockNativeExit: false,
-        delegateToNative: false,
-      });
-    }
     saveAttemptSnapshot = captureIndexModalSaveAttemptSnapshot();
     const spendAccepted = spend({
       clickTime: pendingClickTime,
@@ -12343,6 +12464,7 @@ async function handleIndexModalConfirmClick() {
     }
 
     let createdProjectPendingSave = false;
+    const currentPersistenceTasks = [];
     for (const requiredProjectName of [
       currentProjectName,
       resolvedNextProjectName,
@@ -12369,6 +12491,9 @@ async function handleIndexModalConfirmClick() {
       createdProjectPendingSave = true;
     }
 
+    if (willPersistRecord || createdProjectPendingSave) {
+      saveTransactionId = beginIndexSaveTransaction();
+    }
     if (willPersistRecord) {
       closeModal({
         discardUnsavedClick: false,
@@ -12381,7 +12506,7 @@ async function handleIndexModalConfirmClick() {
     }
 
     if (createdProjectPendingSave) {
-      saveProjectsToStorage();
+      currentPersistenceTasks.push(saveProjectsToStorage());
     }
 
     selectedProject = currentProjectName;
@@ -12406,7 +12531,7 @@ async function handleIndexModalConfirmClick() {
         ? { ...pendingDurationCarryoverState }
         : null;
       result = formatDurationFromMs(shortenResult.remainingMs);
-      savedRecord = save({
+      const saveResult = save({
         startTime,
         endTime: adjustedEndTime,
         rawEndTime,
@@ -12423,6 +12548,10 @@ async function handleIndexModalConfirmClick() {
           projects.find((project) => project.name === resolvedNextProjectName)
             ?.id || null,
       });
+      savedRecord = saveResult?.record || null;
+      if (saveResult?.persistenceTask) {
+        currentPersistenceTasks.push(saveResult.persistenceTask);
+      }
       pendingDurationCarryoverState = null;
 
       if (shortenResult.shortenMs > 0) {
@@ -12445,12 +12574,22 @@ async function handleIndexModalConfirmClick() {
     resetShortenTimeInputs(false);
     setModalProjectInputTarget("next-project-input", { manual: false });
     persistTimerSessionState();
-    await flushIndexPendingPersistenceOrThrow(
+    const persistenceResult = await settleIndexTrackedPersistenceTasks(
+      currentPersistenceTasks,
       {
-        allowDeferredBarrier: false,
+        timeoutMs: INDEX_MODAL_CONFIRM_PERSISTENCE_BUDGET_MS,
       },
-      "记录页数据保存失败",
     );
+    if (!persistenceResult.completed) {
+      finishSaveTransactionOnExit = false;
+      const activeSaveTransactionId = saveTransactionId;
+      void persistenceResult.promise.finally(() => {
+        finishIndexSaveTransaction(activeSaveTransactionId);
+      });
+      saveTransactionId = 0;
+    } else if (persistenceResult.failed) {
+      throw new Error("记录页数据保存失败");
+    }
 
     if (savedRecord) {
       const currentRecordLoadOptions = getIndexCurrentRecordLoadOptions();
@@ -12499,7 +12638,9 @@ async function handleIndexModalConfirmClick() {
     setIndexLoadingState({
       active: false,
     });
-    finishIndexSaveTransaction(saveTransactionId);
+    if (finishSaveTransactionOnExit) {
+      finishIndexSaveTransaction(saveTransactionId);
+    }
   }
 }
 
@@ -15897,6 +16038,76 @@ async function flushIndexPendingPersistenceOrThrow(
   return true;
 }
 
+async function settleIndexTrackedPersistenceTasks(tasks = [], options = {}) {
+  const trackedTasks = (Array.isArray(tasks) ? tasks : []).filter(
+    (task) => task && typeof task.then === "function",
+  );
+  const trackedPromise = Promise.all(
+    trackedTasks.map((task) =>
+      Promise.resolve(task)
+        .then((result) => result !== false)
+        .catch(() => false),
+    ),
+  );
+  if (!trackedTasks.length) {
+    return {
+      completed: true,
+      failed: false,
+      results: [],
+      promise: trackedPromise,
+    };
+  }
+
+  const timeoutMs = Number.isFinite(options?.timeoutMs)
+    ? Math.max(0, Math.round(Number(options.timeoutMs)))
+    : INDEX_MODAL_CONFIRM_PERSISTENCE_BUDGET_MS;
+  if (timeoutMs <= 0) {
+    const results = await trackedPromise;
+    return {
+      completed: true,
+      failed: results.some((result) => result === false),
+      results,
+      promise: trackedPromise,
+    };
+  }
+
+  let timerId = 0;
+  try {
+    const raceResult = await Promise.race([
+      trackedPromise.then((results) => ({
+        completed: true,
+        results,
+      })),
+      new Promise((resolve) => {
+        timerId = window.setTimeout(() => {
+          resolve({
+            completed: false,
+            results: null,
+          });
+        }, timeoutMs);
+      }),
+    ]);
+    if (!raceResult?.completed) {
+      return {
+        completed: false,
+        failed: false,
+        results: null,
+        promise: trackedPromise,
+      };
+    }
+    return {
+      completed: true,
+      failed: raceResult.results.some((result) => result === false),
+      results: raceResult.results,
+      promise: trackedPromise,
+    };
+  } finally {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+  }
+}
+
 function registerIndexBeforePageLeaveGuard() {
   if (indexBeforePageLeaveGuardBound) {
     return;
@@ -17121,15 +17332,10 @@ function openAdvancedProjectModal() {
 function closeAdvancedModal() {
   const modal = document.getElementById("advanced-modal-overlay");
   if (modal) {
-    uiTools?.freezeAndroidModalDismissLayout?.(modal);
+    uiTools?.cancelAndroidInteractiveTextFocusWork?.(modal);
     uiTools?.releaseAndroidInteractiveTextControlFocus?.();
     dismissTransientModalOverlays({ except: modal });
-    modal.hidden = true;
-    modal.style.display = "none";
-    modal.style.pointerEvents = "none";
-    uiTools?.clearAndroidModalDismissFreeze?.(modal, {
-      resync: false,
-    });
+    hideIndexPersistentModalOverlay(modal);
   }
 }
 

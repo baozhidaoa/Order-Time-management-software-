@@ -42,6 +42,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -607,6 +608,10 @@ public final class ControlerWidgetDataStore {
             cloneJsonArray(core.optJSONArray("checkinItems"))
         );
         target.put(
+            "checkinHistorySummary",
+            cloneJsonObject(core.optJSONObject("checkinHistorySummary"))
+        );
+        target.put(
             "yearlyGoals",
             cloneJsonObject(core.optJSONObject("yearlyGoals"))
         );
@@ -687,6 +692,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "checkinHistorySummary",
             "timerSessionState",
             "yearlyGoals",
             "diaryCategories",
@@ -1050,7 +1056,12 @@ public final class ControlerWidgetDataStore {
                             ? 0
                             : directCore.optJSONArray("projects").length())
                 );
-                return directCore;
+                try {
+                    return ensureCheckinHistorySummaryInCore(context, directCore);
+                } catch (Exception error) {
+                    error.printStackTrace();
+                    return directCore;
+                }
             }
         }
         JSONObject root = loadRoot(context);
@@ -1059,6 +1070,14 @@ public final class ControlerWidgetDataStore {
             core.put("projects", cloneJsonArray(root.optJSONArray("projects")));
             core.put("todos", cloneJsonArray(root.optJSONArray("todos")));
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
+            core.put(
+                "checkinHistorySummary",
+                resolveCheckinHistorySummaryForCore(
+                    root.optJSONObject("checkinHistorySummary"),
+                    root.optJSONArray("dailyCheckins"),
+                    root.optJSONArray("checkinItems")
+                )
+            );
             core.put("timerSessionState", cloneJsonObject(root.optJSONObject("timerSessionState")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
@@ -1097,7 +1116,12 @@ public final class ControlerWidgetDataStore {
             "source=root projectCount="
                 + (core.optJSONArray("projects") == null ? 0 : core.optJSONArray("projects").length())
         );
-        return core;
+        try {
+            return ensureCheckinHistorySummaryInCore(context, core);
+        } catch (Exception error) {
+            error.printStackTrace();
+            return core;
+        }
     }
 
     public static synchronized JSONObject getStorageBootstrapState(Context context, JSONObject options) {
@@ -1147,6 +1171,10 @@ public final class ControlerWidgetDataStore {
                     loadStorageSectionRange(context, "checkins", checkinScope);
                 pageData.put("todos", cloneJsonArray(core.optJSONArray("todos")));
                 pageData.put("checkinItems", cloneJsonArray(core.optJSONArray("checkinItems")));
+                pageData.put(
+                    "checkinHistorySummary",
+                    cloneJsonObject(core.optJSONObject("checkinHistorySummary"))
+                );
                 pageData.put(
                     "dailyCheckins",
                     cloneJsonArray(dailyCheckinRange.optJSONArray("items"))
@@ -1292,6 +1320,10 @@ public final class ControlerWidgetDataStore {
                 loadedPeriodIds = buildJsonArrayFromStrings(new ArrayList<>(periodIds));
                 data.put("todos", cloneJsonArray(core.optJSONArray("todos")));
                 data.put("checkinItems", cloneJsonArray(core.optJSONArray("checkinItems")));
+                data.put(
+                    "checkinHistorySummary",
+                    cloneJsonObject(core.optJSONObject("checkinHistorySummary"))
+                );
                 data.put(
                     "todayDailyCheckins",
                     cloneJsonArray(dailyRange.optJSONArray("items"))
@@ -1797,6 +1829,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "checkinHistorySummary",
             "timerSessionState",
             "yearlyGoals",
             "diaryCategories",
@@ -2024,6 +2057,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "checkinHistorySummary",
             "yearlyGoals",
             "diaryCategories"
         };
@@ -2654,6 +2688,7 @@ public final class ControlerWidgetDataStore {
             "projects",
             "todos",
             "checkinItems",
+            "checkinHistorySummary",
             "timerSessionState",
             "yearlyGoals",
             "diaryCategories",
@@ -3063,6 +3098,14 @@ public final class ControlerWidgetDataStore {
             core.put("projects", cloneJsonArray(root.optJSONArray("projects")));
             core.put("todos", cloneJsonArray(root.optJSONArray("todos")));
             core.put("checkinItems", cloneJsonArray(root.optJSONArray("checkinItems")));
+            core.put(
+                "checkinHistorySummary",
+                resolveCheckinHistorySummaryForCore(
+                    root.optJSONObject("checkinHistorySummary"),
+                    root.optJSONArray("dailyCheckins"),
+                    root.optJSONArray("checkinItems")
+                )
+            );
             core.put("timerSessionState", cloneJsonObject(root.optJSONObject("timerSessionState")));
             core.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
             core.put("diaryCategories", cloneJsonArray(root.optJSONArray("diaryCategories")));
@@ -3211,6 +3254,10 @@ public final class ControlerWidgetDataStore {
         }
         if (TextUtils.isEmpty(core.optString("todoSortPreference", ""))) {
             core.put("todoSortPreference", "dueDate");
+            changed = true;
+        }
+        if (core.optJSONObject("checkinHistorySummary") == null) {
+            core.put("checkinHistorySummary", new JSONObject());
             changed = true;
         }
         return changed;
@@ -7721,6 +7768,9 @@ public final class ControlerWidgetDataStore {
         if (partialCore.has("checkinItems")) {
             sections.add("checkinItems");
         }
+        if (partialCore.has("checkinHistorySummary")) {
+            sections.add("checkinHistorySummary");
+        }
         if (partialCore.has("timerSessionState")) {
             sections.add("timerSessionState");
         }
@@ -8437,6 +8487,239 @@ public final class ControlerWidgetDataStore {
                 target.add(value);
             }
         }
+    }
+
+    private static ArrayList<String> normalizeCheckinHistorySummaryDates(JSONArray items) {
+        TreeSet<String> normalizedDates = new TreeSet<>();
+        if (items != null) {
+            for (int index = 0; index < items.length(); index += 1) {
+                String dateText = normalizeDateText(items.optString(index, ""));
+                if (!TextUtils.isEmpty(dateText)) {
+                    normalizedDates.add(dateText);
+                }
+            }
+        }
+        return new ArrayList<>(normalizedDates);
+    }
+
+    private static JSONObject buildCheckinHistorySummaryEntry(
+        List<String> checkedDates,
+        String updatedAt
+    ) throws Exception {
+        JSONObject entry = new JSONObject();
+        ArrayList<String> normalizedDates = new ArrayList<>();
+        if (checkedDates != null) {
+            TreeSet<String> deduped = new TreeSet<>();
+            for (String dateText : checkedDates) {
+                String normalizedDate = normalizeDateText(dateText);
+                if (!TextUtils.isEmpty(normalizedDate)) {
+                    deduped.add(normalizedDate);
+                }
+            }
+            normalizedDates.addAll(deduped);
+        }
+        entry.put("checkedDaysCount", normalizedDates.size());
+        entry.put("checkedDates", buildJsonArrayFromStrings(normalizedDates));
+        entry.put(
+            "updatedAt",
+            TextUtils.isEmpty(updatedAt) ? "" : updatedAt.trim()
+        );
+        return entry;
+    }
+
+    private static boolean isCheckinHistorySummaryComplete(
+        JSONObject summary,
+        JSONArray checkinItems
+    ) {
+        if (summary == null) {
+            return false;
+        }
+        for (int index = 0; index < (checkinItems == null ? 0 : checkinItems.length()); index += 1) {
+            JSONObject item = checkinItems.optJSONObject(index);
+            String itemId = safeText(item == null ? "" : item.optString("id", ""));
+            if (TextUtils.isEmpty(itemId)) {
+                continue;
+            }
+            JSONObject entry = summary.optJSONObject(itemId);
+            if (entry == null) {
+                return false;
+            }
+            ArrayList<String> normalizedDates =
+                normalizeCheckinHistorySummaryDates(entry.optJSONArray("checkedDates"));
+            if (entry.optInt("checkedDaysCount", normalizedDates.size()) != normalizedDates.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static JSONObject buildCheckinHistorySummaryFromDailyCheckins(
+        JSONArray dailyCheckins,
+        JSONArray checkinItems
+    ) throws Exception {
+        LinkedHashSet<String> knownItemIds = new LinkedHashSet<>();
+        if (checkinItems != null) {
+            for (int index = 0; index < checkinItems.length(); index += 1) {
+                JSONObject item = checkinItems.optJSONObject(index);
+                String itemId = safeText(item == null ? "" : item.optString("id", ""));
+                if (!TextUtils.isEmpty(itemId)) {
+                    knownItemIds.add(itemId);
+                }
+            }
+        }
+
+        HashMap<String, JSONObject> latestEntryByItemDate = new HashMap<>();
+        HashMap<String, String> latestSortKeyByItemDate = new HashMap<>();
+        HashMap<String, Integer> latestIndexByItemDate = new HashMap<>();
+        if (dailyCheckins != null) {
+            for (int index = 0; index < dailyCheckins.length(); index += 1) {
+                JSONObject entry = dailyCheckins.optJSONObject(index);
+                if (entry == null) {
+                    continue;
+                }
+                String itemId = safeText(entry.optString("itemId", ""));
+                String dateText = normalizeDateText(entry.optString("date", ""));
+                if (TextUtils.isEmpty(itemId) || TextUtils.isEmpty(dateText)) {
+                    continue;
+                }
+                knownItemIds.add(itemId);
+                String key = itemId + "::" + dateText;
+                String sortKey =
+                    buildSortableDateKey(
+                        firstNonEmpty(
+                            entry.optString("time", ""),
+                            entry.optString("updatedAt", ""),
+                            dateText
+                        )
+                    );
+                String currentSortKey = latestSortKeyByItemDate.get(key);
+                Integer currentIndex = latestIndexByItemDate.get(key);
+                if (
+                    currentSortKey == null
+                        || sortKey.compareTo(currentSortKey) > 0
+                        || (
+                            sortKey.equals(currentSortKey)
+                                && (currentIndex == null || index >= currentIndex.intValue())
+                        )
+                ) {
+                    latestEntryByItemDate.put(key, cloneJsonObject(entry));
+                    latestSortKeyByItemDate.put(key, sortKey);
+                    latestIndexByItemDate.put(key, Integer.valueOf(index));
+                }
+            }
+        }
+
+        HashMap<String, TreeSet<String>> checkedDatesByItem = new HashMap<>();
+        HashMap<String, String> latestUpdatedAtByItem = new HashMap<>();
+        HashMap<String, String> latestUpdatedAtSortKeyByItem = new HashMap<>();
+        for (Map.Entry<String, JSONObject> entry : latestEntryByItemDate.entrySet()) {
+            JSONObject latestEntry = entry.getValue();
+            if (latestEntry == null) {
+                continue;
+            }
+            String itemId = safeText(latestEntry.optString("itemId", ""));
+            String dateText = normalizeDateText(latestEntry.optString("date", ""));
+            if (TextUtils.isEmpty(itemId) || TextUtils.isEmpty(dateText)) {
+                continue;
+            }
+            if (latestEntry.optBoolean("checked", false)) {
+                TreeSet<String> checkedDates = checkedDatesByItem.get(itemId);
+                if (checkedDates == null) {
+                    checkedDates = new TreeSet<>();
+                    checkedDatesByItem.put(itemId, checkedDates);
+                }
+                checkedDates.add(dateText);
+            }
+            String updatedAt =
+                firstNonEmpty(
+                    latestEntry.optString("time", ""),
+                    latestEntry.optString("updatedAt", ""),
+                    dateText
+                );
+            String updatedAtSortKey = buildSortableDateKey(updatedAt);
+            String currentUpdatedAtSortKey = latestUpdatedAtSortKeyByItem.get(itemId);
+            if (
+                currentUpdatedAtSortKey == null
+                    || updatedAtSortKey.compareTo(currentUpdatedAtSortKey) >= 0
+            ) {
+                latestUpdatedAtSortKeyByItem.put(itemId, updatedAtSortKey);
+                latestUpdatedAtByItem.put(itemId, updatedAt);
+            }
+        }
+
+        ArrayList<String> orderedItemIds = new ArrayList<>(knownItemIds);
+        Collections.sort(orderedItemIds);
+        JSONObject summary = new JSONObject();
+        for (String itemId : orderedItemIds) {
+            TreeSet<String> checkedDates = checkedDatesByItem.get(itemId);
+            summary.put(
+                itemId,
+                buildCheckinHistorySummaryEntry(
+                    checkedDates == null ? new ArrayList<>() : new ArrayList<>(checkedDates),
+                    latestUpdatedAtByItem.get(itemId)
+                )
+            );
+        }
+        return summary;
+    }
+
+    private static JSONObject resolveCheckinHistorySummaryForCore(
+        JSONObject summary,
+        JSONArray dailyCheckins,
+        JSONArray checkinItems
+    ) throws Exception {
+        if (isCheckinHistorySummaryComplete(summary, checkinItems)) {
+            return cloneJsonObject(summary);
+        }
+        return buildCheckinHistorySummaryFromDailyCheckins(dailyCheckins, checkinItems);
+    }
+
+    private static void persistCheckinHistorySummaryToStorage(
+        Context context,
+        JSONObject core
+    ) throws Exception {
+        if (context == null || core == null) {
+            return;
+        }
+        if (usesDirectoryBundleStorage(context)) {
+            JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
+            touchBundleMetadata(context, manifest, core);
+            return;
+        }
+        JSONObject root = loadRoot(context);
+        root.put(
+            "checkinHistorySummary",
+            cloneJsonObject(core.optJSONObject("checkinHistorySummary"))
+        );
+        if (!saveRoot(context, root)) {
+            throw new Exception("保存移动端数据失败。");
+        }
+    }
+
+    private static JSONObject ensureCheckinHistorySummaryInCore(
+        Context context,
+        JSONObject core
+    ) throws Exception {
+        JSONObject safeCore = cloneJsonObject(core);
+        if (
+            isCheckinHistorySummaryComplete(
+                safeCore.optJSONObject("checkinHistorySummary"),
+                safeCore.optJSONArray("checkinItems")
+            )
+        ) {
+            return safeCore;
+        }
+        JSONObject dailyRange = loadStorageSectionRange(context, "dailyCheckins", new JSONObject());
+        safeCore.put(
+            "checkinHistorySummary",
+            resolveCheckinHistorySummaryForCore(
+                safeCore.optJSONObject("checkinHistorySummary"),
+                dailyRange == null ? null : dailyRange.optJSONArray("items"),
+                safeCore.optJSONArray("checkinItems")
+            )
+        );
+        persistCheckinHistorySummaryToStorage(context, safeCore);
+        return safeCore;
     }
 
     private static JSONObject buildProjectTotalsSummary(JSONArray projectItems) {

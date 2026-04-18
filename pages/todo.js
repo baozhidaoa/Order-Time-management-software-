@@ -2,6 +2,7 @@
   // 待办事项页面JavaScript
   let todos = []; // 存储普通待办事项对象
   let checkinItems = []; // 存储打卡项目对象
+  let checkinHistorySummary = {}; // 存储打卡历史汇总索引
   let dailyCheckins = []; // 存储每日打卡记录
   let checkins = []; // 待办事项打卡记录
   let currentFilter = "all"; // 当前筛选器
@@ -281,7 +282,14 @@
       return true;
     }
     return changedSections.some((section) =>
-      ["todos", "checkinItems", "dailyCheckins", "checkins", "core"].includes(
+      [
+        "todos",
+        "checkinItems",
+        "checkinHistorySummary",
+        "dailyCheckins",
+        "checkins",
+        "core",
+      ].includes(
         section,
       ),
     );
@@ -303,10 +311,95 @@
     }
   }
 
+  function createEmptyCheckinHistorySummaryEntry(updatedAt = "") {
+    return {
+      checkedDaysCount: 0,
+      checkedDates: [],
+      updatedAt:
+        typeof updatedAt === "string" && updatedAt.trim() ? updatedAt.trim() : "",
+    };
+  }
+
+  function normalizeCheckinHistorySummaryDateList(values = []) {
+    return Array.from(
+      new Set(
+        (Array.isArray(values) ? values : [])
+          .map((dateText) => normalizeTodoOccurrenceDateKey(dateText))
+          .filter(Boolean),
+      ),
+    ).sort();
+  }
+
+  function normalizeCheckinHistorySummaryEntry(entry = {}) {
+    const source =
+      entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    const checkedDates = normalizeCheckinHistorySummaryDateList(
+      source.checkedDates,
+    );
+    const explicitCount = Math.max(
+      0,
+      Math.round(Number(source.checkedDaysCount) || 0),
+    );
+    const updatedAt =
+      typeof source.updatedAt === "string" && source.updatedAt.trim()
+        ? source.updatedAt.trim()
+        : "";
+    return {
+      checkedDaysCount:
+        checkedDates.length > 0 ? checkedDates.length : explicitCount,
+      checkedDates,
+      updatedAt,
+    };
+  }
+
+  function normalizeCheckinHistorySummary(summary = {}) {
+    const source =
+      summary && typeof summary === "object" && !Array.isArray(summary)
+        ? summary
+        : {};
+    const normalized = {};
+    Object.keys(source).forEach((itemId) => {
+      const normalizedItemId = String(itemId || "").trim();
+      if (!normalizedItemId) {
+        return;
+      }
+      normalized[normalizedItemId] = normalizeCheckinHistorySummaryEntry(
+        source[itemId],
+      );
+    });
+    return normalized;
+  }
+
+  function collectTodoCheckinItemIdsFromCollection(items = checkinItems) {
+    return Array.from(
+      new Set(
+        (Array.isArray(items) ? items : [])
+          .map((item) => String(item?.id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function hasCheckinHistorySummaryCoverage(
+    summary = checkinHistorySummary,
+    items = checkinItems,
+  ) {
+    const normalizedSummary = normalizeCheckinHistorySummary(summary);
+    return collectTodoCheckinItemIdsFromCollection(items).every((itemId) => {
+      const entry = normalizedSummary[itemId];
+      return (
+        entry &&
+        Array.isArray(entry.checkedDates) &&
+        entry.checkedDaysCount === entry.checkedDates.length
+      );
+    });
+  }
+
   function captureTodoWorkspaceSnapshot() {
     return {
       todos: cloneTodoValue(todos),
       checkinItems: cloneTodoValue(checkinItems),
+      checkinHistorySummary: cloneTodoValue(checkinHistorySummary),
       dailyCheckins: cloneTodoValue(dailyCheckins),
       checkins: cloneTodoValue(checkins),
     };
@@ -329,6 +422,12 @@
       checkinItems: Array.isArray(snapshot?.checkinItems)
         ? cloneTodoValue(snapshot.checkinItems)
         : cloneTodoValue(fallback.checkinItems),
+      checkinHistorySummary:
+        snapshot?.checkinHistorySummary &&
+        typeof snapshot.checkinHistorySummary === "object" &&
+        !Array.isArray(snapshot.checkinHistorySummary)
+          ? normalizeCheckinHistorySummary(snapshot.checkinHistorySummary)
+          : normalizeCheckinHistorySummary(fallback.checkinHistorySummary),
       dailyCheckins: Array.isArray(snapshot?.dailyCheckins)
         ? cloneTodoValue(snapshot.dailyCheckins)
         : cloneTodoValue(fallback.dailyCheckins),
@@ -412,6 +511,11 @@
       source.checkinItems = Array.isArray(source.checkinItems)
         ? cloneTodoValue(source.checkinItems)
         : [];
+    }
+    if (Object.prototype.hasOwnProperty.call(source, "checkinHistorySummary")) {
+      source.checkinHistorySummary = normalizeCheckinHistorySummary(
+        source.checkinHistorySummary,
+      );
     }
     if (
       Object.prototype.hasOwnProperty.call(source, TODO_SORT_PREFERENCE_KEY)
@@ -879,6 +983,108 @@
     return `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`;
   }
 
+  function createCheckinOccurrenceScheduleContext(item = null) {
+    const includedDates = getTodoIncludedDateList(item);
+    return {
+      scheduleRanges: normalizeCheckinScheduleRanges(item?.scheduleRanges, item),
+      includedDates,
+      includedDateSet: new Set(includedDates),
+      scheduledCache: new Map(),
+    };
+  }
+
+  function resolveCheckinOccurrenceScheduleContext(item = null, context = null) {
+    if (
+      context &&
+      Array.isArray(context.scheduleRanges) &&
+      Array.isArray(context.includedDates) &&
+      context.includedDateSet instanceof Set &&
+      context.scheduledCache instanceof Map
+    ) {
+      return context;
+    }
+    return createCheckinOccurrenceScheduleContext(item);
+  }
+
+  function findCheckinScheduleRangeForDate(
+    item = null,
+    dateText = "",
+    context = null,
+  ) {
+    const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
+    if (!normalizedDate) {
+      return null;
+    }
+    const resolvedContext = resolveCheckinOccurrenceScheduleContext(item, context);
+    let matchedRange = null;
+    resolvedContext.scheduleRanges.forEach((rangeLike) => {
+      const startDate = normalizeTodoOccurrenceDateKey(rangeLike?.startDate);
+      const endDate = normalizeTodoOccurrenceDateKey(rangeLike?.endDate);
+      if (!startDate || normalizedDate < startDate) {
+        return;
+      }
+      if (endDate && normalizedDate >= endDate) {
+        return;
+      }
+      if (
+        !matchedRange ||
+        startDate > normalizeTodoOccurrenceDateKey(matchedRange?.startDate)
+      ) {
+        matchedRange = rangeLike;
+      }
+    });
+    return matchedRange;
+  }
+
+  function isCheckinOccurrenceScheduledOnDate(
+    item = null,
+    dateText = "",
+    context = null,
+  ) {
+    const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
+    if (!normalizedDate) {
+      return false;
+    }
+    const resolvedContext = resolveCheckinOccurrenceScheduleContext(item, context);
+    if (resolvedContext.scheduledCache.has(normalizedDate)) {
+      return resolvedContext.scheduledCache.get(normalizedDate) === true;
+    }
+
+    let scheduled = false;
+    if (resolvedContext.includedDateSet.has(normalizedDate)) {
+      scheduled = true;
+    } else {
+      const matchedRange = findCheckinScheduleRangeForDate(
+        item,
+        normalizedDate,
+        resolvedContext,
+      );
+      if (matchedRange) {
+        const parsedDate = parseTodoOccurrenceDateKey(normalizedDate);
+        if (parsedDate instanceof Date) {
+          const repeatType = normalizeTodoRepeatType(
+            matchedRange?.repeatType || item?.repeatType || "daily",
+          );
+          if (repeatType === "weekly") {
+            scheduled = (Array.isArray(matchedRange?.repeatWeekdays)
+              ? matchedRange.repeatWeekdays
+              : []
+            ).includes(parsedDate.getDay());
+          } else if (repeatType === "monthly") {
+            scheduled = normalizeTodoMonthDayList(
+              matchedRange?.repeatMonthDays,
+            ).includes(parsedDate.getDate());
+          } else {
+            scheduled = true;
+          }
+        }
+      }
+    }
+
+    resolvedContext.scheduledCache.set(normalizedDate, scheduled);
+    return scheduled;
+  }
+
   function mergeCheckinScheduleRanges(targetItem, sourceItem) {
     const merged = [
       ...normalizeCheckinScheduleRanges(targetItem?.scheduleRanges, targetItem),
@@ -1336,6 +1542,16 @@
       "dailyCheckins",
       snapshot.dailyCheckins,
     );
+    checkinHistorySummary =
+      window.ControlerStorage?.isNativeApp === true ||
+      hasCheckinHistorySummaryCoverage(
+        snapshot?.checkinHistorySummary,
+        checkinItems,
+      )
+        ? normalizeCheckinHistorySummary(snapshot.checkinHistorySummary)
+        : buildCheckinHistorySummaryFromEntries(dailyCheckins, {
+            items: checkinItems,
+          });
     checkins = hydrateTodoCollection("checkins", snapshot.checkins);
     todoLoadedSectionPeriods.dailyCheckins = new Set(
       getTodoSectionPeriodIds("dailyCheckins", dailyCheckins),
@@ -1369,6 +1585,12 @@
       checkinItemCount: Array.isArray(source.checkinItems)
         ? source.checkinItems.length
         : 0,
+      checkinHistorySummaryCount:
+        source?.checkinHistorySummary &&
+        typeof source.checkinHistorySummary === "object" &&
+        !Array.isArray(source.checkinHistorySummary)
+          ? Object.keys(source.checkinHistorySummary).length
+          : 0,
       dailyCheckinCount: Array.isArray(source.dailyCheckins)
         ? source.dailyCheckins.length
         : 0,
@@ -1417,14 +1639,26 @@
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     };
+    const readObject = (key) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+    };
     return {
       todos: readArray("todos"),
       checkinItems: readArray("checkinItems"),
+      checkinHistorySummary: readObject("checkinHistorySummary"),
       dailyCheckins: readArray("dailyCheckins"),
       checkins: readArray("checkins"),
       __hasMirror:
         localStorage.getItem("todos") !== null ||
         localStorage.getItem("checkinItems") !== null ||
+        localStorage.getItem("checkinHistorySummary") !== null ||
         localStorage.getItem("dailyCheckins") !== null ||
         localStorage.getItem("checkins") !== null,
     };
@@ -1438,6 +1672,7 @@
           ? {
               todos: getStateValue("todos"),
               checkinItems: getStateValue("checkinItems"),
+              checkinHistorySummary: getStateValue("checkinHistorySummary"),
               dailyCheckins: getStateValue("dailyCheckins"),
               checkins: getStateValue("checkins"),
             }
@@ -1456,6 +1691,12 @@
         checkinItems: Array.isArray(snapshot.checkinItems)
           ? snapshot.checkinItems
           : [],
+        checkinHistorySummary:
+          snapshot?.checkinHistorySummary &&
+          typeof snapshot.checkinHistorySummary === "object" &&
+          !Array.isArray(snapshot.checkinHistorySummary)
+            ? snapshot.checkinHistorySummary
+            : {},
         dailyCheckins: Array.isArray(snapshot.dailyCheckins)
           ? snapshot.dailyCheckins
           : [],
@@ -1485,6 +1726,12 @@
       return mergeTodoWorkspaceSnapshot({
         todos: Array.isArray(data.todos) ? data.todos : [],
         checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+        checkinHistorySummary:
+          data?.checkinHistorySummary &&
+          typeof data.checkinHistorySummary === "object" &&
+          !Array.isArray(data.checkinHistorySummary)
+            ? data.checkinHistorySummary
+            : {},
         dailyCheckins: Array.isArray(data.todayDailyCheckins)
           ? data.todayDailyCheckins
           : [],
@@ -1563,6 +1810,11 @@
       ...normalizedBootstrap,
       todos: cloneTodoValue(normalizedAuthoritative.todos),
       checkinItems: cloneTodoValue(normalizedAuthoritative.checkinItems),
+      checkinHistorySummary: normalizeCheckinHistorySummary(
+        normalizedAuthoritative.checkinHistorySummary ||
+          normalizedBootstrap.checkinHistorySummary ||
+          {},
+      ),
       dailyCheckins: mergedDailyCheckins,
       checkins:
         Array.isArray(normalizedBootstrap.checkins) &&
@@ -1636,6 +1888,12 @@
       const bootstrapSnapshot = mergeTodoWorkspaceSnapshot({
         todos: Array.isArray(data.todos) ? data.todos : [],
         checkinItems: Array.isArray(data.checkinItems) ? data.checkinItems : [],
+        checkinHistorySummary:
+          data?.checkinHistorySummary &&
+          typeof data.checkinHistorySummary === "object" &&
+          !Array.isArray(data.checkinHistorySummary)
+            ? data.checkinHistorySummary
+            : {},
         dailyCheckins: Array.isArray(data.todayDailyCheckins)
           ? data.todayDailyCheckins
           : [],
@@ -2234,7 +2492,7 @@
     }
   }
 
-  async function loadAllTodoSectionItemsFromStorage(section) {
+  async function loadAllTodoSectionItemsFromStorage(section, options = {}) {
     const normalizedSection =
       section === "dailyCheckins" || section === "checkins" ? section : "";
     if (!normalizedSection) {
@@ -2242,7 +2500,9 @@
     }
     const bundleStorage = window.ControlerStorage;
     if (typeof bundleStorage?.loadSectionRange === "function") {
-      const range = await bundleStorage.loadSectionRange(normalizedSection, {});
+      const range = await bundleStorage.loadSectionRange(normalizedSection, {
+        authoritative: options?.authoritative === true,
+      });
       return hydrateTodoCollection(
         normalizedSection,
         Array.isArray(range?.items) ? range.items : [],
@@ -2255,11 +2515,15 @@
     return window.ControlerStorage?.isNativeApp !== true;
   }
 
-  function persistTodoLocalSection(section, items = []) {
+  function persistTodoLocalCoreValue(key, value) {
     if (!shouldPersistTodoSharedLocalMirror()) {
       return;
     }
-    localStorage.setItem(section, JSON.stringify(items));
+    localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function persistTodoLocalSection(section, items = []) {
+    persistTodoLocalCoreValue(section, items);
   }
 
   function persistTodoLocalMirrorCore(source = {}) {
@@ -2271,6 +2535,13 @@
         section === "checkins"
       ) {
         persistTodoLocalSection(section, cloneTodoValue(source[section] || []));
+        return;
+      }
+      if (section === "checkinHistorySummary") {
+        persistTodoLocalCoreValue(
+          section,
+          normalizeCheckinHistorySummary(source[section]),
+        );
         return;
       }
       if (section === TODO_SORT_PREFERENCE_KEY) {
@@ -2289,6 +2560,225 @@
   function getTodoCheckinEntryTimestamp(entry = {}) {
     const candidate = Date.parse(String(entry?.time || entry?.updatedAt || ""));
     return Number.isFinite(candidate) ? candidate : 0;
+  }
+
+  function getCheckinHistorySummarySnapshot() {
+    return normalizeCheckinHistorySummary(checkinHistorySummary);
+  }
+
+  function getCheckinHistorySummaryEntry(itemId = "") {
+    const normalizedItemId = String(itemId || "").trim();
+    if (!normalizedItemId) {
+      return null;
+    }
+    const entry = checkinHistorySummary?.[normalizedItemId];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return null;
+    }
+    return normalizeCheckinHistorySummaryEntry(entry);
+  }
+
+  function replaceCheckinHistorySummary(nextSummary = {}) {
+    const normalizedSummary = normalizeCheckinHistorySummary(nextSummary);
+    const changed = !isTodoSerializableEqual(
+      normalizedSummary,
+      checkinHistorySummary,
+    );
+    checkinHistorySummary = normalizedSummary;
+    return changed;
+  }
+
+  function setCheckinHistorySummaryEntry(itemId = "", entry = {}) {
+    const normalizedItemId = String(itemId || "").trim();
+    if (!normalizedItemId) {
+      return false;
+    }
+    return replaceCheckinHistorySummary({
+      ...checkinHistorySummary,
+      [normalizedItemId]: normalizeCheckinHistorySummaryEntry(entry),
+    });
+  }
+
+  function ensureCheckinHistorySummaryEntry(itemId = "", updatedAt = "") {
+    const normalizedItemId = String(itemId || "").trim();
+    if (!normalizedItemId || getCheckinHistorySummaryEntry(normalizedItemId)) {
+      return false;
+    }
+    return setCheckinHistorySummaryEntry(
+      normalizedItemId,
+      createEmptyCheckinHistorySummaryEntry(updatedAt),
+    );
+  }
+
+  function buildCheckinHistorySummaryFromEntries(entryList = [], options = {}) {
+    const sourceEntries = Array.isArray(entryList) ? entryList : [];
+    const latestByItemDate = new Map();
+    const knownItemIds = new Set(
+      collectTodoCheckinItemIdsFromCollection(options?.items || checkinItems),
+    );
+    const updatedAtFallback =
+      typeof options?.updatedAt === "string" && options.updatedAt.trim()
+        ? options.updatedAt.trim()
+        : new Date().toISOString();
+    sourceEntries.forEach((entry, index) => {
+      const itemId = String(entry?.itemId || "").trim();
+      const dateKey = normalizeTodoOccurrenceDateKey(entry?.date);
+      if (!itemId || !dateKey) {
+        return;
+      }
+      knownItemIds.add(itemId);
+      const key = `${itemId}::${dateKey}`;
+      const candidate = {
+        entry: {
+          ...(entry || {}),
+          itemId,
+          date: dateKey,
+        },
+        timestamp: getTodoCheckinEntryTimestamp(entry),
+        index,
+      };
+      const current = latestByItemDate.get(key);
+      if (
+        !current ||
+        candidate.timestamp > current.timestamp ||
+        (candidate.timestamp === current.timestamp &&
+          candidate.index >= current.index)
+      ) {
+        latestByItemDate.set(key, candidate);
+      }
+    });
+    const checkedDatesByItem = new Map();
+    const updatedAtByItem = new Map();
+    latestByItemDate.forEach(({ entry, timestamp }) => {
+      const itemId = String(entry?.itemId || "").trim();
+      const dateKey = normalizeTodoOccurrenceDateKey(entry?.date);
+      if (!itemId || !dateKey) {
+        return;
+      }
+      const nextDates = checkedDatesByItem.get(itemId) || new Set();
+      if (entry?.checked) {
+        nextDates.add(dateKey);
+      }
+      checkedDatesByItem.set(itemId, nextDates);
+      const currentTimestamp = updatedAtByItem.get(itemId)?.timestamp || 0;
+      if (timestamp >= currentTimestamp) {
+        updatedAtByItem.set(itemId, {
+          timestamp,
+          updatedAt:
+            typeof entry?.time === "string" && entry.time.trim()
+              ? entry.time.trim()
+              : typeof entry?.updatedAt === "string" && entry.updatedAt.trim()
+                ? entry.updatedAt.trim()
+                : updatedAtFallback,
+        });
+      }
+    });
+    const summary = {};
+    knownItemIds.forEach((itemId) => {
+      const checkedDates = Array.from(
+        checkedDatesByItem.get(itemId) || new Set(),
+      ).sort();
+      summary[itemId] = {
+        checkedDaysCount: checkedDates.length,
+        checkedDates,
+        updatedAt: updatedAtByItem.get(itemId)?.updatedAt || updatedAtFallback,
+      };
+    });
+    return normalizeCheckinHistorySummary(summary);
+  }
+
+  function rebuildCheckinHistorySummaryForItemIdsFromEntries(
+    entryList = [],
+    itemIds = [],
+    options = {},
+  ) {
+    const normalizedItemIds = Array.from(
+      new Set(
+        (Array.isArray(itemIds) ? itemIds : [])
+          .map((itemId) => String(itemId || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (!normalizedItemIds.length) {
+      return false;
+    }
+    const rebuiltSummary = buildCheckinHistorySummaryFromEntries(entryList, {
+      items: normalizedItemIds.map((itemId) => ({ id: itemId })),
+      updatedAt: options?.updatedAt,
+    });
+    const nextSummary = {
+      ...checkinHistorySummary,
+    };
+    normalizedItemIds.forEach((itemId) => {
+      nextSummary[itemId] =
+        rebuiltSummary[itemId] ||
+        createEmptyCheckinHistorySummaryEntry(options?.updatedAt);
+    });
+    return replaceCheckinHistorySummary(nextSummary);
+  }
+
+  function updateCheckinHistorySummaryForDate(
+    itemId = "",
+    dateText = "",
+    nextChecked = false,
+    updatedAt = "",
+  ) {
+    const normalizedItemId = String(itemId || "").trim();
+    const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
+    if (!normalizedItemId || !normalizedDate) {
+      return false;
+    }
+    const currentEntry =
+      getCheckinHistorySummaryEntry(normalizedItemId) ||
+      createEmptyCheckinHistorySummaryEntry(updatedAt);
+    const nextDates = new Set(
+      normalizeCheckinHistorySummaryDateList(currentEntry.checkedDates),
+    );
+    if (nextChecked) {
+      nextDates.add(normalizedDate);
+    } else {
+      nextDates.delete(normalizedDate);
+    }
+    return setCheckinHistorySummaryEntry(normalizedItemId, {
+      checkedDaysCount: nextDates.size,
+      checkedDates: Array.from(nextDates).sort(),
+      updatedAt:
+        typeof updatedAt === "string" && updatedAt.trim()
+          ? updatedAt.trim()
+          : currentEntry.updatedAt || "",
+    });
+  }
+
+  function mergeCheckinHistorySummaryEntries(
+    targetItemId = "",
+    sourceItemId = "",
+    updatedAt = "",
+  ) {
+    const normalizedTargetItemId = String(targetItemId || "").trim();
+    const normalizedSourceItemId = String(sourceItemId || "").trim();
+    if (
+      !normalizedTargetItemId ||
+      !normalizedSourceItemId ||
+      normalizedTargetItemId === normalizedSourceItemId
+    ) {
+      return false;
+    }
+    const mergedDates = normalizeCheckinHistorySummaryDateList([
+      ...Array.from(getCheckedTodoDailyCheckinDates(normalizedTargetItemId)),
+      ...Array.from(getCheckedTodoDailyCheckinDates(normalizedSourceItemId)),
+    ]);
+    return replaceCheckinHistorySummary({
+      ...checkinHistorySummary,
+      [normalizedTargetItemId]: {
+        checkedDaysCount: mergedDates.length,
+        checkedDates: mergedDates,
+        updatedAt:
+          typeof updatedAt === "string" && updatedAt.trim()
+            ? updatedAt.trim()
+            : new Date().toISOString(),
+      },
+      [normalizedSourceItemId]: createEmptyCheckinHistorySummaryEntry(updatedAt),
+    });
   }
 
   function isTodoCheckinEntryNewer(candidate, current) {
@@ -2393,6 +2883,10 @@
     const normalizedItemId = String(itemId || "").trim();
     if (!normalizedItemId) {
       return new Set();
+    }
+    const summaryEntry = getCheckinHistorySummaryEntry(normalizedItemId);
+    if (summaryEntry && Array.isArray(summaryEntry.checkedDates)) {
+      return new Set(summaryEntry.checkedDates);
     }
     if (lookup?.checkedDatesByItem instanceof Map) {
       return lookup.checkedDatesByItem.get(normalizedItemId) || new Set();
@@ -2578,9 +3072,6 @@
           );
           return true;
         }
-        changedSections.forEach((section) => {
-          persistTodoLocalSection(section, protectedSource[section] || []);
-        });
         return true;
       },
       {
@@ -2596,86 +3087,23 @@
     if (!normalizedSection) {
       return Promise.resolve(false);
     }
-
-    const currentItems = getTodoSectionStateSnapshot(normalizedSection);
-    const explicitPeriodIds = getTodoNormalizedPeriodIds(options?.periodIds);
-    const previousPeriodIds = getTodoSectionPeriodIds(
-      normalizedSection,
-      options?.previousItems,
-    );
-    const periodIds = explicitPeriodIds.length
-      ? explicitPeriodIds
-      : getTodoNormalizedPeriodIds([
-          ...getTodoSectionPeriodIds(normalizedSection, currentItems),
-          ...previousPeriodIds,
-        ]);
-
-    if (!periodIds.length) {
-      todoLoadedSectionPeriods[normalizedSection] = new Set(
-        getTodoSectionPeriodIds(normalizedSection, currentItems),
-      );
-      return Promise.resolve(true);
-    }
-
-    persistTodoLocalSection(normalizedSection, currentItems);
-
-    periodIds.forEach((periodId) => {
-      markTodoSelfRefreshIgnored([normalizedSection], {
-        [normalizedSection]: [periodId],
-      });
+    return queueTodoSaveWithLinkedPlan({
+      sectionSaves: [
+        {
+          section: normalizedSection,
+          periodIds: options?.periodIds,
+          previousItems: options?.previousItems,
+        },
+      ],
+      reason:
+        typeof options?.reason === "string" && options.reason.trim()
+          ? options.reason.trim()
+          : `todo-section-save:${normalizedSection}`,
+      errorLabel:
+        options?.errorLabel ||
+        `保存${normalizedSection === "dailyCheckins" ? "每日打卡" : "进度记录"}分区数据失败:`,
+      refreshReminders: options?.refreshReminders === true,
     });
-
-    return queueTodoPersistenceTask(
-      async () => {
-        const bundleStorage = window.ControlerStorage;
-        if (typeof bundleStorage?.appendJournal === "function") {
-          await bundleStorage.appendJournal(
-            periodIds.map((periodId) => ({
-              kind: "saveSectionRange",
-              section: normalizedSection,
-              payload: {
-                periodId,
-                items: currentItems.filter(
-                  (item) =>
-                    getTodoSectionPeriodId(normalizedSection, item) ===
-                    periodId,
-                ),
-                mode: "replace",
-              },
-            })),
-            {
-              reason: `todo-section-save:${normalizedSection}`,
-            },
-          );
-        } else if (typeof bundleStorage?.saveSectionRange === "function") {
-          await Promise.all(
-            periodIds.map((periodId) =>
-              bundleStorage.saveSectionRange(normalizedSection, {
-                periodId,
-                items: currentItems.filter(
-                  (item) =>
-                    getTodoSectionPeriodId(normalizedSection, item) ===
-                    periodId,
-                ),
-                mode: "replace",
-              }),
-            ),
-          );
-        } else {
-          persistTodoLocalSection(normalizedSection, currentItems);
-        }
-        todoLoadedSectionPeriods[normalizedSection] = new Set(
-          getTodoSectionPeriodIds(normalizedSection, currentItems),
-        );
-        return true;
-      },
-      {
-        errorLabel:
-          options?.errorLabel ||
-          `保存${normalizedSection === "dailyCheckins" ? "每日打卡" : "进度记录"}分区数据失败:`,
-        refreshReminders: options?.refreshReminders === true,
-      },
-    );
   }
 
   function normalizeTodoLinkedPlanSourceType(value) {
@@ -3339,6 +3767,10 @@
     if (!itemLike?.id || !normalizedDate) {
       return false;
     }
+    const summaryEntry = getCheckinHistorySummaryEntry(itemLike.id);
+    if (summaryEntry && Array.isArray(summaryEntry.checkedDates)) {
+      return summaryEntry.checkedDates.includes(normalizedDate);
+    }
     return !!getLatestTodoDailyCheckinEntryFromLookup(
       lookup,
       itemLike.id,
@@ -3831,8 +4263,15 @@
         return false;
       }
       sourceLike.updatedAt = nowIso;
+      updateCheckinHistorySummaryForDate(
+        normalizedSourceId,
+        normalizedDate,
+        false,
+        nowIso,
+      );
       partialCore = {
         checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+        checkinHistorySummary: getCheckinHistorySummarySnapshot(),
       };
       sectionSaves = removedCheckins.changed
         ? [
@@ -3961,46 +4400,215 @@
     return operations;
   }
 
-  function buildTodoSectionSaveOperations(sectionSaves = []) {
-    return (Array.isArray(sectionSaves) ? sectionSaves : []).flatMap(
-      (entry = {}) => {
+  function normalizeTodoSectionSaveEntries(sectionSaves = [], options = {}) {
+    return (Array.isArray(sectionSaves) ? sectionSaves : [])
+      .map((entry = {}) => {
         const section =
           entry?.section === "dailyCheckins" || entry?.section === "checkins"
             ? entry.section
             : "";
         if (!section) {
-          return [];
+          return null;
         }
-        const currentItems = Array.isArray(entry?.items)
-          ? entry.items
-          : getTodoSectionStateSnapshot(section);
-        const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
-        const previousPeriodIds = getTodoSectionPeriodIds(
+        const currentItems = hydrateTodoCollection(
           section,
-          entry?.previousItems,
+          Array.isArray(entry?.items)
+            ? entry.items
+            : getTodoSectionStateSnapshot(section),
         );
+        const previousItems = hydrateTodoCollection(
+          section,
+          Array.isArray(entry?.previousItems) ? entry.previousItems : [],
+        );
+        const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
+        const previousPeriodIds = getTodoSectionPeriodIds(section, previousItems);
         const periodIds = explicitPeriodIds.length
           ? explicitPeriodIds
           : getTodoNormalizedPeriodIds([
               ...getTodoSectionPeriodIds(section, currentItems),
               ...previousPeriodIds,
             ]);
-        todoLoadedSectionPeriods[section] = new Set(
-          getTodoSectionPeriodIds(section, currentItems),
-        );
-        return periodIds.map((periodId) => ({
-          kind: "saveSectionRange",
+        return {
           section,
-          payload: {
-            periodId,
-            items: currentItems.filter(
-              (item) => getTodoSectionPeriodId(section, item) === periodId,
-            ),
-            mode: "replace",
-          },
-        }));
-      },
+          currentItems,
+          previousItems,
+          periodIds,
+          itemsAreAuthoritative:
+            options?.itemsAreAuthoritative === true ||
+            entry?.itemsAreAuthoritative === true,
+        };
+      })
+      .filter((entry) => !!entry && entry.periodIds.length > 0);
+  }
+
+  function getTodoSectionMergeKey(section, item = {}) {
+    const source = item && typeof item === "object" ? item : {};
+    if (source.id) {
+      return `id:${String(source.id)}`;
+    }
+    switch (section) {
+      case "dailyCheckins":
+        return [source.itemId || "", source.date || ""].join("|");
+      case "checkins":
+        return [source.todoId || "", source.time || "", source.message || ""].join(
+          "|",
+        );
+      default:
+        return JSON.stringify(source);
+    }
+  }
+
+  function sortTodoPartitionSectionItems(section, items = []) {
+    const safeItems = Array.isArray(items) ? items : [];
+    if (typeof storageBundleApi?.sortPartitionItems === "function") {
+      return storageBundleApi.sortPartitionItems(section, safeItems);
+    }
+    return safeItems.slice();
+  }
+
+  async function loadTodoSectionItemsByPeriodsFromStorage(section, periodIds = []) {
+    const normalizedPeriodIds = getTodoNormalizedPeriodIds(periodIds);
+    const bundleStorage = window.ControlerStorage;
+    if (typeof bundleStorage?.loadSectionRange === "function") {
+      const range = await bundleStorage.loadSectionRange(section, {
+        periodIds: normalizedPeriodIds,
+        authoritative: true,
+      });
+      return hydrateTodoCollection(
+        section,
+        Array.isArray(range?.items) ? range.items : [],
+      );
+    }
+    const periodIdSet = new Set(normalizedPeriodIds);
+    return hydrateTodoCollection(section, getTodoSectionStateSnapshot(section)).filter(
+      (item) =>
+        !periodIdSet.size || periodIdSet.has(getTodoSectionPeriodId(section, item)),
     );
+  }
+
+  function replaceTodoSectionItemsForPeriod(
+    section,
+    items = [],
+    periodId = "",
+    nextPeriodItems = [],
+  ) {
+    const normalizedPeriodId = String(periodId || "").trim();
+    const preservedItems = (Array.isArray(items) ? items : []).filter(
+      (item) => getTodoSectionPeriodId(section, item) !== normalizedPeriodId,
+    );
+    return sortTodoPartitionSectionItems(section, [
+      ...preservedItems,
+      ...(Array.isArray(nextPeriodItems) ? nextPeriodItems : []),
+    ]);
+  }
+
+  function reconcileTodoSectionPeriodItems(
+    section,
+    existingItems = [],
+    currentItems = [],
+    previousItems = [],
+  ) {
+    const merged = new Map();
+    sortTodoPartitionSectionItems(section, existingItems).forEach((item) => {
+      merged.set(
+        getTodoSectionMergeKey(section, item),
+        cloneTodoValue(item),
+      );
+    });
+    (Array.isArray(previousItems) ? previousItems : []).forEach((item) => {
+      merged.delete(getTodoSectionMergeKey(section, item));
+    });
+    sortTodoPartitionSectionItems(section, currentItems).forEach((item) => {
+      merged.set(
+        getTodoSectionMergeKey(section, item),
+        cloneTodoValue(item),
+      );
+    });
+    return sortTodoPartitionSectionItems(section, Array.from(merged.values()));
+  }
+
+  async function buildTodoSectionSaveOperations(sectionSaves = []) {
+    const normalizedEntries = normalizeTodoSectionSaveEntries(sectionSaves);
+    if (!normalizedEntries.length) {
+      return [];
+    }
+
+    const loadedSectionItems = new Map();
+    await Promise.all(
+      Array.from(
+        normalizedEntries.reduce((grouped, entry) => {
+          if (!grouped.has(entry.section)) {
+            grouped.set(entry.section, new Set());
+          }
+          entry.periodIds.forEach((periodId) => {
+            grouped.get(entry.section).add(periodId);
+          });
+          return grouped;
+        }, new Map()),
+      ).map(async ([section, periodIdSet]) => {
+        loadedSectionItems.set(
+          section,
+          await loadTodoSectionItemsByPeriodsFromStorage(
+            section,
+            Array.from(periodIdSet),
+          ),
+        );
+      }),
+    );
+
+    const workingSectionItems = new Map(
+      Array.from(loadedSectionItems.entries()).map(([section, items]) => [
+        section,
+        sortTodoPartitionSectionItems(section, items),
+      ]),
+    );
+
+    normalizedEntries.forEach((entry) => {
+      let workingItems = workingSectionItems.get(entry.section) || [];
+      entry.periodIds.forEach((periodId) => {
+        const currentPeriodItems = entry.currentItems.filter(
+          (item) => getTodoSectionPeriodId(entry.section, item) === periodId,
+        );
+        const previousPeriodItems = entry.previousItems.filter(
+          (item) => getTodoSectionPeriodId(entry.section, item) === periodId,
+        );
+        const nextPeriodItems = entry.itemsAreAuthoritative
+          ? sortTodoPartitionSectionItems(entry.section, currentPeriodItems)
+          : reconcileTodoSectionPeriodItems(
+              entry.section,
+              workingItems.filter(
+                (item) => getTodoSectionPeriodId(entry.section, item) === periodId,
+              ),
+              currentPeriodItems,
+              previousPeriodItems,
+            );
+        workingItems = replaceTodoSectionItemsForPeriod(
+          entry.section,
+          workingItems,
+          periodId,
+          nextPeriodItems,
+        );
+      });
+      workingSectionItems.set(entry.section, workingItems);
+      todoLoadedSectionPeriods[entry.section] = new Set(
+        getTodoSectionPeriodIds(entry.section, entry.currentItems),
+      );
+    });
+
+    return normalizedEntries.flatMap((entry) => {
+      const workingItems = workingSectionItems.get(entry.section) || [];
+      return entry.periodIds.map((periodId) => ({
+        kind: "saveSectionRange",
+        section: entry.section,
+        payload: {
+          periodId,
+          items: workingItems.filter(
+            (item) => getTodoSectionPeriodId(entry.section, item) === periodId,
+          ),
+          mode: "replace",
+        },
+      }));
+    });
   }
 
   function persistTodoLinkedPlanLocalMirror(allPlans = []) {
@@ -4029,35 +4637,12 @@
       markTodoSelfRefreshIgnored(changedCoreSections);
     }
 
-    const sectionSaves = Array.isArray(options?.sectionSaves)
-      ? options.sectionSaves
-      : [];
-    sectionSaves.forEach((entry = {}) => {
-      const section =
-        entry?.section === "dailyCheckins" || entry?.section === "checkins"
-          ? entry.section
-          : "";
-      if (!section) {
-        return;
-      }
-      const currentItems = Array.isArray(entry?.items)
-        ? entry.items
-        : getTodoSectionStateSnapshot(section);
-      persistTodoLocalSection(section, currentItems);
-      const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
-      const previousPeriodIds = getTodoSectionPeriodIds(
-        section,
-        entry?.previousItems,
-      );
-      const periodIds = explicitPeriodIds.length
-        ? explicitPeriodIds
-        : getTodoNormalizedPeriodIds([
-            ...getTodoSectionPeriodIds(section, currentItems),
-            ...previousPeriodIds,
-          ]);
-      if (periodIds.length) {
-        markTodoSelfRefreshIgnored([section], {
-          [section]: periodIds,
+    const sectionSaves = normalizeTodoSectionSaveEntries(options?.sectionSaves);
+    sectionSaves.forEach((entry) => {
+      persistTodoLocalSection(entry.section, entry.currentItems);
+      if (entry.periodIds.length) {
+        markTodoSelfRefreshIgnored([entry.section], {
+          [entry.section]: entry.periodIds,
         });
       }
     });
@@ -4071,32 +4656,41 @@
       persistTodoLinkedPlanLocalMirror(linkedPlanMutation.allPlans);
     }
 
-    const journalOperations = [
-      ...(changedCoreSections.length
-        ? [
-            {
-              kind: "replaceCoreState",
-              partialCore: cloneTodoValue(partialCore),
-            },
-          ]
-        : []),
-      ...buildTodoSectionSaveOperations(sectionSaves),
-      ...buildTodoLinkedPlanJournalOperations(
-        linkedPlanMutation?.allPlans || [],
-        linkedPlanMutation?.previousPlans ||
-          linkedPlanMutation?.previousPlan ||
-          null,
-        linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
-      ),
-    ];
+    const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
+      linkedPlanMutation?.allPlans || [],
+      linkedPlanMutation?.previousPlans ||
+        linkedPlanMutation?.previousPlan ||
+        null,
+      linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
+    );
 
-    if (!journalOperations.length) {
+    if (
+      !changedCoreSections.length &&
+      !sectionSaves.length &&
+      !linkedPlanOperations.length
+    ) {
       return Promise.resolve(true);
     }
 
     return queueTodoPersistenceTask(
       async () => {
         const bundleStorage = window.ControlerStorage;
+        const sectionOperations = await buildTodoSectionSaveOperations(sectionSaves);
+        const journalOperations = [
+          ...(changedCoreSections.length
+            ? [
+                {
+                  kind: "replaceCoreState",
+                  partialCore: cloneTodoValue(partialCore),
+                },
+              ]
+            : []),
+          ...sectionOperations,
+          ...linkedPlanOperations,
+        ];
+        if (!journalOperations.length) {
+          return true;
+        }
         if (typeof bundleStorage?.appendJournal === "function") {
           await bundleStorage.appendJournal(journalOperations, {
             reason:
@@ -4116,7 +4710,6 @@
           });
         }
 
-        const sectionOperations = buildTodoSectionSaveOperations(sectionSaves);
         if (sectionOperations.length && typeof bundleStorage?.saveSectionRange === "function") {
           await Promise.all(
             sectionOperations.map((operation) =>
@@ -4125,13 +4718,6 @@
           );
         }
 
-        const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
-          linkedPlanMutation?.allPlans || [],
-          linkedPlanMutation?.previousPlans ||
-            linkedPlanMutation?.previousPlan ||
-            null,
-          linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
-        );
         for (const operation of linkedPlanOperations) {
           if (
             operation.kind === "saveSectionRange" &&
@@ -4159,198 +4745,16 @@
     );
   }
 
-  function buildTodoAuthoritativeSectionSaveOperations(sectionSaves = []) {
-    return (Array.isArray(sectionSaves) ? sectionSaves : []).flatMap(
-      (entry = {}) => {
-        const section =
-          entry?.section === "dailyCheckins" || entry?.section === "checkins"
-            ? entry.section
-            : "";
-        if (!section) {
-          return [];
-        }
-        const currentItems = Array.isArray(entry?.items)
-          ? entry.items
-          : getTodoSectionStateSnapshot(section);
-        const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
-        const previousPeriodIds = getTodoSectionPeriodIds(
-          section,
-          entry?.previousItems,
-        );
-        const periodIds = explicitPeriodIds.length
-          ? explicitPeriodIds
-          : getTodoNormalizedPeriodIds([
-              ...getTodoSectionPeriodIds(section, currentItems),
-              ...previousPeriodIds,
-            ]);
-        return periodIds.map((periodId) => ({
-          kind: "saveSectionRange",
-          section,
-          payload: {
-            periodId,
-            items: currentItems.filter(
-              (item) => getTodoSectionPeriodId(section, item) === periodId,
-            ),
-            mode: "replace",
-          },
-        }));
-      },
-    );
-  }
-
   function queueTodoSaveWithAuthoritativeSections(options = {}) {
-    const partialCore =
-      options?.partialCore &&
-      typeof options.partialCore === "object" &&
-      !Array.isArray(options.partialCore)
-        ? normalizeTodoCoreUpdate(options.partialCore)
-        : {};
-    const changedCoreSections = getTodoNormalizedChangedSections(
-      Object.keys(partialCore),
-    );
-    if (changedCoreSections.length) {
-      persistTodoLocalMirrorCore(partialCore);
-      markTodoSelfRefreshIgnored(changedCoreSections);
-    }
-
-    const sectionSaves = Array.isArray(options?.sectionSaves)
-      ? options.sectionSaves
-      : [];
-    sectionSaves.forEach((entry = {}) => {
-      const section =
-        entry?.section === "dailyCheckins" || entry?.section === "checkins"
-          ? entry.section
-          : "";
-      if (!section) {
-        return;
-      }
-      const currentItems = Array.isArray(entry?.items)
-        ? entry.items
-        : getTodoSectionStateSnapshot(section);
-      persistTodoLocalSection(section, currentItems);
-      const explicitPeriodIds = getTodoNormalizedPeriodIds(entry?.periodIds);
-      const previousPeriodIds = getTodoSectionPeriodIds(
-        section,
-        entry?.previousItems,
-      );
-      const periodIds = explicitPeriodIds.length
-        ? explicitPeriodIds
-        : getTodoNormalizedPeriodIds([
-            ...getTodoSectionPeriodIds(section, currentItems),
-            ...previousPeriodIds,
-          ]);
-      if (periodIds.length) {
-        markTodoSelfRefreshIgnored([section], {
-          [section]: periodIds,
-        });
-      }
-    });
-
-    const linkedPlanMutation =
-      options?.linkedPlanMutation &&
-      typeof options.linkedPlanMutation === "object"
-        ? options.linkedPlanMutation
-        : null;
-    if (linkedPlanMutation?.allPlans) {
-      persistTodoLinkedPlanLocalMirror(linkedPlanMutation.allPlans);
-    }
-
-    const sectionOperations =
-      buildTodoAuthoritativeSectionSaveOperations(sectionSaves);
-    const journalOperations = [
-      ...(changedCoreSections.length
-        ? [
-            {
-              kind: "replaceCoreState",
-              partialCore: cloneTodoValue(partialCore),
-            },
-          ]
-        : []),
-      ...sectionOperations,
-      ...buildTodoLinkedPlanJournalOperations(
-        linkedPlanMutation?.allPlans || [],
-        linkedPlanMutation?.previousPlans ||
-          linkedPlanMutation?.previousPlan ||
-          null,
-        linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
+    return queueTodoSaveWithLinkedPlan({
+      ...options,
+      sectionSaves: (Array.isArray(options?.sectionSaves) ? options.sectionSaves : []).map(
+        (entry = {}) => ({
+          ...entry,
+          itemsAreAuthoritative: true,
+        }),
       ),
-    ];
-
-    if (!journalOperations.length) {
-      return Promise.resolve(true);
-    }
-
-    return queueTodoPersistenceTask(
-      async () => {
-        const bundleStorage = window.ControlerStorage;
-        if (typeof bundleStorage?.appendJournal === "function") {
-          await bundleStorage.appendJournal(journalOperations, {
-            reason:
-              typeof options?.reason === "string" && options.reason.trim()
-                ? options.reason.trim()
-                : "todo-authoritative-save",
-          });
-          return true;
-        }
-
-        if (
-          changedCoreSections.length &&
-          typeof bundleStorage?.replaceCoreState === "function"
-        ) {
-          await bundleStorage.replaceCoreState(cloneTodoValue(partialCore), {
-            reason:
-              typeof options?.reason === "string" && options.reason.trim()
-                ? options.reason.trim()
-                : "todo-authoritative-save",
-          });
-        }
-
-        if (
-          sectionOperations.length &&
-          typeof bundleStorage?.saveSectionRange === "function"
-        ) {
-          await Promise.all(
-            sectionOperations.map((operation) =>
-              bundleStorage.saveSectionRange(
-                operation.section,
-                operation.payload,
-              ),
-            ),
-          );
-        }
-
-        const linkedPlanOperations = buildTodoLinkedPlanJournalOperations(
-          linkedPlanMutation?.allPlans || [],
-          linkedPlanMutation?.previousPlans ||
-            linkedPlanMutation?.previousPlan ||
-            null,
-          linkedPlanMutation?.nextPlans || linkedPlanMutation?.nextPlan || null,
-        );
-        for (const operation of linkedPlanOperations) {
-          if (
-            operation.kind === "saveSectionRange" &&
-            typeof bundleStorage?.saveSectionRange === "function"
-          ) {
-            await bundleStorage.saveSectionRange(
-              operation.section,
-              operation.payload,
-            );
-            continue;
-          }
-          if (
-            operation.kind === "replaceRecurringPlans" &&
-            typeof bundleStorage?.replaceRecurringPlans === "function"
-          ) {
-            await bundleStorage.replaceRecurringPlans(operation.items || []);
-          }
-        }
-        return true;
-      },
-      {
-        errorLabel: options?.errorLabel || "保存待办权威分区数据失败:",
-        refreshReminders: options?.refreshReminders === true,
-      },
-    );
+    });
   }
 
   function handleTodoNonBlockingSaveFailure(message, options = {}) {
@@ -4505,33 +4909,27 @@
           };
     const protectedSnapshot = mergeTodoWorkspaceSnapshot(nextSnapshot);
     const bundleStorage = window.ControlerStorage;
-    if (typeof bundleStorage?.appendJournal === "function") {
-      const sectionOps = ["dailyCheckins", "checkins"].flatMap((section) => {
-        const items = protectedSnapshot[section] || [];
-        const periodIds = Array.from(
+    const sectionSaves = ["dailyCheckins", "checkins"]
+      .map((section) => ({
+        section,
+        items: protectedSnapshot[section] || [],
+        periodIds: Array.from(
           new Set([
-            ...getTodoSectionPeriodIds(section, items),
+            ...getTodoSectionPeriodIds(section, protectedSnapshot[section] || []),
             ...Array.from(todoLoadedSectionPeriods[section] || []),
           ]),
-        );
-        if (!periodIds.length) {
-          todoLoadedSectionPeriods[section] = new Set();
-          return [];
-        }
+        ),
+      }))
+      .filter((entry) => entry.periodIds.length > 0);
+    const sectionOperations = await buildTodoSectionSaveOperations(sectionSaves);
+    if (typeof bundleStorage?.appendJournal === "function") {
+      ["dailyCheckins", "checkins"].forEach((section) => {
+        const sectionEntry = sectionSaves.find((entry) => entry.section === section);
         todoLoadedSectionPeriods[section] = new Set(
-          getTodoSectionPeriodIds(section, items),
+          sectionEntry
+            ? getTodoSectionPeriodIds(section, sectionEntry.items)
+            : [],
         );
-        return periodIds.map((periodId) => ({
-          kind: "saveSectionRange",
-          section,
-          payload: {
-            periodId,
-            items: (items || []).filter(
-              (item) => getTodoSectionPeriodId(section, item) === periodId,
-            ),
-            mode: "replace",
-          },
-        }));
       });
       await bundleStorage.appendJournal(
         [
@@ -4542,9 +4940,12 @@
               checkinItems: cloneTodoValue(
                 protectedSnapshot.checkinItems || [],
               ),
+              checkinHistorySummary: normalizeCheckinHistorySummary(
+                protectedSnapshot.checkinHistorySummary,
+              ),
             },
           },
-          ...sectionOps,
+          ...sectionOperations,
         ],
         {
           reason: "todo-workspace",
@@ -4561,44 +4962,24 @@
         {
           todos: cloneTodoValue(protectedSnapshot.todos || []),
           checkinItems: cloneTodoValue(protectedSnapshot.checkinItems || []),
+          checkinHistorySummary: normalizeCheckinHistorySummary(
+            protectedSnapshot.checkinHistorySummary,
+          ),
         },
         {
           reason: "todo-workspace",
         },
       );
-
-      const persistRangeSection = async (section, items) => {
-        const periodIds = Array.from(
-          new Set([
-            ...getTodoSectionPeriodIds(section, items),
-            ...Array.from(todoLoadedSectionPeriods[section] || []),
-          ]),
-        );
-        if (!periodIds.length) {
-          todoLoadedSectionPeriods[section] = new Set();
-          return;
-        }
+      if (sectionOperations.length) {
         await Promise.all(
-          periodIds.map((periodId) =>
-            bundleStorage.saveSectionRange(section, {
-              periodId,
-              items: (items || []).filter(
-                (item) => getTodoSectionPeriodId(section, item) === periodId,
-              ),
-              mode: "replace",
-            }),
+          sectionOperations.map((operation) =>
+            bundleStorage.saveSectionRange(operation.section, operation.payload),
           ),
         );
-        todoLoadedSectionPeriods[section] = new Set(
-          getTodoSectionPeriodIds(section, items),
-        );
-      };
-
-      await persistRangeSection(
-        "dailyCheckins",
-        protectedSnapshot.dailyCheckins || [],
-      );
-      await persistRangeSection("checkins", protectedSnapshot.checkins || []);
+      } else {
+        todoLoadedSectionPeriods.dailyCheckins = new Set();
+        todoLoadedSectionPeriods.checkins = new Set();
+      }
       return true;
     }
 
@@ -4615,6 +4996,12 @@
       JSON.stringify(protectedSnapshot.checkinItems || []),
     );
     localStorage.setItem(
+      "checkinHistorySummary",
+      JSON.stringify(
+        normalizeCheckinHistorySummary(protectedSnapshot.checkinHistorySummary),
+      ),
+    );
+    localStorage.setItem(
       "dailyCheckins",
       JSON.stringify(protectedSnapshot.dailyCheckins || []),
     );
@@ -4625,6 +5012,7 @@
     const snapshot = mergeTodoWorkspaceSnapshot({
       todos: cloneTodoValue(todos),
       checkinItems: cloneTodoValue(checkinItems),
+      checkinHistorySummary: cloneTodoValue(checkinHistorySummary),
       dailyCheckins: cloneTodoValue(dailyCheckins),
       checkins: cloneTodoValue(checkins),
     });
@@ -6437,11 +6825,13 @@
     try {
       let nextTodos = null;
       let nextCheckinItems = null;
+      let nextCheckinHistorySummary = null;
       let nextDailyCheckins = null;
       let nextCheckins = null;
       if (
         changedSections.includes("todos") ||
-        changedSections.includes("checkinItems")
+        changedSections.includes("checkinItems") ||
+        changedSections.includes("checkinHistorySummary")
       ) {
         const coreSnapshot = await bundleStorage.getCoreState();
         const protectedCoreSnapshot = mergeTodoWorkspaceSnapshot(
@@ -6450,6 +6840,12 @@
             checkinItems: Array.isArray(coreSnapshot?.checkinItems)
               ? coreSnapshot.checkinItems
               : [],
+            checkinHistorySummary:
+              coreSnapshot?.checkinHistorySummary &&
+              typeof coreSnapshot.checkinHistorySummary === "object" &&
+              !Array.isArray(coreSnapshot.checkinHistorySummary)
+                ? coreSnapshot.checkinHistorySummary
+                : {},
           },
           captureTodoWorkspaceSnapshot(),
         );
@@ -6463,6 +6859,14 @@
           nextCheckinItems = hydrateTodoCollection(
             "checkinItems",
             protectedCoreSnapshot?.checkinItems,
+          );
+        }
+        if (
+          changedSections.includes("checkinItems") ||
+          changedSections.includes("checkinHistorySummary")
+        ) {
+          nextCheckinHistorySummary = normalizeCheckinHistorySummary(
+            protectedCoreSnapshot?.checkinHistorySummary,
           );
         }
       }
@@ -6510,6 +6914,9 @@
       }
       if (nextCheckinItems) {
         checkinItems = nextCheckinItems;
+      }
+      if (nextCheckinHistorySummary !== null) {
+        checkinHistorySummary = nextCheckinHistorySummary;
       }
       if (nextDailyCheckins) {
         dailyCheckins = nextDailyCheckins;
@@ -8042,43 +8449,7 @@
     }
 
     isScheduledOn(dateText) {
-      const normalizedDate = normalizeTodoOccurrenceDateKey(dateText);
-      if (!normalizedDate) {
-        return false;
-      }
-      if (hasTodoIncludedDate(this, normalizedDate)) {
-        return true;
-      }
-      if (!isCheckinItemActive(this, normalizedDate)) {
-        return false;
-      }
-      const date = new Date(normalizedDate);
-      if (Number.isNaN(date.getTime())) return false;
-
-      const checkDateStr = date.toISOString().split("T")[0];
-      const start = new Date(this.startDate || checkDateStr);
-      if (Number.isNaN(start.getTime())) return false;
-
-      const startStr = start.toISOString().split("T")[0];
-      if (checkDateStr < startStr) return false;
-
-      if (this.endDate) {
-        const end = new Date(this.endDate);
-        if (!Number.isNaN(end.getTime())) {
-          const endStr = end.toISOString().split("T")[0];
-          if (checkDateStr >= endStr) return false;
-        }
-      }
-
-      if (this.repeatType === "weekly") {
-        return this.repeatWeekdays.includes(date.getDay());
-      }
-
-      if (this.repeatType === "monthly") {
-        return this.repeatMonthDays.includes(date.getDate());
-      }
-
-      return true;
+      return isCheckinOccurrenceScheduledOnDate(this, dateText);
     }
 
     // 获取今日打卡状态
@@ -8098,37 +8469,6 @@
 
     getCheckedDaysCount(lookup = null) {
       return getCheckedTodoDailyCheckinDates(this.id, lookup).size;
-    }
-
-    // 获取连续打卡天数
-    getStreakDays(lookup = null, todayText = getLocalDateText()) {
-      const checkedSet = getCheckedTodoDailyCheckinDates(this.id, lookup);
-      if (checkedSet.size === 0) return 0;
-
-      const startCursor = parseTodoOccurrenceDateKey(todayText) || new Date();
-      startCursor.setHours(0, 0, 0, 0);
-      const maxLoop = 400;
-      let loops = 0;
-      let streak = 0;
-
-      if (!this.isScheduledOn(getLocalDateText(startCursor))) {
-        return 0;
-      }
-
-      while (loops < maxLoop) {
-        const dateStr = getLocalDateText(startCursor);
-        if (this.isScheduledOn(dateStr)) {
-          if (!checkedSet.has(dateStr)) {
-            break;
-          }
-          streak++;
-        }
-
-        startCursor.setDate(startCursor.getDate() - 1);
-        loops++;
-      }
-
-      return streak;
     }
 
     getRepeatSummary() {
@@ -8315,6 +8655,12 @@
       });
     }
 
+    updateCheckinHistorySummaryForDate(
+      targetItem.id,
+      normalizedDate,
+      nextChecked,
+      nowText,
+    );
     invalidateTodoDerivedCaches();
     uiTools?.markPerfStage?.("todo-action-ui-committed", {
       allowRepeat: true,
@@ -8347,6 +8693,7 @@
           return queueTodoSaveWithLinkedPlan({
             partialCore: {
               checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+              checkinHistorySummary: getCheckinHistorySummarySnapshot(),
             },
             sectionSaves: [
               {
@@ -10429,11 +10776,11 @@
     totalCountElement.textContent = String(scheduledItems.length);
 
     const maxStreak = visibleItems.reduce((max, item) => {
-      const streak =
-        typeof item.isScheduledOn === "function"
-        ? item.getStreakDays?.(dailyCheckinLookup, today) || 0
-        : 0;
-      return Math.max(max, streak);
+      const checkedDays =
+        typeof item.getCheckedDaysCount === "function"
+          ? item.getCheckedDaysCount(dailyCheckinLookup) || 0
+          : 0;
+      return Math.max(max, checkedDays);
     }, 0);
     if (maxStreakElement) {
       maxStreakElement.textContent = String(maxStreak);
@@ -11142,6 +11489,7 @@
 
     const previousCheckinItems = getTodoSectionStateSnapshot("checkinItems");
     const previousDailyCheckins = getTodoSectionStateSnapshot("dailyCheckins");
+    const previousCheckinHistorySummary = getCheckinHistorySummarySnapshot();
     let linkedPlanSourceItem = null;
     let dailyCheckinsChanged = false;
     let mergeCheckinAcrossAllPeriods = false;
@@ -11176,6 +11524,7 @@
         targetItem.id,
         sourceItem.id,
       );
+      mergeCheckinHistorySummaryEntries(targetItem.id, sourceItem.id, nowIso);
       mergeCheckinScheduleRanges(targetItem, sourceItem);
       mergeCheckinItemOccurrenceState(targetItem, sourceItem);
       targetItem.title = title;
@@ -11408,6 +11757,7 @@
           }
         }
         checkinItems.push(newItem);
+        ensureCheckinHistorySummaryEntry(newItem.id, nowIso);
         linkedPlanSourceItem = newItem;
       }
     }
@@ -11438,7 +11788,9 @@
         if (mergeCheckinAcrossAllPeriods && itemData) {
           await flushTodoPendingPersistence();
           const authoritativeDailyCheckins =
-            await loadAllTodoSectionItemsFromStorage("dailyCheckins");
+            await loadAllTodoSectionItemsFromStorage("dailyCheckins", {
+              authoritative: true,
+            });
           const authoritativeDailyMergeResult = mergeDailyCheckinsByItemIdInList(
             authoritativeDailyCheckins,
             targetItem?.id || "",
@@ -11452,9 +11804,17 @@
               ]),
             ),
           );
+          rebuildCheckinHistorySummaryForItemIdsFromEntries(
+            authoritativeDailyMergeResult.items,
+            [targetItem?.id || "", itemData.id],
+            {
+              updatedAt: nowIso,
+            },
+          );
           persisted = await queueTodoSaveWithAuthoritativeSections({
             partialCore: {
               checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+              checkinHistorySummary: getCheckinHistorySummarySnapshot(),
             },
             sectionSaves: authoritativeDailyMergeResult.changed
               ? [
@@ -11487,9 +11847,16 @@
                 },
               ]
             : [];
+          const shouldPersistSummary =
+            !isEditMode || mergeCheckinAcrossAllPeriods || dailyCheckinsChanged;
           persisted = await queueTodoSaveWithLinkedPlan({
             partialCore: {
               checkinItems: getTodoSectionStateSnapshot("checkinItems"),
+              ...(shouldPersistSummary
+                ? {
+                    checkinHistorySummary: getCheckinHistorySummarySnapshot(),
+                  }
+                : {}),
             },
             sectionSaves,
             linkedPlanMutation,
@@ -11502,6 +11869,7 @@
           await rollbackTodoOptimisticChange(
             {
               checkinItems: previousCheckinItems,
+              checkinHistorySummary: previousCheckinHistorySummary,
               dailyCheckins: previousDailyCheckins,
             },
             {

@@ -161,73 +161,109 @@
       </div>
 
       <div
-        class="ms resizable-panel settings-card settings-card--themes"
-        data-settings-collapsible-pending="true"
+        class="ms resizable-panel settings-card settings-card--themes settings-card--collapsible is-collapsed"
       >
         <div class="settings-card-content">
-          <h2 style="color: var(--text-color); margin-top: 0">主题配色</h2>
-          <p style="color: var(--text-color); margin-bottom: 20px">
-            选择您喜欢的主题配色，设置将自动保存并同步到底部导航样式。
-          </p>
-
-          <div
-            class="theme-selector"
-            id="theme-selector"
-            style="
-              min-height: 88px;
-              padding: 14px;
-              border-radius: 16px;
-              background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
-              border: 1px solid var(--panel-border-color);
-              backdrop-filter: blur(14px) saturate(120%);
-              -webkit-backdrop-filter: blur(14px) saturate(120%);
-            "
+          <button
+            type="button"
+            class="settings-collapse-toggle"
+            aria-expanded="false"
+            aria-controls="settings-theme-collapse-body"
           >
-            <!-- 主题选项将通过JavaScript动态生成 -->
-          </div>
-          <div class="theme-custom-actions">
-            <button class="bts" id="add-custom-theme-btn" style="margin: 0">
-              添加自定义主题
-            </button>
+            <span class="settings-collapse-toggle-copy">
+              <span class="settings-collapse-toggle-title">主题配色</span>
+              <span class="settings-collapse-toggle-hint">点击展开</span>
+            </span>
+            <span class="settings-collapse-toggle-icon" aria-hidden="true"></span>
+          </button>
+          <div
+            class="settings-collapsible-body"
+            id="settings-theme-collapse-body"
+            hidden
+          >
+            <div class="settings-collapsible-body-inner">
+              <p style="color: var(--text-color); margin-bottom: 20px">
+                选择您喜欢的主题配色，设置将自动保存并同步到底部导航样式。
+              </p>
+
+              <div
+                class="theme-selector"
+                id="theme-selector"
+                style="
+                  min-height: 88px;
+                  padding: 14px;
+                  border-radius: 16px;
+                  background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
+                  border: 1px solid var(--panel-border-color);
+                  backdrop-filter: blur(14px) saturate(120%);
+                  -webkit-backdrop-filter: blur(14px) saturate(120%);
+                "
+              >
+                <!-- 主题选项将通过JavaScript动态生成 -->
+              </div>
+              <div class="theme-custom-actions">
+                <button class="bts" id="add-custom-theme-btn" style="margin: 0">
+                  添加自定义主题
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <div
-        class="ms resizable-panel settings-card settings-card--table-scale"
+        class="ms resizable-panel settings-card settings-card--table-scale settings-card--collapsible is-collapsed"
         id="table-size-settings-panel"
-        data-settings-collapsible-pending="true"
         style="margin-top: 15px"
       >
         <div class="settings-card-content">
-          <h2 style="color: var(--text-color); margin-top: 0">视图尺寸</h2>
-          <p
-            style="
-              color: var(--muted-text-color);
-              margin-bottom: 15px;
-              font-size: 13px;
-            "
+          <button
+            type="button"
+            class="settings-collapse-toggle"
+            aria-expanded="false"
+            aria-controls="settings-table-scale-collapse-body"
           >
-            最小可调到 10%。
-          </p>
-
+            <span class="settings-collapse-toggle-copy">
+              <span class="settings-collapse-toggle-title">视图尺寸</span>
+              <span class="settings-collapse-toggle-hint">点击展开</span>
+            </span>
+            <span class="settings-collapse-toggle-icon" aria-hidden="true"></span>
+          </button>
           <div
-            id="table-size-items"
-            style="
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-              gap: 12px;
-            "
+            class="settings-collapsible-body"
+            id="settings-table-scale-collapse-body"
+            hidden
           >
-            <!-- 各页面表格尺寸将由 JS 动态渲染 -->
-          </div>
+            <div class="settings-collapsible-body-inner">
+              <p
+                style="
+                  color: var(--muted-text-color);
+                  margin-bottom: 15px;
+                  font-size: 13px;
+                "
+              >
+                最小可调到 10%。
+              </p>
 
-          <div
-            style="margin-top: 12px; display: flex; justify-content: flex-end"
-          >
-            <button class="bts" id="table-size-reset" style="margin: 0">
-              重置为默认 100%
-            </button>
+              <div
+                id="table-size-items"
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                  gap: 12px;
+                "
+              >
+                <!-- 各页面表格尺寸将由 JS 动态渲染 -->
+              </div>
+
+              <div
+                style="margin-top: 12px; display: flex; justify-content: flex-end"
+              >
+                <button class="bts" id="table-size-reset" style="margin: 0">
+                  重置为默认 100%
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
