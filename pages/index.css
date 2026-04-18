@@ -661,8 +661,8 @@ body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
     --controler-modal-backdrop-base-color,
     var(--controler-perf-overlay-bg, var(--overlay-bg))
   );
-  --controler-modal-keyboard-resize-duration: 196ms;
-  --controler-modal-keyboard-resize-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --controler-modal-keyboard-resize-duration: 232ms;
+  --controler-modal-keyboard-resize-easing: cubic-bezier(0.2, 0.9, 0.22, 1);
   --controler-modal-close-surface-mask-opacity: 0.16;
   --controler-modal-close-surface-mask-bg:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
@@ -828,7 +828,6 @@ body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
   --controler-modal-overlay-visible-bottom-inset: max(
     0px,
-    var(--controler-keyboard-inset, 0px),
     var(--controler-keyboard-transition-inset, 0px)
   );
   --controler-modal-overlay-gap-fill-height: max(
@@ -904,6 +903,25 @@ body.controler-android-native .modal-overlay {
   align-items: center !important;
   justify-content: center !important;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    clip-path var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    -webkit-clip-path var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-top var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-right var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-bottom var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-left var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    min-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    max-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -923,7 +941,21 @@ body.controler-android-native .controler-keyboard-aware-modal-overlay {
   overflow-y: hidden !important;
   clip-path: none !important;
   -webkit-clip-path: none !important;
-  transition: none !important;
+  transition:
+    padding-top var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-right var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-bottom var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-left var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    min-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    max-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)) !important;
   will-change: auto;
   transform: none !important;
   backface-visibility: visible;
@@ -946,6 +978,9 @@ body.controler-android-native
   );
   pointer-events: none;
   z-index: 0;
+  transition:
+    height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -1063,6 +1098,9 @@ body.controler-android-native .modal-overlay::after {
   background: transparent;
   pointer-events: none;
   z-index: -1;
+  transition:
+    height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 body.controler-mobile-runtime.controler-android-native
@@ -4984,12 +5022,12 @@ body.page-stats #stats-container {
   container-type: inline-size;
   container-name: controler-modal-shell;
   transition:
-    max-height var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    max-width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1));
+    max-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    max-width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 .stats-record-editor-modal {
@@ -5023,8 +5061,8 @@ body.page-stats #stats-container {
   padding-right: 2px;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  transition: padding-bottom var(--controler-modal-keyboard-resize-duration, 196ms)
-    var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1));
+  transition: padding-bottom var(--controler-modal-keyboard-resize-duration, 232ms)
+    var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 .controler-form-modal-body::-webkit-scrollbar {
@@ -7269,10 +7307,10 @@ body.page-diary .diary-list-rich-preview,
 body.page-diary .diary-editor-content {
   color: var(--text-color);
   --diary-text-size-note: 0.9rem;
-  --diary-text-size-body: 1rem;
-  --diary-text-size-subheading: calc(var(--diary-text-size-body) + 3px);
-  --diary-text-size-subtitle: calc(var(--diary-text-size-body) + 6px);
-  --diary-text-size-title: calc(var(--diary-text-size-body) + 9px);
+  --diary-text-size-body: calc(1rem - 1px);
+  --diary-text-size-subheading: calc(var(--diary-text-size-body) + 2px);
+  --diary-text-size-subtitle: calc(var(--diary-text-size-body) + 4px);
+  --diary-text-size-title: calc(var(--diary-text-size-body) + 6px);
 }
 
 body.page-diary .diary-list-rich-preview :is(p, blockquote, ul, ol, li),
@@ -7293,6 +7331,102 @@ body.page-diary .diary-editor-content ul[data-list-style="circle"] {
 body.page-diary .diary-list-rich-preview ul[data-list-style="square"],
 body.page-diary .diary-editor-content ul[data-list-style="square"] {
   list-style-type: square;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale],
+body.page-diary .diary-editor-content [data-font-scale] {
+  --diary-inline-font-scale: 0px;
+  font-size: calc(1em + var(--diary-inline-font-scale, 0px));
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-6"],
+body.page-diary .diary-editor-content [data-font-scale="-6"] {
+  --diary-inline-font-scale: -6px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-5"],
+body.page-diary .diary-editor-content [data-font-scale="-5"] {
+  --diary-inline-font-scale: -5px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-4"],
+body.page-diary .diary-editor-content [data-font-scale="-4"] {
+  --diary-inline-font-scale: -4px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-3"],
+body.page-diary .diary-editor-content [data-font-scale="-3"] {
+  --diary-inline-font-scale: -3px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-2"],
+body.page-diary .diary-editor-content [data-font-scale="-2"] {
+  --diary-inline-font-scale: -2px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="-1"],
+body.page-diary .diary-editor-content [data-font-scale="-1"] {
+  --diary-inline-font-scale: -1px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="1"],
+body.page-diary .diary-editor-content [data-font-scale="1"] {
+  --diary-inline-font-scale: 1px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="2"],
+body.page-diary .diary-editor-content [data-font-scale="2"] {
+  --diary-inline-font-scale: 2px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="3"],
+body.page-diary .diary-editor-content [data-font-scale="3"] {
+  --diary-inline-font-scale: 3px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="4"],
+body.page-diary .diary-editor-content [data-font-scale="4"] {
+  --diary-inline-font-scale: 4px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="5"],
+body.page-diary .diary-editor-content [data-font-scale="5"] {
+  --diary-inline-font-scale: 5px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="6"],
+body.page-diary .diary-editor-content [data-font-scale="6"] {
+  --diary-inline-font-scale: 6px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="7"],
+body.page-diary .diary-editor-content [data-font-scale="7"] {
+  --diary-inline-font-scale: 7px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="8"],
+body.page-diary .diary-editor-content [data-font-scale="8"] {
+  --diary-inline-font-scale: 8px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="9"],
+body.page-diary .diary-editor-content [data-font-scale="9"] {
+  --diary-inline-font-scale: 9px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="10"],
+body.page-diary .diary-editor-content [data-font-scale="10"] {
+  --diary-inline-font-scale: 10px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="11"],
+body.page-diary .diary-editor-content [data-font-scale="11"] {
+  --diary-inline-font-scale: 11px;
+}
+
+body.page-diary .diary-list-rich-preview [data-font-scale="12"],
+body.page-diary .diary-editor-content [data-font-scale="12"] {
+  --diary-inline-font-scale: 12px;
 }
 
 body.page-diary .diary-list-rich-preview [data-size="title"],
@@ -7751,30 +7885,42 @@ body.page-diary
   transition: opacity 0.18s ease;
 }
 
-body.page-diary .diary-editor-figure.is-selected .diary-editor-image-remove-btn,
-body.page-diary .diary-editor-figure.is-selected .diary-editor-image-resize-handle {
+body.page-diary .diary-editor-figure.is-selected.is-manipulation-ready .diary-editor-image-remove-btn,
+body.page-diary .diary-editor-figure.is-selected.is-manipulation-ready .diary-editor-image-resize-handle {
   opacity: 1;
   pointer-events: auto;
 }
 
 body.page-diary .diary-editor-image-remove-btn {
-  top: 10px;
-  right: 10px;
-  padding: 6px 10px;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border-radius: 999px;
   color: #fff;
-  background: rgba(0, 0, 0, 0.52);
+  font-size: 13px;
+  line-height: 1;
+  font-family: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+    rgba(0, 0, 0, 0.58);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
 }
 
 body.page-diary .diary-editor-image-resize-handle {
-  right: 10px;
-  bottom: 10px;
-  width: 28px;
-  height: 28px;
+  right: 8px;
+  bottom: 8px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   background:
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.36)),
-    rgba(0, 0, 0, 0.48);
+    rgba(0, 0, 0, 0.52);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
 }
 
 body.page-diary .diary-editor-figure-placeholder {
@@ -8464,8 +8610,74 @@ body.page-record .record-output-surface > * {
     font-size: 14px !important;
   }
 
-  body.flex.row :is(label, p, span, strong, summary, li, th, td) {
+  body.flex.row :is(label, p, summary, li, th, td) {
     font-size: 13px !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview,
+  body.flex.row.page-diary .diary-editor-content {
+    font-size: var(--diary-text-size-body) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview :is(
+      p,
+      blockquote,
+      ul,
+      ol,
+      li,
+      span,
+      strong,
+      b,
+      em,
+      i,
+      u,
+      mark
+    ),
+  body.flex.row.page-diary .diary-editor-content :is(
+      p,
+      blockquote,
+      ul,
+      ol,
+      li,
+      span,
+      strong,
+      b,
+      em,
+      i,
+      u,
+      mark
+    ) {
+    font-size: inherit !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview [data-font-scale],
+  body.flex.row.page-diary .diary-editor-content [data-font-scale] {
+    font-size: calc(1em + var(--diary-inline-font-scale, 0px)) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview [data-size="title"],
+  body.flex.row.page-diary .diary-editor-content [data-size="title"] {
+    font-size: var(--diary-text-size-title) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview [data-size="subtitle"],
+  body.flex.row.page-diary .diary-editor-content [data-size="subtitle"] {
+    font-size: var(--diary-text-size-subtitle) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview :is([data-size="subheading"], [data-size="large"]),
+  body.flex.row.page-diary .diary-editor-content :is([data-size="subheading"], [data-size="large"]) {
+    font-size: var(--diary-text-size-subheading) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview :is([data-size="body"], [data-size="normal"]),
+  body.flex.row.page-diary .diary-editor-content :is([data-size="body"], [data-size="normal"]) {
+    font-size: var(--diary-text-size-body) !important;
+  }
+
+  body.flex.row.page-diary .diary-list-rich-preview :is([data-size="note"], [data-size="small"]),
+  body.flex.row.page-diary .diary-editor-content :is([data-size="note"], [data-size="small"]) {
+    font-size: var(--diary-text-size-note) !important;
   }
 
   body.flex.row
@@ -10179,6 +10391,10 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
       color-mix(in srgb, var(--panel-border-color) 58%, transparent) !important;
   }
 
+  body.page-settings .settings-storage-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   body.page-settings .settings-data-actions .bts,
   body.page-settings .settings-storage-actions .bts,
   body.page-settings .settings-auto-backup-actions .settings-auto-backup-action {
@@ -10317,44 +10533,44 @@ body.controler-mobile-runtime .modal-content,
 body.controler-android-native .modal-content,
 body.controler-ios-native .modal-content {
   transition:
-    max-height var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    max-width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-top var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-right var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-bottom var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-left var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    border-radius var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1));
+    max-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    max-width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-top var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-right var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-bottom var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-left var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    border-radius var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 body.controler-mobile-runtime :is(.controler-form-modal, .stats-record-editor-modal),
 body.controler-android-native :is(.controler-form-modal, .stats-record-editor-modal),
 body.controler-ios-native :is(.controler-form-modal, .stats-record-editor-modal) {
   transition:
-    max-height var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    max-width var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-top var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-right var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-bottom var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    padding-left var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1)),
-    border-radius var(--controler-modal-keyboard-resize-duration, 196ms)
-      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.22, 1, 0.36, 1));
+    max-height var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    max-width var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-top var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-right var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-bottom var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    padding-left var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1)),
+    border-radius var(--controler-modal-keyboard-resize-duration, 232ms)
+      var(--controler-modal-keyboard-resize-easing, cubic-bezier(0.2, 0.9, 0.22, 1));
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -10635,6 +10851,143 @@ body.page-settings .settings-storage-card[data-settings-collapsible-pending="tru
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+body.page-settings .settings-storage-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+body.page-settings .settings-storage-summary-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--panel-border-color) 48%, transparent);
+}
+
+body.page-settings .settings-storage-summary-label {
+  font-size: 11px;
+  color: var(--muted-text-color);
+  margin-bottom: 4px;
+}
+
+body.page-settings .settings-storage-summary-value {
+  min-width: 0;
+  color: var(--text-color);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+body.page-settings .settings-storage-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+body.page-settings .settings-storage-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-color);
+}
+
+body.page-settings .settings-storage-panel-subtitle,
+body.page-settings .settings-storage-panel-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted-text-color);
+}
+
+body.page-settings .settings-storage-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+body.page-settings .settings-storage-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, rgba(var(--accent-color-rgb), 0.26) 72%, transparent);
+  background:
+    linear-gradient(180deg, rgba(var(--accent-color-rgb), 0.08), rgba(var(--accent-color-rgb), 0.03)),
+    color-mix(in srgb, var(--surface-accent-soft) 52%, transparent);
+  color: var(--text-color);
+  font-size: 11px;
+  line-height: 1;
+}
+
+body.page-settings .settings-storage-chip.is-empty {
+  opacity: 0.62;
+  border-color: color-mix(in srgb, var(--panel-border-color) 50%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--surface-soft) 72%, transparent);
+}
+
+body.page-settings .settings-storage-detail {
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border-color) 42%, transparent);
+  padding-top: 10px;
+}
+
+body.page-settings .settings-storage-detail summary {
+  cursor: pointer;
+  color: var(--muted-text-color);
+  font-size: 11px;
+  user-select: none;
+}
+
+body.page-settings .settings-storage-detail-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted-text-color);
+  word-break: break-word;
+}
+
+body.page-settings .settings-storage-backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+body.page-settings .settings-storage-backup-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--panel-border-color) 44%, transparent);
+}
+
+body.page-settings .settings-storage-backup-name {
+  color: var(--text-color);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+body.page-settings .settings-storage-backup-meta {
+  margin-top: 4px;
+  color: var(--muted-text-color);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 body.page-settings .settings-collapse-toggle {

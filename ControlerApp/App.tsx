@@ -2552,14 +2552,20 @@ function normalizeLaunchContext(
     0,
     Number(context?.widgetCreatedAt) || 0,
   );
+  const hasLaunchMetadata =
+    !!widgetAction ||
+    !!widgetKind ||
+    !!widgetLaunchId ||
+    !!widgetTargetId ||
+    widgetCreatedAt > 0;
+  const hasWidgetLaunchSource =
+    widgetSource === 'android-widget' || widgetSource === 'launcher';
 
   return {
     active:
-      !!context?.active ||
-      !!widgetKind ||
-      !!widgetAction ||
-      widgetSource === 'android-widget' ||
-      widgetSource === 'launcher',
+      hasLaunchMetadata ||
+      (hasWidgetLaunchSource && !!pageKey) ||
+      (!!context?.active && (!!pageKey || hasLaunchMetadata)),
     pageKey,
     widgetKind,
     widgetAction,
@@ -5764,15 +5770,17 @@ function App({
     let mounted = true;
     let launchRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const dispatchResumeToLoadedSlots = () => {
-      WEBVIEW_SLOTS.forEach(slot => {
-        if (!webViewSlotsRef.current[slot].uri) {
-          return;
-        }
-        getWebViewRef(slot).current?.injectJavaScript(
-          dispatchNativeResumeScript,
-        );
-      });
+    const dispatchResumeToVisibleSlot = () => {
+      const visibleSlot =
+        transitionStateRef.current?.status === 'loading'
+          ? transitionStateRef.current.fromSlot
+          : activeSlotRef.current;
+      if (!webViewSlotsRef.current[visibleSlot].uri) {
+        return;
+      }
+      getWebViewRef(visibleSlot).current?.injectJavaScript(
+        dispatchNativeResumeScript,
+      );
     };
 
     const consumePendingLaunchAction = async (reason: string) => {
@@ -5799,8 +5807,20 @@ function App({
       }
     };
 
+    const handleAppInactive = () => {
+      if (launchRetryTimer !== null) {
+        clearTimeout(launchRetryTimer);
+        launchRetryTimer = null;
+      }
+      clearQueuedNavigationRequest('app-state-background');
+      persistLastVisiblePage(
+        webViewSlotsRef.current[activeSlotRef.current].pageKey,
+      );
+      void flushShellStorageBeforeBackground('app-state-background');
+    };
+
     const handleAppActive = () => {
-      dispatchResumeToLoadedSlots();
+      dispatchResumeToVisibleSlot();
       consumePendingLaunchAction('app-state-active').catch(() => undefined);
       if (launchRetryTimer !== null) {
         clearTimeout(launchRetryTimer);
@@ -5816,10 +5836,7 @@ function App({
     const subscription = AppState.addEventListener('change', nextState => {
       appStateRef.current = nextState;
       if (nextState === 'background' || nextState === 'inactive') {
-        persistLastVisiblePage(
-          webViewSlotsRef.current[activeSlotRef.current].pageKey,
-        );
-        void flushShellStorageBeforeBackground('app-state-background');
+        handleAppInactive();
       }
       if (nextState === 'active') {
         handleAppActive();
@@ -5834,6 +5851,7 @@ function App({
       subscription.remove();
     };
   }, [
+    clearQueuedNavigationRequest,
     flushShellStorageBeforeBackground,
     handleWidgetLaunchContext,
     logPerfMetric,
@@ -6048,20 +6066,6 @@ function App({
   }, [handleShellBackNavigation]);
 
   useEffect(() => {
-    const changeSubscription = AppState.addEventListener('change', nextState => {
-      appStateRef.current = nextState;
-      if (nextState === 'background' || nextState === 'inactive') {
-        persistLastVisiblePage(
-          webViewSlotsRef.current[activeSlotRef.current].pageKey,
-        );
-        void flushShellStorageBeforeBackground('app-state-background');
-      }
-      if (nextState === 'active') {
-        getWebViewRef(activeSlotRef.current).current?.injectJavaScript(
-          dispatchNativeResumeScript,
-        );
-      }
-    });
     const memoryWarningSubscription = AppState.addEventListener(
       'memoryWarning',
       () => {
@@ -6073,14 +6077,11 @@ function App({
     );
 
     return () => {
-      changeSubscription.remove();
       memoryWarningSubscription.remove();
     };
   }, [
     clearInactiveCachedSlots,
-    flushShellStorageBeforeBackground,
     logPerfMetric,
-    persistLastVisiblePage,
   ]);
 
   async function callNativeMethod(

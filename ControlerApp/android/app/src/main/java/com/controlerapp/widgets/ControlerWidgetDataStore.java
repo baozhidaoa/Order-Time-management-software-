@@ -90,6 +90,10 @@ public final class ControlerWidgetDataStore {
     private static final String STORAGE_RECOVERY_STATE_NEEDS_RECOVERY = "needs-recovery";
     private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
         "directory-document-uri-cache.json";
+    private static final int[] DIRECTORY_CREATE_RESOLVE_RETRY_DELAYS_MS =
+        new int[] { 0, 48, 128, 256, 512 };
+    private static final String[] DIRECTORY_DOCUMENT_OUTPUT_STREAM_MODES =
+        new String[] { "rwt", "wt", "w" };
     private static final String BUNDLE_SIZE_CACHE_FILE_NAME = "bundle-size-cache.json";
     private static final String STORAGE_BINDING_FILE_NAME = "storage-binding.json";
     private static final String STORAGE_BINDING_KIND_RESET = "reset";
@@ -4913,19 +4917,33 @@ public final class ControlerWidgetDataStore {
     private static void writeBundleBytes(Context context, String relativePath, byte[] content)
         throws Exception {
         byte[] safeContent = content == null ? new byte[0] : content;
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
         if (MODE_DIRECTORY.equals(getStorageMode(context))) {
             Uri treeUri = getCustomStorageDirectoryUri(context);
+            String fileMimeType = inferBundleRelativeFileMimeType(normalizedRelativePath);
             Uri documentUri = resolveDirectoryRelativeDocumentUri(
                 context,
                 treeUri,
-                relativePath,
+                normalizedRelativePath,
                 true,
-                false
+                false,
+                fileMimeType
             );
+            if (documentUri == null) {
+                documentUri =
+                    buildExternalStorageTreeRelativeDocumentUri(treeUri, normalizedRelativePath);
+            }
             if (documentUri == null) {
                 throw new Exception("无法写入 bundle 二进制文件");
             }
-            OutputStream outputStream = context.getContentResolver().openOutputStream(documentUri, "w");
+            OutputStream outputStream =
+                openBundleDocumentOutputStream(
+                    context,
+                    treeUri,
+                    normalizedRelativePath,
+                    documentUri,
+                    fileMimeType
+                );
             if (outputStream == null) {
                 throw new Exception("无法打开 bundle 二进制写入流");
             }
@@ -4939,7 +4957,9 @@ public final class ControlerWidgetDataStore {
         }
 
         File root = getDefaultBundleRootDirectory(context);
-        File target = new File(root, relativePath.replace("/", File.separator));
+        String targetRelativePath =
+            TextUtils.isEmpty(normalizedRelativePath) ? relativePath : normalizedRelativePath;
+        File target = new File(root, targetRelativePath.replace("/", File.separator));
         File parent = target.getParentFile();
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
@@ -6817,7 +6837,16 @@ public final class ControlerWidgetDataStore {
                 normalizedRelativePath
             );
             if (cachedDocumentUri != null) {
-                if (queryDocumentExists(context, cachedDocumentUri)) {
+                String expectedDocumentName =
+                    getBundleRelativeFileName(normalizedRelativePath);
+                if (
+                    queryDocumentExists(context, cachedDocumentUri)
+                        && isDocumentUriNameMatch(
+                            context,
+                            cachedDocumentUri,
+                            expectedDocumentName
+                        )
+                ) {
                     return cachedDocumentUri;
                 }
                 removeDirectoryDocumentUriCacheEntry(context, treeUri, normalizedRelativePath);
@@ -6908,6 +6937,13 @@ public final class ControlerWidgetDataStore {
                 return resolvedUri;
             }
         }
+        if (!directory) {
+            Uri fallbackUri =
+                buildExternalStorageChildDocumentUri(treeUri, parentDocumentUri, childName);
+            if (fallbackUri != null) {
+                return fallbackUri;
+            }
+        }
         return null;
     }
 
@@ -6952,18 +6988,29 @@ public final class ControlerWidgetDataStore {
         String childName,
         Uri createdUri
     ) {
-        Uri enumeratedChildUri = findChildDocumentUri(context, treeUri, parentDocumentUri, childName);
+        Uri enumeratedChildUri =
+            findChildDocumentUriWithRetry(
+                context,
+                treeUri,
+                parentDocumentUri,
+                childName
+            );
         if (enumeratedChildUri != null) {
             return enumeratedChildUri;
         }
 
         String createdName = queryDisplayName(context, createdUri);
+        String createdDocumentId = getDocumentIdQuietly(createdUri);
         if (
             createdUri != null
-                && childName.equals(createdName)
                 && queryDocumentExists(context, createdUri)
+                && (
+                    childName.equals(createdName) ||
+                    doesDocumentIdMatchChildName(createdDocumentId, childName)
+                )
         ) {
-            return createdUri;
+            Uri canonicalCreatedUri = buildDocumentUriUsingTreeQuietly(treeUri, createdDocumentId);
+            return canonicalCreatedUri == null ? createdUri : canonicalCreatedUri;
         }
         if (createdUri != null && !TextUtils.isEmpty(createdName) && !childName.equals(createdName)) {
             Log.w(
@@ -6972,6 +7019,10 @@ public final class ControlerWidgetDataStore {
                     + childName
                     + " created="
                     + createdName
+                    + " createdDocumentId="
+                    + createdDocumentId
+                    + " createdUri="
+                    + createdUri
                     + " parent="
                     + parentDocumentUri
             );
@@ -6996,6 +7047,233 @@ public final class ControlerWidgetDataStore {
         }
     }
 
+    private static String getDocumentIdQuietly(Uri uri) {
+        if (uri == null) {
+            return "";
+        }
+        try {
+            return String.valueOf(DocumentsContract.getDocumentId(uri));
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static boolean doesDocumentIdMatchChildName(String documentId, String childName) {
+        if (TextUtils.isEmpty(documentId) || TextUtils.isEmpty(childName)) {
+            return false;
+        }
+        return documentId.endsWith("/" + childName)
+            || documentId.endsWith(":" + childName)
+            || childName.equals(documentId);
+    }
+
+    private static boolean isDocumentUriNameMatch(
+        Context context,
+        Uri documentUri,
+        String expectedName
+    ) {
+        if (documentUri == null || TextUtils.isEmpty(expectedName)) {
+            return false;
+        }
+        String displayName = queryDisplayName(context, documentUri);
+        if (expectedName.equals(displayName)) {
+            return true;
+        }
+        return doesDocumentIdMatchChildName(
+            getDocumentIdQuietly(documentUri),
+            expectedName
+        );
+    }
+
+    private static Uri findChildDocumentUriWithRetry(
+        Context context,
+        Uri treeUri,
+        Uri parentDocumentUri,
+        String childName
+    ) {
+        for (int index = 0; index < DIRECTORY_CREATE_RESOLVE_RETRY_DELAYS_MS.length; index += 1) {
+            int delayMs = DIRECTORY_CREATE_RESOLVE_RETRY_DELAYS_MS[index];
+            if (delayMs > 0) {
+                SystemClock.sleep(delayMs);
+            }
+            Uri childUri = findChildDocumentUri(context, treeUri, parentDocumentUri, childName);
+            if (childUri != null) {
+                return childUri;
+            }
+        }
+        return null;
+    }
+
+    private static Uri buildDocumentUriUsingTreeQuietly(Uri treeUri, String documentId) {
+        if (treeUri == null || TextUtils.isEmpty(documentId)) {
+            return null;
+        }
+        try {
+            return DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isExternalStorageDocumentsTreeUri(Uri treeUri) {
+        return treeUri != null
+            && "com.android.externalstorage.documents".equals(treeUri.getAuthority());
+    }
+
+    private static Uri buildExternalStorageTreeRelativeDocumentUri(
+        Uri treeUri,
+        String relativePath
+    ) {
+        if (!isExternalStorageDocumentsTreeUri(treeUri)) {
+            return null;
+        }
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedRelativePath)) {
+            return null;
+        }
+        try {
+            String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
+            if (TextUtils.isEmpty(treeDocumentId)) {
+                return null;
+            }
+            return DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                treeDocumentId + "/" + normalizedRelativePath
+            );
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Uri buildExternalStorageChildDocumentUri(
+        Uri treeUri,
+        Uri parentDocumentUri,
+        String childName
+    ) {
+        if (!isExternalStorageDocumentsTreeUri(treeUri) || parentDocumentUri == null) {
+            return null;
+        }
+        try {
+            String parentDocumentId = DocumentsContract.getDocumentId(parentDocumentUri);
+            if (TextUtils.isEmpty(parentDocumentId) || TextUtils.isEmpty(childName)) {
+                return null;
+            }
+            return DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                parentDocumentId + "/" + childName
+            );
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String inferBundleRelativeFileMimeType(String relativePath) {
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        if (TextUtils.isEmpty(normalizedRelativePath)) {
+            return "application/octet-stream";
+        }
+        String lowerRelativePath = normalizedRelativePath.toLowerCase(Locale.US);
+        if (lowerRelativePath.endsWith(".json")) {
+            return "application/json";
+        }
+        String inferredMimeType = inferDiaryMediaMimeType(normalizedRelativePath, "");
+        return TextUtils.isEmpty(inferredMimeType)
+            ? "application/octet-stream"
+            : inferredMimeType;
+    }
+
+    private static void appendUniqueDocumentUriCandidate(List<Uri> candidates, Uri candidate) {
+        if (candidates == null || candidate == null) {
+            return;
+        }
+        for (Uri existingCandidate : candidates) {
+            if (isSameDocumentUri(existingCandidate, candidate)) {
+                return;
+            }
+        }
+        candidates.add(candidate);
+    }
+
+    private static OutputStream tryOpenDocumentOutputStream(Context context, Uri documentUri) {
+        if (context == null || documentUri == null) {
+            return null;
+        }
+        for (String mode : DIRECTORY_DOCUMENT_OUTPUT_STREAM_MODES) {
+            try {
+                OutputStream outputStream =
+                    context.getContentResolver().openOutputStream(documentUri, mode);
+                if (outputStream != null) {
+                    return outputStream;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        try {
+            return context.getContentResolver().openOutputStream(documentUri);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static OutputStream openBundleDocumentOutputStream(
+        Context context,
+        Uri treeUri,
+        String relativePath,
+        Uri preferredDocumentUri,
+        String fileMimeType
+    ) {
+        if (context == null || treeUri == null) {
+            return null;
+        }
+        String normalizedRelativePath = normalizeBundleRelativePath(relativePath);
+        ArrayList<Uri> candidateUris = new ArrayList<>();
+        appendUniqueDocumentUriCandidate(candidateUris, preferredDocumentUri);
+        appendUniqueDocumentUriCandidate(
+            candidateUris,
+            buildExternalStorageTreeRelativeDocumentUri(treeUri, normalizedRelativePath)
+        );
+        for (Uri candidateUri : candidateUris) {
+            OutputStream outputStream = tryOpenDocumentOutputStream(context, candidateUri);
+            if (outputStream != null) {
+                return outputStream;
+            }
+        }
+        if (TextUtils.isEmpty(normalizedRelativePath)) {
+            return null;
+        }
+        removeDirectoryDocumentUriCacheEntry(context, treeUri, normalizedRelativePath);
+        Uri refreshedDocumentUri = resolveDirectoryRelativeDocumentUri(
+            context,
+            treeUri,
+            normalizedRelativePath,
+            true,
+            false,
+            fileMimeType
+        );
+        ArrayList<Uri> refreshedCandidateUris = new ArrayList<>();
+        appendUniqueDocumentUriCandidate(refreshedCandidateUris, refreshedDocumentUri);
+        appendUniqueDocumentUriCandidate(
+            refreshedCandidateUris,
+            buildExternalStorageTreeRelativeDocumentUri(treeUri, normalizedRelativePath)
+        );
+        for (Uri candidateUri : refreshedCandidateUris) {
+            OutputStream outputStream = tryOpenDocumentOutputStream(context, candidateUri);
+            if (outputStream != null) {
+                return outputStream;
+            }
+        }
+        Log.w(
+            TAG,
+            "[storage.bundle-open-output-failed] relativePath="
+                + normalizedRelativePath
+                + " preferred="
+                + preferredDocumentUri
+                + " refreshed="
+                + refreshedDocumentUri
+        );
+        return null;
+    }
+
     private static Uri findChildDocumentUri(
         Context context,
         Uri treeUri,
@@ -7004,10 +7282,6 @@ public final class ControlerWidgetDataStore {
     ) {
         if (context == null || treeUri == null || parentDocumentUri == null) {
             return null;
-        }
-        Uri directChildUri = buildDirectChildDocumentUri(treeUri, parentDocumentUri, childName);
-        if (directChildUri != null && queryDocumentExists(context, directChildUri)) {
-            return directChildUri;
         }
         Cursor cursor = null;
         try {
@@ -7302,7 +7576,7 @@ public final class ControlerWidgetDataStore {
             return null;
         }
         try {
-            if (DocumentsContract.isTreeUri(uri)) {
+            if (isRawTreeDocumentUri(uri)) {
                 String treeDocumentId = DocumentsContract.getTreeDocumentId(uri);
                 if (!TextUtils.isEmpty(treeDocumentId)) {
                     return DocumentsContract.buildDocumentUriUsingTree(uri, treeDocumentId);
@@ -7313,31 +7587,21 @@ public final class ControlerWidgetDataStore {
         return uri;
     }
 
-    private static boolean isExternalStorageDocumentsTreeUri(Uri treeUri) {
-        return treeUri != null
-            && "com.android.externalstorage.documents".equals(treeUri.getAuthority());
-    }
-
-    private static Uri buildDirectChildDocumentUri(
-        Uri treeUri,
-        Uri parentDocumentUri,
-        String childName
-    ) {
-        if (!isExternalStorageDocumentsTreeUri(treeUri) || parentDocumentUri == null) {
-            return null;
+    private static boolean isRawTreeDocumentUri(Uri uri) {
+        if (uri == null) {
+            return false;
         }
         try {
-            String parentDocumentId = DocumentsContract.getDocumentId(parentDocumentUri);
-            if (TextUtils.isEmpty(parentDocumentId) || TextUtils.isEmpty(childName)) {
-                return null;
+            if (!DocumentsContract.isTreeUri(uri)) {
+                return false;
             }
-            return DocumentsContract.buildDocumentUriUsingTree(
-                treeUri,
-                parentDocumentId + "/" + childName
-            );
         } catch (Exception ignored) {
-            return null;
+            return false;
         }
+        List<String> pathSegments = uri.getPathSegments();
+        return pathSegments != null
+            && pathSegments.size() == 2
+            && "tree".equals(pathSegments.get(0));
     }
 
     private static void deleteDocumentQuietly(Context context, Uri documentUri) {

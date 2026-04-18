@@ -2599,6 +2599,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             ReactApplicationContext context = getReactApplicationContext();
             JSONObject options =
                 TextUtils.isEmpty(optionsJson) ? new JSONObject() : new JSONObject(optionsJson);
+            String fileName = String.valueOf(options.optString("fileName", "")).trim();
             String sourceUriText =
                 String.valueOf(
                     firstNonEmpty(
@@ -2606,13 +2607,30 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                         options.optString("uri", "")
                     )
                 ).trim();
-            if (TextUtils.isEmpty(sourceUriText)) {
-                promise.reject("storage_diary_image_save_missing_uri", "缺少图片来源 URI。");
-                return;
+            PreparedDiaryImageAsset prepared;
+            if (!TextUtils.isEmpty(sourceUriText)) {
+                Uri sourceUri = Uri.parse(sourceUriText);
+                if (TextUtils.isEmpty(fileName)) {
+                    fileName = resolveDocumentName(sourceUri);
+                }
+                prepared = prepareDiaryImageAsset(context, sourceUri, options);
+            } else {
+                byte[] inlineBytes = decodeDiaryImageBytesFromOptions(options);
+                if (inlineBytes.length == 0) {
+                    promise.reject("storage_diary_image_save_missing_uri", "缺少图片来源 URI。");
+                    return;
+                }
+                prepared =
+                    prepareDiaryImageAssetFromBytes(
+                        inlineBytes,
+                        fileName,
+                        firstNonEmpty(
+                            options.optString("mimeType", ""),
+                            inferDiaryImageMimeTypeFromInlineData(options)
+                        ),
+                        options
+                    );
             }
-            Uri sourceUri = Uri.parse(sourceUriText);
-            PreparedDiaryImageAsset prepared =
-                prepareDiaryImageAsset(context, sourceUri, options);
             String assetId = String.valueOf(options.optString("assetId", "")).trim();
             if (TextUtils.isEmpty(assetId)) {
                 assetId =
@@ -2623,7 +2641,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             assetPayload.put(
                 "mimeType",
                 inferImageMimeTypeFromName(
-                    resolveDocumentName(sourceUri),
+                    fileName,
                     prepared.mimeType
                 )
             );
@@ -3336,6 +3354,23 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    private int[] resolveImageBounds(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return new int[] { 0, 0 };
+        }
+        try {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            return new int[] {
+                Math.max(0, options.outWidth),
+                Math.max(0, options.outHeight),
+            };
+        } catch (Exception error) {
+            return new int[] { 0, 0 };
+        }
+    }
+
     private int calculateDiaryImageSampleSize(int width, int height, int maxEdge) {
         int sampleSize = 1;
         int safeWidth = Math.max(1, width);
@@ -3347,34 +3382,28 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         return Math.max(1, sampleSize);
     }
 
-    private PreparedDiaryImageAsset prepareDiaryImageAsset(
-        Context context,
-        Uri sourceUri,
+    private PreparedDiaryImageAsset prepareDiaryImageAssetFromBytes(
+        byte[] originalBytes,
+        String fileName,
+        String fallbackMimeType,
         JSONObject options
     ) throws Exception {
         String compressionMode =
             "original".equals(String.valueOf(options.optString("compressionMode", "")))
                 ? "original"
                 : "compressed";
-        String fileName = resolveDocumentName(sourceUri);
         String sourceMimeType = inferImageMimeTypeFromName(
             fileName,
-            context.getContentResolver().getType(sourceUri)
+            fallbackMimeType
         );
-        int[] originalBounds = resolveImageBounds(context, sourceUri);
-        InputStream originalInputStream = context.getContentResolver().openInputStream(sourceUri);
-        if (originalInputStream == null) {
+        byte[] safeOriginalBytes = originalBytes == null ? new byte[0] : originalBytes;
+        if (safeOriginalBytes.length == 0) {
             throw new Exception("无法读取所选图片。");
         }
-        byte[] originalBytes;
-        try {
-            originalBytes = readAllBytes(originalInputStream);
-        } finally {
-            originalInputStream.close();
-        }
+        int[] originalBounds = resolveImageBounds(safeOriginalBytes);
         if (!"compressed".equals(compressionMode)) {
             return new PreparedDiaryImageAsset(
-                originalBytes,
+                safeOriginalBytes,
                 sourceMimeType,
                 originalBounds[0],
                 originalBounds[1]
@@ -3384,21 +3413,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         BitmapFactory.Options decodeOptions = new BitmapFactory.Options();
         decodeOptions.inSampleSize =
             calculateDiaryImageSampleSize(originalBounds[0], originalBounds[1], 2048);
-        InputStream decodeInputStream = context.getContentResolver().openInputStream(sourceUri);
-        Bitmap bitmap = null;
+        Bitmap bitmap =
+            BitmapFactory.decodeByteArray(
+                safeOriginalBytes,
+                0,
+                safeOriginalBytes.length,
+                decodeOptions
+            );
         Bitmap scaledBitmap = null;
-        try {
-            if (decodeInputStream != null) {
-                bitmap = BitmapFactory.decodeStream(decodeInputStream, null, decodeOptions);
-            }
-        } finally {
-            if (decodeInputStream != null) {
-                decodeInputStream.close();
-            }
-        }
         if (bitmap == null) {
             return new PreparedDiaryImageAsset(
-                originalBytes,
+                safeOriginalBytes,
                 sourceMimeType,
                 originalBounds[0],
                 originalBounds[1]
@@ -3437,6 +3462,73 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
             outputStream.close();
         }
+    }
+
+    private PreparedDiaryImageAsset prepareDiaryImageAsset(
+        Context context,
+        Uri sourceUri,
+        JSONObject options
+    ) throws Exception {
+        String fileName = resolveDocumentName(sourceUri);
+        String sourceMimeType = inferImageMimeTypeFromName(
+            fileName,
+            context.getContentResolver().getType(sourceUri)
+        );
+        InputStream originalInputStream = context.getContentResolver().openInputStream(sourceUri);
+        if (originalInputStream == null) {
+            throw new Exception("无法读取所选图片。");
+        }
+        byte[] originalBytes;
+        try {
+            originalBytes = readAllBytes(originalInputStream);
+        } finally {
+            originalInputStream.close();
+        }
+        return prepareDiaryImageAssetFromBytes(
+            originalBytes,
+            fileName,
+            sourceMimeType,
+            options
+        );
+    }
+
+    private byte[] decodeDiaryImageBytesFromOptions(JSONObject options) {
+        if (options == null) {
+            return new byte[0];
+        }
+        try {
+            String dataUrl = String.valueOf(options.optString("dataUrl", "")).trim();
+            if (!TextUtils.isEmpty(dataUrl) && dataUrl.startsWith("data:")) {
+                int markerIndex = dataUrl.indexOf(";base64,");
+                if (markerIndex > 5 && markerIndex + 8 <= dataUrl.length()) {
+                    String encoded = dataUrl.substring(markerIndex + 8).trim();
+                    if (!TextUtils.isEmpty(encoded)) {
+                        return Base64.decode(encoded, Base64.DEFAULT);
+                    }
+                }
+            }
+            String dataBase64 = String.valueOf(options.optString("dataBase64", "")).trim();
+            if (!TextUtils.isEmpty(dataBase64)) {
+                return Base64.decode(dataBase64, Base64.DEFAULT);
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "decodeDiaryImageBytesFromOptions failed", error);
+        }
+        return new byte[0];
+    }
+
+    private String inferDiaryImageMimeTypeFromInlineData(JSONObject options) {
+        if (options == null) {
+            return "";
+        }
+        String dataUrl = String.valueOf(options.optString("dataUrl", "")).trim();
+        if (!TextUtils.isEmpty(dataUrl) && dataUrl.startsWith("data:")) {
+            int markerIndex = dataUrl.indexOf(";base64,");
+            if (markerIndex > 5) {
+                return dataUrl.substring(5, markerIndex).trim().toLowerCase(Locale.US);
+            }
+        }
+        return "";
     }
 
     private String buildDataUriFromBytes(byte[] bytes, String mimeType) {
@@ -3496,7 +3588,11 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 if (permissionFlags == 0) {
                     permissionFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
                 }
-                context.getContentResolver().takePersistableUriPermission(uri, permissionFlags);
+                try {
+                    context.getContentResolver().takePersistableUriPermission(uri, permissionFlags);
+                } catch (SecurityException error) {
+                    Log.w(TAG, "takePersistableUriPermission failed for diary image", error);
+                }
                 items.put(buildPickedDiaryImagePayload(context, uri));
             }
             promise.resolve(new JSONObject().put("items", items).toString());

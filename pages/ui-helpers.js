@@ -387,8 +387,8 @@
   let modalHistoryObserver = null;
   let modalHistorySyncQueued = false;
   let blockingOverlaySyncQueued = false;
-  let compactingModalHistory = false;
-  let suppressModalPopClose = false;
+  let modalHistoryCompactionPendingCount = 0;
+  let modalHistoryCompactionReleaseTimerId = 0;
   const trackedModalTokens = new Map();
   let lastReportedModalCount = -1;
   let lastReportedBlockingOverlaySignature = "";
@@ -1252,6 +1252,7 @@
       shellVisibilityState.active !== nextState.active
     ) {
       if (nextState.active === false) {
+        discardDeferredAppNavigationRequest("shell-inactive");
         releaseAndroidInteractiveTextControlFocus();
       }
       resetAppPageTransitionRuntimeState({
@@ -1349,6 +1350,23 @@
     }
   }
 
+  function discardDeferredAppNavigationRequest(reason = "") {
+    if (!deferredAppNavigationRequest) {
+      clearDeferredAppNavigationReplayTimer();
+      return null;
+    }
+    const pendingRequest = deferredAppNavigationRequest;
+    deferredAppNavigationRequest = null;
+    clearDeferredAppNavigationReplayTimer();
+    markPagePerfStage("navigation-deferred-cleared", {
+      allowRepeat: true,
+      reason: reason || undefined,
+      page: pendingRequest?.targetItem?.key || undefined,
+      href: pendingRequest?.targetHref || undefined,
+    });
+    return pendingRequest;
+  }
+
   function isDeferredAppNavigationReplayReady() {
     if (!deferredAppNavigationRequest) {
       return false;
@@ -1438,8 +1456,19 @@
       handleReplayStateChange,
     );
     window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReplayStateChange);
-    window.addEventListener("focus", handleReplayStateChange);
-    document.addEventListener("visibilitychange", handleReplayStateChange);
+    window.addEventListener("pagehide", () => {
+      discardDeferredAppNavigationRequest("pagehide");
+    });
+    window.addEventListener("beforeunload", () => {
+      discardDeferredAppNavigationRequest("beforeunload");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        discardDeferredAppNavigationRequest("visibility-hidden");
+        return;
+      }
+      handleReplayStateChange();
+    });
     scheduleDeferredAppNavigationReplay();
   }
 
@@ -1777,9 +1806,7 @@
   }
 
   function clearDeferredAppNavigationRequest() {
-    const pendingRequest = deferredAppNavigationRequest;
-    deferredAppNavigationRequest = null;
-    return pendingRequest;
+    return discardDeferredAppNavigationRequest("runtime-reset");
   }
 
   function dispatchNativeAppNavigationRequest(
@@ -7328,6 +7355,43 @@
     };
   }
 
+  function clearModalHistoryCompactionReleaseTimer() {
+    if (!modalHistoryCompactionReleaseTimerId) {
+      return;
+    }
+    window.clearTimeout(modalHistoryCompactionReleaseTimerId);
+    modalHistoryCompactionReleaseTimerId = 0;
+  }
+
+  function isModalHistoryCompactionPending() {
+    return modalHistoryCompactionPendingCount > 0;
+  }
+
+  function armModalHistoryCompactionGuard(count = 1, releaseDelayMs = 1400) {
+    const nextCount = Math.max(1, Math.round(Number(count) || 0));
+    modalHistoryCompactionPendingCount += nextCount;
+    clearModalHistoryCompactionReleaseTimer();
+    modalHistoryCompactionReleaseTimerId = window.setTimeout(() => {
+      modalHistoryCompactionPendingCount = 0;
+      modalHistoryCompactionReleaseTimerId = 0;
+      scheduleModalHistorySync();
+    }, Math.max(600, Math.round(Number(releaseDelayMs) || 0)));
+  }
+
+  function consumeModalHistoryCompactionGuard() {
+    if (!isModalHistoryCompactionPending()) {
+      return false;
+    }
+    modalHistoryCompactionPendingCount = Math.max(
+      0,
+      modalHistoryCompactionPendingCount - 1,
+    );
+    if (!modalHistoryCompactionPendingCount) {
+      clearModalHistoryCompactionReleaseTimer();
+    }
+    return true;
+  }
+
   function syncVisibleModalBackdropState(visibleModals = []) {
     visibleModals.forEach((modal, index) => {
       if (!(modal instanceof HTMLElement)) {
@@ -7379,19 +7443,15 @@
       trackedModalTokens.delete(modal);
 
       if (
-        suppressModalPopClose ||
-        compactingModalHistory ||
+        isModalHistoryCompactionPending() ||
         !isCompactGestureLayout()
       ) {
         continue;
       }
 
       if (history.state?.__controlerModalToken === token) {
-        compactingModalHistory = true;
+        armModalHistoryCompactionGuard();
         history.back();
-        setTimeout(() => {
-          compactingModalHistory = false;
-        }, 0);
       }
     }
   }
@@ -7468,8 +7528,8 @@
         if (!isCompactGestureLayout()) {
           return;
         }
-        if (compactingModalHistory) {
-          compactingModalHistory = false;
+        if (consumeModalHistoryCompactionGuard()) {
+          scheduleModalHistorySync();
           return;
         }
 
@@ -7477,15 +7537,7 @@
         if (!topModal) {
           return;
         }
-
-        suppressModalPopClose = true;
-        if (topModal.parentNode) {
-          topModal.parentNode.removeChild(topModal);
-        }
-        setTimeout(() => {
-          suppressModalPopClose = false;
-          scheduleModalHistorySync();
-        }, 0);
+        closeModal(topModal);
       });
 
       let edgeSwipeState = {

@@ -471,15 +471,15 @@
                   </h4>
                   <div id="current-storage-path-info" style="margin-bottom: 10px">
                     <p style="margin: 5px 0; font-size: 13px">
-                      当前 bundle 清单:
+                      当前 manifest:
                       <span id="current-storage-path">正在加载...</span>
                     </p>
                     <p style="margin: 5px 0; font-size: 13px">
-                      当前 bundle 根目录:
+                      当前根目录:
                       <span id="current-storage-directory">正在加载...</span>
                     </p>
                     <p style="margin: 5px 0; font-size: 13px">
-                      存储模式: <span id="storage-path-type">正在加载...</span>
+                      目录类型: <span id="storage-path-type">正在加载...</span>
                     </p>
                   </div>
                   <div
@@ -528,8 +528,7 @@
                       line-height: 1.6;
                     "
                   >
-                    当前实时存储不是单个 JSON，而是一个目录里的多份 JSON。固定包含
-                    `bundle-manifest.json`、`core.json`、`plans-recurring.json`，其余数据按月拆分保存。
+                    实时存储使用目录 bundle：固定 3 个基础文件，其余数据按月分片保存。
                   </p>
                   <div
                     id="bundle-structure-info"

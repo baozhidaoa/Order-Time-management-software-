@@ -761,6 +761,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const ANDROID_KEYBOARD_BASELINE_RESET_TOLERANCE_PX = 48;
   const ANDROID_KEYBOARD_INSET_HOLD_TOLERANCE_PX = 24;
   const ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX = 12;
+  const ANDROID_KEYBOARD_VISUAL_SETTLE_MS = 168;
   const ANDROID_KEYBOARD_BASELINE_SESSION_KEY =
     "__controler_android_keyboard_baseline__";
   const ANDROID_NATIVE_KEYBOARD_POLL_INTERVAL_MS = 96;
@@ -783,6 +784,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let keyboardOpenPeakInset = 0;
   let keyboardStateFrameId = 0;
   let keyboardOpen = false;
+  let lastVisualKeyboardTransitionInsetPx = 0;
+  let lastVisualKeyboardTransitionChangedAt = 0;
   let nativeAndroidKeyboardInsetPx = 0;
   let nativeAndroidKeyboardTransitionInsetPx = 0;
   let nativeAndroidKeyboardVisible = false;
@@ -838,6 +841,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.clearTimeout(nativeAndroidKeyboardPollTimerId);
       nativeAndroidKeyboardPollTimerId = 0;
     }
+  }
+
+  function scheduleNativeAndroidKeyboardStateSync(
+    delayMs = ANDROID_NATIVE_KEYBOARD_POLL_INTERVAL_MS,
+  ) {
+    if (nativeAndroidKeyboardPollInFlight || nativeAndroidKeyboardPollTimerId > 0) {
+      return;
+    }
+    nativeAndroidKeyboardPollTimerId = window.setTimeout(() => {
+      nativeAndroidKeyboardPollTimerId = 0;
+      void syncNativeAndroidKeyboardState();
+    }, Math.max(0, Math.round(Number(delayMs) || 0)));
   }
 
   function armNativeAndroidKeyboardPolling(holdDurationMs = 0) {
@@ -1135,14 +1150,35 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       rawKeyboardDelta <= ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX
         ? 0
         : rawKeyboardDelta;
-    const effectiveKeyboardTransitionDelta = Math.max(
-      transitionKeyboardDelta,
-      nativeAndroidKeyboardTransitionInsetPx,
-    );
-    const effectiveKeyboardInset = Math.max(
-      appliedKeyboardDelta,
-      nativeAndroidKeyboardInsetPx,
-    );
+    const now = Date.now();
+    if (
+      Math.abs(
+        transitionKeyboardDelta - lastVisualKeyboardTransitionInsetPx,
+      ) > 1
+    ) {
+      lastVisualKeyboardTransitionChangedAt = now;
+    }
+    lastVisualKeyboardTransitionInsetPx = transitionKeyboardDelta;
+    const hasVisualKeyboardTransition =
+      transitionKeyboardDelta > ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX;
+    const shouldPreferVisualKeyboardMotion =
+      hasVisualKeyboardTransition &&
+      (
+        !nativeAndroidKeyboardVisible ||
+        now - lastVisualKeyboardTransitionChangedAt <=
+          ANDROID_KEYBOARD_VISUAL_SETTLE_MS ||
+        transitionKeyboardDelta + ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX >=
+          nativeAndroidKeyboardTransitionInsetPx
+      );
+    const effectiveKeyboardTransitionDelta = shouldPreferVisualKeyboardMotion
+      ? transitionKeyboardDelta
+      : Math.max(
+          transitionKeyboardDelta,
+          nativeAndroidKeyboardTransitionInsetPx,
+        );
+    const effectiveKeyboardInset = shouldPreferVisualKeyboardMotion
+      ? appliedKeyboardDelta
+      : Math.max(appliedKeyboardDelta, nativeAndroidKeyboardInsetPx);
     const effectiveKeyboardOpen =
       nextKeyboardOpen ||
       nativeAndroidKeyboardVisible ||
@@ -1187,7 +1223,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     applyKeyboardOpenState();
     if (shouldTrackNativeAndroidKeyboardState()) {
       armNativeAndroidKeyboardPolling(ANDROID_NATIVE_KEYBOARD_BLUR_POLL_HOLD_MS);
-      void syncNativeAndroidKeyboardState();
+      const hasRecentVisualKeyboardTransition =
+        lastVisualKeyboardTransitionInsetPx >
+          ANDROID_KEYBOARD_VIEWPORT_JITTER_TOLERANCE_PX &&
+        Date.now() - lastVisualKeyboardTransitionChangedAt <=
+          ANDROID_KEYBOARD_VISUAL_SETTLE_MS;
+      if (hasRecentVisualKeyboardTransition) {
+        scheduleNativeAndroidKeyboardStateSync(
+          ANDROID_KEYBOARD_VISUAL_SETTLE_MS,
+        );
+      } else {
+        void syncNativeAndroidKeyboardState();
+      }
     }
 
     if (!keyboardStateFrameId) {
@@ -12308,10 +12355,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               persistMirrorSnapshot(true);
               return parsed;
             }
+            throw new Error("Native diary image save returned an empty payload.");
           } catch (error) {
             console.error("保存 React Native 日记图片资源失败:", error);
+            throw error;
           }
-          return null;
         },
         async resolveDiaryImageUri(options = {}) {
           try {
@@ -19104,8 +19152,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let modalHistoryObserver = null;
   let modalHistorySyncQueued = false;
   let blockingOverlaySyncQueued = false;
-  let compactingModalHistory = false;
-  let suppressModalPopClose = false;
+  let modalHistoryCompactionPendingCount = 0;
+  let modalHistoryCompactionReleaseTimerId = 0;
   const trackedModalTokens = new Map();
   let lastReportedModalCount = -1;
   let lastReportedBlockingOverlaySignature = "";
@@ -19969,6 +20017,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       shellVisibilityState.active !== nextState.active
     ) {
       if (nextState.active === false) {
+        discardDeferredAppNavigationRequest("shell-inactive");
         releaseAndroidInteractiveTextControlFocus();
       }
       resetAppPageTransitionRuntimeState({
@@ -20066,6 +20115,23 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  function discardDeferredAppNavigationRequest(reason = "") {
+    if (!deferredAppNavigationRequest) {
+      clearDeferredAppNavigationReplayTimer();
+      return null;
+    }
+    const pendingRequest = deferredAppNavigationRequest;
+    deferredAppNavigationRequest = null;
+    clearDeferredAppNavigationReplayTimer();
+    markPagePerfStage("navigation-deferred-cleared", {
+      allowRepeat: true,
+      reason: reason || undefined,
+      page: pendingRequest?.targetItem?.key || undefined,
+      href: pendingRequest?.targetHref || undefined,
+    });
+    return pendingRequest;
+  }
+
   function isDeferredAppNavigationReplayReady() {
     if (!deferredAppNavigationRequest) {
       return false;
@@ -20155,8 +20221,19 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       handleReplayStateChange,
     );
     window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReplayStateChange);
-    window.addEventListener("focus", handleReplayStateChange);
-    document.addEventListener("visibilitychange", handleReplayStateChange);
+    window.addEventListener("pagehide", () => {
+      discardDeferredAppNavigationRequest("pagehide");
+    });
+    window.addEventListener("beforeunload", () => {
+      discardDeferredAppNavigationRequest("beforeunload");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        discardDeferredAppNavigationRequest("visibility-hidden");
+        return;
+      }
+      handleReplayStateChange();
+    });
     scheduleDeferredAppNavigationReplay();
   }
 
@@ -20494,9 +20571,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function clearDeferredAppNavigationRequest() {
-    const pendingRequest = deferredAppNavigationRequest;
-    deferredAppNavigationRequest = null;
-    return pendingRequest;
+    return discardDeferredAppNavigationRequest("runtime-reset");
   }
 
   function dispatchNativeAppNavigationRequest(
@@ -26045,6 +26120,43 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
+  function clearModalHistoryCompactionReleaseTimer() {
+    if (!modalHistoryCompactionReleaseTimerId) {
+      return;
+    }
+    window.clearTimeout(modalHistoryCompactionReleaseTimerId);
+    modalHistoryCompactionReleaseTimerId = 0;
+  }
+
+  function isModalHistoryCompactionPending() {
+    return modalHistoryCompactionPendingCount > 0;
+  }
+
+  function armModalHistoryCompactionGuard(count = 1, releaseDelayMs = 1400) {
+    const nextCount = Math.max(1, Math.round(Number(count) || 0));
+    modalHistoryCompactionPendingCount += nextCount;
+    clearModalHistoryCompactionReleaseTimer();
+    modalHistoryCompactionReleaseTimerId = window.setTimeout(() => {
+      modalHistoryCompactionPendingCount = 0;
+      modalHistoryCompactionReleaseTimerId = 0;
+      scheduleModalHistorySync();
+    }, Math.max(600, Math.round(Number(releaseDelayMs) || 0)));
+  }
+
+  function consumeModalHistoryCompactionGuard() {
+    if (!isModalHistoryCompactionPending()) {
+      return false;
+    }
+    modalHistoryCompactionPendingCount = Math.max(
+      0,
+      modalHistoryCompactionPendingCount - 1,
+    );
+    if (!modalHistoryCompactionPendingCount) {
+      clearModalHistoryCompactionReleaseTimer();
+    }
+    return true;
+  }
+
   function syncVisibleModalBackdropState(visibleModals = []) {
     visibleModals.forEach((modal, index) => {
       if (!(modal instanceof HTMLElement)) {
@@ -26096,19 +26208,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       trackedModalTokens.delete(modal);
 
       if (
-        suppressModalPopClose ||
-        compactingModalHistory ||
+        isModalHistoryCompactionPending() ||
         !isCompactGestureLayout()
       ) {
         continue;
       }
 
       if (history.state?.__controlerModalToken === token) {
-        compactingModalHistory = true;
+        armModalHistoryCompactionGuard();
         history.back();
-        setTimeout(() => {
-          compactingModalHistory = false;
-        }, 0);
       }
     }
   }
@@ -26185,8 +26293,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         if (!isCompactGestureLayout()) {
           return;
         }
-        if (compactingModalHistory) {
-          compactingModalHistory = false;
+        if (consumeModalHistoryCompactionGuard()) {
+          scheduleModalHistorySync();
           return;
         }
 
@@ -26194,15 +26302,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         if (!topModal) {
           return;
         }
-
-        suppressModalPopClose = true;
-        if (topModal.parentNode) {
-          topModal.parentNode.removeChild(topModal);
-        }
-        setTimeout(() => {
-          suppressModalPopClose = false;
-          scheduleModalHistorySync();
-        }, 0);
+        closeModal(topModal);
       });
 
       let edgeSwipeState = {

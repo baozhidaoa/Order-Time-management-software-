@@ -4600,6 +4600,95 @@ function escapeSettingsHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatSettingsCompactText(
+  value,
+  { fallback = "", maxLength = 44 } = {},
+) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return String(fallback || "");
+  }
+  const resolvedMaxLength = Math.max(16, Math.floor(Number(maxLength) || 44));
+  if (normalized.length <= resolvedMaxLength) {
+    return normalized;
+  }
+  const schemeMatch = normalized.match(/^([a-z]+:\/\/)(.*)$/i);
+  const scheme = schemeMatch ? schemeMatch[1] : "";
+  const rawBody = schemeMatch ? schemeMatch[2] : normalized;
+  const body = rawBody.replace(/\\/g, "/");
+  const segments = body.split("/").filter(Boolean);
+  if (segments.length >= 3) {
+    const head = segments[0];
+    const tail = segments.slice(-2).join("/");
+    const candidate = `${scheme}${head}/…/${tail}`;
+    if (candidate.length <= resolvedMaxLength + 10 || segments.length > 3) {
+      return candidate;
+    }
+  }
+  const headLength = Math.max(8, Math.floor((resolvedMaxLength - 1) / 2));
+  const tailLength = Math.max(7, resolvedMaxLength - headLength - 1);
+  return `${normalized.slice(0, headLength)}…${normalized.slice(-tailLength)}`;
+}
+
+function buildSettingsCompactTextMarkup(
+  value,
+  { fallback = "未知", maxLength = 44 } = {},
+) {
+  const normalized = String(value || "").trim();
+  const compactText = normalized
+    ? formatSettingsCompactText(normalized, { maxLength })
+    : String(fallback || "未知");
+  const escapedCompactText = escapeSettingsHtml(compactText);
+  if (normalized && compactText !== normalized) {
+    return `<span title="${escapeSettingsHtml(normalized)}">${escapedCompactText}</span>`;
+  }
+  return `<span>${escapedCompactText}</span>`;
+}
+
+function setSettingsCompactText(
+  element,
+  value,
+  { fallback = "未知", maxLength = 44 } = {},
+) {
+  if (!(element instanceof HTMLElement)) {
+    return "";
+  }
+  const normalized = String(value || "").trim();
+  const compactText = normalized
+    ? formatSettingsCompactText(normalized, { maxLength })
+    : String(fallback || "未知");
+  element.textContent = compactText;
+  if (normalized && compactText !== normalized) {
+    element.title = normalized;
+  } else {
+    element.removeAttribute("title");
+  }
+  return compactText;
+}
+
+function buildSettingsStorageSummaryItem(label, valueMarkup) {
+  return `<div class="settings-storage-summary-item">
+    <div class="settings-storage-summary-label">${escapeSettingsHtml(label)}</div>
+    <div class="settings-storage-summary-value">${valueMarkup}</div>
+  </div>`;
+}
+
+function summarizeSettingsBundlePartitions(manifest) {
+  const sectionCounts = SETTINGS_PARTITION_SECTION_OPTIONS.map((item) => ({
+    ...item,
+    count: getManifestSectionPartitions(manifest, item.value).length,
+  }));
+  const totalPartitions = sectionCounts.reduce(
+    (sum, item) => sum + item.count,
+    0,
+  );
+  return {
+    sectionCounts,
+    totalPartitions,
+    activeSectionCount: sectionCounts.filter((item) => item.count > 0).length,
+  };
+}
+
 function formatSettingsDateTime(value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -4666,42 +4755,84 @@ async function updateBundleStoragePanels(status = null) {
   const pathPresentation = resolveStoragePathPresentation(status);
   const displayManifestPath = pathPresentation.displayPath;
   const displayDirectory = pathPresentation.displayDirectory;
-  const sectionSummaries = SETTINGS_PARTITION_SECTION_OPTIONS.map((item) => {
-    const partitions = getManifestSectionPartitions(manifest, item.value);
-    return `<div><strong>${escapeSettingsHtml(item.label)}</strong>：${
-      partitions.length
-        ? `当前有 ${partitions.length} 个按月分片`
-        : "当前还没有按月分片"
-    }</div>`;
-  }).join("");
+  const partitionSummary = summarizeSettingsBundlePartitions(manifest);
+  const sectionChips = partitionSummary.sectionCounts
+    .map(
+      (item) => `<span class="settings-storage-chip${
+        item.count > 0 ? "" : " is-empty"
+      }">${escapeSettingsHtml(item.label)} ${escapeSettingsHtml(item.count)}</span>`,
+    )
+    .join("");
+  const structureDetailLines = [
+    '<div>固定文件：bundle-manifest.json、core.json、plans-recurring.json</div>',
+    "<div>按月分片：records、diaryEntries、dailyCheckins、checkins、plans。</div>",
+  ];
+  if (pathPresentation.note) {
+    structureDetailLines.push(
+      `<div>说明：${escapeSettingsHtml(pathPresentation.note)}</div>`,
+    );
+  }
+  if (
+    pathPresentation.rawPath &&
+    pathPresentation.rawPath !== displayManifestPath
+  ) {
+    structureDetailLines.push(
+      `<div>原始 manifest：${escapeSettingsHtml(pathPresentation.rawPath)}</div>`,
+    );
+  }
+  if (
+    pathPresentation.rawDirectory &&
+    pathPresentation.rawDirectory !== displayDirectory
+  ) {
+    structureDetailLines.push(
+      `<div>原始根目录：${escapeSettingsHtml(pathPresentation.rawDirectory)}</div>`,
+    );
+  }
 
   structureElement.innerHTML = `
-    <div style="font-weight: 600; margin-bottom: 6px;">当前 bundle 结构说明</div>
-    <div>存储模式：${escapeSettingsHtml(
-      status?.storageMode || status?.bundleMode || "directory-bundle",
-    )}</div>
-    <div>manifest：${escapeSettingsHtml(displayManifestPath || "未知")}</div>
-    <div>根目录：${escapeSettingsHtml(displayDirectory || "未知")}</div>
-    ${
-      pathPresentation.note
-        ? `<div>说明：${escapeSettingsHtml(pathPresentation.note)}</div>`
-        : ""
-    }
-    ${
-      pathPresentation.rawPath &&
-      pathPresentation.rawPath !== displayManifestPath
-        ? `<div>原始 manifest 路径：${escapeSettingsHtml(pathPresentation.rawPath)}</div>`
-        : ""
-    }
-    ${
-      pathPresentation.rawDirectory &&
-      pathPresentation.rawDirectory !== displayDirectory
-        ? `<div>原始根目录：${escapeSettingsHtml(pathPresentation.rawDirectory)}</div>`
-        : ""
-    }
-    <div>固定文件：<strong>core.json</strong> 保存项目、待办、打卡项、年度目标、日记分类；<strong>plans-recurring.json</strong> 保存重复计划。</div>
-    <div>按月分片：records / diaryEntries / dailyCheckins / checkins / plans（一次性计划）。</div>
-    <div style="margin-top: 6px;">${sectionSummaries}</div>
+    <div class="settings-storage-panel-head">
+      <div class="settings-storage-panel-title">当前 bundle 摘要</div>
+      <div class="settings-storage-panel-subtitle">
+        固定 3 个基础文件，当前 ${escapeSettingsHtml(
+          partitionSummary.totalPartitions,
+        )} 个按月分片
+      </div>
+    </div>
+    <div class="settings-storage-summary-grid">
+      ${buildSettingsStorageSummaryItem(
+        "目录类型",
+        `<span>${escapeSettingsHtml(
+          status?.storageMode || status?.bundleMode || "directory-bundle",
+        )}</span>`,
+      )}
+      ${buildSettingsStorageSummaryItem(
+        "manifest",
+        buildSettingsCompactTextMarkup(displayManifestPath, {
+          fallback: "未知",
+          maxLength: 34,
+        }),
+      )}
+      ${buildSettingsStorageSummaryItem(
+        "根目录",
+        buildSettingsCompactTextMarkup(displayDirectory, {
+          fallback: "未知",
+          maxLength: 32,
+        }),
+      )}
+      ${buildSettingsStorageSummaryItem(
+        "分片覆盖",
+        `<span>${escapeSettingsHtml(
+          partitionSummary.activeSectionCount,
+        )} 类 / ${escapeSettingsHtml(partitionSummary.totalPartitions)} 个</span>`,
+      )}
+    </div>
+    <div class="settings-storage-chip-row">${sectionChips}</div>
+    <details class="settings-storage-detail">
+      <summary>查看详细路径与结构</summary>
+      <div class="settings-storage-detail-body">
+        ${structureDetailLines.join("")}
+      </div>
+    </details>
   `;
 
   const backups = Array.isArray(manifest?.legacyBackups)
@@ -4709,26 +4840,53 @@ async function updateBundleStoragePanels(status = null) {
     : [];
   if (!backups.length) {
     backupElement.innerHTML = `
-      <div style="font-weight: 600; margin-bottom: 6px;">最近备份/迁移记录</div>
-      <div>当前还没有旧单文件迁移或旧单文件导入备份记录。</div>
+      <div class="settings-storage-panel-head">
+        <div class="settings-storage-panel-title">最近备份/迁移</div>
+        <div class="settings-storage-panel-subtitle">暂无历史记录</div>
+      </div>
+      <div class="settings-storage-panel-note">
+        当前还没有旧单文件迁移或旧单文件导入备份记录。
+      </div>
     `;
     return;
   }
 
+  const visibleBackups = backups.slice(0, 3);
   backupElement.innerHTML = `
-    <div style="font-weight: 600; margin-bottom: 6px;">最近备份/迁移记录</div>
-    ${backups
+    <div class="settings-storage-panel-head">
+      <div class="settings-storage-panel-title">最近备份/迁移</div>
+      <div class="settings-storage-panel-subtitle">仅展示最近 ${escapeSettingsHtml(
+        visibleBackups.length,
+      )} 条</div>
+    </div>
+    <div class="settings-storage-backup-list">
+    ${visibleBackups
       .map((item) => {
         const fileName = String(item?.file || "").trim() || "未命名文件";
         const source = formatBundleBackupSource(item?.source);
-        const createdAt = String(item?.createdAt || "").trim() || "未知时间";
-        return `<div style="margin-bottom: 8px;">
-          <div><strong>${escapeSettingsHtml(fileName)}</strong></div>
-          <div>来源：${escapeSettingsHtml(source)}</div>
-          <div>时间：${escapeSettingsHtml(createdAt)}</div>
+        const createdAt = formatSettingsDateTime(item?.createdAt);
+        return `<div class="settings-storage-backup-item">
+          <div class="settings-storage-backup-name">${buildSettingsCompactTextMarkup(
+            fileName,
+            {
+              fallback: "未命名文件",
+              maxLength: 34,
+            },
+          )}</div>
+          <div class="settings-storage-backup-meta">${escapeSettingsHtml(
+            source,
+          )} · ${escapeSettingsHtml(createdAt)}</div>
         </div>`;
       })
       .join("")}
+    </div>
+    ${
+      backups.length > visibleBackups.length
+        ? `<div class="settings-storage-panel-note">其余 ${escapeSettingsHtml(
+            backups.length - visibleBackups.length,
+          )} 条历史记录已省略。</div>`
+        : ""
+    }
   `;
 }
 
@@ -7425,29 +7583,54 @@ function showStoragePath() {
 
             // 打开文件夹
             window.electronAPI.shellOpenPath(storageDir).then((success) => {
+              const pathSummaryGrid = `
+                <div class="settings-storage-summary-grid">
+                  ${buildSettingsStorageSummaryItem(
+                    "状态",
+                    `<span>${success ? "已尝试打开" : "打开失败"}</span>`,
+                  )}
+                  ${buildSettingsStorageSummaryItem(
+                    "目录",
+                    buildSettingsCompactTextMarkup(storageDir, {
+                      fallback: "未知",
+                      maxLength: 34,
+                    }),
+                  )}
+                </div>
+              `;
               if (success) {
                 pathInfo.innerHTML = `
-                <p style="color: var(--accent-color); margin-bottom: 5px;">
-                  ✅ 已打开存储文件夹
-                </p>
-                <p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px;">
-                  路径: ${storageDir}
-                </p>
-                <p style="font-size: 12px; color: var(--muted-text-color);">
-                  如果文件夹没有自动打开，请手动访问以上路径
-                </p>
+                <div class="settings-storage-panel-head">
+                  <div class="settings-storage-panel-title">当前存储目录</div>
+                  <div class="settings-storage-panel-subtitle">桌面端已尝试打开系统文件夹</div>
+                </div>
+                ${pathSummaryGrid}
+                <details class="settings-storage-detail">
+                  <summary>查看完整路径</summary>
+                  <div class="settings-storage-detail-body">
+                    <div>${escapeSettingsHtml(storageDir)}</div>
+                  </div>
+                </details>
+                <div class="settings-storage-panel-note">
+                  如果系统文件夹没有自动弹出，可按完整路径手动打开。
+                </div>
               `;
               } else {
                 pathInfo.innerHTML = `
-                <p style="color: var(--delete-btn); margin-bottom: 5px;">
-                  ❌ 无法打开存储文件夹
-                </p>
-                <p style="font-size: 12px; color: var(--muted-text-color);">
-                  路径: ${storageDir}
-                </p>
-                <p style="font-size: 12px; color: var(--muted-text-color);">
-                  请手动访问以上路径
-                </p>
+                <div class="settings-storage-panel-head">
+                  <div class="settings-storage-panel-title">当前存储目录</div>
+                  <div class="settings-storage-panel-subtitle">系统未能直接打开文件夹</div>
+                </div>
+                ${pathSummaryGrid}
+                <details class="settings-storage-detail">
+                  <summary>查看完整路径</summary>
+                  <div class="settings-storage-detail-body">
+                    <div>${escapeSettingsHtml(storageDir)}</div>
+                  </div>
+                </details>
+                <div class="settings-storage-panel-note">
+                  请按完整路径手动访问该目录。
+                </div>
               `;
               }
             });
@@ -7488,42 +7671,70 @@ function showStoragePath() {
           }
 
           pathInfo.innerHTML = `
-            <p style="color: var(--accent-color); margin-bottom: 5px;">
-              ✅ 当前同步目标 bundle
-            </p>
-            <p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px; word-break: break-all;">
-              manifest: ${displayPath}
-            </p>
-            ${
-              displayDirectory
-                ? `<p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px; word-break: break-all;">bundle 根目录: ${displayDirectory}</p>`
-                : ""
-            }
-            ${
-              displayLabel && displayLabel !== displayPath
-                ? `<p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px; word-break: break-all;">显示名称: ${displayLabel}</p>`
-                : ""
-            }
-            ${
-              pathPresentation.note
-                ? `<p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px;">${pathPresentation.note}</p>`
-                : ""
-            }
-            ${
-              pathPresentation.rawPath &&
-              pathPresentation.rawPath !== displayPath
-                ? `<p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px; word-break: break-all;">原始路径: ${pathPresentation.rawPath}</p>`
-                : ""
-            }
-            ${
-              pathPresentation.rawDirectory &&
-              pathPresentation.rawDirectory !== displayDirectory
-                ? `<p style="font-size: 12px; color: var(--muted-text-color); margin-bottom: 5px; word-break: break-all;">原始目录: ${pathPresentation.rawDirectory}</p>`
-                : ""
-            }
-            <p style="font-size: 12px; color: var(--muted-text-color);">
-              Android 端实时存储已经是目录 bundle。若要更换实时存储位置，请使用“选择存储目录”；JSON 文件只通过“导入数据”进入。
-            </p>
+            <div class="settings-storage-panel-head">
+              <div class="settings-storage-panel-title">当前同步目标 bundle</div>
+              <div class="settings-storage-panel-subtitle">显示当前正在写入的目录</div>
+            </div>
+            <div class="settings-storage-summary-grid">
+              ${buildSettingsStorageSummaryItem(
+                "manifest",
+                buildSettingsCompactTextMarkup(displayPath, {
+                  fallback: "未知",
+                  maxLength: 34,
+                }),
+              )}
+              ${buildSettingsStorageSummaryItem(
+                "根目录",
+                buildSettingsCompactTextMarkup(displayDirectory, {
+                  fallback: "未知",
+                  maxLength: 32,
+                }),
+              )}
+              ${buildSettingsStorageSummaryItem(
+                "目录类型",
+                `<span>${escapeSettingsHtml(
+                  status?.isCustomPath ? "已绑定外部目录 bundle" : "应用默认目录 bundle",
+                )}</span>`,
+              )}
+            </div>
+            <details class="settings-storage-detail">
+              <summary>查看完整路径</summary>
+              <div class="settings-storage-detail-body">
+                <div>manifest：${escapeSettingsHtml(displayPath)}</div>
+                ${
+                  displayDirectory
+                    ? `<div>根目录：${escapeSettingsHtml(displayDirectory)}</div>`
+                    : ""
+                }
+                ${
+                  displayLabel && displayLabel !== displayPath
+                    ? `<div>显示名称：${escapeSettingsHtml(displayLabel)}</div>`
+                    : ""
+                }
+                ${
+                  pathPresentation.note
+                    ? `<div>说明：${escapeSettingsHtml(pathPresentation.note)}</div>`
+                    : ""
+                }
+                ${
+                  pathPresentation.rawPath &&
+                  pathPresentation.rawPath !== displayPath
+                    ? `<div>原始路径：${escapeSettingsHtml(pathPresentation.rawPath)}</div>`
+                    : ""
+                }
+                ${
+                  pathPresentation.rawDirectory &&
+                  pathPresentation.rawDirectory !== displayDirectory
+                    ? `<div>原始目录：${escapeSettingsHtml(
+                        pathPresentation.rawDirectory,
+                      )}</div>`
+                    : ""
+                }
+              </div>
+            </details>
+            <div class="settings-storage-panel-note">
+              若要更换实时存储位置，请使用“选择存储目录”；JSON 文件只通过“导入数据”进入。
+            </div>
           `;
         })
         .catch((error) => {
@@ -7607,22 +7818,38 @@ function updateStoragePathInfo() {
       .storageStatus()
       .then((status) => {
         if (status) {
-          currentPathElement.textContent =
-            resolveStorageDisplayPath(status) || "未知";
-          currentDirectoryElement.textContent =
-            status?.storageDirectory || "未知";
+          setSettingsCompactText(
+            currentPathElement,
+            resolveStorageDisplayPath(status),
+            {
+              fallback: "未知",
+              maxLength: 38,
+            },
+          );
+          setSettingsCompactText(currentDirectoryElement, status?.storageDirectory, {
+            fallback: "未知",
+            maxLength: 34,
+          });
           pathTypeElement.textContent =
             status?.isCustomPath ? "自定义目录 bundle" : "默认目录 bundle";
         } else {
-          currentPathElement.textContent = "获取失败";
-          currentDirectoryElement.textContent = "获取失败";
+          setSettingsCompactText(currentPathElement, "", {
+            fallback: "获取失败",
+          });
+          setSettingsCompactText(currentDirectoryElement, "", {
+            fallback: "获取失败",
+          });
           pathTypeElement.textContent = "未知";
         }
       })
       .catch((error) => {
         console.error("获取存储状态失败:", error);
-        currentPathElement.textContent = "获取失败";
-        currentDirectoryElement.textContent = "获取失败";
+        setSettingsCompactText(currentPathElement, "", {
+          fallback: "获取失败",
+        });
+        setSettingsCompactText(currentDirectoryElement, "", {
+          fallback: "获取失败",
+        });
         pathTypeElement.textContent = "未知";
       });
   } else if (
@@ -7633,9 +7860,18 @@ function updateStoragePathInfo() {
       .then((status) => {
         const pathPresentation = resolveStoragePathPresentation(status);
         const displayPath = pathPresentation.displayPath;
-        currentPathElement.textContent = displayPath || "获取失败";
-        currentDirectoryElement.textContent =
-          pathPresentation.displayDirectory || "获取失败";
+        setSettingsCompactText(currentPathElement, displayPath, {
+          fallback: "获取失败",
+          maxLength: 38,
+        });
+        setSettingsCompactText(
+          currentDirectoryElement,
+          pathPresentation.displayDirectory,
+          {
+            fallback: "获取失败",
+            maxLength: 34,
+          },
+        );
         pathTypeElement.textContent = displayPath
           ? status?.isCustomPath
             ? "已绑定外部目录 bundle"
@@ -7646,14 +7882,28 @@ function updateStoragePathInfo() {
       })
       .catch((error) => {
         console.error("获取移动端存储状态失败:", error);
-        currentPathElement.textContent = "获取失败";
-        currentDirectoryElement.textContent = "获取失败";
+        setSettingsCompactText(currentPathElement, "", {
+          fallback: "获取失败",
+        });
+        setSettingsCompactText(currentDirectoryElement, "", {
+          fallback: "获取失败",
+        });
         pathTypeElement.textContent = "未知";
       });
   } else {
     // 在浏览器环境中，显示localStorage信息
-    currentPathElement.textContent = "browser://localStorage/bundle-manifest.json";
-    currentDirectoryElement.textContent = "browser://localStorage";
+    setSettingsCompactText(
+      currentPathElement,
+      "browser://localStorage/bundle-manifest.json",
+      {
+        fallback: "browser://localStorage/bundle-manifest.json",
+        maxLength: 38,
+      },
+    );
+    setSettingsCompactText(currentDirectoryElement, "browser://localStorage", {
+      fallback: "browser://localStorage",
+      maxLength: 34,
+    });
     pathTypeElement.textContent = "浏览器内置目录 bundle";
   }
 }

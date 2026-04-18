@@ -27,6 +27,8 @@ const DIARY_EDITOR_TEXT_STYLE_TOKENS = Object.freeze({
   body: "body",
   note: "note",
 });
+const DIARY_EDITOR_FONT_SCALE_MIN = -6;
+const DIARY_EDITOR_FONT_SCALE_MAX = 12;
 const DIARY_PREFETCH_MONTH_OFFSETS = Object.freeze([-1, 0, 1]);
 const DIARY_SELECTOR_YEAR_RANGE_OFFSET = 100;
 const DIARY_LOADING_OVERLAY_DELAY_MS = Math.max(
@@ -590,6 +592,36 @@ function normalizeDiaryFontSizeToken(value) {
   return "";
 }
 
+function normalizeDiaryFontScaleValue(value, fallback = 0) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return normalizeDiaryNumber(
+      fallback,
+      0,
+      DIARY_EDITOR_FONT_SCALE_MIN,
+      DIARY_EDITOR_FONT_SCALE_MAX,
+      0,
+    );
+  }
+  const numericValue = Number.parseFloat(normalized.replace(/px$/i, ""));
+  if (!Number.isFinite(numericValue)) {
+    return normalizeDiaryNumber(
+      fallback,
+      0,
+      DIARY_EDITOR_FONT_SCALE_MIN,
+      DIARY_EDITOR_FONT_SCALE_MAX,
+      0,
+    );
+  }
+  return normalizeDiaryNumber(
+    numericValue,
+    0,
+    DIARY_EDITOR_FONT_SCALE_MIN,
+    DIARY_EDITOR_FONT_SCALE_MAX,
+    0,
+  );
+}
+
 function normalizeDiaryListStyle(value) {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "circle" || normalized === "square") {
@@ -692,6 +724,24 @@ function cloneDiaryAttachmentsSnapshot(attachments = []) {
   }));
 }
 
+function mergeDiaryAttachmentsSnapshot(...attachmentGroups) {
+  const attachmentsByAssetId = new Map();
+  attachmentGroups.flat().forEach((attachment) => {
+    const normalizedAttachment = normalizeDiaryAttachment(attachment);
+    if (!normalizedAttachment?.assetId) {
+      return;
+    }
+    const existingAttachment = attachmentsByAssetId.get(normalizedAttachment.assetId);
+    attachmentsByAssetId.set(normalizedAttachment.assetId, {
+      ...existingAttachment,
+      ...normalizedAttachment,
+      id: normalizedAttachment.id || existingAttachment?.id || "",
+      assetId: normalizedAttachment.assetId,
+    });
+  });
+  return normalizeDiaryAttachments(Array.from(attachmentsByAssetId.values()));
+}
+
 function hasDiaryAttachmentReferenceRemoval(
   previousAttachments = [],
   nextAttachments = [],
@@ -740,11 +790,16 @@ function getDiaryNodeStyleState(node, tagName = "") {
       : "";
   const backgroundColorMatch = styleText.match(/background-color\s*:\s*([^;]+)/i);
   const fontSizeMatch = styleText.match(/font-size\s*:\s*([^;]+)/i);
+  const fontScaleMatch = styleText.match(/--diary-inline-font-scale\s*:\s*([^;]+)/i);
   const fontWeightMatch = styleText.match(/font-weight\s*:\s*([^;]+)/i);
   const fontStyleMatch = styleText.match(/font-style\s*:\s*([^;]+)/i);
   const textDecorationMatch = styleText.match(/text-decoration(?:-line)?\s*:\s*([^;]+)/i);
   const backgroundColor = backgroundColorMatch ? backgroundColorMatch[1].trim() : "";
   const fontSize = fontSizeMatch ? fontSizeMatch[1].trim() : "";
+  const fontScale = normalizeDiaryFontScaleValue(
+    node?.getAttribute?.("data-font-scale") || fontScaleMatch?.[1] || "",
+    0,
+  );
   const fontWeight = fontWeightMatch ? fontWeightMatch[1].trim().toLowerCase() : "";
   const fontStyle = fontStyleMatch ? fontStyleMatch[1].trim().toLowerCase() : "";
   const textDecoration = textDecorationMatch
@@ -758,6 +813,7 @@ function getDiaryNodeStyleState(node, tagName = "") {
   );
   return {
     sizeToken,
+    fontScale,
     highlight:
       tagName === "mark" ||
       (!!backgroundColor &&
@@ -835,6 +891,13 @@ function sanitizeDiaryInlineNode(node, context) {
   }
   let childHtml = sanitizeDiaryInlineNodes(node.childNodes, context);
   const styleState = getDiaryNodeStyleState(node, tagName);
+  if (styleState.fontScale !== 0) {
+    childHtml = wrapDiaryInlineHtml(
+      childHtml,
+      "span",
+      `data-font-scale="${escapeHtml(styleState.fontScale)}"`,
+    );
+  }
   if (styleState.sizeToken) {
     childHtml = wrapDiaryInlineHtml(
       childHtml,
@@ -1416,6 +1479,40 @@ function applyDiaryFigureLayout(figure) {
     aspectRatio,
     align,
   };
+}
+
+function resolveDiaryInsertedImageWidthPercent(runtime, aspectRatio) {
+  const normalizedAspectRatio = normalizeDiaryNumber(
+    aspectRatio,
+    4 / 3,
+    0.2,
+    12,
+    4,
+  );
+  const editorWidth = Math.max(
+    1,
+    Number(runtime?.elements?.editor?.clientWidth) ||
+      Number(document.documentElement?.clientWidth) ||
+      Number(window.innerWidth) ||
+      360,
+  );
+  const viewportHeight = Math.max(
+    240,
+    Number(window.visualViewport?.height) ||
+      Number(window.innerHeight) ||
+      Number(document.documentElement?.clientHeight) ||
+      720,
+  );
+  const targetHeightPx = Math.max(
+    132,
+    Math.min(Math.round(viewportHeight * 0.33), 288),
+  );
+  return normalizeDiaryNumber(
+    ((targetHeightPx * normalizedAspectRatio) / editorWidth) * 100,
+    82,
+    28,
+    82,
+  );
 }
 
 function syncDiaryFigureElementsLayout(container) {
@@ -4774,6 +4871,15 @@ function ensureDiaryEditorHasContentBlock(editor) {
   }
 }
 
+function isDiaryEditorBlankParagraph(element) {
+  if (!(element instanceof HTMLElement) || !element.matches("p")) {
+    return false;
+  }
+  return String(element.textContent || "")
+    .replace(/\u200B/g, "")
+    .trim().length === 0;
+}
+
 function getDiaryEditorLeafNode(node, preferBackward = true) {
   let current = node instanceof Node ? node : null;
   while (
@@ -4974,12 +5080,12 @@ function clearDiaryEditorFigureSelection(runtime) {
     return;
   }
   if (runtime.selectedFigure instanceof HTMLElement) {
-    runtime.selectedFigure.classList.remove("is-selected");
+    runtime.selectedFigure.classList.remove("is-selected", "is-manipulation-ready");
   }
   runtime.selectedFigure = null;
 }
 
-function selectDiaryEditorFigure(runtime, figure) {
+function selectDiaryEditorFigure(runtime, figure, options = {}) {
   if (!runtime || !(figure instanceof HTMLElement)) {
     clearDiaryEditorFigureSelection(runtime);
     return null;
@@ -4989,11 +5095,15 @@ function selectDiaryEditorFigure(runtime, figure) {
     return null;
   }
   if (runtime.selectedFigure === figure) {
+    if (options.revealControls === true) {
+      figure.classList.add("is-manipulation-ready");
+    }
     return figure;
   }
   clearDiaryEditorFigureSelection(runtime);
   runtime.selectedFigure = figure;
   figure.classList.add("is-selected");
+  figure.classList.toggle("is-manipulation-ready", options.revealControls === true);
   return figure;
 }
 
@@ -5515,6 +5625,12 @@ function replaceDiarySelectionHolder(holder, options = {}) {
   if (typeof options.textStyleToken === "string" && options.textStyleToken) {
     wrapper.setAttribute("data-size", options.textStyleToken);
   }
+  if (Number.isFinite(Number(options.fontScale)) && Number(options.fontScale) !== 0) {
+    wrapper.setAttribute(
+      "data-font-scale",
+      String(normalizeDiaryFontScaleValue(options.fontScale, 0)),
+    );
+  }
   while (holder.firstChild) {
     wrapper.appendChild(holder.firstChild);
   }
@@ -5527,7 +5643,11 @@ function pruneEmptyDiaryInlineWrappers(root) {
   if (!(root instanceof HTMLElement)) {
     return;
   }
-  Array.from(root.querySelectorAll("strong, b, em, i, u, mark, span[data-size]"))
+  Array.from(
+    root.querySelectorAll(
+      "strong, b, em, i, u, mark, span[data-size], span[data-font-scale]",
+    ),
+  )
     .reverse()
     .forEach((element) => {
       if (!(element instanceof HTMLElement)) {
@@ -5679,6 +5799,32 @@ function getDiaryEditorFontSizeTokenFromElement(element) {
       element.closest("[data-size]")?.getAttribute("data-size") || "",
     ) || DIARY_EDITOR_TEXT_STYLE_TOKENS.body
   );
+}
+
+function getDiaryEditorFontScaleFromElement(element) {
+  if (!(element instanceof HTMLElement)) {
+    return 0;
+  }
+  return normalizeDiaryFontScaleValue(
+    element.closest("[data-font-scale]")?.getAttribute("data-font-scale") || "",
+    0,
+  );
+}
+
+function getDiaryEditorRangeUniformFontScale(editor, range) {
+  if (!(editor instanceof HTMLElement) || !(range instanceof Range)) {
+    return 0;
+  }
+  const sampleElements = getDiaryEditorSelectionSampleElements(editor, range);
+  if (!sampleElements.length) {
+    return 0;
+  }
+  const fontScales = sampleElements.map((element) =>
+    getDiaryEditorFontScaleFromElement(element),
+  );
+  return fontScales.every((fontScale) => fontScale === fontScales[0])
+    ? fontScales[0]
+    : 0;
 }
 
 function getDiaryEditorRangeBlockTextStyleToken(editor, range) {
@@ -5884,6 +6030,40 @@ function applyDiaryTextStyleToContainer(container, token) {
   return true;
 }
 
+function applyDiaryFontScaleToContainer(container, fontScale) {
+  if (!(container instanceof HTMLElement)) {
+    return false;
+  }
+  const normalizedFontScale = normalizeDiaryFontScaleValue(fontScale, 0);
+  unwrapDiaryElements(container, "[data-font-scale]");
+  container.normalize();
+  if (normalizedFontScale === 0) {
+    return true;
+  }
+  const meaningfulChildNodes = Array.from(container.childNodes || []).filter((node) => {
+    if (node instanceof Text) {
+      return String(node.textContent || "").replace(/\u200B/g, "").trim().length > 0;
+    }
+    return true;
+  });
+  const wrapHost =
+    meaningfulChildNodes.length === 1 &&
+    meaningfulChildNodes[0] instanceof HTMLElement &&
+    meaningfulChildNodes[0].matches("[data-size]")
+      ? meaningfulChildNodes[0]
+      : container;
+  const wrapper = document.createElement("span");
+  wrapper.setAttribute("data-font-scale", String(normalizedFontScale));
+  while (wrapHost.firstChild) {
+    wrapper.appendChild(wrapHost.firstChild);
+  }
+  if (!wrapper.firstChild) {
+    wrapper.appendChild(document.createElement("br"));
+  }
+  wrapHost.appendChild(wrapper);
+  return true;
+}
+
 function applyDiaryInlineStyleToContainer(container, options = {}) {
   if (!(container instanceof HTMLElement)) {
     return false;
@@ -5910,6 +6090,12 @@ function applyDiaryInlineStyleToContainer(container, options = {}) {
         wrapper.setAttribute(key, value);
       }
     });
+  }
+  if (Number.isFinite(Number(options.fontScale)) && Number(options.fontScale) !== 0) {
+    wrapper.setAttribute(
+      "data-font-scale",
+      String(normalizeDiaryFontScaleValue(options.fontScale, 0)),
+    );
   }
   while (container.firstChild) {
     wrapper.appendChild(container.firstChild);
@@ -6015,6 +6201,49 @@ function toggleDiaryBlockInlineStyleAtCaret(runtime, options = {}) {
       cleanupSelector,
       unwrapOnly: shouldUnwrap,
     });
+  });
+  pruneEmptyDiaryInlineWrappers(editor);
+  editor.normalize();
+  ensureDiaryEditorHasContentBlock(editor);
+  return restoreDiaryCaretFromMarker(runtime, marker, {
+    syncWindowSelection: options.syncWindowSelection,
+  });
+}
+
+function adjustDiaryBlockFontScaleAtCaret(runtime, delta, options = {}) {
+  const editor = runtime?.elements?.editor;
+  if (!(editor instanceof HTMLElement)) {
+    return false;
+  }
+  const range = getDiaryEditorActionRange(runtime);
+  if (!(range instanceof Range) || !range.collapsed) {
+    return false;
+  }
+  const normalizedDelta = normalizeDiaryFontScaleValue(delta, 0);
+  if (normalizedDelta === 0) {
+    return false;
+  }
+  const selectedBlocks = getDiaryEditorSelectedBlocks(editor, range).filter(
+    (block) => block instanceof HTMLElement && !block.matches(".diary-image-block"),
+  );
+  if (!selectedBlocks.length) {
+    return false;
+  }
+  const styleContainers = selectedBlocks.flatMap((block) =>
+    collectDiaryTextStyleContainersForBlock(block),
+  );
+  if (!styleContainers.length) {
+    return false;
+  }
+  const uniformScale = getDiaryEditorRangeUniformFontScale(editor, range);
+  const nextScale = normalizeDiaryFontScaleValue(uniformScale + normalizedDelta, 0);
+  if (nextScale === uniformScale) {
+    return false;
+  }
+  const marker = createDiaryCaretMarker();
+  range.insertNode(marker);
+  styleContainers.forEach((container) => {
+    applyDiaryFontScaleToContainer(container, nextScale);
   });
   pruneEmptyDiaryInlineWrappers(editor);
   editor.normalize();
@@ -6401,7 +6630,8 @@ function buildDiaryEditorFigureElement(attachment) {
   removeButton.type = "button";
   removeButton.className = "diary-editor-image-remove-btn";
   removeButton.dataset.controlerKeepInputFocus = "true";
-  removeButton.textContent = "删除";
+  removeButton.setAttribute("aria-label", "删除图片");
+  removeButton.textContent = "❌";
   const resizeHandle = document.createElement("button");
   resizeHandle.type = "button";
   resizeHandle.className = "diary-editor-image-resize-handle";
@@ -6410,6 +6640,126 @@ function buildDiaryEditorFigureElement(attachment) {
   figure.appendChild(removeButton);
   figure.appendChild(resizeHandle);
   return figure;
+}
+
+function syncDiaryEditorAttachmentFigures(runtime, attachments = []) {
+  const editor = runtime?.elements?.editor;
+  if (!(editor instanceof HTMLElement)) {
+    return null;
+  }
+  const normalizedAttachments = normalizeDiaryAttachments(attachments).sort(
+    (left, right) => left.blockOrder - right.blockOrder,
+  );
+  const attachmentsByAssetId = new Map(
+    normalizedAttachments.map((attachment) => [attachment.assetId, attachment]),
+  );
+  let lastAddedFigure = null;
+  Array.from(editor.querySelectorAll(".diary-image-block")).forEach((figure) => {
+    if (!(figure instanceof HTMLElement)) {
+      return;
+    }
+    const image = figure.querySelector("img[data-asset-id], img");
+    const assetId =
+      String(figure.dataset.assetId || "").trim() ||
+      String(image?.dataset?.assetId || "").trim();
+    const attachment = attachmentsByAssetId.get(assetId);
+    if (!attachment) {
+      figure.remove();
+      return;
+    }
+    figure.dataset.kind = "image";
+    figure.dataset.attachmentId = attachment.id;
+    figure.dataset.assetId = attachment.assetId;
+    figure.dataset.widthPercent = String(attachment.widthPercent);
+    figure.dataset.align = attachment.align;
+    figure.dataset.offsetXPercent = String(attachment.offsetXPercent);
+    figure.dataset.aspectRatio = String(attachment.aspectRatio);
+    figure.dataset.blockOrder = String(attachment.blockOrder);
+    figure.dataset.compressionMode = attachment.compressionMode;
+    figure.dataset.mimeType = attachment.mimeType;
+    if (image instanceof HTMLImageElement) {
+      image.dataset.assetId = attachment.assetId;
+      image.alt = "日记图片";
+      image.draggable = false;
+      queueDiaryImageHydration(image);
+    }
+    attachmentsByAssetId.delete(assetId);
+  });
+  normalizedAttachments.forEach((attachment) => {
+    if (!attachmentsByAssetId.has(attachment.assetId)) {
+      return;
+    }
+    const figure = buildDiaryEditorFigureElement(attachment);
+    if (!(figure instanceof HTMLElement)) {
+      return;
+    }
+    const trailingBlankParagraph = Array.from(editor.children)
+      .reverse()
+      .find((element) => isDiaryEditorBlankParagraph(element));
+    if (trailingBlankParagraph instanceof HTMLElement) {
+      trailingBlankParagraph.before(figure);
+    } else {
+      editor.appendChild(figure);
+    }
+    if (
+      !(figure.nextElementSibling instanceof HTMLElement) ||
+      figure.nextElementSibling.matches(".diary-image-block")
+    ) {
+      const paragraph = document.createElement("p");
+      paragraph.appendChild(document.createElement("br"));
+      figure.after(paragraph);
+    }
+    attachmentsByAssetId.delete(attachment.assetId);
+    lastAddedFigure = figure;
+  });
+  ensureDiaryEditorHasContentBlock(editor);
+  enhanceDiaryEditorFigures(runtime);
+  syncDiaryFigureElementsLayout(editor);
+  return {
+    lastAddedFigure,
+  };
+}
+
+function reconcileDiaryEditorInsertedImages(runtime, insertedAttachments = []) {
+  const editor = runtime?.elements?.editor;
+  if (!(editor instanceof HTMLElement)) {
+    return null;
+  }
+  const mergedAttachments = mergeDiaryAttachmentsSnapshot(
+    runtime.initialAttachments || [],
+    runtime.lastKnownAttachments || [],
+    insertedAttachments,
+  );
+  const sanitized = sanitizeDiaryRichTextHtml(editor.innerHTML, {
+    attachments: mergedAttachments,
+  });
+  editor.innerHTML = sanitized.html;
+  clearDiaryEditorFigureSelection(runtime);
+  runtime.savedSelectionRange = null;
+  ensureDiaryEditorHasContentBlock(editor);
+  const figureSync = syncDiaryEditorAttachmentFigures(runtime, sanitized.attachments);
+  const targetAttachment = insertedAttachments[insertedAttachments.length - 1] || null;
+  if (targetAttachment?.assetId) {
+    const insertedFigure =
+      editor.querySelector(
+        `.diary-image-block[data-asset-id="${escapeCssSelector(targetAttachment.assetId)}"]`,
+      ) || figureSync?.lastAddedFigure;
+    if (insertedFigure instanceof HTMLElement) {
+      selectDiaryEditorFigure(runtime, insertedFigure);
+      insertedFigure.scrollIntoView?.({
+        block: "nearest",
+        inline: "nearest",
+      });
+    }
+  }
+  focusDiaryEditor(runtime, {
+    placeEnd: true,
+  });
+  scheduleDiaryEditorNativeInputRestart(runtime);
+  runtime.lastKnownAttachments = cloneDiaryAttachmentsSnapshot(
+    sanitized.attachments,
+  );
+  return sanitized;
 }
 
 function enhanceDiaryEditorFigure(runtime, figure) {
@@ -6423,8 +6773,15 @@ function enhanceDiaryEditorFigure(runtime, figure) {
     removeButton.type = "button";
     removeButton.className = "diary-editor-image-remove-btn";
     removeButton.dataset.controlerKeepInputFocus = "true";
-    removeButton.textContent = "删除";
+    removeButton.setAttribute("aria-label", "删除图片");
+    removeButton.textContent = "❌";
     figure.appendChild(removeButton);
+  } else {
+    const removeButton = figure.querySelector(".diary-editor-image-remove-btn");
+    if (removeButton instanceof HTMLButtonElement) {
+      removeButton.setAttribute("aria-label", "删除图片");
+      removeButton.textContent = "❌";
+    }
   }
   if (!figure.querySelector(".diary-editor-image-resize-handle")) {
     const resizeHandle = document.createElement("button");
@@ -6433,6 +6790,11 @@ function enhanceDiaryEditorFigure(runtime, figure) {
     resizeHandle.dataset.controlerKeepInputFocus = "true";
     resizeHandle.setAttribute("aria-label", "调整图片大小");
     figure.appendChild(resizeHandle);
+  } else {
+    const resizeHandle = figure.querySelector(".diary-editor-image-resize-handle");
+    if (resizeHandle instanceof HTMLButtonElement) {
+      resizeHandle.setAttribute("aria-label", "调整图片大小");
+    }
   }
   applyDiaryFigureLayout(figure);
   const image = figure.querySelector("img[data-asset-id], img");
@@ -6520,7 +6882,9 @@ function enhanceDiaryEditorFigure(runtime, figure) {
         ),
       );
       applyDiaryFigureLayout(figure);
-      selectDiaryEditorFigure(runtime, figure);
+      selectDiaryEditorFigure(runtime, figure, {
+        revealControls: true,
+      });
       handleChange();
     };
 
@@ -6582,7 +6946,9 @@ function enhanceDiaryEditorFigure(runtime, figure) {
       document.removeEventListener("pointermove", handleMove, true);
       document.removeEventListener("pointerup", handleUp, true);
       document.removeEventListener("pointercancel", handleUp, true);
-      selectDiaryEditorFigure(runtime, figure);
+      selectDiaryEditorFigure(runtime, figure, {
+        revealControls: true,
+      });
       handleChange();
     };
 
@@ -6615,7 +6981,9 @@ function enhanceDiaryEditorFigure(runtime, figure) {
     if (target?.classList.contains("diary-editor-image-resize-handle")) {
       event.preventDefault();
       event.stopPropagation();
-      selectDiaryEditorFigure(runtime, figure);
+      selectDiaryEditorFigure(runtime, figure, {
+        revealControls: true,
+      });
       startResizeSession(event);
       return;
     }
@@ -6807,6 +7175,8 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
     action === "font-size"
       ? normalizeDiaryFontSizeToken(value) || DIARY_EDITOR_TEXT_STYLE_TOKENS.body
       : "";
+  const fontScaleDelta =
+    action === "font-scale" ? normalizeDiaryFontScaleValue(value, 0) : 0;
   let handled = false;
   if (action === "font-size") {
     handled =
@@ -6839,6 +7209,43 @@ function executeDiaryEditorToolbarAction(runtime, action, value = "") {
             unwrapOnly: normalizedSizeToken === DIARY_EDITOR_TEXT_STYLE_TOKENS.body,
             syncWindowSelection,
           }));
+  } else if (action === "font-scale") {
+    const currentFontScale = getDiaryEditorRangeUniformFontScale(
+      runtime?.elements?.editor,
+      actionRange,
+    );
+    const nextFontScale = normalizeDiaryFontScaleValue(
+      currentFontScale + fontScaleDelta,
+      currentFontScale,
+    );
+    handled =
+      (hasExpandedSelection
+        ? applyDiaryInlineWrapper(runtime, {
+            tagName: "span",
+            cleanupSelector: "[data-font-scale]",
+            activeSelector: `[data-font-scale="${escapeCssSelector(nextFontScale)}"]`,
+            attributes:
+              nextFontScale === 0
+                ? {}
+                : {
+                    "data-font-scale": String(nextFontScale),
+                  },
+            unwrapOnly: nextFontScale === 0,
+            toggle: false,
+            syncWindowSelection,
+          })
+        : adjustDiaryBlockFontScaleAtCaret(runtime, fontScaleDelta, {
+            syncWindowSelection,
+          })) ||
+      (nextFontScale !== 0
+        ? applyDiaryInlineStyleAtCaret(runtime, {
+            tagName: "span",
+            attributes: {
+              "data-font-scale": String(nextFontScale),
+            },
+            syncWindowSelection,
+          })
+        : false);
   } else if (action === "bold") {
     handled =
       (hasExpandedSelection
@@ -7000,6 +7407,10 @@ function createDiaryEditorToolbar(runtime) {
       { label: "小标题", action: "font-size", value: "subheading", className: "is-style-pill" },
       { label: "正文", action: "font-size", value: "body", className: "is-style-pill" },
       { label: "注释", action: "font-size", value: "note", className: "is-style-pill" },
+    ],
+    [
+      { label: "A-", action: "font-scale", value: "-1", className: "is-style-pill" },
+      { label: "A+", action: "font-scale", value: "1", className: "is-style-pill" },
     ],
     [
       { label: "B", action: "bold", className: "is-icon-btn" },
@@ -7175,9 +7586,20 @@ function showDiaryEditorChoiceDialog() {
 }
 
 async function insertDiaryImagesIntoEditor(runtime) {
+  const resolveLiveRuntime = () => {
+    const candidates = [runtime, diaryEditorRuntime];
+    return candidates.find(
+      (candidate) =>
+        candidate &&
+        candidate.destroyed !== true &&
+        candidate.elements?.editor instanceof HTMLElement &&
+        candidate.elements.editor.isConnected,
+    );
+  };
+  if (!resolveLiveRuntime()) {
+    return;
+  }
   if (
-    !runtime ||
-    runtime.destroyed ||
     typeof window.ControlerStorage?.pickDiaryImages !== "function" ||
     typeof window.ControlerStorage?.saveDiaryImageAsset !== "function"
   ) {
@@ -7188,15 +7610,45 @@ async function insertDiaryImagesIntoEditor(runtime) {
   if (!compressionMode) {
     return;
   }
-  setDiaryEditorSaveState(runtime, "saving");
+  const initialRuntime = resolveLiveRuntime();
+  if (!initialRuntime) {
+    return;
+  }
+  setDiaryEditorSaveState(initialRuntime, "saving");
   try {
     const pickedItems =
       (await window.ControlerStorage.pickDiaryImages({
         accept: "image/*",
         multiple: true,
       })) || [];
+    const restoreSaveState = (targetRuntime) => {
+      if (!targetRuntime || targetRuntime.destroyed) {
+        return;
+      }
+      setDiaryEditorSaveState(
+        targetRuntime,
+        buildDiaryEditorSnapshot(targetRuntime).signature === targetRuntime.lastCommittedSignature
+          ? "saved"
+          : "pending",
+      );
+    };
+    const activeRuntime = resolveLiveRuntime();
+    if (!activeRuntime) {
+      return;
+    }
+    if (!pickedItems.length) {
+      restoreSaveState(activeRuntime);
+      return;
+    }
     let insertedCount = 0;
+    let failedCount = 0;
+    const insertedAttachments = [];
     for (const item of pickedItems) {
+      const currentRuntime = resolveLiveRuntime();
+      if (!currentRuntime) {
+        failedCount += 1;
+        break;
+      }
       const savedAsset = await window.ControlerStorage.saveDiaryImageAsset({
         sourceUri: item?.uri || item?.sourceUri || "",
         uri: item?.uri || "",
@@ -7208,54 +7660,94 @@ async function insertDiaryImagesIntoEditor(runtime) {
         compressionMode,
       });
       if (!savedAsset?.assetId) {
+        failedCount += 1;
         continue;
       }
       if (savedAsset.uri) {
         rememberDiaryImageUriCache(savedAsset.assetId, savedAsset.uri);
       }
+      const aspectRatio =
+        Number(savedAsset.width) > 0 && Number(savedAsset.height) > 0
+          ? Number(savedAsset.width) / Math.max(1, Number(savedAsset.height))
+          : Number(item?.width) > 0 && Number(item?.height) > 0
+            ? Number(item.width) / Math.max(1, Number(item.height))
+            : 4 / 3;
       const attachment = normalizeDiaryAttachment({
         id: createUniqueId("diary_attachment_"),
         assetId: savedAsset.assetId,
         mimeType: savedAsset.mimeType || item?.mimeType || "image/jpeg",
-        widthPercent: 82,
+        widthPercent: resolveDiaryInsertedImageWidthPercent(currentRuntime, aspectRatio),
         align: "center",
         offsetXPercent: 0,
-        aspectRatio:
-          Number(savedAsset.width) > 0 && Number(savedAsset.height) > 0
-            ? Number(savedAsset.width) / Math.max(1, Number(savedAsset.height))
-            : Number(item?.width) > 0 && Number(item?.height) > 0
-              ? Number(item.width) / Math.max(1, Number(item.height))
-              : 4 / 3,
+        aspectRatio,
         blockOrder:
-          runtime.elements?.editor?.querySelectorAll?.(".diary-image-block")?.length ||
+          currentRuntime.elements?.editor?.querySelectorAll?.(".diary-image-block")?.length ||
           0,
         compressionMode: savedAsset.compressionMode || compressionMode,
       });
+      if (!attachment) {
+        failedCount += 1;
+        continue;
+      }
       const figure = buildDiaryEditorFigureElement(attachment);
       if (!(figure instanceof HTMLElement)) {
+        failedCount += 1;
         continue;
       }
       const image = figure.querySelector("img[data-asset-id], img");
-      if (image instanceof HTMLImageElement && savedAsset.uri) {
-        image.src = savedAsset.uri;
+      const previewUri =
+        savedAsset.uri || item?.dataUrl || item?.uri || item?.sourceUri || "";
+      if (!savedAsset.uri && previewUri) {
+        rememberDiaryImageUriCache(savedAsset.assetId, previewUri);
+      }
+      if (image instanceof HTMLImageElement && previewUri) {
+        image.src = previewUri;
         image.dataset.hydrated = "true";
       }
-      insertDiaryEditorFigureAtSelection(runtime, figure);
+      if (!insertDiaryEditorFigureAtSelection(currentRuntime, figure)) {
+        failedCount += 1;
+        continue;
+      }
+      currentRuntime.lastKnownAttachments = mergeDiaryAttachmentsSnapshot(
+        currentRuntime.lastKnownAttachments || [],
+        [attachment],
+      );
+      insertedAttachments.push(attachment);
       insertedCount += 1;
     }
-    if (insertedCount > 0) {
-      runtime.handleChange?.();
-    } else {
-      setDiaryEditorSaveState(
-        runtime,
-        buildDiaryEditorSnapshot(runtime).signature === runtime.lastCommittedSignature
-          ? "saved"
-          : "pending",
+    const finalRuntime = resolveLiveRuntime();
+    if (insertedCount > 0 && finalRuntime) {
+      const reconciled = reconcileDiaryEditorInsertedImages(
+        finalRuntime,
+        insertedAttachments,
       );
+      if (reconciled) {
+        refreshDiaryEditorFooter(finalRuntime, {
+          content: extractDiaryPlainTextFromHtml(reconciled.html),
+          attachments: reconciled.attachments,
+        });
+      }
+      finalRuntime.handleChange?.();
+      if (failedCount > 0) {
+        await showDiaryAlert(`已有 ${insertedCount} 张插入，另有 ${failedCount} 张上传失败。`, {
+          title: "部分上传失败",
+          danger: true,
+        });
+      }
+    } else {
+      restoreSaveState(finalRuntime || activeRuntime);
+      if (failedCount > 0) {
+        setDiaryEditorSaveState(finalRuntime || activeRuntime, "error");
+        await showDiaryAlert("图片上传失败，请重试。", {
+          title: "上传失败",
+          danger: true,
+        });
+      }
     }
   } catch (error) {
     console.error("插入日记图片失败:", error);
-    setDiaryEditorSaveState(runtime, "error");
+    const activeRuntime = resolveLiveRuntime();
+    setDiaryEditorSaveState(activeRuntime || runtime, "error");
     await showDiaryAlert("图片上传失败，请重试。", {
       title: "上传失败",
       danger: true,
