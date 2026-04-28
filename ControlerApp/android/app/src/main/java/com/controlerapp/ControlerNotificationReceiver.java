@@ -11,6 +11,8 @@ import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
+import com.controlerapp.widgets.ControlerWidgetRenderer;
+
 public class ControlerNotificationReceiver extends BroadcastReceiver {
     public static final String ACTION_SHOW_REMINDER =
         "com.controlerapp.action.SHOW_REMINDER";
@@ -30,10 +32,30 @@ public class ControlerNotificationReceiver extends BroadcastReceiver {
 
         if (AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED.equals(action)
             || Intent.ACTION_BOOT_COMPLETED.equals(action)
+            || Intent.ACTION_DATE_CHANGED.equals(action)
             || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
             || Intent.ACTION_TIME_CHANGED.equals(action)
             || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
             ControlerNotificationScheduler.rescheduleAll(context);
+            refreshDateSensitiveWidgets(context, action);
+        }
+    }
+
+    private void refreshDateSensitiveWidgets(Context context, String action) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+            || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
+            ControlerWidgetRenderer.scheduleDateSensitiveRefresh(context, action);
+            return;
+        }
+
+        if (Intent.ACTION_DATE_CHANGED.equals(action)) {
+            ControlerWidgetRenderer.scheduleDateSensitiveRefresh(context, action);
+            return;
+        }
+
+        if (Intent.ACTION_TIME_CHANGED.equals(action)
+            || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
+            ControlerWidgetRenderer.scheduleDateSensitiveRefreshIfNeeded(context, action);
         }
     }
 

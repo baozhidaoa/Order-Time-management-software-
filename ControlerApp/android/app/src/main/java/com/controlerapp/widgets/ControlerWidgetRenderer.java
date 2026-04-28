@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -78,6 +79,9 @@ public final class ControlerWidgetRenderer {
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
     private static final long RENDER_SOURCE_CACHE_TTL_MS = 260L;
+    private static final String WIDGET_REFRESH_PREFS = "controler_widget_refresh_state";
+    private static final String KEY_LAST_DATE_SENSITIVE_REFRESH_DAY =
+        "last_date_sensitive_refresh_day";
     private static final Object REFRESH_LOCK = new Object();
     private static final Object RENDER_STATE_LOCK = new Object();
     private static final HandlerThread REFRESH_THREAD = createRefreshThread();
@@ -326,6 +330,54 @@ public final class ControlerWidgetRenderer {
             context.getApplicationContext(),
             batch,
             DEBOUNCED_REFRESH_DELAY_MS,
+            "full"
+        );
+    }
+
+    public static void scheduleDateSensitiveRefreshIfNeeded(Context context, String reason) {
+        if (context == null) {
+            return;
+        }
+
+        Context appContext = context.getApplicationContext();
+        String today = todayText();
+        if (TextUtils.isEmpty(today)) {
+            return;
+        }
+
+        SharedPreferences preferences =
+            appContext.getSharedPreferences(WIDGET_REFRESH_PREFS, Context.MODE_PRIVATE);
+        String lastRefreshDay =
+            preferences.getString(KEY_LAST_DATE_SENSITIVE_REFRESH_DAY, "");
+        if (TextUtils.equals(today, lastRefreshDay)) {
+            return;
+        }
+
+        preferences
+            .edit()
+            .putString(KEY_LAST_DATE_SENSITIVE_REFRESH_DAY, today)
+            .apply();
+        scheduleDateSensitiveRefresh(appContext, reason);
+    }
+
+    public static void scheduleDateSensitiveRefresh(Context context, String reason) {
+        if (context == null) {
+            return;
+        }
+
+        RefreshBatch batch = new RefreshBatch();
+        batch.reason = "date-sensitive:" + safeText(reason);
+        batch.kinds.add(ControlerWidgetKinds.WRITE_DIARY);
+        batch.kinds.add(ControlerWidgetKinds.WEEK_GRID);
+        batch.kinds.add(ControlerWidgetKinds.DAY_PIE);
+        batch.kinds.add(ControlerWidgetKinds.TODOS);
+        batch.kinds.add(ControlerWidgetKinds.CHECKINS);
+        batch.kinds.add(ControlerWidgetKinds.WEEK_VIEW);
+        batch.kinds.add(ControlerWidgetKinds.YEAR_VIEW);
+        scheduleRefreshBatch(
+            context.getApplicationContext(),
+            batch,
+            0L,
             "full"
         );
     }

@@ -446,6 +446,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             @Override
             public void onHostResume() {
                 maybeHandleExactAlarmPermissionResult();
+                ControlerWidgetRenderer.scheduleDateSensitiveRefreshIfNeeded(
+                    getReactApplicationContext(),
+                    "host-resume"
+                );
             }
 
             @Override

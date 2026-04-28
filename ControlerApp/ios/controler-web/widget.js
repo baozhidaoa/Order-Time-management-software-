@@ -51,6 +51,15 @@ const PREVIEW_PRIMARY_WIDGET_TYPE_IDS = new Set([
   "week-view",
   "year-view",
 ]);
+const DATE_SENSITIVE_WIDGET_TYPE_IDS = new Set([
+  "write-diary",
+  "day-pie",
+  "week-grid",
+  "todos",
+  "checkins",
+  "week-view",
+  "year-view",
+]);
 const TODO_TOGGLE_COMMAND = "toggle-todo";
 const CHECKIN_TOGGLE_COMMAND = "toggle-checkin";
 const WIDGET_REFRESH_DELAY_MS = 150;
@@ -72,6 +81,9 @@ let widgetWindowChromeBound = false;
 let widgetWindowControlsBound = false;
 let widgetWindowHoverStateBound = false;
 let widgetRuntimeErrorHandlersBound = false;
+let widgetDateBoundaryRefreshBound = false;
+let widgetDateBoundaryTimer = 0;
+let lastWidgetLocalDateText = "";
 
 function translateWidgetUiText(value) {
   return (
@@ -567,15 +579,41 @@ function shouldIgnoreWidgetSelfRefresh(changedSections = []) {
   return shouldIgnore;
 }
 
-function getDateText(dateValue = new Date()) {
-  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().split("T")[0];
+function parseDateOnlyText(dateValue = "") {
+  const text = String(dateValue || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
 }
 
-function getLocalDateText(dateValue = new Date()) {
-  const date = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "";
+function formatLocalDateText(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -583,8 +621,30 @@ function getLocalDateText(dateValue = new Date()) {
 }
 
 function parseDate(dateValue) {
-  const date = dateValue instanceof Date ? new Date(dateValue) : new Date(dateValue);
+  if (dateValue instanceof Date) {
+    const date = new Date(dateValue.getTime());
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const dateOnly = parseDateOnlyText(dateValue);
+  if (dateOnly) {
+    return dateOnly;
+  }
+
+  const date = new Date(dateValue);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getDateText(dateValue = new Date()) {
+  const dateOnly = parseDateOnlyText(dateValue);
+  if (dateOnly) {
+    return formatLocalDateText(dateOnly);
+  }
+  return formatLocalDateText(parseDate(dateValue));
+}
+
+function getLocalDateText(dateValue = new Date()) {
+  return getDateText(dateValue);
 }
 
 function truncateText(value, maxLength = 32) {
@@ -3775,6 +3835,82 @@ function scheduleRender(options = {}) {
   }, Number.isFinite(options.delayMs) ? options.delayMs : 96);
 }
 
+function isDateSensitiveWidgetKind(kind = "") {
+  return DATE_SENSITIVE_WIDGET_TYPE_IDS.has(String(kind || "").trim());
+}
+
+function scheduleNextWidgetDateBoundaryRefresh() {
+  window.clearTimeout(widgetDateBoundaryTimer);
+  const now = new Date();
+  const nextMidnight = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + 1,
+    0,
+    0,
+    1,
+    0,
+  );
+  const delayMs = Math.min(
+    Math.max(nextMidnight.getTime() - now.getTime(), 1000),
+    2147483647,
+  );
+
+  widgetDateBoundaryTimer = window.setTimeout(() => {
+    widgetDateBoundaryTimer = 0;
+    refreshDateSensitiveWidgetIfDayChanged("widget-date-boundary-refresh");
+    scheduleNextWidgetDateBoundaryRefresh();
+  }, delayMs);
+}
+
+function refreshDateSensitiveWidgetIfDayChanged(reason = "widget-date-refresh") {
+  const currentDateText = getLocalDateText(new Date());
+  if (!currentDateText) {
+    return false;
+  }
+  if (!lastWidgetLocalDateText) {
+    lastWidgetLocalDateText = currentDateText;
+    return false;
+  }
+  if (currentDateText === lastWidgetLocalDateText) {
+    return false;
+  }
+
+  lastWidgetLocalDateText = currentDateText;
+  const { widgetType } = getWidgetDefinition();
+  if (!isDateSensitiveWidgetKind(widgetType?.id)) {
+    return false;
+  }
+
+  scheduleRender({
+    reason,
+    reloadData: true,
+    delayMs: 0,
+  });
+  return true;
+}
+
+function bindWidgetDateBoundaryRefresh() {
+  if (widgetDateBoundaryRefreshBound) {
+    return;
+  }
+  widgetDateBoundaryRefreshBound = true;
+  lastWidgetLocalDateText = getLocalDateText(new Date());
+  scheduleNextWidgetDateBoundaryRefresh();
+
+  window.addEventListener("focus", () => {
+    refreshDateSensitiveWidgetIfDayChanged("widget-focus-date-refresh");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      refreshDateSensitiveWidgetIfDayChanged("widget-visible-date-refresh");
+    }
+  });
+  window.addEventListener("pageshow", () => {
+    refreshDateSensitiveWidgetIfDayChanged("widget-pageshow-date-refresh");
+  });
+}
+
 window.ControlerWidgetRuntime.renderNow = renderWidget;
 
 window.addEventListener("resize", () => {
@@ -3828,6 +3964,7 @@ if (document.readyState === "loading") {
     bindWindowControls();
     bindWindowHoverState();
     bindWidgetRuntimeErrorHandlers();
+    bindWidgetDateBoundaryRefresh();
     void syncWidgetWindowAppearance();
     renderWidget({
       reason: "widget-initial-load",
@@ -3841,6 +3978,7 @@ if (document.readyState === "loading") {
   bindWindowControls();
   bindWindowHoverState();
   bindWidgetRuntimeErrorHandlers();
+  bindWidgetDateBoundaryRefresh();
   void syncWidgetWindowAppearance();
   renderWidget({
     reason: "widget-initial-load",

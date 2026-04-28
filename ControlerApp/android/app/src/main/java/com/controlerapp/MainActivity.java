@@ -14,6 +14,7 @@ import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
 import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
+import com.controlerapp.widgets.ControlerWidgetRenderer;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.ReactActivity;
@@ -94,6 +95,12 @@ public class MainActivity extends ReactActivity {
       }
     }
     emitWidgetLaunchActionIfPossible(intent);
+  }
+
+  @Override
+  protected void onResume() {
+    super.onResume();
+    ControlerWidgetRenderer.scheduleDateSensitiveRefreshIfNeeded(this, "activity-resume");
   }
 
   private void applyShellWindowChrome() {
