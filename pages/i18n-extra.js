@@ -353,6 +353,7 @@
     "选择您喜欢的主题配色，设置将自动保存并同步到底部导航样式。":
       "Choose your preferred theme palette. Changes save automatically and sync to the bottom navigation.",
     "文字颜色": "Text Color",
+    "小组件描边": "Widget Border",
     "遮罩颜色": "Overlay Color",
     "底栏底色": "Bottom Nav Bar",
     "底栏按钮": "Bottom Nav Button",

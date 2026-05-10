@@ -64,6 +64,7 @@
     buttonText: "#133120",
     buttonBorder: "rgba(111, 208, 141, 0.46)",
     onAccentText: "#133120",
+    widgetBorder: "",
     navBarBg: "rgba(11, 25, 17, 0.9)",
     navBarBorder: "",
     navButtonBg: "rgba(111, 208, 141, 0.08)",
@@ -581,6 +582,13 @@
           optional: true,
           description: "留空时自动使用当前主题的小组件内容卡片。",
           placeholder: "留空则自动跟随当前主题",
+        }),
+        Object.freeze({
+          key: "widgetBorder",
+          label: "小组件描边",
+          optional: true,
+          description: "留空时自动跟随当前主题的描边。",
+          placeholder: "留空则自动跟随当前主题的描边",
         }),
         Object.freeze({
           key: "widgetText",
@@ -1314,6 +1322,16 @@
       contrastReference,
       isLightSurface ? 0.14 : 0.1,
     );
+    const widgetBorderOverride = isValidThemeColorValue(resolvedColors.widgetBorder)
+      ? resolvedColors.widgetBorder.trim()
+      : "";
+    const widgetBorderBase = firstNonEmpty(widgetBorderOverride, buttonBorderBase);
+    const widgetCardBorderBase = firstNonEmpty(
+      widgetBorderOverride,
+      resolvedColors.panelBorder,
+      resolvedColors.border,
+      buttonBorderBase,
+    );
     const widgetButtonTextOverride = isValidThemeColorValue(
       resolvedColors.widgetButtonText,
     )
@@ -1365,7 +1383,7 @@
       windowSurface: toRgbaColor(windowSurface, 1),
       windowGlow: toRgbaColor(accentBase, isLightSurface ? 0.14 : 0.12),
       controlBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.84 : 0.92),
-      controlBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.28 : 0.24),
+      controlBorder: toRgbaColor(widgetBorderBase, isLightSurface ? 0.28 : 0.24),
       controlText: textColor,
       cardBase,
       itemCardBase,
@@ -1373,20 +1391,12 @@
       mutedTextColor,
       textOverride: widgetTextOverride,
       buttonBg,
-      buttonBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.46 : 0.36),
+      buttonBorder: toRgbaColor(widgetBorderBase, isLightSurface ? 0.46 : 0.36),
       buttonText,
       buttonTextOverride: widgetButtonTextOverride,
       cardBg: toRgbaColor(cardBase, cardSurfaceAlpha),
       cardBorder: toRgbaColor(
-        mixThemeColors(
-          firstNonEmpty(
-            resolvedColors.panelBorder,
-            resolvedColors.border,
-            buttonBorderBase,
-          ),
-          contrastReference,
-          isLightSurface ? 0.08 : 0.12,
-        ),
+        mixThemeColors(widgetCardBorderBase, contrastReference, isLightSurface ? 0.08 : 0.12),
         isLightSurface ? 0.28 : 0.22,
       ),
       cardShadow: toRgbaColor(
@@ -1399,9 +1409,9 @@
         panelSurfaceStrongBase,
         itemSurfaceStrongAlpha,
       ),
-      subtleBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.34 : 0.28),
+      subtleBorder: toRgbaColor(widgetBorderBase, isLightSurface ? 0.34 : 0.28),
       trackBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.62 : 0.56),
-      trackBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.24 : 0.22),
+      trackBorder: toRgbaColor(widgetBorderBase, isLightSurface ? 0.24 : 0.22),
       gridColor: toRgbaColor(contrastReference, isLightSurface ? 0.12 : 0.18),
       placeholderColor: toRgbaColor(
         contrastReference,
@@ -1415,11 +1425,11 @@
       badgeBg: toRgbaColor(panelSurfaceStrongBase, isLightSurface ? 0.96 : 0.94),
       badgeText: mutedTextColor,
       actionMutedBg: toRgbaColor(panelSurfaceBase, isLightSurface ? 0.92 : 0.88),
-      actionMutedBorder: toRgbaColor(buttonBorderBase, isLightSurface ? 0.38 : 0.32),
+      actionMutedBorder: toRgbaColor(widgetBorderBase, isLightSurface ? 0.38 : 0.32),
       actionMutedText,
       accentActionBg: toRgbaColor(buttonBg, 1),
       accentActionBorder: toRgbaColor(
-        buttonBorderBase,
+        widgetBorderBase,
         isLightSurface ? 0.46 : 0.36,
       ),
       accentActionText: buttonText,
@@ -1427,7 +1437,8 @@
       goalAnnualAccent: accentBase,
       goalMonthBg: toRgbaColor(panelSurfaceBase, itemSurfaceAlpha),
       goalMonthAccent: toRgbaColor(contrastReference, isLightSurface ? 0.2 : 0.24),
-      colorChipOutline: toRgbaColor(buttonBorderBase, isLightSurface ? 0.4 : 0.3),
+      colorChipOutline: toRgbaColor(widgetBorderBase, isLightSurface ? 0.4 : 0.3),
+      widgetBorder: widgetBorderBase,
     };
   }
 
@@ -1708,6 +1719,9 @@
         ? source.buttonBorder.trim()
         : toRgbaColor(buttonBg, 0.48),
       onAccentText,
+      widgetBorder: isValidThemeColorValue(source.widgetBorder)
+        ? source.widgetBorder.trim()
+        : "",
       navBarBg,
       navBarBorder,
       navButtonBg,
@@ -2403,6 +2417,7 @@
       "--widget-button-text-override",
       widgetColors.buttonTextOverride,
     );
+    root.style.setProperty("--widget-border", widgetColors.widgetBorder);
     root.style.setProperty("--widget-card-bg", widgetColors.cardBg);
     root.style.setProperty("--widget-card-border", widgetColors.cardBorder);
     root.style.setProperty("--widget-card-shadow", widgetColors.cardShadow);

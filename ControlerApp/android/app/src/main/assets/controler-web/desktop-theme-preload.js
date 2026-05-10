@@ -31,6 +31,7 @@
     buttonBgHover: "--button-bg-hover",
     buttonText: "--button-text",
     buttonBorder: "--button-border",
+    widgetBorder: "--widget-border",
     onAccentText: "--on-accent-text",
     navBarBg: "--bottom-nav-bg",
     navBarBorder: "--bottom-nav-border",
@@ -340,6 +341,20 @@
           root.style.setProperty(cssVariableName, value.trim());
         }
       });
+      if (
+        !(
+          typeof colors.widgetBorder === "string" &&
+          colors.widgetBorder.trim()
+        )
+      ) {
+        root.style.setProperty(
+          "--widget-border",
+          colors?.buttonBorder ||
+            colors?.panelBorder ||
+            colors?.border ||
+            `rgba(${toRgbChannels(colors?.accent || DEFAULT_ACCENT_COLOR)}, 0.46)`,
+        );
+      }
       root.style.setProperty(
         "--bottom-nav-border",
         colors?.navBarBorder ||

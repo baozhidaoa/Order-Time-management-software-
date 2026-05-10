@@ -1703,14 +1703,6 @@ public final class ControlerWidgetRenderer {
             palette.surfaceColor,
             palette.accentColor
         );
-        palette.borderColor = resolveVisibleAccentColor(
-            parseColor(
-                firstNonEmpty(colors.get("panelBorder"), colors.get("border"), colors.get("accent")),
-                palette.borderColor
-            ),
-            palette.surfaceColor,
-            palette.accentColor
-        );
         int preferredTitleColor = parseColor(colors.get("text"), palette.titleColor);
         int widgetCardOverride = parseColor(colors.get("widgetCardBg"), Integer.MIN_VALUE);
         palette.cardFillColor =
@@ -1781,11 +1773,35 @@ public final class ControlerWidgetRenderer {
             );
         }
         palette.actionFillColor = resolveOpaqueColor(actionBaseColor, palette.cardFillColor);
+        int buttonBorderBase = blendColors(
+            palette.actionFillColor,
+            palette.contrastReferenceColor,
+            palette.surfaceIsLight ? 0.14f : 0.10f
+        );
+        int widgetBorderOverride = parseColor(colors.get("widgetBorder"), Integer.MIN_VALUE);
+        int widgetBorderBase =
+            widgetBorderOverride != Integer.MIN_VALUE ? widgetBorderOverride : buttonBorderBase;
+        int widgetCardBorderBase =
+            widgetBorderOverride != Integer.MIN_VALUE
+                ? widgetBorderBase
+                : parseColor(
+                    firstNonEmpty(
+                        colors.get("panelBorder"),
+                        colors.get("border"),
+                        colors.get("accent")
+                    ),
+                    buttonBorderBase
+                );
+        palette.borderColor = resolveVisibleAccentColor(
+            widgetBorderBase,
+            palette.surfaceColor,
+            palette.accentColor
+        );
         palette.actionOutlineColor = resolveOpaqueColor(
             blendColors(
-                palette.actionFillColor,
+                widgetBorderBase,
                 palette.contrastReferenceColor,
-                palette.surfaceIsLight ? 0.12f : 0.10f
+                palette.surfaceIsLight ? 0.14f : 0.10f
             ),
             palette.cardFillColor
         );
@@ -1808,7 +1824,7 @@ public final class ControlerWidgetRenderer {
             4.2d
         );
         palette.cardBorderColor = blendColors(
-            palette.borderColor,
+            widgetCardBorderBase,
             palette.contrastReferenceColor,
             palette.surfaceIsLight ? 0.10f : 0.14f
         );
@@ -2027,6 +2043,7 @@ public final class ControlerWidgetRenderer {
             "buttonBg",
             "buttonText",
             "onAccentText",
+            "widgetBorder",
             "widgetCardBg",
             "widgetItemBg",
             "widgetText",

@@ -1441,6 +1441,14 @@ function resolveThemeEditorWidgetColorFallbacks(colors = {}) {
       resolvedColors.panel,
       DEFAULT_THEME_COLORS.panel,
     ),
+    widgetBorder: firstNonEmpty(
+      widgetColors?.widgetBorder,
+      widgetColors?.buttonBorder,
+      resolvedColors.buttonBorder,
+      resolvedColors.panelBorder,
+      resolvedColors.border,
+      DEFAULT_THEME_COLORS.buttonBorder,
+    ),
     widgetText: firstNonEmpty(
       widgetColors?.textColor,
       resolvedColors.text,
@@ -2963,6 +2971,21 @@ function buildUniqueThemeCopyName(baseName, existingThemes = []) {
   return `${baseCopyName} ${Date.now().toString(36).slice(-4)}`;
 }
 
+function materializeDuplicatedThemeColors(themeDraft) {
+  const colors = { ...(themeDraft?.colors || {}) };
+  const widgetFallbacks = resolveThemeEditorWidgetColorFallbacks(colors);
+  THEME_WIDGET_COLOR_FIELDS.forEach(({ key }) => {
+    if (!key || resolveOptionalThemeColorValue(colors[key])) {
+      return;
+    }
+    const fallbackValue = resolveOptionalThemeColorValue(widgetFallbacks[key]);
+    if (fallbackValue) {
+      colors[key] = fallbackValue;
+    }
+  });
+  return colors;
+}
+
 function duplicateThemeDraftAsCustomTheme(themeDraft) {
   if (!themeDraft || typeof themeDraft !== "object") {
     return null;
@@ -2972,7 +2995,7 @@ function duplicateThemeDraftAsCustomTheme(themeDraft) {
     ...themeDraft,
     id: "",
     name: buildUniqueThemeCopyName(themeDraft.name, existingThemes),
-    colors: { ...(themeDraft.colors || {}) },
+    colors: materializeDuplicatedThemeColors(themeDraft),
     recordCard: { ...(themeDraft.recordCard || {}) },
   });
 }
