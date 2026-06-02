@@ -3,7 +3,7 @@
     android:id="@+id/widget_collection_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="56dp"
+    android:minHeight="46dp"
     android:paddingTop="2dp"
     android:paddingBottom="2dp">
 
@@ -20,14 +20,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="56dp"
+        android:minHeight="42dp"
         android:orientation="horizontal"
-        android:padding="10dp">
+        android:paddingLeft="8dp"
+        android:paddingTop="6dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="6dp">
 
         <ImageView
             android:id="@+id/widget_collection_item_accent"
             android:layout_width="4dp"
-            android:layout_height="match_parent"
+            android:layout_height="30dp"
             android:background="#8ED6A4"
             android:contentDescription="@null"
             android:scaleType="fitXY" />
@@ -35,8 +38,8 @@
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -65,18 +68,18 @@
 
         <FrameLayout
             android:id="@+id/widget_collection_item_action"
-            android:layout_width="72dp"
-            android:layout_height="52dp"
-            android:minWidth="72dp"
-            android:minHeight="52dp">
+            android:layout_width="62dp"
+            android:layout_height="40dp"
+            android:minWidth="62dp"
+            android:minHeight="40dp">
 
             <FrameLayout
                 android:id="@+id/widget_collection_item_action_visual"
-                android:layout_width="64dp"
-                android:layout_height="48dp"
+                android:layout_width="56dp"
+                android:layout_height="36dp"
                 android:layout_gravity="center"
-                android:minWidth="64dp"
-                android:minHeight="48dp">
+                android:minWidth="56dp"
+                android:minHeight="36dp">
 
                 <ImageView
                     android:id="@+id/widget_collection_item_action_fill"
@@ -104,10 +107,10 @@
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:maxLines="1"
-                    android:paddingLeft="12dp"
-                    android:paddingTop="10dp"
-                    android:paddingRight="12dp"
-                    android:paddingBottom="10dp"
+                    android:paddingLeft="8dp"
+                    android:paddingTop="7dp"
+                    android:paddingRight="8dp"
+                    android:paddingBottom="7dp"
                     android:text="完成"
                     android:textColor="#FFFFFF"
                     android:textSize="10sp"

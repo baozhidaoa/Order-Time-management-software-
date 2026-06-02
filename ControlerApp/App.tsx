@@ -1293,6 +1293,31 @@ const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.18 : 0.32;
 const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 128 : 84;
 const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = IS_ANDROID ? 0.6 : 0.75;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
+const CLEAR_TRANSIENT_WEBVIEW_OVERLAYS_SCRIPT = `(() => {
+  try {
+    document.querySelectorAll('.page-loading-overlay').forEach(overlay => {
+      if (!overlay) return;
+      overlay.hidden = true;
+      overlay.setAttribute('aria-hidden', 'true');
+      if (overlay.dataset) {
+        overlay.dataset.shellSuppressed = 'false';
+        overlay.dataset.appEnterSuppressed = 'false';
+      }
+      if (overlay.style) {
+        overlay.style.pointerEvents = '';
+      }
+    });
+    const classes = [
+      'controler-blocking-overlay-active',
+      'controler-fullscreen-overlay-active'
+    ];
+    document.documentElement && document.documentElement.classList.remove(...classes);
+    document.body && document.body.classList.remove(...classes);
+    window.dispatchEvent(new CustomEvent('controler:rn-transient-overlays-cleared', {
+      detail: { source: 'react-native-shell' }
+    }));
+  } catch (error) {}
+})(); true;`;
 const ANDROID_IDLE_CACHE_TRIM_DELAY_MS = 220;
 const ANDROID_ASSET_WEB_ROOT = 'file:///android_asset/controler-web';
 const ANDROID_ASSET_WEB_VERSION_QUERY_PARAM = 'assetVersion';
@@ -3842,6 +3867,28 @@ function App({
         ? secondaryWebViewRef
         : tertiaryWebViewRef;
 
+  const resetSlotTransientOverlayState = useCallback(
+    (slot: WebViewSlot, reason = 'transient-clear', injectCleanup = true) => {
+      modalOpenBySlotRef.current[slot] = false;
+      busyLockBySlotRef.current[slot] = false;
+      busyOverlayBySlotRef.current[slot] = createDefaultBusyOverlayState();
+      shellVisibilitySignatureRef.current[slot] = '';
+      if (injectCleanup && webViewSlotsRef.current[slot].uri) {
+        getWebViewRef(slot).current?.injectJavaScript(
+          CLEAR_TRANSIENT_WEBVIEW_OVERLAYS_SCRIPT,
+        );
+        logPerfMetric('inject-javascript', {
+          slot,
+          page: webViewSlotsRef.current[slot].pageKey,
+          kind: 'transient-overlay-clear',
+          reason,
+          sizeBytes: CLEAR_TRANSIENT_WEBVIEW_OVERLAYS_SCRIPT.length,
+        });
+      }
+    },
+    [logPerfMetric],
+  );
+
   const requestLoadedWebViewsPersist = useCallback((reason: string) => {
     WEBVIEW_SLOTS.forEach(slot => {
       if (!webViewSlotsRef.current[slot].uri) {
@@ -4069,9 +4116,7 @@ function App({
   const clearCachedSlot = useCallback((slot: WebViewSlot) => {
     resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
     canGoBackBySlotRef.current[slot] = false;
-    modalOpenBySlotRef.current[slot] = false;
-    busyLockBySlotRef.current[slot] = false;
-    busyOverlayBySlotRef.current[slot] = createDefaultBusyOverlayState();
+    resetSlotTransientOverlayState(slot, 'clear-cached-slot', false);
     edgeBackSwipeExclusionBySlotRef.current[slot] =
       createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
@@ -4087,7 +4132,7 @@ function App({
         pageKey: '',
       },
     }));
-  }, []);
+  }, [resetSlotTransientOverlayState]);
 
   const clearInactiveCachedSlots = useCallback(
     (preserveSlots: WebViewSlot[] = []) => {
@@ -4566,10 +4611,13 @@ function App({
       if (shellVisibilitySignatureRef.current[slot] === signature) {
         return;
       }
+      if (!payload.active && !payload.transitionLoading) {
+        resetSlotTransientOverlayState(slot, `shell-inactive:${reason}`);
+      }
       shellVisibilitySignatureRef.current[slot] = signature;
       postBridgeEventRef.current(slot, 'ui.shell-visibility', payload);
     });
-  }, []);
+  }, [resetSlotTransientOverlayState]);
 
   const dispatchWidgetLaunchActionToSlot = useCallback(
     (
@@ -4990,8 +5038,7 @@ function App({
     transitionStateRef.current = null;
     setTransitionState(null);
     canGoBackBySlotRef.current[slot] = false;
-    modalOpenBySlotRef.current[slot] = false;
-    busyLockBySlotRef.current[slot] = false;
+    resetSlotTransientOverlayState(slot, `transition-cleared:${reason}`);
     if (!currentTransition.reuseCachedSlot) {
       clearCachedSlot(slot);
     }
@@ -5048,8 +5095,7 @@ function App({
     cancelTransitionThemeFallback(previousSlot);
     cancelTransitionThemeFallback(nextActiveSlot);
     canGoBackBySlotRef.current[previousSlot] = false;
-    modalOpenBySlotRef.current[previousSlot] = false;
-    busyLockBySlotRef.current[previousSlot] = false;
+    resetSlotTransientOverlayState(previousSlot, 'transition-complete');
     markSlotUsed(nextActiveSlot);
     logPerfMetric('transition-complete', {
       fromSlot: previousSlot,
@@ -5339,8 +5385,7 @@ function App({
       IS_ANDROID && !nextSlotState.needsLoad && nextSlotState.slotReady;
 
     canGoBackBySlotRef.current[nextSlot] = false;
-    modalOpenBySlotRef.current[nextSlot] = false;
-    busyLockBySlotRef.current[nextSlot] = false;
+    resetSlotTransientOverlayState(nextSlot, 'prepare-transition-target', false);
     edgeBackSwipeExclusionBySlotRef.current[nextSlot] =
       createDefaultEdgeBackSwipeExclusionState();
     if (shouldAwaitFreshReadySignal) {

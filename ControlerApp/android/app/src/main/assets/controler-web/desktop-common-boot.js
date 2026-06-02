@@ -25900,6 +25900,38 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
   }
 
+  function forceHidePageLoadingOverlays(reason = "transient-clear") {
+    if (typeof document === "undefined") {
+      return;
+    }
+    Array.from(document.querySelectorAll(".page-loading-overlay")).forEach((overlay) => {
+      if (!(overlay instanceof HTMLElement)) {
+        return;
+      }
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.dataset.shellSuppressed = "false";
+      overlay.dataset.appEnterSuppressed = "false";
+      overlay.style.pointerEvents = "";
+    });
+    const root = document.documentElement;
+    const body = document.body;
+    root?.classList.remove(
+      "controler-blocking-overlay-active",
+      "controler-fullscreen-overlay-active",
+    );
+    body?.classList.remove(
+      "controler-blocking-overlay-active",
+      "controler-fullscreen-overlay-active",
+    );
+    scheduleBlockingOverlaySync();
+    window.dispatchEvent(
+      new CustomEvent("controler:page-loading-overlays-cleared", {
+        detail: { reason },
+      }),
+    );
+  }
+
   function scheduleBlockingOverlaySync() {
     if (blockingOverlaySyncQueued) {
       return;
@@ -25913,6 +25945,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     schedule(syncBlockingOverlayState);
   }
+
+  window.addEventListener("pagehide", () => {
+    forceHidePageLoadingOverlays("pagehide");
+  });
+  window.addEventListener("beforeunload", () => {
+    forceHidePageLoadingOverlays("beforeunload");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      forceHidePageLoadingOverlays("visibility-hidden");
+    }
+  });
 
   function applyBlockingOverlayScrollLock(nextMode = "none") {
     if (typeof document === "undefined") {
@@ -27537,7 +27581,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       syncFullscreenGeometry();
     };
 
-    const handleShellVisibilityChange = () => {
+    const handleShellVisibilityChange = (event) => {
+      const detail =
+        event && typeof event.detail === "object" && event.detail
+          ? event.detail
+          : {};
+      if (detail.active === false) {
+        forceHideOverlay();
+        forceHidePageLoadingOverlays("shell-inactive");
+        return;
+      }
       if (
         suppressRevealingAfterShellUnlock &&
         requestedOverlayState.visible &&

@@ -847,8 +847,8 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         todo.put("repeatType", "none");
         todo.put("repeatWeekdays", new JSONArray());
         todo.put("dueDate", TextUtils.isEmpty(todoDueDate) ? "" : todoDueDate);
-        todo.put("startDate", TextUtils.isEmpty(todoDueDate) ? today : todoDueDate);
-        todo.put("endDate", "");
+        todo.put("startDate", today);
+        todo.put("endDate", TextUtils.isEmpty(todoDueDate) ? "" : todoDueDate);
         todo.put("notification", JSONObject.NULL);
         todos.put(todo);
 

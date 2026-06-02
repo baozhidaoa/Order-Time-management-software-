@@ -7275,6 +7275,23 @@ public final class ControlerWidgetRenderer {
         return "";
     }
 
+    private static String formatTodoWidgetDateWindow(ControlerWidgetDataStore.TodoInfo todo) {
+        if (todo == null) {
+            return "";
+        }
+        String normalizedStart = safeText(todo.startDate).trim();
+        String normalizedEnd = safeText(todo.endDate).trim();
+        String normalizedDue = safeText(todo.dueDate).trim();
+        if (TextUtils.isEmpty(normalizedEnd) && !TextUtils.isEmpty(normalizedDue)) {
+            if (!TextUtils.isEmpty(normalizedStart) && !normalizedStart.equals(normalizedDue)) {
+                normalizedEnd = normalizedDue;
+            } else if (!TextUtils.isEmpty(normalizedStart)) {
+                return "截止 " + formatMonthDayLabel(normalizedDue);
+            }
+        }
+        return formatWidgetDateWindow(normalizedStart, normalizedEnd, normalizedDue, true);
+    }
+
     private static String formatWidgetTimeWindow(String startTime, String endTime) {
         String normalizedStart = safeText(startTime).trim();
         String normalizedEnd = safeText(endTime).trim();
@@ -7333,7 +7350,7 @@ public final class ControlerWidgetRenderer {
         if ("daily".equals(todo.repeatType)) {
             return "每天重复";
         }
-        String dateWindow = formatWidgetDateWindow(todo.startDate, todo.endDate, "", false);
+        String dateWindow = formatTodoWidgetDateWindow(todo);
         return TextUtils.isEmpty(dateWindow) ? "待安排" : dateWindow;
     }
 
@@ -7352,7 +7369,7 @@ public final class ControlerWidgetRenderer {
         if (todo == null) {
             return "";
         }
-        String dateWindow = formatWidgetDateWindow(todo.startDate, todo.endDate, "", false);
+        String dateWindow = formatTodoWidgetDateWindow(todo);
         String timeWindow = formatWidgetTimeWindow(todo.startTime, todo.endTime);
         if (completed) {
             return "已完成";

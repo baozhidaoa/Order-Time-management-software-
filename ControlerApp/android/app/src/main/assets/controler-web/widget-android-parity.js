@@ -522,6 +522,25 @@ function formatWidgetDateWindow({
   return "";
 }
 
+function formatTodoWidgetDateWindow(todo = {}) {
+  const normalizedStart = String(todo?.startDate || "").trim();
+  let normalizedEnd = String(todo?.endDate || "").trim();
+  const normalizedDue = String(todo?.dueDate || "").trim();
+  if (!normalizedEnd && normalizedDue) {
+    if (normalizedStart && normalizedStart !== normalizedDue) {
+      normalizedEnd = normalizedDue;
+    } else if (normalizedStart) {
+      return `截止 ${formatRelativeDateLabel(normalizedDue)}`;
+    }
+  }
+  return formatWidgetDateWindow({
+    startDate: normalizedStart,
+    endDate: normalizedEnd,
+    dueDate: normalizedDue,
+    includeDueDate: true,
+  });
+}
+
 function formatWidgetTimeWindow({
   startTime = "",
   endTime = "",
@@ -776,10 +795,7 @@ function getTodoRepeatSummary(todo = {}) {
       : [];
     return `每周 ${labels.join("、") || "未设置"}`;
   }
-  const dateWindow = formatWidgetDateWindow({
-    startDate: todo?.startDate,
-    endDate: todo?.endDate,
-  });
+  const dateWindow = formatTodoWidgetDateWindow(todo);
   return dateWindow || "待安排";
 }
 
@@ -800,10 +816,7 @@ function getTodoDueState(todo = {}, today = getDateText(new Date())) {
 
   const dueDate = typeof todo?.dueDate === "string" ? todo.dueDate : "";
   if (!dueDate) {
-    const dateWindow = formatWidgetDateWindow({
-      startDate: todo?.startDate,
-      endDate: todo?.endDate,
-    });
+    const dateWindow = formatTodoWidgetDateWindow(todo);
     if (dateWindow) {
       return {
         eyebrow: dateWindow,
@@ -947,10 +960,7 @@ function getTodayTodoItems(state, limit = 6) {
         todo?.repeatType && todo.repeatType !== "none"
           ? getTodoRepeatSummary(todo)
           : dueState.status;
-      const dateWindow = formatWidgetDateWindow({
-        startDate: todo?.startDate,
-        endDate: todo?.endDate,
-      });
+      const dateWindow = formatTodoWidgetDateWindow(todo);
       const timeWindow = formatWidgetTimeWindow({
         startTime: todo?.startTime,
         endTime: todo?.endTime,
