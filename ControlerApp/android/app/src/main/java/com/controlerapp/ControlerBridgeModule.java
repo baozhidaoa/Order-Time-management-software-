@@ -935,21 +935,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void logThemeTrace(String traceJson, Promise promise) {
-        try {
-            String normalizedTrace =
-                traceJson == null ? "" : String.valueOf(traceJson).replace('\n', ' ').trim();
-            if (normalizedTrace.length() > 6000) {
-                normalizedTrace = normalizedTrace.substring(0, 6000);
-            }
-            Log.i(TAG, "[theme.trace] " + normalizedTrace);
-            promise.resolve("ok");
-        } catch (Exception error) {
-            promise.resolve("");
-        }
-    }
-
-    @ReactMethod
     public void getStartUrl(Promise promise) {
         try {
             promise.resolve(buildStartUrl(getReactApplicationContext()));

@@ -860,6 +860,21 @@
     return tail.replace(/\.html$/i, "") || "unknown";
   }
 
+  function shouldPrintPagePerfStage(stage) {
+    return new Set([
+      "navigation-click",
+      "target-visible",
+      "html-parsed",
+      "shell-ready",
+      "first-data-ready",
+      "first-data-commit",
+      "first-render-done",
+      "page-ready-emitted",
+      "desktop-bootstrap-prewarm-start",
+      "desktop-bootstrap-prewarm-done",
+    ]).has(String(stage || "").trim());
+  }
+
   function markPagePerfStage(stage, detail = {}) {
     const normalizedStage = String(stage || "").trim();
     if (!normalizedStage) {
@@ -893,6 +908,12 @@
 
     if (window.__CONTROLER_PERF_DEBUG__ === true) {
       console.debug("[controler-perf]", payload);
+    } else if (shouldPrintPagePerfStage(normalizedStage)) {
+      try {
+        console.info("[controler-perf]", JSON.stringify(payload));
+      } catch (_error) {
+        console.info("[controler-perf]", payload);
+      }
     }
   }
 
@@ -5449,28 +5470,18 @@
     });
   }
 
-  function setAppPageLeaveOverlayState(options = {}) {
-    const active = options.active === true;
-    appPageLeaveOverlayVisible = active;
-    if (!active && !appPageLeaveOverlayController) {
+  function setAppPageLeaveOverlayState(_options = {}) {
+    appPageLeaveOverlayVisible = false;
+    if (!appPageLeaveOverlayController) {
       return;
     }
-    const overlayController = getAppPageLeaveOverlayController();
-    overlayController?.setState({
-      active,
+    appPageLeaveOverlayController.setState({
+      active: false,
       mode: "fullscreen",
       lockNavigation: false,
-      title:
-        typeof options.title === "string" && options.title.trim()
-          ? options.title.trim()
-          : APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-      message:
-        typeof options.message === "string" && options.message.trim()
-          ? options.message.trim()
-          : APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-      delayMs: Number.isFinite(options.delayMs)
-        ? Math.max(0, Math.round(Number(options.delayMs)))
-        : 0,
+      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+      delayMs: 0,
     });
   }
 
@@ -5680,6 +5691,16 @@
       clearStoredState: false,
       hideOverlay: !hasPageBootstrapPendingBodyState(),
     });
+    markPagePerfStage("target-visible", {
+      allowRepeat: true,
+      fromPage:
+        typeof transitionState?.fromPage === "string"
+          ? transitionState.fromPage.trim()
+          : "",
+      toPage: currentItem?.key || resolveCurrentPagePerfKey(),
+      targetHref: targetHref || currentHref,
+      desktopTransition: isFreshTransition && matchesCurrentTarget,
+    });
     clearAppPageTransitionState();
     syncAndroidNativeBootstrapTransitionOverlay();
   }
@@ -5714,6 +5735,13 @@
     }
 
     const currentHref = normalizeAppNavigationHref(window.location.href);
+    markPagePerfStage("navigation-click", {
+      allowRepeat: true,
+      fromPage: currentItem?.key || "",
+      toPage: targetItem.key,
+      targetHref,
+      nativeNavigationRuntime,
+    });
     if (
       currentItem?.key === targetItem.key &&
       currentHref === targetHref

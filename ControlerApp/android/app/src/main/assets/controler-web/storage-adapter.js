@@ -5837,6 +5837,17 @@
       if (hasPendingStateChanges) {
         return;
       }
+      if (reactNativeBridge?.platform === "android") {
+        window.setTimeout(() => {
+          if (hasPendingStateChanges || isManagedShellInactive()) {
+            return;
+          }
+          scheduleNativeForegroundSync(reason, {
+            resetWindow: false,
+          });
+        }, 1800);
+        return;
+      }
       scheduleNativeForegroundSync(reason, {
         resetWindow: false,
       });
@@ -8142,8 +8153,7 @@
           const managedBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
+          const shouldBypassManagedBootstrapCache = isManagedShellInactive();
           if (
             shouldBypassManagedBootstrapCache ||
             shouldForceAuthoritativeRead(normalizedOptions) ||
@@ -8170,8 +8180,7 @@
           const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
             normalizedOptions,
           );
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
+          const shouldBypassManagedBootstrapCache = isManagedShellInactive();
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );

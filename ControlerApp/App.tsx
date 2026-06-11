@@ -32,7 +32,6 @@ type NativeBridgeModule = {
   setUiLanguage?: (language: string) => Promise<string>;
   getLaunchThemeState?: () => Promise<string>;
   setLaunchThemeState?: (themeStateJson: string) => Promise<string>;
-  logThemeTrace?: (traceJson: string) => Promise<string>;
   readStorageState: () => Promise<string>;
   writeStorageState: (stateJson: string) => Promise<string>;
   getStorageStatus: () => Promise<string>;
@@ -430,24 +429,6 @@ function areBusyOverlayStatesEqual(
 const nativeBridge = NativeModules.ControlerBridge as
   | NativeBridgeModule
   | undefined;
-function logNativeThemeTrace(
-  stage: string,
-  payload: Record<string, unknown> = {},
-) {
-  try {
-    const tracePayload = {
-      stage,
-      timestamp: Date.now(),
-      ...payload,
-    };
-    console.info('[OrderBootTheme]', JSON.stringify(tracePayload));
-    if (typeof nativeBridge?.logThemeTrace === 'function') {
-      nativeBridge
-        .logThemeTrace(JSON.stringify(tracePayload))
-        .catch(() => undefined);
-    }
-  } catch (_error) {}
-}
 const DEFAULT_THEME_ID = 'obsidian-mono';
 const SCREEN_BG = '#0d0f12';
 const ACCENT_COLOR = '#f1f4fa';
@@ -1247,6 +1228,8 @@ const SHELL_THEME_SECTION_KEYS = new Set([
 const IS_ANDROID = Platform.OS === 'android';
 const RELEASE_PERF_CONSOLE_EVENTS = new Set([
   'page-ready',
+  'navigation-click',
+  'target-visible',
   'transition-start',
   'transition-complete',
   'transition-load-grace',
@@ -1290,7 +1273,6 @@ const PAGE_SWITCH_LOAD_TIMEOUT_MS = IS_ANDROID ? 2600 : 1100;
 const PAGE_SWITCH_THEME_READY_TIMEOUT_MS = IS_ANDROID ? 900 : 420;
 const PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS = IS_ANDROID ? 120 : 80;
 const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 1000 : 140;
-const ANDROID_READY_TO_PRESENT_SETTLE_MS = 220;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 5200 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
 const NAVIGATION_PREWARM_DELAY_MS = 260;
@@ -1995,35 +1977,6 @@ function buildLaunchThemeStatePayload(
   };
 }
 
-function buildLaunchThemeTracePayload(
-  coreState: Record<string, unknown> | null,
-): Record<string, unknown> {
-  const normalizedThemeState = buildLaunchThemeStatePayload(coreState);
-  const selectedTheme =
-    typeof normalizedThemeState.selectedTheme === 'string' &&
-    normalizedThemeState.selectedTheme.trim()
-      ? normalizedThemeState.selectedTheme.trim()
-      : DEFAULT_THEME_ID;
-  const customThemes = Array.isArray(normalizedThemeState.customThemes)
-    ? normalizedThemeState.customThemes
-    : [];
-  const builtInThemeOverrides = isPlainObject(
-    normalizedThemeState.builtInThemeOverrides,
-  )
-    ? normalizedThemeState.builtInThemeOverrides
-    : {};
-  const resolvedBootTheme = resolveShellBootTheme(normalizedThemeState);
-
-  return {
-    selectedTheme,
-    customThemeCount: customThemes.length,
-    builtInOverrideCount: Object.keys(builtInThemeOverrides).length,
-    screenBg: resolvedBootTheme.screenBg,
-    cardBg: resolvedBootTheme.cardBg,
-    accent: resolvedBootTheme.accent,
-  };
-}
-
 function isAuthoritativeThemeAppliedPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') {
     return false;
@@ -2143,22 +2096,6 @@ function buildForceApplyThemeScript(
             syncLaunchTheme: false,
             force: true,
           });
-          if (
-            window.ControlerNativeBridge &&
-            typeof window.ControlerNativeBridge.call === 'function'
-          ) {
-            window.ControlerNativeBridge.call('ui.logThemeTrace', {
-              trace: {
-                stage: 'page-force-apply-theme',
-                reason: reason,
-                selectedTheme: selectedTheme,
-                themeId: activeTheme.id || selectedTheme,
-                href: window.location.href,
-                pageTheme: document.documentElement.getAttribute('data-theme') || '',
-                timestamp: Date.now(),
-              },
-            }).catch(function () {});
-          }
           return true;
         } catch (_error) {
           return false;
@@ -3440,7 +3377,6 @@ function App({
     useState<ShellBootTheme>(() =>
       resolveShellBootTheme(initialCoreStateRef.current),
     );
-  const shellBootThemeRef = useRef<ShellBootTheme>(shellBootTheme);
   const [isPageReady, setIsPageReady] = useState(false);
   const [busyStateVersion, setBusyStateVersion] = useState(0);
   const [activeSlot, setActiveSlot] = useState<WebViewSlot>('primary');
@@ -3662,20 +3598,6 @@ function App({
   }, [shellLanguage]);
 
   useEffect(() => {
-    shellBootThemeRef.current = shellBootTheme;
-  }, [shellBootTheme]);
-
-  useEffect(() => {
-    console.info(
-      '[OrderBootTheme]',
-      JSON.stringify({
-        stage: 'initial-props',
-        ...buildLaunchThemeTracePayload(initialCoreStateRef.current),
-      }),
-    );
-  }, []);
-
-  useEffect(() => {
     const slotState = webViewSlotsRef.current;
     const transition = transitionStateRef.current;
     const interactiveState = WEBVIEW_SLOTS.map(slot => ({
@@ -3881,16 +3803,9 @@ function App({
       }
       const nextSignature = JSON.stringify(normalizedThemeState);
       if (nextSignature === lastPersistedLaunchThemeStateSignatureRef.current) {
-        logNativeThemeTrace('launch-theme-persist-skipped', {
-          reason: 'same-signature',
-          ...buildLaunchThemeTracePayload(normalizedThemeState),
-        });
         return '';
       }
       lastPersistedLaunchThemeStateSignatureRef.current = nextSignature;
-      logNativeThemeTrace('launch-theme-persist', {
-        ...buildLaunchThemeTracePayload(normalizedThemeState),
-      });
       return nativeBridge.setLaunchThemeState(nextSignature);
     },
     [],
@@ -3929,9 +3844,6 @@ function App({
       return null;
     }
     const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
-    logNativeThemeTrace('native-core-state', {
-      ...buildLaunchThemeTracePayload(coreState),
-    });
     sharedThemeStateRef.current = buildSharedThemeStatePayload(coreState);
     launchThemeStateRef.current = buildLaunchThemeStatePayload(
       sharedThemeStateRef.current,
@@ -4003,13 +3915,6 @@ function App({
             await nativeBridge.getLaunchThemeState(),
           );
           if (storedThemeState) {
-            console.info(
-              '[OrderBootTheme]',
-            JSON.stringify({
-              stage: 'native-launch-theme',
-              ...buildLaunchThemeTracePayload(storedThemeState),
-            }),
-          );
             sharedThemeStateRef.current =
               buildSharedThemeStatePayload(storedThemeState);
             launchThemeStateRef.current = buildLaunchThemeStatePayload(
@@ -4067,12 +3972,6 @@ function App({
         if (!slotLoadCompletedRef.current[slot]) {
           return;
         }
-        logNativeThemeTrace('force-page-theme-inject', {
-          slot,
-          page: getPageKeyForSlot(slot),
-          reason,
-          ...buildLaunchThemeTracePayload(themeState),
-        });
         getWebViewRef(slot).current?.injectJavaScript(script);
       });
     },
@@ -5316,19 +5215,16 @@ function App({
     resetSlotTransientOverlayState(previousSlot, 'transition-complete');
     resetSlotTransientOverlayState(nextActiveSlot, 'transition-complete-target');
     markSlotUsed(nextActiveSlot);
-    logPerfMetric('transition-complete', {
+    logPerfMetric('target-visible', {
       fromSlot: previousSlot,
       toSlot: nextActiveSlot,
       page: webViewSlotsRef.current[nextActiveSlot].pageKey,
       reusedCachedSlot: completedTransition.reuseCachedSlot === true,
     });
-    logNativeThemeTrace('transition-complete-visual', {
+    logPerfMetric('transition-complete', {
       fromSlot: previousSlot,
       toSlot: nextActiveSlot,
       page: webViewSlotsRef.current[nextActiveSlot].pageKey,
-      screenBg: shellBootThemeRef.current.screenBg,
-      cardBg: shellBootThemeRef.current.cardBg,
-      status: completedTransition.status,
       reusedCachedSlot: completedTransition.reuseCachedSlot === true,
     });
     lastPresentedPageKeyRef.current = previousPageKey;
@@ -5522,43 +5418,9 @@ function App({
 
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
-    const transitionToken = currentTransition.token;
     if (IS_ANDROID) {
       clearAndroidLoadedTransitionDelay();
-      const settleTransition = () => {
-        androidLoadedTransitionFrameRef.current = 0;
-        if (!isTransitionTokenCurrent(transitionToken)) {
-          return;
-        }
-        androidLoadedTransitionTimerRef.current = setTimeout(() => {
-          androidLoadedTransitionTimerRef.current = null;
-          const pendingTransition = transitionStateRef.current;
-          if (
-            !isTransitionTokenCurrent(transitionToken) ||
-            !pendingTransition ||
-            pendingTransition.token !== transitionToken ||
-            pendingTransition.toSlot !== slot ||
-            pendingTransition.status === 'animating' ||
-            !slotPageReadyRef.current[slot]
-          ) {
-            return;
-          }
-          finalizeTransition(pendingTransition);
-        }, ANDROID_READY_TO_PRESENT_SETTLE_MS);
-      };
-      androidLoadedTransitionFrameRef.current = requestAnimationFrame(() => {
-        if (!isTransitionTokenCurrent(transitionToken)) {
-          androidLoadedTransitionFrameRef.current = 0;
-          return;
-        }
-        androidLoadedTransitionFrameRef.current = requestAnimationFrame(() => {
-          if (!isTransitionTokenCurrent(transitionToken)) {
-            androidLoadedTransitionFrameRef.current = 0;
-            return;
-          }
-          settleTransition();
-        });
-      });
+      finalizeTransition(currentTransition);
       return;
     }
     finalizeTransition({
@@ -5614,16 +5476,11 @@ function App({
     const direction =
       normalizeNavigationDirection(payload.direction) ||
       getNavigationDirection(currentState.pageKey, target.pageKey);
-    const shouldAwaitFreshReadySignal =
-      IS_ANDROID && !nextSlotState.needsLoad && nextSlotState.slotReady;
-
     canGoBackBySlotRef.current[nextSlot] = false;
     resetSlotTransientOverlayState(nextSlot, 'prepare-transition-target', false);
     edgeBackSwipeExclusionBySlotRef.current[nextSlot] =
       createDefaultEdgeBackSwipeExclusionState();
-    if (shouldAwaitFreshReadySignal) {
-      slotPageReadyRef.current[nextSlot] = false;
-    }
+
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
     const nextTransitionToken = createTransitionToken();
@@ -5642,16 +5499,6 @@ function App({
       toPage: target.pageKey,
       targetUri: target.uri,
       source,
-      reusedCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
-    });
-    logNativeThemeTrace('transition-start-visual', {
-      fromSlot: currentSlot,
-      toSlot: nextSlot,
-      fromPage: currentState.pageKey,
-      toPage: target.pageKey,
-      source,
-      screenBg: shellBootThemeRef.current.screenBg,
-      cardBg: shellBootThemeRef.current.cardBg,
       reusedCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
     });
     transitionStateRef.current = nextTransition;
@@ -5678,15 +5525,7 @@ function App({
         },
       }));
     } else if (nextSlotState.slotReady) {
-      if (shouldAwaitFreshReadySignal) {
-        armTransitionWatchdog(
-          nextTransition,
-          target.uri,
-          PAGE_SWITCH_LOAD_TIMEOUT_MS,
-        );
-      } else {
-        startLoadedTransition(nextSlot);
-      }
+      startLoadedTransition(nextSlot);
     } else {
       armTransitionWatchdog(
         nextTransition,
@@ -6888,15 +6727,6 @@ function App({
             'persisting the launch theme state',
           );
         }
-        logNativeThemeTrace('bridge-set-launch-theme-state', {
-          slot,
-          page: getPageKeyForSlot(slot),
-          ...buildLaunchThemeTracePayload(
-            payload.themeState && typeof payload.themeState === 'object'
-              ? (payload.themeState as Record<string, unknown>)
-              : {},
-          ),
-        });
         return parseBridgeJson(
           await nativeBridge.setLaunchThemeState(
             JSON.stringify(
@@ -6906,16 +6736,6 @@ function App({
             ),
           ),
         );
-      case 'ui.logThemeTrace':
-        logNativeThemeTrace('webview-theme-trace', {
-          slot,
-          page: getPageKeyForSlot(slot),
-          trace:
-            payload.trace && typeof payload.trace === 'object'
-              ? payload.trace
-              : payload,
-        });
-        return {logged: true};
       case 'ui.showToast':
         if (typeof nativeBridge.showToast !== 'function') {
           throw createUnsupportedBridgeError(
@@ -7191,23 +7011,6 @@ function App({
             : {};
         const isPayloadAuthoritative =
           isAuthoritativeThemeAppliedPayload(themeAppliedPayload);
-        logNativeThemeTrace('webview-theme-applied-received', {
-          slot,
-          page: getPageKeyForSlot(slot),
-          activeSlot: activeSlotRef.current,
-          currentPage: currentPageRef.current,
-          source:
-            typeof themeAppliedPayload.source === 'string'
-              ? themeAppliedPayload.source
-              : '',
-          href:
-            typeof themeAppliedPayload.href === 'string'
-              ? themeAppliedPayload.href
-              : '',
-          authoritative: isPayloadAuthoritative,
-          payloadForCurrentSlot: isPayloadForCurrentSlot(slot, message.payload),
-          ...buildLaunchThemeTracePayload(themeAppliedPayload),
-        });
         if (isPayloadForCurrentSlot(slot, message.payload)) {
           slotThemeReadyRef.current[slot] = true;
           requestTransitionPresentation(slot);
@@ -7234,11 +7037,6 @@ function App({
             ? message.payload
             : {};
         const normalizedThemeState = buildSharedThemeStatePayload(nextThemeState);
-        logNativeThemeTrace('webview-theme-applied-authoritative', {
-          slot,
-          page: getPageKeyForSlot(slot),
-          ...buildLaunchThemeTracePayload(normalizedThemeState),
-        });
         sharedThemeStateRef.current = normalizedThemeState;
         launchThemeStateRef.current = buildLaunchThemeStatePayload(
           normalizedThemeState,
@@ -7300,6 +7098,14 @@ function App({
           page: getPageKeyForSlot(slot),
           href: message.payload?.href || '',
         });
+        if (slot === activeSlotRef.current && !transitionStateRef.current) {
+          logPerfMetric('target-visible', {
+            slot,
+            page: getPageKeyForSlot(slot),
+            href: message.payload?.href || '',
+            reason: 'page-ready',
+          });
+        }
         if (
           IS_ANDROID &&
           launchContextRef.current.active &&
@@ -8234,14 +8040,10 @@ function App({
   });
   if (liveShellBlockingOverlay) {
     lastShellBlockingOverlayRef.current = liveShellBlockingOverlay;
-  } else if (transitionState?.status !== 'loading') {
+  } else {
     lastShellBlockingOverlayRef.current = null;
   }
-  const shellBlockingOverlay =
-    liveShellBlockingOverlay ||
-    (transitionState?.status === 'loading'
-      ? lastShellBlockingOverlayRef.current
-      : null);
+  const shellBlockingOverlay = liveShellBlockingOverlay;
   const shellOverlayViewState = resolveShellOverlayViewState({
     isPageReady,
     shellBlockingOverlay,

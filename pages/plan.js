@@ -60,6 +60,7 @@ let planLastPersistenceError = null;
 let planBeforePageLeaveGuardBound = false;
 let planStorageBootstrapReady = false;
 let planStorageBootstrapPromise = null;
+let planInitialContentEnsureQueued = false;
 
 function isPlanShellTransitionLoading() {
   if (typeof uiTools?.getShellVisibilityState !== "function") {
@@ -532,12 +533,8 @@ function bindPlanShellVisibilityGate() {
         ? event.detail
         : {};
     const nextActive = detail.active !== false;
-    if (planShellPageActive === nextActive) {
-      return;
-    }
-
     planShellPageActive = nextActive;
-    if (!planShellPageActive) {
+    if (!nextActive) {
       if (
         planExternalStorageRefreshQueued ||
         planExternalStorageRefreshCoordinator?.hasPending?.()
@@ -582,6 +579,48 @@ function bindPlanShellVisibilityGate() {
       todoSidebarIdleBootstrapPendingResume = false;
       scheduleTodoSidebarIdleBootstrap();
     }
+    schedulePlanInitialContentEnsure("shell-active");
+  });
+}
+
+function hasPlanRenderedInitialContent() {
+  const calendarContent = getPlanCalendarRenderHost();
+  const hasContent =
+    calendarContent instanceof HTMLElement &&
+    calendarContent.isConnected === true &&
+    calendarContent.childElementCount > 0;
+  return hasContent;
+}
+
+function schedulePlanInitialContentEnsure(reason = "shell-active") {
+  if (planInitialContentEnsureQueued) {
+    return;
+  }
+  planInitialContentEnsureQueued = true;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    planInitialContentEnsureQueued = false;
+    if (!planShellPageActive && !isPlanShellTransitionLoading()) {
+      if (!planInitialDataValidated) {
+        planDeferredBootstrapPendingResume = true;
+      }
+      return;
+    }
+    if (planInitialDataValidated) {
+      if (!hasPlanRenderedInitialContent()) {
+        renderCalendarContent();
+        void queuePlanInitialReveal();
+      }
+      return;
+    }
+    planDeferredBootstrapPendingResume = false;
+    void loadInitialPlanWorkspace({
+      reason,
+      manageLoading: false,
+    });
   });
 }
 
@@ -8499,7 +8538,7 @@ function initPlanWidgetLaunchAction() {
   consumeQueryAction();
 }
 
-async function loadInitialPlanWorkspace() {
+async function loadInitialPlanWorkspace(options = {}) {
   if (planInitialDataValidated) {
     return;
   }
@@ -8510,14 +8549,13 @@ async function loadInitialPlanWorkspace() {
   const initialPeriodIds = getPlanPeriodIdsForVisibleView();
   const initialView = currentView;
   const requestId = ++planLoadRequestId;
-  const shouldForceFreshInitialRead =
-    window.ControlerStorage?.isNativeApp === true &&
-    (!planShellPageActive || isPlanShellTransitionLoading());
+  const shouldForceFreshInitialRead = options?.fresh === true;
+  const manageInitialLoading = options?.manageLoading !== false;
   const runInitialLoad = async () => {
     await ensurePlanStorageBootstrapReady({
       allowBridgeBootstrap: true,
     });
-    const shouldManageInitialLoading = !planInitialDataLoaded;
+    const shouldManageInitialLoading = manageInitialLoading && !planInitialDataLoaded;
     if (!planRefreshController) {
       if (shouldManageInitialLoading) {
         setPlanLoadingState({
@@ -8694,22 +8732,10 @@ function scheduleDeferredPlanBootstrap() {
       planDeferredBootstrapQueued = false;
       return;
     }
-    if (typeof window.requestIdleCallback === "function") {
-      planDeferredBootstrapIdleId = window.requestIdleCallback(
-        () => {
-          planDeferredBootstrapIdleId = 0;
-          run();
-        },
-        {
-          timeout: 320,
-        },
-      );
-      return;
-    }
     planDeferredBootstrapTimerId = window.setTimeout(() => {
       planDeferredBootstrapTimerId = 0;
       run();
-    }, 48);
+    }, 80);
   };
 
   if (typeof window.requestAnimationFrame === "function") {
@@ -8788,11 +8814,7 @@ async function init() {
     ) {
       scheduleDeferredPlanBootstrap();
     } else if (bootstrappedFromSnapshot && !planInitialDataValidated) {
-      if (planShellPageActive || isPlanShellTransitionLoading()) {
-        await hydratePlanData();
-      } else {
-        scheduleDeferredPlanBootstrap();
-      }
+      scheduleDeferredPlanBootstrap();
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
     } else {
@@ -8812,6 +8834,7 @@ async function init() {
     if (planInitialDataValidated || bootstrappedFromSnapshot) {
       await queuePlanInitialReveal();
     }
+    schedulePlanInitialContentEnsure("init-finally");
   }
 }
 

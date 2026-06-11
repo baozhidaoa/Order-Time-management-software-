@@ -239,6 +239,8 @@ let recordSectionCollapseState = createDefaultRecordSectionCollapseState();
 let timerSessionDraftSnapshot = null;
 let timerSessionModalBaselineSnapshot = null;
 let timerSessionDraftTimer = 0;
+let timerSessionDeferredDraftRestorePromise = null;
+let timerSessionDeferredDraftRestoreQueued = false;
 const indexWorkspaceRefreshScheduler = uiTools?.createFrameScheduler?.(() => {
   renderProjectsTable();
   updateProjectTotals();
@@ -4360,10 +4362,7 @@ function ensureIndexForegroundBootstrapReady() {
   }
   indexForegroundBootstrapPromise = Promise.resolve()
     .then(async () => {
-      await Promise.all([
-        waitForIndexStorageReady(),
-        restoreTimerSessionDraftFromStorage(),
-      ]);
+      await waitForIndexStorageReady();
       if (!indexForegroundBootstrapReady) {
         indexForegroundBootstrapReady = true;
         uiTools?.markPerfStage?.("shell-ready", {
@@ -4377,6 +4376,42 @@ function ensureIndexForegroundBootstrapReady() {
       throw error;
     });
   return indexForegroundBootstrapPromise;
+}
+
+function scheduleTimerSessionDraftRestoreAfterFirstPaint() {
+  if (timerSessionDeferredDraftRestorePromise) {
+    return timerSessionDeferredDraftRestorePromise;
+  }
+  if (timerSessionDeferredDraftRestoreQueued) {
+    return Promise.resolve(null);
+  }
+  timerSessionDeferredDraftRestoreQueued = true;
+  window.clearTimeout(timerSessionDraftTimer);
+  const startRestore = () => {
+    timerSessionDeferredDraftRestoreQueued = false;
+    timerSessionDeferredDraftRestorePromise = Promise.resolve()
+      .then(() => restoreTimerSessionDraftFromStorage())
+      .then((snapshot) => {
+        if (snapshot) {
+          persistTimerSessionState();
+        }
+        return snapshot;
+      })
+      .catch((error) => {
+        timerSessionDeferredDraftRestorePromise = null;
+        console.error("后台恢复计时草稿失败:", error);
+        return null;
+      });
+    return timerSessionDeferredDraftRestorePromise;
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(startRestore, {
+      timeout: 1200,
+    });
+  } else {
+    window.setTimeout(startRestore, 240);
+  }
+  return timerSessionDeferredDraftRestorePromise || Promise.resolve(null);
 }
 
 function persistTimerSessionState() {
@@ -15143,6 +15178,7 @@ async function finalizeIndexInitialHydration(options = {}) {
   initIndexSecondaryBindings();
   bindIndexDebugInteractivityProbe();
   persistTimerSessionState();
+  scheduleTimerSessionDraftRestoreAfterFirstPaint();
   initIndexWidgetLaunchAction();
   markIndexWidgetLaunchCoreReady();
   await queueRecordInitialReveal();

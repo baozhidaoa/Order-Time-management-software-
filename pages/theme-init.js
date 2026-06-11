@@ -2506,23 +2506,6 @@
     };
   }
 
-  function logNativeThemeTrace(stage, payload = {}) {
-    try {
-      if (typeof window.ControlerNativeBridge?.call !== "function") {
-        return;
-      }
-      void window.ControlerNativeBridge?.call?.("ui.logThemeTrace", {
-        trace: {
-          stage,
-          href: window.location.href,
-          pageTheme: document.documentElement.getAttribute("data-theme") || "",
-          timestamp: Date.now(),
-          ...(payload && typeof payload === "object" ? payload : {}),
-        },
-      }).catch?.(() => {});
-    } catch (_error) {}
-  }
-
   function dispatchThemeApplied(themeId, colors, options = {}) {
     const emitNative = options?.emitNative !== false;
     const activeTheme =
@@ -2963,16 +2946,6 @@
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    logNativeThemeTrace("page-apply-theme-state", {
-      themeId,
-      source: options?.source || "",
-      emitNative: options?.emitNative !== false,
-      syncLaunchTheme: options?.syncLaunchTheme !== false,
-      selectedTheme: themeId,
-      screenBg: resolvedColors.background || resolvedColors.pageBackground || "",
-      primary: resolvedColors.primary || "",
-      text: resolvedColors.text || "",
-    });
     window.__CONTROLER_DESKTOP_PRELOADED_THEME__ = {
       themeId,
       primaryColor: resolvedColors.primary,
@@ -3060,11 +3033,6 @@
             ? resolvedThemeState.storageKeys
             : {},
       });
-      logNativeThemeTrace("page-apply-from-storage", {
-        themeId,
-        source: resolvedThemeState.source,
-        selectedTheme: themeId,
-      });
       applyThemeState(themeId, activeTheme, {
         ...options,
         source: resolvedThemeState.source || options?.source || "",
@@ -3126,19 +3094,6 @@
         resolvedThemeState.customThemes,
         resolvedThemeState.builtInThemeOverrides,
       );
-      logNativeThemeTrace("page-apply-from-managed-core", {
-        selectedTheme,
-        themeId: resolvedThemeState.themeId,
-        source: options?.source || "managed-core-state",
-        customThemeCount: Array.isArray(resolvedThemeState.customThemes)
-          ? resolvedThemeState.customThemes.length
-          : 0,
-        builtInOverrideCount:
-          resolvedThemeState.builtInThemeOverrides &&
-          typeof resolvedThemeState.builtInThemeOverrides === "object"
-            ? Object.keys(resolvedThemeState.builtInThemeOverrides).length
-            : 0,
-      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(resolvedThemeState.themeId, resolvedThemeState.activeTheme, {
         ...options,
@@ -3278,16 +3233,6 @@
       ) {
         managedStorage.applySharedStateFromBridge(sharedThemeState);
       }
-      logNativeThemeTrace("page-theme-sync-from-bridge", {
-        selectedTheme,
-        themeId: resolvedThemeState.themeId,
-        source: detail?.source || "",
-        customThemeCount: customThemes.length,
-        builtInOverrideCount:
-          builtInThemeOverrides && typeof builtInThemeOverrides === "object"
-            ? Object.keys(builtInThemeOverrides).length
-            : 0,
-      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,

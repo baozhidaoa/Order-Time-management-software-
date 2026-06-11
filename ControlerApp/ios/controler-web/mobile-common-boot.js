@@ -9675,6 +9675,17 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (hasPendingStateChanges) {
         return;
       }
+      if (reactNativeBridge?.platform === "android") {
+        window.setTimeout(() => {
+          if (hasPendingStateChanges || isManagedShellInactive()) {
+            return;
+          }
+          scheduleNativeForegroundSync(reason, {
+            resetWindow: false,
+          });
+        }, 1800);
+        return;
+      }
       scheduleNativeForegroundSync(reason, {
         resetWindow: false,
       });
@@ -11980,8 +11991,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const managedBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
+          const shouldBypassManagedBootstrapCache = isManagedShellInactive();
           if (
             shouldBypassManagedBootstrapCache ||
             shouldForceAuthoritativeRead(normalizedOptions) ||
@@ -12008,8 +12018,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead(
             normalizedOptions,
           );
-          const shouldBypassManagedBootstrapCache =
-            isManagedShellInactive() || isAndroidTransitionLoadingShellState();
+          const shouldBypassManagedBootstrapCache = isManagedShellInactive();
           const nativeBootstrapOptions = stripAuthoritativeReadFlags(
             normalizedOptions,
           );
@@ -17972,23 +17981,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function logNativeThemeTrace(stage, payload = {}) {
-    try {
-      if (typeof window.ControlerNativeBridge?.call !== "function") {
-        return;
-      }
-      void window.ControlerNativeBridge?.call?.("ui.logThemeTrace", {
-        trace: {
-          stage,
-          href: window.location.href,
-          pageTheme: document.documentElement.getAttribute("data-theme") || "",
-          timestamp: Date.now(),
-          ...(payload && typeof payload === "object" ? payload : {}),
-        },
-      }).catch?.(() => {});
-    } catch (_error) {}
-  }
-
   function dispatchThemeApplied(themeId, colors, options = {}) {
     const emitNative = options?.emitNative !== false;
     const activeTheme =
@@ -18429,16 +18421,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
-    logNativeThemeTrace("page-apply-theme-state", {
-      themeId,
-      source: options?.source || "",
-      emitNative: options?.emitNative !== false,
-      syncLaunchTheme: options?.syncLaunchTheme !== false,
-      selectedTheme: themeId,
-      screenBg: resolvedColors.background || resolvedColors.pageBackground || "",
-      primary: resolvedColors.primary || "",
-      text: resolvedColors.text || "",
-    });
     window.__CONTROLER_DESKTOP_PRELOADED_THEME__ = {
       themeId,
       primaryColor: resolvedColors.primary,
@@ -18526,11 +18508,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             ? resolvedThemeState.storageKeys
             : {},
       });
-      logNativeThemeTrace("page-apply-from-storage", {
-        themeId,
-        source: resolvedThemeState.source,
-        selectedTheme: themeId,
-      });
       applyThemeState(themeId, activeTheme, {
         ...options,
         source: resolvedThemeState.source || options?.source || "",
@@ -18592,19 +18569,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         resolvedThemeState.customThemes,
         resolvedThemeState.builtInThemeOverrides,
       );
-      logNativeThemeTrace("page-apply-from-managed-core", {
-        selectedTheme,
-        themeId: resolvedThemeState.themeId,
-        source: options?.source || "managed-core-state",
-        customThemeCount: Array.isArray(resolvedThemeState.customThemes)
-          ? resolvedThemeState.customThemes.length
-          : 0,
-        builtInOverrideCount:
-          resolvedThemeState.builtInThemeOverrides &&
-          typeof resolvedThemeState.builtInThemeOverrides === "object"
-            ? Object.keys(resolvedThemeState.builtInThemeOverrides).length
-            : 0,
-      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(resolvedThemeState.themeId, resolvedThemeState.activeTheme, {
         ...options,
@@ -18744,16 +18708,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ) {
         managedStorage.applySharedStateFromBridge(sharedThemeState);
       }
-      logNativeThemeTrace("page-theme-sync-from-bridge", {
-        selectedTheme,
-        themeId: resolvedThemeState.themeId,
-        source: detail?.source || "",
-        customThemeCount: customThemes.length,
-        builtInOverrideCount:
-          builtInThemeOverrides && typeof builtInThemeOverrides === "object"
-            ? Object.keys(builtInThemeOverrides).length
-            : 0,
-      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,
@@ -19725,6 +19679,21 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return tail.replace(/\.html$/i, "") || "unknown";
   }
 
+  function shouldPrintPagePerfStage(stage) {
+    return new Set([
+      "navigation-click",
+      "target-visible",
+      "html-parsed",
+      "shell-ready",
+      "first-data-ready",
+      "first-data-commit",
+      "first-render-done",
+      "page-ready-emitted",
+      "desktop-bootstrap-prewarm-start",
+      "desktop-bootstrap-prewarm-done",
+    ]).has(String(stage || "").trim());
+  }
+
   function markPagePerfStage(stage, detail = {}) {
     const normalizedStage = String(stage || "").trim();
     if (!normalizedStage) {
@@ -19758,6 +19727,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     if (window.__CONTROLER_PERF_DEBUG__ === true) {
       console.debug("[controler-perf]", payload);
+    } else if (shouldPrintPagePerfStage(normalizedStage)) {
+      try {
+        console.info("[controler-perf]", JSON.stringify(payload));
+      } catch (_error) {
+        console.info("[controler-perf]", payload);
+      }
     }
   }
 
@@ -24314,28 +24289,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
-  function setAppPageLeaveOverlayState(options = {}) {
-    const active = options.active === true;
-    appPageLeaveOverlayVisible = active;
-    if (!active && !appPageLeaveOverlayController) {
+  function setAppPageLeaveOverlayState(_options = {}) {
+    appPageLeaveOverlayVisible = false;
+    if (!appPageLeaveOverlayController) {
       return;
     }
-    const overlayController = getAppPageLeaveOverlayController();
-    overlayController?.setState({
-      active,
+    appPageLeaveOverlayController.setState({
+      active: false,
       mode: "fullscreen",
       lockNavigation: false,
-      title:
-        typeof options.title === "string" && options.title.trim()
-          ? options.title.trim()
-          : APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-      message:
-        typeof options.message === "string" && options.message.trim()
-          ? options.message.trim()
-          : APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-      delayMs: Number.isFinite(options.delayMs)
-        ? Math.max(0, Math.round(Number(options.delayMs)))
-        : 0,
+      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
+      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
+      delayMs: 0,
     });
   }
 
@@ -24545,6 +24510,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       clearStoredState: false,
       hideOverlay: !hasPageBootstrapPendingBodyState(),
     });
+    markPagePerfStage("target-visible", {
+      allowRepeat: true,
+      fromPage:
+        typeof transitionState?.fromPage === "string"
+          ? transitionState.fromPage.trim()
+          : "",
+      toPage: currentItem?.key || resolveCurrentPagePerfKey(),
+      targetHref: targetHref || currentHref,
+      desktopTransition: isFreshTransition && matchesCurrentTarget,
+    });
     clearAppPageTransitionState();
     syncAndroidNativeBootstrapTransitionOverlay();
   }
@@ -24579,6 +24554,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     const currentHref = normalizeAppNavigationHref(window.location.href);
+    markPagePerfStage("navigation-click", {
+      allowRepeat: true,
+      fromPage: currentItem?.key || "",
+      toPage: targetItem.key,
+      targetHref,
+      nativeNavigationRuntime,
+    });
     if (
       currentItem?.key === targetItem.key &&
       currentHref === targetHref

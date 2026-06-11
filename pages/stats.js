@@ -60,6 +60,8 @@ let statsToolbarRevealQueued = false;
 let statsToolbarRevealPromise = null;
 let statsInitialReadyReported = false;
 let statsInitialDataLoaded = false;
+let statsInitialDataValidated = false;
+let statsInitialFreshValidationQueued = false;
 let statsShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let statsShellVisibilityBound = false;
 let statsInitialLoadPendingResume = false;
@@ -74,6 +76,9 @@ let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
 let statsBootstrappedFromPageBootstrap = false;
 let statsLineChartThemeSyncBound = false;
+let statsInitialContentEnsureQueued = false;
+let statsDeferredProjectSnapshot = null;
+let statsDeferredProjectPersistTimer = 0;
 const STATS_THEME_APPLIED_EVENT_NAME =
   window.ControlerTheme?.themeAppliedEventName || "controler:theme-applied";
 
@@ -609,8 +614,55 @@ function applyStatsProjectRecordDurationChanges(changes = {}) {
   return cloneStatsProjectSnapshot(projects);
 }
 
-async function persistStatsProjectsSnapshot(projectList = projects) {
+function shouldDeferStatsProjectSnapshotPersist() {
+  return (
+    window.ControlerStorage?.isNativeApp === true &&
+    (!statsShellPageActive || isStatsShellTransitionLoading())
+  );
+}
+
+function scheduleDeferredStatsProjectSnapshotPersist(reason = "idle") {
+  if (!statsDeferredProjectSnapshot) {
+    return;
+  }
+  if (statsDeferredProjectPersistTimer) {
+    window.clearTimeout(statsDeferredProjectPersistTimer);
+    statsDeferredProjectPersistTimer = 0;
+  }
+  const run = () => {
+    statsDeferredProjectPersistTimer = 0;
+    if (!statsDeferredProjectSnapshot) {
+      return;
+    }
+    if (shouldDeferStatsProjectSnapshotPersist()) {
+      scheduleDeferredStatsProjectSnapshotPersist("still-inactive");
+      return;
+    }
+    const snapshot = statsDeferredProjectSnapshot;
+    statsDeferredProjectSnapshot = null;
+    void persistStatsProjectsSnapshot(snapshot, {
+      allowDefer: false,
+      reason,
+    }).catch((error) => {
+      statsDeferredProjectSnapshot = snapshot;
+      console.error("延后写入统计项目缓存失败:", error);
+    });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 1800 });
+    return;
+  }
+  statsDeferredProjectPersistTimer = window.setTimeout(run, 900);
+}
+
+async function persistStatsProjectsSnapshot(projectList = projects, options = {}) {
   const projectSnapshot = cloneStatsProjectSnapshot(projectList);
+  if (options.allowDefer !== false && shouldDeferStatsProjectSnapshotPersist()) {
+    statsDeferredProjectSnapshot = projectSnapshot;
+    scheduleDeferredStatsProjectSnapshotPersist(options.reason || "transition");
+    projects = cloneStatsProjectSnapshot(projectSnapshot);
+    return true;
+  }
   if (typeof window.ControlerStorage?.replaceCoreState === "function") {
     await window.ControlerStorage.replaceCoreState({
       projects: projectSnapshot,
@@ -3625,6 +3677,10 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       await waitForStatsUiPaint();
     }
     statsInitialDataLoaded = true;
+    if (options.fresh === true || options.authoritative === true) {
+      statsInitialDataValidated = true;
+      statsInitialFreshValidationQueued = false;
+    }
     if (!statsInitialReadyReported) {
       await queueStatsToolbarReveal();
     }
@@ -4143,13 +4199,72 @@ function getFilteredStatsTimeRecords(startDate, endDate) {
   });
 }
 
+function buildScopedStatsRecordFromTimeRecord(timeRecord = {}, range = null) {
+  if (!range) {
+    return timeRecord?.rawRecord || null;
+  }
+  if (
+    !(timeRecord?.startTime instanceof Date) ||
+    Number.isNaN(timeRecord.startTime.getTime()) ||
+    !(timeRecord?.endTime instanceof Date) ||
+    Number.isNaN(timeRecord.endTime.getTime())
+  ) {
+    return timeRecord?.rawRecord || null;
+  }
+
+  const clippedStartMs = Math.max(
+    timeRecord.startTime.getTime(),
+    range.start.getTime(),
+  );
+  const clippedEndMs = Math.min(
+    timeRecord.endTime.getTime(),
+    range.endExclusive.getTime(),
+  );
+  if (clippedEndMs <= clippedStartMs) {
+    return null;
+  }
+
+  const clippedStart = new Date(clippedStartMs);
+  const clippedEnd = new Date(clippedEndMs);
+  const clippedDurationMs = Math.max(0, clippedEndMs - clippedStartMs);
+  const rawRecord = timeRecord.rawRecord || {};
+  const durationMeta = normalizeStatsRecordDurationMeta(rawRecord.durationMeta);
+  const nextDurationMeta = {
+    ...(durationMeta || {}),
+    recordedMs: clippedDurationMs,
+  };
+  if (!Number.isFinite(nextDurationMeta.originalMs)) {
+    const originalDurationMs = Math.max(
+      0,
+      timeRecord.endTime.getTime() - timeRecord.startTime.getTime(),
+    );
+    nextDurationMeta.originalMs = originalDurationMs;
+  }
+
+  return {
+    ...rawRecord,
+    timestamp: clippedEnd.toISOString(),
+    sptTime: clippedEnd.toISOString(),
+    endTime: clippedEnd.toISOString(),
+    rawEndTime: clippedEnd.toISOString(),
+    startTime: clippedStart.toISOString(),
+    durationMs: clippedDurationMs,
+    spendtime: formatMergedSpendtime(clippedDurationMs),
+    durationMeta: nextDurationMeta,
+  };
+}
+
 function filterRecordsByDateRange(startDate, endDate) {
+  const range = getNormalizedStatsFilterRange(startDate, endDate);
   const seenRecordKeys = new Set();
   return getFilteredStatsTimeRecords(startDate, endDate)
-    .map((record) => ({
-      key: record?.sourceRecordKey || "",
-      rawRecord: record?.rawRecord || null,
-    }))
+    .map((record) => {
+      const scopedRecord = buildScopedStatsRecordFromTimeRecord(record, range);
+      return {
+        key: record?.sourceRecordKey || "",
+        rawRecord: scopedRecord,
+      };
+    })
     .filter((entry) => {
       if (!entry.rawRecord || seenRecordKeys.has(entry.key)) {
         return false;
@@ -5072,6 +5187,50 @@ function getLineChartBucketIndex(recordDate, rangeMeta) {
   );
 }
 
+function getLineChartBucketRange(bucketIndex, rangeMeta) {
+  if (!rangeMeta || bucketIndex < 0) {
+    return null;
+  }
+  let start = null;
+  let endExclusive = null;
+  if (rangeMeta.mode === "hour") {
+    start = new Date(rangeMeta.start);
+    start.setHours(bucketIndex * 4, 0, 0, 0);
+    endExclusive = new Date(start);
+    endExclusive.setHours(start.getHours() + 4, 0, 0, 0);
+  } else if (rangeMeta.mode === "day") {
+    start = new Date(rangeMeta.start);
+    start.setDate(rangeMeta.start.getDate() + bucketIndex);
+    start.setHours(0, 0, 0, 0);
+    endExclusive = new Date(start);
+    endExclusive.setDate(start.getDate() + 1);
+  } else if (rangeMeta.mode === "week") {
+    start = new Date(rangeMeta.start);
+    start.setDate(rangeMeta.start.getDate() + bucketIndex * 7);
+    start.setHours(0, 0, 0, 0);
+    endExclusive = new Date(start);
+    endExclusive.setDate(start.getDate() + 7);
+  } else {
+    start = new Date(
+      rangeMeta.start.getFullYear(),
+      rangeMeta.start.getMonth() + bucketIndex,
+      1,
+    );
+    endExclusive = new Date(
+      start.getFullYear(),
+      start.getMonth() + 1,
+      1,
+    );
+  }
+  const rangeEndExclusive = new Date(rangeMeta.end.getTime() + 1);
+  return {
+    start: new Date(Math.max(start.getTime(), rangeMeta.start.getTime())),
+    endExclusive: new Date(
+      Math.min(endExclusive.getTime(), rangeEndExclusive.getTime()),
+    ),
+  };
+}
+
 function buildLineDataset(label, values, color) {
   return {
     label,
@@ -5163,14 +5322,36 @@ function accumulateFilteredLineChartValues(
   const values = Array.from({ length: rangeMeta.labels.length }, () => 0);
 
   filteredRecords.forEach((record) => {
-    const recordDate = new Date(record.timestamp);
-    const bucketIndex = getLineChartBucketIndex(recordDate, rangeMeta);
-    if (bucketIndex < 0 || bucketIndex >= values.length) return;
     if (!statsContext.matchesRecord(record, displayItem)) return;
 
-    values[bucketIndex] +=
-      projectStatsApi?.parseSpendTimeToHours?.(record.spendtime) ||
-      parseSpendTimeToHours(record.spendtime);
+    const recordStart = parseStatsFlexibleDate(record?.startTime);
+    const recordEnd =
+      parseStatsFlexibleDate(record?.endTime) ||
+      parseStatsFlexibleDate(record?.timestamp);
+    if (!recordStart || !recordEnd || recordEnd.getTime() <= recordStart.getTime()) {
+      const recordDate = new Date(record.timestamp);
+      const bucketIndex = getLineChartBucketIndex(recordDate, rangeMeta);
+      if (bucketIndex < 0 || bucketIndex >= values.length) return;
+      values[bucketIndex] +=
+        projectStatsApi?.parseSpendTimeToHours?.(record.spendtime) ||
+        parseSpendTimeToHours(record.spendtime);
+      return;
+    }
+
+    values.forEach((_, bucketIndex) => {
+      const bucketRange = getLineChartBucketRange(bucketIndex, rangeMeta);
+      if (!bucketRange) return;
+      const overlapStart = Math.max(
+        recordStart.getTime(),
+        bucketRange.start.getTime(),
+      );
+      const overlapEnd = Math.min(
+        recordEnd.getTime(),
+        bucketRange.endExclusive.getTime(),
+      );
+      if (overlapEnd <= overlapStart) return;
+      values[bucketIndex] += (overlapEnd - overlapStart) / (1000 * 60 * 60);
+    });
   });
 
   return values;
@@ -9688,7 +9869,6 @@ function renderMonthlyProjectView(container, start, end) {
 // 计算每日时间数据
 function calculateDailyTimeData(start, end, daysDiff) {
   const dailyData = [];
-  const recordsByDate = statsDataIndex?.getRecordsByDateMap?.() || new Map();
 
   // 遍历每一天
   for (let i = 0; i < daysDiff; i++) {
@@ -9700,8 +9880,10 @@ function calculateDailyTimeData(start, end, daysDiff) {
     const dayName = getDayName(currentDate.getDay());
 
     // 过滤当天的记录
-    const dayKey = statsDataIndex?.formatDateKey?.(currentDate) || "";
-    const dayRecords = dayKey ? recordsByDate.get(dayKey) || [] : [];
+    const dayStart = formatDateInputValue(currentDate);
+    const dayRecords = dayStart
+      ? filterRecordsByDateRange(dayStart, dayStart)
+      : [];
 
     // 计算当天总时间
     let totalHours = 0;
@@ -9819,15 +10001,10 @@ function calculateProjectTimeData(start, end) {
     return [];
   }
 
-  const filteredRecords = records.filter((record) => {
-    if (!record?.timestamp || !record?.spendtime) return false;
-    const recordDate = new Date(record.timestamp);
-    return (
-      !Number.isNaN(recordDate.getTime()) &&
-      recordDate >= start &&
-      recordDate <= end
-    );
-  });
+  const filteredRecords = filterRecordsByDateRange(
+    formatDateInputValue(start),
+    formatDateInputValue(end),
+  );
 
   const statsContext = createScopedStatsContext(filteredRecords);
   if (!statsContext) {
@@ -10011,6 +10188,78 @@ function refreshStatsFromExternalStorageChange() {
   });
 }
 
+function hasStatsRenderedInitialContent() {
+  const container = document.getElementById("stats-container");
+  const hasContent =
+    container instanceof HTMLElement &&
+    container.isConnected === true &&
+    container.childElementCount > 0;
+  return hasContent;
+}
+
+function scheduleStatsInitialFreshValidation(reason = "initial-validation") {
+  if (statsInitialDataValidated || statsInitialFreshValidationQueued) {
+    return;
+  }
+  if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
+    statsInitialLoadPendingResume = true;
+    return;
+  }
+  statsInitialFreshValidationQueued = true;
+  window.setTimeout(() => {
+    statsInitialFreshValidationQueued = false;
+    if (statsInitialDataValidated) {
+      return;
+    }
+    if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
+      statsInitialLoadPendingResume = true;
+      return;
+    }
+    void refreshStatsRangeData(true, {
+      manageLoading: false,
+      mode: "inline",
+      fresh: true,
+      reason,
+    });
+  }, 80);
+}
+
+function scheduleStatsInitialContentEnsure(reason = "shell-active") {
+  if (statsInitialContentEnsureQueued) {
+    return;
+  }
+  statsInitialContentEnsureQueued = true;
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 16);
+  schedule(() => {
+    statsInitialContentEnsureQueued = false;
+    if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
+      statsInitialLoadPendingResume = true;
+      return;
+    }
+    if (statsInitialDataLoaded) {
+      if (!hasStatsRenderedInitialContent()) {
+        renderCurrentView();
+      }
+      if (!statsInitialDataValidated) {
+        scheduleStatsInitialFreshValidation(reason);
+      }
+      return;
+    }
+    statsInitialLoadPendingResume = false;
+    void refreshStatsRangeData(true, {
+      manageLoading: false,
+      mode: "inline",
+      pageBootstrap: true,
+      fresh: false,
+      message: "正在整理统计索引与范围数据，请稍候",
+      reason,
+    });
+  });
+}
+
 function bindStatsShellVisibilityGate() {
   if (statsShellVisibilityBound) {
     return;
@@ -10024,33 +10273,40 @@ function bindStatsShellVisibilityGate() {
         ? event.detail
         : {};
     const nextActive = detail.active !== false;
-    if (statsShellPageActive === nextActive) {
+    const wasActive = statsShellPageActive;
+    statsShellPageActive = nextActive;
+    if (!nextActive) {
       return;
     }
 
-    statsShellPageActive = nextActive;
-    if (!statsShellPageActive) {
-      return;
-    }
+    scheduleDeferredStatsProjectSnapshotPersist("shell-active");
 
     if (statsInitialLoadPendingResume) {
       statsInitialLoadPendingResume = false;
       const needsBlockingResumeLoad = !statsInitialDataLoaded;
-      void refreshStatsRangeData(true, {
-        mode: needsBlockingResumeLoad ? "fullscreen" : "inline",
-        delayMs: needsBlockingResumeLoad ? 0 : STATS_LOADING_OVERLAY_DELAY_MS,
-        manageLoading: needsBlockingResumeLoad,
-        message: "正在整理统计索引与范围数据，请稍候",
-      });
+      if (needsBlockingResumeLoad) {
+        void refreshStatsRangeData(true, {
+          mode: "inline",
+          delayMs: 0,
+          manageLoading: false,
+          message: "正在整理统计索引与范围数据，请稍候",
+        });
+      } else {
+        scheduleStatsInitialFreshValidation("shell-resume");
+      }
     }
     if (statsExternalRefreshPendingResume) {
       statsExternalRefreshPendingResume = false;
       refreshStatsFromExternalStorageChange();
       return;
     }
-    if (statsInitialDataLoaded) {
+    if (statsInitialDataLoaded && !wasActive) {
       renderCurrentView();
     }
+    if (statsInitialDataLoaded && !statsInitialDataValidated) {
+      scheduleStatsInitialFreshValidation("shell-active");
+    }
+    scheduleStatsInitialContentEnsure("shell-active");
   });
 }
 
@@ -10305,9 +10561,7 @@ async function init() {
     const initialScope = getStatsLoadScope();
     const canPrepareInitialData =
       statsShellPageActive || isStatsShellTransitionLoading();
-    const shouldForceFreshTransitionBootstrap =
-      window.ControlerStorage?.isNativeApp === true &&
-      (!statsShellPageActive || isStatsShellTransitionLoading());
+    const shouldForceFreshTransitionBootstrap = false;
     const shouldPreferBootstrapForInitialRender =
       window.ControlerStorage?.isNativeApp === true &&
       statsShellPageActive &&
@@ -10317,10 +10571,7 @@ async function init() {
       ? false
       : bootstrapStatsFromCachedSnapshot(initialScope);
     if (!bootstrappedFromSnapshot) {
-      const initialLoadFresh =
-        canPrepareInitialData &&
-        (shouldForceFreshTransitionBootstrap ||
-          !shouldPreferBootstrapForInitialRender);
+      const initialLoadFresh = false;
       await loadData(initialScope, {
         fresh: initialLoadFresh,
       });
@@ -10354,10 +10605,12 @@ async function init() {
     await waitForStatsUiPaint();
     await queueStatsToolbarReveal();
     statsInitialDataLoaded = true;
+    scheduleStatsInitialContentEnsure("init-complete");
   } finally {
     await setStatsLoadingState({
       active: false,
     });
+    scheduleStatsInitialContentEnsure("init-finally");
   }
 }
 
