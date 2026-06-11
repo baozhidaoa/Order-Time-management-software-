@@ -6379,13 +6379,51 @@ public final class ControlerWidgetRenderer {
             return Collections.emptyList();
         }
         List<ControlerWidgetDataStore.GoalInfo> visibleGoals = new ArrayList<>();
-        for (ControlerWidgetDataStore.GoalInfo goal : goals) {
-            if (goal == null || goal.isCompleted) {
+        for (int index = 0; index < goals.size(); index++) {
+            ControlerWidgetDataStore.GoalInfo goal = goals.get(index);
+            if (goal == null) {
                 continue;
             }
             visibleGoals.add(goal);
         }
+        sortYearGoalsForDisplay(visibleGoals);
         return visibleGoals;
+    }
+
+    private static void sortYearGoalsForDisplay(List<ControlerWidgetDataStore.GoalInfo> goals) {
+        if (goals == null || goals.size() <= 1) {
+            return;
+        }
+        Collections.sort(
+            goals,
+            new Comparator<ControlerWidgetDataStore.GoalInfo>() {
+                @Override
+                public int compare(
+                    ControlerWidgetDataStore.GoalInfo left,
+                    ControlerWidgetDataStore.GoalInfo right
+                ) {
+                    int leftCompleted = left != null && left.isCompleted ? 1 : 0;
+                    int rightCompleted = right != null && right.isCompleted ? 1 : 0;
+                    if (leftCompleted != rightCompleted) {
+                        return leftCompleted - rightCompleted;
+                    }
+
+                    return resolveYearGoalPriorityRank(left == null ? "" : left.priority)
+                        - resolveYearGoalPriorityRank(right == null ? "" : right.priority);
+                }
+            }
+        );
+    }
+
+    private static int resolveYearGoalPriorityRank(String priority) {
+        String normalized = safeText(priority).toLowerCase(Locale.ROOT);
+        if ("high".equals(normalized)) {
+            return 0;
+        }
+        if ("low".equals(normalized)) {
+            return 2;
+        }
+        return 1;
     }
 
     private static int countVisibleYearGoals(

@@ -1565,15 +1565,34 @@
     const primary = isValidThemeColorValue(source.primary)
       ? source.primary.trim()
       : DEFAULT_THEME_COLORS.primary;
+    const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
+    const primaryRgb = parseHexColor(primaryHex);
+    const isLightSurface =
+      !!primaryRgb &&
+      (0.2126 * primaryRgb.r + 0.7152 * primaryRgb.g + 0.0722 * primaryRgb.b) / 255 >=
+        0.72;
+    const neutralText = isLightSurface ? "#202633" : DEFAULT_THEME_COLORS.text;
+    const neutralMutedText = isLightSurface
+      ? "rgba(32, 38, 51, 0.7)"
+      : DEFAULT_THEME_COLORS.mutedText;
+    const secondaryFallback = isLightSurface
+      ? "rgba(255, 255, 255, 0.72)"
+      : DEFAULT_THEME_COLORS.secondary;
+    const tertiaryFallback = isLightSurface
+      ? "rgba(240, 244, 250, 0.82)"
+      : DEFAULT_THEME_COLORS.tertiary;
+    const quaternaryFallback = isLightSurface
+      ? "rgba(63, 73, 95, 0.08)"
+      : DEFAULT_THEME_COLORS.quaternary;
     const secondary = isValidThemeColorValue(source.secondary)
       ? source.secondary.trim()
-      : DEFAULT_THEME_COLORS.secondary;
+      : secondaryFallback;
     const tertiary = isValidThemeColorValue(source.tertiary)
       ? source.tertiary.trim()
-      : DEFAULT_THEME_COLORS.tertiary;
+      : tertiaryFallback;
     const quaternary = isValidThemeColorValue(source.quaternary)
       ? source.quaternary.trim()
-      : DEFAULT_THEME_COLORS.quaternary;
+      : quaternaryFallback;
     const panel = isValidThemeColorValue(source.panel)
       ? source.panel.trim()
       : secondary;
@@ -1581,7 +1600,7 @@
       ? source.panelStrong.trim()
       : tertiary;
     const accentFallback = ensureReadableShapeColor(
-      DEFAULT_THEME_COLORS.accent,
+      isLightSurface ? "#3f495f" : DEFAULT_THEME_COLORS.accent,
       panelStrong,
       DEFAULT_THEME_COLORS.accent,
       2.1,
@@ -1589,7 +1608,7 @@
     const accent = resolveExplicitThemeColor(source.accent, accentFallback);
     const textFallback = ensureReadableTextColor(
       panelStrong,
-      DEFAULT_THEME_COLORS.text,
+      neutralText,
       "#173326",
       "#f8fafc",
       4.5,
@@ -1672,13 +1691,6 @@
       source.navButtonActiveText,
       navButtonActiveTextFallback,
     );
-    const primaryHex = toHexColor(primary, DEFAULT_THEME_COLORS.primary);
-    const primaryRgb = parseHexColor(primaryHex);
-    const isLightSurface =
-      !!primaryRgb &&
-      (0.2126 * primaryRgb.r + 0.7152 * primaryRgb.g + 0.0722 * primaryRgb.b) / 255 >=
-        0.72;
-
     return {
       primary,
       secondary,
@@ -1688,16 +1700,23 @@
       text,
       mutedText: isValidThemeColorValue(source.mutedText)
         ? source.mutedText.trim()
-        : toRgbaColor(text, isLightSurface ? 0.7 : 0.72),
+        : firstNonEmpty(
+            isLightSurface ? neutralMutedText : "",
+            toRgbaColor(text, isLightSurface ? 0.7 : 0.72),
+          ),
       border: isValidThemeColorValue(source.border)
         ? source.border.trim()
         : panelBorder,
       delete: isValidThemeColorValue(source.delete)
         ? source.delete.trim()
-        : DEFAULT_THEME_COLORS.delete,
+        : isLightSurface
+          ? "#cf4d4d"
+          : DEFAULT_THEME_COLORS.delete,
       deleteHover: isValidThemeColorValue(source.deleteHover)
         ? source.deleteHover.trim()
-        : DEFAULT_THEME_COLORS.deleteHover,
+        : isLightSurface
+          ? "#b13d3d"
+          : DEFAULT_THEME_COLORS.deleteHover,
       projectLevel1: isValidThemeColorValue(source.projectLevel1)
         ? source.projectLevel1.trim()
         : DEFAULT_THEME_COLORS.projectLevel1,
@@ -2487,6 +2506,23 @@
     };
   }
 
+  function logNativeThemeTrace(stage, payload = {}) {
+    try {
+      if (typeof window.ControlerNativeBridge?.call !== "function") {
+        return;
+      }
+      void window.ControlerNativeBridge?.call?.("ui.logThemeTrace", {
+        trace: {
+          stage,
+          href: window.location.href,
+          pageTheme: document.documentElement.getAttribute("data-theme") || "",
+          timestamp: Date.now(),
+          ...(payload && typeof payload === "object" ? payload : {}),
+        },
+      }).catch?.(() => {});
+    } catch (_error) {}
+  }
+
   function dispatchThemeApplied(themeId, colors, options = {}) {
     const emitNative = options?.emitNative !== false;
     const activeTheme =
@@ -2498,6 +2534,7 @@
       new CustomEvent(THEME_APPLIED_EVENT_NAME, {
         detail: {
           themeId,
+          source: options?.source || "",
           colors: { ...colors },
           recordCard: { ...recordCard },
         },
@@ -2527,6 +2564,7 @@
       window.ControlerNativeBridge?.emitEvent?.("ui.theme-applied", {
         href: window.location.href,
         themeId,
+        source: options?.source || "",
         ...sharedThemeState,
         colors: { ...colors },
         recordCard: { ...recordCard },
@@ -2545,7 +2583,10 @@
           : {},
       };
       const nextLaunchThemeSyncSignature = JSON.stringify(launchThemeState);
-      if (nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature) {
+      if (
+        options?.syncLaunchTheme !== false &&
+        nextLaunchThemeSyncSignature !== lastLaunchThemeSyncSignature
+      ) {
         lastLaunchThemeSyncSignature = nextLaunchThemeSyncSignature;
         void window.ControlerNativeBridge?.call?.("ui.setLaunchThemeState", {
           themeState: launchThemeState,
@@ -2922,6 +2963,16 @@
     document.documentElement.style.colorScheme = isLightTheme(activeTheme)
       ? "light"
       : "dark";
+    logNativeThemeTrace("page-apply-theme-state", {
+      themeId,
+      source: options?.source || "",
+      emitNative: options?.emitNative !== false,
+      syncLaunchTheme: options?.syncLaunchTheme !== false,
+      selectedTheme: themeId,
+      screenBg: resolvedColors.background || resolvedColors.pageBackground || "",
+      primary: resolvedColors.primary || "",
+      text: resolvedColors.text || "",
+    });
     window.__CONTROLER_DESKTOP_PRELOADED_THEME__ = {
       themeId,
       primaryColor: resolvedColors.primary,
@@ -3009,7 +3060,15 @@
             ? resolvedThemeState.storageKeys
             : {},
       });
-      applyThemeState(themeId, activeTheme, options);
+      logNativeThemeTrace("page-apply-from-storage", {
+        themeId,
+        source: resolvedThemeState.source,
+        selectedTheme: themeId,
+      });
+      applyThemeState(themeId, activeTheme, {
+        ...options,
+        source: resolvedThemeState.source || options?.source || "",
+      });
     } catch (error) {
       lastThemeStorageSignature = "__fallback__";
       const fallbackTheme =
@@ -3067,10 +3126,25 @@
         resolvedThemeState.customThemes,
         resolvedThemeState.builtInThemeOverrides,
       );
+      logNativeThemeTrace("page-apply-from-managed-core", {
+        selectedTheme,
+        themeId: resolvedThemeState.themeId,
+        source: options?.source || "managed-core-state",
+        customThemeCount: Array.isArray(resolvedThemeState.customThemes)
+          ? resolvedThemeState.customThemes.length
+          : 0,
+        builtInOverrideCount:
+          resolvedThemeState.builtInThemeOverrides &&
+          typeof resolvedThemeState.builtInThemeOverrides === "object"
+            ? Object.keys(resolvedThemeState.builtInThemeOverrides).length
+            : 0,
+      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(resolvedThemeState.themeId, resolvedThemeState.activeTheme, {
         ...options,
-        emitNative: false,
+        source: "managed-core-state",
+        emitNative: true,
+        syncLaunchTheme: false,
       });
       return true;
     } catch (_error) {
@@ -3204,6 +3278,16 @@
       ) {
         managedStorage.applySharedStateFromBridge(sharedThemeState);
       }
+      logNativeThemeTrace("page-theme-sync-from-bridge", {
+        selectedTheme,
+        themeId: resolvedThemeState.themeId,
+        source: detail?.source || "",
+        customThemeCount: customThemes.length,
+        builtInOverrideCount:
+          builtInThemeOverrides && typeof builtInThemeOverrides === "object"
+            ? Object.keys(builtInThemeOverrides).length
+            : 0,
+      });
       lastLaunchThemeSyncSignature = null;
       applyThemeState(selectedTheme, resolvedThemeState.activeTheme, {
         emitNative: false,

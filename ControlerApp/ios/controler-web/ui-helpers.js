@@ -7131,7 +7131,27 @@
       overlay.setAttribute("aria-hidden", "true");
       overlay.dataset.shellSuppressed = "false";
       overlay.dataset.appEnterSuppressed = "false";
+      overlay.dataset.mode = "inline";
+      overlay.dataset.controlerOverlayScope = "";
       overlay.style.pointerEvents = "";
+      overlay.style.top = "";
+      overlay.style.left = "";
+      overlay.style.right = "";
+      overlay.style.bottom = "";
+      overlay.style.width = "";
+      overlay.style.height = "";
+      overlay.style.minHeight = "";
+      overlay.style.maxHeight = "";
+      overlay.style.inset = "";
+      overlay.style.borderRadius = "";
+      overlay.style.opacity = "";
+      overlay.style.visibility = "";
+      overlay.style.transform = "";
+      overlay.style.willChange = "";
+      overlay.style.background = "";
+      overlay.style.backgroundColor = "";
+      overlay.style.backdropFilter = "";
+      overlay.style.webkitBackdropFilter = "";
     });
     const root = document.documentElement;
     const body = document.body;
@@ -7150,6 +7170,10 @@
       }),
     );
   }
+
+  window.addEventListener("controler:rn-transient-overlays-cleared", () => {
+    forceHidePageLoadingOverlays("react-native-shell");
+  });
 
   function scheduleBlockingOverlaySync() {
     if (blockingOverlaySyncQueued) {

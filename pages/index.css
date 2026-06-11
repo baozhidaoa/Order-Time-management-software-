@@ -11765,8 +11765,8 @@ body.controler-ios-native {
   --controler-loading-overlay-bg-strong: var(--bg-primary);
   --controler-loading-card-bg: color-mix(
     in srgb,
-    var(--panel-strong-bg) 96%,
-    var(--bg-primary) 4%
+    var(--bg-primary) 94%,
+    rgba(var(--accent-color-rgb), 0.06)
   );
   --controler-loading-card-shadow:
     0 18px 36px rgba(0, 0, 0, 0.22),
@@ -11783,8 +11783,8 @@ body.controler-android-native {
   );
   --controler-loading-overlay-bg-strong: color-mix(
     in srgb,
-    var(--bg-primary) 94%,
-    var(--panel-strong-bg) 6%
+    var(--bg-primary) 98%,
+    rgba(var(--accent-color-rgb), 0.02)
   );
   --controler-loading-card-border: color-mix(
     in srgb,
@@ -11798,8 +11798,8 @@ body.controler-android-native {
   );
   --controler-loading-card-bg: color-mix(
     in srgb,
-    var(--panel-strong-bg) 92%,
-    var(--bg-primary) 8%
+    var(--bg-primary) 92%,
+    rgba(var(--accent-color-rgb), 0.08)
   );
   --controler-loading-card-shadow:
     0 24px 52px
@@ -12107,6 +12107,12 @@ body.controler-ios-native .page-loading-overlay {
 
 body.controler-android-native .page-loading-overlay {
   background: var(--bg-primary) !important;
+  background-color: var(--bg-primary) !important;
+  background-image: none !important;
+  mix-blend-mode: normal !important;
+  isolation: isolate !important;
+  contain: paint !important;
+  transform: translateZ(0);
 }
 
 body.controler-mobile-runtime .page-loading-overlay[data-mode="inline"],
@@ -12126,9 +12132,13 @@ body.controler-ios-native .page-loading-card {
 
 body.controler-android-native .page-loading-card {
   border-radius: 24px !important;
-  border: 1px solid var(--controler-loading-card-border) !important;
-  background: var(--controler-loading-card-bg) !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
+  contain: layout paint !important;
+  isolation: isolate !important;
 }
 
 body.controler-android-native .page-loading-card::before {
@@ -12140,6 +12150,16 @@ body.controler-android-native .page-loading-card::before {
 
 .page-loading-overlay[hidden] {
   display: none !important;
+}
+
+body.controler-android-native .page-loading-overlay[hidden] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  transform: none !important;
 }
 
 .page-loading-card {

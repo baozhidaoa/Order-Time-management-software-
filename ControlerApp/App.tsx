@@ -32,6 +32,7 @@ type NativeBridgeModule = {
   setUiLanguage?: (language: string) => Promise<string>;
   getLaunchThemeState?: () => Promise<string>;
   setLaunchThemeState?: (themeStateJson: string) => Promise<string>;
+  logThemeTrace?: (traceJson: string) => Promise<string>;
   readStorageState: () => Promise<string>;
   writeStorageState: (stateJson: string) => Promise<string>;
   getStorageStatus: () => Promise<string>;
@@ -429,6 +430,24 @@ function areBusyOverlayStatesEqual(
 const nativeBridge = NativeModules.ControlerBridge as
   | NativeBridgeModule
   | undefined;
+function logNativeThemeTrace(
+  stage: string,
+  payload: Record<string, unknown> = {},
+) {
+  try {
+    const tracePayload = {
+      stage,
+      timestamp: Date.now(),
+      ...payload,
+    };
+    console.info('[OrderBootTheme]', JSON.stringify(tracePayload));
+    if (typeof nativeBridge?.logThemeTrace === 'function') {
+      nativeBridge
+        .logThemeTrace(JSON.stringify(tracePayload))
+        .catch(() => undefined);
+    }
+  } catch (_error) {}
+}
 const DEFAULT_THEME_ID = 'obsidian-mono';
 const SCREEN_BG = '#0d0f12';
 const ACCENT_COLOR = '#f1f4fa';
@@ -1302,9 +1321,29 @@ const CLEAR_TRANSIENT_WEBVIEW_OVERLAYS_SCRIPT = `(() => {
       if (overlay.dataset) {
         overlay.dataset.shellSuppressed = 'false';
         overlay.dataset.appEnterSuppressed = 'false';
+        overlay.dataset.mode = 'inline';
+        overlay.dataset.controlerOverlayScope = '';
       }
       if (overlay.style) {
         overlay.style.pointerEvents = '';
+        overlay.style.top = '';
+        overlay.style.left = '';
+        overlay.style.right = '';
+        overlay.style.bottom = '';
+        overlay.style.width = '';
+        overlay.style.height = '';
+        overlay.style.minHeight = '';
+        overlay.style.maxHeight = '';
+        overlay.style.inset = '';
+        overlay.style.borderRadius = '';
+        overlay.style.opacity = '';
+        overlay.style.visibility = '';
+        overlay.style.transform = '';
+        overlay.style.willChange = '';
+        overlay.style.background = '';
+        overlay.style.backgroundColor = '';
+        overlay.style.backdropFilter = '';
+        overlay.style.webkitBackdropFilter = '';
       }
     });
     const classes = [
@@ -1450,14 +1489,26 @@ function buildShellBootTheme(
   colors: Record<string, unknown> | null | undefined,
   fallback: ShellBootTheme = DEFAULT_SHELL_BOOT_THEME,
 ): ShellBootTheme {
-  const accent = normalizeBootThemeColor(colors?.accent, fallback.accent);
+  const primaryColor = normalizeBootThemeColor(colors?.primary, fallback.screenBg);
+  const primaryIsLight = isLightBootTheme({
+    ...fallback,
+    screenBg: primaryColor,
+  });
+  const effectiveFallback =
+    primaryIsLight && fallback === DEFAULT_SHELL_BOOT_THEME
+      ? buildShellBootThemeFromPalette(
+          BUILT_IN_SHELL_BOOT_THEME_MAP['ivory-light'],
+          DEFAULT_SHELL_BOOT_THEME,
+        )
+      : fallback;
+  const accent = normalizeBootThemeColor(colors?.accent, effectiveFallback.accent);
   const buttonBg = normalizeBootThemeColor(
     colors?.buttonBg ?? colors?.accent,
-    fallback.buttonBg,
+    effectiveFallback.buttonBg,
   );
   const buttonBgHover = normalizeBootThemeColor(
     colors?.buttonBgHover ?? colors?.buttonBg ?? colors?.accent,
-    fallback.buttonBgHover,
+    effectiveFallback.buttonBgHover,
   );
   const onAccentText = normalizeBootThemeColor(
     colors?.onAccentText,
@@ -1469,40 +1520,40 @@ function buildShellBootTheme(
   );
   const navBarBg = normalizeBootThemeColor(
     colors?.navBarBg ?? colors?.panelStrong ?? colors?.panel,
-    fallback.navBarBg,
+    effectiveFallback.navBarBg,
   );
   const navBarBorder = normalizeBootThemeColor(
     colors?.navBarBorder ?? colors?.panelBorder ?? colors?.border,
-    fallback.navBarBorder,
+    effectiveFallback.navBarBorder,
   );
   const navButtonBg = normalizeBootThemeColor(
     colors?.navButtonBg ?? colors?.panelBorder,
-    fallback.navButtonBg,
+    effectiveFallback.navButtonBg,
   );
   const navButtonText = normalizeBootThemeColor(
     colors?.navButtonText ?? colors?.mutedText ?? colors?.text,
-    fallback.navButtonText,
+    effectiveFallback.navButtonText,
   );
   const navButtonActiveBg = normalizeBootThemeColor(
     colors?.navButtonActiveBg ?? colors?.accent,
-    fallback.navButtonActiveBg,
+    effectiveFallback.navButtonActiveBg,
   );
   const navButtonActiveText = normalizeBootThemeColor(
     colors?.navButtonActiveText ??
       colors?.navButtonText ??
       colors?.text ??
       colors?.mutedText,
-    fallback.navButtonActiveText,
+    effectiveFallback.navButtonActiveText,
   );
   return {
-    screenBg: normalizeBootThemeColor(colors?.primary, fallback.screenBg),
+    screenBg: primaryColor,
     cardBg: normalizeBootThemeColor(
       colors?.panelStrong ?? colors?.panel,
-      fallback.cardBg,
+      effectiveFallback.cardBg,
     ),
     cardBorder: normalizeBootThemeColor(
       colors?.panelBorder ?? colors?.border,
-      fallback.cardBorder,
+      effectiveFallback.cardBorder,
     ),
     accent,
     buttonBg,
@@ -1511,18 +1562,18 @@ function buildShellBootTheme(
     onAccentText,
     projectLevel1: normalizeBootThemeColor(
       colors?.projectLevel1,
-      fallback.projectLevel1,
+      effectiveFallback.projectLevel1,
     ),
     projectLevel2: normalizeBootThemeColor(
       colors?.projectLevel2,
-      fallback.projectLevel2,
+      effectiveFallback.projectLevel2,
     ),
     projectLevel3: normalizeBootThemeColor(
       colors?.projectLevel3,
-      fallback.projectLevel3,
+      effectiveFallback.projectLevel3,
     ),
-    text: normalizeBootThemeColor(colors?.text, fallback.text),
-    mutedText: normalizeBootThemeColor(colors?.mutedText, fallback.mutedText),
+    text: normalizeBootThemeColor(colors?.text, effectiveFallback.text),
+    mutedText: normalizeBootThemeColor(colors?.mutedText, effectiveFallback.mutedText),
     navBarBg,
     navBarBorder,
     navButtonBg,
@@ -1531,11 +1582,11 @@ function buildShellBootTheme(
     navButtonActiveText,
     indicatorBg: normalizeBootThemeColor(
       colors?.navButtonBg ?? colors?.panelBorder,
-      fallback.indicatorBg,
+      effectiveFallback.indicatorBg,
     ),
     transitionOverlay: normalizeBootThemeColor(
       colors?.overlay,
-      fallback.transitionOverlay,
+      effectiveFallback.transitionOverlay,
     ),
   };
 }
@@ -1973,6 +2024,20 @@ function buildLaunchThemeTracePayload(
   };
 }
 
+function isAuthoritativeThemeAppliedPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const source =
+    typeof (payload as {source?: unknown}).source === 'string'
+      ? (payload as {source: string}).source.trim()
+      : '';
+  if (source === 'managed-core-state' || source === 'native-core-state') {
+    return true;
+  }
+  return false;
+}
+
 function buildInjectionScript(message: Record<string, unknown>): string {
   const serialized = JSON.stringify(message)
     .replace(/\u2028/g, '\\u2028')
@@ -1995,6 +2060,116 @@ function buildInjectionScript(message: Record<string, unknown>): string {
         : [];
       window.__CONTROLER_PENDING_NATIVE_MESSAGES__ = pendingNativeMessages;
       pendingNativeMessages.push(message);
+      return true;
+    })();
+    true;
+  `;
+}
+
+function buildForceApplyThemeScript(
+  themeState: Record<string, unknown> | null,
+  reason = 'native-theme-sync',
+): string {
+  const serializedThemeState = JSON.stringify(
+    buildSharedThemeStatePayload(themeState),
+  )
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `
+    (function () {
+      const themeState = ${serializedThemeState};
+      const reason = ${JSON.stringify(reason)};
+      const selectedTheme =
+        typeof themeState.selectedTheme === 'string' && themeState.selectedTheme.trim()
+          ? themeState.selectedTheme.trim()
+          : ${JSON.stringify(DEFAULT_THEME_ID)};
+      const customThemes = Array.isArray(themeState.customThemes)
+        ? themeState.customThemes
+        : [];
+      const builtInThemeOverrides =
+        themeState.builtInThemeOverrides &&
+        typeof themeState.builtInThemeOverrides === 'object' &&
+        !Array.isArray(themeState.builtInThemeOverrides)
+          ? themeState.builtInThemeOverrides
+          : {};
+      try {
+        const localThemeMirrorPrefix = '__controler_local__:';
+        if (window.localStorage && typeof window.localStorage.setItem === 'function') {
+          [
+            ['selectedTheme', selectedTheme],
+            ['customThemes', JSON.stringify(customThemes)],
+            ['builtInThemeOverrides', JSON.stringify(builtInThemeOverrides)],
+            [localThemeMirrorPrefix + 'selectedTheme', selectedTheme],
+            [localThemeMirrorPrefix + 'customThemes', JSON.stringify(customThemes)],
+            [
+              localThemeMirrorPrefix + 'builtInThemeOverrides',
+              JSON.stringify(builtInThemeOverrides),
+            ],
+          ].forEach(function (entry) {
+            window.localStorage.setItem(entry[0], entry[1]);
+          });
+        }
+      } catch (_error) {}
+
+      function applyNativeThemeState() {
+        try {
+          const runtime = window.ControlerTheme;
+          if (!runtime || typeof runtime.applyThemeState !== 'function') {
+            return false;
+          }
+          let activeTheme = customThemes.find(function (theme) {
+            return (
+              theme &&
+              typeof theme === 'object' &&
+              typeof theme.id === 'string' &&
+              theme.id.trim() === selectedTheme
+            );
+          }) || null;
+          if (
+            !activeTheme &&
+            typeof runtime.resolveBuiltInTheme === 'function'
+          ) {
+            activeTheme = runtime.resolveBuiltInTheme(
+              selectedTheme,
+              builtInThemeOverrides[selectedTheme],
+            );
+          }
+          if (!activeTheme) {
+            return false;
+          }
+          runtime.applyThemeState(activeTheme.id || selectedTheme, activeTheme, {
+            source: 'native-core-state',
+            emitNative: false,
+            syncLaunchTheme: false,
+            force: true,
+          });
+          if (
+            window.ControlerNativeBridge &&
+            typeof window.ControlerNativeBridge.call === 'function'
+          ) {
+            window.ControlerNativeBridge.call('ui.logThemeTrace', {
+              trace: {
+                stage: 'page-force-apply-theme',
+                reason: reason,
+                selectedTheme: selectedTheme,
+                themeId: activeTheme.id || selectedTheme,
+                href: window.location.href,
+                pageTheme: document.documentElement.getAttribute('data-theme') || '',
+                timestamp: Date.now(),
+              },
+            }).catch(function () {});
+          }
+          return true;
+        } catch (_error) {
+          return false;
+        }
+      }
+
+      if (!applyNativeThemeState()) {
+        setTimeout(applyNativeThemeState, 50);
+      }
+      setTimeout(applyNativeThemeState, 180);
+      setTimeout(applyNativeThemeState, 420);
       return true;
     })();
     true;
@@ -3242,6 +3417,12 @@ function App({
       _payload: Record<string, unknown> = {},
     ) => {},
   );
+  const forceApplyThemeStateToLoadedSlotsRef = useRef(
+    (
+      _themeState: Record<string, unknown> | null,
+      _reason = 'native-theme-sync',
+    ) => {},
+  );
   const requestPageNavigationRef = useRef(
     (
       _payload: Record<string, unknown> = {},
@@ -3259,6 +3440,7 @@ function App({
     useState<ShellBootTheme>(() =>
       resolveShellBootTheme(initialCoreStateRef.current),
     );
+  const shellBootThemeRef = useRef<ShellBootTheme>(shellBootTheme);
   const [isPageReady, setIsPageReady] = useState(false);
   const [busyStateVersion, setBusyStateVersion] = useState(0);
   const [activeSlot, setActiveSlot] = useState<WebViewSlot>('primary');
@@ -3480,6 +3662,10 @@ function App({
   }, [shellLanguage]);
 
   useEffect(() => {
+    shellBootThemeRef.current = shellBootTheme;
+  }, [shellBootTheme]);
+
+  useEffect(() => {
     console.info(
       '[OrderBootTheme]',
       JSON.stringify({
@@ -3695,9 +3881,16 @@ function App({
       }
       const nextSignature = JSON.stringify(normalizedThemeState);
       if (nextSignature === lastPersistedLaunchThemeStateSignatureRef.current) {
+        logNativeThemeTrace('launch-theme-persist-skipped', {
+          reason: 'same-signature',
+          ...buildLaunchThemeTracePayload(normalizedThemeState),
+        });
         return '';
       }
       lastPersistedLaunchThemeStateSignatureRef.current = nextSignature;
+      logNativeThemeTrace('launch-theme-persist', {
+        ...buildLaunchThemeTracePayload(normalizedThemeState),
+      });
       return nativeBridge.setLaunchThemeState(nextSignature);
     },
     [],
@@ -3736,13 +3929,9 @@ function App({
       return null;
     }
     const coreState = parseBridgeJson(await nativeBridge.getStorageCoreState());
-    console.info(
-      '[OrderBootTheme]',
-      JSON.stringify({
-        stage: 'native-core-state',
-        ...buildLaunchThemeTracePayload(coreState),
-      }),
-    );
+    logNativeThemeTrace('native-core-state', {
+      ...buildLaunchThemeTracePayload(coreState),
+    });
     sharedThemeStateRef.current = buildSharedThemeStatePayload(coreState);
     launchThemeStateRef.current = buildLaunchThemeStatePayload(
       sharedThemeStateRef.current,
@@ -3752,6 +3941,7 @@ function App({
     broadcastThemeStateToLoadedSlots(coreState, {
       includeSource: true,
     });
+    forceApplyThemeStateToLoadedSlotsRef.current(coreState, 'native-core-state');
     return coreState;
   }, [
     applyShellBootThemeFromCoreState,
@@ -3866,6 +4056,30 @@ function App({
       : slot === 'secondary'
         ? secondaryWebViewRef
         : tertiaryWebViewRef;
+
+  const forceApplyThemeStateToLoadedSlots = useCallback(
+    (themeState: Record<string, unknown> | null, reason = 'native-theme-sync') => {
+      const script = buildForceApplyThemeScript(themeState, reason);
+      WEBVIEW_SLOTS.forEach(slot => {
+        if (!webViewSlotsRef.current[slot].uri) {
+          return;
+        }
+        if (!slotLoadCompletedRef.current[slot]) {
+          return;
+        }
+        logNativeThemeTrace('force-page-theme-inject', {
+          slot,
+          page: getPageKeyForSlot(slot),
+          reason,
+          ...buildLaunchThemeTracePayload(themeState),
+        });
+        getWebViewRef(slot).current?.injectJavaScript(script);
+      });
+    },
+    [],
+  );
+  forceApplyThemeStateToLoadedSlotsRef.current =
+    forceApplyThemeStateToLoadedSlots;
 
   const resetSlotTransientOverlayState = useCallback(
     (slot: WebViewSlot, reason = 'transient-clear', injectCleanup = true) => {
@@ -4116,7 +4330,7 @@ function App({
   const clearCachedSlot = useCallback((slot: WebViewSlot) => {
     resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
     canGoBackBySlotRef.current[slot] = false;
-    resetSlotTransientOverlayState(slot, 'clear-cached-slot', false);
+    resetSlotTransientOverlayState(slot, 'clear-cached-slot');
     edgeBackSwipeExclusionBySlotRef.current[slot] =
       createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
@@ -5039,6 +5253,10 @@ function App({
     setTransitionState(null);
     canGoBackBySlotRef.current[slot] = false;
     resetSlotTransientOverlayState(slot, `transition-cleared:${reason}`);
+    resetSlotTransientOverlayState(
+      currentTransition.fromSlot,
+      `transition-cleared-source:${reason}`,
+    );
     if (!currentTransition.reuseCachedSlot) {
       clearCachedSlot(slot);
     }
@@ -5096,11 +5314,21 @@ function App({
     cancelTransitionThemeFallback(nextActiveSlot);
     canGoBackBySlotRef.current[previousSlot] = false;
     resetSlotTransientOverlayState(previousSlot, 'transition-complete');
+    resetSlotTransientOverlayState(nextActiveSlot, 'transition-complete-target');
     markSlotUsed(nextActiveSlot);
     logPerfMetric('transition-complete', {
       fromSlot: previousSlot,
       toSlot: nextActiveSlot,
       page: webViewSlotsRef.current[nextActiveSlot].pageKey,
+      reusedCachedSlot: completedTransition.reuseCachedSlot === true,
+    });
+    logNativeThemeTrace('transition-complete-visual', {
+      fromSlot: previousSlot,
+      toSlot: nextActiveSlot,
+      page: webViewSlotsRef.current[nextActiveSlot].pageKey,
+      screenBg: shellBootThemeRef.current.screenBg,
+      cardBg: shellBootThemeRef.current.cardBg,
+      status: completedTransition.status,
       reusedCachedSlot: completedTransition.reuseCachedSlot === true,
     });
     lastPresentedPageKeyRef.current = previousPageKey;
@@ -5109,6 +5337,9 @@ function App({
     transitionStateRef.current = null;
     setTransitionState(null);
     transitionProgress.setValue(0);
+    requestAnimationFrame(() => {
+      syncShellVisibility('transition-complete');
+    });
     clearHiddenCachedSlots();
     trimInactiveAndroidSlots('transition-complete');
     if (queuedNavigationRequestRef.current) {
@@ -5149,6 +5380,8 @@ function App({
       reason,
     });
     resetWebViewPresentation();
+    resetSlotTransientOverlayState(fallbackSlot, `transition-fallback:${reason}`);
+    resetSlotTransientOverlayState(pendingSlot, `transition-fallback-pending:${reason}`);
     resetSlotRuntimeState(fallbackSlot, fallbackRevision);
     resetSlotRuntimeState(pendingSlot, pendingRevision);
     activeSlotRef.current = fallbackSlot;
@@ -5409,6 +5642,16 @@ function App({
       toPage: target.pageKey,
       targetUri: target.uri,
       source,
+      reusedCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
+    });
+    logNativeThemeTrace('transition-start-visual', {
+      fromSlot: currentSlot,
+      toSlot: nextSlot,
+      fromPage: currentState.pageKey,
+      toPage: target.pageKey,
+      source,
+      screenBg: shellBootThemeRef.current.screenBg,
+      cardBg: shellBootThemeRef.current.cardBg,
       reusedCachedSlot: !nextSlotState.needsLoad && nextSlotState.slotReady,
     });
     transitionStateRef.current = nextTransition;
@@ -5866,6 +6109,7 @@ function App({
 
     const handleAppActive = () => {
       dispatchResumeToVisibleSlot();
+      refreshShellBootThemeFromNative().catch(() => undefined);
       consumePendingLaunchAction('app-state-active').catch(() => undefined);
       if (launchRetryTimer !== null) {
         clearTimeout(launchRetryTimer);
@@ -5901,6 +6145,7 @@ function App({
     handleWidgetLaunchContext,
     logPerfMetric,
     persistLastVisiblePage,
+    refreshShellBootThemeFromNative,
   ]);
 
   useEffect(() => {
@@ -6643,6 +6888,15 @@ function App({
             'persisting the launch theme state',
           );
         }
+        logNativeThemeTrace('bridge-set-launch-theme-state', {
+          slot,
+          page: getPageKeyForSlot(slot),
+          ...buildLaunchThemeTracePayload(
+            payload.themeState && typeof payload.themeState === 'object'
+              ? (payload.themeState as Record<string, unknown>)
+              : {},
+          ),
+        });
         return parseBridgeJson(
           await nativeBridge.setLaunchThemeState(
             JSON.stringify(
@@ -6652,6 +6906,16 @@ function App({
             ),
           ),
         );
+      case 'ui.logThemeTrace':
+        logNativeThemeTrace('webview-theme-trace', {
+          slot,
+          page: getPageKeyForSlot(slot),
+          trace:
+            payload.trace && typeof payload.trace === 'object'
+              ? payload.trace
+              : payload,
+        });
+        return {logged: true};
       case 'ui.showToast':
         if (typeof nativeBridge.showToast !== 'function') {
           throw createUnsupportedBridgeError(
@@ -6921,23 +7185,60 @@ function App({
         return;
       }
       if (eventName === 'ui.theme-applied') {
+        const themeAppliedPayload =
+          message.payload && typeof message.payload === 'object'
+            ? (message.payload as Record<string, unknown>)
+            : {};
+        const isPayloadAuthoritative =
+          isAuthoritativeThemeAppliedPayload(themeAppliedPayload);
+        logNativeThemeTrace('webview-theme-applied-received', {
+          slot,
+          page: getPageKeyForSlot(slot),
+          activeSlot: activeSlotRef.current,
+          currentPage: currentPageRef.current,
+          source:
+            typeof themeAppliedPayload.source === 'string'
+              ? themeAppliedPayload.source
+              : '',
+          href:
+            typeof themeAppliedPayload.href === 'string'
+              ? themeAppliedPayload.href
+              : '',
+          authoritative: isPayloadAuthoritative,
+          payloadForCurrentSlot: isPayloadForCurrentSlot(slot, message.payload),
+          ...buildLaunchThemeTracePayload(themeAppliedPayload),
+        });
         if (isPayloadForCurrentSlot(slot, message.payload)) {
           slotThemeReadyRef.current[slot] = true;
           requestTransitionPresentation(slot);
+        }
+        if (!isPayloadAuthoritative) {
+          logPerfMetric('theme-applied-ignored', {
+            slot,
+            page: getPageKeyForSlot(slot),
+            source:
+              typeof message.payload?.source === 'string'
+                ? message.payload.source
+                : '',
+            themeId:
+              typeof message.payload?.themeId === 'string'
+                ? message.payload.themeId
+                : typeof message.payload?.selectedTheme === 'string'
+                  ? message.payload.selectedTheme
+                  : '',
+          });
+          return;
         }
         const nextThemeState =
           message.payload && typeof message.payload === 'object'
             ? message.payload
             : {};
         const normalizedThemeState = buildSharedThemeStatePayload(nextThemeState);
-        console.info(
-          '[OrderBootTheme]',
-          JSON.stringify({
-            stage: 'webview-theme-applied',
-            slot,
-            ...buildLaunchThemeTracePayload(normalizedThemeState),
-          }),
-        );
+        logNativeThemeTrace('webview-theme-applied-authoritative', {
+          slot,
+          page: getPageKeyForSlot(slot),
+          ...buildLaunchThemeTracePayload(normalizedThemeState),
+        });
         sharedThemeStateRef.current = normalizedThemeState;
         launchThemeStateRef.current = buildLaunchThemeStatePayload(
           normalizedThemeState,
@@ -7048,6 +7349,7 @@ function App({
         return;
       }
       if (eventName === 'ui.navigate') {
+        refreshShellBootThemeFromNative().catch(() => undefined);
         const activeSlot = activeSlotRef.current;
         const transitionBusy = !!transitionStateRef.current;
         const navigationLocked = busyLockBySlotRef.current[activeSlot];
@@ -7373,6 +7675,10 @@ function App({
     }
     slotLoadCompletedRef.current[slot] = true;
     flushPendingBridgeMessagesForSlot(slot, revision);
+    forceApplyThemeStateToLoadedSlotsRef.current(
+      sharedThemeStateRef.current,
+      `slot-load-end:${slot}`,
+    );
     if (
       slot === activeSlotRef.current &&
       !transitionStateRef.current &&
@@ -7413,6 +7719,10 @@ function App({
     if (!loading) {
       slotLoadCompletedRef.current[slot] = true;
       flushPendingBridgeMessagesForSlot(slot, revision);
+      forceApplyThemeStateToLoadedSlotsRef.current(
+        sharedThemeStateRef.current,
+        `navigation-idle:${slot}`,
+      );
     }
     if (
       slot === activeSlotRef.current &&
@@ -7597,10 +7907,10 @@ function App({
       currentTransition?.direction === 'forward' ? enterDistance : -enterDistance;
     const leavingOffset =
       currentTransition?.direction === 'forward' ? -leaveDistance : leaveDistance;
-    const leavingOpacityEnd = IS_ANDROID ? 0.96 : 0.92;
-    const leavingScaleEnd = IS_ANDROID ? 0.998 : 0.992;
-    const enteringOpacityRange = IS_ANDROID ? [0.88, 0.95, 1] : [0.78, 0.92, 1];
-    const enteringScaleStart = IS_ANDROID ? 0.998 : 0.992;
+    const leavingOpacityEnd = IS_ANDROID ? 1 : 0.92;
+    const leavingScaleEnd = IS_ANDROID ? 1 : 0.992;
+    const enteringOpacityRange = IS_ANDROID ? [1, 1, 1] : [0.78, 0.92, 1];
+    const enteringScaleStart = IS_ANDROID ? 1 : 0.992;
     let wrapperStyle: Array<object> = [
       styles.webviewLayer,
       {backgroundColor: shellBootTheme.screenBg},
@@ -7626,6 +7936,7 @@ function App({
           // transparent. Move inactive layers off-screen so only the presented
           // layer remains touchable.
           transform: [{translateX: androidHiddenOffset}],
+          backgroundColor: shellBootTheme.screenBg,
         }
       : styles.webviewLayerHidden;
     const androidPreparedLoadingLayerStyle =
@@ -7639,7 +7950,7 @@ function App({
             // it is pre-rendering in the background. Android can still composite
             // the first frame off-screen, but background slots must never be able
             // to receive touches or emit navigation from under the active page.
-            opacity: 1,
+            opacity: 0,
             transform: [
               {
                 translateX: enteringOffset >= 0
@@ -7652,8 +7963,9 @@ function App({
         : null;
     const androidHiddenSurfaceStyle = IS_ANDROID
       ? {
-          opacity: 0.01,
+          opacity: 0,
           transform: [{translateX: androidHiddenOffset}],
+          backgroundColor: shellBootTheme.screenBg,
         }
       : null;
     const androidPreparedLoadingSurfaceStyle =
@@ -7662,7 +7974,7 @@ function App({
       slot === transitionLoadingSlot &&
       slotPageReadyRef.current[slot]
         ? {
-            opacity: 1,
+            opacity: 0,
             transform: [
               {
                 translateX: enteringOffset >= 0

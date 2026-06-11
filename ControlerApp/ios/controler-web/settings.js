@@ -2636,16 +2636,53 @@ async function refreshThemeWidgets() {
   }
 }
 
+function buildSettingsLaunchThemeState(themeId) {
+  const storedThemeState = getStoredThemeStateSnapshot();
+  const selectedTheme =
+    typeof themeId === "string" && themeId.trim()
+      ? themeId.trim()
+      : getStoredSelectedThemeId();
+  return {
+    selectedTheme: selectedTheme || "obsidian-mono",
+    customThemes: Array.isArray(storedThemeState?.customThemes)
+      ? storedThemeState.customThemes
+      : [],
+    builtInThemeOverrides:
+      storedThemeState?.builtInThemeOverrides &&
+      typeof storedThemeState.builtInThemeOverrides === "object" &&
+      !Array.isArray(storedThemeState.builtInThemeOverrides)
+        ? storedThemeState.builtInThemeOverrides
+        : {},
+  };
+}
+
+async function syncSettingsLaunchThemeState(themeId) {
+  try {
+    if (typeof window.ControlerNativeBridge?.call !== "function") {
+      return false;
+    }
+    await window.ControlerNativeBridge.call("ui.setLaunchThemeState", {
+      themeState: buildSettingsLaunchThemeState(themeId),
+    });
+    return true;
+  } catch (error) {
+    console.error("同步启动主题缓存失败:", error);
+    return false;
+  }
+}
+
 // 保存主题到localStorage
-function saveTheme(themeId) {
+async function saveTheme(themeId) {
   try {
     writeThemeStorageValue("selectedTheme", themeId);
-    return flushThemeStorageNow({
+    const didFlush = await flushThemeStorageNow({
       selectedTheme: themeId,
     });
+    await syncSettingsLaunchThemeState(themeId);
+    return didFlush;
   } catch (e) {
     console.error("保存主题失败:", e);
-    return Promise.resolve(false);
+    return false;
   }
 }
 
@@ -2690,7 +2727,11 @@ function loadTheme(options = {}) {
 function applyTheme(themeId, options = {}) {
   const theme = findThemeById(themeId) || themes[0] || BUILT_IN_THEMES[0];
   if (typeof resolveThemeRuntime()?.applyThemeState === "function") {
-    resolveThemeRuntime().applyThemeState(theme.id, theme);
+    resolveThemeRuntime().applyThemeState(theme.id, theme, {
+      source: options?.source || "settings-theme-preview",
+      emitNative: options?.emitNative !== false,
+      syncLaunchTheme: options?.syncLaunchTheme !== false,
+    });
   }
 
   // 更新主题选择器UI
@@ -2894,8 +2935,12 @@ function updateThemeSelector(selectedThemeId, options = {}) {
         themeId: theme.id,
         themeName: theme.name,
       });
-      applyTheme(theme.id);
       await saveTheme(theme.id);
+      applyTheme(theme.id, {
+        source: "settings-theme-write",
+        emitNative: false,
+        syncLaunchTheme: false,
+      });
       await refreshThemeWidgets();
     });
 

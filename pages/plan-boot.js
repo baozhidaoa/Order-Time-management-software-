@@ -5845,6 +5845,44 @@ function getGoalPriorityLabel(priority) {
   }
 }
 
+function getYearGoalPriorityRank(priority) {
+  switch (priority) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function sortYearGoalsForDisplay(goals = []) {
+  return (Array.isArray(goals) ? goals : [])
+    .map((goal, index) => ({
+      goal: normalizeYearGoal(goal),
+      index,
+    }))
+    .sort((left, right) => {
+      const leftCompleted = left.goal.isCompleted ? 1 : 0;
+      const rightCompleted = right.goal.isCompleted ? 1 : 0;
+      if (leftCompleted !== rightCompleted) {
+        return leftCompleted - rightCompleted;
+      }
+
+      const priorityDelta =
+        getYearGoalPriorityRank(left.goal.priority) -
+        getYearGoalPriorityRank(right.goal.priority);
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.goal);
+}
+
 function setYearGoalEntryCompletion(
   year,
   scope,
@@ -6005,7 +6043,8 @@ function createYearGoalCard({
   goalList.style.flex = "1 1 auto";
   goalList.style.overflow = "visible";
 
-  if (goals.length === 0) {
+  const displayGoals = sortYearGoalsForDisplay(goals);
+  if (displayGoals.length === 0) {
     const empty = document.createElement("div");
     empty.textContent = getYearGoalScopeEmptyText(scope);
     empty.style.fontSize = `${Math.max(10, Math.round(13 * monthCardScale))}px`;
@@ -6022,8 +6061,7 @@ function createYearGoalCard({
     empty.style.padding = `${Math.max(6, Math.round(10 * monthCardScale))}px`;
     goalList.appendChild(empty);
   } else {
-    goals.forEach((goal) => {
-      const normalizedGoal = normalizeYearGoal(goal);
+    displayGoals.forEach((normalizedGoal) => {
       const priorityMeta = getGoalPriorityLabel(normalizedGoal.priority);
       const goalCompleted = !!normalizedGoal.isCompleted;
       const goalItem = document.createElement("div");
