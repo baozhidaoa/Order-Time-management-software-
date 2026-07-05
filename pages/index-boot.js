@@ -4428,10 +4428,19 @@ function bindIndexExternalStorageRefresh() {
     const changedSections = getIndexNormalizedChangedSections(
       detail.changedSections,
     );
-    if (changedSections.includes("guideState")) {
+    const guideStateChanged = changedSections.includes("guideState");
+    const shouldRefreshExternalData = shouldRefreshIndexForExternalChange(detail);
+    if (!indexShellPageActive) {
+      if (guideStateChanged || shouldRefreshExternalData) {
+        indexExternalRefreshPendingResume = true;
+        indexExternalStorageRefreshRequested = true;
+      }
+      return;
+    }
+    if (guideStateChanged) {
       renderRecordGuideCard();
     }
-    if (!shouldRefreshIndexForExternalChange(detail)) {
+    if (!shouldRefreshExternalData) {
       uiTools?.markPerfStage?.("refresh-skipped", {
         reason: "index-storage-change-irrelevant",
       });

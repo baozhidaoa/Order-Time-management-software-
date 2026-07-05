@@ -4475,13 +4475,21 @@ function bindDiaryExternalStorageRefresh() {
   window.addEventListener("controler:storage-data-changed", (event) => {
     const detail = event?.detail || {};
     const changedSections = getDiaryNormalizedChangedSections(detail?.changedSections);
-    if (changedSections.includes("guideState")) {
+    const guideStateChanged = changedSections.includes("guideState");
+    const shouldRefreshExternalData = shouldRefreshDiaryForExternalChange(detail);
+    if (!diaryShellPageActive) {
+      if (guideStateChanged || shouldRefreshExternalData) {
+        diaryExternalRefreshPendingResume = true;
+      }
+      return;
+    }
+    if (guideStateChanged) {
       refreshDiaryGuideEntriesFromGuideState(
         detail?.data?.guideState || readDiaryGuideState(),
       );
       renderDiaryGuideCard();
     }
-    if (!shouldRefreshDiaryForExternalChange(detail)) {
+    if (!shouldRefreshExternalData) {
       uiTools?.markPerfStage?.("refresh-skipped", {
         reason: "diary-storage-change-irrelevant",
       });

@@ -1202,7 +1202,6 @@ const PAGE_SWITCH_THEME_READY_WATCHDOG_MARGIN_MS = IS_ANDROID ? 120 : 80;
 const PAGE_SWITCH_LOAD_TIMEOUT_GRACE_MS = IS_ANDROID ? 1000 : 140;
 const PAGE_READY_FALLBACK_REVEAL_MS = IS_ANDROID ? 5200 : 1200;
 const APP_BACKGROUND_STORAGE_FLUSH_TIMEOUT_MS = IS_ANDROID ? 520 : 420;
-const NAVIGATION_PREWARM_DELAY_MS = 260;
 const WIDGET_PREWARM_AFTER_READY_MS = 220;
 const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 2400;
 const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
@@ -1279,14 +1278,6 @@ const APP_PAGES: Array<{key: AppPageKey; href: string}> = [
   {key: 'diary', href: 'diary.html'},
   {key: 'settings', href: 'settings.html'},
 ];
-const APP_PAGE_LABELS: Record<AppPageKey, {zh: string; en: string}> = {
-  index: {zh: '记录', en: 'Record'},
-  stats: {zh: '统计', en: 'Stats'},
-  plan: {zh: '计划', en: 'Plan'},
-  todo: {zh: '待办', en: 'To-Do'},
-  diary: {zh: '日记', en: 'Diary'},
-  settings: {zh: '设置', en: 'Settings'},
-};
 const widgetKindMetadata = Array.isArray(platformContract?.getWidgetKinds?.())
   ? platformContract.getWidgetKinds()
   : [];
@@ -2164,22 +2155,6 @@ function getPageByHref(value: unknown): {key: AppPageKey; href: string} | null {
   return APP_PAGES.find(page => page.href === pathTail) || null;
 }
 
-function getPageDisplayLabel(
-  pageKey: AppPageKey | '',
-  language: UiLanguage,
-): string {
-  if (!pageKey) {
-    return selectShellText(language, '目标页面', 'destination page');
-  }
-
-  const labels = APP_PAGE_LABELS[pageKey];
-  if (!labels) {
-    return pageKey;
-  }
-
-  return language === 'en-US' ? labels.en : labels.zh;
-}
-
 function normalizeUiLanguage(value: unknown): UiLanguage {
   const normalized = String(value || '').trim().toLowerCase();
   return normalized === 'en' || normalized === 'en-us' ? 'en-US' : 'zh-CN';
@@ -2198,11 +2173,13 @@ export function resolveShellBlockingOverlayPayload({
   activeBusyOverlay,
   busyOverlayStates,
   shellLanguage,
+  isAndroid = false,
 }: {
   transitionState: Pick<TransitionState, 'status' | 'toSlot' | 'fromSlot'> | null;
   activeBusyOverlay: BusyOverlayState;
   busyOverlayStates: Record<WebViewSlot, BusyOverlayState>;
   shellLanguage: UiLanguage;
+  isAndroid?: boolean;
 }): ShellBlockingOverlayPayload {
   const resolveBusyOverlayPayload = (
     busyOverlay: BusyOverlayState | null | undefined,
@@ -2227,11 +2204,6 @@ export function resolveShellBlockingOverlayPayload({
     };
   };
 
-  const activePayload = resolveBusyOverlayPayload(activeBusyOverlay);
-  if (activePayload) {
-    return activePayload;
-  }
-
   if (transitionState?.status === 'loading') {
     const targetPayload = resolveBusyOverlayPayload(
       busyOverlayStates[transitionState.toSlot],
@@ -2239,12 +2211,20 @@ export function resolveShellBlockingOverlayPayload({
     if (targetPayload) {
       return targetPayload;
     }
+    if (isAndroid) {
+      return null;
+    }
     const sourcePayload = resolveBusyOverlayPayload(
       busyOverlayStates[transitionState.fromSlot],
     );
     if (sourcePayload) {
       return sourcePayload;
     }
+  }
+
+  const activePayload = resolveBusyOverlayPayload(activeBusyOverlay);
+  if (activePayload) {
+    return activePayload;
   }
 
   return null;
@@ -2478,7 +2458,7 @@ type WebViewInteractivityOptions = {
 };
 
 export function isWebViewLayerInteractive({
-  isAndroid,
+  isAndroid: _isAndroid,
   slot,
   activeSlot,
   transitionState,
@@ -3265,9 +3245,6 @@ function App({
   const widgetLaunchStartedAtRef = useRef(0);
   const widgetPrimaryReadyAtRef = useRef(0);
   const widgetPrewarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const navigationPrewarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const shellVisibilitySignatureRef = useRef<Record<WebViewSlot, string>>({
@@ -4561,105 +4538,6 @@ function App({
     [isPageKeyHidden, settleWidgetLaunchWindowIfExpired],
   );
 
-  const prewarmNavigationPage = useCallback(
-    (pageKey: AppPageKey) => {
-      if (
-        IS_ANDROID ||
-        transitionStateRef.current ||
-        !isPageReadyRef.current ||
-        isPageKeyHidden(pageKey)
-      ) {
-        return false;
-      }
-
-      const activeSlot = activeSlotRef.current;
-      const activeState = webViewSlotsRef.current[activeSlot];
-      if (!activeState.uri || activeState.pageKey === pageKey) {
-        return false;
-      }
-
-      const target = resolvePageTarget(activeState.uri, {
-        page: pageKey,
-        href: `${pageKey}.html`,
-      });
-      if (!target) {
-        return false;
-      }
-
-      const comparableTargetUri = getComparableUrl(target.uri);
-      const cachedSlot = WEBVIEW_SLOTS.find(
-        slot =>
-          getComparableUrl(webViewSlotsRef.current[slot].uri) ===
-          comparableTargetUri,
-      );
-      if (cachedSlot) {
-        if (cachedSlot !== activeSlot) {
-          markSlotUsed(cachedSlot);
-        }
-        return true;
-      }
-
-      const nextSlotState = findReusableSlot(activeSlot, target.uri);
-      const targetSlot = nextSlotState.slot;
-      if (!targetSlot || targetSlot === activeSlot || !nextSlotState.needsLoad) {
-        return false;
-      }
-
-      const nextRevision = webViewSlotsRef.current[targetSlot].revision + 1;
-      resetSlotRuntimeState(targetSlot, nextRevision);
-      updateWebViewSlotsRef(webViewSlotsRef, targetSlot, {
-        uri: target.uri,
-        pageKey: target.pageKey,
-        revision: nextRevision,
-      });
-      setWebViewSlots(current => ({
-        ...current,
-        [targetSlot]: {
-          uri: target.uri,
-          pageKey: target.pageKey,
-          revision: nextRevision,
-        },
-      }));
-      markSlotUsed(targetSlot);
-      logPerfMetric('navigation-prewarm', {
-        slot: targetSlot,
-        page: target.pageKey,
-        activePage: activeState.pageKey,
-        targetUri: target.uri,
-      });
-      return true;
-    },
-    [findReusableSlot, isPageKeyHidden, logPerfMetric, markSlotUsed],
-  );
-
-  const resolveNavigationPrewarmTarget = useCallback(
-    (activePageKey: AppPageKey | ''): AppPageKey | '' => {
-      if (!activePageKey) {
-        return '';
-      }
-      const recentPageKey = lastPresentedPageKeyRef.current;
-      if (recentPageKey && recentPageKey !== activePageKey) {
-        return recentPageKey;
-      }
-      if (IS_ANDROID) {
-        switch (activePageKey) {
-          case 'index':
-            return 'stats';
-          case 'stats':
-            return 'index';
-          case 'plan':
-            return 'todo';
-          case 'todo':
-            return 'plan';
-          default:
-            return '';
-        }
-      }
-      return activePageKey === 'index' ? '' : 'index';
-    },
-    [],
-  );
-
   const clearTransitionWatchdog = useCallback(() => {
     if (transitionWatchdogTimerRef.current !== null) {
       clearTimeout(transitionWatchdogTimerRef.current);
@@ -4672,13 +4550,6 @@ function App({
     if (widgetPrewarmTimerRef.current !== null) {
       clearTimeout(widgetPrewarmTimerRef.current);
       widgetPrewarmTimerRef.current = null;
-    }
-  }, []);
-
-  const clearNavigationPrewarmTimer = useCallback(() => {
-    if (navigationPrewarmTimerRef.current !== null) {
-      clearTimeout(navigationPrewarmTimerRef.current);
-      navigationPrewarmTimerRef.current = null;
     }
   }, []);
 
@@ -4898,19 +4769,24 @@ function App({
     markAndroidStartupReady();
   }, [bootCardScale, bootOverlayOpacity, markAndroidStartupReady]);
 
-  const resetWebViewPresentation = useCallback(() => {
+  const resetWebViewPresentation = useCallback((options: {
+    resetPageReady?: boolean;
+  } = {}) => {
+    const shouldResetPageReady = options.resetPageReady !== false;
     invalidateTransitionToken();
-    isPageReadyRef.current = false;
-    setIsPageReady(false);
-    androidStartupReadyReportedRef.current = false;
+    if (shouldResetPageReady) {
+      isPageReadyRef.current = false;
+      setIsPageReady(false);
+      androidStartupReadyReportedRef.current = false;
+    }
     clearTransitionWatchdog();
     clearAndroidLoadedTransitionDelay();
     cancelAllTransitionThemeFallbacks();
     bootOverlayOpacity.stopAnimation();
     bootCardScale.stopAnimation();
     transitionProgress.stopAnimation();
-    bootOverlayOpacity.setValue(1);
-    bootCardScale.setValue(0.98);
+    bootOverlayOpacity.setValue(shouldResetPageReady ? 1 : 0);
+    bootCardScale.setValue(shouldResetPageReady ? 0.98 : 1);
     transitionProgress.setValue(0);
     canGoBackBySlotRef.current = {
       primary: false,
@@ -5267,7 +5143,9 @@ function App({
       activeSlot: activeSlotRef.current,
       reason,
     });
-    resetWebViewPresentation();
+    resetWebViewPresentation({
+      resetPageReady: false,
+    });
     resetSlotTransientOverlayState(fallbackSlot, `transition-fallback:${reason}`);
     resetSlotTransientOverlayState(pendingSlot, `transition-fallback-pending:${reason}`);
     resetSlotRuntimeState(fallbackSlot, fallbackRevision);
@@ -5982,7 +5860,6 @@ function App({
       invalidateTransitionToken();
       clearAndroidLoadedTransitionDelay();
       clearPendingWidgetLaunchAck();
-      clearNavigationPrewarmTimer();
       clearTransitionWatchdog();
       cancelAllTransitionThemeFallbacks();
       clearWidgetPrewarmTimer();
@@ -5991,7 +5868,6 @@ function App({
   }, [
     clearAndroidLoadedTransitionDelay,
     clearPendingWidgetLaunchAck,
-    clearNavigationPrewarmTimer,
     clearTransitionWatchdog,
     clearWidgetPrewarmTimer,
     transitionProgress,
@@ -6082,49 +5958,6 @@ function App({
     isPageReady,
     prewarmWidgetLandingPages,
     settleWidgetLaunchWindowIfExpired,
-    transitionState,
-    webViewSlots,
-  ]);
-
-  useEffect(() => {
-    clearNavigationPrewarmTimer();
-    if (bootError || !isPageReady || transitionState) {
-      return;
-    }
-
-    const activePageKey = webViewSlotsRef.current[activeSlotRef.current].pageKey;
-    const prewarmTarget = resolveNavigationPrewarmTarget(activePageKey);
-    if (
-      !activePageKey ||
-      !prewarmTarget ||
-      widgetPrewarmPendingRef.current ||
-      busyLockBySlotRef.current[activeSlotRef.current]
-    ) {
-      return;
-    }
-
-    navigationPrewarmTimerRef.current = setTimeout(() => {
-      navigationPrewarmTimerRef.current = null;
-      if (
-        transitionStateRef.current ||
-        busyLockBySlotRef.current[activeSlotRef.current]
-      ) {
-        return;
-      }
-      prewarmNavigationPage(prewarmTarget);
-    }, NAVIGATION_PREWARM_DELAY_MS);
-
-    return () => {
-      clearNavigationPrewarmTimer();
-    };
-  }, [
-    activeSlot,
-    busyStateVersion,
-    bootError,
-    clearNavigationPrewarmTimer,
-    isPageReady,
-    prewarmNavigationPage,
-    resolveNavigationPrewarmTarget,
     transitionState,
     webViewSlots,
   ]);
@@ -6920,6 +6753,39 @@ function App({
     );
   }
 
+  function shouldAcceptBusyOverlayState(
+    slot: WebViewSlot,
+    busyOverlayState: BusyOverlayState,
+    payload: BridgeEnvelopePayload | undefined,
+  ) {
+    if (!busyOverlayState.active) {
+      return true;
+    }
+    if (!isPayloadForCurrentSlot(slot, payload)) {
+      return false;
+    }
+
+    const currentTransition = transitionStateRef.current;
+    if (currentTransition?.toSlot === slot) {
+      return true;
+    }
+    if (!currentTransition && slot === activeSlotRef.current) {
+      return true;
+    }
+    if (
+      !IS_ANDROID &&
+      currentTransition?.fromSlot === slot &&
+      busyOverlayState.presentation === 'native-fullscreen'
+    ) {
+      return true;
+    }
+
+    return (
+      busyOverlayState.presentation !== 'native-fullscreen' &&
+      busyOverlayState.lockNavigation !== true
+    );
+  }
+
   async function handleWebViewMessage(
     slot: WebViewSlot,
     revision: number,
@@ -6966,8 +6832,7 @@ function App({
       if (eventName === 'ui.busy-state') {
         const nextBusyOverlayState = normalizeBusyOverlayState(message.payload);
         if (
-          nextBusyOverlayState.active &&
-          !isPayloadForCurrentSlot(slot, message.payload)
+          !shouldAcceptBusyOverlayState(slot, nextBusyOverlayState, message.payload)
         ) {
           return;
         }
@@ -8029,6 +7894,7 @@ function App({
     activeBusyOverlay,
     busyOverlayStates: busyOverlayBySlotRef.current,
     shellLanguage,
+    isAndroid: IS_ANDROID,
   });
   if (liveShellBlockingOverlay) {
     lastShellBlockingOverlayRef.current = liveShellBlockingOverlay;

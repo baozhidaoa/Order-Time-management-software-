@@ -4973,6 +4973,7 @@
     const nativeSyncBootstrapStartedAt = Date.now();
     let nativeInitializationSettled = false;
     let pendingForegroundSyncRequest = null;
+    let skipNextShellResumeForegroundSync = false;
     const initialShellVisibilityState =
       window.__CONTROLER_SHELL_VISIBILITY__ &&
       typeof window.__CONTROLER_SHELL_VISIBILITY__ === "object"
@@ -9438,9 +9439,21 @@
         hasPendingStateChanges: hasPendingStateChanges === true,
       });
       if (!shellPageActive) {
-        queueNativeForegroundSyncOnShellResume("shell-resume", {
-          resetWindow: false,
-        });
+        const internalTransitionHide = isInternalShellTransitionHide(detail);
+        if (hasPendingStateChanges || !internalTransitionHide) {
+          skipNextShellResumeForegroundSync = false;
+          queueNativeForegroundSyncOnShellResume("shell-resume", {
+            resetWindow: false,
+          });
+        } else {
+          skipNextShellResumeForegroundSync = true;
+          emitStoragePerfMetric("storage-sync-shell-hide-foreground-skip", {
+            reason: typeof detail.reason === "string" ? detail.reason : "",
+            page: typeof detail.page === "string" ? detail.page : "",
+            transitionLoading: detail.transitionLoading === true,
+            hasPendingStateChanges: false,
+          });
+        }
         stopNativeProbeLoop();
         const deferInternalTransitionHideFlush = document.hidden !== true;
         forceFlushNativeStorage("shell-hidden", {
@@ -9452,6 +9465,7 @@
 
       const queuedForegroundSync = pendingForegroundSyncRequest;
       if (queuedForegroundSync) {
+        skipNextShellResumeForegroundSync = false;
         pendingForegroundSyncRequest = null;
         scheduleNativeForegroundSync(queuedForegroundSync.reason, {
           resetWindow: queuedForegroundSync.resetWindow === true,
@@ -9462,6 +9476,13 @@
           changedPeriods: queuedForegroundSync.changedPeriods || {},
           source: queuedForegroundSync.source || "",
           originPageInstanceId: queuedForegroundSync.originPageInstanceId || "",
+        });
+      } else if (skipNextShellResumeForegroundSync) {
+        skipNextShellResumeForegroundSync = false;
+        emitStoragePerfMetric("storage-sync-shell-resume-skipped", {
+          reason: typeof detail.reason === "string" ? detail.reason : "",
+          page: typeof detail.page === "string" ? detail.page : "",
+          transitionLoading: detail.transitionLoading === true,
         });
       } else {
         scheduleNativeForegroundSync("shell-resume", {

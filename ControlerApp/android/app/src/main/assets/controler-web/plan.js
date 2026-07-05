@@ -50,6 +50,7 @@ let planDeferredBootstrapPendingResume = false;
 let planDeferredRuntimePendingResume = false;
 let todoSidebarIdleBootstrapPendingResume = false;
 let planExternalStorageRefreshPendingResume = false;
+let planTodoSidebarRefreshPendingDetail = null;
 let planCoverageLoadKey = "";
 let planCalendarMountDeferred = false;
 let planShellRefs = null;
@@ -578,6 +579,11 @@ function bindPlanShellVisibilityGate() {
     if (todoSidebarIdleBootstrapPendingResume) {
       todoSidebarIdleBootstrapPendingResume = false;
       scheduleTodoSidebarIdleBootstrap();
+    }
+    if (planTodoSidebarRefreshPendingDetail) {
+      const pendingDetail = planTodoSidebarRefreshPendingDetail;
+      planTodoSidebarRefreshPendingDetail = null;
+      refreshPlanTodoSidebarFromExternalChange(pendingDetail);
     }
     schedulePlanInitialContentEnsure("shell-active");
   });
@@ -2578,17 +2584,21 @@ function renderPlanGuideCard() {
   window.ControlerGuideUI.renderCard(container, guideCard);
 }
 
-function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
+function isPlanTodoSidebarExternalChange(detail = {}) {
   const changedSections = getPlanNormalizedChangedSections(
     detail?.changedSections,
   );
-  const todoRelatedChanged =
+  return (
     changedSections.includes("todos") ||
     changedSections.includes("checkinItems") ||
     changedSections.includes("dailyCheckins") ||
     changedSections.includes("checkins") ||
-    changedSections.includes("core");
-  if (!todoRelatedChanged) {
+    changedSections.includes("core")
+  );
+}
+
+function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
+  if (!isPlanTodoSidebarExternalChange(detail)) {
     return false;
   }
   if (
@@ -2684,6 +2694,19 @@ function bindPlanExternalStorageRefresh() {
     const changedSections = getPlanNormalizedChangedSections(
       detail?.changedSections,
     );
+    if (!planShellPageActive) {
+      if (isPlanTodoSidebarExternalChange(detail)) {
+        planTodoSidebarRefreshPendingDetail = detail;
+      }
+      if (
+        changedSections.includes("guideState") ||
+        isPlanTodoSidebarExternalChange(detail) ||
+        shouldRefreshPlanForExternalChange(detail)
+      ) {
+        planExternalStorageRefreshPendingResume = true;
+      }
+      return;
+    }
     if (changedSections.includes("guideState")) {
       renderPlanGuideCard();
     }

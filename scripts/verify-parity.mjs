@@ -57,6 +57,7 @@ const generatedBootstrapFiles = new Set([
   "stats-boot.js",
   "settings-boot.js",
 ]);
+const mobileForbiddenBootstrapFiles = new Set(["desktop-common-boot.js"]);
 const mobileBootstrapHtmlPages = new Set([
   "index.html",
   "diary.html",
@@ -332,6 +333,34 @@ async function compareDirectories(sourceDir, targetDir, label, options = {}) {
     ]);
     if (!sourceBuffer.equals(targetBuffer)) {
       recordFailure(`${label} 文件内容不一致: ${relativePath}`);
+    }
+  }
+}
+
+async function assertMobileBootstrapPolicy(targetDir, label) {
+  for (const fileName of mobileForbiddenBootstrapFiles) {
+    const forbiddenPath = path.join(targetDir, fileName);
+    if (await fs.pathExists(forbiddenPath)) {
+      recordFailure(`${label} 不应包含桌面启动 bundle: ${fileName}`);
+    }
+  }
+
+  const mobileCommonBootPath = path.join(targetDir, "mobile-common-boot.js");
+  if (!(await fs.pathExists(mobileCommonBootPath))) {
+    recordFailure(`${label} 缺少移动端启动 bundle: mobile-common-boot.js`);
+  }
+
+  for (const relativePath of mobileBootstrapHtmlPages) {
+    const htmlPath = path.join(targetDir, relativePath);
+    if (!(await fs.pathExists(htmlPath))) {
+      continue;
+    }
+    const html = await readUtf8(htmlPath);
+    if (html.includes('src="desktop-common-boot.js"')) {
+      recordFailure(`${label} HTML 不应引用桌面启动 bundle: ${relativePath}`);
+    }
+    if (!html.includes('src="mobile-common-boot.js"')) {
+      recordFailure(`${label} HTML 缺少移动端启动 bundle: ${relativePath}`);
     }
   }
 }
@@ -699,6 +728,19 @@ async function main() {
       excludedRelativePrefixes: ["offline-assets"],
     },
   );
+  await assertMobileBootstrapPolicy(
+    path.join(
+      repoRoot,
+      "ControlerApp",
+      "android",
+      "app",
+      "src",
+      "main",
+      "assets",
+      "controler-web",
+    ),
+    "Android Web 资源",
+  );
   await compareDirectories(
     path.join(repoRoot, "pages"),
     path.join(repoRoot, "ControlerApp", "ios", "controler-web"),
@@ -706,6 +748,10 @@ async function main() {
     {
       excludedRelativePrefixes: ["offline-assets"],
     },
+  );
+  await assertMobileBootstrapPolicy(
+    path.join(repoRoot, "ControlerApp", "ios", "controler-web"),
+    "iOS Web 资源",
   );
 
   const [

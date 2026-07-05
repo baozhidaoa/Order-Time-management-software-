@@ -52,6 +52,7 @@ const mobileWebDirs = [mobileAndroidWebDir, mobileIosWebDir];
 const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
 const pageMirrorExcludedDirs = new Set(["offline-assets"]);
+const mobileWebExcludedFiles = new Set(["desktop-common-boot.js"]);
 const desktopThemePreloadFileName = "desktop-theme-preload.js";
 
 const desktopBootBundleEntries = {
@@ -547,6 +548,12 @@ async function validateBootBundles(targetDir, bundles) {
   }
 }
 
+async function removeMobileWebExcludedFiles(targetDir) {
+  for (const fileName of mobileWebExcludedFiles) {
+    await fs.remove(path.join(targetDir, fileName));
+  }
+}
+
 async function validateBootstrapHtml(
   targetDir,
   pageKey,
@@ -637,6 +644,9 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
 
   await copyDirectoryTree(pagesSourceDir, mobileAndroidWebDir);
   await copyDirectoryTree(pagesSourceDir, mobileIosWebDir);
+  await Promise.all(mobileWebDirs.map((mobileWebDir) =>
+    removeMobileWebExcludedFiles(mobileWebDir),
+  ));
 
   const mobileBootBundles = await buildBootBundles(mobileBootBundleEntries);
   for (const mobileWebDir of mobileWebDirs) {

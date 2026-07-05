@@ -321,11 +321,6 @@
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
   const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
-  const APP_PAGE_LEAVE_GUARD_OVERLAY_DELAY_MS = 120;
-  const APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS = 2500;
-  const APP_PAGE_LEAVE_GUARD_LOADING_TITLE = "正在跳转";
-  const APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE =
-    "正在处理当前页面数据并切换页面，请稍候";
   const DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR =
     ".app-main, .settings-main";
   const ANDROID_PRESS_FEEDBACK_SELECTOR = [
@@ -414,6 +409,7 @@
   let desktopBootstrapPrewarmScheduled = false;
   let desktopBootstrapPrewarmRunning = false;
   let desktopBootstrapPrewarmTimerId = 0;
+  let desktopBootstrapPrewarmGeneration = 0;
   let lastReportedAppNavigationStateSignature = "";
   let lastShellVisibilityStateSignature = "";
   let beforePageLeaveGuardCounter = 0;
@@ -772,9 +768,7 @@
   const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
   let appPageLeaveOverlayElement = null;
-  let appPageLeaveOverlayController = null;
   let appPageLeaveOverlayVisible = false;
-  let appPageLeaveOverlayShellVisibilityBound = false;
   const pagePerfStartTime =
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
@@ -1428,9 +1422,11 @@
     );
     window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReplayStateChange);
     window.addEventListener("pagehide", () => {
+      cancelDesktopBootstrapPrewarm("pagehide");
       discardDeferredAppNavigationRequest("pagehide");
     });
     window.addEventListener("beforeunload", () => {
+      cancelDesktopBootstrapPrewarm("beforeunload");
       discardDeferredAppNavigationRequest("beforeunload");
     });
     document.addEventListener("visibilitychange", () => {
@@ -1441,21 +1437,6 @@
       handleReplayStateChange();
     });
     scheduleDeferredAppNavigationReplay();
-  }
-
-  function getAppNavigationItemLabel(targetItem) {
-    if (!targetItem || typeof targetItem !== "object") {
-      return "目标页面";
-    }
-    const label = String(targetItem.label || targetItem.key || "").trim();
-    return label || "目标页面";
-  }
-
-  function buildAppNavigationOverlayCopy(targetItem) {
-    return {
-      title: "正在加载数据中",
-      message: "页面资源与本地数据正在就绪",
-    };
   }
 
   function hasPageBootstrapPendingBodyState() {
@@ -1591,28 +1572,8 @@
       androidNativeBootstrapTransitionOverlayActive = false;
       return false;
     }
-
-    const shouldBridgeBootstrapPending =
-      isShellPageActive() &&
-      hasPageBootstrapPendingBodyState() &&
-      !hasVisibleBlockingOverlayExcludingLeaveGuard();
-    if (!shouldBridgeBootstrapPending) {
-      if (androidNativeBootstrapTransitionOverlayActive) {
-        androidNativeBootstrapTransitionOverlayActive = false;
-        setAppPageLeaveOverlayState({
-          active: false,
-        });
-      }
-      return false;
-    }
-
-    androidNativeBootstrapTransitionOverlayActive = true;
-    setAppPageLeaveOverlayState({
-      active: true,
-      ...buildAppNavigationOverlayCopy(getCurrentAppNavigationItem()),
-      delayMs: 0,
-    });
-    return true;
+    androidNativeBootstrapTransitionOverlayActive = false;
+    return false;
   }
 
   function compareAppNavigationIntentPriority(current, incoming) {
@@ -1909,15 +1870,6 @@
       });
 
       if (ackState === "queued") {
-        const overlayCopy = buildAppNavigationOverlayCopy(
-          pendingRequest.targetItem ||
-            resolveAppNavigationItemByHref(pendingRequest.targetHref),
-        );
-        setAppPageLeaveOverlayState({
-          active: true,
-          ...overlayCopy,
-          delayMs: 0,
-        });
         return;
       }
 
@@ -2139,6 +2091,21 @@
     desktopBootstrapPrewarmTimerId = 0;
   }
 
+  function cancelDesktopBootstrapPrewarm(reason = "") {
+    const hadScheduledWork =
+      desktopBootstrapPrewarmScheduled || desktopBootstrapPrewarmTimerId;
+    desktopBootstrapPrewarmGeneration += 1;
+    desktopBootstrapPrewarmScheduled = false;
+    clearDesktopBootstrapPrewarmTimer();
+    if (hadScheduledWork) {
+      markPagePerfStage("desktop-bootstrap-prewarm-cancelled", {
+        allowRepeat: true,
+        reason: reason || undefined,
+      });
+    }
+    return hadScheduledWork;
+  }
+
   function resolveDesktopBootstrapPrewarmQueue() {
     const currentPageKey = resolveCurrentPagePerfKey();
     const navigationState = getAppNavigationState();
@@ -2220,8 +2187,13 @@
     return null;
   }
 
-  async function runDesktopBootstrapPrewarm(reason = "page-ready") {
-    if (desktopBootstrapPrewarmRunning) {
+  async function runDesktopBootstrapPrewarm(reason = "page-ready", generation = 0) {
+    if (
+      desktopBootstrapPrewarmRunning ||
+      generation !== desktopBootstrapPrewarmGeneration ||
+      appPageTransitionLocked ||
+      appPageLeavePreflightLocked
+    ) {
       return false;
     }
     const electronApi = window.electronAPI;
@@ -2247,7 +2219,13 @@
     let completedCount = 0;
     try {
       for (const pageKey of queue) {
-        if (document.hidden || !isShellPageActive()) {
+        if (
+          generation !== desktopBootstrapPrewarmGeneration ||
+          document.hidden ||
+          !isShellPageActive() ||
+          appPageTransitionLocked ||
+          appPageLeavePreflightLocked
+        ) {
           break;
         }
         try {
@@ -2283,10 +2261,20 @@
     ) {
       return false;
     }
+    const generation = ++desktopBootstrapPrewarmGeneration;
     desktopBootstrapPrewarmScheduled = true;
     clearDesktopBootstrapPrewarmTimer();
     desktopBootstrapPrewarmTimerId = window.setTimeout(() => {
       desktopBootstrapPrewarmTimerId = 0;
+      desktopBootstrapPrewarmScheduled = false;
+      if (
+        generation !== desktopBootstrapPrewarmGeneration ||
+        document.hidden ||
+        appPageTransitionLocked ||
+        appPageLeavePreflightLocked
+      ) {
+        return;
+      }
       const schedule =
         typeof window.requestIdleCallback === "function"
           ? (callback) =>
@@ -2295,7 +2283,7 @@
               })
           : (callback) => window.setTimeout(callback, 0);
       schedule(() => {
-        void runDesktopBootstrapPrewarm(reason);
+        void runDesktopBootstrapPrewarm(reason, generation);
       });
     }, DESKTOP_BOOTSTRAP_PREWARM_DELAY_MS);
     return true;
@@ -5238,74 +5226,8 @@
     );
   }
 
-  function createAppPageLeaveOverlayElement() {
-    if (appPageLeaveOverlayElement instanceof HTMLElement) {
-      return appPageLeaveOverlayElement;
-    }
-    const overlay = document.createElement("div");
-    overlay.id = "controler-page-leave-overlay";
-    overlay.className = "page-loading-overlay";
-    overlay.dataset.mode = "fullscreen";
-    overlay.hidden = true;
-    overlay.setAttribute("aria-hidden", "true");
-    overlay.innerHTML = `
-      <div class="page-loading-card" role="status" aria-live="polite">
-        <div class="page-loading-title" data-loading-title>${APP_PAGE_LEAVE_GUARD_LOADING_TITLE}</div>
-        <div class="page-loading-message" data-loading-message>${APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE}</div>
-      </div>
-    `;
-    if (document.body instanceof HTMLElement) {
-      document.body.appendChild(overlay);
-    }
-    appPageLeaveOverlayElement = overlay;
-    return overlay;
-  }
-
-  function getAppPageLeaveOverlayController() {
-    if (appPageLeaveOverlayController) {
-      return appPageLeaveOverlayController;
-    }
-    const overlay = createAppPageLeaveOverlayElement();
-    appPageLeaveOverlayController = createPageLoadingOverlayController({
-      overlay,
-      inlineHost: ensureDesktopContentOverlayHost() || document.body,
-      scopeFullscreenToInlineHost: false,
-    });
-    bindAppPageLeaveOverlayShellVisibility();
-    return appPageLeaveOverlayController;
-  }
-
-  function bindAppPageLeaveOverlayShellVisibility() {
-    if (appPageLeaveOverlayShellVisibilityBound) {
-      return;
-    }
-    appPageLeaveOverlayShellVisibilityBound = true;
-    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, (event) => {
-      const detail =
-        event && typeof event.detail === "object" && event.detail
-          ? event.detail
-          : {};
-      if (detail.active === false) {
-        setAppPageLeaveOverlayState({
-          active: false,
-        });
-      }
-    });
-  }
-
   function setAppPageLeaveOverlayState(_options = {}) {
     appPageLeaveOverlayVisible = false;
-    if (!appPageLeaveOverlayController) {
-      return;
-    }
-    appPageLeaveOverlayController.setState({
-      active: false,
-      mode: "fullscreen",
-      lockNavigation: false,
-      title: APP_PAGE_LEAVE_GUARD_LOADING_TITLE,
-      message: APP_PAGE_LEAVE_GUARD_LOADING_MESSAGE,
-      delayMs: 0,
-    });
   }
 
   function registerBeforePageLeave(handler, options = {}) {
@@ -5330,12 +5252,6 @@
       return true;
     }
 
-    const overlayTargetItem =
-      APP_NAV_ITEMS.find((item) => item.key === String(context?.toPage || "").trim())
-      || resolveAppNavigationItemByHref(context?.targetHref || "")
-      || null;
-    const overlayCopy = buildAppNavigationOverlayCopy(overlayTargetItem);
-
     const guardEntries = Array.from(beforePageLeaveGuards.values()).map((entry) =>
       typeof entry === "function"
         ? {
@@ -5350,24 +5266,7 @@
                 : {},
           },
     );
-    const shouldShowOverlay = guardEntries.some(
-      (entry) => entry?.options?.showLoadingOverlay !== false,
-    );
-    const hasVisibleFullscreenOverlayExcludingLeaveGuard = () =>
-      Array.from(document.querySelectorAll(".page-loading-overlay")).some(
-        (overlay) =>
-          overlay !== appPageLeaveOverlayElement &&
-          isVisibleBlockingLoadingOverlay(overlay),
-      );
-    const shouldUseLeaveGuardOverlay =
-      !hasVisibleFullscreenOverlayExcludingLeaveGuard();
-    if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...overlayCopy,
-        delayMs: 0,
-      });
-    } else if (appPageLeaveOverlayVisible) {
+    if (appPageLeaveOverlayVisible) {
       setAppPageLeaveOverlayState({
         active: false,
       });
@@ -5376,22 +5275,6 @@
     let failure = null;
     let slowMessageTimerId = 0;
     try {
-      if ((shouldShowOverlay || appPageLeaveOverlayVisible) && shouldUseLeaveGuardOverlay) {
-        slowMessageTimerId = window.setTimeout(() => {
-          if (hasVisibleFullscreenOverlayExcludingLeaveGuard()) {
-            setAppPageLeaveOverlayState({
-              active: false,
-            });
-            return;
-          }
-          setAppPageLeaveOverlayState({
-            active: true,
-            ...overlayCopy,
-            delayMs: 0,
-          });
-        }, APP_PAGE_LEAVE_GUARD_SLOW_MESSAGE_DELAY_MS);
-      }
-
       for (const entry of guardEntries) {
         if (typeof entry?.handler !== "function") {
           continue;
@@ -5532,6 +5415,7 @@
     clearAndroidNavButtonFocus(document.activeElement, true);
     releaseAndroidInteractiveTextControlFocus();
     clearNativeNavigationRetryTimer();
+    cancelDesktopBootstrapPrewarm("navigation-start");
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidReactNativeNavigationRuntime =
       nativeNavigationRuntime && isAndroidReactNativeNavigationRuntime();
@@ -5573,31 +5457,15 @@
       return true;
     }
 
-    const overlayCopy = buildAppNavigationOverlayCopy(targetItem);
     if (appPageLeavePreflightLocked) {
       stashDeferredAppNavigationRequest(targetItem, options);
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...overlayCopy,
-        delayMs: 0,
-      });
       return true;
     }
     if (androidWebTransitionRuntime && appPageTransitionLocked) {
       stashDeferredAppNavigationRequest(targetItem, options);
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...overlayCopy,
-        delayMs: 0,
-      });
       return true;
     }
     if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...overlayCopy,
-        delayMs: 0,
-      });
       if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
         return true;
       }
@@ -5609,11 +5477,6 @@
       let shouldUnlock = true;
       try {
         await waitForAndroidNavigationReleasePaint();
-        setAppPageLeaveOverlayState({
-          active: true,
-          ...overlayCopy,
-          delayMs: 0,
-        });
         appPageTransitionLocked = true;
         const canLeave = await runBeforePageLeaveGuards({
           fromPage: currentItem?.key || "",
@@ -5706,11 +5569,6 @@
     }
     if (isAndroidReactNativeNavigationRuntime() && hasVisibleBlockingOverlay()) {
       stashDeferredAppNavigationRequest(targetItem);
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...buildAppNavigationOverlayCopy(targetItem),
-        delayMs: 0,
-      });
       ensureDeferredAppNavigationReplay();
       clearAndroidNavButtonFocus(document.activeElement, true);
       return true;
@@ -5732,11 +5590,6 @@
       stashDeferredAppNavigationRequest(targetItem, {
         ...options,
         targetHref,
-      });
-      setAppPageLeaveOverlayState({
-        active: true,
-        ...buildAppNavigationOverlayCopy(targetItem),
-        delayMs: 0,
       });
       ensureDeferredAppNavigationReplay();
       clearAndroidNavButtonFocus(document.activeElement, true);
@@ -7695,7 +7548,10 @@
     const isBlocked =
       typeof options.isBlocked === "function"
         ? options.isBlocked
-        : () => hasVisibleBlockingOverlay();
+        : () =>
+            hasVisibleBlockingOverlay() ||
+            !isShellPageActive() ||
+            isShellTransitionLoading();
     const scheduleFrame =
       typeof window !== "undefined" &&
       typeof window.requestAnimationFrame === "function"
@@ -7765,6 +7621,7 @@
     };
 
     window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleReadyState);
+    window.addEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReadyState);
     window.addEventListener("focus", handleReadyState);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -7805,6 +7662,7 @@
           BLOCKING_OVERLAY_STATE_EVENT_NAME,
           handleReadyState,
         );
+        window.removeEventListener(SHELL_VISIBILITY_EVENT_NAME, handleReadyState);
         window.removeEventListener("focus", handleReadyState);
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       },
@@ -16417,6 +16275,7 @@
     hasVisibleBlockingOverlay,
     getShellVisibilityState,
     isShellPageActive,
+    isShellTransitionLoading,
     getAppPageEnterTransitionState,
     normalizeChangedSections,
     hasPeriodOverlap,
