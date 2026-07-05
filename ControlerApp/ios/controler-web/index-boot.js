@@ -788,6 +788,11 @@
       return sortProjectNodesByTotalDesc(getChildren(projectId));
     };
 
+    const shouldSplitProjectDirectDuration = (projectId) => {
+      const project = hierarchy.byId.get(String(projectId || ""));
+      return !!project && project.level < 3 && hasChildren(project.id);
+    };
+
     const getBaseColor = (projectId) => {
       const project = hierarchy.byId.get(String(projectId || ""));
       return project?.color || defaultColorForName(project?.name || projectId || "");
@@ -805,13 +810,14 @@
             ? stat.directMs
             : stat.directMs;
       const baseColor = getBaseColor(project.id);
+      const splitDirectDuration = shouldSplitProjectDirectDuration(project.id);
 
       return {
         key: `${kind}:${project.id}`,
         projectId: project.id,
         label:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -819,7 +825,7 @@
               : project.name,
         shortLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -828,7 +834,7 @@
         path,
         pathLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${path}${TOTAL_SUFFIX}`
               : path
             : kind === "single"
@@ -856,7 +862,7 @@
       const stat = getStat(projectId);
       const item = buildDisplayItem(
         projectId,
-        forceSingle && hierarchy.byId.get(String(projectId || ""))?.level < 3
+        forceSingle && shouldSplitProjectDirectDuration(projectId)
           ? "single"
           : "leaf",
       );
@@ -868,7 +874,11 @@
     };
 
     const buildTotalNode = (projectId, options = {}) => {
-      const { includeChildren = true, includeZero = false } = options;
+      const {
+        includeChildren = true,
+        includeSingle = includeChildren,
+        includeZero = false,
+      } = options;
       const project = hierarchy.byId.get(String(projectId || ""));
       if (!project) return null;
 
@@ -880,14 +890,16 @@
       const node = buildDisplayItem(project.id, "total");
       if (!node) return null;
 
-      if (includeChildren) {
+      if (includeSingle && shouldSplitProjectDirectDuration(project.id)) {
         if (includeZero || stat.directMs > 0) {
           const singleNode = buildDisplayItem(project.id, "single");
           if (singleNode && (includeZero || singleNode.valueMs > 0)) {
             node.children.push(singleNode);
           }
         }
+      }
 
+      if (includeChildren) {
         getOrderedChildren(project.id).forEach((child) => {
           const childNode = buildTotalNode(child.id, {
             includeChildren: true,
@@ -910,6 +922,16 @@
 
     function parseSelectionValue(selectionValue = "summary:all") {
       const safeSelection = String(selectionValue || "summary:all").trim();
+
+      if (safeSelection.startsWith("single:")) {
+        const projectId = String(safeSelection.split(":")[1] || "");
+        if (shouldSplitProjectDirectDuration(projectId)) {
+          return {
+            type: "single",
+            projectId,
+          };
+        }
+      }
 
       if (safeSelection.startsWith("project:")) {
         const projectId = String(safeSelection.split(":")[1] || "");
@@ -944,22 +966,33 @@
         key: `root:${selectionValue}`,
         kind: "root",
         label:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         shortLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         pathLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${buildProjectPath(selection.projectId, hierarchy)}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? buildProjectPath(selection.projectId, hierarchy)
             : "全部项目（汇总）",
         valueMs: 0,
         children: [],
       };
 
-      if (selection.type === "summary") {
+      if (selection.type === "single") {
+        const singleNode = buildDisplayItem(selection.projectId, "single");
+        if (singleNode && (includeZero || singleNode.valueMs > 0)) {
+          root.children.push(singleNode);
+        }
+      } else if (selection.type === "summary") {
         if (selection.levelFilter === "all") {
           getOrderedRoots().forEach((rootProject) => {
             const rootNode = buildTotalNode(rootProject.id, {
@@ -977,6 +1010,7 @@
             .forEach((project) => {
               const node = buildTotalNode(project.id, {
                 includeChildren: false,
+                includeSingle: true,
                 includeZero,
               });
               if (node) {
@@ -1013,6 +1047,11 @@
         const project = hierarchy.byId.get(selection.projectId);
         if (project) {
           if (project.level >= 3) {
+            const leaf = buildLeafNode(project.id, { includeZero });
+            if (leaf) {
+              root.children.push(leaf);
+            }
+          } else if (!shouldSplitProjectDirectDuration(project.id)) {
             const leaf = buildLeafNode(project.id, { includeZero });
             if (leaf) {
               root.children.push(leaf);
@@ -1094,8 +1133,21 @@
 
     function buildChartSelectorTree(allLabel = "全部项目（汇总）") {
       const createNode = (project) => {
-        const children = getOrderedChildren(project.id).map((child) =>
-          createNode(child),
+        const stat = getStat(project.id);
+        const children = [];
+        if (shouldSplitProjectDirectDuration(project.id) && stat.directMs > 0) {
+          children.push({
+            value: `single:${project.id}`,
+            label: `${project.name}${SINGLE_SUFFIX}`,
+            triggerLabel: `${buildProjectPath(project.id, hierarchy)}${SINGLE_SUFFIX}`,
+            level: project.level,
+            metaLabel: "单",
+            kind: "single",
+            children: [],
+          });
+        }
+        getOrderedChildren(project.id).forEach((child) =>
+          children.push(createNode(child)),
         );
         return {
           value: `project:${project.id}`,
@@ -4943,6 +4995,80 @@ function setProjectTotalsExpanded(project, expanded) {
   );
 }
 
+function createProjectTotalSingleSummaryNode(
+  projectNode,
+  directMs,
+  {
+    summaryScale = 1,
+    compact = false,
+    depth = 1,
+    hasChildProjects = false,
+  } = {},
+) {
+  const normalizedDirectMs =
+    Number.isFinite(directMs) && directMs > 0 ? directMs : 0;
+  if (!projectNode || !hasChildProjects || normalizedDirectMs <= 0) {
+    return null;
+  }
+
+  const projectLevel = normalizeProjectLevel(projectNode.level);
+  if (projectLevel >= 3) {
+    return null;
+  }
+
+  const singleSuffix = window.ControlerProjectStats?.SINGLE_SUFFIX || "（单）";
+  const levelColor = getResolvedThemeProjectColor(projectLevel);
+  const item = document.createElement("div");
+  item.style.display = compact ? "block" : "grid";
+  item.style.gridTemplateColumns = compact ? "" : "minmax(0, 1fr) auto";
+  item.style.alignItems = "start";
+  item.style.columnGap = `${Math.max(4, Math.round(6 * summaryScale))}px`;
+  item.style.padding = compact
+    ? `${Math.max(5, Math.round(6 * summaryScale))}px`
+    : `${Math.max(5, Math.round(6 * summaryScale))}px ${Math.max(6, Math.round(7 * summaryScale))}px`;
+  item.style.borderRadius = `${Math.max(8, Math.round(10 * summaryScale))}px`;
+  item.style.background =
+    "color-mix(in srgb, var(--surface-control) 88%, transparent)";
+  item.style.border = `1px solid ${getProjectColorShadow(levelColor, 0.12)}`;
+  item.style.boxSizing = "border-box";
+  item.style.minWidth = "0";
+  if (depth > 1) {
+    item.style.marginLeft = compact
+      ? `${Math.max(3, Math.round(4 * summaryScale))}px`
+      : `${Math.max(6, Math.round(8 * summaryScale))}px`;
+  }
+
+  const label = document.createElement("span");
+  label.style.color = "var(--text-color)";
+  label.style.fontWeight = compact ? "700" : "600";
+  label.style.fontSize = compact
+    ? `${Math.max(8, Math.round(9.5 * summaryScale))}px`
+    : `${Math.max(10, Math.round(11.5 * summaryScale))}px`;
+  label.style.lineHeight = "1.28";
+  label.style.overflowWrap = "anywhere";
+  label.textContent = `${projectNode.name}${singleSuffix}`;
+
+  const value = document.createElement(compact ? "div" : "span");
+  value.style.color = "var(--text-color)";
+  value.style.fontWeight = compact ? "600" : "700";
+  value.style.fontSize = compact
+    ? `${Math.max(8, Math.round(9 * summaryScale))}px`
+    : `${Math.max(10, Math.round(11 * summaryScale))}px`;
+  value.style.lineHeight = "1.25";
+  value.style.whiteSpace = compact ? "normal" : "nowrap";
+  value.style.textAlign = compact ? "left" : "right";
+  value.style.marginTop = compact
+    ? `${Math.max(2, Math.round(3 * summaryScale))}px`
+    : "0";
+  value.textContent = compact
+    ? formatProjectTotalDurationForCard(normalizedDirectMs, { compact: true })
+    : `总时长：${formatProjectTotalDurationForCard(normalizedDirectMs)}`;
+
+  item.appendChild(label);
+  item.appendChild(value);
+  return item;
+}
+
 function createProjectTablePlaceholder(text, padding = "10px") {
   const placeholder = document.createElement("div");
   placeholder.style.color = "var(--muted-text-color)";
@@ -5038,6 +5164,8 @@ function renderProjectTotalTreeNode(
   const stat = statsContext.getStat(projectNode.id);
   const totalMs =
     Number.isFinite(stat?.totalMs) && stat.totalMs >= 0 ? stat.totalMs : 0;
+  const directMs =
+    Number.isFinite(stat?.directMs) && stat.directMs >= 0 ? stat.directMs : 0;
   const childNodes =
     typeof statsContext.getOrderedChildren === "function"
       ? statsContext.getOrderedChildren(projectNode.id)
@@ -5214,6 +5342,20 @@ function renderProjectTotalTreeNode(
       childrenContainer.style.paddingLeft = `${Math.max(3, Math.round(4 * summaryScale))}px`;
       childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
 
+      const singleElement = createProjectTotalSingleSummaryNode(
+        projectNode,
+        directMs,
+        {
+          summaryScale,
+          compact: true,
+          depth: depth + 1,
+          hasChildProjects: children.length > 0,
+        },
+      );
+      if (singleElement) {
+        childrenContainer.appendChild(singleElement);
+      }
+
       children.forEach((childNode) => {
         const childElement = renderProjectTotalTreeNode(
           childNode,
@@ -5360,6 +5502,20 @@ function renderProjectTotalTreeNode(
     childrenContainer.style.minWidth = "0";
     childrenContainer.style.paddingLeft = `${Math.max(6, Math.round(8 * summaryScale))}px`;
     childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
+
+    const singleElement = createProjectTotalSingleSummaryNode(
+      projectNode,
+      directMs,
+      {
+        summaryScale,
+        compact: false,
+        depth: depth + 1,
+        hasChildProjects: children.length > 0,
+      },
+    );
+    if (singleElement) {
+      childrenContainer.appendChild(singleElement);
+    }
 
     children.forEach((childNode) => {
       const childElement = renderProjectTotalTreeNode(childNode, statsContext, {
@@ -11794,7 +11950,6 @@ function openModal(options = {}) {
   modal.removeEventListener("click", modal._handleModalOutsideClick);
   modal._handleModalOutsideClick = handleModalOutsideClick;
   modal.addEventListener("click", handleModalOutsideClick);
-  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   return true;
 }
 
@@ -11841,7 +11996,6 @@ function closeModal(options = {}) {
   isModalOpen = false;
   uiTools?.releaseAndroidInteractiveTextControlFocus?.();
   hideIndexPersistentModalOverlay(modal);
-  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   modalProjectInputTargetManual = false;
   resetTimerModalProjectInputTransientState();
   hideAllProjectSuggestions();
@@ -15833,11 +15987,9 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
     updateRemainingTimeDisplay();
     requestAnimationFrame(() => {
       refreshIndexWorkspace({ immediate: true });
-      uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
     });
   } else {
     refreshIndexWorkspace({ immediate: true });
-    uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   }
 
   persistTimerSessionState();

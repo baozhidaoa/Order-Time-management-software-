@@ -108,11 +108,6 @@
   --expand-surface-shadow:
     0 12px 24px rgba(0, 0, 0, 0.12);
   --ripple-color: rgba(255, 255, 255, 0.45);
-  --controler-keyboard-transition-cover-height: 0px;
-  --controler-keyboard-transition-cover-bg: var(
-    --surface-app,
-    var(--bg-primary, #ffffff)
-  );
   color-scheme: dark;
 }
 
@@ -826,6 +821,8 @@ body.page-plan.controler-blocking-overlay-active.controler-android-native :is(
 
 body.controler-mobile-runtime .modal-overlay,
 body.controler-android-native .modal-overlay {
+  --controler-modal-keyboard-resize-duration: 0ms;
+  --controler-modal-keyboard-resize-easing: linear;
   --controler-modal-overlay-visible-bottom-inset: max(
     0px,
     var(--controler-keyboard-transition-inset, 0px)
@@ -1116,12 +1113,6 @@ body.controler-android-native
 
 body.controler-mobile-runtime.controler-android-native::before,
 body.controler-android-native::before {
-  content: none;
-  display: none;
-}
-
-body.controler-mobile-runtime.controler-android-native.controler-keyboard-transition-cover-active::before,
-body.controler-android-native.controler-keyboard-transition-cover-active::before {
   content: none;
   display: none;
 }
@@ -1929,7 +1920,8 @@ body.page-record #project-totals {
 
 body.controler-mobile-runtime.controler-android-native .timer-session-modal-overlay,
 body.controler-android-native .timer-session-modal-overlay {
-  --controler-modal-keyboard-resize-duration: 96ms;
+  --controler-modal-keyboard-resize-duration: 0ms;
+  --controler-modal-keyboard-resize-easing: linear;
 }
 
 .timer-session-modal .controler-form-modal-body {
@@ -4681,6 +4673,49 @@ body.page-stats #stats-container {
   min-width: 0;
   box-sizing: border-box;
   position: relative;
+}
+
+.stats-line-legend-visibility-toggle {
+  --stats-line-visibility-color: var(--accent-color);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1.5px solid var(--stats-line-visibility-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stats-line-visibility-color);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  cursor: pointer;
+}
+
+.stats-line-legend-visibility-toggle:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--stats-line-visibility-color) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.stats-line-legend-visibility-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.stats-line-legend-visibility-toggle.is-hidden .stats-line-legend-visibility-dot {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
+.stats-line-legend .stats-hierarchy-legend-row.is-line-hidden .stats-line-legend-swatch,
+.stats-line-legend .stats-hierarchy-legend-row.is-line-hidden .stats-hierarchy-legend-label,
+.stats-line-legend .stats-hierarchy-legend-row.is-line-hidden .stats-hierarchy-legend-value {
+  opacity: 0.46;
 }
 
 .stats-line-legend .stats-hierarchy-legend-left {

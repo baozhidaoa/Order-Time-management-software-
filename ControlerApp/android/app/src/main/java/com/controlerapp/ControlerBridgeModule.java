@@ -2203,23 +2203,27 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             int imeBottomInset = imeInsets != null ? Math.max(0, imeInsets.bottom) : 0;
             int navigationBottomInset =
                 navigationInsets != null ? Math.max(0, navigationInsets.bottom) : 0;
-            InputMethodManager inputMethodManager =
-                (InputMethodManager)
-                    activity.getSystemService(Context.INPUT_METHOD_SERVICE);
-            int inputMethodVisibleHeight =
-                readInputMethodWindowVisibleHeightPx(inputMethodManager);
             int obscuredBottomInset = readFallbackImeBottomInsetPx(targetView, decorView);
-            int effectiveImeBottomInset =
-                Math.max(
-                    imeBottomInset,
-                    Math.max(obscuredBottomInset, inputMethodVisibleHeight)
-                );
             int visibilityThresholdPx = dpToPx(insetsView.getContext(), IME_VISIBLE_INSET_THRESHOLD_DP);
             boolean reportedVisible =
                 windowInsets.isVisible(WindowInsetsCompat.Type.ime());
             boolean actualVisible =
-                effectiveImeBottomInset >
-                    navigationBottomInset + Math.max(visibilityThresholdPx, 0);
+                reportedVisible ||
+                imeBottomInset > navigationBottomInset + Math.max(visibilityThresholdPx, 0) ||
+                obscuredBottomInset > navigationBottomInset + Math.max(visibilityThresholdPx, 0);
+            int effectiveImeBottomInset = 0;
+            if (actualVisible) {
+                InputMethodManager inputMethodManager =
+                    (InputMethodManager)
+                        activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+                int inputMethodVisibleHeight =
+                    readInputMethodWindowVisibleHeightPx(inputMethodManager);
+                effectiveImeBottomInset =
+                    Math.max(
+                        imeBottomInset,
+                        Math.max(obscuredBottomInset, inputMethodVisibleHeight)
+                    );
+            }
             return new ImeVisibilityState(
                 reportedVisible || actualVisible,
                 actualVisible,

@@ -6696,6 +6696,7 @@ function openDiaryEditorPage(dateText, entryId = null) {
       runtime.handleVisibilityChange,
       true,
     );
+    overlay.__controlerHandleNativeBack = null;
     overlay.removeEventListener("pointerdown", runtime.handleOverlayPointerDown, true);
     window.removeEventListener("pagehide", runtime.handlePageHide, true);
     window.removeEventListener("popstate", runtime.handlePopState, true);
@@ -7014,6 +7015,15 @@ function openDiaryEditorPage(dateText, entryId = null) {
       closeAfter: true,
       reason,
     });
+  };
+  overlay.__controlerHandleNativeBack = () => {
+    if (runtime.destroyed) {
+      return false;
+    }
+    void runtime.close({
+      reason: "native-back",
+    });
+    return true;
   };
   const bindEditorElement = (editor) => {
     if (!(editor instanceof HTMLElement)) {

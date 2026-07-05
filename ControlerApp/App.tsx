@@ -6,7 +6,6 @@ import {
   DeviceEventEmitter,
   Dimensions,
   Easing,
-  type GestureResponderEvent,
   NativeModules,
   PanResponder,
   type PanResponderGestureState,
@@ -175,19 +174,6 @@ type PageTarget = {
   pageKey: AppPageKey;
 };
 
-type EdgeBackSwipeExclusionRect = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
-
-type EdgeBackSwipeExclusionState = {
-  rects: EdgeBackSwipeExclusionRect[];
-  viewportWidth: number;
-  viewportHeight: number;
-};
-
 type NavigationRequestSource = 'bridge' | 'webview';
 type NavigationRequestResult = 'intercept' | 'allow-default' | 'noop';
 type NavigationIntentStamp = {
@@ -218,6 +204,13 @@ type QueuedNavigationRequest = {
   source: NavigationRequestSource;
   queuedAt: number;
   intent: NavigationIntentStamp | null;
+};
+
+type PendingNativeBackRequest = {
+  requestId: string;
+  slot: WebViewSlot;
+  allowExit: boolean;
+  timerId: ReturnType<typeof setTimeout>;
 };
 
 type WidgetRefreshPayload = {
@@ -312,72 +305,6 @@ function updateWebViewSlotsRef(
       ...ref.current[slot],
       ...nextState,
     },
-  };
-}
-
-function createDefaultEdgeBackSwipeExclusionState(): EdgeBackSwipeExclusionState {
-  return {
-    rects: [],
-    viewportWidth: 0,
-    viewportHeight: 0,
-  };
-}
-
-function normalizeEdgeBackSwipeExclusionRect(
-  value: unknown,
-): EdgeBackSwipeExclusionRect | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const source = value as Record<string, unknown>;
-  const rawLeft = Number(source.left);
-  const rawTop = Number(source.top);
-  const rawRight = Number(source.right);
-  const rawBottom = Number(source.bottom);
-  if (
-    !Number.isFinite(rawLeft) ||
-    !Number.isFinite(rawTop) ||
-    !Number.isFinite(rawRight) ||
-    !Number.isFinite(rawBottom)
-  ) {
-    return null;
-  }
-
-  const left = Math.max(0, Math.min(rawLeft, rawRight));
-  const top = Math.max(0, Math.min(rawTop, rawBottom));
-  const right = Math.max(left, Math.max(rawLeft, rawRight));
-  const bottom = Math.max(top, Math.max(rawTop, rawBottom));
-  if (right <= left || bottom <= top) {
-    return null;
-  }
-
-  return {
-    left,
-    top,
-    right,
-    bottom,
-  };
-}
-
-function normalizeEdgeBackSwipeExclusionState(
-  payload: BridgeEnvelopePayload | undefined,
-): EdgeBackSwipeExclusionState {
-  const rawRects = payload?.rects;
-  const rectSource = Array.isArray(rawRects) ? rawRects : [];
-  const rects = rectSource
-    .map(rect => normalizeEdgeBackSwipeExclusionRect(rect))
-    .filter((rect): rect is EdgeBackSwipeExclusionRect => !!rect);
-  const viewportWidth = Number(payload?.viewportWidth);
-  const viewportHeight = Number(payload?.viewportHeight);
-  return {
-    rects,
-    viewportWidth:
-      Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0,
-    viewportHeight:
-      Number.isFinite(viewportHeight) && viewportHeight > 0
-        ? viewportHeight
-        : 0,
   };
 }
 
@@ -1281,18 +1208,15 @@ const WIDGET_LAUNCH_PREWARM_WINDOW_MS = 2400;
 const WIDGET_LAUNCH_DEDUP_WINDOW_MS = 700;
 const WIDGET_LAUNCH_CONFIRM_TIMEOUT_MS = IS_ANDROID ? 720 : 520;
 const WIDGET_LAUNCH_CONFIRM_RETRY_MS = IS_ANDROID ? 260 : 180;
+const NATIVE_BACK_REQUEST_TIMEOUT_MS = 360;
 const INITIAL_WEBVIEW_WIDTH = Math.max(Dimensions.get('window').width || 0, 1);
-const INITIAL_WEBVIEW_HEIGHT = Math.max(
-  Dimensions.get('window').height || 0,
-  1,
-);
-const EDGE_BACK_SWIPE_REGION_WIDTH = IS_ANDROID ? 24 : 56;
-const EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT = IS_ANDROID ? 92 : 0;
-const EDGE_BACK_SWIPE_MIN_DISTANCE = IS_ANDROID ? 24 : 44;
-const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = IS_ANDROID ? 10 : 20;
-const EDGE_BACK_SWIPE_MIN_VELOCITY = IS_ANDROID ? 0.18 : 0.32;
-const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = IS_ANDROID ? 128 : 84;
-const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = IS_ANDROID ? 0.6 : 0.75;
+const EDGE_BACK_SWIPE_REGION_WIDTH = 56;
+const EDGE_BACK_SWIPE_BOTTOM_EXCLUSION_HEIGHT = 0;
+const EDGE_BACK_SWIPE_MIN_DISTANCE = 44;
+const EDGE_BACK_SWIPE_MIN_FLING_DISTANCE = 20;
+const EDGE_BACK_SWIPE_MIN_VELOCITY = 0.32;
+const EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT = 84;
+const EDGE_BACK_SWIPE_HORIZONTAL_DOMINANCE_RATIO = 0.75;
 const WEBVIEW_SLOTS: WebViewSlot[] = ['primary', 'secondary', 'tertiary'];
 const CLEAR_TRANSIENT_WEBVIEW_OVERLAYS_SCRIPT = `(() => {
   try {
@@ -3173,6 +3097,77 @@ const closeTopModalScript = `
   true;
 `;
 
+function buildNativeBackRequestScript(requestId: string): string {
+  const serializedRequestId = JSON.stringify(requestId)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `
+    (function () {
+      const requestId = ${serializedRequestId};
+      const emitResult = function (result) {
+        try {
+          const normalized =
+            result && typeof result === 'object' ? result : { handled: result === true };
+          const handled = normalized.handled === true;
+          const reason =
+            typeof normalized.reason === 'string' && normalized.reason.trim()
+              ? normalized.reason.trim()
+              : handled
+                ? 'handled'
+                : 'not-handled';
+          if (
+            window.ReactNativeWebView &&
+            typeof window.ReactNativeWebView.postMessage === 'function'
+          ) {
+            window.ReactNativeWebView.postMessage(
+              JSON.stringify({
+                type: 'bridge-event',
+                payload: {
+                  name: 'ui.native-back-result',
+                  requestId,
+                  handled,
+                  reason,
+                  href: window.location.href,
+                },
+              })
+            );
+          }
+        } catch (_error) {}
+      };
+      try {
+        const handler =
+          window.ControlerUI && typeof window.ControlerUI.handleNativeBack === 'function'
+            ? window.ControlerUI.handleNativeBack
+            : null;
+        if (!handler) {
+          emitResult({ handled: false, reason: 'missing-handler' });
+          return true;
+        }
+        Promise.resolve(
+          handler({
+            source: 'android-native-back',
+            requestId,
+          })
+        ).then(
+          (result) => emitResult(result),
+          (error) =>
+            emitResult({
+              handled: false,
+              reason: error && error.message ? error.message : 'handler-error',
+            })
+        );
+      } catch (error) {
+        emitResult({
+          handled: false,
+          reason: error && error.message ? error.message : 'handler-exception',
+        });
+      }
+      return true;
+    })();
+    true;
+  `;
+}
+
 function App({
   initialCoreStateJson = '',
   initialUiLanguage = DEFAULT_UI_LANGUAGE,
@@ -3354,6 +3349,10 @@ function App({
       _payload: Record<string, unknown> = {},
     ) => {},
   );
+  const pendingNativeBackRequestRef = useRef<PendingNativeBackRequest | null>(
+    null,
+  );
+  const nativeBackRequestSequenceRef = useRef(0);
   const forceApplyThemeStateToLoadedSlotsRef = useRef(
     (
       _themeState: Record<string, unknown> | null,
@@ -3385,10 +3384,6 @@ function App({
   const [webViewHostWidth, setWebViewHostWidth] = useState(
     INITIAL_WEBVIEW_WIDTH,
   );
-  const webViewHostLayoutRef = useRef({
-    width: INITIAL_WEBVIEW_WIDTH,
-    height: INITIAL_WEBVIEW_HEIGHT,
-  });
   const [webViewSlots, setWebViewSlots] = useState<
     Record<WebViewSlot, WebViewSlotState>
   >({
@@ -3409,13 +3404,6 @@ function App({
     },
   });
   const webViewSlotsRef = useRef(webViewSlots);
-  const edgeBackSwipeExclusionBySlotRef = useRef<
-    Record<WebViewSlot, EdgeBackSwipeExclusionState>
-  >({
-    primary: createDefaultEdgeBackSwipeExclusionState(),
-    secondary: createDefaultEdgeBackSwipeExclusionState(),
-    tertiary: createDefaultEdgeBackSwipeExclusionState(),
-  });
   const transitionProgress = useRef(new Animated.Value(0)).current;
   const bootOverlayOpacity = useRef(new Animated.Value(1)).current;
   const bootCardScale = useRef(new Animated.Value(0.98)).current;
@@ -3636,57 +3624,6 @@ function App({
     return selectShellText(shellLanguageRef.current, chinese, english);
   }, []);
 
-  const logShellNativeTouch = useCallback(
-    (area: string, event: GestureResponderEvent) => {
-      const nativeEvent = event.nativeEvent;
-      const touches = Array.isArray(nativeEvent.touches)
-        ? nativeEvent.touches
-        : [];
-      const changedTouches = Array.isArray(nativeEvent.changedTouches)
-        ? nativeEvent.changedTouches
-        : [];
-      const primaryTouch = changedTouches[0] || touches[0] || nativeEvent;
-      const transition = transitionStateRef.current;
-      console.info(
-        '[OrderNativeTouch]',
-        JSON.stringify({
-          area,
-          activeSlot: activeSlotRef.current,
-          pageKey: webViewSlotsRef.current[activeSlotRef.current].pageKey,
-          isPageReady: isPageReadyRef.current,
-          transition: transition
-            ? {
-                fromSlot: transition.fromSlot,
-                toSlot: transition.toSlot,
-                status: transition.status,
-              }
-            : null,
-          pageX:
-            Number.isFinite(primaryTouch?.pageX) && primaryTouch.pageX >= 0
-              ? Math.round(primaryTouch.pageX)
-              : null,
-          pageY:
-            Number.isFinite(primaryTouch?.pageY) && primaryTouch.pageY >= 0
-              ? Math.round(primaryTouch.pageY)
-              : null,
-          locationX:
-            Number.isFinite(primaryTouch?.locationX) &&
-            primaryTouch.locationX >= 0
-              ? Math.round(primaryTouch.locationX)
-              : null,
-          locationY:
-            Number.isFinite(primaryTouch?.locationY) &&
-            primaryTouch.locationY >= 0
-              ? Math.round(primaryTouch.locationY)
-              : null,
-          touches: touches.length,
-          changedTouches: changedTouches.length,
-        }),
-      );
-    },
-    [],
-  );
-
   const logEdgeBackSwipeDecision = useCallback(
     (stage: string, gestureState: PanResponderGestureState) => {
       console.info(
@@ -3702,7 +3639,6 @@ function App({
             : null,
           x0: Math.round(gestureState.x0 || 0),
           y0: Math.round(gestureState.y0 || 0),
-          excluded: isEdgeBackSwipeStartExcluded(gestureState.x0, gestureState.y0),
         }),
       );
     },
@@ -4042,7 +3978,7 @@ function App({
     [requestLoadedWebViewsPersist],
   );
 
-  const handleShellBackNavigation = useCallback((allowExit = true) => {
+  const continueShellBackNavigation = useCallback((allowExit = true) => {
     if (transitionStateRef.current) {
       return true;
     }
@@ -4071,6 +4007,98 @@ function App({
     return false;
   }, []);
 
+  const clearPendingNativeBackRequest = useCallback((requestId = '') => {
+    const pendingRequest = pendingNativeBackRequestRef.current;
+    if (
+      !pendingRequest ||
+      (requestId && pendingRequest.requestId !== requestId)
+    ) {
+      return null;
+    }
+    clearTimeout(pendingRequest.timerId);
+    pendingNativeBackRequestRef.current = null;
+    return pendingRequest;
+  }, []);
+
+  const settleNativeBackRequest = useCallback(
+    (requestId: string, handled: boolean) => {
+      const pendingRequest = clearPendingNativeBackRequest(requestId);
+      if (!pendingRequest || pendingRequest.slot !== activeSlotRef.current) {
+        return;
+      }
+      if (handled) {
+        return;
+      }
+      continueShellBackNavigation(pendingRequest.allowExit);
+    },
+    [clearPendingNativeBackRequest, continueShellBackNavigation],
+  );
+
+  const requestWebNativeBackHandling = useCallback(
+    (allowExit = true) => {
+      if (transitionStateRef.current) {
+        return true;
+      }
+
+      const currentSlot = activeSlotRef.current;
+      if (busyLockBySlotRef.current[currentSlot]) {
+        return true;
+      }
+
+      if (pendingNativeBackRequestRef.current) {
+        return true;
+      }
+
+      const currentWebViewRef = getWebViewRef(currentSlot);
+      const currentWebView = currentWebViewRef.current;
+      if (!currentWebView || !webViewSlotsRef.current[currentSlot].uri) {
+        continueShellBackNavigation(allowExit);
+        return true;
+      }
+
+      nativeBackRequestSequenceRef.current += 1;
+      const requestId = `native-back-${Date.now().toString(36)}-${nativeBackRequestSequenceRef.current}`;
+      const timerId = setTimeout(() => {
+        const pendingRequest = pendingNativeBackRequestRef.current;
+        if (!pendingRequest || pendingRequest.requestId !== requestId) {
+          return;
+        }
+        pendingNativeBackRequestRef.current = null;
+        if (pendingRequest.slot !== activeSlotRef.current) {
+          return;
+        }
+        continueShellBackNavigation(pendingRequest.allowExit);
+      }, NATIVE_BACK_REQUEST_TIMEOUT_MS);
+
+      pendingNativeBackRequestRef.current = {
+        requestId,
+        slot: currentSlot,
+        allowExit,
+        timerId,
+      };
+      currentWebView.injectJavaScript(buildNativeBackRequestScript(requestId));
+      return true;
+    },
+    [continueShellBackNavigation],
+  );
+
+  const handleShellBackNavigation = useCallback(
+    (allowExit = true) => {
+      if (Platform.OS === 'android') {
+        return requestWebNativeBackHandling(allowExit);
+      }
+      return continueShellBackNavigation(allowExit);
+    },
+    [continueShellBackNavigation, requestWebNativeBackHandling],
+  );
+
+  useEffect(
+    () => () => {
+      clearPendingNativeBackRequest();
+    },
+    [clearPendingNativeBackRequest],
+  );
+
   const canStartEdgeBackSwipe = useCallback(() => {
     if (transitionStateRef.current) {
       return false;
@@ -4092,48 +4120,11 @@ function App({
     return false;
   }, []);
 
-  const isEdgeBackSwipeStartExcluded = useCallback(
-    (pointX: number, pointY: number) => {
-      if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) {
-        return false;
-      }
-
-      const currentSlot = activeSlotRef.current;
-      const exclusionState = edgeBackSwipeExclusionBySlotRef.current[currentSlot];
-      if (!exclusionState.rects.length) {
-        return false;
-      }
-
-      const hostWidth = Math.max(webViewHostLayoutRef.current.width || 0, 1);
-      const hostHeight = Math.max(webViewHostLayoutRef.current.height || 0, 1);
-      const normalizedX =
-        exclusionState.viewportWidth > 0
-          ? pointX * (exclusionState.viewportWidth / hostWidth)
-          : pointX;
-      const normalizedY =
-        exclusionState.viewportHeight > 0
-          ? pointY * (exclusionState.viewportHeight / hostHeight)
-          : pointY;
-
-      return exclusionState.rects.some(
-        rect =>
-          normalizedX >= rect.left &&
-          normalizedX <= rect.right &&
-          normalizedY >= rect.top &&
-          normalizedY <= rect.bottom,
-      );
-    },
-    [],
-  );
-
   const shouldCaptureEdgeBackSwipe = (gestureState: {
     dx: number;
     dy: number;
-    x0: number;
-    y0: number;
   }) =>
     canStartEdgeBackSwipe() &&
-    !isEdgeBackSwipeStartExcluded(gestureState.x0, gestureState.y0) &&
     gestureState.dx >= 2 &&
     Math.abs(gestureState.dy) <= EDGE_BACK_SWIPE_MAX_VERTICAL_DRIFT &&
     Math.abs(gestureState.dx) >=
@@ -4149,8 +4140,11 @@ function App({
       (gestureState.dx >= EDGE_BACK_SWIPE_MIN_FLING_DISTANCE &&
         gestureState.vx >= EDGE_BACK_SWIPE_MIN_VELOCITY));
 
-  const edgeBackPanResponder = useRef(
-    PanResponder.create({
+  const edgeBackPanResponder = useRef<ReturnType<
+    typeof PanResponder.create
+  > | null>(null);
+  if (!IS_ANDROID && !edgeBackPanResponder.current) {
+    edgeBackPanResponder.current = PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_event, gestureState) => {
@@ -4181,8 +4175,8 @@ function App({
           handleShellBackNavigation(true);
         }
       },
-    }),
-  ).current;
+    });
+  }
 
   const getPageKeyForSlot = useCallback(
     (slot: WebViewSlot) => webViewSlotsRef.current[slot].pageKey,
@@ -4230,8 +4224,6 @@ function App({
     resetSlotRuntimeState(slot, webViewSlotsRef.current[slot].revision);
     canGoBackBySlotRef.current[slot] = false;
     resetSlotTransientOverlayState(slot, 'clear-cached-slot');
-    edgeBackSwipeExclusionBySlotRef.current[slot] =
-      createDefaultEdgeBackSwipeExclusionState();
     slotLastUsedAtRef.current[slot] = 0;
     updateWebViewSlotsRef(webViewSlotsRef, slot, {
       uri: null,
@@ -5478,8 +5470,6 @@ function App({
       getNavigationDirection(currentState.pageKey, target.pageKey);
     canGoBackBySlotRef.current[nextSlot] = false;
     resetSlotTransientOverlayState(nextSlot, 'prepare-transition-target', false);
-    edgeBackSwipeExclusionBySlotRef.current[nextSlot] =
-      createDefaultEdgeBackSwipeExclusionState();
 
     transitionProgress.stopAnimation();
     transitionProgress.setValue(0);
@@ -6186,7 +6176,7 @@ function App({
 
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
-      () => handleShellBackNavigation(false),
+      () => handleShellBackNavigation(true),
     );
 
     return () => {
@@ -6963,6 +6953,16 @@ function App({
         modalOpenBySlotRef.current[slot] = !!message.payload?.hasOpenModal;
         return;
       }
+      if (eventName === 'ui.native-back-result') {
+        const requestId =
+          typeof message.payload?.requestId === 'string'
+            ? message.payload.requestId
+            : '';
+        if (requestId) {
+          settleNativeBackRequest(requestId, message.payload?.handled === true);
+        }
+        return;
+      }
       if (eventName === 'ui.busy-state') {
         const nextBusyOverlayState = normalizeBusyOverlayState(message.payload);
         if (
@@ -6994,14 +6994,6 @@ function App({
             });
           }
         }
-        return;
-      }
-      if (eventName === 'ui.edge-back-swipe-exclusion') {
-        if (!isPayloadForCurrentSlot(slot, message.payload)) {
-          return;
-        }
-        edgeBackSwipeExclusionBySlotRef.current[slot] =
-          normalizeEdgeBackSwipeExclusionState(message.payload);
         return;
       }
       if (eventName === 'ui.theme-applied') {
@@ -8113,14 +8105,6 @@ function App({
             Math.round(event.nativeEvent.layout.width) || 0,
             1,
           );
-          const nextHeight = Math.max(
-            Math.round(event.nativeEvent.layout.height) || 0,
-            1,
-          );
-          webViewHostLayoutRef.current = {
-            width: nextWidth,
-            height: nextHeight,
-          };
           setWebViewHostWidth(currentWidth =>
             currentWidth === nextWidth ? currentWidth : nextWidth,
           );
@@ -8128,9 +8112,9 @@ function App({
         {renderWebView('primary')}
         {renderWebView('secondary')}
         {renderWebView('tertiary')}
-        {isPageReady ? (
+        {!IS_ANDROID && isPageReady && edgeBackPanResponder.current ? (
           <View
-            {...edgeBackPanResponder.panHandlers}
+            {...edgeBackPanResponder.current.panHandlers}
             accessible={false}
             pointerEvents="box-only"
             style={[

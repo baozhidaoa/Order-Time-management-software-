@@ -997,6 +997,11 @@
       return sortProjectNodesByTotalDesc(getChildren(projectId));
     };
 
+    const shouldSplitProjectDirectDuration = (projectId) => {
+      const project = hierarchy.byId.get(String(projectId || ""));
+      return !!project && project.level < 3 && hasChildren(project.id);
+    };
+
     const getBaseColor = (projectId) => {
       const project = hierarchy.byId.get(String(projectId || ""));
       return project?.color || defaultColorForName(project?.name || projectId || "");
@@ -1014,13 +1019,14 @@
             ? stat.directMs
             : stat.directMs;
       const baseColor = getBaseColor(project.id);
+      const splitDirectDuration = shouldSplitProjectDirectDuration(project.id);
 
       return {
         key: `${kind}:${project.id}`,
         projectId: project.id,
         label:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -1028,7 +1034,7 @@
               : project.name,
         shortLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -1037,7 +1043,7 @@
         path,
         pathLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${path}${TOTAL_SUFFIX}`
               : path
             : kind === "single"
@@ -1065,7 +1071,7 @@
       const stat = getStat(projectId);
       const item = buildDisplayItem(
         projectId,
-        forceSingle && hierarchy.byId.get(String(projectId || ""))?.level < 3
+        forceSingle && shouldSplitProjectDirectDuration(projectId)
           ? "single"
           : "leaf",
       );
@@ -1077,7 +1083,11 @@
     };
 
     const buildTotalNode = (projectId, options = {}) => {
-      const { includeChildren = true, includeZero = false } = options;
+      const {
+        includeChildren = true,
+        includeSingle = includeChildren,
+        includeZero = false,
+      } = options;
       const project = hierarchy.byId.get(String(projectId || ""));
       if (!project) return null;
 
@@ -1089,14 +1099,16 @@
       const node = buildDisplayItem(project.id, "total");
       if (!node) return null;
 
-      if (includeChildren) {
+      if (includeSingle && shouldSplitProjectDirectDuration(project.id)) {
         if (includeZero || stat.directMs > 0) {
           const singleNode = buildDisplayItem(project.id, "single");
           if (singleNode && (includeZero || singleNode.valueMs > 0)) {
             node.children.push(singleNode);
           }
         }
+      }
 
+      if (includeChildren) {
         getOrderedChildren(project.id).forEach((child) => {
           const childNode = buildTotalNode(child.id, {
             includeChildren: true,
@@ -1119,6 +1131,16 @@
 
     function parseSelectionValue(selectionValue = "summary:all") {
       const safeSelection = String(selectionValue || "summary:all").trim();
+
+      if (safeSelection.startsWith("single:")) {
+        const projectId = String(safeSelection.split(":")[1] || "");
+        if (shouldSplitProjectDirectDuration(projectId)) {
+          return {
+            type: "single",
+            projectId,
+          };
+        }
+      }
 
       if (safeSelection.startsWith("project:")) {
         const projectId = String(safeSelection.split(":")[1] || "");
@@ -1153,22 +1175,33 @@
         key: `root:${selectionValue}`,
         kind: "root",
         label:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         shortLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         pathLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${buildProjectPath(selection.projectId, hierarchy)}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? buildProjectPath(selection.projectId, hierarchy)
             : "全部项目（汇总）",
         valueMs: 0,
         children: [],
       };
 
-      if (selection.type === "summary") {
+      if (selection.type === "single") {
+        const singleNode = buildDisplayItem(selection.projectId, "single");
+        if (singleNode && (includeZero || singleNode.valueMs > 0)) {
+          root.children.push(singleNode);
+        }
+      } else if (selection.type === "summary") {
         if (selection.levelFilter === "all") {
           getOrderedRoots().forEach((rootProject) => {
             const rootNode = buildTotalNode(rootProject.id, {
@@ -1186,6 +1219,7 @@
             .forEach((project) => {
               const node = buildTotalNode(project.id, {
                 includeChildren: false,
+                includeSingle: true,
                 includeZero,
               });
               if (node) {
@@ -1222,6 +1256,11 @@
         const project = hierarchy.byId.get(selection.projectId);
         if (project) {
           if (project.level >= 3) {
+            const leaf = buildLeafNode(project.id, { includeZero });
+            if (leaf) {
+              root.children.push(leaf);
+            }
+          } else if (!shouldSplitProjectDirectDuration(project.id)) {
             const leaf = buildLeafNode(project.id, { includeZero });
             if (leaf) {
               root.children.push(leaf);
@@ -1303,8 +1342,21 @@
 
     function buildChartSelectorTree(allLabel = "全部项目（汇总）") {
       const createNode = (project) => {
-        const children = getOrderedChildren(project.id).map((child) =>
-          createNode(child),
+        const stat = getStat(project.id);
+        const children = [];
+        if (shouldSplitProjectDirectDuration(project.id) && stat.directMs > 0) {
+          children.push({
+            value: `single:${project.id}`,
+            label: `${project.name}${SINGLE_SUFFIX}`,
+            triggerLabel: `${buildProjectPath(project.id, hierarchy)}${SINGLE_SUFFIX}`,
+            level: project.level,
+            metaLabel: "单",
+            kind: "single",
+            children: [],
+          });
+        }
+        getOrderedChildren(project.id).forEach((child) =>
+          children.push(createNode(child)),
         );
         return {
           value: `project:${project.id}`,
@@ -2562,6 +2614,7 @@ let statsLegendCollapseState = {
   line: new Set(),
   pie: new Set(),
 };
+let statsLineSeriesHiddenKeys = new Set();
 let statsViewMode = "table";
 let statsRememberedGeneralRangeUnit = "day";
 let statsRememberedHeatmapRangeUnit = "month";
@@ -3698,6 +3751,7 @@ function createDefaultStatsPreferences() {
       line: {
         selectionValue: "summary:all",
         collapsedKeys: [],
+        hiddenKeys: [],
       },
       heatmap: {
         dataType: "project",
@@ -3801,6 +3855,7 @@ function normalizeStatsUiState(rawUiState) {
       ...baseUiState.line,
       selectionValue: normalizeStatsSelectionValue(lineState.selectionValue),
       collapsedKeys: normalizeStatsStoredKeyArray(lineState.collapsedKeys),
+      hiddenKeys: normalizeStatsStoredKeyArray(lineState.hiddenKeys),
     },
     heatmap: {
       ...baseUiState.heatmap,
@@ -5461,6 +5516,7 @@ function applyStatsUiStateFromPreferences(preferences = statsPreferencesState) {
     line: new Set(uiState.line.collapsedKeys),
     pie: new Set(uiState.pie.collapsedKeys),
   };
+  statsLineSeriesHiddenKeys = new Set(uiState.line.hiddenKeys);
   heatmapState = {
     ...heatmapState,
     dataType: uiState.heatmap.dataType,
@@ -5489,6 +5545,7 @@ function saveStatsUiStateToPreferences() {
     line: {
       selectionValue: lineChartState.selectionValue,
       collapsedKeys: Array.from(getStatsLegendCollapseSet("line")),
+      hiddenKeys: Array.from(getStatsLineSeriesHiddenSet()),
     },
     heatmap: {
       dataType: heatmapState.dataType,
@@ -6814,9 +6871,16 @@ function buildChartProjectSelectorTree(allLabel = "全部项目（汇总）") {
   if (!projectStatsApi?.createStatsContext) {
     return buildProjectSelectorTree(allLabel);
   }
-  return projectStatsApi
-    .createStatsContext(projects, [])
-    .buildChartSelectorTree(allLabel);
+  return createProjectSelectorStatsContext().buildChartSelectorTree(allLabel);
+}
+
+function createProjectSelectorStatsContext() {
+  const selectorRecords = Array.isArray(records) && records.length > 0
+    ? records
+    : [];
+  return projectStatsApi.createStatsContext(projects, selectorRecords, {
+    useStoredDurations: selectorRecords.length === 0,
+  });
 }
 
 function ensureValidChartSelection(treeNodes, selectedValue) {
@@ -6985,29 +7049,6 @@ function getLineChartPeriodSummary() {
   );
 }
 
-function shouldHideEquivalentSingleBreakdownNode(node, parentNode) {
-  if (!node || !parentNode) {
-    return false;
-  }
-  if (parentNode.kind !== "total" || node.kind !== "single") {
-    return false;
-  }
-  if (String(parentNode.projectId || "") !== String(node.projectId || "")) {
-    return false;
-  }
-
-  const parentValueMs = Number(parentNode.valueMs || 0);
-  const childValueMs = Number(node.valueMs || 0);
-  if (!Number.isFinite(parentValueMs) || !Number.isFinite(childValueMs)) {
-    return false;
-  }
-  if (parentValueMs <= 0) {
-    return false;
-  }
-
-  return Math.abs(parentValueMs - childValueMs) < 1;
-}
-
 function sanitizeBreakdownTreeForDisplay(tree) {
   const cloneNode = (node) => {
     if (!node || typeof node !== "object") {
@@ -7025,9 +7066,7 @@ function sanitizeBreakdownTreeForDisplay(tree) {
     const nextChildren = Array.isArray(node.children)
       ? node.children.map((child) => cloneNode(child)).filter(Boolean)
       : [];
-    nextNode.children = nextChildren.filter(
-      (child) => !shouldHideEquivalentSingleBreakdownNode(child, nextNode),
-    );
+    nextNode.children = nextChildren;
     nextNode.children.sort(compareStatsDurationDesc);
     return nextNode;
   };
@@ -7142,6 +7181,37 @@ function toggleStatsLegendCollapse(stateKey = "line", itemKey = "") {
   return collapsedKeys.has(safeItemKey);
 }
 
+function getStatsLineSeriesHiddenSet() {
+  if (statsLineSeriesHiddenKeys instanceof Set) {
+    return statsLineSeriesHiddenKeys;
+  }
+  statsLineSeriesHiddenKeys = new Set(
+    Array.isArray(statsLineSeriesHiddenKeys) ? statsLineSeriesHiddenKeys : [],
+  );
+  return statsLineSeriesHiddenKeys;
+}
+
+function isStatsLineSeriesVisible(itemKey = "") {
+  const safeItemKey = String(itemKey || "").trim();
+  return !safeItemKey || !getStatsLineSeriesHiddenSet().has(safeItemKey);
+}
+
+function toggleStatsLineSeriesVisibility(itemKey = "") {
+  const safeItemKey = String(itemKey || "").trim();
+  if (!safeItemKey) {
+    return true;
+  }
+
+  const hiddenKeys = getStatsLineSeriesHiddenSet();
+  if (hiddenKeys.has(safeItemKey)) {
+    hiddenKeys.delete(safeItemKey);
+  } else {
+    hiddenKeys.add(safeItemKey);
+  }
+  saveStatsUiStateToPreferences();
+  return !hiddenKeys.has(safeItemKey);
+}
+
 function buildStatsLegendItemIndex(items = []) {
   const itemsByKey = new Map();
   const childCountByParent = new Map();
@@ -7241,6 +7311,8 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
     }
     const expandable = (childCountByParent.get(itemKey) || 0) > 0;
     const collapsed = collapsedKeys.has(itemKey);
+    const lineSeriesVisible =
+      variant === "line" ? isStatsLineSeriesVisible(itemKey) : true;
 
     const row = document.createElement("div");
     row.className = "stats-hierarchy-legend-row";
@@ -7257,6 +7329,10 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
       row.title = item.pathLabel || item.label || "";
     }
     row.classList.toggle("is-collapsed", collapsed);
+    row.classList.toggle(
+      "is-line-hidden",
+      variant === "line" && !lineSeriesVisible,
+    );
     row.style.setProperty(
       "--stats-legend-indent",
       `${Math.max(0, (item.depth || 1) - 1) * (isCompactMobileLayout() ? 10 : 14)}px`,
@@ -7274,6 +7350,47 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
     left.appendChild(caret);
 
     if (variant === "line") {
+      const visibilityToggle = document.createElement("button");
+      visibilityToggle.type = "button";
+      visibilityToggle.className = "stats-line-legend-visibility-toggle";
+      visibilityToggle.classList.toggle("is-hidden", !lineSeriesVisible);
+      visibilityToggle.setAttribute(
+        "aria-pressed",
+        lineSeriesVisible ? "true" : "false",
+      );
+      visibilityToggle.setAttribute(
+        "aria-label",
+        `${lineSeriesVisible ? "隐藏" : "显示"}${item.label || "项目"}折线`,
+      );
+      visibilityToggle.title = `${lineSeriesVisible ? "隐藏" : "显示"} ${
+        item.pathLabel || item.label || "项目"
+      }`;
+      visibilityToggle.style.setProperty(
+        "--stats-line-visibility-color",
+        item.color || "var(--accent-color)",
+      );
+
+      const visibilityDot = document.createElement("span");
+      visibilityDot.className = "stats-line-legend-visibility-dot";
+      visibilityToggle.appendChild(visibilityDot);
+      visibilityToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleStatsLineSeriesVisibility(itemKey);
+        if (typeof options?.onLineVisibilityToggle === "function") {
+          options.onLineVisibilityToggle({
+            item,
+            stateKey,
+          });
+          return;
+        }
+        renderStatsHierarchyLegend(container, items, options);
+      });
+      visibilityToggle.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+      });
+      left.appendChild(visibilityToggle);
+
       const swatch = document.createElement("span");
       swatch.className = "stats-line-legend-swatch";
 
@@ -7330,6 +7447,11 @@ function renderStatsHierarchyLegend(container, items = [], options = {}) {
 
       row.addEventListener("click", handleToggle);
       row.addEventListener("keydown", (event) => {
+        if (
+          event.target?.closest?.(".stats-line-legend-visibility-toggle")
+        ) {
+          return;
+        }
         if (event.key === "Enter" || event.key === " ") {
           handleToggle(event);
         }
@@ -7501,10 +7623,18 @@ function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
     const children = (node.children || []).map((child) =>
       toHierarchyNode(child),
     );
+    const childDisplayMs = children.reduce(
+      (sum, child) => sum + Math.max(child.displayMs || 0, 0),
+      0,
+    );
+    const nodeValueMs = Math.max(node.valueMs || 0, 0);
     return {
       ...node,
-      displayMs: node.valueMs || 0,
-      weightMs: children.length > 0 ? 0 : node.valueMs || 0,
+      displayMs: nodeValueMs,
+      weightMs:
+        children.length > 0
+          ? Math.max(nodeValueMs - childDisplayMs, 0)
+          : nodeValueMs,
       children,
     };
   };
@@ -11415,7 +11545,9 @@ function getLineChartData(
     includeRoot: false,
   });
   chartData.legendItems = items;
-  const visibleItems = getVisibleStatsLegendItems(items, "line");
+  const visibleItems = getVisibleStatsLegendItems(items, "line").filter(
+    (item) => isStatsLineSeriesVisible(item?.key),
+  );
 
   visibleItems.forEach((item) => {
     const values = accumulateFilteredLineChartValues(
@@ -11749,11 +11881,14 @@ function renderLineChartWithData(container, dataType) {
   legendHost.className = "stats-line-legend";
   createLineChartLegend(legendHost, chartData.datasets, {
     legendItems: chartData.legendItems,
+    onLineVisibilityToggle: () => {
+      renderLineChartWithData(container, dataType);
+    },
     onToggle: () => {
       renderLineChartWithData(container, dataType);
     },
   });
-  legendHost.hidden = chartData.datasets.length === 0;
+  legendHost.hidden = chartData.legendItems.length === 0;
   header.appendChild(legendHost);
   const summaryCard = createStatsPeriodSummaryCard(summaryData, {
     compact: compactMobileSummary,
@@ -13247,7 +13382,11 @@ function renderHeatmap(container) {
         projectDailyMap[dateText] = { hours: 0, byProject: {} };
       }
       projectDailyMap[dateText].hours += hours;
-      const projectName = project?.name || record.name || "未命名项目";
+      const projectName = getStatsProjectBucketName(
+        project,
+        record.name || "未命名项目",
+        projectHierarchyIndex,
+      );
       projectDailyMap[dateText].byProject[projectName] =
         (projectDailyMap[dateText].byProject[projectName] || 0) + hours;
     });
@@ -14264,6 +14403,9 @@ function formatMonthLabel(monthKey) {
 function getProjectHeatmapOptions() {
   const options = [{ value: "all", label: "全部项目（汇总）" }];
   const hierarchy = buildProjectHierarchyIndex();
+  const selectorStatsContext = projectStatsApi?.createStatsContext
+    ? createProjectSelectorStatsContext()
+    : null;
   const visited = new Set();
 
   const labelPrefix = (depth) => {
@@ -14281,10 +14423,17 @@ function getProjectHeatmapOptions() {
       value: `project:${node.id}`,
       label: `${indent}${labelPrefix(depth)} · ${node.name}`,
     });
-
+    const stat = selectorStatsContext?.getStat?.(node.id);
     const children = (hierarchy.childrenByParent.get(node.id) || [])
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    if (node.level < 3 && children.length > 0 && (stat?.directMs || 0) > 0) {
+      options.push({
+        value: `single:${node.id}`,
+        label: `${indent}  单 · ${node.name}${projectStatsApi?.SINGLE_SUFFIX || "（单）"}`,
+      });
+    }
+
     children.forEach((child) => walk(child, depth + 1));
   };
 
@@ -14344,19 +14493,40 @@ function getProjectSelectorLevelLabel(level) {
 
 function buildProjectSelectorTree(allLabel = "全部项目（汇总）") {
   const hierarchy = buildProjectHierarchyIndex();
+  const selectorStatsContext = projectStatsApi?.createStatsContext
+    ? createProjectSelectorStatsContext()
+    : null;
   const visited = new Set();
 
   const createNode = (node) => {
     visited.add(node.id);
-    const children = (hierarchy.childrenByParent.get(node.id) || [])
+    const childNodes = (hierarchy.childrenByParent.get(node.id) || [])
       .slice()
-      .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
-      .map((child) => createNode(child));
+      .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    const children = [];
+    const stat = selectorStatsContext?.getStat?.(node.id);
+    const projectLevel = Math.min(Math.max(parseInt(node.level, 10) || 1, 1), 3);
+    if (
+      projectLevel < 3 &&
+      childNodes.length > 0 &&
+      (stat?.directMs || 0) > 0
+    ) {
+      children.push({
+        value: `single:${node.id}`,
+        label: `${node.name}${projectStatsApi?.SINGLE_SUFFIX || "（单）"}`,
+        triggerLabel: `${selectorStatsContext?.buildProjectPath?.(node.id) || node.name}${projectStatsApi?.SINGLE_SUFFIX || "（单）"}`,
+        level: projectLevel,
+        metaLabel: "单",
+        kind: "single",
+        children: [],
+      });
+    }
+    childNodes.forEach((child) => children.push(createNode(child)));
 
     return {
       value: `project:${node.id}`,
       label: node.name,
-      level: Math.min(Math.max(parseInt(node.level, 10) || 1, 1), 3),
+      level: projectLevel,
       children,
     };
   };
@@ -14492,7 +14662,7 @@ function renderProjectTreeSelector(
         (node) =>
           node.triggerLabel ||
           (node.level > 0
-            ? `${node.label} ${getProjectSelectorLevelLabel(node.level)}`
+            ? `${node.label} ${node.metaLabel || getProjectSelectorLevelLabel(node.level)}`
             : `${node.label} 全部`),
       ),
       {
@@ -14612,7 +14782,7 @@ function renderProjectTreeSelector(
     const meta = document.createElement("span");
     meta.className = "tree-select-option-meta";
     meta.textContent =
-      node.level > 0 ? getProjectSelectorLevelLabel(node.level) : "全部";
+      node.metaLabel || (node.level > 0 ? getProjectSelectorLevelLabel(node.level) : "全部");
     option.appendChild(meta);
 
     if (Array.isArray(node.children) && node.children.length > 0) {
@@ -14692,6 +14862,16 @@ function recordMatchesProjectFilter(
 ) {
   if (filter === "all") return true;
 
+  if (filter.startsWith("single:")) {
+    const projectId = String(filter.split(":")[1] || "");
+    const recordProjectId = record?.projectId ? String(record.projectId) : "";
+    const targetProjectId = project?.id ? String(project.id) : "";
+    return (
+      (targetProjectId && targetProjectId === projectId) ||
+      (recordProjectId && recordProjectId === projectId)
+    );
+  }
+
   if (filter.startsWith("project:")) {
     const projectId = String(filter.split(":")[1] || "");
     const safeSelectedSet =
@@ -14707,6 +14887,29 @@ function recordMatchesProjectFilter(
   }
 
   return true;
+}
+
+function getStatsProjectBucketName(
+  project,
+  fallbackName = "未命名项目",
+  hierarchyIndex = null,
+) {
+  const projectName =
+    String(project?.name || fallbackName || "未命名项目").trim() ||
+    "未命名项目";
+  const projectLevel = Math.min(
+    Math.max(parseInt(project?.level, 10) || 1, 1),
+    3,
+  );
+  const children = project?.id
+    ? (hierarchyIndex || buildProjectHierarchyIndex()).childrenByParent.get(
+        String(project.id),
+      ) || []
+    : [];
+  if (project && projectLevel < 3 && children.length > 0) {
+    return `${projectName}${projectStatsApi?.SINGLE_SUFFIX || "（单）"}`;
+  }
+  return projectName;
 }
 
 function buildProjectHeatmapDailyMap(monthDate) {
@@ -14747,7 +14950,11 @@ function buildProjectHeatmapDailyMap(monthDate) {
     }
 
     dayMap[day].hours += hours;
-    const projectName = project?.name || record.name || "未命名项目";
+    const projectName = getStatsProjectBucketName(
+      project,
+      record.name || "未命名项目",
+      hierarchyIndex,
+    );
     dayMap[day].byProject[projectName] =
       (dayMap[day].byProject[projectName] || 0) + hours;
   });

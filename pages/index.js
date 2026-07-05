@@ -2633,6 +2633,80 @@ function setProjectTotalsExpanded(project, expanded) {
   );
 }
 
+function createProjectTotalSingleSummaryNode(
+  projectNode,
+  directMs,
+  {
+    summaryScale = 1,
+    compact = false,
+    depth = 1,
+    hasChildProjects = false,
+  } = {},
+) {
+  const normalizedDirectMs =
+    Number.isFinite(directMs) && directMs > 0 ? directMs : 0;
+  if (!projectNode || !hasChildProjects || normalizedDirectMs <= 0) {
+    return null;
+  }
+
+  const projectLevel = normalizeProjectLevel(projectNode.level);
+  if (projectLevel >= 3) {
+    return null;
+  }
+
+  const singleSuffix = window.ControlerProjectStats?.SINGLE_SUFFIX || "（单）";
+  const levelColor = getResolvedThemeProjectColor(projectLevel);
+  const item = document.createElement("div");
+  item.style.display = compact ? "block" : "grid";
+  item.style.gridTemplateColumns = compact ? "" : "minmax(0, 1fr) auto";
+  item.style.alignItems = "start";
+  item.style.columnGap = `${Math.max(4, Math.round(6 * summaryScale))}px`;
+  item.style.padding = compact
+    ? `${Math.max(5, Math.round(6 * summaryScale))}px`
+    : `${Math.max(5, Math.round(6 * summaryScale))}px ${Math.max(6, Math.round(7 * summaryScale))}px`;
+  item.style.borderRadius = `${Math.max(8, Math.round(10 * summaryScale))}px`;
+  item.style.background =
+    "color-mix(in srgb, var(--surface-control) 88%, transparent)";
+  item.style.border = `1px solid ${getProjectColorShadow(levelColor, 0.12)}`;
+  item.style.boxSizing = "border-box";
+  item.style.minWidth = "0";
+  if (depth > 1) {
+    item.style.marginLeft = compact
+      ? `${Math.max(3, Math.round(4 * summaryScale))}px`
+      : `${Math.max(6, Math.round(8 * summaryScale))}px`;
+  }
+
+  const label = document.createElement("span");
+  label.style.color = "var(--text-color)";
+  label.style.fontWeight = compact ? "700" : "600";
+  label.style.fontSize = compact
+    ? `${Math.max(8, Math.round(9.5 * summaryScale))}px`
+    : `${Math.max(10, Math.round(11.5 * summaryScale))}px`;
+  label.style.lineHeight = "1.28";
+  label.style.overflowWrap = "anywhere";
+  label.textContent = `${projectNode.name}${singleSuffix}`;
+
+  const value = document.createElement(compact ? "div" : "span");
+  value.style.color = "var(--text-color)";
+  value.style.fontWeight = compact ? "600" : "700";
+  value.style.fontSize = compact
+    ? `${Math.max(8, Math.round(9 * summaryScale))}px`
+    : `${Math.max(10, Math.round(11 * summaryScale))}px`;
+  value.style.lineHeight = "1.25";
+  value.style.whiteSpace = compact ? "normal" : "nowrap";
+  value.style.textAlign = compact ? "left" : "right";
+  value.style.marginTop = compact
+    ? `${Math.max(2, Math.round(3 * summaryScale))}px`
+    : "0";
+  value.textContent = compact
+    ? formatProjectTotalDurationForCard(normalizedDirectMs, { compact: true })
+    : `总时长：${formatProjectTotalDurationForCard(normalizedDirectMs)}`;
+
+  item.appendChild(label);
+  item.appendChild(value);
+  return item;
+}
+
 function createProjectTablePlaceholder(text, padding = "10px") {
   const placeholder = document.createElement("div");
   placeholder.style.color = "var(--muted-text-color)";
@@ -2728,6 +2802,8 @@ function renderProjectTotalTreeNode(
   const stat = statsContext.getStat(projectNode.id);
   const totalMs =
     Number.isFinite(stat?.totalMs) && stat.totalMs >= 0 ? stat.totalMs : 0;
+  const directMs =
+    Number.isFinite(stat?.directMs) && stat.directMs >= 0 ? stat.directMs : 0;
   const childNodes =
     typeof statsContext.getOrderedChildren === "function"
       ? statsContext.getOrderedChildren(projectNode.id)
@@ -2904,6 +2980,20 @@ function renderProjectTotalTreeNode(
       childrenContainer.style.paddingLeft = `${Math.max(3, Math.round(4 * summaryScale))}px`;
       childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
 
+      const singleElement = createProjectTotalSingleSummaryNode(
+        projectNode,
+        directMs,
+        {
+          summaryScale,
+          compact: true,
+          depth: depth + 1,
+          hasChildProjects: children.length > 0,
+        },
+      );
+      if (singleElement) {
+        childrenContainer.appendChild(singleElement);
+      }
+
       children.forEach((childNode) => {
         const childElement = renderProjectTotalTreeNode(
           childNode,
@@ -3050,6 +3140,20 @@ function renderProjectTotalTreeNode(
     childrenContainer.style.minWidth = "0";
     childrenContainer.style.paddingLeft = `${Math.max(6, Math.round(8 * summaryScale))}px`;
     childrenContainer.style.borderLeft = `1px solid ${getProjectColorShadow(levelColor, 0.18)}`;
+
+    const singleElement = createProjectTotalSingleSummaryNode(
+      projectNode,
+      directMs,
+      {
+        summaryScale,
+        compact: false,
+        depth: depth + 1,
+        hasChildProjects: children.length > 0,
+      },
+    );
+    if (singleElement) {
+      childrenContainer.appendChild(singleElement);
+    }
 
     children.forEach((childNode) => {
       const childElement = renderProjectTotalTreeNode(childNode, statsContext, {
@@ -9484,7 +9588,6 @@ function openModal(options = {}) {
   modal.removeEventListener("click", modal._handleModalOutsideClick);
   modal._handleModalOutsideClick = handleModalOutsideClick;
   modal.addEventListener("click", handleModalOutsideClick);
-  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   return true;
 }
 
@@ -9531,7 +9634,6 @@ function closeModal(options = {}) {
   isModalOpen = false;
   uiTools?.releaseAndroidInteractiveTextControlFocus?.();
   hideIndexPersistentModalOverlay(modal);
-  uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   modalProjectInputTargetManual = false;
   resetTimerModalProjectInputTransientState();
   hideAllProjectSuggestions();
@@ -13523,11 +13625,9 @@ function applyIndexModalSaveAttemptUiSnapshot(snapshot) {
     updateRemainingTimeDisplay();
     requestAnimationFrame(() => {
       refreshIndexWorkspace({ immediate: true });
-      uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
     });
   } else {
     refreshIndexWorkspace({ immediate: true });
-    uiTools?.scheduleNativeEdgeBackSwipeExclusionSync?.(document);
   }
 
   persistTimerSessionState();

@@ -787,6 +787,11 @@
       return sortProjectNodesByTotalDesc(getChildren(projectId));
     };
 
+    const shouldSplitProjectDirectDuration = (projectId) => {
+      const project = hierarchy.byId.get(String(projectId || ""));
+      return !!project && project.level < 3 && hasChildren(project.id);
+    };
+
     const getBaseColor = (projectId) => {
       const project = hierarchy.byId.get(String(projectId || ""));
       return project?.color || defaultColorForName(project?.name || projectId || "");
@@ -804,13 +809,14 @@
             ? stat.directMs
             : stat.directMs;
       const baseColor = getBaseColor(project.id);
+      const splitDirectDuration = shouldSplitProjectDirectDuration(project.id);
 
       return {
         key: `${kind}:${project.id}`,
         projectId: project.id,
         label:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -818,7 +824,7 @@
               : project.name,
         shortLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${project.name}${TOTAL_SUFFIX}`
               : project.name
             : kind === "single"
@@ -827,7 +833,7 @@
         path,
         pathLabel:
           kind === "total"
-            ? project.level < 3
+            ? splitDirectDuration
               ? `${path}${TOTAL_SUFFIX}`
               : path
             : kind === "single"
@@ -855,7 +861,7 @@
       const stat = getStat(projectId);
       const item = buildDisplayItem(
         projectId,
-        forceSingle && hierarchy.byId.get(String(projectId || ""))?.level < 3
+        forceSingle && shouldSplitProjectDirectDuration(projectId)
           ? "single"
           : "leaf",
       );
@@ -867,7 +873,11 @@
     };
 
     const buildTotalNode = (projectId, options = {}) => {
-      const { includeChildren = true, includeZero = false } = options;
+      const {
+        includeChildren = true,
+        includeSingle = includeChildren,
+        includeZero = false,
+      } = options;
       const project = hierarchy.byId.get(String(projectId || ""));
       if (!project) return null;
 
@@ -879,14 +889,16 @@
       const node = buildDisplayItem(project.id, "total");
       if (!node) return null;
 
-      if (includeChildren) {
+      if (includeSingle && shouldSplitProjectDirectDuration(project.id)) {
         if (includeZero || stat.directMs > 0) {
           const singleNode = buildDisplayItem(project.id, "single");
           if (singleNode && (includeZero || singleNode.valueMs > 0)) {
             node.children.push(singleNode);
           }
         }
+      }
 
+      if (includeChildren) {
         getOrderedChildren(project.id).forEach((child) => {
           const childNode = buildTotalNode(child.id, {
             includeChildren: true,
@@ -909,6 +921,16 @@
 
     function parseSelectionValue(selectionValue = "summary:all") {
       const safeSelection = String(selectionValue || "summary:all").trim();
+
+      if (safeSelection.startsWith("single:")) {
+        const projectId = String(safeSelection.split(":")[1] || "");
+        if (shouldSplitProjectDirectDuration(projectId)) {
+          return {
+            type: "single",
+            projectId,
+          };
+        }
+      }
 
       if (safeSelection.startsWith("project:")) {
         const projectId = String(safeSelection.split(":")[1] || "");
@@ -943,22 +965,33 @@
         key: `root:${selectionValue}`,
         kind: "root",
         label:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         shortLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${hierarchy.byId.get(selection.projectId)?.name || "所选项目"}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? hierarchy.byId.get(selection.projectId)?.name || "所选项目"
             : "全部项目（汇总）",
         pathLabel:
-          selection.type === "project"
+          selection.type === "single"
+            ? `${buildProjectPath(selection.projectId, hierarchy)}${SINGLE_SUFFIX}`
+            : selection.type === "project"
             ? buildProjectPath(selection.projectId, hierarchy)
             : "全部项目（汇总）",
         valueMs: 0,
         children: [],
       };
 
-      if (selection.type === "summary") {
+      if (selection.type === "single") {
+        const singleNode = buildDisplayItem(selection.projectId, "single");
+        if (singleNode && (includeZero || singleNode.valueMs > 0)) {
+          root.children.push(singleNode);
+        }
+      } else if (selection.type === "summary") {
         if (selection.levelFilter === "all") {
           getOrderedRoots().forEach((rootProject) => {
             const rootNode = buildTotalNode(rootProject.id, {
@@ -976,6 +1009,7 @@
             .forEach((project) => {
               const node = buildTotalNode(project.id, {
                 includeChildren: false,
+                includeSingle: true,
                 includeZero,
               });
               if (node) {
@@ -1012,6 +1046,11 @@
         const project = hierarchy.byId.get(selection.projectId);
         if (project) {
           if (project.level >= 3) {
+            const leaf = buildLeafNode(project.id, { includeZero });
+            if (leaf) {
+              root.children.push(leaf);
+            }
+          } else if (!shouldSplitProjectDirectDuration(project.id)) {
             const leaf = buildLeafNode(project.id, { includeZero });
             if (leaf) {
               root.children.push(leaf);
@@ -1093,8 +1132,21 @@
 
     function buildChartSelectorTree(allLabel = "全部项目（汇总）") {
       const createNode = (project) => {
-        const children = getOrderedChildren(project.id).map((child) =>
-          createNode(child),
+        const stat = getStat(project.id);
+        const children = [];
+        if (shouldSplitProjectDirectDuration(project.id) && stat.directMs > 0) {
+          children.push({
+            value: `single:${project.id}`,
+            label: `${project.name}${SINGLE_SUFFIX}`,
+            triggerLabel: `${buildProjectPath(project.id, hierarchy)}${SINGLE_SUFFIX}`,
+            level: project.level,
+            metaLabel: "单",
+            kind: "single",
+            children: [],
+          });
+        }
+        getOrderedChildren(project.id).forEach((child) =>
+          children.push(createNode(child)),
         );
         return {
           value: `project:${project.id}`,

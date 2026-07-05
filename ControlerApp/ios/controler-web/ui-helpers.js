@@ -18,8 +18,6 @@
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 36;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_MAX_ATTEMPTS = 40;
   const ANDROID_MODAL_DISMISS_PENDING_MAX_MS = 2400;
-  const ANDROID_KEYBOARD_TRANSITION_COVER_HOLD_MS = 88;
-  const ANDROID_KEYBOARD_TRANSITION_TRAILING_HEIGHT_PX = 18;
   const APP_NAV_VISIBILITY_STORAGE_KEY = "appNavigationVisibility";
   const APP_NAV_VISIBILITY_EVENT_NAME =
     "controler:app-navigation-visibility-changed";
@@ -29,9 +27,6 @@
     "controler:shell-visibility-changed";
   const SHELL_RESUME_SETTLED_EVENT_NAME =
     "controler:shell-resume-settled";
-  const EDGE_BACK_SWIPE_EXCLUSION_ATTR =
-    "data-controler-edge-back-exclusion";
-  const EDGE_BACK_SWIPE_EXCLUSION_PADDING = 12;
   const APP_NAV_ICON_NS = "http://www.w3.org/2000/svg";
   const TODO_WIDGET_KIND_IDS = new Set(["todos", "checkins"]);
   const PAGE_LOADING_OVERLAY_DELAY_MS = 120;
@@ -420,9 +415,7 @@
   let desktopBootstrapPrewarmRunning = false;
   let desktopBootstrapPrewarmTimerId = 0;
   let lastReportedAppNavigationStateSignature = "";
-  let lastReportedEdgeBackSwipeExclusionSignature = "";
   let lastShellVisibilityStateSignature = "";
-  let pendingEdgeBackSwipeExclusionSyncFrame = 0;
   let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
@@ -431,14 +424,6 @@
   let androidInteractiveActionReplayGuard = null;
   let pendingAndroidInteractiveActionReplay = null;
   let androidModalAutofocusQueued = false;
-  let androidKeyboardTransitionCoverInitialized = false;
-  let androidKeyboardTransitionCoverSyncQueued = false;
-  let androidKeyboardTransitionCoverHoldExtensionPending = false;
-  let androidKeyboardTransitionCoverReleaseTimerId = 0;
-  let androidKeyboardTransitionCoverHoldUntil = 0;
-  let androidKeyboardTransitionCoverLastHeightPx = 0;
-  let androidKeyboardTransitionCoverLastInsetPx = 0;
-  let androidKeyboardTransitionCoverLastBackground = "";
   let androidModalKeyboardDismissGuardQueued = false;
   let androidModalKeyboardDismissGuardToken = 0;
   let androidModalKeyboardDismissGuardTimerIds = [];
@@ -2603,152 +2588,6 @@
     });
   }
 
-  function isVisibleEdgeBackSwipeExclusionTarget(target) {
-    if (!(target instanceof HTMLElement) || !target.isConnected || target.hidden) {
-      return false;
-    }
-
-    const computed = window.getComputedStyle(target);
-    if (
-      computed.display === "none" ||
-      computed.visibility === "hidden" ||
-      computed.pointerEvents === "none"
-    ) {
-      return false;
-    }
-
-    const rect = target.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function collectAutoEdgeBackSwipeExclusionTargets(root = document) {
-    if (!root?.querySelectorAll) {
-      return [];
-    }
-
-    const targets = [];
-    const seenTargets = new Set();
-    const appendTarget = (candidate) => {
-      if (!(candidate instanceof HTMLElement) || seenTargets.has(candidate)) {
-        return;
-      }
-      seenTargets.add(candidate);
-      targets.push(candidate);
-    };
-
-    root
-      .querySelectorAll(`[${EDGE_BACK_SWIPE_EXCLUSION_ATTR}="true"]`)
-      .forEach((target) => appendTarget(target));
-
-    getVisibleModalOverlays().forEach((modal) => {
-      [
-        "[data-controler-disable-edge-swipe='true']",
-        "input[type='radio']",
-        "input[type='checkbox']",
-        "label",
-        "select",
-        "button",
-        "[role='button']",
-        ".tree-select",
-        ".native-select-enhancer",
-      ]
-        .join(", ")
-        .split(", ")
-        .forEach((selector) => {
-          modal.querySelectorAll(selector).forEach((target) => appendTarget(target));
-        });
-    });
-
-    return targets.filter((target) => isVisibleEdgeBackSwipeExclusionTarget(target));
-  }
-
-  function collectEdgeBackSwipeExclusionRects(root = document) {
-    const viewportWidth = Math.max(
-      window.innerWidth || 0,
-      document.documentElement?.clientWidth || 0,
-      1,
-    );
-    const viewportHeight = Math.max(
-      window.innerHeight || 0,
-      document.documentElement?.clientHeight || 0,
-      1,
-    );
-    if (!root?.querySelectorAll) {
-      return {
-        rects: [],
-        viewportWidth,
-        viewportHeight,
-      };
-    }
-
-    const rects = collectAutoEdgeBackSwipeExclusionTargets(root)
-      .map((target) => {
-        const rect = target.getBoundingClientRect();
-        return {
-          left: Math.max(
-            0,
-            Math.round(rect.left - EDGE_BACK_SWIPE_EXCLUSION_PADDING),
-          ),
-          top: Math.max(
-            0,
-            Math.round(rect.top - EDGE_BACK_SWIPE_EXCLUSION_PADDING),
-          ),
-          right: Math.min(
-            viewportWidth,
-            Math.round(rect.right + EDGE_BACK_SWIPE_EXCLUSION_PADDING),
-          ),
-          bottom: Math.min(
-            viewportHeight,
-            Math.round(rect.bottom + EDGE_BACK_SWIPE_EXCLUSION_PADDING),
-          ),
-        };
-      })
-      .filter((rect) => rect.right > rect.left && rect.bottom > rect.top);
-
-    return {
-      rects,
-      viewportWidth,
-      viewportHeight,
-    };
-  }
-
-  function reportNativeEdgeBackSwipeExclusions(root = document) {
-    if (typeof window.ControlerNativeBridge?.emitEvent !== "function") {
-      return;
-    }
-
-    const payload = collectEdgeBackSwipeExclusionRects(root);
-    const signature = JSON.stringify(payload);
-    if (signature === lastReportedEdgeBackSwipeExclusionSignature) {
-      return;
-    }
-
-    lastReportedEdgeBackSwipeExclusionSignature = signature;
-    window.ControlerNativeBridge.emitEvent("ui.edge-back-swipe-exclusion", {
-      href: window.location.href,
-      ...payload,
-    });
-  }
-
-  function syncNativeEdgeBackSwipeExclusion(root = document) {
-    reportNativeEdgeBackSwipeExclusions(root);
-  }
-
-  function scheduleNativeEdgeBackSwipeExclusionSync(root = document) {
-    if (pendingEdgeBackSwipeExclusionSyncFrame) {
-      return;
-    }
-
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    pendingEdgeBackSwipeExclusionSyncFrame = schedule(() => {
-      pendingEdgeBackSwipeExclusionSyncFrame = 0;
-      reportNativeEdgeBackSwipeExclusions(root);
-    });
-  }
-
   function createAppNavigationIcon(navItem) {
     const wrapper = document.createElement("span");
     wrapper.className = "app-nav-icon";
@@ -4521,7 +4360,6 @@
     label.textContent = labelText;
 
     button.classList.add("app-nav-button");
-    button.removeAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR);
     if (!button.dataset.navPressFeedbackBound) {
       button.dataset.navPressFeedbackBound = "true";
       const clearAndroidNavFocus = (event) => {
@@ -4615,7 +4453,6 @@
     const order = navigationState.order;
     const currentPageKey = getCurrentAppNavigationItem()?.key || "";
     root.querySelectorAll(".app-nav").forEach((nav) => {
-      nav.setAttribute(EDGE_BACK_SWIPE_EXCLUSION_ATTR, "true");
       const buttons = Array.from(nav.querySelectorAll("[data-nav-page]"));
       const buttonMap = new Map(
         buttons.map((button) => [
@@ -4664,7 +4501,6 @@
         document.body?.classList.contains("controler-modal-overlay-active") === true ||
         document.body?.classList.contains("controler-blocking-overlay-active") === true,
     });
-    scheduleNativeEdgeBackSwipeExclusionSync(root);
   }
 
   function initAppNavigationVisibility() {
@@ -4701,19 +4537,6 @@
     window.addEventListener("controler:language-changed", syncNavigation);
     window.addEventListener("controler:storage-data-changed", syncNavigation);
     window.addEventListener("focus", syncNavigation);
-    window.addEventListener("resize", () => {
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
-    });
-    window.addEventListener(
-      "load",
-      () => {
-        scheduleNativeEdgeBackSwipeExclusionSync(document);
-      },
-      { once: true },
-    );
-    window.visualViewport?.addEventListener("resize", () => {
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
-    });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         syncNavigation();
@@ -6469,114 +6292,6 @@
     );
   }
 
-  function resolveAndroidKeyboardTransitionCoverBackground() {
-    const frozenOverlay = Array.from(
-      document.querySelectorAll(".modal-overlay"),
-    )
-      .reverse()
-      .find(
-        (overlay) =>
-          overlay instanceof HTMLElement &&
-          overlay.dataset.controlerAndroidDismissFreeze === "true",
-      );
-    const visibleModals = getVisibleModalOverlays();
-    const backdropOverlay =
-      visibleModals.find(
-        (overlay) =>
-          overlay instanceof HTMLElement &&
-          overlay.dataset.controlerBackdropVisible !== "false",
-      ) ||
-      visibleModals[0] ||
-      null;
-    const candidateOverlays = [frozenOverlay, backdropOverlay].filter(
-      (overlay, index, source) =>
-        overlay instanceof HTMLElement && source.indexOf(overlay) === index,
-    );
-
-    for (const overlay of candidateOverlays) {
-      const storedBackground = normalizeAndroidTransitionCoverBackground(
-        overlay.style.getPropertyValue("--controler-modal-dismiss-cover-bg"),
-      );
-      if (storedBackground) {
-        return storedBackground;
-      }
-      const computedBackground =
-        typeof window.getComputedStyle === "function"
-          ? resolveAndroidTransitionCoverBackgroundValue(
-              window.getComputedStyle(overlay),
-            )
-          : "";
-      if (computedBackground) {
-        return computedBackground;
-      }
-    }
-
-    const bodyBackground =
-      typeof window.getComputedStyle === "function"
-        ? resolveAndroidTransitionCoverBackgroundValue(
-            window.getComputedStyle(document.body),
-          )
-        : "";
-    if (bodyBackground) {
-      return bodyBackground;
-    }
-
-    return "var(--surface-app, var(--bg-primary, #ffffff))";
-  }
-
-  function writeAndroidKeyboardTransitionCoverState(
-    heightPx = 0,
-    backgroundValue = "",
-  ) {
-    const root = document.documentElement;
-    const body = document.body;
-    if (root instanceof HTMLElement) {
-      root.style.setProperty("--controler-keyboard-transition-cover-height", "0px");
-      root.style.removeProperty("--controler-keyboard-transition-cover-bg");
-      root.classList.remove("controler-keyboard-transition-cover-active");
-    }
-    body?.classList.remove("controler-keyboard-transition-cover-active");
-  }
-
-  function clearAndroidKeyboardTransitionCoverReleaseTimer() {
-    if (androidKeyboardTransitionCoverReleaseTimerId > 0) {
-      window.clearTimeout(androidKeyboardTransitionCoverReleaseTimerId);
-      androidKeyboardTransitionCoverReleaseTimerId = 0;
-    }
-  }
-
-  function syncAndroidKeyboardTransitionCover(options = {}) {
-    clearAndroidKeyboardTransitionCoverReleaseTimer();
-    androidKeyboardTransitionCoverHoldUntil = 0;
-    androidKeyboardTransitionCoverLastHeightPx = 0;
-    androidKeyboardTransitionCoverLastInsetPx = 0;
-    androidKeyboardTransitionCoverLastBackground = "";
-    writeAndroidKeyboardTransitionCoverState(0, "");
-    return 0;
-  }
-
-  function scheduleAndroidKeyboardTransitionCoverSync(options = {}) {
-    if (options.extendHold === true) {
-      androidKeyboardTransitionCoverHoldExtensionPending = true;
-    }
-    if (androidKeyboardTransitionCoverSyncQueued) {
-      return;
-    }
-    androidKeyboardTransitionCoverSyncQueued = true;
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    schedule(() => {
-      androidKeyboardTransitionCoverSyncQueued = false;
-      const extendHold = androidKeyboardTransitionCoverHoldExtensionPending;
-      androidKeyboardTransitionCoverHoldExtensionPending = false;
-      syncAndroidKeyboardTransitionCover({
-        extendHold,
-      });
-    });
-  }
-
   function clearAndroidModalDismissFreeze(modal, options = {}) {
     const overlay = resolveModalOverlayElement(modal);
     if (!(overlay instanceof HTMLElement)) {
@@ -6656,7 +6371,6 @@
     const overlay = resolveModalOverlayElement(modal);
     if (!(overlay instanceof HTMLElement)) {
       scheduleModalHistorySync();
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
       return null;
     }
 
@@ -6702,7 +6416,6 @@
         resync: options.resync === true,
       });
       scheduleModalHistorySync();
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
     };
 
     if (closeVisualDuration <= 0) {
@@ -7123,7 +6836,6 @@
     if (shouldScheduleAndroidModalAutofocusForVisibleModal(topVisibleModal)) {
       scheduleAndroidModalAutofocus();
     }
-    scheduleAndroidKeyboardTransitionCoverSync();
     const nextSignature = JSON.stringify({
       active,
       hasOpenModal,
@@ -7493,7 +7205,6 @@
         }
         if (didMutationAffectModalState(mutations)) {
           scheduleModalHistorySync();
-          scheduleNativeEdgeBackSwipeExclusionSync(document);
         }
       });
       modalHistoryObserver.observe(document.body, {
@@ -7524,6 +7235,12 @@
         }
         closeModal(topModal);
       });
+
+      if (isAndroidNativeRuntime()) {
+        scheduleModalHistorySync();
+        scheduleBlockingOverlaySync();
+        return;
+      }
 
       let edgeSwipeState = {
         tracking: false,
@@ -7694,31 +7411,6 @@
       return;
     }
     bind();
-  }
-
-  function initAndroidKeyboardTransitionCover() {
-    if (androidKeyboardTransitionCoverInitialized || !isAndroidNativeRuntime()) {
-      return;
-    }
-    androidKeyboardTransitionCoverInitialized = true;
-
-    const handleSync = () => {
-      scheduleAndroidKeyboardTransitionCoverSync();
-    };
-
-    window.addEventListener("resize", handleSync, {
-      passive: true,
-    });
-    window.visualViewport?.addEventListener?.("resize", handleSync, {
-      passive: true,
-    });
-    window.visualViewport?.addEventListener?.("scroll", handleSync, {
-      passive: true,
-    });
-    window.addEventListener(BLOCKING_OVERLAY_STATE_EVENT_NAME, handleSync);
-    document.addEventListener("visibilitychange", handleSync);
-    window.addEventListener("focus", handleSync);
-    scheduleAndroidKeyboardTransitionCoverSync();
   }
 
   function positionFloatingMenu(anchor, menu, options = {}) {
@@ -10026,7 +9718,6 @@
         modal.parentNode.removeChild(modal);
       }
       scheduleModalHistorySync();
-      scheduleNativeEdgeBackSwipeExclusionSync(document);
     };
     const schedule =
       typeof window !== "undefined" &&
@@ -10050,6 +9741,61 @@
       }
       closeModal(modal);
     });
+  }
+
+  function closeModalParentSurfaceForNativeBack(surface, options = {}) {
+    if (
+      !(surface instanceof HTMLElement) ||
+      !isVisibleModalParentSurface(surface)
+    ) {
+      return false;
+    }
+
+    const nativeBackHandler = surface.__controlerHandleNativeBack;
+    if (typeof nativeBackHandler === "function") {
+      return nativeBackHandler(options) !== false;
+    }
+
+    const closeHandler = surface.__controlerCloseModal;
+    if (typeof closeHandler === "function") {
+      closeHandler(options);
+      return true;
+    }
+
+    return false;
+  }
+
+  function getTopVisibleNonModalParentSurface() {
+    const surfaces = getVisibleModalParentSurfaces().filter(
+      (surface) =>
+        surface instanceof HTMLElement &&
+        !surface.classList.contains("modal-overlay"),
+    );
+    return surfaces[surfaces.length - 1] || null;
+  }
+
+  function handleNativeBack(options = {}) {
+    const topModal = getTopVisibleModal();
+    if (topModal) {
+      closeModal(topModal);
+      return {
+        handled: true,
+        reason: "modal",
+      };
+    }
+
+    const parentSurface = getTopVisibleNonModalParentSurface();
+    if (closeModalParentSurfaceForNativeBack(parentSurface, options)) {
+      return {
+        handled: true,
+        reason: "modal-parent-surface",
+      };
+    }
+
+    return {
+      handled: false,
+      reason: "no-overlay",
+    };
   }
 
   function stopModalContentPropagation(modal) {
@@ -11136,7 +10882,6 @@
     stopModalContentPropagation(modal);
     bindDesktopModalKeyboardShortcuts(modal, options);
     bindManagedModalFieldReveal(modal);
-    scheduleNativeEdgeBackSwipeExclusionSync(document);
     if (textAutofocusOptions) {
       autofocusInteractiveTextControl(modal, textAutofocusOptions);
     }
@@ -16610,7 +16355,6 @@
   initAppPageTransitions();
   initEditablePageTitles();
   initAndroidInteractiveTextAssist();
-  initAndroidKeyboardTransitionCover();
   initAndroidPressFeedback();
   initThemedNativePickerInputs();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
@@ -16631,6 +16375,7 @@
     getOrderedAppNavigationPages,
     setOrderedAppNavigationPages,
     applyAppNavigationVisibility,
+    handleNativeBack,
     closeModal,
     closeAllModals,
     hidePersistentModalOverlay,
@@ -16692,8 +16437,6 @@
       DEFAULT_EXPAND_SURFACE_WIDTH_FACTOR,
     loadScriptOnce,
     loadStyleOnce,
-    syncNativeEdgeBackSwipeExclusion,
-    scheduleNativeEdgeBackSwipeExclusionSync,
     markPerfStage: markPagePerfStage,
     getNativePageReadyMode,
     setNativePageReadyMode,
