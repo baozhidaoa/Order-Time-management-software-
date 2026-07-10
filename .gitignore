@@ -148,6 +148,7 @@ vite.config.ts.timestamp-*
 .gradle-user-home/
 .tmp-widget-javac/
 .tmp-capacitor-javac/
+/tmp/
 /tmp-*
 /tmp_window_dump.xml
 /TEMP_PLACEHOLDER
