@@ -355,6 +355,9 @@
   const ANDROID_NAV_PRESS_MIN_ACTIVE_MS = 92;
   const APP_NAV_TOUCH_GUARD_MAX_MOVE_PX = 18;
   const APP_NAV_TOUCH_GUARD_CANCEL_WINDOW_MS = 360;
+  const ANDROID_MODAL_TEXT_FOCUS_CLASS =
+    "controler-android-modal-text-focus-active";
+  const ANDROID_MODAL_TEXT_FOCUS_RELEASE_DELAY_MS = 180;
   const ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR = [
     "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='hidden']):not(:disabled)",
     "textarea:not(:disabled)",
@@ -424,6 +427,7 @@
   let androidModalKeyboardDismissGuardToken = 0;
   let androidModalKeyboardDismissGuardTimerIds = [];
   let androidModalKeyboardDismissGuardLastOpen = false;
+  let androidModalTextFocusReleaseTimerId = 0;
   let androidReactNativeAppNavLocked = false;
   let pendingAndroidInteractiveTextFocusTransferTimerId = 0;
   let pendingAndroidInteractiveTextFocusTransferTarget = null;
@@ -2935,6 +2939,95 @@
     );
   }
 
+  function clearAndroidModalTextFocusReleaseTimer() {
+    if (androidModalTextFocusReleaseTimerId > 0) {
+      window.clearTimeout(androidModalTextFocusReleaseTimerId);
+      androidModalTextFocusReleaseTimerId = 0;
+    }
+  }
+
+  function isAndroidModalTextControl(target) {
+    const focusTarget =
+      target instanceof HTMLElement
+        ? resolveInteractiveTextControlTarget(target) || target
+        : resolveInteractiveTextControlTarget(target);
+    if (!(focusTarget instanceof HTMLElement)) {
+      return false;
+    }
+    const hostModal = getAndroidModalAutofocusHost(focusTarget);
+    return (
+      hostModal instanceof HTMLElement &&
+      isVisibleModalOverlay(hostModal) &&
+      hostModal.__controlerRemovalQueued !== "true" &&
+      hostModal.dataset.controlerModalClosing !== "true"
+    );
+  }
+
+  function hasVisibleKeyboardAwareModal() {
+    return getVisibleModalOverlays().some((modal) =>
+      shouldUseKeyboardAwareModalOverlay(modal),
+    );
+  }
+
+  function hasActiveAndroidModalTextFocus() {
+    const activeControl = getActiveAndroidInteractiveTextControl();
+    return (
+      activeControl instanceof HTMLElement &&
+      isFocusedInteractiveTextControl(activeControl) &&
+      isAndroidModalTextControl(activeControl)
+    );
+  }
+
+  function applyAndroidModalTextFocusState(active) {
+    const nextActive = active === true && isAndroidNativeRuntime();
+    document.documentElement?.classList.toggle(
+      ANDROID_MODAL_TEXT_FOCUS_CLASS,
+      nextActive,
+    );
+    document.body?.classList.toggle(ANDROID_MODAL_TEXT_FOCUS_CLASS, nextActive);
+    if (nextActive) {
+      clearAndroidAppNavigationTransientState(document);
+    }
+    return nextActive;
+  }
+
+  function syncAndroidModalTextFocusState(options = {}) {
+    if (!isAndroidNativeRuntime()) {
+      clearAndroidModalTextFocusReleaseTimer();
+      return applyAndroidModalTextFocusState(false);
+    }
+
+    const shouldHold =
+      hasActiveAndroidModalTextFocus() ||
+      (isAndroidKeyboardOpen() && hasVisibleKeyboardAwareModal());
+    if (shouldHold) {
+      clearAndroidModalTextFocusReleaseTimer();
+      return applyAndroidModalTextFocusState(true);
+    }
+
+    if (options.delayRelease === true) {
+      clearAndroidModalTextFocusReleaseTimer();
+      androidModalTextFocusReleaseTimerId = window.setTimeout(() => {
+        androidModalTextFocusReleaseTimerId = 0;
+        syncAndroidModalTextFocusState();
+      }, ANDROID_MODAL_TEXT_FOCUS_RELEASE_DELAY_MS);
+      return document.documentElement?.classList.contains(
+        ANDROID_MODAL_TEXT_FOCUS_CLASS,
+      ) === true;
+    }
+
+    clearAndroidModalTextFocusReleaseTimer();
+    return applyAndroidModalTextFocusState(false);
+  }
+
+  function activateAndroidModalTextFocusState(target) {
+    if (!isAndroidNativeRuntime() || !isAndroidModalTextControl(target)) {
+      return false;
+    }
+    clearAndroidModalTextFocusReleaseTimer();
+    return applyAndroidModalTextFocusState(true);
+  }
+
   function markModalAutofocusRequested(modal) {
     if (!(modal instanceof HTMLElement)) {
       return false;
@@ -3973,6 +4066,9 @@
     androidModalKeyboardDismissGuardLastOpen = isAndroidKeyboardOpen();
     const handleAndroidKeyboardViewportChange = () => {
       scheduleAndroidModalKeyboardDismissedFocusSync();
+      syncAndroidModalTextFocusState({
+        delayRelease: true,
+      });
     };
     window.visualViewport?.addEventListener(
       "resize",
@@ -4003,6 +4099,7 @@
           const targetTextControl = resolveInteractiveTextControlTarget(event.target);
           const activeControl = getActiveAndroidInteractiveTextControl();
           if (targetTextControl instanceof HTMLElement) {
+            activateAndroidModalTextFocusState(targetTextControl);
             const managedFocusTarget =
               isManagedAndroidTextFocusTarget(targetTextControl);
             if (!managedFocusTarget) {
@@ -4150,6 +4247,7 @@
         if (!(focusTarget instanceof HTMLElement)) {
           return;
         }
+        activateAndroidModalTextFocusState(focusTarget);
         const focusModal = getAndroidModalAutofocusHost(focusTarget);
         if (focusModal instanceof HTMLElement) {
           const hadPendingDismiss =
@@ -4203,6 +4301,9 @@
           return;
         }
         window.setTimeout(() => {
+          syncAndroidModalTextFocusState({
+            delayRelease: true,
+          });
           if (!isFocusedInteractiveTextControl(focusTarget)) {
             clearPendingAndroidInteractiveTextFocusTransfer(focusTarget);
             clearAndroidInteractiveTextControlPendingRetries(focusTarget);
@@ -6685,6 +6786,9 @@
     syncModalBackgroundInteractivity(hasOpenModal);
     syncAppNavigationButtonFocusability(document, {
       disableFocus: hasOpenModal || hasBlockingLoadingOverlay,
+    });
+    syncAndroidModalTextFocusState({
+      delayRelease: true,
     });
     if (shouldScheduleAndroidModalAutofocusForVisibleModal(topVisibleModal)) {
       scheduleAndroidModalAutofocus();

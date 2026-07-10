@@ -8184,7 +8184,11 @@ body.page-record .record-output-surface > * {
       box-shadow 0.22s ease;
   }
 
-  body.controler-android-native.controler-keyboard-open.flex.row > div:first-of-type {
+  body.controler-android-native:is(
+      .controler-keyboard-open,
+      .controler-android-modal-text-focus-active
+    ).flex.row
+    > div:first-of-type {
     flex: 0 0 0 !important;
     height: 0 !important;
     min-height: 0 !important;
@@ -8193,7 +8197,12 @@ body.page-record .record-output-surface > * {
     overflow: hidden !important;
   }
 
-  body.controler-android-native.controler-keyboard-open.flex.row > div:first-of-type > .app-nav {
+  body.controler-android-native:is(
+      .controler-keyboard-open,
+      .controler-android-modal-text-focus-active
+    ).flex.row
+    > div:first-of-type
+    > .app-nav {
     display: none !important;
   }
 
@@ -8832,7 +8841,8 @@ body.flex.row .modal-content {
   body.controler-mobile-runtime.page-record.record-inline-editing .record-floating-timer-btn,
   body.controler-mobile-runtime.controler-keyboard-open.page-record .record-floating-timer-btn,
   body.controler-android-native.page-record.record-inline-editing .record-floating-timer-btn,
-  body.controler-android-native.controler-keyboard-open.page-record .record-floating-timer-btn {
+  body.controler-android-native.controler-keyboard-open.page-record .record-floating-timer-btn,
+  body.controler-android-native.controler-android-modal-text-focus-active.page-record .record-floating-timer-btn {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;

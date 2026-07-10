@@ -15,8 +15,29 @@ const distDir = path.join(repoRoot, "dist");
 const expectedPrefix = `Order-${semverVersion}-win-`;
 const displayPrefix = `Order-${displayVersion}-win-`;
 const latestYmlPath = path.join(distDir, "latest.yml");
-const signingCertificatePath = path.join(repoRoot, "certs", "OrderInternal.cer");
 const distSigningCertificatePath = path.join(distDir, "OrderInternal.cer");
+
+function resolveSigningCertificatePath() {
+  const configuredSigningPath =
+    process.env.WIN_CSC_LINK || process.env.CSC_LINK || "";
+  const candidates = [];
+
+  if (configuredSigningPath) {
+    const resolvedSigningPath = path.isAbsolute(configuredSigningPath)
+      ? configuredSigningPath
+      : path.resolve(repoRoot, configuredSigningPath);
+    candidates.push(
+      path.join(
+        path.dirname(resolvedSigningPath),
+        `${path.basename(resolvedSigningPath, path.extname(resolvedSigningPath))}.cer`,
+      ),
+    );
+  }
+
+  candidates.push(path.join(repoRoot, "certs", "OrderInternal.cer"));
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || "";
+}
 
 if (!(await fs.pathExists(distDir))) {
   throw new Error(`未找到 dist 目录: ${distDir}`);
@@ -64,7 +85,8 @@ if (await fs.pathExists(latestYmlPath)) {
   }
 }
 
-if (await fs.pathExists(signingCertificatePath)) {
+const signingCertificatePath = resolveSigningCertificatePath();
+if (signingCertificatePath && await fs.pathExists(signingCertificatePath)) {
   await fs.copy(signingCertificatePath, distSigningCertificatePath, { overwrite: true });
   console.log(`已复制 Windows 签名证书到 ${distSigningCertificatePath}`);
 }
