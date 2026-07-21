@@ -58,7 +58,6 @@ let planShellVisibilityBound = false;
 let planPersistChain = Promise.resolve(true);
 let planPendingPersistenceCount = 0;
 let planLastPersistenceError = null;
-let planBeforePageLeaveGuardBound = false;
 let planStorageBootstrapReady = false;
 let planStorageBootstrapPromise = null;
 let planInitialContentEnsureQueued = false;
@@ -450,19 +449,6 @@ async function flushPlanPendingPersistence() {
   return true;
 }
 
-function registerPlanBeforePageLeaveGuard() {
-  if (planBeforePageLeaveGuardBound) {
-    return;
-  }
-  planBeforePageLeaveGuardBound = true;
-  uiTools?.registerBeforePageLeave?.(async () => {
-    if (planPendingPersistenceCount <= 0 && !planLastPersistenceError) {
-      return true;
-    }
-    return flushPlanPendingPersistence();
-  });
-}
-
 function getReminderTools() {
   reminderTools = window.ControlerReminders || reminderTools || null;
   return reminderTools;
@@ -553,19 +539,23 @@ function bindPlanShellVisibilityGate() {
 
     if (planExternalStorageRefreshPendingResume) {
       planExternalStorageRefreshPendingResume = false;
-      refreshPlanFromExternalStorageChange({
+      void refreshPlanFromExternalStorageChange({
         fresh:
           window.ControlerStorage?.isNativeApp === true &&
           planInitialDataLoaded &&
           !planInitialDataLoadPromise,
+      }).catch((error) => {
+        console.error("恢复计划页数据失败:", error);
       });
     } else if (
       window.ControlerStorage?.isNativeApp === true &&
       planInitialDataLoaded &&
       !planInitialDataLoadPromise
     ) {
-      refreshPlanFromExternalStorageChange({
+      void refreshPlanFromExternalStorageChange({
         fresh: true,
+      }).catch((error) => {
+        console.error("刷新计划页数据失败:", error);
       });
     }
     if (planDeferredBootstrapPendingResume) {
@@ -2614,78 +2604,44 @@ function refreshPlanTodoSidebarFromExternalChange(detail = {}) {
   return true;
 }
 
-function refreshPlanFromExternalStorageChange(options = {}) {
+async function refreshPlanFromExternalStorageChange(options = {}) {
   if (!planShellPageActive && !isPlanShellTransitionLoading()) {
     planExternalStorageRefreshPendingResume = true;
     planExternalStorageRefreshQueued = false;
-    return;
+    return false;
   }
   planExternalStorageRefreshQueued = false;
+  if (!planInitialDataLoaded) {
+    await loadInitialPlanWorkspace({
+      fresh: options?.fresh === true,
+      manageLoading: false,
+    });
+    return true;
+  }
+
   const readOptions = options?.fresh === true ? { fresh: true } : {};
   const requestId = ++planLoadRequestId;
-  const runRefresh = async () => {
-    const shouldManageRefreshLoading = !planInitialDataLoaded;
-    if (!planRefreshController) {
-      if (shouldManageRefreshLoading) {
-        setPlanLoadingState({
-          active: true,
-          mode: getPlanLoadingMode({
-            blocking: true,
-          }),
-          delayMs: getPlanLoadingDelayMs({
-            blocking: true,
-          }),
-          message: "正在同步最新计划数据，请稍候",
-        });
-      }
-      try {
-        const snapshot = await readPlanWorkspace(readOptions);
-        if (requestId !== planLoadRequestId) {
-          return;
-        }
-        applyPlanWorkspaceState(snapshot);
-        renderPlanGuideCard();
-        renderCalendarContent();
-        planInitialDataLoaded = true;
-        planInitialDataValidated = true;
-      } finally {
-        if (shouldManageRefreshLoading && requestId === planLoadRequestId) {
-          setPlanLoadingState({
-            active: false,
-          });
-        }
-      }
+  const commit = (snapshot) => {
+    if (requestId !== planLoadRequestId) {
       return;
     }
-
-    await planRefreshController.run(() => readPlanWorkspace(readOptions), {
-      manageLoading: shouldManageRefreshLoading,
-      delayMs: getPlanLoadingDelayMs({
-        blocking: true,
-      }),
-      loadingOptions: {
-        mode: shouldManageRefreshLoading
-          ? getPlanLoadingMode({
-              blocking: true,
-            })
-          : "inline",
-        message: "正在同步最新计划数据，请稍候",
-      },
-      commit: async (snapshot) => {
-        if (requestId !== planLoadRequestId) {
-          return;
-        }
-        applyPlanWorkspaceState(snapshot);
-        renderPlanGuideCard();
-        renderCalendarContent();
-        planInitialDataLoaded = true;
-        planInitialDataValidated = true;
-      },
-    });
+    applyPlanWorkspaceState(snapshot);
+    renderPlanGuideCard();
+    renderCalendarContent();
+    planInitialDataLoaded = true;
+    planInitialDataValidated = true;
   };
-  void runRefresh().catch((error) => {
-    console.error("刷新计划页外部存储失败:", error);
+
+  if (!planRefreshController) {
+    commit(await readPlanWorkspace(readOptions));
+    return true;
+  }
+
+  await planRefreshController.run(() => readPlanWorkspace(readOptions), {
+    manageLoading: false,
+    commit,
   });
+  return true;
 }
 
 function bindPlanExternalStorageRefresh() {
@@ -2729,11 +2685,13 @@ function bindPlanExternalStorageRefresh() {
       typeof window.requestAnimationFrame === "function"
         ? window.requestAnimationFrame.bind(window)
         : (callback) => window.setTimeout(callback, 16);
-    schedule(() =>
-      refreshPlanFromExternalStorageChange({
+    schedule(() => {
+      void refreshPlanFromExternalStorageChange({
         fresh: window.ControlerStorage?.isNativeApp === true,
-      }),
-    );
+      }).catch((error) => {
+        console.error("刷新计划页外部存储失败:", error);
+      });
+    });
   });
 }
 
@@ -8150,7 +8108,9 @@ function showPlanDetailModal(plan, occurrenceDate = null) {
       );
       if (toggledLinkedSource) {
         closeDetailModal();
-        void refreshPlanFromExternalStorageChange();
+        void refreshPlanFromExternalStorageChange().catch((error) => {
+          console.error("刷新关联计划失败:", error);
+        });
         return;
       }
       void showPlanAlert(`未找到对应${linkedSourceLabel}源事项，无法同步完成状态。`, {
@@ -8261,36 +8221,18 @@ function ensurePlansLoadedForCurrentView() {
   const requestId = ++planLoadRequestId;
   const runRefresh = async () => {
     if (!planRefreshController) {
-      setPlanLoadingState({
-        active: true,
-        mode: getPlanLoadingMode({
-          blocking: true,
-        }),
-        delayMs: getPlanLoadingDelayMs({
-          blocking: true,
-        }),
-        message: "正在加载当前时间范围的计划，请稍候",
+      const snapshot = await readPlanWorkspace({
+        periodIds: neededPeriodIds,
       });
-      try {
-        const snapshot = await readPlanWorkspace({
-          periodIds: neededPeriodIds,
-        });
-        if (requestId !== planLoadRequestId) {
-          return;
-        }
-        applyPlanWorkspaceState(snapshot);
-        renderCalendarView();
-        planInitialDataLoaded = true;
-        planInitialDataValidated = true;
-      } finally {
-        if (requestId === planLoadRequestId) {
-          if (planCoverageLoadKey === coverageLoadKey) {
-            planCoverageLoadKey = "";
-          }
-          setPlanLoadingState({
-            active: false,
-          });
-        }
+      if (requestId !== planLoadRequestId) {
+        return;
+      }
+      applyPlanWorkspaceState(snapshot);
+      renderCalendarView();
+      planInitialDataLoaded = true;
+      planInitialDataValidated = true;
+      if (planCoverageLoadKey === coverageLoadKey) {
+        planCoverageLoadKey = "";
       }
       return;
     }
@@ -8301,15 +8243,7 @@ function ensurePlansLoadedForCurrentView() {
           periodIds: neededPeriodIds,
         }),
       {
-        delayMs: getPlanLoadingDelayMs({
-          blocking: true,
-        }),
-        loadingOptions: {
-          mode: getPlanLoadingMode({
-            blocking: true,
-          }),
-          message: "正在加载当前时间范围的计划，请稍候",
-        },
+        manageLoading: false,
         commit: async (snapshot) => {
           if (requestId !== planLoadRequestId) {
             return;
@@ -8718,7 +8652,9 @@ async function loadInitialPlanWorkspace(options = {}) {
 }
 
 async function hydratePlanData() {
-  return loadInitialPlanWorkspace();
+  return loadInitialPlanWorkspace({
+    manageLoading: false,
+  });
 }
 
 function scheduleDeferredPlanBootstrap() {
@@ -8747,7 +8683,9 @@ function scheduleDeferredPlanBootstrap() {
       planDeferredBootstrapPendingResume = true;
       return;
     }
-    void loadInitialPlanWorkspace();
+    void loadInitialPlanWorkspace({
+      manageLoading: false,
+    });
   };
 
   const scheduleAfterPaint = () => {
@@ -8776,6 +8714,7 @@ function scheduleDeferredPlanBootstrap() {
 
 async function init() {
   let lastCompactLayout = isCompactMobileLayout();
+  let bootstrappedFromSnapshot = false;
   const reminderRuntimeTask = ensurePlanReminderRuntimeLoaded();
   const useWidgetLaunchFastPath =
     typeof PLAN_WIDGET_CONTEXT.launchAction === "string" &&
@@ -8791,7 +8730,6 @@ async function init() {
 
     // 尺寸设置实时联动
     bindPlanShellVisibilityGate();
-    registerPlanBeforePageLeaveGuard();
     bindTableScaleLiveRefresh();
     initPlanWidgetLaunchAction();
     initGridViewButton();
@@ -8799,7 +8737,7 @@ async function init() {
     bindPlanExternalStorageRefresh();
     await reminderRuntimeTask;
     renderPlanGuideCard();
-    const bootstrappedFromSnapshot = bootstrapPlanFromCachedSnapshot();
+    bootstrappedFromSnapshot = bootstrapPlanFromCachedSnapshot();
     renderPlanShell({
       fromCache: bootstrappedFromSnapshot,
       deferCalendarMount: shouldDeferCalendarMount,
@@ -8817,18 +8755,6 @@ async function init() {
         syncPlannerPanelFromHash("auto");
       }
     });
-
-    const needsManualInitLoading =
-      !planInitialDataValidated &&
-      !planRefreshController &&
-      !bootstrappedFromSnapshot;
-    if (needsManualInitLoading) {
-      setPlanLoadingState({
-        active: true,
-        mode: getPlanLoadingMode(),
-        message: "正在读取当前计划范围，请稍候",
-      });
-    }
 
     if (
       !planInitialDataValidated &&

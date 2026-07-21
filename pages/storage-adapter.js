@@ -18,9 +18,9 @@
   const EXTERNAL_RELOAD_DELAY_MS = 120;
   const NATIVE_WRITE_DELAY_MS = 64;
   const NATIVE_PROBE_DEBOUNCE_MS = 150;
-  const NATIVE_PROBE_FAST_INTERVAL_MS = 2000;
-  const NATIVE_PROBE_STABLE_INTERVAL_MS = 6000;
-  const NATIVE_PROBE_FAST_WINDOW_MS = 30000;
+  const NATIVE_PROBE_FAST_INTERVAL_MS = 0;
+  const NATIVE_PROBE_STABLE_INTERVAL_MS = 0;
+  const NATIVE_PROBE_FAST_WINDOW_MS = 0;
   const NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS = 30000;
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
@@ -36,9 +36,8 @@
       : createRuntimeInstanceId();
   window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ = STORAGE_PAGE_INSTANCE_ID;
   const STORAGE_DEBUG_ENABLED =
-    !!window.ReactNativeWebView ||
-    window.ControlerNativeBridge?.platform === "android" ||
-    window.ControlerNativeBridge?.platform === "ios";
+    window.__CONTROLER_PERF_DEBUG__ === true ||
+    window.__CONTROLER_RN_META__?.performanceTracing === true;
   function emitStorageDebug(label, payload = {}) {
     if (!STORAGE_DEBUG_ENABLED) {
       return;
@@ -3527,8 +3526,15 @@
     }
 
     function getTrustedRecordBootstrapCurrentFingerprint() {
-      return typeof cachedStatus?.fingerprint === "string"
-        ? cachedStatus.fingerprint.trim()
+      const mirroredStatus = parseJsonSafely(
+        nativeMethods.getItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_STATUS_KEY,
+        ),
+        null,
+      );
+      return typeof mirroredStatus?.fingerprint === "string"
+        ? mirroredStatus.fingerprint.trim()
         : "";
     }
 
@@ -4758,7 +4764,10 @@
       typeof reactNativeBridge.platform === "string"
         ? reactNativeBridge.platform
         : "native";
-    const useAndroidProbeLoop = platform === "android";
+    // Android receives storage.changed after native commits and performs one
+    // lightweight check on app resume. Timed polling only creates redundant
+    // JSON reads and serialized bridge work in an offline application.
+    const useAndroidProbeLoop = false;
     const buildLegacyBrowserMetadata = (extra = {}) => ({
       storagePath: "browser://localStorage/bundle-manifest.json",
       storageDirectory: "browser://localStorage",
@@ -5839,14 +5848,9 @@
         return;
       }
       if (reactNativeBridge?.platform === "android") {
-        window.setTimeout(() => {
-          if (hasPendingStateChanges || isManagedShellInactive()) {
-            return;
-          }
-          scheduleNativeForegroundSync(reason, {
-            resetWindow: false,
-          });
-        }, 1800);
+        // Native commits emit storage.changed and app resume performs the only
+        // foreground version check. Re-reading the complete bundle after every
+        // page bootstrap causes stale work to accumulate across navigation.
         return;
       }
       scheduleNativeForegroundSync(reason, {
@@ -9491,18 +9495,6 @@
       }
       scheduleNativeProbeLoop();
     });
-    window.addEventListener("focus", () => {
-      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("focus")) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-    });
-    window.addEventListener("pageshow", () => {
-      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("pageshow")) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-    });
     window.addEventListener("controler:native-app-resume", () => {
       if (!shellPageActive) {
         queueNativeForegroundSyncOnShellResume("shell-resume");
@@ -9519,15 +9511,7 @@
       if (!shellPageActive) {
         return;
       }
-      if (
-        shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
-          "visibility-visible",
-        )
-      ) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-      scheduleNativeProbeLoop();
+      // onResume already performs the single foreground version check.
     });
     window.addEventListener("beforeunload", () => {
       window.clearTimeout(writeTimer);

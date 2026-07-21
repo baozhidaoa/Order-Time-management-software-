@@ -1298,8 +1298,6 @@ const SETTINGS_BUSY_OVERLAY_DELAY_MS = Math.max(
 );
 const AUTO_BACKUP_STATUS_CACHE_KEY = "controler.settings.autoBackupStatus";
 let settingsBusyOverlayTimer = 0;
-let settingsInitialLoadOverlayTimer = 0;
-let settingsInitialLoadOverlayVisible = false;
 let settingsStorageStatusRetryTimer = 0;
 let autoBackupCachedStatus = null;
 let autoBackupSaveTimer = 0;
@@ -1353,31 +1351,6 @@ function ensureSettingsDeferredRuntimeLoaded() {
   return settingsDeferredRuntimePromise;
 }
 
-function scheduleSettingsSlowLoadingOverlay() {
-  window.clearTimeout(settingsInitialLoadOverlayTimer);
-  settingsInitialLoadOverlayTimer = 0;
-  settingsInitialLoadOverlayVisible = true;
-  setSettingsBusyState({
-    active: true,
-    title: "正在加载设置",
-    message: "设置项较多，正在准备当前页面，请稍候。",
-    lockNativeExit: false,
-  });
-}
-
-function finishSettingsSlowLoadingOverlay() {
-  window.clearTimeout(settingsInitialLoadOverlayTimer);
-  settingsInitialLoadOverlayTimer = 0;
-  if (!settingsInitialLoadOverlayVisible) {
-    return Promise.resolve(false);
-  }
-  settingsInitialLoadOverlayVisible = false;
-  return setSettingsBusyState({
-    active: false,
-    lockNativeExit: false,
-  });
-}
-
 function queueSettingsInitialReady() {
   if (settingsInitialReadyReported) {
     return settingsInitialReadyPromise || Promise.resolve(true);
@@ -1405,7 +1378,6 @@ function queueSettingsInitialReady() {
             settingsInitialReadyReported = true;
             document.body?.classList.remove("settings-bootstrap-pending");
             document.body?.classList.add("settings-bootstrap-ready");
-            await finishSettingsSlowLoadingOverlay();
             window.ControlerUI?.markPerfStage?.("first-render-done");
             window.ControlerUI?.markNativePageReady?.();
             settingsInitialReadyPromise = null;
@@ -3694,10 +3666,11 @@ async function syncSettingsLaunchThemeState(themeId) {
 async function saveTheme(themeId) {
   try {
     writeThemeStorageValue("selectedTheme", themeId);
+    const launchThemeSync = syncSettingsLaunchThemeState(themeId);
     const didFlush = await flushThemeStorageNow({
       selectedTheme: themeId,
     });
-    await syncSettingsLaunchThemeState(themeId);
+    await launchThemeSync;
     return didFlush;
   } catch (e) {
     console.error("保存主题失败:", e);
@@ -3954,12 +3927,12 @@ function updateThemeSelector(selectedThemeId, options = {}) {
         themeId: theme.id,
         themeName: theme.name,
       });
-      await saveTheme(theme.id);
       applyTheme(theme.id, {
         source: "settings-theme-write",
         emitNative: false,
         syncLaunchTheme: false,
       });
+      await saveTheme(theme.id);
       await refreshThemeWidgets();
     });
 
@@ -10503,7 +10476,6 @@ function initSettingsLaunchAction() {
 // 初始化设置页面
 async function initSettings() {
   window.ControlerUI?.markPerfStage?.("settings-init-start");
-  scheduleSettingsSlowLoadingOverlay();
   initSettingsCollapsibleSections();
   initSettingsLaunchAction();
 

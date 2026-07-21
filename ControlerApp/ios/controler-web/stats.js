@@ -6,7 +6,6 @@ let statsLoadedRecordPeriodIds = [];
 let statsPersistChain = Promise.resolve(true);
 let statsPendingPersistenceCount = 0;
 let statsLastPersistenceError = null;
-let statsBeforePageLeaveGuardBound = false;
 const uiTools = window.ControlerUI || null;
 const projectStatsApi = window.ControlerProjectStats || null;
 const indexRecordPersistenceApi =
@@ -767,20 +766,6 @@ async function flushStatsPendingPersistence() {
     throw statsLastPersistenceError;
   }
   return true;
-}
-
-function registerStatsBeforePageLeaveGuard() {
-  if (statsBeforePageLeaveGuardBound) {
-    return;
-  }
-  statsBeforePageLeaveGuardBound = true;
-  uiTools?.registerBeforePageLeave?.(async () => {
-    if (statsPendingPersistenceCount <= 0) {
-      clearStatsPersistenceError();
-      return true;
-    }
-    return flushStatsPendingPersistence();
-  });
 }
 
 const DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX = 24;
@@ -10627,17 +10612,12 @@ async function init() {
     typeof STATS_WIDGET_CONTEXT.launchAction === "string" &&
     STATS_WIDGET_CONTEXT.launchAction.trim().length > 0;
   bindStatsShellVisibilityGate();
-  setStatsLoadingState({
-    active: true,
-    mode: useWidgetLaunchFastPath ? "inline" : "fullscreen",
-  });
   try {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
     statsInitialViewRuntimePromise =
       ensureStatsViewRuntimeLoaded(statsViewMode);
     initStatsWidgetLaunchAction();
-    registerStatsBeforePageLeaveGuard();
     if (useWidgetLaunchFastPath) {
       queueStatsToolbarReveal();
     }
@@ -10690,9 +10670,6 @@ async function init() {
     statsInitialDataLoaded = true;
     scheduleStatsInitialContentEnsure("init-complete");
   } finally {
-    await setStatsLoadingState({
-      active: false,
-    });
     scheduleStatsInitialContentEnsure("init-finally");
   }
 }

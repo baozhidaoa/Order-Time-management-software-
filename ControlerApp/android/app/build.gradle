@@ -24,7 +24,9 @@ react {
     //   The list of variants to that are debuggable. For those we're going to
     //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
+    // Android is hosted by a native WebView. Metro remains available to iOS,
+    // but no Android variant needs an index.android.bundle.
+    debuggableVariants = ["debug", "release"]
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
@@ -140,6 +142,7 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.webkit:webkit:1.14.0")
 
     debugImplementation("com.facebook.flipper:flipper:${FLIPPER_VERSION}")
     debugImplementation("com.facebook.flipper:flipper-network-plugin:${FLIPPER_VERSION}") {

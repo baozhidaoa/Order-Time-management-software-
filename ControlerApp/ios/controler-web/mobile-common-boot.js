@@ -381,6 +381,20 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
 ;/* pages/rn-bridge.js */
 (() => {
+  try {
+    if (
+      (!window.__CONTROLER_RN_META__ ||
+        typeof window.__CONTROLER_RN_META__ !== "object") &&
+      typeof window.ReactNativeWebView?.getRuntimeMeta === "function"
+    ) {
+      const runtimeMeta = JSON.parse(window.ReactNativeWebView.getRuntimeMeta());
+      if (runtimeMeta && typeof runtimeMeta === "object") {
+        window.__CONTROLER_RN_META__ = runtimeMeta;
+        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}`;
+      }
+    }
+  } catch (_error) {}
+
   const BRIDGE_EVENT_NAME = "controler:native-bridge-event";
   const LANGUAGE_EVENT_NAME = "controler:language-changed";
   const LANGUAGE_STORAGE_KEY = "appLanguage";
@@ -431,7 +445,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function shouldTrackBridgePerf(method) {
-    return String(method || "").trim().startsWith("storage.");
+    return (
+      (window.__CONTROLER_PERF_DEBUG__ === true ||
+        getRuntimeMeta().performanceTracing === true) &&
+      String(method || "").trim().startsWith("storage.")
+    );
   }
 
   function emitBridgePerfMetric(method, durationMs, detail = {}) {
@@ -810,6 +828,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return target.matches?.(ANDROID_NATIVE_KEYBOARD_TRACK_SELECTOR) === true;
   }
 
+  function isOfflineAndroidWebViewHost() {
+    return (
+      getNativeHostPlatform() === "android" &&
+      typeof window.ReactNativeWebView?.getRuntimeMeta === "function"
+    );
+  }
+
   function normalizeNativeAndroidSoftInputState(rawState) {
     const source =
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -834,6 +859,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function shouldTrackNativeAndroidKeyboardState(now = Date.now()) {
+    if (isOfflineAndroidWebViewHost()) {
+      return false;
+    }
     return (
       getNativeHostPlatform() === "android" &&
       isReactNativeApp() &&
@@ -1047,6 +1075,62 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const visualViewport = window.visualViewport;
     const rawViewportHeight = getAndroidVisibleViewportHeightCandidate();
     if (!rawViewportHeight) {
+      return;
+    }
+
+    if (isOfflineAndroidWebViewHost()) {
+      const root = document.documentElement;
+      const body = document.body;
+      const viewportWidth = Math.round(
+        visualViewport?.width || window.innerWidth || root?.clientWidth || 0,
+      );
+      const viewportOffsetTop = Math.max(
+        0,
+        Math.round(visualViewport?.offsetTop || 0),
+      );
+      const viewportOffsetLeft = Math.max(
+        0,
+        Math.round(visualViewport?.offsetLeft || 0),
+      );
+      const stableViewportHeight = Math.max(
+        Math.round(window.innerHeight || 0),
+        Math.round(root?.clientHeight || 0),
+        rawViewportHeight,
+      );
+      const keyboardInset = Math.max(
+        stableViewportHeight - viewportOffsetTop - rawViewportHeight,
+        0,
+      );
+      const keyboardVisible =
+        keyboardInset > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX;
+      root?.style.setProperty(
+        "--controler-visual-viewport-height",
+        `${rawViewportHeight}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-width",
+        `${viewportWidth}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-offset-top",
+        `${viewportOffsetTop}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-offset-left",
+        `${viewportOffsetLeft}px`,
+      );
+      root?.style.setProperty(
+        "--controler-stable-visual-viewport-height",
+        `${stableViewportHeight}px`,
+      );
+      root?.style.setProperty("--controler-keyboard-inset", `${keyboardInset}px`);
+      root?.style.setProperty(
+        "--controler-keyboard-transition-inset",
+        `${keyboardInset}px`,
+      );
+      keyboardOpen = keyboardVisible;
+      root?.classList.toggle("controler-keyboard-open", keyboardVisible);
+      body?.classList.toggle("controler-keyboard-open", keyboardVisible);
       return;
     }
 
@@ -1342,6 +1426,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : (callback) => window.setTimeout(callback, 16);
 
     runAndroidShellKeyboardViewportResync();
+    if (isOfflineAndroidWebViewHost()) {
+      return;
+    }
     schedule(() => {
       runAndroidShellKeyboardViewportResync();
       schedule(runAndroidShellKeyboardViewportResync);
@@ -3961,9 +4048,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const EXTERNAL_RELOAD_DELAY_MS = 120;
   const NATIVE_WRITE_DELAY_MS = 64;
   const NATIVE_PROBE_DEBOUNCE_MS = 150;
-  const NATIVE_PROBE_FAST_INTERVAL_MS = 2000;
-  const NATIVE_PROBE_STABLE_INTERVAL_MS = 6000;
-  const NATIVE_PROBE_FAST_WINDOW_MS = 30000;
+  const NATIVE_PROBE_FAST_INTERVAL_MS = 0;
+  const NATIVE_PROBE_STABLE_INTERVAL_MS = 0;
+  const NATIVE_PROBE_FAST_WINDOW_MS = 0;
   const NATIVE_PROBE_FALLBACK_HASH_INTERVAL_MS = 30000;
   const NATIVE_BOOTSTRAP_SYNC_GRACE_MS = 4000;
   const NATIVE_LOCAL_WRITE_ERROR_SUPPRESS_MS = 5000;
@@ -3979,9 +4066,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       : createRuntimeInstanceId();
   window.__CONTROLER_STORAGE_PAGE_INSTANCE_ID__ = STORAGE_PAGE_INSTANCE_ID;
   const STORAGE_DEBUG_ENABLED =
-    !!window.ReactNativeWebView ||
-    window.ControlerNativeBridge?.platform === "android" ||
-    window.ControlerNativeBridge?.platform === "ios";
+    window.__CONTROLER_PERF_DEBUG__ === true ||
+    window.__CONTROLER_RN_META__?.performanceTracing === true;
   function emitStorageDebug(label, payload = {}) {
     if (!STORAGE_DEBUG_ENABLED) {
       return;
@@ -7470,8 +7556,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function getTrustedRecordBootstrapCurrentFingerprint() {
-      return typeof cachedStatus?.fingerprint === "string"
-        ? cachedStatus.fingerprint.trim()
+      const mirroredStatus = parseJsonSafely(
+        nativeMethods.getItem?.call(
+          window.localStorage,
+          MOBILE_MIRROR_STATUS_KEY,
+        ),
+        null,
+      );
+      return typeof mirroredStatus?.fingerprint === "string"
+        ? mirroredStatus.fingerprint.trim()
         : "";
     }
 
@@ -8701,7 +8794,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof reactNativeBridge.platform === "string"
         ? reactNativeBridge.platform
         : "native";
-    const useAndroidProbeLoop = platform === "android";
+    // Android receives storage.changed after native commits and performs one
+    // lightweight check on app resume. Timed polling only creates redundant
+    // JSON reads and serialized bridge work in an offline application.
+    const useAndroidProbeLoop = false;
     const buildLegacyBrowserMetadata = (extra = {}) => ({
       storagePath: "browser://localStorage/bundle-manifest.json",
       storageDirectory: "browser://localStorage",
@@ -9782,14 +9878,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
       if (reactNativeBridge?.platform === "android") {
-        window.setTimeout(() => {
-          if (hasPendingStateChanges || isManagedShellInactive()) {
-            return;
-          }
-          scheduleNativeForegroundSync(reason, {
-            resetWindow: false,
-          });
-        }, 1800);
+        // Native commits emit storage.changed and app resume performs the only
+        // foreground version check. Re-reading the complete bundle after every
+        // page bootstrap causes stale work to accumulate across navigation.
         return;
       }
       scheduleNativeForegroundSync(reason, {
@@ -13434,18 +13525,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       scheduleNativeProbeLoop();
     });
-    window.addEventListener("focus", () => {
-      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("focus")) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-    });
-    window.addEventListener("pageshow", () => {
-      if (shouldIgnoreManagedAndroidWindowForegroundSyncTrigger("pageshow")) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-    });
     window.addEventListener("controler:native-app-resume", () => {
       if (!shellPageActive) {
         queueNativeForegroundSyncOnShellResume("shell-resume");
@@ -13462,15 +13541,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!shellPageActive) {
         return;
       }
-      if (
-        shouldIgnoreManagedAndroidWindowForegroundSyncTrigger(
-          "visibility-visible",
-        )
-      ) {
-        return;
-      }
-      scheduleNativeForegroundSync("external-update");
-      scheduleNativeProbeLoop();
+      // onResume already performs the single foreground version check.
     });
     window.addEventListener("beforeunload", () => {
       window.clearTimeout(writeTimer);
@@ -18957,7 +19028,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const MODAL_ACTION_DEDUP_WINDOW_MS = 280;
   const MODAL_REMOVAL_DEFERRED_DELAY_MS = 24;
   const MODAL_CLOSE_VISUAL_DURATION_MS = 176;
-  const ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS = 216;
   const BLOCKING_MUTATION_FULLSCREEN_OVERLAY_DELAY_MS = 1200;
   const BLOCKING_MUTATION_INLINE_OVERLAY_DELAY_MS = 180;
   const ANDROID_MODAL_DISMISS_FREEZE_RELEASE_DELAY_MS = 36;
@@ -19360,7 +19430,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let desktopBootstrapPrewarmGeneration = 0;
   let lastReportedAppNavigationStateSignature = "";
   let lastShellVisibilityStateSignature = "";
-  let beforePageLeaveGuardCounter = 0;
   let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
   let androidInteractiveTextAssistInitialized = false;
@@ -19382,7 +19451,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const modalInteractionIntentTimestamps = new WeakMap();
   const ANDROID_SOFT_INPUT_REQUEST_DEDUP_WINDOW_MS = 320;
   const ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS = 420;
-  const ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS = 120;
   const ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS = 960;
   const ANDROID_MODAL_KEYBOARD_DISMISS_SYNC_DELAYS_MS = [0, 48, 120, 220, 360];
   const activeAndroidPressTargets = new Map();
@@ -19714,7 +19782,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       resetAndroidModalAutofocusState(modal);
     });
   }
-  const beforePageLeaveGuards = new Map();
   const pendingAssetLoads = new Map();
   let appPageLeaveOverlayElement = null;
   let appPageLeaveOverlayVisible = false;
@@ -19788,21 +19855,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return tail.replace(/\.html$/i, "") || "unknown";
   }
 
-  function shouldPrintPagePerfStage(stage) {
-    return new Set([
-      "navigation-click",
-      "target-visible",
-      "html-parsed",
-      "shell-ready",
-      "first-data-ready",
-      "first-data-commit",
-      "first-render-done",
-      "page-ready-emitted",
-      "desktop-bootstrap-prewarm-start",
-      "desktop-bootstrap-prewarm-done",
-    ]).has(String(stage || "").trim());
-  }
-
   function markPagePerfStage(stage, detail = {}) {
     const normalizedStage = String(stage || "").trim();
     if (!normalizedStage) {
@@ -19830,18 +19882,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ...detail,
     };
 
-    if (window.ControlerNativeBridge?.emitEvent) {
+    const perfDebugEnabled =
+      window.__CONTROLER_PERF_DEBUG__ === true ||
+      window.__CONTROLER_RN_META__?.performanceTracing === true;
+    if (
+      window.ControlerNativeBridge?.emitEvent &&
+      (perfDebugEnabled || normalizedStage === "page-ready-emitted")
+    ) {
       window.ControlerNativeBridge.emitEvent("perf.metric", payload);
     }
 
-    if (window.__CONTROLER_PERF_DEBUG__ === true) {
+    if (perfDebugEnabled) {
       console.debug("[controler-perf]", payload);
-    } else if (shouldPrintPagePerfStage(normalizedStage)) {
-      try {
-        console.info("[controler-perf]", JSON.stringify(payload));
-      } catch (_error) {
-        console.info("[controler-perf]", payload);
-      }
     }
   }
 
@@ -20237,24 +20289,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.clearTimeout(nativeNavigationRetryTimerId);
       nativeNavigationRetryTimerId = 0;
     }
-  }
-
-  function waitForAndroidNavigationReleasePaint() {
-    if (!isAndroidNativeRuntime()) {
-      return Promise.resolve(false);
-    }
-
-    return new Promise((resolve) => {
-      const scheduleFrame =
-        typeof window.requestAnimationFrame === "function"
-          ? window.requestAnimationFrame.bind(window)
-          : (callback) => window.setTimeout(callback, 16);
-      scheduleFrame(() => {
-        scheduleFrame(() => {
-          resolve(true);
-        });
-      });
-    });
   }
 
   function clearDeferredAppNavigationReplayTimer() {
@@ -22152,7 +22186,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return isAndroidModalAutofocusHostEligible(hostModal);
   }
 
-  function requestAndroidSoftInputForFocusedTarget(target, options = {}) {
+  function requestAndroidSoftInputForFocusedTarget(target) {
     if (
       !isAndroidNativeRuntime() ||
       shouldSuppressAndroidInteractiveTextFocus() ||
@@ -22185,67 +22219,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return false;
     }
     lastAndroidSoftInputRequestAt = now;
-    const requestIssuedAt = now;
-    const requestMode = options?.mode === "restart" ? "restart" : "show";
-    const requestToken = `controler-soft-input-${now}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-    target.__controlerAndroidSoftInputRequestToken = requestToken;
-    target.__controlerAndroidSoftInputRequestIssuedAt = requestIssuedAt;
+    target.__controlerAndroidSoftInputRequestIssuedAt = now;
     target.__controlerAndroidSoftInputRequestPendingUntil =
       now + ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS;
-    const restoreFocusIfNeeded = () => {
-      if (
-        target.__controlerAndroidSoftInputRequestToken !== requestToken ||
-        Number(target.__controlerAndroidSoftInputDismissedAt || 0) >
-          requestIssuedAt ||
-        isAndroidKeyboardOpen() ||
-        !shouldAllowAndroidModalAutofocus(target) ||
-        !shouldRestoreAndroidInteractiveTextControlFocus(target) ||
-        isFocusedInteractiveTextControl(target)
-      ) {
-        return;
-      }
-      try {
-        target.focus({
-          preventScroll: true,
-        });
-      } catch (error) {
-        target.focus?.();
-      }
-    };
-    const requestBridgeSoftInput = (methodName, allowFallback = false) =>
-      window.ControlerNativeBridge
-        .call(methodName)
-        .then((result) => ({
-          method: methodName,
-          result,
-        }))
-        .catch((error) => {
-          if (!allowFallback) {
-            throw error;
-          }
-          return window.ControlerNativeBridge.call("ui.showSoftInput").then((result) => ({
-            method: "ui.showSoftInput",
-            result,
-          }));
-        });
-    const primaryMethodName =
-      requestMode === "restart" ? "ui.restartSoftInput" : "ui.showSoftInput";
-    const allowFallback = requestMode === "restart";
-    void requestBridgeSoftInput(primaryMethodName, allowFallback)
-      .then(() => undefined)
-      .catch(() => undefined)
-      .finally(() => {
-        if (target.__controlerAndroidSoftInputRequestToken !== requestToken) {
-          return;
-        }
-        target.__controlerAndroidSoftInputRequestPendingUntil = Math.max(
-          Number(target.__controlerAndroidSoftInputRequestPendingUntil || 0),
-          Date.now() + ANDROID_SOFT_INPUT_REQUEST_POST_SETTLE_WINDOW_MS,
-        );
-        window.setTimeout(restoreFocusIfNeeded, 96);
-      });
+    void window.ControlerNativeBridge.call("ui.showSoftInput").catch(() => undefined);
     return true;
   }
 
@@ -22257,36 +22234,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     target.__controlerAndroidSoftInputRequestIssuedAt = 0;
     target.__controlerAndroidSoftInputRequestPendingUntil = 0;
     return true;
-  }
-
-  function shouldRestoreAndroidInteractiveTextControlFocus(target) {
-    if (
-      !(target instanceof HTMLElement) ||
-      !target.isConnected ||
-      !isVisibleInteractiveTextControl(target)
-    ) {
-      return false;
-    }
-    const activeElement = document.activeElement;
-    if (
-      !(activeElement instanceof HTMLElement) ||
-      activeElement === document.body ||
-      activeElement === document.documentElement
-    ) {
-      return true;
-    }
-    const activeInteractiveTarget =
-      resolveInteractiveTextControlTarget(activeElement) ||
-      (isAndroidInteractiveTextControlCandidate(activeElement)
-        ? activeElement
-        : null);
-    if (
-      activeInteractiveTarget instanceof HTMLElement &&
-      activeInteractiveTarget !== target
-    ) {
-      return false;
-    }
-    return !activeElement.closest?.(".app-nav");
   }
 
   function focusAndroidInteractiveTextControl(target, options = {}) {
@@ -23279,7 +23226,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isAndroidReactNativeNavigationRuntime() {
-    return getNativeHostPlatform() === "android";
+    return (
+      getNativeHostPlatform() === "android" &&
+      window.__CONTROLER_RN_META__?.runtime === "react-native"
+    );
   }
 
   function clearAndroidAppNavigationTransientState(root = document) {
@@ -23611,7 +23561,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isReactNativeNavigationRuntime() {
-    if (getNativeHostPlatform()) {
+    const platform = getNativeHostPlatform();
+    if (platform === "android") {
+      return isAndroidReactNativeNavigationRuntime();
+    }
+    if (platform === "ios") {
       return true;
     }
     return (
@@ -24276,92 +24230,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     appPageLeaveOverlayVisible = false;
   }
 
-  function registerBeforePageLeave(handler, options = {}) {
-    if (typeof handler !== "function") {
-      return () => {};
-    }
-    const guardId = `guard_${Date.now()}_${(beforePageLeaveGuardCounter += 1)}`;
-    beforePageLeaveGuards.set(guardId, {
-      handler,
-      options:
-        options && typeof options === "object" && !Array.isArray(options)
-          ? { ...options }
-          : {},
-    });
-    return () => {
-      beforePageLeaveGuards.delete(guardId);
-    };
-  }
-
-  async function runBeforePageLeaveGuards(context = {}) {
-    if (!beforePageLeaveGuards.size) {
-      return true;
-    }
-
-    const guardEntries = Array.from(beforePageLeaveGuards.values()).map((entry) =>
-      typeof entry === "function"
-        ? {
-            handler: entry,
-            options: {},
-          }
-        : {
-            handler: entry?.handler,
-            options:
-              entry?.options && typeof entry.options === "object"
-                ? entry.options
-                : {},
-          },
-    );
-    if (appPageLeaveOverlayVisible) {
-      setAppPageLeaveOverlayState({
-        active: false,
-      });
-    }
-
-    let failure = null;
-    let slowMessageTimerId = 0;
-    try {
-      for (const entry of guardEntries) {
-        if (typeof entry?.handler !== "function") {
-          continue;
-        }
-        const guardResult = await entry.handler(context);
-        if (guardResult === false) {
-          throw new Error("当前页面的数据还没有准备好，暂时无法切换页面。");
-        }
-      }
-    } catch (error) {
-      failure =
-        error instanceof Error
-          ? error
-          : new Error("当前页面的数据保存失败，未切换页面。");
-      console.error("页面切换前执行保存守卫失败:", failure);
-    } finally {
-      if (slowMessageTimerId) {
-        window.clearTimeout(slowMessageTimerId);
-      }
-    }
-
-    if (!failure) {
-      return true;
-    }
-
-    setAppPageLeaveOverlayState({
-      active: false,
-    });
-
-    await alertDialog({
-      title: "保存失败，未切换页面",
-      message:
-        typeof failure.message === "string" && failure.message.trim()
-          ? failure.message.trim()
-          : "当前页面的数据保存失败，未切换页面。",
-      confirmText: "知道了",
-      danger: true,
-    }).catch(() => {});
-    return false;
-  }
-
   function performAppNavigation(targetHref, options = {}) {
     const normalizedHref = normalizeAppNavigationHref(targetHref);
     if (!normalizedHref) {
@@ -24465,8 +24333,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
     const androidReactNativeNavigationRuntime =
       nativeNavigationRuntime && isAndroidReactNativeNavigationRuntime();
-    const androidWebTransitionRuntime =
-      !nativeNavigationRuntime && isAndroidNativeRuntime();
     const navigationRequest = createDeferredAppNavigationRequest(
       targetItem,
       options,
@@ -24507,10 +24373,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       stashDeferredAppNavigationRequest(targetItem, options);
       return true;
     }
-    if (androidWebTransitionRuntime && appPageTransitionLocked) {
-      stashDeferredAppNavigationRequest(targetItem, options);
-      return true;
-    }
     if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
       if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
         return true;
@@ -24518,89 +24380,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       syncAndroidReactNativeAppNavLock();
     }
 
-    appPageLeavePreflightLocked = true;
-    void (async () => {
-      let shouldUnlock = true;
-      try {
-        await waitForAndroidNavigationReleasePaint();
-        appPageTransitionLocked = true;
-        const canLeave = await runBeforePageLeaveGuards({
-          fromPage: currentItem?.key || "",
-          toPage: targetItem.key,
-          targetHref,
-        });
-        if (!canLeave) {
-          syncAndroidReactNativeAppNavLock();
-          resetAppPageTransitionRuntimeState();
-          return;
-        }
-
-        const resolvedNavigationRequest =
-          takeDeferredAppNavigationRequest(navigationRequest) ||
-          navigationRequest;
-        const finalTargetItem = resolvedNavigationRequest.targetItem;
-        const finalTargetHref = resolvedNavigationRequest.targetHref;
-        const finalNavigationOptions = resolvedNavigationRequest.options || {};
-        if (
-          currentItem?.key === finalTargetItem.key &&
-          currentHref === finalTargetHref
-        ) {
-          resetAppPageTransitionRuntimeState();
-          return;
-        }
-
-        if (nativeNavigationRuntime) {
-          resetAppPageTransitionRuntimeState({
-            hideOverlay: false,
-          });
-          appPageTransitionLocked = true;
-          appPageLeavePreflightLocked = true;
-          if (androidReactNativeNavigationRuntime) {
-            setAndroidReactNativeAppNavLocked(true);
-          }
-          const dispatched = dispatchNativeAppNavigationRequest(
-            {
-              ...resolvedNavigationRequest,
-              targetItem: finalTargetItem,
-              targetHref: finalTargetHref,
-              options: finalNavigationOptions,
-            },
-            currentItem,
-          );
-          if (!dispatched) {
-            syncAndroidReactNativeAppNavLock();
-            shouldUnlock = false;
-            performAppNavigation(finalTargetHref, finalNavigationOptions);
-            return;
-          }
-          shouldUnlock = false;
-          return;
-        }
-
-        resetAppPageTransitionRuntimeState({
-          hideOverlay: false,
-        });
-        appPageTransitionLocked = true;
-        appPageLeavePreflightLocked = true;
-        shouldUnlock = false;
-        persistDesktopAppPageTransitionState(
-          currentItem,
-          finalTargetItem,
-          finalTargetHref,
-        );
-        performAppNavigation(finalTargetHref, finalNavigationOptions);
-      } catch (error) {
-        console.error("执行页面切换失败:", error);
-        syncAndroidReactNativeAppNavLock();
-        resetAppPageTransitionRuntimeState();
-      } finally {
-        if (shouldUnlock) {
-          syncAndroidReactNativeAppNavLock();
-          resetAppPageTransitionRuntimeState();
-        }
+    if (nativeNavigationRuntime) {
+      resetAppPageTransitionRuntimeState({
+        hideOverlay: false,
+      });
+      appPageTransitionLocked = true;
+      appPageLeavePreflightLocked = true;
+      if (androidReactNativeNavigationRuntime) {
+        setAndroidReactNativeAppNavLocked(true);
       }
-    })();
-    return true;
+      if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
+        return true;
+      }
+      syncAndroidReactNativeAppNavLock();
+    }
+
+    resetAppPageTransitionRuntimeState({
+      hideOverlay: false,
+    });
+    appPageTransitionLocked = true;
+    appPageLeavePreflightLocked = true;
+    if (!isAndroidNativeRuntime()) {
+      persistDesktopAppPageTransitionState(currentItem, targetItem, targetHref);
+    }
+    return performAppNavigation(targetHref, navigationRequest.options);
   }
 
   function navigateAppPage(pageKey) {
@@ -25292,7 +25095,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     cancelAndroidInteractiveTextFocusWork(overlay);
-    freezeAndroidModalDismissLayout(overlay);
     protectModalFromFollowThrough(overlay, closeProtectionDuration);
     protectVisibleParentModalsFromFollowThrough(
       overlay,
@@ -25559,9 +25361,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function shouldUseKeyboardAwareModalOverlay(modal) {
     const overlay = resolveModalOverlayElement(modal);
     if (!(overlay instanceof HTMLElement)) {
-      return false;
-    }
-    if (overlay.classList.contains("controler-themed-picker-overlay")) {
       return false;
     }
     return !!overlay.querySelector?.(ANDROID_INTERACTIVE_TEXT_CONTROL_SELECTOR);
@@ -26137,12 +25936,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         }
         closeModal(topModal);
       });
-
-      if (isAndroidNativeRuntime()) {
-        scheduleModalHistorySync();
-        scheduleBlockingOverlaySync();
-        return;
-      }
 
       let edgeSwipeState = {
         tracking: false,
@@ -28169,10 +27962,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
   function resolveModalCloseVisualDuration(
     modal,
-    fallbackDuration = isAndroidNativeRuntime()
-      ? ANDROID_MODAL_CLOSE_VISUAL_DURATION_MS
-      : MODAL_CLOSE_VISUAL_DURATION_MS,
+    fallbackDuration = MODAL_CLOSE_VISUAL_DURATION_MS,
   ) {
+    if (isAndroidNativeRuntime()) {
+      return 0;
+    }
     return resolveModalInteractionProtectionDuration(
       modal,
       fallbackDuration,
@@ -28560,7 +28354,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const closeVisualDuration = resolveModalCloseVisualDuration(modal);
     if (modal instanceof HTMLElement) {
       cancelAndroidInteractiveTextFocusWork(modal);
-      freezeAndroidModalDismissLayout(modal);
       clearModalEdgeSwipeCleanupTimer(modal);
       const cleanupKeyboardShortcuts =
         modal.__controlerModalKeyboardShortcutsCleanup;
@@ -28626,6 +28419,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
       scheduleModalHistorySync();
     };
+    if (closeVisualDuration <= 0) {
+      removeModalElement();
+      return;
+    }
     const schedule =
       typeof window !== "undefined" &&
       typeof window.requestAnimationFrame === "function"
@@ -29033,7 +28830,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       ) {
         return;
       }
-      queueReveal(target, [0, 72]);
+      queueReveal(target, [0]);
     };
     const handleViewportChange = () => {
       if (!modal.isConnected) {
@@ -29052,7 +28849,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("orientationchange", handleViewportChange);
       window.visualViewport?.removeEventListener("resize", handleViewportChange);
-      window.visualViewport?.removeEventListener("scroll", handleViewportChange);
       if (options?.preserveLatchedLayout !== true) {
         clearManagedModalFieldRevealState(modal);
       }
@@ -29066,7 +28862,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     window.addEventListener("resize", handleViewportChange);
     window.addEventListener("orientationchange", handleViewportChange);
     window.visualViewport?.addEventListener("resize", handleViewportChange);
-    window.visualViewport?.addEventListener("scroll", handleViewportChange);
     scheduleActiveReveal();
     return cleanup;
   }
@@ -29210,7 +29005,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ".controler-form-modal-footer",
     ".controler-form-modal-footer-actions",
     ".themed-dialog-actions",
-    ".controler-themed-picker-actions",
     ".plan-detail-modal-actions",
     ".settings-theme-editor-modal-footer",
     ".modal-buttons",
@@ -30651,7 +30445,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     menu.style.touchAction = "pan-y";
     menu.style.overscrollBehavior = "contain";
     menu.style.webkitOverflowScrolling = "touch";
-    const menuGestureGuard = bindScrollableSelectionGestureGuard(menu);
 
     const collectOptionLabels = () =>
       Array.from(select.querySelectorAll("option")).map((optionNode) =>
@@ -30819,11 +30612,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       if (!(optionNode instanceof HTMLOptionElement) || optionNode.disabled) {
         return;
       }
-      if (menuGestureGuard.shouldSuppressSelection()) {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        return;
-      }
       event?.preventDefault?.();
       event?.stopPropagation?.();
       select.value = optionNode.value;
@@ -30953,542 +30741,16 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     select.__uiEnhancedSelectApi?.refresh?.();
   }
 
-  const MANAGED_NATIVE_PICKER_INPUT_SELECTOR = "input.themed-native-picker-input";
+  const NATIVE_PICKER_INPUT_SELECTOR = "input.themed-native-picker-input";
   const CONTROLER_TIME_TEXT_INPUT_SELECTOR =
     "input.controler-time-text-input";
-  const MANAGED_NATIVE_PICKER_TYPES = new Set([
-    "date",
-    "time",
-    "datetime-local",
-  ]);
-  const MANAGED_NATIVE_PICKER_WEEKDAY_LABELS = [
-    "周一",
-    "周二",
-    "周三",
-    "周四",
-    "周五",
-    "周六",
-    "周日",
-  ];
-  const MANAGED_NATIVE_PICKER_MONTH_LABELS = Array.from(
-    { length: 12 },
-    (_, index) => `${index + 1}月`,
-  );
-  const MANAGED_NATIVE_PICKER_DEFAULT_Z_INDEX = 4600;
-  const MANAGED_NATIVE_PICKER_DEFAULT_YEAR_RANGE = Object.freeze({
-    min: 1970,
-    max: 2100,
-  });
-  let managedNativePickerObserver = null;
-  let managedNativePickerInitBound = false;
+  const NATIVE_PICKER_TYPES = new Set(["date", "time", "datetime-local"]);
+  let nativePickerObserver = null;
+  let nativePickerInitBound = false;
 
-  function shouldUseManagedNativePickerRuntime() {
-    return typeof document !== "undefined";
-  }
-
-  function resolveManagedNativePickerHostModal(input) {
-    return input instanceof HTMLElement ? resolveOwningModalOverlay(input) : null;
-  }
-
-  function shouldUseManagedNativePickerInlinePanel(
-    input,
-    normalizedInputType = "",
-  ) {
-    return (
-      normalizedInputType === "time" &&
-      resolveManagedNativePickerHostModal(input) instanceof HTMLElement
-    );
-  }
-
-  function shouldUseManagedNativePickerAnchoredPanel(
-    input,
-    normalizedInputType = "",
-  ) {
-    if (shouldUseManagedNativePickerInlinePanel(input, normalizedInputType)) {
-      return true;
-    }
-    return !getNativeHostPlatform();
-  }
-
-  function padManagedNativePickerNumber(value) {
+  function padNativePickerNumber(value) {
     return String(Math.max(0, Number.parseInt(value, 10) || 0)).padStart(2, "0");
   }
-
-  function getManagedNativePickerDateOnly(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return null;
-    }
-    return new Date(
-      dateValue.getFullYear(),
-      dateValue.getMonth(),
-      dateValue.getDate(),
-    );
-  }
-
-  function getManagedNativePickerMonthStart(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return null;
-    }
-    return new Date(dateValue.getFullYear(), dateValue.getMonth(), 1);
-  }
-
-  function parseManagedNativePickerDateValue(value) {
-    const normalizedValue = String(value || "").trim();
-    const match = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) {
-      return null;
-    }
-    const year = Number.parseInt(match[1], 10);
-    const monthIndex = Number.parseInt(match[2], 10) - 1;
-    const day = Number.parseInt(match[3], 10);
-    const parsedDate = new Date(year, monthIndex, day);
-    if (
-      Number.isNaN(parsedDate.getTime()) ||
-      parsedDate.getFullYear() !== year ||
-      parsedDate.getMonth() !== monthIndex ||
-      parsedDate.getDate() !== day
-    ) {
-      return null;
-    }
-    return parsedDate;
-  }
-
-  function parseManagedNativePickerTimeValue(value) {
-    const normalizedValue = String(value || "").trim();
-    const match = normalizedValue.match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (!match) {
-      return null;
-    }
-    const hours = Number.parseInt(match[1], 10);
-    const minutes = Number.parseInt(match[2], 10);
-    if (
-      !Number.isFinite(hours) ||
-      !Number.isFinite(minutes) ||
-      hours < 0 ||
-      hours > 23 ||
-      minutes < 0 ||
-      minutes > 59
-    ) {
-      return null;
-    }
-    return {
-      hours,
-      minutes,
-    };
-  }
-
-  function parseManagedNativePickerDateTimeLocalValue(value) {
-    const normalizedValue = String(value || "").trim();
-    const match = normalizedValue.match(
-      /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/,
-    );
-    if (!match) {
-      return null;
-    }
-    const year = Number.parseInt(match[1], 10);
-    const monthIndex = Number.parseInt(match[2], 10) - 1;
-    const day = Number.parseInt(match[3], 10);
-    const hours = Number.parseInt(match[4], 10);
-    const minutes = Number.parseInt(match[5], 10);
-    const parsedDate = new Date(year, monthIndex, day, hours, minutes, 0, 0);
-    if (
-      Number.isNaN(parsedDate.getTime()) ||
-      parsedDate.getFullYear() !== year ||
-      parsedDate.getMonth() !== monthIndex ||
-      parsedDate.getDate() !== day ||
-      parsedDate.getHours() !== hours ||
-      parsedDate.getMinutes() !== minutes
-    ) {
-      return null;
-    }
-    return parsedDate;
-  }
-
-  function formatManagedNativePickerDateValue(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return "";
-    }
-    return [
-      String(dateValue.getFullYear()).padStart(4, "0"),
-      padManagedNativePickerNumber(dateValue.getMonth() + 1),
-      padManagedNativePickerNumber(dateValue.getDate()),
-    ].join("-");
-  }
-
-  function formatManagedNativePickerTimeValue(hours, minutes) {
-    return `${padManagedNativePickerNumber(hours)}:${padManagedNativePickerNumber(
-      minutes,
-    )}`;
-  }
-
-  function formatManagedNativePickerDateTimeLocalValue(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return "";
-    }
-    return `${formatManagedNativePickerDateValue(dateValue)}T${formatManagedNativePickerTimeValue(
-      dateValue.getHours(),
-      dateValue.getMinutes(),
-    )}`;
-  }
-
-  function formatManagedNativePickerDisplayDate(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return "未设置";
-    }
-    const weekdayIndex = (dateValue.getDay() + 6) % 7;
-    return `${dateValue.getFullYear()}年${dateValue.getMonth() + 1}月${dateValue.getDate()}日 ${MANAGED_NATIVE_PICKER_WEEKDAY_LABELS[weekdayIndex] || ""}`.trim();
-  }
-
-  function formatManagedNativePickerDisplayDateTime(dateValue) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return "未设置";
-    }
-    return `${formatManagedNativePickerDisplayDate(dateValue)} ${formatManagedNativePickerTimeValue(
-      dateValue.getHours(),
-      dateValue.getMinutes(),
-    )}`;
-  }
-
-  function compareManagedNativePickerDateOnly(leftDate, rightDate) {
-    const normalizedLeft = getManagedNativePickerDateOnly(leftDate);
-    const normalizedRight = getManagedNativePickerDateOnly(rightDate);
-    if (!normalizedLeft && !normalizedRight) {
-      return 0;
-    }
-    if (!normalizedLeft) {
-      return -1;
-    }
-    if (!normalizedRight) {
-      return 1;
-    }
-    return normalizedLeft.getTime() - normalizedRight.getTime();
-  }
-
-  function areManagedNativePickerDatesEqual(leftDate, rightDate) {
-    return compareManagedNativePickerDateOnly(leftDate, rightDate) === 0;
-  }
-
-  function areManagedNativePickerMonthsEqual(leftDate, rightDate) {
-    return !!(
-      leftDate instanceof Date &&
-      rightDate instanceof Date &&
-      !Number.isNaN(leftDate.getTime()) &&
-      !Number.isNaN(rightDate.getTime()) &&
-      leftDate.getFullYear() === rightDate.getFullYear() &&
-      leftDate.getMonth() === rightDate.getMonth()
-    );
-  }
-
-  function clampManagedNativePickerDateOnly(dateValue, minDate, maxDate) {
-    const normalizedDate = getManagedNativePickerDateOnly(dateValue);
-    if (!(normalizedDate instanceof Date)) {
-      return null;
-    }
-    const normalizedMin = getManagedNativePickerDateOnly(minDate);
-    const normalizedMax = getManagedNativePickerDateOnly(maxDate);
-    if (
-      normalizedMin instanceof Date &&
-      normalizedDate.getTime() < normalizedMin.getTime()
-    ) {
-      return new Date(normalizedMin.getTime());
-    }
-    if (
-      normalizedMax instanceof Date &&
-      normalizedDate.getTime() > normalizedMax.getTime()
-    ) {
-      return new Date(normalizedMax.getTime());
-    }
-    return normalizedDate;
-  }
-
-  function clampManagedNativePickerDateTime(dateValue, minDate, maxDate) {
-    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-      return null;
-    }
-    const normalizedDate = new Date(dateValue.getTime());
-    const normalizedMin =
-      minDate instanceof Date && !Number.isNaN(minDate.getTime())
-        ? minDate.getTime()
-        : null;
-    const normalizedMax =
-      maxDate instanceof Date && !Number.isNaN(maxDate.getTime())
-        ? maxDate.getTime()
-        : null;
-    if (normalizedMin !== null && normalizedDate.getTime() < normalizedMin) {
-      return new Date(normalizedMin);
-    }
-    if (normalizedMax !== null && normalizedDate.getTime() > normalizedMax) {
-      return new Date(normalizedMax);
-    }
-    return normalizedDate;
-  }
-
-  function resolveManagedNativePickerLabelText(input) {
-    if (!(input instanceof HTMLElement)) {
-      return "";
-    }
-
-    const extractText = (element) => {
-      if (!(element instanceof HTMLElement)) {
-        return "";
-      }
-      const clone = element.cloneNode(true);
-      clone
-        .querySelectorAll("input, select, textarea, button, .native-select-enhancer")
-        .forEach((node) => {
-          node.remove();
-        });
-      return clone.textContent.replace(/\s+/g, " ").trim();
-    };
-
-    const explicitLabel =
-      String(input.dataset.pickerLabel || input.getAttribute("aria-label") || "")
-        .replace(/\s+/g, " ")
-        .trim();
-    if (explicitLabel) {
-      return explicitLabel;
-    }
-
-    if (input.id) {
-      const escapedId =
-        typeof window.CSS?.escape === "function"
-          ? window.CSS.escape(input.id)
-          : String(input.id).replace(/["\\]/g, "\\$&");
-      const linkedLabel = document.querySelector(`label[for="${escapedId}"]`);
-      const linkedLabelText = extractText(linkedLabel);
-      if (linkedLabelText) {
-        return linkedLabelText;
-      }
-    }
-
-    const wrappingLabelText = extractText(input.closest("label"));
-    if (wrappingLabelText) {
-      return wrappingLabelText;
-    }
-
-    const fieldContainer = input.closest(".modal-date-field, .stats-date-field");
-    if (fieldContainer instanceof HTMLElement) {
-      const fieldLabelText = extractText(
-        fieldContainer.querySelector("label, span, strong"),
-      );
-      if (fieldLabelText) {
-        return fieldLabelText;
-      }
-    }
-
-    const previousLabelText = extractText(
-      input.previousElementSibling instanceof HTMLElement
-        ? input.previousElementSibling
-        : null,
-    );
-    if (previousLabelText) {
-      return previousLabelText;
-    }
-
-    return "";
-  }
-
-  function resolveManagedNativePickerDialogTitle(input, inputType) {
-    const explicitTitle = String(input?.dataset?.pickerTitle || "").trim();
-    if (explicitTitle) {
-      return explicitTitle;
-    }
-    const labelText = resolveManagedNativePickerLabelText(input);
-    if (labelText) {
-      return `选择${labelText}`;
-    }
-    if (inputType === "time") {
-      return "选择时间";
-    }
-    if (inputType === "datetime-local") {
-      return "选择日期和时间";
-    }
-    return "选择日期";
-  }
-
-  function resolveManagedNativePickerMinuteStep(input) {
-    const rawStep = Number(input?.dataset?.pickerMinuteStep || input?.step || 60);
-    if (!Number.isFinite(rawStep) || rawStep <= 0) {
-      return 1;
-    }
-    const computedStep = Math.round(rawStep / 60);
-    if (!Number.isFinite(computedStep) || computedStep <= 0) {
-      return 1;
-    }
-    return Math.min(60, Math.max(1, computedStep));
-  }
-
-  function resolveManagedNativePickerDefaultDate(minDate, maxDate) {
-    const today = getManagedNativePickerDateOnly(new Date());
-    return (
-      clampManagedNativePickerDateOnly(today, minDate, maxDate) ||
-      getManagedNativePickerDateOnly(minDate) ||
-      getManagedNativePickerDateOnly(maxDate) ||
-      today
-    );
-  }
-
-  function resolveManagedNativePickerDefaultTime(input, minuteStep = 1) {
-    const labelText = resolveManagedNativePickerLabelText(input);
-    let defaultMinutes = 9 * 60;
-    if (labelText.includes("结束")) {
-      defaultMinutes = 10 * 60;
-    } else if (!labelText.includes("开始")) {
-      const now = new Date();
-      defaultMinutes = now.getHours() * 60 + now.getMinutes();
-      defaultMinutes = Math.round(defaultMinutes / minuteStep) * minuteStep;
-    }
-    const normalizedMinutes = Math.max(0, Math.min(23 * 60 + 59, defaultMinutes));
-    return {
-      hours: Math.floor(normalizedMinutes / 60),
-      minutes: normalizedMinutes % 60,
-    };
-  }
-
-  function buildManagedNativePickerYearValues(selectedDate, minDate, maxDate) {
-    const selectedYear =
-      selectedDate instanceof Date && !Number.isNaN(selectedDate.getTime())
-        ? selectedDate.getFullYear()
-        : new Date().getFullYear();
-    const minYear = Math.max(
-      MANAGED_NATIVE_PICKER_DEFAULT_YEAR_RANGE.min,
-      minDate instanceof Date && !Number.isNaN(minDate.getTime())
-        ? minDate.getFullYear()
-        : Math.min(selectedYear - 20, new Date().getFullYear() - 12),
-    );
-    const maxYear = Math.min(
-      MANAGED_NATIVE_PICKER_DEFAULT_YEAR_RANGE.max,
-      maxDate instanceof Date && !Number.isNaN(maxDate.getTime())
-        ? maxDate.getFullYear()
-        : Math.max(selectedYear + 20, new Date().getFullYear() + 12),
-    );
-    const safeMinYear = Math.min(minYear, selectedYear);
-    const safeMaxYear = Math.max(maxYear, selectedYear);
-    return Array.from(
-      { length: safeMaxYear - safeMinYear + 1 },
-      (_, index) => safeMinYear + index,
-    );
-  }
-
-  function isManagedNativePickerMonthAvailable(
-    year,
-    monthIndex,
-    minDate,
-    maxDate,
-  ) {
-    const monthStart = new Date(year, monthIndex, 1);
-    const monthEnd = new Date(year, monthIndex + 1, 0);
-    if (
-      minDate instanceof Date &&
-      !Number.isNaN(minDate.getTime()) &&
-      monthEnd.getTime() < getManagedNativePickerDateOnly(minDate).getTime()
-    ) {
-      return false;
-    }
-    if (
-      maxDate instanceof Date &&
-      !Number.isNaN(maxDate.getTime()) &&
-      monthStart.getTime() > getManagedNativePickerDateOnly(maxDate).getTime()
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  function getManagedNativePickerTimeBoundsForSelection(
-    selectedDate,
-    minDateTime,
-    maxDateTime,
-    minTimeOnly,
-    maxTimeOnly,
-  ) {
-    let minimumMinutes = 0;
-    let maximumMinutes = 23 * 60 + 59;
-
-    if (selectedDate instanceof Date) {
-      if (
-        minDateTime instanceof Date &&
-        !Number.isNaN(minDateTime.getTime()) &&
-        areManagedNativePickerDatesEqual(selectedDate, minDateTime)
-      ) {
-        minimumMinutes =
-          minDateTime.getHours() * 60 + minDateTime.getMinutes();
-      }
-      if (
-        maxDateTime instanceof Date &&
-        !Number.isNaN(maxDateTime.getTime()) &&
-        areManagedNativePickerDatesEqual(selectedDate, maxDateTime)
-      ) {
-        maximumMinutes =
-          maxDateTime.getHours() * 60 + maxDateTime.getMinutes();
-      }
-    } else {
-      if (minTimeOnly) {
-        minimumMinutes = minTimeOnly.hours * 60 + minTimeOnly.minutes;
-      }
-      if (maxTimeOnly) {
-        maximumMinutes = maxTimeOnly.hours * 60 + maxTimeOnly.minutes;
-      }
-    }
-
-    if (maximumMinutes < minimumMinutes) {
-      maximumMinutes = minimumMinutes;
-    }
-
-    return {
-      minimumMinutes,
-      maximumMinutes,
-    };
-  }
-
-  function serializeManagedNativePickerTimeBounds(bounds) {
-    const minimumMinutes = Number(bounds?.minimumMinutes);
-    const maximumMinutes = Number(bounds?.maximumMinutes);
-    return `${Number.isFinite(minimumMinutes) ? Math.round(minimumMinutes) : -1}:${Number.isFinite(maximumMinutes) ? Math.round(maximumMinutes) : -1}`;
-  }
-
-  function buildManagedNativePickerMinuteValues(minuteStep = 1) {
-    const safeMinuteStep = Math.min(60, Math.max(1, minuteStep));
-    const values = [];
-    for (let minute = 0; minute < 60; minute += safeMinuteStep) {
-      values.push(minute);
-    }
-    if (values[values.length - 1] !== 59 && safeMinuteStep === 1) {
-      values.push(59);
-    }
-    return values;
-  }
-
-  function pickManagedNativePickerNearestNumber(values, preferredValue) {
-    if (!Array.isArray(values) || !values.length) {
-      return null;
-    }
-    let bestValue = values[0];
-    let bestDistance = Math.abs(values[0] - preferredValue);
-    values.forEach((value) => {
-      const distance = Math.abs(value - preferredValue);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestValue = value;
-      }
-    });
-    return bestValue;
-  }
-
-  function applyManagedNativePickerValue(input, nextValue) {
-    if (!(input instanceof HTMLInputElement)) {
-      return;
-    }
-    const normalizedNextValue = String(nextValue ?? "");
-    const hasChanged = input.value !== normalizedNextValue;
-    input.value = normalizedNextValue;
-    if (!hasChanged) {
-      return;
-    }
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
   function normalizeControlerTimeTextRawValue(value) {
     return String(value ?? "")
       .replace(/[０-９]/g, (character) =>
@@ -31566,7 +30828,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     ) {
       return "";
     }
-    return `${padManagedNativePickerNumber(hours)}:${padManagedNativePickerNumber(
+    return `${padNativePickerNumber(hours)}:${padNativePickerNumber(
       minutes,
     )}`;
   }
@@ -31791,1879 +31053,132 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       .filter(Boolean);
   }
 
-  function getManagedNativePickerModalZIndex(input) {
-    const hostModal =
-      input instanceof Element ? input.closest(".modal-overlay") : null;
-    const parsedZIndex = Number.parseInt(
-      hostModal instanceof HTMLElement
-        ? window.getComputedStyle(hostModal).zIndex || hostModal.style.zIndex || ""
-        : "",
-      10,
-    );
-    if (Number.isFinite(parsedZIndex) && parsedZIndex > 0) {
-      return parsedZIndex + 24;
-    }
-    return MANAGED_NATIVE_PICKER_DEFAULT_Z_INDEX;
-  }
-
-  function resolveManagedNativePickerDialogSizeConfig(
-    input,
-    normalizedInputType,
-    useAnchoredPanel,
-    useInlinePanel = false,
-  ) {
-    const getManagedNativePickerViewportWidth = () => {
-      if (typeof window === "undefined") {
-        return 0;
-      }
-      return Math.max(
-        Number(window.visualViewport?.width) || 0,
-        Number(window.innerWidth) || 0,
-        Number(document.documentElement?.clientWidth) || 0,
-      );
-    };
-    const getManagedNativePickerHostWidth = () => {
-      if (!(input instanceof HTMLElement)) {
-        return 0;
-      }
-      const host =
-        input.closest(
-          ".controler-form-modal, .stats-record-editor-modal, .modal-content",
-        ) || input.parentElement;
-      if (!(host instanceof HTMLElement)) {
-        return 0;
-      }
-      return Math.max(
-        0,
-        Number(host.clientWidth) ||
-          Number(host.getBoundingClientRect?.().width) ||
-          0,
-      );
-    };
-    const isCompactDesktopViewport =
-      !getNativeHostPlatform() &&
-      ((getManagedNativePickerViewportWidth() > 0 &&
-        getManagedNativePickerViewportWidth() <= 760) ||
-        (getManagedNativePickerHostWidth() > 0 &&
-          getManagedNativePickerHostWidth() <= 560));
-    const scaleDialogSizeConfigForAndroid = (config) => {
-      if (!config) {
-        return config;
-      }
-      const sizeScale =
-        getNativeHostPlatform() === "android"
-          ? 0.66
-          : isCompactDesktopViewport
-            ? 0.84
-            : 1;
-      if (sizeScale >= 0.999) {
-        return config;
-      }
-      return {
-        preferredWidth: Math.max(
-          156,
-          Math.round((Number(config.preferredWidth) || 0) * sizeScale),
-        ),
-        minWidth: Math.max(
-          144,
-          Math.round((Number(config.minWidth) || 0) * sizeScale),
-        ),
-        compactWidth: Math.max(
-          152,
-          Math.round((Number(config.compactWidth) || 0) * sizeScale),
-        ),
-        tightWidth: Math.max(
-          148,
-          Math.round((Number(config.tightWidth) || 0) * sizeScale),
-        ),
-        preferredMaxHeight: Math.max(
-          152,
-          Math.round((Number(config.preferredMaxHeight) || 0) * sizeScale),
-        ),
-      };
-    };
-
-    if (useInlinePanel && normalizedInputType === "time") {
-      return scaleDialogSizeConfigForAndroid({
-        preferredWidth: 246,
-        minWidth: 218,
-        compactWidth: 236,
-        tightWidth: 222,
-        preferredMaxHeight: 318,
-      });
-    }
-    if (useAnchoredPanel) {
-      if (normalizedInputType === "datetime-local") {
-        return scaleDialogSizeConfigForAndroid({
-          preferredWidth: 298,
-          minWidth: 244,
-          compactWidth: 292,
-          tightWidth: 248,
-          preferredMaxHeight: 352,
-        });
-      }
-      if (normalizedInputType === "date") {
-        return scaleDialogSizeConfigForAndroid({
-          preferredWidth: 288,
-          minWidth: 232,
-          compactWidth: 282,
-          tightWidth: 244,
-          preferredMaxHeight: 336,
-        });
-      }
-      return scaleDialogSizeConfigForAndroid({
-        preferredWidth: 224,
-        minWidth: 194,
-        compactWidth: 220,
-        tightWidth: 204,
-        preferredMaxHeight: 226,
-      });
-    }
-
-    if (normalizedInputType === "datetime-local") {
-      return scaleDialogSizeConfigForAndroid({
-        preferredWidth: 332,
-        minWidth: 252,
-        compactWidth: 324,
-        tightWidth: 274,
-        preferredMaxHeight: 396,
-      });
-    }
-    if (normalizedInputType === "date") {
-      return scaleDialogSizeConfigForAndroid({
-        preferredWidth: 320,
-        minWidth: 240,
-        compactWidth: 312,
-        tightWidth: 266,
-        preferredMaxHeight: 368,
-      });
-    }
-    return scaleDialogSizeConfigForAndroid({
-      preferredWidth: 238,
-      minWidth: 198,
-      compactWidth: 232,
-      tightWidth: 210,
-      preferredMaxHeight: 236,
-    });
-  }
-
-  function closeManagedNativePickerSurface(surface, result = null) {
-    if (!(surface instanceof HTMLElement)) {
+  function openSystemNativePicker(input) {
+    if (!(input instanceof HTMLInputElement) || input.disabled) {
       return false;
     }
-    if (typeof surface.__controlerManagedPickerSettle === "function") {
-      surface.__controlerManagedPickerSettle(result);
+    if (typeof input.showPicker !== "function") {
+      return false;
+    }
+    try {
+      input.blur?.();
+      input.showPicker();
       return true;
+    } catch (_error) {
+      return false;
     }
-    if (surface.classList.contains("modal-overlay")) {
-      closeModal(surface);
-      return true;
-    }
-    surface.remove();
-    return true;
   }
 
-  function scrollManagedNativePickerOptionIntoView(
-    container,
-    optionButton,
-    {
-      behavior = "auto",
-    } = {},
-  ) {
-    if (!(container instanceof HTMLElement) || !(optionButton instanceof HTMLElement)) {
-      return;
-    }
-    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const targetScrollTop = Math.max(
-      0,
-      Math.min(
-        maxScrollTop,
-        optionButton.offsetTop -
-          Math.max(
-            0,
-            Math.round((container.clientHeight - optionButton.offsetHeight) / 2),
-          ),
-      ),
-    );
-    if (typeof container.scrollTo === "function") {
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior,
-      });
-      return;
-    }
-    container.scrollTop = targetScrollTop;
-  }
-
-  function bindScrollableSelectionGestureGuard(container) {
-    if (!(container instanceof HTMLElement)) {
-      return {
-        shouldSuppressSelection() {
-          return false;
-        },
-      };
-    }
-    if (container.__controlerScrollableSelectionGestureGuard) {
-      return container.__controlerScrollableSelectionGestureGuard;
-    }
-
-    const state = {
-      pointerId: null,
-      startX: 0,
-      startY: 0,
-      startScrollTop: 0,
-      dragging: false,
-      suppressUntil: 0,
-    };
-    const movementThreshold = 8;
-    const suppressionWindowMs = 260;
-
-    const startTracking = (point = {}, pointerId = null) => {
-      state.pointerId = pointerId;
-      state.startX = Number(point.clientX) || 0;
-      state.startY = Number(point.clientY) || 0;
-      state.startScrollTop = Number(container.scrollTop) || 0;
-      state.dragging = false;
-    };
-
-    const updateTracking = (point = {}, pointerId = null) => {
-      if (
-        state.pointerId !== null &&
-        pointerId !== null &&
-        pointerId !== state.pointerId
-      ) {
-        return;
-      }
-      const deltaX = Math.abs((Number(point.clientX) || 0) - state.startX);
-      const deltaY = Math.abs((Number(point.clientY) || 0) - state.startY);
-      const scrollDelta = Math.abs((Number(container.scrollTop) || 0) - state.startScrollTop);
-      if (
-        state.dragging ||
-        deltaX >= movementThreshold ||
-        deltaY >= movementThreshold ||
-        scrollDelta >= movementThreshold
-      ) {
-        state.dragging = true;
-        state.suppressUntil = Date.now() + suppressionWindowMs;
-      }
-    };
-
-    const finishTracking = () => {
-      state.pointerId = null;
-      state.dragging = false;
-    };
-
-    container.addEventListener(
-      "pointerdown",
-      (event) => {
-        startTracking(event, event.pointerId);
-      },
-      {
-        passive: true,
-      },
-    );
-    container.addEventListener(
-      "pointermove",
-      (event) => {
-        updateTracking(event, event.pointerId);
-      },
-      {
-        passive: true,
-      },
-    );
-    ["pointerup", "pointercancel", "lostpointercapture"].forEach((eventName) => {
-      container.addEventListener(
-        eventName,
-        () => {
-          finishTracking();
-        },
-        {
-          passive: true,
-        },
-      );
-    });
-    container.addEventListener(
-      "touchstart",
-      (event) => {
-        if (!event.touches?.length) {
-          return;
-        }
-        startTracking(event.touches[0], null);
-      },
-      {
-        passive: true,
-      },
-    );
-    container.addEventListener(
-      "touchmove",
-      (event) => {
-        if (!event.touches?.length) {
-          return;
-        }
-        updateTracking(event.touches[0], null);
-      },
-      {
-        passive: true,
-      },
-    );
-    ["touchend", "touchcancel"].forEach((eventName) => {
-      container.addEventListener(
-        eventName,
-        () => {
-          finishTracking();
-        },
-        {
-          passive: true,
-        },
-      );
-    });
-    container.addEventListener(
-      "scroll",
-      () => {
-        if (state.pointerId !== null || state.dragging) {
-          state.suppressUntil = Date.now() + suppressionWindowMs;
-        }
-      },
-      {
-        passive: true,
-      },
-    );
-
-    const api = {
-      shouldSuppressSelection() {
-        return Date.now() < state.suppressUntil;
-      },
-    };
-    container.__controlerScrollableSelectionGestureGuard = api;
-    return api;
-  }
-
-  function showManagedNativePickerDialog(input) {
-    if (!(input instanceof HTMLInputElement)) {
-      return Promise.resolve(null);
-    }
-
-    const normalizedInputType = String(input.type || "").trim().toLowerCase();
-    if (!MANAGED_NATIVE_PICKER_TYPES.has(normalizedInputType)) {
-      return Promise.resolve(null);
-    }
-    const hostModal = resolveManagedNativePickerHostModal(input);
-    const useInlinePanel = shouldUseManagedNativePickerInlinePanel(
-      input,
-      normalizedInputType,
-    );
-    const useAnchoredPanel = shouldUseManagedNativePickerAnchoredPanel(
-      input,
-      normalizedInputType,
-    );
-    const dialogSizeConfig = resolveManagedNativePickerDialogSizeConfig(
-      input,
-      normalizedInputType,
-      useAnchoredPanel,
-      useInlinePanel,
-    );
-
-    const supportsDate =
-      normalizedInputType === "date" ||
-      normalizedInputType === "datetime-local";
-    const supportsTime =
-      normalizedInputType === "time" ||
-      normalizedInputType === "datetime-local";
-    const useInlineTimeLists = useInlinePanel && !supportsDate && supportsTime;
-    const titleText = resolveManagedNativePickerDialogTitle(
-      input,
-      normalizedInputType,
-    );
-    const secondaryText =
-      resolveManagedNativePickerLabelText(input) ||
-      (normalizedInputType === "time"
-        ? "时间"
-        : normalizedInputType === "datetime-local"
-          ? "日期和时间"
-          : "日期");
-    const isClearable = String(input.dataset.pickerClearable || "").trim() !== "false";
-    const minuteStep = resolveManagedNativePickerMinuteStep(input);
-    const minuteValues = buildManagedNativePickerMinuteValues(minuteStep);
-
-    const minimumDateValue = supportsDate
-      ? normalizedInputType === "date"
-        ? parseManagedNativePickerDateValue(input.min)
-        : parseManagedNativePickerDateTimeLocalValue(input.min)
-      : null;
-    const maximumDateValue = supportsDate
-      ? normalizedInputType === "date"
-        ? parseManagedNativePickerDateValue(input.max)
-        : parseManagedNativePickerDateTimeLocalValue(input.max)
-      : null;
-    const minimumTimeValue =
-      !supportsDate && supportsTime
-        ? parseManagedNativePickerTimeValue(input.min)
-        : null;
-    const maximumTimeValue =
-      !supportsDate && supportsTime
-        ? parseManagedNativePickerTimeValue(input.max)
-        : null;
-
-    const defaultDateValue = resolveManagedNativePickerDefaultDate(
-      minimumDateValue,
-      maximumDateValue,
-    );
-    const defaultTimeValue = resolveManagedNativePickerDefaultTime(
-      input,
-      minuteStep,
-    );
-
-    let selectedDate = null;
-    let selectedHours = null;
-    let selectedMinutes = null;
-
-    if (normalizedInputType === "date") {
-      selectedDate =
-        clampManagedNativePickerDateOnly(
-          parseManagedNativePickerDateValue(input.value),
-          minimumDateValue,
-          maximumDateValue,
-        ) || defaultDateValue;
-    } else if (normalizedInputType === "time") {
-      const parsedTimeValue =
-        parseManagedNativePickerTimeValue(input.value) || defaultTimeValue;
-      selectedHours = parsedTimeValue.hours;
-      selectedMinutes = parsedTimeValue.minutes;
-    } else {
-      const parsedDateTime =
-        clampManagedNativePickerDateTime(
-          parseManagedNativePickerDateTimeLocalValue(input.value),
-          minimumDateValue,
-          maximumDateValue,
-        ) ||
-        clampManagedNativePickerDateTime(
-          new Date(
-            defaultDateValue.getFullYear(),
-            defaultDateValue.getMonth(),
-            defaultDateValue.getDate(),
-            defaultTimeValue.hours,
-            defaultTimeValue.minutes,
-            0,
-            0,
-          ),
-          minimumDateValue,
-          maximumDateValue,
-        );
-      selectedDate = getManagedNativePickerDateOnly(parsedDateTime);
-      selectedHours = parsedDateTime.getHours();
-      selectedMinutes = parsedDateTime.getMinutes();
-    }
-
-    if (supportsTime && selectedHours === null) {
-      selectedHours = defaultTimeValue.hours;
-    }
-    if (supportsTime && selectedMinutes === null) {
-      selectedMinutes = defaultTimeValue.minutes;
-    }
-
-    let currentViewMonth = supportsDate
-      ? getManagedNativePickerMonthStart(selectedDate || defaultDateValue)
-      : null;
-
-    return new Promise((resolve) => {
-      const modal = document.createElement("div");
-      modal.className = useInlinePanel
-        ? "controler-themed-picker-inline-layer"
-        : `modal-overlay controler-themed-picker-overlay${
-            useAnchoredPanel ? " controler-themed-picker-overlay--anchored" : ""
-          }`;
-      if (!useInlinePanel) {
-        modal.style.display = "flex";
-        modal.style.zIndex = String(getManagedNativePickerModalZIndex(input));
-      }
-      modal.dataset.controlerDisableAutofocus = "true";
-      modal.dataset.controlerCloseProtectionDurationMs = "220";
-      modal.dataset.controlerActionProtectionDurationMs = "220";
-      modal.dataset.controlerInteractionShieldDurationMs = "220";
-      modal.dataset.controlerClosingPointerEvents = "none";
-      modal.dataset.controlerCloseHideImmediately = "true";
-      modal.innerHTML = `
-        <div class="modal-content themed-dialog-card controler-themed-picker-dialog${
-          useAnchoredPanel ? " controler-themed-picker-dialog--anchored" : ""
-        }${
-          supportsDate ? " controler-themed-picker-dialog--with-calendar" : ""
-        }${supportsTime ? " controler-themed-picker-dialog--with-time" : ""}${
-          useInlinePanel ? " controler-themed-picker-dialog--inline" : ""
-        }${
-          !supportsDate && supportsTime
-            ? " controler-themed-picker-dialog--time-only"
-            : ""
-        } ms" style="width:${
-          useAnchoredPanel
-            ? "min(298px, calc(100vw - 20px))"
-            : "min(332px, calc(100vw - 24px))"
-        }; max-width:${
-          useAnchoredPanel
-            ? "min(298px, calc(100vw - 20px))"
-            : "min(332px, calc(100vw - 24px))"
-        };">
-          <div class="themed-dialog-title" data-managed-picker-title></div>
-          <div class="controler-themed-picker-preview">
-            <div class="controler-themed-picker-preview-secondary" data-managed-picker-preview-secondary></div>
-            <div class="controler-themed-picker-preview-primary" data-managed-picker-preview-primary></div>
-          </div>
-          <div class="controler-themed-picker-surface">
-            ${
-              supportsDate
-                ? `
-              <div class="controler-themed-picker-calendar-shell">
-                <div class="controler-themed-picker-calendar-toolbar">
-                  <button type="button" class="controler-themed-picker-nav-btn" data-managed-picker-prev-month aria-label="上个月">‹</button>
-                  <div class="controler-themed-picker-calendar-selects">
-                    <div class="controler-themed-picker-select-field">
-                      <select data-managed-picker-year aria-label="年份"></select>
-                    </div>
-                    <div class="controler-themed-picker-select-field">
-                      <select data-managed-picker-month aria-label="月份"></select>
-                    </div>
-                  </div>
-                  <button type="button" class="controler-themed-picker-nav-btn" data-managed-picker-next-month aria-label="下个月">›</button>
-                </div>
-                <div class="controler-themed-picker-calendar-weekdays" data-managed-picker-weekdays></div>
-                <div class="controler-themed-picker-calendar-grid" data-managed-picker-grid></div>
-              </div>
-            `
-                : ""
-            }
-            ${
-              supportsTime
-                ? `
-              <div class="controler-themed-picker-time-shell${
-                supportsDate ? " is-with-calendar" : ""
-              }${useInlineTimeLists ? " is-inline-options" : ""}">
-                ${
-                  useInlineTimeLists
-                    ? `
-                <div class="controler-themed-picker-time-lists">
-                  <label class="controler-themed-picker-time-list-field">
-                    <span>小时</span>
-                    <div class="controler-themed-picker-time-list" data-managed-picker-hour-list></div>
-                  </label>
-                  <label class="controler-themed-picker-time-list-field">
-                    <span>分钟</span>
-                    <div class="controler-themed-picker-time-list" data-managed-picker-minute-list></div>
-                  </label>
-                </div>
-                `
-                    : `
-                <div class="controler-themed-picker-time-fields">
-                  <label class="controler-themed-picker-select-field">
-                    <span>小时</span>
-                    <select data-managed-picker-hour></select>
-                  </label>
-                  <label class="controler-themed-picker-select-field">
-                    <span>分钟</span>
-                    <select data-managed-picker-minute></select>
-                  </label>
-                </div>
-                `
-                }
-              </div>
-            `
-                : ""
-            }
-          </div>
-          <div class="themed-dialog-actions controler-themed-picker-actions">
-            ${
-              isClearable
-                ? '<button type="button" class="bts" data-managed-picker-clear style="margin:0;">清除</button>'
-                : ""
-            }
-            <button type="button" class="bts themed-dialog-cancel-btn" data-managed-picker-cancel style="margin:0;">取消</button>
-            <button type="button" class="bts themed-dialog-confirm-btn" data-managed-picker-confirm style="margin:0;">设置</button>
-          </div>
-        </div>
-      `;
-
-      const titleNode = modal.querySelector("[data-managed-picker-title]");
-      const previewSecondaryNode = modal.querySelector(
-        "[data-managed-picker-preview-secondary]",
-      );
-      const previewPrimaryNode = modal.querySelector(
-        "[data-managed-picker-preview-primary]",
-      );
-      const yearSelect = modal.querySelector("[data-managed-picker-year]");
-      const monthSelect = modal.querySelector("[data-managed-picker-month]");
-      const hourSelect = modal.querySelector("[data-managed-picker-hour]");
-      const minuteSelect = modal.querySelector("[data-managed-picker-minute]");
-      const hourListNode = modal.querySelector("[data-managed-picker-hour-list]");
-      const minuteListNode = modal.querySelector(
-        "[data-managed-picker-minute-list]",
-      );
-      const timeListsNode = modal.querySelector(".controler-themed-picker-time-lists");
-      const prevMonthButton = modal.querySelector(
-        "[data-managed-picker-prev-month]",
-      );
-      const nextMonthButton = modal.querySelector(
-        "[data-managed-picker-next-month]",
-      );
-      const calendarWeekdaysNode = modal.querySelector(
-        "[data-managed-picker-weekdays]",
-      );
-      const calendarGridNode = modal.querySelector("[data-managed-picker-grid]");
-      const clearButton = modal.querySelector("[data-managed-picker-clear]");
-      const cancelButton = modal.querySelector("[data-managed-picker-cancel]");
-      const confirmButton = modal.querySelector("[data-managed-picker-confirm]");
-      const dialogContent = modal.querySelector(".modal-content");
-      let dialogSettled = false;
-      const anchoredCleanupTasks = [];
-      const calendarWeekdayNodes = [];
-      const calendarDayButtons = [];
-      const hourListButtons = [];
-      const minuteListButtons = [];
-      const calendarGestureGuard = bindScrollableSelectionGestureGuard(
-        calendarGridNode,
-      );
-      const hourListGestureGuard = bindScrollableSelectionGestureGuard(hourListNode);
-      const minuteListGestureGuard = bindScrollableSelectionGestureGuard(
-        minuteListNode,
-      );
-
-      if (titleNode) {
-        titleNode.textContent = titleText;
-      }
-      if (previewSecondaryNode) {
-        previewSecondaryNode.textContent = secondaryText;
-      }
-
-      const settleDialog = (result = null) => {
-        if (dialogSettled) {
-          return;
-        }
-        dialogSettled = true;
-        while (anchoredCleanupTasks.length > 0) {
-          const cleanupTask = anchoredCleanupTasks.pop();
-          try {
-            cleanupTask?.();
-          } catch (_error) {}
-        }
-        modal.__controlerManagedPickerSettle = null;
-        modal.__controlerCloseModal = null;
-        if (useInlinePanel) {
-          modal.remove();
-          window.setTimeout(() => {
-            resolve(result);
-          }, 0);
-          return;
-        }
-        closeModal(modal);
-        window.setTimeout(() => {
-          resolve(result);
-        }, Math.max(MODAL_ACTION_DEDUP_WINDOW_MS + 40, 180));
-      };
-      modal.__controlerManagedPickerSettle = settleDialog;
-
-      const normalizeSelectedTimeWithinBounds = () => {
-        if (!supportsTime) {
-          return;
-        }
-        const bounds = getManagedNativePickerTimeBoundsForSelection(
-          supportsDate ? selectedDate : null,
-          minimumDateValue,
-          maximumDateValue,
-          minimumTimeValue,
-          maximumTimeValue,
-        );
-        const validHours = [];
-        for (let hour = 0; hour < 24; hour += 1) {
-          const hasValidMinute = minuteValues.some((minute) => {
-            const totalMinutes = hour * 60 + minute;
-            return (
-              totalMinutes >= bounds.minimumMinutes &&
-              totalMinutes <= bounds.maximumMinutes
-            );
-          });
-          if (hasValidMinute) {
-            validHours.push(hour);
-          }
-        }
-        if (!validHours.length) {
-          selectedHours = Math.floor(bounds.minimumMinutes / 60);
-          selectedMinutes = bounds.minimumMinutes % 60;
-          return;
-        }
-        if (!validHours.includes(selectedHours)) {
-          selectedHours = pickManagedNativePickerNearestNumber(
-            validHours,
-            Number.isFinite(selectedHours)
-              ? selectedHours
-              : Math.floor(bounds.minimumMinutes / 60),
-          );
-        }
-        const validMinutes = minuteValues.filter((minute) => {
-          const totalMinutes = selectedHours * 60 + minute;
-          return (
-            totalMinutes >= bounds.minimumMinutes &&
-            totalMinutes <= bounds.maximumMinutes
-          );
-        });
-        if (!validMinutes.length) {
-          selectedHours = validHours[0];
-          selectedMinutes = minuteValues[0] || 0;
-          return;
-        }
-        if (!validMinutes.includes(selectedMinutes)) {
-          selectedMinutes = pickManagedNativePickerNearestNumber(
-            validMinutes,
-            Number.isFinite(selectedMinutes)
-              ? selectedMinutes
-              : bounds.minimumMinutes % 60,
-          );
-        }
-      };
-
-      const syncPreview = () => {
-        if (!(previewPrimaryNode instanceof HTMLElement)) {
-          return;
-        }
-        if (supportsDate && supportsTime) {
-          previewPrimaryNode.textContent = formatManagedNativePickerDisplayDateTime(
-            new Date(
-              selectedDate.getFullYear(),
-              selectedDate.getMonth(),
-              selectedDate.getDate(),
-              selectedHours,
-              selectedMinutes,
-              0,
-              0,
-            ),
-          );
-          return;
-        }
-        if (supportsDate) {
-          previewPrimaryNode.textContent =
-            formatManagedNativePickerDisplayDate(selectedDate);
-          return;
-        }
-        previewPrimaryNode.textContent = formatManagedNativePickerTimeValue(
-          selectedHours,
-          selectedMinutes,
-        );
-      };
-
-      const populateHourSelect = () => {
-        if (!(hourSelect instanceof HTMLSelectElement)) {
-          return;
-        }
-        const bounds = getManagedNativePickerTimeBoundsForSelection(
-          supportsDate ? selectedDate : null,
-          minimumDateValue,
-          maximumDateValue,
-          minimumTimeValue,
-          maximumTimeValue,
-        );
-        hourSelect.innerHTML = "";
-        for (let hour = 0; hour < 24; hour += 1) {
-          const option = document.createElement("option");
-          option.value = String(hour);
-          option.textContent = padManagedNativePickerNumber(hour);
-          option.disabled = !minuteValues.some((minute) => {
-            const totalMinutes = hour * 60 + minute;
-            return (
-              totalMinutes >= bounds.minimumMinutes &&
-              totalMinutes <= bounds.maximumMinutes
-            );
-          });
-          hourSelect.appendChild(option);
-        }
-        hourSelect.value = String(selectedHours);
-        if (hourSelect.selectedIndex < 0) {
-          const firstEnabledOption = Array.from(hourSelect.options).find(
-            (option) => !option.disabled,
-          );
-          if (firstEnabledOption) {
-            hourSelect.value = firstEnabledOption.value;
-            selectedHours = Number.parseInt(firstEnabledOption.value, 10);
-          }
-        }
-        enhanceNativeSelect(hourSelect, {
-          fullWidth: true,
-          minWidth: 0,
-          preferredMenuWidth: 120,
-          maxMenuWidth: 164,
-        });
-        refreshEnhancedSelect(hourSelect);
-      };
-
-      const populateMinuteSelect = () => {
-        if (!(minuteSelect instanceof HTMLSelectElement)) {
-          return;
-        }
-        const bounds = getManagedNativePickerTimeBoundsForSelection(
-          supportsDate ? selectedDate : null,
-          minimumDateValue,
-          maximumDateValue,
-          minimumTimeValue,
-          maximumTimeValue,
-        );
-        minuteSelect.innerHTML = "";
-        minuteValues.forEach((minute) => {
-          const option = document.createElement("option");
-          option.value = String(minute);
-          option.textContent = padManagedNativePickerNumber(minute);
-          const totalMinutes = selectedHours * 60 + minute;
-          option.disabled =
-            totalMinutes < bounds.minimumMinutes ||
-            totalMinutes > bounds.maximumMinutes;
-          minuteSelect.appendChild(option);
-        });
-        minuteSelect.value = String(selectedMinutes);
-        if (minuteSelect.selectedIndex < 0) {
-          const firstEnabledOption = Array.from(minuteSelect.options).find(
-            (option) => !option.disabled,
-          );
-          if (firstEnabledOption) {
-            minuteSelect.value = firstEnabledOption.value;
-            selectedMinutes = Number.parseInt(firstEnabledOption.value, 10);
-          }
-        }
-        enhanceNativeSelect(minuteSelect, {
-          fullWidth: true,
-          minWidth: 0,
-          preferredMenuWidth: 120,
-          maxMenuWidth: 164,
-        });
-        refreshEnhancedSelect(minuteSelect);
-      };
-
-      const ensureManagedNativePickerListButtons = (
-        listNode,
-        buttonStore,
-        optionValues,
-        formatLabel,
-        handleSelection,
-      ) => {
-        if (!(listNode instanceof HTMLElement)) {
-          return [];
-        }
-        if (
-          buttonStore.length === optionValues.length &&
-          listNode.children.length === optionValues.length
-        ) {
-          return buttonStore;
-        }
-        buttonStore.length = 0;
-        listNode.innerHTML = "";
-        optionValues.forEach((optionValue) => {
-          const optionButton = document.createElement("button");
-          optionButton.type = "button";
-          optionButton.className = "controler-themed-picker-list-option";
-          optionButton.textContent = formatLabel(optionValue);
-          optionButton.__controlerManagedPickerValue = optionValue;
-          optionButton.addEventListener("click", (event) => {
-            const gestureGuard =
-              listNode === hourListNode
-                ? hourListGestureGuard
-                : listNode === minuteListNode
-                  ? minuteListGestureGuard
-                  : null;
-            if (gestureGuard?.shouldSuppressSelection?.()) {
-              event.preventDefault();
-              event.stopPropagation();
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            if (optionButton.disabled) {
-              return;
-            }
-            handleSelection(optionButton.__controlerManagedPickerValue);
-          });
-          listNode.appendChild(optionButton);
-          buttonStore.push(optionButton);
-        });
-        return buttonStore;
-      };
-
-      const populateHourList = ({
-        scrollBehavior = "auto",
-      } = {}) => {
-        if (!(hourListNode instanceof HTMLElement)) {
-          return;
-        }
-        const bounds = getManagedNativePickerTimeBoundsForSelection(
-          supportsDate ? selectedDate : null,
-          minimumDateValue,
-          maximumDateValue,
-          minimumTimeValue,
-          maximumTimeValue,
-        );
-        const hourButtons = ensureManagedNativePickerListButtons(
-          hourListNode,
-          hourListButtons,
-          Array.from(
-            {
-              length: 24,
-            },
-            (_, hourIndex) => hourIndex,
-          ),
-          (hourValue) => padManagedNativePickerNumber(hourValue),
-          (hourValue) => {
-            if (!Number.isFinite(hourValue) || selectedHours === hourValue) {
-              return;
-            }
-            selectedHours = Number(hourValue);
-            normalizeSelectedTimeWithinBounds();
-            populateHourList();
-            populateMinuteList();
-            syncPreview();
-          },
-        );
-        let selectedButton = null;
-        hourButtons.forEach((optionButton) => {
-          const optionHour = Number(optionButton.__controlerManagedPickerValue);
-          const isDisabled = !minuteValues.some((minute) => {
-            const totalMinutes = optionHour * 60 + minute;
-            return (
-              totalMinutes >= bounds.minimumMinutes &&
-              totalMinutes <= bounds.maximumMinutes
-            );
-          });
-          optionButton.disabled = isDisabled;
-          const isSelected = !isDisabled && optionHour === selectedHours;
-          optionButton.classList.toggle("is-selected", isSelected);
-          optionButton.classList.toggle("is-disabled", isDisabled);
-          if (isSelected) {
-            selectedButton = optionButton;
-          }
-        });
-        if (selectedButton) {
-          scrollManagedNativePickerOptionIntoView(hourListNode, selectedButton, {
-            behavior: scrollBehavior,
-          });
-        }
-      };
-
-      const populateMinuteList = ({
-        scrollBehavior = "auto",
-      } = {}) => {
-        if (!(minuteListNode instanceof HTMLElement)) {
-          return;
-        }
-        const bounds = getManagedNativePickerTimeBoundsForSelection(
-          supportsDate ? selectedDate : null,
-          minimumDateValue,
-          maximumDateValue,
-          minimumTimeValue,
-          maximumTimeValue,
-        );
-        const minuteButtons = ensureManagedNativePickerListButtons(
-          minuteListNode,
-          minuteListButtons,
-          minuteValues,
-          (minuteValue) => padManagedNativePickerNumber(minuteValue),
-          (minuteValue) => {
-            if (!Number.isFinite(minuteValue) || selectedMinutes === minuteValue) {
-              return;
-            }
-            selectedMinutes = Number(minuteValue);
-            normalizeSelectedTimeWithinBounds();
-            populateMinuteList();
-            syncPreview();
-          },
-        );
-        let selectedButton = null;
-        minuteButtons.forEach((optionButton) => {
-          const optionMinute = Number(optionButton.__controlerManagedPickerValue);
-          const totalMinutes = selectedHours * 60 + optionMinute;
-          const isDisabled =
-            totalMinutes < bounds.minimumMinutes ||
-            totalMinutes > bounds.maximumMinutes;
-          optionButton.disabled = isDisabled;
-          const isSelected = !isDisabled && optionMinute === selectedMinutes;
-          optionButton.classList.toggle("is-selected", isSelected);
-          optionButton.classList.toggle("is-disabled", isDisabled);
-          if (isSelected) {
-            selectedButton = optionButton;
-          }
-        });
-        if (selectedButton) {
-          scrollManagedNativePickerOptionIntoView(
-            minuteListNode,
-            selectedButton,
-            {
-              behavior: scrollBehavior,
-            },
-          );
-        }
-      };
-
-      const populateYearMonthSelects = () => {
-        if (
-          !(yearSelect instanceof HTMLSelectElement) ||
-          !(monthSelect instanceof HTMLSelectElement)
-        ) {
-          return;
-        }
-        const yearValues = buildManagedNativePickerYearValues(
-          currentViewMonth,
-          minimumDateValue,
-          maximumDateValue,
-        );
-        yearSelect.innerHTML = "";
-        yearValues.forEach((yearValue) => {
-          const option = document.createElement("option");
-          option.value = String(yearValue);
-          option.textContent = `${yearValue}年`;
-          yearSelect.appendChild(option);
-        });
-        yearSelect.value = String(currentViewMonth.getFullYear());
-
-        monthSelect.innerHTML = "";
-        MANAGED_NATIVE_PICKER_MONTH_LABELS.forEach((monthLabel, monthIndex) => {
-          const option = document.createElement("option");
-          option.value = String(monthIndex);
-          option.textContent = monthLabel;
-          option.disabled = !isManagedNativePickerMonthAvailable(
-            currentViewMonth.getFullYear(),
-            monthIndex,
-            minimumDateValue,
-            maximumDateValue,
-          );
-          monthSelect.appendChild(option);
-        });
-        monthSelect.value = String(currentViewMonth.getMonth());
-        if (monthSelect.selectedIndex < 0) {
-          const firstEnabledMonthOption = Array.from(monthSelect.options).find(
-            (option) => !option.disabled,
-          );
-          if (firstEnabledMonthOption) {
-            monthSelect.value = firstEnabledMonthOption.value;
-            currentViewMonth = new Date(
-              currentViewMonth.getFullYear(),
-              Number.parseInt(firstEnabledMonthOption.value, 10),
-              1,
-            );
-          }
-        }
-
-        enhanceNativeSelect(yearSelect, {
-          fullWidth: true,
-          minWidth: 0,
-          preferredMenuWidth: 132,
-          maxMenuWidth: 176,
-        });
-        enhanceNativeSelect(monthSelect, {
-          fullWidth: true,
-          minWidth: 0,
-          preferredMenuWidth: 108,
-          maxMenuWidth: 144,
-        });
-        refreshEnhancedSelect(yearSelect);
-        refreshEnhancedSelect(monthSelect);
-      };
-
-      const ensureCalendarWeekdayNodes = () => {
-        if (!(calendarWeekdaysNode instanceof HTMLElement)) {
-          return [];
-        }
-        if (
-          calendarWeekdayNodes.length === MANAGED_NATIVE_PICKER_WEEKDAY_LABELS.length &&
-          calendarWeekdaysNode.children.length ===
-            MANAGED_NATIVE_PICKER_WEEKDAY_LABELS.length
-        ) {
-          return calendarWeekdayNodes;
-        }
-        calendarWeekdayNodes.length = 0;
-        calendarWeekdaysNode.innerHTML = "";
-        MANAGED_NATIVE_PICKER_WEEKDAY_LABELS.forEach((weekdayLabel) => {
-          const weekdayNode = document.createElement("span");
-          weekdayNode.textContent = weekdayLabel.slice(-1);
-          calendarWeekdaysNode.appendChild(weekdayNode);
-          calendarWeekdayNodes.push(weekdayNode);
-        });
-        return calendarWeekdayNodes;
-      };
-
-      function handleManagedNativePickerDaySelection(nextDayDate) {
-        if (
-          !(nextDayDate instanceof Date) ||
-          Number.isNaN(nextDayDate.getTime())
-        ) {
-          return;
-        }
-        const previousViewMonth = currentViewMonth;
-        const previousTimeBoundsSignature = supportsTime
-          ? serializeManagedNativePickerTimeBounds(
-              getManagedNativePickerTimeBoundsForSelection(
-                supportsDate ? selectedDate : null,
-                minimumDateValue,
-                maximumDateValue,
-                minimumTimeValue,
-                maximumTimeValue,
-              ),
-            )
-          : "";
-        const previousHours = selectedHours;
-        const previousMinutes = selectedMinutes;
-
-        selectedDate = new Date(nextDayDate.getTime());
-        currentViewMonth = getManagedNativePickerMonthStart(nextDayDate);
-        normalizeSelectedTimeWithinBounds();
-
-        if (!areManagedNativePickerMonthsEqual(previousViewMonth, currentViewMonth)) {
-          populateYearMonthSelects();
-        }
-        renderCalendarGrid();
-
-        if (supportsTime) {
-          const nextTimeBoundsSignature = serializeManagedNativePickerTimeBounds(
-            getManagedNativePickerTimeBoundsForSelection(
-              supportsDate ? selectedDate : null,
-              minimumDateValue,
-              maximumDateValue,
-              minimumTimeValue,
-              maximumTimeValue,
-            ),
-          );
-          if (
-            nextTimeBoundsSignature !== previousTimeBoundsSignature ||
-            previousHours !== selectedHours ||
-            previousMinutes !== selectedMinutes
-          ) {
-            populateHourSelect();
-            populateMinuteSelect();
-            populateHourList();
-            populateMinuteList();
-          }
-        }
-
-        syncPreview();
-      }
-
-      const ensureCalendarDayButtons = () => {
-        if (!(calendarGridNode instanceof HTMLElement)) {
-          return [];
-        }
-        if (calendarDayButtons.length === 42 && calendarGridNode.children.length === 42) {
-          return calendarDayButtons;
-        }
-        calendarDayButtons.length = 0;
-        calendarGridNode.innerHTML = "";
-        for (let index = 0; index < 42; index += 1) {
-          const dayButton = document.createElement("button");
-          dayButton.type = "button";
-          dayButton.className = "controler-themed-picker-day";
-          dayButton.addEventListener("click", (event) => {
-            if (calendarGestureGuard.shouldSuppressSelection()) {
-              event.preventDefault();
-              event.stopPropagation();
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            if (dayButton.disabled) {
-              return;
-            }
-            handleManagedNativePickerDaySelection(
-              dayButton.__controlerManagedPickerDateValue,
-            );
-          });
-          calendarGridNode.appendChild(dayButton);
-          calendarDayButtons.push(dayButton);
-        }
-        return calendarDayButtons;
-      };
-
-      const renderCalendarGrid = () => {
-        if (!(calendarGridNode instanceof HTMLElement)) {
-          return;
-        }
-        ensureCalendarWeekdayNodes();
-        const dayButtons = ensureCalendarDayButtons();
-
-        const monthStart = new Date(
-          currentViewMonth.getFullYear(),
-          currentViewMonth.getMonth(),
-          1,
-        );
-        const monthOffset = (monthStart.getDay() + 6) % 7;
-        const gridStartDate = new Date(
-          currentViewMonth.getFullYear(),
-          currentViewMonth.getMonth(),
-          1 - monthOffset,
-        );
-
-        for (let index = 0; index < 42; index += 1) {
-          const dayButton = dayButtons[index];
-          if (!(dayButton instanceof HTMLButtonElement)) {
-            continue;
-          }
-          const dayDate = new Date(
-            gridStartDate.getFullYear(),
-            gridStartDate.getMonth(),
-            gridStartDate.getDate() + index,
-          );
-          const isOutsideCurrentMonth =
-            dayDate.getMonth() !== currentViewMonth.getMonth() ||
-            dayDate.getFullYear() !== currentViewMonth.getFullYear();
-          const isSelected = areManagedNativePickerDatesEqual(
-            dayDate,
-            selectedDate,
-          );
-          const isToday = areManagedNativePickerDatesEqual(dayDate, new Date());
-          const isDisabled =
-            (minimumDateValue instanceof Date &&
-              compareManagedNativePickerDateOnly(dayDate, minimumDateValue) < 0) ||
-            (maximumDateValue instanceof Date &&
-              compareManagedNativePickerDateOnly(dayDate, maximumDateValue) > 0);
-
-          if (dayButton.textContent !== String(dayDate.getDate())) {
-            dayButton.textContent = String(dayDate.getDate());
-          }
-          dayButton.classList.toggle("is-outside-month", isOutsideCurrentMonth);
-          dayButton.classList.toggle("is-selected", isSelected);
-          dayButton.classList.toggle("is-today", isToday);
-          dayButton.classList.toggle("is-disabled", isDisabled);
-          dayButton.disabled = isDisabled;
-          dayButton.__controlerManagedPickerDateValue = isDisabled
-            ? null
-            : new Date(dayDate.getTime());
-        }
-
-        if (prevMonthButton instanceof HTMLButtonElement) {
-          const previousMonth = new Date(
-            currentViewMonth.getFullYear(),
-            currentViewMonth.getMonth() - 1,
-            1,
-          );
-          prevMonthButton.disabled = !isManagedNativePickerMonthAvailable(
-            previousMonth.getFullYear(),
-            previousMonth.getMonth(),
-            minimumDateValue,
-            maximumDateValue,
-          );
-        }
-        if (nextMonthButton instanceof HTMLButtonElement) {
-          const nextMonth = new Date(
-            currentViewMonth.getFullYear(),
-            currentViewMonth.getMonth() + 1,
-            1,
-          );
-          nextMonthButton.disabled = !isManagedNativePickerMonthAvailable(
-            nextMonth.getFullYear(),
-            nextMonth.getMonth(),
-            minimumDateValue,
-            maximumDateValue,
-          );
-        }
-      };
-
-      normalizeSelectedTimeWithinBounds();
-      populateYearMonthSelects();
-      renderCalendarGrid();
-      populateHourSelect();
-      populateMinuteSelect();
-      populateHourList({
-        scrollBehavior: "auto",
-      });
-      populateMinuteList({
-        scrollBehavior: "auto",
-      });
-      syncPreview();
-
-      if (yearSelect instanceof HTMLSelectElement) {
-        yearSelect.addEventListener("change", () => {
-          const nextYear = Number.parseInt(yearSelect.value, 10);
-          if (!Number.isFinite(nextYear)) {
-            return;
-          }
-          currentViewMonth = new Date(nextYear, currentViewMonth.getMonth(), 1);
-          populateYearMonthSelects();
-          renderCalendarGrid();
-          syncPreview();
-        });
-      }
-
-      if (monthSelect instanceof HTMLSelectElement) {
-        monthSelect.addEventListener("change", () => {
-          const nextMonthIndex = Number.parseInt(monthSelect.value, 10);
-          if (!Number.isFinite(nextMonthIndex)) {
-            return;
-          }
-          currentViewMonth = new Date(
-            currentViewMonth.getFullYear(),
-            nextMonthIndex,
-            1,
-          );
-          populateYearMonthSelects();
-          renderCalendarGrid();
-          syncPreview();
-        });
-      }
-
-      if (prevMonthButton instanceof HTMLButtonElement) {
-        prevMonthButton.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const previousMonth = new Date(
-            currentViewMonth.getFullYear(),
-            currentViewMonth.getMonth() - 1,
-            1,
-          );
-          if (
-            !isManagedNativePickerMonthAvailable(
-              previousMonth.getFullYear(),
-              previousMonth.getMonth(),
-              minimumDateValue,
-              maximumDateValue,
-            )
-          ) {
-            return;
-          }
-          currentViewMonth = previousMonth;
-          populateYearMonthSelects();
-          renderCalendarGrid();
-        });
-      }
-
-      if (nextMonthButton instanceof HTMLButtonElement) {
-        nextMonthButton.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const nextMonth = new Date(
-            currentViewMonth.getFullYear(),
-            currentViewMonth.getMonth() + 1,
-            1,
-          );
-          if (
-            !isManagedNativePickerMonthAvailable(
-              nextMonth.getFullYear(),
-              nextMonth.getMonth(),
-              minimumDateValue,
-              maximumDateValue,
-            )
-          ) {
-            return;
-          }
-          currentViewMonth = nextMonth;
-          populateYearMonthSelects();
-          renderCalendarGrid();
-        });
-      }
-
-      if (hourSelect instanceof HTMLSelectElement) {
-        hourSelect.addEventListener("change", () => {
-          selectedHours = Number.parseInt(hourSelect.value, 10);
-          normalizeSelectedTimeWithinBounds();
-          populateHourSelect();
-          populateMinuteSelect();
-          populateHourList();
-          populateMinuteList();
-          syncPreview();
-        });
-      }
-
-      if (minuteSelect instanceof HTMLSelectElement) {
-        minuteSelect.addEventListener("change", () => {
-          selectedMinutes = Number.parseInt(minuteSelect.value, 10);
-          normalizeSelectedTimeWithinBounds();
-          populateMinuteSelect();
-          populateMinuteList();
-          syncPreview();
-        });
-      }
-
-      const syncDialogLayout = () => {
-        if (dialogSettled || !(dialogContent instanceof HTMLElement)) {
-          return;
-        }
-        const visualViewport = window.visualViewport;
-        const viewportWidth = Math.max(
-          0,
-          visualViewport?.width || window.innerWidth || 0,
-        );
-        const viewportHeight = Math.max(
-          0,
-          visualViewport?.height || window.innerHeight || 0,
-        );
-        const viewportOffsetLeft = Math.max(
-          0,
-          Number(visualViewport?.offsetLeft) || 0,
-        );
-        const viewportOffsetTop = Math.max(
-          0,
-          Number(visualViewport?.offsetTop) || 0,
-        );
-        const viewportRight = viewportOffsetLeft + viewportWidth;
-        const viewportBottom = viewportOffsetTop + viewportHeight;
-        const safeInset = useAnchoredPanel ? 10 : 12;
-        const availableWidth = Math.max(0, viewportWidth - safeInset * 2);
-        const availableHeight = Math.max(0, viewportHeight - safeInset * 2);
-        const fallbackMinWidth =
-          getNativeHostPlatform() === "android"
-            ? useAnchoredPanel
-              ? 144
-              : 152
-            : useAnchoredPanel
-              ? 188
-              : 196;
-        const minimumDialogHeight =
-          getNativeHostPlatform() === "android"
-            ? useInlineTimeLists
-              ? 136
-              : 148
-            : 208;
-        const resolvedMinWidth = Math.min(
-          availableWidth,
-          Math.max(fallbackMinWidth, dialogSizeConfig.minWidth),
-        );
-        const resolvedWidth = Math.max(
-          resolvedMinWidth,
-          Math.min(dialogSizeConfig.preferredWidth, availableWidth),
-        );
-        const resolvedMaxHeight = Math.max(
-          Math.min(availableHeight, minimumDialogHeight),
-          Math.min(dialogSizeConfig.preferredMaxHeight, availableHeight),
-        );
-
-        dialogContent.style.width = `${resolvedWidth}px`;
-        dialogContent.style.maxWidth = `${resolvedWidth}px`;
-        dialogContent.style.minWidth = `${resolvedMinWidth}px`;
-        dialogContent.style.maxHeight = `${resolvedMaxHeight}px`;
-        dialogContent.style.overflowX = "hidden";
-        dialogContent.style.overflowY = "auto";
-        dialogContent.style.setProperty(
-          "--controler-themed-picker-dialog-width",
-          `${resolvedWidth}px`,
-        );
-        dialogContent.style.setProperty(
-          "--controler-themed-picker-dialog-max-height",
-          `${resolvedMaxHeight}px`,
-        );
-        if (useInlineTimeLists && timeListsNode instanceof HTMLElement) {
-          dialogContent.style.setProperty(
-            "--controler-themed-picker-time-list-height",
-            `${Math.max(96, Math.min(188, resolvedMaxHeight - 96))}px`,
-          );
-          const timeListsHeight = Math.max(
-            0,
-            Math.round(timeListsNode.getBoundingClientRect().height || 0),
-          );
-          const chromeHeight = Math.max(0, dialogContent.scrollHeight - timeListsHeight);
-          const resolvedTimeListHeight = Math.max(
-            84,
-            Math.min(188, resolvedMaxHeight - chromeHeight),
-          );
-          dialogContent.style.setProperty(
-            "--controler-themed-picker-time-list-height",
-            `${resolvedTimeListHeight}px`,
-          );
-        } else {
-          dialogContent.style.removeProperty(
-            "--controler-themed-picker-time-list-height",
-          );
-        }
-        dialogContent.classList.toggle(
-          "controler-themed-picker-dialog--compact",
-          resolvedWidth <= dialogSizeConfig.compactWidth ||
-            resolvedMaxHeight < dialogSizeConfig.preferredMaxHeight,
-        );
-        dialogContent.classList.toggle(
-          "controler-themed-picker-dialog--tight",
-          resolvedWidth <= dialogSizeConfig.tightWidth,
-        );
-
-        if (
-          !useAnchoredPanel ||
-          !(input instanceof HTMLElement) ||
-          availableWidth <= 0 ||
-          availableHeight <= 0
-        ) {
-          dialogContent.style.position = "";
-          dialogContent.style.top = "";
-          dialogContent.style.left = "";
-          dialogContent.style.right = "";
-          dialogContent.style.bottom = "";
-          dialogContent.style.margin = "";
-          return;
-        }
-
-        const anchorRect = input.getBoundingClientRect();
-        const anchorLeft = anchorRect.left + viewportOffsetLeft;
-        const anchorTop = anchorRect.top + viewportOffsetTop;
-        const anchorBottom = anchorRect.bottom + viewportOffsetTop;
-        const anchorGap = 6;
-        const contentRect = dialogContent.getBoundingClientRect();
-        const contentHeight = Math.min(
-          resolvedMaxHeight,
-          Math.max(contentRect.height || 0, Math.min(resolvedMaxHeight, minimumDialogHeight)),
-        );
-        let top = anchorBottom + anchorGap;
-        if (top + contentHeight > viewportBottom - safeInset) {
-          top = Math.max(
-            viewportOffsetTop + safeInset,
-            anchorTop - contentHeight - anchorGap,
-          );
-        }
-        if (top + contentHeight > viewportBottom - safeInset) {
-          top = Math.max(
-            viewportOffsetTop + safeInset,
-            viewportBottom - contentHeight - safeInset,
-          );
-        }
-        const left = Math.min(
-          Math.max(viewportOffsetLeft + safeInset, anchorLeft),
-          Math.max(
-            viewportOffsetLeft + safeInset,
-            viewportRight - resolvedWidth - safeInset,
-          ),
-        );
-
-        dialogContent.style.position = "fixed";
-        dialogContent.style.top = `${Math.round(top)}px`;
-        dialogContent.style.left = `${Math.round(left)}px`;
-        dialogContent.style.right = "auto";
-        dialogContent.style.bottom = "auto";
-        dialogContent.style.margin = "0";
-      };
-
-      const scheduleDialogLayout = () => {
-        if (typeof window.requestAnimationFrame === "function") {
-          window.requestAnimationFrame(syncDialogLayout);
-          return;
-        }
-        window.setTimeout(syncDialogLayout, 16);
-      };
-
-      bindModalAction(modal, clearButton, () => {
-        settleDialog("");
-      });
-      bindModalAction(modal, cancelButton, () => {
-        settleDialog(null);
-      });
-      bindModalAction(modal, confirmButton, () => {
-        if (normalizedInputType === "date") {
-          settleDialog(formatManagedNativePickerDateValue(selectedDate));
-          return;
-        }
-        if (normalizedInputType === "time") {
-          settleDialog(
-            formatManagedNativePickerTimeValue(selectedHours, selectedMinutes),
-          );
-          return;
-        }
-        settleDialog(
-          formatManagedNativePickerDateTimeLocalValue(
-            new Date(
-              selectedDate.getFullYear(),
-              selectedDate.getMonth(),
-              selectedDate.getDate(),
-              selectedHours,
-              selectedMinutes,
-              0,
-              0,
-            ),
-          ),
-        );
-      });
-      if (!useInlinePanel) {
-        bindModalBackdropDismiss(modal, () => {
-          settleDialog(null);
-        });
-
-        prepareModalOverlay(modal, {
-          zIndex: getManagedNativePickerModalZIndex(input),
-          scope: "viewport",
-          alignItems: useAnchoredPanel ? "flex-start" : "center",
-          justifyContent: useAnchoredPanel ? "flex-start" : "center",
-          keyboardConfirmSelector: "[data-managed-picker-confirm]",
-          keyboardCancelSelector: "[data-managed-picker-cancel]",
-        });
-        modal.__controlerCloseModal = () => settleDialog(null);
-        if (useAnchoredPanel) {
-          modal.style.backgroundColor = "transparent";
-          modal.style.padding = "0";
-          modal.style.overflow = "visible";
-        }
-      } else {
-        const inlineMountHost =
-          hostModal instanceof HTMLElement && hostModal.isConnected
-            ? hostModal
-            : document.body;
-        modal.style.position = "absolute";
-        modal.style.inset = "0";
-        modal.style.display = "block";
-        modal.style.pointerEvents = "none";
-        modal.style.overflow = "visible";
-        modal.style.zIndex = "3";
-        if (
-          inlineMountHost instanceof HTMLElement &&
-          modal.parentElement !== inlineMountHost
-        ) {
-          inlineMountHost.appendChild(modal);
-        } else if (!modal.isConnected && document.body) {
-          document.body.appendChild(modal);
-        }
-        if (dialogContent instanceof HTMLElement) {
-          dialogContent.style.pointerEvents = "auto";
-        }
-        const handleOutsidePointerDown = (event) => {
-          const eventTarget =
-            event.target instanceof HTMLElement
-              ? event.target
-              : event.target instanceof Node
-                ? event.target.parentElement
-                : null;
-          if (
-            eventTarget instanceof HTMLElement &&
-            (modal.contains(eventTarget) ||
-              eventTarget === input ||
-              input.contains?.(eventTarget))
-          ) {
-            return;
-          }
-          settleDialog(null);
-        };
-        const handleInlineKeydown = (event) => {
-          if (event.key !== "Escape" || event.defaultPrevented) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          if (typeof event.stopImmediatePropagation === "function") {
-            event.stopImmediatePropagation();
-          }
-          settleDialog(null);
-        };
-        window.setTimeout(() => {
-          if (dialogSettled) {
-            return;
-          }
-          document.addEventListener("pointerdown", handleOutsidePointerDown, true);
-          document.addEventListener("keydown", handleInlineKeydown, true);
-        }, 0);
-        anchoredCleanupTasks.push(() => {
-          document.removeEventListener(
-            "pointerdown",
-            handleOutsidePointerDown,
-            true,
-          );
-          document.removeEventListener("keydown", handleInlineKeydown, true);
-        });
-        if (typeof MutationObserver === "function" && document.body) {
-          const inlineObserver = new MutationObserver(() => {
-            if (dialogSettled) {
-              return;
-            }
-            if (
-              !input.isConnected ||
-              !(hostModal instanceof HTMLElement) ||
-              !hostModal.isConnected
-            ) {
-              settleDialog(null);
-            }
-          });
-          inlineObserver.observe(document.body, {
-            childList: true,
-            subtree: true,
-          });
-          anchoredCleanupTasks.push(() => {
-            inlineObserver.disconnect();
-          });
-        }
-        modal.__controlerCloseModal = () => settleDialog(null);
-      }
-      const handleViewportSync = () => {
-        scheduleDialogLayout();
-      };
-      window.addEventListener("resize", handleViewportSync, true);
-      window.visualViewport?.addEventListener?.("resize", handleViewportSync);
-      window.visualViewport?.addEventListener?.("scroll", handleViewportSync);
-      anchoredCleanupTasks.push(() => {
-        window.removeEventListener("resize", handleViewportSync, true);
-        window.visualViewport?.removeEventListener?.(
-          "resize",
-          handleViewportSync,
-        );
-        window.visualViewport?.removeEventListener?.(
-          "scroll",
-          handleViewportSync,
-        );
-      });
-      if (useAnchoredPanel) {
-        window.addEventListener("scroll", handleViewportSync, true);
-        anchoredCleanupTasks.push(() => {
-          window.removeEventListener("scroll", handleViewportSync, true);
-        });
-      }
-      scheduleDialogLayout();
-      window.setTimeout(scheduleDialogLayout, 0);
-      window.setTimeout(scheduleDialogLayout, 80);
-      if (!useInlinePanel) {
-        activateModalInteractionShield(180);
-        window.setTimeout(() => {
-          (useAnchoredPanel ? null : confirmButton)?.focus?.();
-        }, 0);
-      }
-    });
-  }
-
-  function openManagedNativePickerForInput(input) {
-    if (!(input instanceof HTMLInputElement) || input.disabled) {
-      return Promise.resolve(false);
-    }
-    if (input.__controlerManagedNativePickerOpening === true) {
-      return Promise.resolve(false);
-    }
-    const hostModal =
-      input.closest(".modal-overlay") instanceof HTMLElement
-        ? input.closest(".modal-overlay")
-        : null;
-    document
-      .querySelectorAll(
-        ".controler-themed-picker-overlay, .controler-themed-picker-inline-layer",
-      )
-      .forEach((openPickerOverlay) => {
-        if (
-          openPickerOverlay instanceof HTMLElement &&
-          openPickerOverlay !== input.closest(".controler-themed-picker-overlay") &&
-          openPickerOverlay !== input.closest(".controler-themed-picker-inline-layer")
-        ) {
-          closeManagedNativePickerSurface(openPickerOverlay);
-        }
-      });
-    input.__controlerManagedNativePickerOpening = true;
-    if (isAndroidNativeRuntime()) {
-      suppressAndroidModalAutofocus(hostModal, 520);
-      releaseAndroidInteractiveTextControlFocus();
-    }
-    input.blur?.();
-    return showManagedNativePickerDialog(input)
-      .then((nextValue) => {
-        if (typeof nextValue === "string") {
-          applyManagedNativePickerValue(input, nextValue);
-          return true;
-        }
-        return false;
-      })
-      .finally(() => {
-        if (isAndroidNativeRuntime()) {
-          suppressAndroidModalAutofocus(hostModal, 420);
-        }
-        input.__controlerManagedNativePickerOpening = false;
-      });
-  }
-
-  function enhanceManagedNativePickerInput(input) {
+  function enhanceNativePickerInput(input) {
+    const inputType = String(input?.type || "").trim().toLowerCase();
     if (
       !(input instanceof HTMLInputElement) ||
-      input.__controlerManagedNativePickerApi ||
-      !MANAGED_NATIVE_PICKER_TYPES.has(String(input.type || "").trim().toLowerCase())
+      input.__controlerNativePickerApi ||
+      !NATIVE_PICKER_TYPES.has(inputType)
     ) {
-      return input?.__controlerManagedNativePickerApi || null;
+      return input?.__controlerNativePickerApi || null;
     }
 
+    let openedFromPointerDown = false;
     const openPicker = (event) => {
-      if (event) {
+      const opened = openSystemNativePicker(input);
+      if (!opened) {
+        return false;
+      }
+      event?.preventDefault();
+      event?.stopPropagation();
+      event?.stopImmediatePropagation?.();
+      return true;
+    };
+    const handlePointerDown = (event) => {
+      if (input.disabled || (event.button !== 0 && event.pointerType !== "touch")) {
+        return;
+      }
+      openedFromPointerDown = openPicker(event);
+    };
+    const handleClick = (event) => {
+      if (openedFromPointerDown) {
+        openedFromPointerDown = false;
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === "function") {
-          event.stopImmediatePropagation();
-        }
-      }
-      void openManagedNativePickerForInput(input);
-    };
-
-    const handleClick = (event) => {
-      if (input.disabled) {
+        event.stopImmediatePropagation?.();
         return;
       }
       openPicker(event);
     };
-
     const handleKeydown = (event) => {
-      if (input.disabled || !["Enter", " ", "ArrowDown"].includes(event.key)) {
+      if (!["Enter", " ", "ArrowDown"].includes(event.key)) {
         return;
       }
       openPicker(event);
     };
-
     const handleFocus = () => {
-      if (document.activeElement === input) {
+      if (getNativeHostPlatform() === "android" && document.activeElement === input) {
         input.blur?.();
       }
     };
 
-    input.dataset.controlerManagedPicker = "true";
+    input.dataset.controlerNativePicker = "true";
     input.setAttribute("inputmode", "none");
     input.autocomplete = "off";
-    if (!input.hasAttribute("readonly")) {
-      input.dataset.controlerManagedPickerReadonly = "true";
-      input.readOnly = true;
-    }
+    input.addEventListener("pointerdown", handlePointerDown);
     input.addEventListener("click", handleClick);
     input.addEventListener("keydown", handleKeydown);
     input.addEventListener("focus", handleFocus);
 
     const api = {
       open() {
-        return openManagedNativePickerForInput(input);
+        return openSystemNativePicker(input);
       },
       destroy() {
+        input.removeEventListener("pointerdown", handlePointerDown);
         input.removeEventListener("click", handleClick);
         input.removeEventListener("keydown", handleKeydown);
         input.removeEventListener("focus", handleFocus);
-        if (input.dataset.controlerManagedPickerReadonly === "true") {
-          input.readOnly = false;
-          delete input.dataset.controlerManagedPickerReadonly;
-        }
         input.removeAttribute("inputmode");
-        delete input.dataset.controlerManagedPicker;
-        delete input.__controlerManagedNativePickerApi;
+        delete input.dataset.controlerNativePicker;
+        delete input.__controlerNativePickerApi;
       },
     };
-
-    input.__controlerManagedNativePickerApi = api;
+    input.__controlerNativePickerApi = api;
     return api;
   }
 
   function enhanceThemedNativePickerInputs(root = document) {
-    if (!shouldUseManagedNativePickerRuntime()) {
-      return [];
-    }
     const normalizedRoot =
       root instanceof Document || root instanceof Element ? root : document;
     const inputCandidates = [];
     if (
       normalizedRoot instanceof HTMLInputElement &&
-      normalizedRoot.matches(MANAGED_NATIVE_PICKER_INPUT_SELECTOR)
+      normalizedRoot.matches(NATIVE_PICKER_INPUT_SELECTOR)
     ) {
       inputCandidates.push(normalizedRoot);
     }
     if (typeof normalizedRoot.querySelectorAll === "function") {
       inputCandidates.push(
-        ...normalizedRoot.querySelectorAll(MANAGED_NATIVE_PICKER_INPUT_SELECTOR),
+        ...normalizedRoot.querySelectorAll(NATIVE_PICKER_INPUT_SELECTOR),
       );
     }
     return inputCandidates
-      .map((inputNode) => enhanceManagedNativePickerInput(inputNode))
+      .map((inputNode) => enhanceNativePickerInput(inputNode))
       .filter(Boolean);
   }
 
-  function initThemedNativePickerInputs() {
-    if (managedNativePickerInitBound) {
+  function initNativePickerInputs() {
+    if (nativePickerInitBound) {
       enhanceThemedNativePickerInputs(document);
       enhanceControlerTimeTextInputs(document);
       return;
     }
-    managedNativePickerInitBound = true;
+    nativePickerInitBound = true;
 
     const bindEnhancers = () => {
-      if (!shouldUseManagedNativePickerRuntime()) {
-        return;
-      }
       enhanceThemedNativePickerInputs(document);
       enhanceControlerTimeTextInputs(document);
-      if (managedNativePickerObserver || !(document.body instanceof HTMLElement)) {
+      if (nativePickerObserver || !(document.body instanceof HTMLElement)) {
         return;
       }
-      managedNativePickerObserver = new MutationObserver((records) => {
+      nativePickerObserver = new MutationObserver((records) => {
         records.forEach((record) => {
           record.addedNodes.forEach((addedNode) => {
             if (!(addedNode instanceof Element)) {
@@ -33674,21 +31189,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           });
         });
       });
-      managedNativePickerObserver.observe(document.body, {
+      nativePickerObserver.observe(document.body, {
         childList: true,
         subtree: true,
       });
     };
 
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", bindEnhancers, {
-        once: true,
-      });
+      document.addEventListener("DOMContentLoaded", bindEnhancers, { once: true });
       return;
     }
     bindEnhancers();
   }
-
   function bindHorizontalDragScroll(container, options = {}) {
     if (!(container instanceof HTMLElement)) return null;
     if (container.__controlerHorizontalDragApi) {
@@ -35263,7 +32775,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   initEditablePageTitles();
   initAndroidInteractiveTextAssist();
   initAndroidPressFeedback();
-  initThemedNativePickerInputs();
+  initNativePickerInputs();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
   scheduleInitialPagePerfReport();
   scheduleTodoSortPreferenceCoreBackfill();
@@ -35273,7 +32785,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     appNavigationItems: APP_NAV_ITEMS.map((item) => ({ ...item })),
     navigateAppPage,
     navigateAppHref,
-    registerBeforePageLeave,
     appNavigationVisibilityEventName: APP_NAV_VISIBILITY_EVENT_NAME,
     getAppNavigationState,
     setAppNavigationState,
@@ -35302,7 +32813,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     enhanceNativeSelect,
     refreshEnhancedSelect,
     enhanceThemedNativePickerInputs,
-    openManagedNativePickerForInput,
     bindHorizontalDragScroll,
     bindVerticalDragScroll,
     bindWindowMoveHandle,

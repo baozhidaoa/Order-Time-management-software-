@@ -27,7 +27,6 @@ import android.provider.DocumentsContract.Document;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.database.Cursor;
@@ -1370,7 +1369,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 Context context = activity;
                 InputMethodManager inputMethodManager =
                     (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
-                showSoftInputWithRetry(activity, inputMethodManager, 0, promise);
+                requestSoftInput(activity, inputMethodManager, false, promise);
             } catch (Exception error) {
                 Log.e(TAG, "showSoftInput failed", error);
                 promise.reject("show_soft_input_failed", error);
@@ -1403,7 +1402,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 Context context = activity;
                 InputMethodManager inputMethodManager =
                     (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
-                restartSoftInputWithRetry(activity, inputMethodManager, 0, promise);
+                requestSoftInput(activity, inputMethodManager, true, promise);
             } catch (Exception error) {
                 Log.e(TAG, "restartSoftInput failed", error);
                 promise.reject("restart_soft_input_failed", error);
@@ -1480,624 +1479,87 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         }
     }
 
-    private void scheduleShowSoftInputAfterRestartIfNeeded(
+    private void requestSoftInput(
         Activity activity,
         InputMethodManager inputMethodManager,
-        View targetView,
-        boolean imeVisible,
-        int attempt
+        boolean restart,
+        Promise promise
     ) {
-        if (
-            activity == null
-                || inputMethodManager == null
-                || targetView == null
-                || imeVisible
-                || attempt != 0
-        ) {
-            return;
-        }
-        MAIN_HANDLER.postDelayed(
-            () -> {
-                try {
-                    if (
-                        !targetView.isAttachedToWindow()
-                            || !hasSoftInputWindowFocus(activity, targetView)
-                            || !targetView.hasFocus()
-                            || !inputMethodManager.isActive(targetView)
-                            || readImeVisibilityState(activity, targetView).actualVisible
-                    ) {
-                        return;
-                    }
-                    notifySoftInputViewClicked(inputMethodManager, targetView);
-                    boolean shown =
-                        requestInputMethodVisibility(
-                            inputMethodManager,
-                            targetView,
-                            InputMethodManager.SHOW_FORCED
+        try {
+            normalizeActivitySoftInputMode(activity);
+            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
+            requestSoftInputTargetFocus(targetView);
+
+            boolean restarted =
+                restart && restartSoftInputConnection(inputMethodManager, targetView);
+            boolean served =
+                inputMethodManager != null &&
+                targetView != null &&
+                inputMethodManager.isActive(targetView);
+            boolean requested = false;
+            ImeVisibilityState imeState = readImeVisibilityState(activity, targetView);
+            if (!imeState.actualVisible && targetView != null) {
+                notifySoftInputViewClicked(inputMethodManager, targetView);
+                requested =
+                    requestInputMethodVisibility(
+                        inputMethodManager,
+                        targetView,
+                        InputMethodManager.SHOW_IMPLICIT
+                    );
+                WindowInsetsControllerCompat controller =
+                    activity.getWindow() == null
+                        ? null
+                        : WindowCompat.getInsetsController(
+                            activity.getWindow(),
+                            targetView
                         );
-                    Log.d(
-                        TAG,
-                        "showSoftInputAfterRestart target="
-                            + targetView.getClass().getName()
-                            + " shown="
-                            + shown
-                    );
-                } catch (Exception ignored) {
+                if (controller != null) {
+                    controller.show(WindowInsetsCompat.Type.ime());
                 }
-            },
-            280L
-        );
-    }
-
-    private void showSoftInputWithRetry(
-        Activity activity,
-        InputMethodManager inputMethodManager,
-        int attempt,
-        Promise promise
-    ) {
-        try {
-            normalizeActivitySoftInputMode(activity);
-            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
-            boolean webViewTarget = isLikelySoftInputHost(targetView);
-            WindowInsetsControllerCompat insetsController =
-                activity.getWindow() == null || targetView == null
-                    ? null
-                    : WindowCompat.getInsetsController(activity.getWindow(), targetView);
-            requestSoftInputTargetFocus(targetView);
-
-            ImeVisibilityState initialImeState = readImeVisibilityState(activity, targetView);
-            boolean focused = targetView != null && targetView.hasFocus();
-            boolean served =
-                inputMethodManager != null &&
-                targetView != null &&
-                inputMethodManager.isActive(targetView);
-            boolean restartedInputConnection = false;
-            boolean imeVisibleBefore = initialImeState.actualVisible;
-            boolean requestedViaInputMethod = false;
-            boolean requestedViaForcedInputMethod = false;
-            boolean requestedViaViewClick = false;
-            boolean requestedViaInsets = false;
-            if (
-                !imeVisibleBefore
-                    && inputMethodManager != null
-                    && targetView != null
-                    && (focused || served || webViewTarget)
-            ) {
-                restartedInputConnection =
-                    restartSoftInputConnection(inputMethodManager, targetView);
-            }
-            if (
-                !imeVisibleBefore
-                    && inputMethodManager != null
-                    && targetView != null
-                    && (focused || served || webViewTarget)
-            ) {
-                requestedViaViewClick =
-                    notifySoftInputViewClicked(inputMethodManager, targetView);
-            }
-            if (
-                !imeVisibleBefore &&
-                (focused || served || webViewTarget) &&
-                inputMethodManager != null &&
-                targetView != null
-            ) {
-                requestedViaInputMethod =
-                    requestInputMethodVisibility(
-                        inputMethodManager,
-                        targetView,
-                        resolveSoftInputShowFlags(attempt)
-                    );
-            }
-            ImeVisibilityState afterInputMethodState = readImeVisibilityState(activity, targetView);
-            if (
-                !afterInputMethodState.actualVisible
-                    && shouldUseForcedSoftInputShowFallback(
-                        attempt,
-                        targetView,
-                        focused,
-                        served
-                    )
-                    && inputMethodManager != null
-                    && targetView != null
-            ) {
-                requestedViaForcedInputMethod =
-                    requestInputMethodVisibility(
-                        inputMethodManager,
-                        targetView,
-                        InputMethodManager.SHOW_FORCED
-                    );
-            }
-            if (!afterInputMethodState.actualVisible && insetsController != null) {
-                insetsController.show(WindowInsetsCompat.Type.ime());
-                requestedViaInsets = true;
-            }
-            ImeVisibilityState finalImeState = readImeVisibilityState(activity, targetView);
-            boolean imeVisible = finalImeState.actualVisible;
-            boolean shown =
-                imeVisible
-                    || requestedViaInputMethod
-                    || requestedViaForcedInputMethod
-                    || requestedViaInsets;
-
-            Log.d(
-                TAG,
-                "showSoftInput target="
-                    + (targetView == null ? "null" : targetView.getClass().getName())
-                    + " webViewTarget="
-                    + webViewTarget
-                    + " focused="
-                    + focused
-                    + " served="
-                    + served
-                    + " shown="
-                    + shown
-                    + " requestedViaInputMethod="
-                    + requestedViaInputMethod
-                    + " requestedViaForcedInputMethod="
-                    + requestedViaForcedInputMethod
-                    + " requestedViaViewClick="
-                    + requestedViaViewClick
-                    + " restartedInputConnection="
-                    + restartedInputConnection
-                    + " imeVisible="
-                    + imeVisible
-                    + " imeReportedVisible="
-                    + finalImeState.reportedVisible
-                    + " imeBottomInset="
-                    + finalImeState.imeBottomInset
-                    + " navBottomInset="
-                    + finalImeState.navigationBottomInset
-                    + " requestedViaInsets="
-                    + requestedViaInsets
-                    + " attempt="
-                    + attempt
-            );
-            if (
-                shouldRetryShowSoftInput(
-                    activity,
-                    targetView,
-                    focused,
-                    imeVisible,
-                    attempt
-                )
-                && attempt < 2) {
-                final int nextAttempt = attempt + 1;
-                final long retryDelayMs = nextAttempt == 1 ? 96L : 220L;
-                MAIN_HANDLER.postDelayed(
-                    () -> showSoftInputWithRetry(activity, inputMethodManager, nextAttempt, promise),
-                    retryDelayMs
-                );
-                return;
             }
 
-            JSONObject result = new JSONObject();
-            result.put("ok", targetView != null);
-            result.put("shown", shown);
-            result.put("focused", focused);
-            result.put("served", served);
-            result.put("reportedVisible", finalImeState.reportedVisible);
-            result.put("actualVisible", finalImeState.actualVisible);
-            result.put(
-                "targetClass",
-                targetView == null ? "" : targetView.getClass().getName()
-            );
-            result.put(
-                "message",
-                targetView == null
-                    ? "未找到可聚焦的输入承载视图。"
-                    : served || shown
-                        ? ""
-                        : "输入目标尚未接管输入法服务。"
-            );
-            promise.resolve(result.toString());
-        } catch (Exception error) {
-            Log.e(TAG, "showSoftInput failed", error);
-            promise.reject("show_soft_input_failed", error);
-        }
-    }
-
-    private void restartSoftInputWithRetry(
-        Activity activity,
-        InputMethodManager inputMethodManager,
-        int attempt,
-        Promise promise
-    ) {
-        try {
-            normalizeActivitySoftInputMode(activity);
-            View targetView = resolveSoftInputTarget(activity, inputMethodManager);
-            boolean webViewTarget = isLikelySoftInputHost(targetView);
-            WindowInsetsControllerCompat insetsController =
-                activity.getWindow() == null || targetView == null
-                    ? null
-                    : WindowCompat.getInsetsController(activity.getWindow(), targetView);
-            requestSoftInputTargetFocus(targetView);
-
-            ImeVisibilityState initialImeState = readImeVisibilityState(activity, targetView);
-            boolean restarted = false;
-            if (
-                !initialImeState.actualVisible
-                    && inputMethodManager != null
-                    && targetView != null
-                    && (attempt == 0 || webViewTarget)
-            ) {
-                restarted = restartSoftInputConnection(inputMethodManager, targetView);
-            }
-            boolean focused = targetView != null && targetView.hasFocus();
-            boolean served =
-                inputMethodManager != null &&
-                targetView != null &&
-                inputMethodManager.isActive(targetView);
-            boolean imeVisibleBefore = initialImeState.actualVisible;
-            boolean requestedViaInputMethod = false;
-            boolean requestedViaForcedInputMethod = false;
-            boolean requestedViaViewClick = false;
-            boolean requestedViaInsets = false;
-            if (
-                !imeVisibleBefore
-                    && inputMethodManager != null
-                    && targetView != null
-                    && (focused || served || webViewTarget)
-            ) {
-                requestedViaViewClick =
-                    notifySoftInputViewClicked(inputMethodManager, targetView);
-            }
-            if (
-                !imeVisibleBefore
-                    && targetView != null
-                    && inputMethodManager != null
-                    && (focused || served || webViewTarget)
-            ) {
-                requestedViaInputMethod =
-                    requestInputMethodVisibility(
-                        inputMethodManager,
-                        targetView,
-                        resolveSoftInputShowFlags(attempt)
-                    );
-            }
-            ImeVisibilityState afterInputMethodState = readImeVisibilityState(activity, targetView);
-            if (
-                !afterInputMethodState.actualVisible
-                    && shouldUseForcedSoftInputShowFallback(
-                        attempt,
-                        targetView,
-                        focused,
-                        served
-                    )
-                    && inputMethodManager != null
-                    && targetView != null
-            ) {
-                requestedViaForcedInputMethod =
-                    requestInputMethodVisibility(
-                        inputMethodManager,
-                        targetView,
-                        InputMethodManager.SHOW_FORCED
-                    );
-            }
-            if (!afterInputMethodState.actualVisible && insetsController != null) {
-                insetsController.show(WindowInsetsCompat.Type.ime());
-                requestedViaInsets = true;
-            }
-            ImeVisibilityState finalImeState = readImeVisibilityState(activity, targetView);
-            boolean imeVisible = finalImeState.actualVisible;
-            boolean shown =
-                imeVisible
-                    || requestedViaInputMethod
-                    || requestedViaForcedInputMethod
-                    || requestedViaInsets;
-
-            Log.d(
-                TAG,
-                "restartSoftInput target="
-                    + (targetView == null ? "null" : targetView.getClass().getName())
-                    + " focused="
-                    + focused
-                    + " served="
-                    + served
-                    + " shown="
-                    + shown
-                    + " requestedViaInputMethod="
-                    + requestedViaInputMethod
-                    + " requestedViaForcedInputMethod="
-                    + requestedViaForcedInputMethod
-                    + " requestedViaViewClick="
-                    + requestedViaViewClick
-                    + " imeVisible="
-                    + imeVisible
-                    + " imeReportedVisible="
-                    + finalImeState.reportedVisible
-                    + " imeBottomInset="
-                    + finalImeState.imeBottomInset
-                    + " navBottomInset="
-                    + finalImeState.navigationBottomInset
-                    + " restarted="
-                    + restarted
-                    + " requestedViaInsets="
-                    + requestedViaInsets
-                    + " attempt="
-                    + attempt
-            );
-
-            scheduleShowSoftInputAfterRestartIfNeeded(
-                activity,
-                inputMethodManager,
-                targetView,
-                imeVisible,
-                attempt
-            );
-
-            if (
-                shouldRetryShowSoftInput(
-                    activity,
-                    targetView,
-                    focused,
-                    imeVisible,
-                    attempt
-                )
-                    && attempt < 2
-            ) {
-                final int nextAttempt = attempt + 1;
-                final long retryDelayMs = nextAttempt == 1 ? 64L : 160L;
-                MAIN_HANDLER.postDelayed(
-                    () ->
-                        restartSoftInputWithRetry(
-                            activity,
-                            inputMethodManager,
-                            nextAttempt,
-                            promise
-                        ),
-                    retryDelayMs
-                );
-                return;
-            }
-
+            ImeVisibilityState finalState = readImeVisibilityState(activity, targetView);
             JSONObject result = new JSONObject();
             result.put("ok", targetView != null);
             result.put("restarted", restarted);
-            result.put("shown", shown);
-            result.put("focused", focused);
+            result.put("shown", finalState.actualVisible || requested);
+            result.put("focused", targetView != null && targetView.hasFocus());
             result.put("served", served);
-            result.put("reportedVisible", finalImeState.reportedVisible);
-            result.put("actualVisible", finalImeState.actualVisible);
+            result.put("reportedVisible", finalState.reportedVisible);
+            result.put("actualVisible", finalState.actualVisible);
             result.put(
                 "targetClass",
                 targetView == null ? "" : targetView.getClass().getName()
             );
-            result.put(
-                "message",
-                targetView == null
-                    ? "未找到可聚焦的输入承载视图。"
-                    : restarted
-                        ? ""
-                        : "输入目标尚未接管输入法服务。"
-            );
+            result.put("message", targetView == null ? "未找到可聚焦的输入承载视图。" : "");
             promise.resolve(result.toString());
         } catch (Exception error) {
-            Log.e(TAG, "restartSoftInput failed", error);
-            promise.reject("restart_soft_input_failed", error);
+            Log.e(TAG, "requestSoftInput failed", error);
+            promise.reject("show_soft_input_failed", error);
         }
     }
-
-    private boolean shouldRetryShowSoftInput(
-        Activity activity,
-        View targetView,
-        boolean focused,
-        boolean imeVisible,
-        int attempt
-    ) {
-        if (activity == null || targetView == null) {
-            return false;
-        }
-        if (
-            imeVisible
-                || !targetView.isAttachedToWindow()
-                || !isViewHierarchyVisible(targetView)
-        ) {
-            return false;
-        }
-        if (!hasSoftInputWindowFocus(activity, targetView)) {
-            return attempt < 2;
-        }
-        View currentFocus = activity.getCurrentFocus();
-        View decorView =
-            activity.getWindow() == null ? null : activity.getWindow().getDecorView();
-        View decorFocus = decorView == null ? null : decorView.findFocus();
-        return (
-            focused ||
-            targetView == currentFocus ||
-            targetView == decorFocus ||
-            isLikelySoftInputHost(targetView)
-        );
-    }
-
     private View resolveSoftInputTarget(
         Activity activity,
         InputMethodManager inputMethodManager
     ) {
-        if (activity == null) {
+        if (activity == null || activity.getWindow() == null) {
             return null;
         }
-        View decorView =
-            activity.getWindow() == null ? null : activity.getWindow().getDecorView();
         View currentFocus = activity.getCurrentFocus();
-        View decorFocus = decorView == null ? null : decorView.findFocus();
-        ArrayList<View> candidates = new ArrayList<>();
-        addSoftInputCandidate(candidates, currentFocus);
-        addSoftInputCandidate(candidates, decorFocus);
-        addSoftInputCandidate(candidates, decorView);
-        collectSoftInputCandidates(decorView, candidates);
-
-        View bestTarget = null;
-        int bestScore = Integer.MIN_VALUE;
-        for (View candidate : candidates) {
-            int score =
-                scoreSoftInputTarget(candidate, currentFocus, decorFocus, inputMethodManager);
-            if (score > bestScore) {
-                bestScore = score;
-                bestTarget = candidate;
-            }
-        }
-        if (bestTarget != null) {
-            return bestTarget;
-        }
-        if (decorFocus != null) {
-            return decorFocus;
-        }
         if (currentFocus != null) {
             return currentFocus;
         }
-        return decorView;
-    }
-
-    private void addSoftInputCandidate(ArrayList<View> candidates, View candidate) {
-        if (candidate == null) {
-            return;
-        }
-        for (View existing : candidates) {
-            if (existing == candidate) {
-                return;
-            }
-        }
-        candidates.add(candidate);
-    }
-
-    private void collectSoftInputCandidates(View root, ArrayList<View> candidates) {
-        if (root == null) {
-            return;
-        }
-        if (root.isFocusable() || isLikelySoftInputHost(root)) {
-            addSoftInputCandidate(candidates, root);
-        }
-        if (!(root instanceof ViewGroup)) {
-            return;
-        }
-        ViewGroup group = (ViewGroup) root;
-        for (int index = 0; index < group.getChildCount(); index++) {
-            collectSoftInputCandidates(group.getChildAt(index), candidates);
-        }
-    }
-
-    private boolean isLikelySoftInputHost(View view) {
-        if (view == null) {
-            return false;
-        }
-        String className = view.getClass().getName();
-        return className.contains("RNCWebView") || className.contains("WebView");
-    }
-
-    private boolean isViewHierarchyVisible(View view) {
-        if (view == null || !view.isAttachedToWindow()) {
-            return false;
-        }
-        View current = view;
-        while (current != null) {
-            if (current.getVisibility() != View.VISIBLE || current.getAlpha() <= 0.01f) {
-                return false;
-            }
-            if (!(current.getParent() instanceof View)) {
-                break;
-            }
-            current = (View) current.getParent();
-        }
-        return view.getWidth() > 0 && view.getHeight() > 0;
-    }
-
-    private int scoreSoftInputTarget(
-        View candidate,
-        View currentFocus,
-        View decorFocus,
-        InputMethodManager inputMethodManager
-    ) {
-        if (candidate == null) {
-            return Integer.MIN_VALUE;
-        }
-        int score = 0;
-        if (candidate == currentFocus) {
-            score += 18;
-        }
-        if (candidate == decorFocus) {
-            score += 14;
-        }
-        if (candidate.hasFocus()) {
-            score += 18;
-        }
-        if (candidate.hasWindowFocus()) {
-            score += 8;
-        }
-        if (candidate.isAttachedToWindow()) {
-            score += 6;
-        }
-        if (isViewHierarchyVisible(candidate)) {
-            score += 8;
-        } else {
-            score -= 24;
-        }
-        if (isLikelySoftInputHost(candidate)) {
-            score += 12;
-        }
-        if (inputMethodManager != null && inputMethodManager.isActive(candidate)) {
-            score += 36;
-        }
-        return score;
-    }
-
-    private void requestSoftInputTargetFocus(View targetView) {
-        if (targetView == null) {
-            return;
-        }
-        if (isLikelySoftInputHost(targetView)) {
-            try {
-                targetView.setFocusable(true);
-            } catch (Exception ignored) {
-            }
-            try {
-                targetView.setFocusableInTouchMode(true);
-            } catch (Exception ignored) {
-            }
-            if (targetView.hasFocus()) {
-                return;
-            }
-            try {
-                targetView.requestFocusFromTouch();
-            } catch (Exception ignored) {
-            }
-            try {
-                targetView.requestFocus();
-            } catch (Exception ignored) {
-            }
-            return;
-        }
-        try {
-            targetView.setFocusable(true);
-        } catch (Exception ignored) {
-        }
-        try {
-            targetView.setFocusableInTouchMode(true);
-        } catch (Exception ignored) {
-        }
-        if (targetView.hasFocus()) {
-            return;
-        }
-        try {
-            targetView.requestFocusFromTouch();
-        } catch (Exception ignored) {
-        }
-        try {
-            targetView.requestFocus();
-        } catch (Exception ignored) {
-        }
-    }
-
-    private boolean hasSoftInputWindowFocus(Activity activity, View targetView) {
-        if (targetView != null && targetView.hasWindowFocus()) {
-            return true;
-        }
-        if (activity == null || activity.getWindow() == null) {
-            return false;
-        }
         View decorView = activity.getWindow().getDecorView();
-        return decorView != null && decorView.hasWindowFocus();
+        View decorFocus = decorView == null ? null : decorView.findFocus();
+        return decorFocus != null ? decorFocus : decorView;
     }
-
+    private void requestSoftInputTargetFocus(View targetView) {
+        if (targetView == null || targetView.hasFocus()) {
+            return;
+        }
+        targetView.setFocusableInTouchMode(true);
+        targetView.requestFocusFromTouch();
+    }
     private boolean restartSoftInputConnection(
         InputMethodManager inputMethodManager,
         View targetView
@@ -2111,21 +1573,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
         } catch (Exception ignored) {
             return false;
         }
-    }
-
-    private int resolveSoftInputShowFlags(int attempt) {
-        return attempt > 0
-            ? InputMethodManager.SHOW_FORCED
-            : InputMethodManager.SHOW_IMPLICIT;
-    }
-
-    private boolean shouldUseForcedSoftInputShowFallback(
-        int attempt,
-        View targetView,
-        boolean focused,
-        boolean served
-    ) {
-        return attempt > 0 && targetView != null && (focused || served || isLikelySoftInputHost(targetView));
     }
 
     private boolean notifySoftInputViewClicked(
@@ -2166,7 +1613,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             activity
                 .getWindow()
                 .setSoftInputMode(
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
                         | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
                 );
         } catch (Exception ignored) {

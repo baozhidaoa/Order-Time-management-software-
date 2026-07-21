@@ -1,7 +1,7 @@
 <resources>
 
     <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
@@ -9,6 +9,7 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 
     <style name="AppThemeLaunchDefault" parent="Theme.SplashScreen">
@@ -61,17 +62,17 @@
     </style>
 
     <style name="AppThemeLaunchAuroraMist" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#341D28</item>
+        <item name="windowSplashScreenBackground">#362226</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/AppTheme</item>
-        <item name="android:windowBackground">#341D28</item>
+        <item name="android:windowBackground">#362226</item>
     </style>
 
     <style name="AppThemeLaunchAmethystHaze" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#24192F</item>
+        <item name="windowSplashScreenBackground">#141826</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/AppTheme</item>
-        <item name="android:windowBackground">#24192F</item>
+        <item name="android:windowBackground">#141826</item>
     </style>
 
     <style name="AppThemeLaunchVelvetBordeaux" parent="Theme.SplashScreen">
@@ -110,10 +111,10 @@
     </style>
 
     <style name="AppThemeLaunchMidnightIndigo" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#352211</item>
+        <item name="windowSplashScreenBackground">#111722</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/AppTheme</item>
-        <item name="android:windowBackground">#352211</item>
+        <item name="android:windowBackground">#111722</item>
     </style>
 
     <style name="ControlerWidgetQuickAddTheme" parent="Theme.AppCompat.DayNight.Dialog">

@@ -2536,7 +2536,6 @@ const indexPendingPersistenceTasks = new Set();
 const indexBlockingPersistenceTasks = new Set();
 const indexPendingRecordSaveIds = new Set();
 let indexLastPersistenceError = null;
-let indexBeforePageLeaveGuardBound = false;
 let indexRecordMutationRevision = 0;
 let indexRecordPersistenceChain = Promise.resolve();
 let indexProjectPersistenceChain = Promise.resolve();
@@ -5004,6 +5003,61 @@ function setProjectTotalsExpanded(project, expanded) {
   );
 }
 
+function captureProjectViewScrollPosition() {
+  const containers = [
+    document.getElementById("project-container"),
+    document.getElementById("projects-table"),
+    document.getElementById("project-totals"),
+  ];
+
+  return {
+    windowLeft: Math.max(window.scrollX || window.pageXOffset || 0, 0),
+    windowTop: Math.max(window.scrollY || window.pageYOffset || 0, 0),
+    containers: containers
+      .filter((container) => container instanceof HTMLElement)
+      .map((container) => ({
+        container,
+        scrollLeft: Math.max(container.scrollLeft || 0, 0),
+        scrollTop: Math.max(container.scrollTop || 0, 0),
+      })),
+  };
+}
+
+function restoreProjectViewScrollPosition(scrollPosition) {
+  if (!scrollPosition) {
+    return;
+  }
+
+  const restore = () => {
+    window.scrollTo(scrollPosition.windowLeft, scrollPosition.windowTop);
+    scrollPosition.containers.forEach(
+      ({ container, scrollLeft, scrollTop }) => {
+        if (!container.isConnected) {
+          return;
+        }
+        container.scrollLeft = scrollLeft;
+        container.scrollTop = scrollTop;
+      },
+    );
+  };
+
+  restore();
+  const schedule =
+    typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 0);
+  schedule(() => {
+    restore();
+    schedule(restore);
+  });
+}
+
+function updateProjectViewPreservingScroll(update) {
+  const scrollPosition = captureProjectViewScrollPosition();
+  update();
+  restoreProjectViewScrollPosition(scrollPosition);
+}
+
 function createProjectTotalSingleSummaryNode(
   projectNode,
   directMs,
@@ -5322,11 +5376,13 @@ function renderProjectTotalTreeNode(
 
     if (expandable) {
       const toggleExpanded = () => {
-        setProjectTotalsExpanded(
-          projectNode,
-          !isProjectTotalsExpanded(projectNode),
-        );
-        updateProjectTotals();
+        updateProjectViewPreservingScroll(() => {
+          setProjectTotalsExpanded(
+            projectNode,
+            !isProjectTotalsExpanded(projectNode),
+          );
+          updateProjectTotals();
+        });
       };
       header.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -5495,11 +5551,13 @@ function renderProjectTotalTreeNode(
   if (expandable) {
     header.addEventListener("click", (event) => {
       event.stopPropagation();
-      setProjectTotalsExpanded(
-        projectNode,
-        !isProjectTotalsExpanded(projectNode),
-      );
-      updateProjectTotals();
+      updateProjectViewPreservingScroll(() => {
+        setProjectTotalsExpanded(
+          projectNode,
+          !isProjectTotalsExpanded(projectNode),
+        );
+        updateProjectTotals();
+      });
     });
   }
 
@@ -16265,19 +16323,6 @@ async function settleIndexTrackedPersistenceTasks(tasks = [], options = {}) {
   }
 }
 
-function registerIndexBeforePageLeaveGuard() {
-  if (indexBeforePageLeaveGuardBound) {
-    return;
-  }
-  indexBeforePageLeaveGuardBound = true;
-  uiTools?.registerBeforePageLeave?.(async () => {
-    return flushIndexPendingPersistence({
-      allowDeferredBarrier: true,
-      barrierTimeoutMs: INDEX_PAGE_LEAVE_PERSISTENCE_BARRIER_MS,
-    });
-  });
-}
-
 // 存储功能
 function persistIndexProjectSnapshot(projectList = projects, options = {}) {
   const projectSnapshot = cloneIndexValue(
@@ -17666,10 +17711,6 @@ async function finalizeIndexInitialHydration(options = {}) {
 }
 
 async function hydrateIndexInitialForegroundWorkspace() {
-  setIndexLoadingState({
-    active: true,
-    mode: indexInitialDataLoaded ? "inline" : "fullscreen",
-  });
   try {
     await ensureIndexForegroundBootstrapReady();
     emitIndexDebugPerf("hydrate-index-start", {
@@ -17718,10 +17759,6 @@ async function hydrateIndexInitialForegroundWorkspace() {
           : "",
     });
     throw error;
-  } finally {
-    await setIndexLoadingState({
-      active: false,
-    });
   }
 }
 
@@ -17876,66 +17913,55 @@ function renderIndexBootstrapError(error, stage = "init") {
 // 初始化
 async function init() {
   scheduleIndexChartRuntimePreload();
-  setIndexLoadingState({
-    active: true,
-    mode: "fullscreen",
-  });
-  try {
-    applyIndexDesktopWidgetMode();
-    loadRecordSectionCollapseStateFromStorage();
-    ensureRecordSectionCollapseUi();
-    bindIndexShellVisibilityGate();
-    bindIndexThemeRefresh();
-    registerIndexBeforePageLeaveGuard();
-    initIndexPrimaryBindings();
-    initIndexModalBindings();
-    bindIndexDebugInteractivityProbe();
-    initIndexWidgetLaunchAction();
-    const shouldForceFreshTransitionBootstrap =
-      window.ControlerStorage?.isNativeApp === true &&
-      (!indexShellPageActive || isIndexShellTransitionLoading());
-    const bootstrappedSnapshot = shouldForceFreshTransitionBootstrap
-      ? null
-      : bootstrapIndexFromCachedSnapshot();
-    if (bootstrappedSnapshot) {
-      await commitIndexWorkspaceSnapshot({
-        markFirstCommit: true,
-        writeTrustedBootstrap: false,
-      });
-      markIndexInitialDataReady(bootstrappedSnapshot);
-      await finalizeIndexInitialHydration();
-      void ensureIndexForegroundBootstrapReady()
-        .then(() => {
-          if (!indexInitialDataValidated) {
-            return scheduleIndexDeferredWorkspaceHydration();
-          }
-          return null;
-        })
-        .catch((error) => {
-          console.error("记录页后台校验快照失败:", error);
-        });
-      return;
-    }
-    if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
-      indexDeferredHydrationPendingResume = true;
-      return;
-    }
-    await ensureIndexForegroundBootstrapReady();
-
-    if (isIndexWidgetTimerFastPath()) {
-      await hydrateIndexInitialForegroundWorkspace();
-      return;
-    }
-
-    window.setTimeout(() => {
-      reportIndexDebugInteractivityState("post-init");
-    }, 800);
-    await hydrateIndexInitialForegroundWorkspace();
-  } finally {
-    await setIndexLoadingState({
-      active: false,
+  applyIndexDesktopWidgetMode();
+  loadRecordSectionCollapseStateFromStorage();
+  ensureRecordSectionCollapseUi();
+  bindIndexShellVisibilityGate();
+  bindIndexThemeRefresh();
+  initIndexPrimaryBindings();
+  initIndexModalBindings();
+  bindIndexDebugInteractivityProbe();
+  initIndexWidgetLaunchAction();
+  const shouldForceFreshTransitionBootstrap =
+    window.ControlerStorage?.isNativeApp === true &&
+    (!indexShellPageActive || isIndexShellTransitionLoading());
+  const bootstrappedSnapshot = shouldForceFreshTransitionBootstrap
+    ? null
+    : bootstrapIndexFromCachedSnapshot();
+  if (bootstrappedSnapshot) {
+    await commitIndexWorkspaceSnapshot({
+      markFirstCommit: true,
+      writeTrustedBootstrap: false,
     });
+    markIndexInitialDataReady(bootstrappedSnapshot);
+    await finalizeIndexInitialHydration();
+    void ensureIndexForegroundBootstrapReady()
+      .then(() => {
+        if (!indexInitialDataValidated) {
+          return scheduleIndexDeferredWorkspaceHydration();
+        }
+        return null;
+      })
+      .catch((error) => {
+        console.error("记录页后台校验快照失败:", error);
+      });
+    return;
   }
+  if (!indexShellPageActive && !isIndexShellTransitionLoading()) {
+    indexDeferredHydrationPendingResume = true;
+    return;
+  }
+  await ensureIndexForegroundBootstrapReady();
+
+  if (isIndexWidgetTimerFastPath()) {
+    await hydrateIndexInitialForegroundWorkspace();
+    return;
+  }
+
+  window.setTimeout(() => {
+    reportIndexDebugInteractivityState("post-init");
+  }, 800);
+  await hydrateIndexInitialForegroundWorkspace();
 }
 
 function attachTableLongPressDrag(element) {
@@ -18293,11 +18319,13 @@ function renderProjectsTable() {
     level1Header.addEventListener("drop", handleTableDrop);
     level1Header.addEventListener("dragend", handleTableDragEnd);
     bindProjectTableHeaderClickActions(level1Header, level1Project, () => {
-      setProjectHierarchyExpanded(
-        level1Project,
-        !isProjectHierarchyExpanded(level1Project),
-      );
-      renderProjectsTable();
+      updateProjectViewPreservingScroll(() => {
+        setProjectHierarchyExpanded(
+          level1Project,
+          !isProjectHierarchyExpanded(level1Project),
+        );
+        renderProjectsTable();
+      });
     });
 
     column.appendChild(level1Header);
@@ -18370,11 +18398,13 @@ function renderProjectsTable() {
             level2Header,
             level2Project,
             () => {
-              setProjectHierarchyExpanded(
-                level2Project,
-                !isProjectHierarchyExpanded(level2Project),
-              );
-              renderProjectsTable();
+              updateProjectViewPreservingScroll(() => {
+                setProjectHierarchyExpanded(
+                  level2Project,
+                  !isProjectHierarchyExpanded(level2Project),
+                );
+                renderProjectsTable();
+              });
             },
           );
 

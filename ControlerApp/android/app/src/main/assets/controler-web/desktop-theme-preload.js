@@ -96,7 +96,9 @@
     }
     try {
       const parsed = JSON.parse(rawValue);
-      return parsed === null || typeof parsed === "undefined" ? fallback : parsed;
+      return parsed === null || typeof parsed === "undefined"
+        ? fallback
+        : parsed;
     } catch (_error) {
       return fallback;
     }
@@ -196,7 +198,8 @@
   function readWindowNameThemeState() {
     try {
       const rawValue =
-        typeof window.name === "string" && window.name.startsWith(THEME_WINDOW_NAME_PREFIX)
+        typeof window.name === "string" &&
+        window.name.startsWith(THEME_WINDOW_NAME_PREFIX)
           ? window.name.slice(THEME_WINDOW_NAME_PREFIX.length)
           : "";
       const parsed = parseJsonString(rawValue, null);
@@ -260,10 +263,13 @@
       {},
     );
     const matchedCustomTheme = Array.isArray(customThemes)
-      ? customThemes.find((theme) => String(theme?.id || "").trim() === selectedThemeId)
+      ? customThemes.find(
+          (theme) => String(theme?.id || "").trim() === selectedThemeId,
+        )
       : null;
     const builtInOverride =
-      isPlainObject(builtInThemeOverrides) && isPlainObject(builtInThemeOverrides[selectedThemeId])
+      isPlainObject(builtInThemeOverrides) &&
+      isPlainObject(builtInThemeOverrides[selectedThemeId])
         ? builtInThemeOverrides[selectedThemeId]
         : null;
     return {
@@ -324,28 +330,32 @@
         ? colors.primary.trim()
         : BUILT_IN_THEME_PRIMARY_MAP[themeId] || DEFAULT_PRIMARY_COLOR;
     root.setAttribute("data-theme", themeId);
-    root.style.colorScheme = isLightSurfaceColor(primaryColor) ? "light" : "dark";
+    root.style.colorScheme = isLightSurfaceColor(primaryColor)
+      ? "light"
+      : "dark";
     root.style.backgroundColor = primaryColor;
     root.style.color = colors?.text || DEFAULT_TEXT_COLOR;
     root.style.setProperty("--bg-primary", primaryColor);
     root.style.setProperty("--text-color", colors?.text || DEFAULT_TEXT_COLOR);
-    root.style.setProperty("--accent-color", colors?.accent || DEFAULT_ACCENT_COLOR);
+    root.style.setProperty(
+      "--accent-color",
+      colors?.accent || DEFAULT_ACCENT_COLOR,
+    );
     root.style.setProperty(
       "--accent-color-rgb",
       toRgbChannels(colors?.accent || DEFAULT_ACCENT_COLOR),
     );
     if (colors) {
-      Object.entries(COLOR_VARIABLE_MAP).forEach(([colorKey, cssVariableName]) => {
-        const value = colors[colorKey];
-        if (typeof value === "string" && value.trim()) {
-          root.style.setProperty(cssVariableName, value.trim());
-        }
-      });
+      Object.entries(COLOR_VARIABLE_MAP).forEach(
+        ([colorKey, cssVariableName]) => {
+          const value = colors[colorKey];
+          if (typeof value === "string" && value.trim()) {
+            root.style.setProperty(cssVariableName, value.trim());
+          }
+        },
+      );
       if (
-        !(
-          typeof colors.widgetBorder === "string" &&
-          colors.widgetBorder.trim()
-        )
+        !(typeof colors.widgetBorder === "string" && colors.widgetBorder.trim())
       ) {
         root.style.setProperty(
           "--widget-border",
@@ -364,17 +374,26 @@
       );
       root.style.setProperty(
         "--bottom-nav-button-text",
-        colors?.navButtonText || colors?.mutedText || colors?.text || DEFAULT_TEXT_COLOR,
+        colors?.navButtonText ||
+          colors?.mutedText ||
+          colors?.text ||
+          DEFAULT_TEXT_COLOR,
       );
     }
     if (normalizedRecordCard) {
-      if (typeof normalizedRecordCard.mode === "string" && normalizedRecordCard.mode.trim()) {
+      if (
+        typeof normalizedRecordCard.mode === "string" &&
+        normalizedRecordCard.mode.trim()
+      ) {
         root.style.setProperty(
           "--record-card-color-mode",
           normalizedRecordCard.mode.trim() === "theme" ? "theme" : "project",
         );
       }
-      if (typeof normalizedRecordCard.color === "string" && normalizedRecordCard.color.trim()) {
+      if (
+        typeof normalizedRecordCard.color === "string" &&
+        normalizedRecordCard.color.trim()
+      ) {
         root.style.setProperty(
           "--record-card-theme-color",
           normalizedRecordCard.color.trim(),

@@ -16,11 +16,6 @@ import android.widget.Toast;
 import com.controlerapp.R;
 import com.controlerapp.MainApplication;
 import com.controlerapp.MainActivity;
-import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.ReactContext;
-import com.facebook.react.bridge.WritableArray;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -350,59 +345,16 @@ public final class ControlerWidgetActionHandler {
                 if (!(appContext instanceof MainApplication)) {
                     return;
                 }
-
-                ReactContext reactContext =
-                    ((MainApplication) appContext)
-                        .getReactNativeHost()
-                        .getReactInstanceManager()
-                        .getCurrentReactContext();
-                if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
-                    return;
-                }
-
-                WritableMap payload = Arguments.createMap();
-                WritableArray sectionArray = Arguments.createArray();
+                JSONArray sections = new JSONArray();
                 for (String section : changedSections) {
-                    String normalizedSection = section == null ? "" : section.trim();
-                    if (!TextUtils.isEmpty(normalizedSection)) {
-                        sectionArray.pushString(normalizedSection);
-                    }
+                    String normalized = section == null ? "" : section.trim();
+                    if (!TextUtils.isEmpty(normalized)) sections.put(normalized);
                 }
-                payload.putArray("changedSections", sectionArray);
-
-                WritableMap periodMap = Arguments.createMap();
-                if (changedPeriods != null) {
-                    Iterator<String> keys = changedPeriods.keys();
-                    while (keys.hasNext()) {
-                        String section = keys.next();
-                        String normalizedSection = section == null ? "" : section.trim();
-                        if (TextUtils.isEmpty(normalizedSection)) {
-                            continue;
-                        }
-                        JSONArray periodIds = changedPeriods.optJSONArray(section);
-                        if (periodIds == null || periodIds.length() == 0) {
-                            continue;
-                        }
-                        WritableArray periodArray = Arguments.createArray();
-                        for (int index = 0; index < periodIds.length(); index++) {
-                            String periodId = periodIds.optString(index, "").trim();
-                            if (!TextUtils.isEmpty(periodId)) {
-                                periodArray.pushString(periodId);
-                            }
-                        }
-                        if (periodArray.size() > 0) {
-                            periodMap.putArray(normalizedSection, periodArray);
-                        }
-                    }
-                }
-                payload.putMap("changedPeriods", periodMap);
-                payload.putString(
-                    "source",
+                ((MainApplication) appContext).emitStorageChanged(
+                    sections,
+                    changedPeriods,
                     TextUtils.isEmpty(source) ? "android-widget" : source
                 );
-                reactContext
-                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                    .emit("widgets.storageChanged", payload);
             }
         });
     }

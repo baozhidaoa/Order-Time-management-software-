@@ -751,7 +751,6 @@ function readDiaryEditorCloseVisualDurationMs(overlay) {
   );
 }
 const diaryPendingPersistenceTasks = new Set();
-let diaryBeforePageLeaveGuardBound = false;
 const diaryExternalStorageRefreshCoordinator =
   uiTools?.createDeferredRefreshController?.({
     run: async () => {
@@ -1995,31 +1994,6 @@ async function refreshDiaryVisibleView(options = {}) {
     }),
   ).catch(() => false);
   return true;
-}
-
-function registerDiaryBeforePageLeaveGuard() {
-  if (diaryBeforePageLeaveGuardBound) {
-    return;
-  }
-  diaryBeforePageLeaveGuardBound = true;
-  uiTools?.registerBeforePageLeave?.(async () => {
-    if (
-      diaryEditorRuntime?.root instanceof HTMLElement &&
-      diaryEditorRuntime.root.isConnected &&
-      typeof diaryEditorRuntime?.close === "function"
-    ) {
-      const closed = await diaryEditorRuntime.close({
-        reason: "page-leave",
-      });
-      if (closed === false) {
-        return false;
-      }
-    }
-    if (diaryPendingPersistenceTasks.size <= 0) {
-      return true;
-    }
-    return flushDiaryPendingPersistence();
-  });
 }
 
 async function commitDiaryLocalChange({
@@ -8596,7 +8570,6 @@ async function init() {
 
   applyDiaryDesktopWidgetMode();
   await waitForDiaryStorageReady();
-  registerDiaryBeforePageLeaveGuard();
   bindDiaryShellVisibilityGate();
   bindDiaryExternalStorageRefresh();
   const shouldForceFreshTransitionBootstrap =
@@ -8610,7 +8583,7 @@ async function init() {
     diaryInitialHydrationPendingResume = true;
   } else {
     hydrationPromise = startDiaryInitialHydration({
-      manageLoading: !bootstrappedFromSnapshot,
+      manageLoading: false,
       fresh: shouldForceFreshTransitionBootstrap,
     });
   }

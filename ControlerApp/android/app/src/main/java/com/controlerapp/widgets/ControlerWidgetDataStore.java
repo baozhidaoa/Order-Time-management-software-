@@ -1,5 +1,7 @@
 package com.controlerapp.widgets;
 
+import com.controlerapp.MainApplication;
+
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -43,6 +45,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeSet;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -99,6 +104,10 @@ public final class ControlerWidgetDataStore {
     private static final String STORAGE_BINDING_KIND_RESET = "reset";
     private static final String STORAGE_BINDING_KIND_FILE = "file";
     private static final String STORAGE_BINDING_KIND_DIRECTORY = "directory";
+    private static final String STORAGE_TRANSACTION_DIRECTORY = "storage-transactions";
+    private static final String STORAGE_TRANSACTION_FILE = "pending.json";
+    private static final String PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY =
+        "page-bootstrap-snapshots";
     private static final int PROJECT_DURATION_CACHE_VERSION = 2;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
@@ -108,6 +117,17 @@ public final class ControlerWidgetDataStore {
     private static volatile long bundleStorageReadyVerifiedAt = 0L;
     private static volatile String bundleStorageReadyCacheKey = "";
     private static volatile long storageBindingResolvedAt = 0L;
+    private static final ThreadLocal<Boolean> STORAGE_TRANSACTION_ACTIVE =
+        new ThreadLocal<Boolean>() {
+            @Override
+            protected Boolean initialValue() {
+                return Boolean.FALSE;
+            }
+        };
+    private static final ExecutorService PAGE_BOOTSTRAP_REFRESH_EXECUTOR =
+        Executors.newSingleThreadExecutor();
+    private static final Set<String> PAGE_BOOTSTRAP_REFRESH_PENDING =
+        Collections.synchronizedSet(new HashSet<String>());
 
     private ControlerWidgetDataStore() {}
 
@@ -392,6 +412,7 @@ public final class ControlerWidgetDataStore {
             "bundleMode=" + usesDirectoryBundleStorage(context)
         );
         try {
+            recoverPendingStorageTransaction(context);
             if (usesDirectoryBundleStorage(context)) {
                 return loadBundleRoot(context, false);
             }
@@ -411,6 +432,7 @@ public final class ControlerWidgetDataStore {
 
     public static synchronized JSONObject loadRootForWidgets(Context context) {
         try {
+            recoverPendingStorageTransaction(context);
             if (usesDirectoryBundleStorage(context)) {
                 return loadBundleRoot(context, false, false);
             }
@@ -626,6 +648,7 @@ public final class ControlerWidgetDataStore {
     }
 
     public static synchronized JSONObject loadRootStrict(Context context) throws Exception {
+        recoverPendingStorageTransaction(context);
         if (usesDirectoryBundleStorage(context)) {
             return loadBundleRoot(context, true);
         }
@@ -1244,6 +1267,51 @@ public final class ControlerWidgetDataStore {
     }
 
     public static synchronized JSONObject getStoragePageBootstrapState(Context context, JSONObject options) {
+        JSONObject source = options == null ? new JSONObject() : cloneJsonObject(options);
+        JSONObject sourceOptions = source.optJSONObject("options");
+        JSONObject pageOptions = sourceOptions == null ? source : sourceOptions;
+        String page = normalizeBootstrapPage(
+            firstNonEmpty(source.optString("pageKey", ""), source.optString("page", ""))
+        );
+        File snapshotFile = getPageBootstrapSnapshotFile(context, page, pageOptions);
+        String currentFingerprint = "";
+        try {
+            StorageVersion version = probeBootstrapStorageVersion(context);
+            currentFingerprint = version == null ? "" : safeText(version.fingerprint);
+            JSONObject cached = readPageBootstrapSnapshot(snapshotFile);
+            if (cached != null) {
+                String cachedFingerprint = safeText(cached.optString("sourceFingerprint", ""));
+                JSONObject cachedPayload = cached.optJSONObject("payload");
+                if (cachedPayload != null && cachedFingerprint.equals(currentFingerprint)) {
+                    JSONObject result = cloneJsonObject(cachedPayload);
+                    result.put("fromCache", true);
+                    result.put("syncPending", false);
+                    return result;
+                }
+                if (cachedPayload != null) {
+                    queuePageBootstrapSnapshotRefresh(context, source, snapshotFile);
+                    JSONObject result = cloneJsonObject(cachedPayload);
+                    result.put("fromCache", true);
+                    result.put("syncPending", true);
+                    result.put("staleSnapshot", true);
+                    result.put("currentFingerprint", currentFingerprint);
+                    return result;
+                }
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "读取页面启动快照失败，将读取权威分区。", error);
+        }
+
+        JSONObject fresh = buildStoragePageBootstrapState(context, source);
+        try {
+            writePageBootstrapSnapshot(snapshotFile, currentFingerprint, fresh);
+        } catch (Exception error) {
+            Log.w(TAG, "写入页面启动快照失败。", error);
+        }
+        return fresh;
+    }
+
+    private static JSONObject buildStoragePageBootstrapState(Context context, JSONObject options) {
         long startedAt = SystemClock.elapsedRealtime();
         JSONObject source = options == null ? new JSONObject() : options;
         JSONObject sourceOptions = source.optJSONObject("options");
@@ -1419,6 +1487,121 @@ public final class ControlerWidgetDataStore {
             );
         }
         return payload;
+    }
+
+    private static File getPageBootstrapSnapshotFile(
+        Context context,
+        String page,
+        JSONObject pageOptions
+    ) {
+        String dateKey = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        String scopeKey = safeText(page) + "|" + dateKey + "|"
+            + (pageOptions == null ? "{}" : pageOptions.toString());
+        String fileName = safeText(page) + "-" + Integer.toHexString(scopeKey.hashCode()) + ".json";
+        return new File(
+            new File(context.getFilesDir(), PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY),
+            fileName
+        );
+    }
+
+    private static JSONObject readPageBootstrapSnapshot(File file) {
+        try {
+            if (file == null || !file.exists()) {
+                return null;
+            }
+            return new JSONObject(readTextFromFile(file));
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static void writePageBootstrapSnapshot(
+        File file,
+        String sourceFingerprint,
+        JSONObject payload
+    ) throws Exception {
+        if (file == null || payload == null) {
+            return;
+        }
+        JSONObject envelope = new JSONObject();
+        envelope.put(
+            "sourceFingerprint",
+            TextUtils.isEmpty(sourceFingerprint)
+                ? safeText(payload.optString("sourceFingerprint", ""))
+                : sourceFingerprint
+        );
+        envelope.put("verifiedAt", isoNow());
+        envelope.put("payload", cloneJsonObject(payload));
+        writeTextToFile(file, envelope.toString());
+    }
+
+    private static void queuePageBootstrapSnapshotRefresh(
+        Context context,
+        JSONObject options,
+        File snapshotFile
+    ) {
+        if (context == null || snapshotFile == null) {
+            return;
+        }
+        final String refreshKey = snapshotFile.getAbsolutePath();
+        if (!PAGE_BOOTSTRAP_REFRESH_PENDING.add(refreshKey)) {
+            return;
+        }
+        final Context appContext = context.getApplicationContext();
+        final JSONObject safeOptions = options == null ? new JSONObject() : cloneJsonObject(options);
+        PAGE_BOOTSTRAP_REFRESH_EXECUTOR.execute(() -> {
+            try {
+                JSONObject refreshed;
+                String fingerprint;
+                synchronized (ControlerWidgetDataStore.class) {
+                    refreshed = buildStoragePageBootstrapState(appContext, safeOptions);
+                    StorageVersion version = probeBootstrapStorageVersion(appContext);
+                    fingerprint = version == null ? "" : safeText(version.fingerprint);
+                    writePageBootstrapSnapshot(snapshotFile, fingerprint, refreshed);
+                }
+                if (appContext instanceof MainApplication) {
+                    ((MainApplication) appContext).emitStorageChanged(
+                        buildBootstrapRefreshChangedSections(
+                            normalizeBootstrapPage(
+                                firstNonEmpty(
+                                    safeOptions.optString("pageKey", ""),
+                                    safeOptions.optString("page", "")
+                                )
+                            )
+                        ),
+                        new JSONObject(),
+                        "android-bootstrap-refresh"
+                    );
+                }
+            } catch (Exception error) {
+                Log.w(TAG, "后台刷新页面启动快照失败。", error);
+            } finally {
+                PAGE_BOOTSTRAP_REFRESH_PENDING.remove(refreshKey);
+            }
+        });
+    }
+
+    private static JSONArray buildBootstrapRefreshChangedSections(String page) {
+        JSONArray result = new JSONArray();
+        if ("index".equals(page) || "stats".equals(page)) {
+            result.put("projects");
+            result.put("records");
+        } else if ("plan".equals(page)) {
+            result.put("plans");
+            result.put("plansRecurring");
+            result.put("yearlyGoals");
+        } else if ("todo".equals(page)) {
+            result.put("todos");
+            result.put("checkinItems");
+            result.put("dailyCheckins");
+            result.put("checkins");
+        } else if ("diary".equals(page)) {
+            result.put("diaryEntries");
+            result.put("diaryCategories");
+        } else {
+            result.put("core");
+        }
+        return result;
     }
 
     public static synchronized JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
@@ -1712,6 +1895,16 @@ public final class ControlerWidgetDataStore {
             throw new Exception("分区 periodId 无效");
         }
 
+        if (!STORAGE_TRANSACTION_ACTIVE.get()) {
+            JSONObject operation = new JSONObject();
+            operation.put("kind", "saveSectionRange");
+            operation.put("section", normalizedSection);
+            operation.put("payload", payload == null ? new JSONObject() : cloneJsonObject(payload));
+            return firstTransactionResult(
+                executeStorageTransaction(context, new JSONArray().put(operation))
+            );
+        }
+
         if (usesDirectoryBundleStorage(context)) {
             return saveBundleSectionRange(context, normalizedSection, payload);
         }
@@ -1822,6 +2015,14 @@ public final class ControlerWidgetDataStore {
                 partialCore == null ? new JSONObject() : partialCore
             );
         JSONObject source = sanitizeResult.payload;
+        if (!STORAGE_TRANSACTION_ACTIVE.get()) {
+            JSONObject operation = new JSONObject();
+            operation.put("kind", "replaceCoreState");
+            operation.put("partialCore", cloneJsonObject(source));
+            return firstTransactionResult(
+                executeStorageTransaction(context, new JSONArray().put(operation))
+            );
+        }
         if (usesDirectoryBundleStorage(context)) {
             logBundleCorePollutionCleanup("replaceStorageCoreState", sanitizeResult.removedSections);
             JSONObject result = replaceBundleCoreState(context, source);
@@ -1870,6 +2071,13 @@ public final class ControlerWidgetDataStore {
         Context context,
         JSONArray items
     ) throws Exception {
+        if (!STORAGE_TRANSACTION_ACTIVE.get()) {
+            JSONObject operation = new JSONObject();
+            operation.put("kind", "replaceRecurringPlans");
+            operation.put("items", cloneJsonArray(items));
+            executeStorageTransaction(context, new JSONArray().put(operation));
+            return cloneJsonArray(items);
+        }
         if (usesDirectoryBundleStorage(context)) {
             return replaceBundleRecurringPlans(context, items);
         }
@@ -2778,6 +2986,7 @@ public final class ControlerWidgetDataStore {
     }
 
     private static void ensureBundleStorageReady(Context context) throws Exception {
+        recoverPendingStorageTransaction(context);
         if (!usesDirectoryBundleStorage(context)) {
             return;
         }
@@ -3146,6 +3355,14 @@ public final class ControlerWidgetDataStore {
     public static synchronized JSONObject appendStorageJournal(Context context, JSONObject payload) throws Exception {
         JSONObject source = payload == null ? new JSONObject() : payload;
         JSONArray operations = source.optJSONArray("ops");
+        return executeStorageTransaction(
+            context,
+            operations == null ? new JSONArray() : cloneJsonArray(operations)
+        );
+    }
+
+    private static JSONObject applyStorageOperations(Context context, JSONArray operations)
+        throws Exception {
         JSONArray results = new JSONArray();
         LinkedHashSet<String> changedSections = new LinkedHashSet<>();
         JSONObject changedPeriods = new JSONObject();
@@ -3207,10 +3424,115 @@ public final class ControlerWidgetDataStore {
         return result;
     }
 
-    public static JSONObject flushStorageJournal(Context context) throws Exception {
+    private static JSONObject executeStorageTransaction(Context context, JSONArray operations)
+        throws Exception {
+        if (STORAGE_TRANSACTION_ACTIVE.get()) {
+            return applyStorageOperations(context, operations);
+        }
+
+        JSONArray safeOperations = operations == null ? new JSONArray() : cloneJsonArray(operations);
+        validateStorageOperations(safeOperations);
+        JSONObject transaction = new JSONObject();
+        transaction.put("id", UUID.randomUUID().toString());
+        transaction.put("state", "prepared");
+        transaction.put("createdAt", isoNow());
+        transaction.put("ops", safeOperations);
+        writeTextToFile(getPendingStorageTransactionFile(context), transaction.toString());
+
+        STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
+        try {
+            JSONObject result = applyStorageOperations(context, safeOperations);
+            clearPendingStorageTransaction(context);
+            return result;
+        } finally {
+            STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
+        }
+    }
+
+    private static void validateStorageOperations(JSONArray operations) throws Exception {
+        for (int index = 0; index < operations.length(); index += 1) {
+            JSONObject operation = operations.optJSONObject(index);
+            if (operation == null) {
+                throw new Exception("存储事务包含无效操作。");
+            }
+            String kind = safeText(operation.optString("kind", ""));
+            if ("replaceCoreState".equals(kind)) {
+                if (operation.optJSONObject("partialCore") == null) {
+                    throw new Exception("replaceCoreState 缺少 partialCore。");
+                }
+                continue;
+            }
+            if ("saveSectionRange".equals(kind)) {
+                String section = normalizeBundleSection(operation.optString("section", ""));
+                JSONObject sectionPayload = operation.optJSONObject("payload");
+                String periodId = normalizePeriodId(
+                    sectionPayload == null ? "" : sectionPayload.optString("periodId", "")
+                );
+                if (TextUtils.isEmpty(section) || TextUtils.isEmpty(periodId)) {
+                    throw new Exception("saveSectionRange 的 section 或 periodId 无效。");
+                }
+                if (!validateItemsForPeriod(section, periodId, sectionPayload.optJSONArray("items"))) {
+                    throw new Exception("分区文件中的项目不属于目标月份。");
+                }
+                continue;
+            }
+            if ("replaceRecurringPlans".equals(kind)) {
+                if (operation.optJSONArray("items") == null) {
+                    throw new Exception("replaceRecurringPlans 缺少 items。");
+                }
+                continue;
+            }
+            throw new Exception("不支持的存储事务操作: " + kind);
+        }
+    }
+
+    private static File getPendingStorageTransactionFile(Context context) {
+        File directory = new File(context.getFilesDir(), STORAGE_TRANSACTION_DIRECTORY);
+        return new File(directory, STORAGE_TRANSACTION_FILE);
+    }
+
+    private static void clearPendingStorageTransaction(Context context) {
+        new AtomicFile(getPendingStorageTransactionFile(context)).delete();
+    }
+
+    private static void recoverPendingStorageTransaction(Context context) throws Exception {
+        if (context == null || STORAGE_TRANSACTION_ACTIVE.get()) {
+            return;
+        }
+        File pendingFile = getPendingStorageTransactionFile(context);
+        if (!pendingFile.exists()) {
+            return;
+        }
+        JSONObject transaction = new JSONObject(readTextFromFile(pendingFile));
+        JSONArray operations = transaction.optJSONArray("ops");
+        validateStorageOperations(operations == null ? new JSONArray() : operations);
+        STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
+        try {
+            applyStorageOperations(context, operations == null ? new JSONArray() : operations);
+            clearPendingStorageTransaction(context);
+            storageRecoveryState = STORAGE_RECOVERY_STATE_REPAIRED;
+            storageRecoveryMessage = "已完成上次中断的存储事务。";
+        } finally {
+            STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
+        }
+    }
+
+    private static JSONObject firstTransactionResult(JSONObject transactionResult)
+        throws Exception {
+        JSONArray results = transactionResult == null ? null : transactionResult.optJSONArray("results");
+        JSONObject first = results == null ? null : results.optJSONObject(0);
+        if (first == null) {
+            throw new Exception("存储事务未返回操作结果。");
+        }
+        return first;
+    }
+
+    public static synchronized JSONObject flushStorageJournal(Context context) throws Exception {
+        recoverPendingStorageTransaction(context);
         JSONObject result = new JSONObject();
         StorageVersion version = probeStorageVersion(context, false);
         result.put("ok", true);
+        result.put("pending", getPendingStorageTransactionFile(context).exists());
         result.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
         result.put("generatedAt", isoNow());
         return result;

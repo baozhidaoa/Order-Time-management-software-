@@ -57,7 +57,6 @@
   let todoActiveSwipeDeleteShell = null;
   let todoSwipeDeleteDismissBound = false;
   let todoSwipeDeleteConfirmationShell = null;
-  let todoBeforePageLeaveGuardBound = false;
   let todoInitialRevealQueued = false;
   let todoInitialRevealPromise = null;
   let todoInitialReadyReported = false;
@@ -3004,24 +3003,6 @@
       throw todoLastPersistenceError;
     }
     return true;
-  }
-
-  function registerTodoBeforePageLeaveGuard() {
-    if (todoBeforePageLeaveGuardBound) {
-      return;
-    }
-    todoBeforePageLeaveGuardBound = true;
-    uiTools?.registerBeforePageLeave?.(
-      async () => {
-        if (!hasTodoPendingLocalMutations() && !todoLastPersistenceError) {
-          return true;
-        }
-        return flushTodoPendingPersistence();
-      },
-      {
-        showLoadingOverlay: false,
-      },
-    );
   }
 
   function queueTodoCoreSave(partialCore = {}, options = {}) {
@@ -12995,69 +12976,58 @@
   async function init() {
     const reminderRuntimeTask = ensureTodoReminderRuntimeLoaded();
     initTodoWidgetLaunchAction();
-    registerTodoBeforePageLeaveGuard();
     bindTodoShellVisibilityGate();
     bindTodoExternalStorageRefresh();
-    setTodoLoadingState({
-      active: true,
-      mode: "fullscreen",
+    const snapshot = bootstrapTodoFromCachedSnapshot();
+    await reminderRuntimeTask;
+    ensureTodoBaseBindings({
+      skipInitialDataLoad: true,
     });
-    try {
-      const snapshot = bootstrapTodoFromCachedSnapshot();
-      await reminderRuntimeTask;
-      ensureTodoBaseBindings({
-        skipInitialDataLoad: true,
+    applyTodoWidgetMode();
+    renderTodoWorkspace();
+    todoPlanSidebarInitialized = true;
+    let initialReadySnapshot = snapshot;
+    const shouldForceFreshTransitionBootstrap =
+      window.ControlerStorage?.isNativeApp === true &&
+      (!todoShellPageActive || isTodoShellTransitionLoading());
+    const shouldBlockInitialReveal =
+      window.ControlerStorage?.isNativeApp === true &&
+      (shouldForceFreshTransitionBootstrap ||
+        !hasTodoWorkspaceRenderableData(snapshot));
+    if (shouldBlockInitialReveal) {
+      uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
+        reason: shouldForceFreshTransitionBootstrap
+          ? "transition-bootstrap"
+          : todoBootstrappedFromPageBootstrap
+            ? "empty-bootstrap"
+            : "empty-initial-snapshot",
+        ...buildTodoWorkspacePerfDetail(snapshot),
       });
-      applyTodoWidgetMode();
-      renderTodoWorkspace();
-      todoPlanSidebarInitialized = true;
-      let initialReadySnapshot = snapshot;
-      const shouldForceFreshTransitionBootstrap =
-        window.ControlerStorage?.isNativeApp === true &&
-        (!todoShellPageActive || isTodoShellTransitionLoading());
-      const shouldBlockInitialReveal =
-        window.ControlerStorage?.isNativeApp === true &&
-        (shouldForceFreshTransitionBootstrap ||
-          !hasTodoWorkspaceRenderableData(snapshot));
-      if (shouldBlockInitialReveal) {
-        uiTools?.markPerfStage?.("todo-initial-blocking-refresh-start", {
-          reason: shouldForceFreshTransitionBootstrap
-            ? "transition-bootstrap"
-            : todoBootstrappedFromPageBootstrap
-              ? "empty-bootstrap"
-              : "empty-initial-snapshot",
-          ...buildTodoWorkspacePerfDetail(snapshot),
-        });
-        await waitForTodoStorageReady();
-        const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
-          fresh: true,
-        });
-        await applyTodoFreshSnapshot(freshSnapshot, {
-          reason: "initial-empty-snapshot",
-          perfStageReady: "todo-initial-blocking-refresh-ready",
-          perfStageApplied: "todo-initial-blocking-refresh-applied",
-        });
-        initialReadySnapshot = captureTodoWorkspaceSnapshot();
-      } else if (
-        window.ControlerStorage?.isNativeApp === true &&
-        todoBootstrappedFromPageBootstrap &&
-        !todoInitialDataValidated
-      ) {
-        uiTools?.markPerfStage?.("todo-initial-bootstrap-validation-start", {
-          reason: "page-bootstrap-unvalidated",
-          ...buildTodoWorkspacePerfDetail(snapshot),
-        });
-      }
-      markTodoInitialDataReady(initialReadySnapshot);
-      await queueTodoInitialReveal();
-      await waitForTodoUiPaint();
-      if (!todoInitialDataValidated) {
-        scheduleTodoDeferredFreshSync();
-      }
-    } finally {
-      setTodoLoadingState({
-        active: false,
+      await waitForTodoStorageReady();
+      const freshSnapshot = await readFreshTodoWorkspaceSnapshot({
+        fresh: true,
       });
+      await applyTodoFreshSnapshot(freshSnapshot, {
+        reason: "initial-empty-snapshot",
+        perfStageReady: "todo-initial-blocking-refresh-ready",
+        perfStageApplied: "todo-initial-blocking-refresh-applied",
+      });
+      initialReadySnapshot = captureTodoWorkspaceSnapshot();
+    } else if (
+      window.ControlerStorage?.isNativeApp === true &&
+      todoBootstrappedFromPageBootstrap &&
+      !todoInitialDataValidated
+    ) {
+      uiTools?.markPerfStage?.("todo-initial-bootstrap-validation-start", {
+        reason: "page-bootstrap-unvalidated",
+        ...buildTodoWorkspacePerfDetail(snapshot),
+      });
+    }
+    markTodoInitialDataReady(initialReadySnapshot);
+    await queueTodoInitialReveal();
+    await waitForTodoUiPaint();
+    if (!todoInitialDataValidated) {
+      scheduleTodoDeferredFreshSync();
     }
   }
 

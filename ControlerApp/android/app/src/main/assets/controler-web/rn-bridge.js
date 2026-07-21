@@ -1,4 +1,18 @@
 (() => {
+  try {
+    if (
+      (!window.__CONTROLER_RN_META__ ||
+        typeof window.__CONTROLER_RN_META__ !== "object") &&
+      typeof window.ReactNativeWebView?.getRuntimeMeta === "function"
+    ) {
+      const runtimeMeta = JSON.parse(window.ReactNativeWebView.getRuntimeMeta());
+      if (runtimeMeta && typeof runtimeMeta === "object") {
+        window.__CONTROLER_RN_META__ = runtimeMeta;
+        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}`;
+      }
+    }
+  } catch (_error) {}
+
   const BRIDGE_EVENT_NAME = "controler:native-bridge-event";
   const LANGUAGE_EVENT_NAME = "controler:language-changed";
   const LANGUAGE_STORAGE_KEY = "appLanguage";
@@ -49,7 +63,11 @@
   }
 
   function shouldTrackBridgePerf(method) {
-    return String(method || "").trim().startsWith("storage.");
+    return (
+      (window.__CONTROLER_PERF_DEBUG__ === true ||
+        getRuntimeMeta().performanceTracing === true) &&
+      String(method || "").trim().startsWith("storage.")
+    );
   }
 
   function emitBridgePerfMetric(method, durationMs, detail = {}) {
@@ -428,6 +446,13 @@
     return target.matches?.(ANDROID_NATIVE_KEYBOARD_TRACK_SELECTOR) === true;
   }
 
+  function isOfflineAndroidWebViewHost() {
+    return (
+      getNativeHostPlatform() === "android" &&
+      typeof window.ReactNativeWebView?.getRuntimeMeta === "function"
+    );
+  }
+
   function normalizeNativeAndroidSoftInputState(rawState) {
     const source =
       rawState && typeof rawState === "object" && !Array.isArray(rawState)
@@ -452,6 +477,9 @@
   }
 
   function shouldTrackNativeAndroidKeyboardState(now = Date.now()) {
+    if (isOfflineAndroidWebViewHost()) {
+      return false;
+    }
     return (
       getNativeHostPlatform() === "android" &&
       isReactNativeApp() &&
@@ -665,6 +693,62 @@
     const visualViewport = window.visualViewport;
     const rawViewportHeight = getAndroidVisibleViewportHeightCandidate();
     if (!rawViewportHeight) {
+      return;
+    }
+
+    if (isOfflineAndroidWebViewHost()) {
+      const root = document.documentElement;
+      const body = document.body;
+      const viewportWidth = Math.round(
+        visualViewport?.width || window.innerWidth || root?.clientWidth || 0,
+      );
+      const viewportOffsetTop = Math.max(
+        0,
+        Math.round(visualViewport?.offsetTop || 0),
+      );
+      const viewportOffsetLeft = Math.max(
+        0,
+        Math.round(visualViewport?.offsetLeft || 0),
+      );
+      const stableViewportHeight = Math.max(
+        Math.round(window.innerHeight || 0),
+        Math.round(root?.clientHeight || 0),
+        rawViewportHeight,
+      );
+      const keyboardInset = Math.max(
+        stableViewportHeight - viewportOffsetTop - rawViewportHeight,
+        0,
+      );
+      const keyboardVisible =
+        keyboardInset > ANDROID_KEYBOARD_CLOSE_THRESHOLD_PX;
+      root?.style.setProperty(
+        "--controler-visual-viewport-height",
+        `${rawViewportHeight}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-width",
+        `${viewportWidth}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-offset-top",
+        `${viewportOffsetTop}px`,
+      );
+      root?.style.setProperty(
+        "--controler-visual-viewport-offset-left",
+        `${viewportOffsetLeft}px`,
+      );
+      root?.style.setProperty(
+        "--controler-stable-visual-viewport-height",
+        `${stableViewportHeight}px`,
+      );
+      root?.style.setProperty("--controler-keyboard-inset", `${keyboardInset}px`);
+      root?.style.setProperty(
+        "--controler-keyboard-transition-inset",
+        `${keyboardInset}px`,
+      );
+      keyboardOpen = keyboardVisible;
+      root?.classList.toggle("controler-keyboard-open", keyboardVisible);
+      body?.classList.toggle("controler-keyboard-open", keyboardVisible);
       return;
     }
 
@@ -960,6 +1044,9 @@
         : (callback) => window.setTimeout(callback, 16);
 
     runAndroidShellKeyboardViewportResync();
+    if (isOfflineAndroidWebViewHost()) {
+      return;
+    }
     schedule(() => {
       runAndroidShellKeyboardViewportResync();
       schedule(runAndroidShellKeyboardViewportResync);

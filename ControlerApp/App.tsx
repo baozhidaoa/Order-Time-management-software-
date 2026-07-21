@@ -5374,11 +5374,6 @@ function App({
     if (nextSlotState.needsLoad) {
       const nextRevision = webViewSlotsRef.current[nextSlot].revision + 1;
       resetSlotRuntimeState(nextSlot, nextRevision);
-      armTransitionWatchdog(
-        nextTransition,
-        target.uri,
-        PAGE_SWITCH_LOAD_TIMEOUT_MS,
-      );
       updateWebViewSlotsRef(webViewSlotsRef, nextSlot, {
         uri: target.uri,
         pageKey: target.pageKey,
@@ -5392,6 +5387,9 @@ function App({
           revision: nextRevision,
         },
       }));
+    }
+    if (IS_ANDROID) {
+      finalizeTransition(nextTransition);
     } else if (nextSlotState.slotReady) {
       startLoadedTransition(nextSlot);
     } else {
