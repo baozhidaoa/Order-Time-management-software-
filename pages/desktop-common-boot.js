@@ -21254,7 +21254,22 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function markNativePageReady() {
-    reportNativePageReady();
+    if (!isReactNativeNavigationRuntime()) {
+      reportNativePageReady();
+      return;
+    }
+    if (nativePageReadyReported || nativePageReadyScheduled) {
+      return;
+    }
+    nativePageReadyScheduled = true;
+    void waitForVisualContentStability({
+      root: resolveNativePageReadyRoot(),
+    })
+      .catch(() => false)
+      .finally(() => {
+        nativePageReadyScheduled = false;
+        reportNativePageReady();
+      });
   }
 
   function scheduleNativePageReadyReport() {
