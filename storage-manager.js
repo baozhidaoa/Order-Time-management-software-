@@ -1,6 +1,7 @@
 const fs = require("fs-extra");
 const path = require("path");
 const crypto = require("crypto");
+const { Worker } = require("worker_threads");
 const { pathToFileURL } = require("url");
 const guideBundle = require(path.join(__dirname, "pages", "guide-bundle.js"));
 const bundleHelper = require(path.join(__dirname, "pages", "storage-bundle.js"));
@@ -105,6 +106,14 @@ const SIDECAR_PAGE_KEYS = Object.freeze([
   "stats",
   "settings",
 ]);
+const PAGE_BOOTSTRAP_DEPENDENCIES = Object.freeze({
+  index: Object.freeze(["projects", "records", "timerSessionState"]),
+  stats: Object.freeze(["projects", "records"]),
+  plan: Object.freeze(["plans", "plansRecurring", "yearlyGoals"]),
+  todo: Object.freeze(["todos", "checkinItems", "dailyCheckins", "checkins"]),
+  diary: Object.freeze(["diaryEntries", "diaryCategories", "guideState"]),
+  settings: Object.freeze(["core", "settings", "storage"]),
+});
 const RECURRING_PLAN_PERIOD_ID = "__recurring__";
 const RECORD_PARTITION_PATCH_DIR_SUFFIX = ".ops";
 const RECORD_PARTITION_PATCH_COMPACT_THRESHOLD = 24;
@@ -127,6 +136,10 @@ const DIARY_MEDIA_MIME_BY_EXTENSION = Object.freeze({
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function hashPageBootstrapOptions(options = {}) {
+  return crypto.createHash("sha1").update(JSON.stringify(options || {})).digest("hex");
 }
 
 function createEmptyRecoveryState() {
@@ -605,6 +618,7 @@ class StorageManager {
     this.sidecarSqliteInitError = null;
     this.sidecarDatabaseCache = new Map();
     this.sidecarRebuildStateByNamespace = new Map();
+    this.pageBootstrapRefreshes = new Map();
     this.bundleSourceFingerprintCache = new Map();
     this.cachedStorageSnapshot = null;
     this.pendingSnapshot = null;
@@ -3577,10 +3591,7 @@ class StorageManager {
     payload = {},
   ) {
     const normalizedPage = this.normalizePageBootstrapKey(pageKey);
-    const optionsHash = crypto
-      .createHash("sha1")
-      .update(JSON.stringify(options || {}))
-      .digest("hex");
+    const optionsHash = hashPageBootstrapOptions(options);
     db.run(
       `
         INSERT INTO page_bootstrap_snapshots (
@@ -3613,16 +3624,14 @@ class StorageManager {
   readPageBootstrapSnapshotFromDbSync(
     pageKey,
     options = {},
-    sourceFingerprint = "",
+    sourceFingerprint = null,
   ) {
     const entry = this.getSidecarDatabaseEntrySync();
     if (!entry) {
       return null;
     }
-    const optionsHash = crypto
-      .createHash("sha1")
-      .update(JSON.stringify(options || {}))
-      .digest("hex");
+    const optionsHash = hashPageBootstrapOptions(options);
+    const matchFingerprint = typeof sourceFingerprint === "string";
     try {
       const statement = entry.db.prepare(
         `
@@ -3630,7 +3639,8 @@ class StorageManager {
           FROM page_bootstrap_snapshots
           WHERE page_key = ?
             AND options_hash = ?
-            AND source_fingerprint = ?
+            ${matchFingerprint ? "AND source_fingerprint = ?" : ""}
+          ORDER BY built_at DESC
           LIMIT 1
         `,
       );
@@ -3638,7 +3648,7 @@ class StorageManager {
         statement.bind([
           this.normalizePageBootstrapKey(pageKey),
           optionsHash,
-          String(sourceFingerprint || ""),
+          ...(matchFingerprint ? [sourceFingerprint] : []),
         ]);
         if (!statement.step()) {
           return null;
@@ -4100,8 +4110,46 @@ class StorageManager {
         }
       }
 
+      const requestedSections = normalizeChangedSections(request.changedSections);
+      const requestedPeriods = normalizeChangedPeriods(request.changedPeriods);
+      const knownDependencySections = new Set(
+        Object.values(PAGE_BOOTSTRAP_DEPENDENCIES).flat(),
+      );
+      const hasUnknownDependency = requestedSections.some(
+        (section) => !knownDependencySections.has(section),
+      );
+      const bootstrapContext = {
+        root,
+        manifest,
+        recurringPlans,
+        sourceFingerprint,
+        core: this.repairStoredCoreProjectsIfNeeded(root),
+      };
       SIDECAR_PAGE_KEYS.forEach((pageKey) => {
-        const payload = this.buildPageBootstrapPayload(pageKey, {});
+        const previous = this.readPageBootstrapSnapshotFromDbSync(pageKey, {});
+        const loadedPeriods = new Set(
+          Array.isArray(previous?.loadedPeriodIds) ? previous.loadedPeriodIds : [],
+        );
+        const pageDependencies = PAGE_BOOTSTRAP_DEPENDENCIES[pageKey] || [];
+        const pageChanged = requestedSections.some((section) => {
+          if (!pageDependencies.includes(section)) return false;
+          const periods = requestedPeriods[section] || [];
+          return periods.length === 0 || periods.some((periodId) => loadedPeriods.has(periodId));
+        });
+        const rebuildSnapshot =
+          fullRebuild ||
+          !previous ||
+          requestedSections.length === 0 ||
+          hasUnknownDependency ||
+          pageChanged;
+        const payload = rebuildSnapshot
+          ? this.buildPageBootstrapPayload(pageKey, {}, bootstrapContext)
+          : {
+              ...bundleHelper.cloneValue(previous),
+              sourceFingerprint,
+              syncPending: false,
+              staleSnapshot: false,
+            };
         this.writePageBootstrapSnapshotToDbSync(
           entry.db,
           pageKey,
@@ -4113,10 +4161,7 @@ class StorageManager {
           schemaVersion: this.sidecarSchemaVersion,
           page: pageKey,
           sourceFingerprint,
-          optionsHash: crypto
-            .createHash("sha1")
-            .update(JSON.stringify({}))
-            .digest("hex"),
+          optionsHash: hashPageBootstrapOptions({}),
           payload,
         });
       });
@@ -4177,7 +4222,7 @@ class StorageManager {
         while (currentState.pending) {
           const nextRequest = currentState.pending;
           currentState.pending = null;
-          await this.rebuildSidecarIndex(storagePath, nextRequest);
+          await this.rebuildSidecarIndexInWorker(storagePath, nextRequest);
         }
         return true;
       })
@@ -4193,6 +4238,47 @@ class StorageManager {
       });
     this.sidecarRebuildStateByNamespace.set(namespaceKey, currentState);
     return currentState.promise;
+  }
+
+  rebuildSidecarIndexInWorker(storagePath, request) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(path.join(__dirname, "storage-sidecar-worker.js"), {
+        workerData: {
+          storagePath,
+          request,
+          appName: this.app.getName(),
+          userDataPath: this.userDataPath,
+          documentsPath: this.documentsPath,
+        },
+      });
+      let settled = false;
+      const finish = (error, result) => {
+        if (settled) return;
+        settled = true;
+        const sqlitePath = path.resolve(this.getSidecarSqlitePath(storagePath));
+        const cachedEntry = this.sidecarDatabaseCache.get(sqlitePath);
+        if (cachedEntry?.db) {
+          try {
+            cachedEntry.db.close();
+          } catch (_closeError) {}
+        }
+        this.sidecarDatabaseCache.delete(sqlitePath);
+        void worker.terminate().catch(() => undefined);
+        if (error) reject(error);
+        else resolve(result);
+      };
+      worker.once("message", (message = {}) => {
+        if (message.ok === false) {
+          finish(new Error(message.error || "Sidecar worker failed"));
+          return;
+        }
+        finish(null, message.result || null);
+      });
+      worker.once("error", (error) => finish(error));
+      worker.once("exit", (code) => {
+        if (code !== 0) finish(new Error(`Sidecar worker exited with code ${code}`));
+      });
+    });
   }
 
   primeSidecarIfStale(storagePath = this.storagePath) {
@@ -4235,10 +4321,7 @@ class StorageManager {
       if (!cache || typeof cache !== "object" || Array.isArray(cache)) {
         return null;
       }
-      const optionsHash = crypto
-        .createHash("sha1")
-        .update(JSON.stringify(options || {}))
-        .digest("hex");
+      const optionsHash = hashPageBootstrapOptions(options);
       if (
         cache.schemaVersion !== this.sidecarSchemaVersion ||
         cache.page !== this.normalizePageBootstrapKey(pageKey) ||
@@ -4256,13 +4339,37 @@ class StorageManager {
     }
   }
 
+  readStalePageBootstrapCacheSync(pageKey, options = {}) {
+    const normalizedPage = this.normalizePageBootstrapKey(pageKey);
+    const dbPayload = this.readPageBootstrapSnapshotFromDbSync(
+      normalizedPage,
+      options,
+    );
+    if (dbPayload) return dbPayload;
+    try {
+      const cache = this.readJsonFileSync(
+        this.getSidecarBootstrapPath(normalizedPage),
+        null,
+      );
+      if (
+        !isPlainObject(cache) ||
+        cache.schemaVersion !== this.sidecarSchemaVersion ||
+        cache.page !== normalizedPage ||
+        cache.optionsHash !== hashPageBootstrapOptions(options) ||
+        !isPlainObject(cache.payload)
+      ) {
+        return null;
+      }
+      return cache.payload;
+    } catch (_error) {
+      return null;
+    }
+  }
+
   writePageBootstrapCacheSync(pageKey, options = {}, sourceFingerprint = "", payload = {}) {
     this.ensureSidecarLayout();
     const normalizedPage = this.normalizePageBootstrapKey(pageKey);
-    const optionsHash = crypto
-      .createHash("sha1")
-      .update(JSON.stringify(options || {}))
-      .digest("hex");
+    const optionsHash = hashPageBootstrapOptions(options);
     this.writeJsonFileSync(this.getSidecarBootstrapPath(normalizedPage), {
       schemaVersion: this.sidecarSchemaVersion,
       page: normalizedPage,
@@ -4310,17 +4417,123 @@ class StorageManager {
     });
   }
 
-  buildPageBootstrapPayload(pageKey, options = {}) {
-    const normalizedPage = this.normalizePageBootstrapKey(pageKey);
+  buildPageBootstrapShell(pageKey, sourceFingerprint = "") {
+    const page = this.normalizePageBootstrapKey(pageKey);
     const root = this.getBundleRoot(this.storagePath);
-    const core = this.buildAuthoritativeCoreState(root);
+    const core = this.readCoreSync(root);
+    const emptyByPage = {
+      index: {
+        projects: bundleHelper.cloneValue(core.projects || []),
+        recentRecords: [],
+        timerSessionState: bundleHelper.cloneValue(core.timerSessionState || null),
+        projectTotalsSummary: this.buildProjectTotalsSummary(core.projects),
+      },
+      stats: {
+        projects: bundleHelper.cloneValue(core.projects || []),
+        defaultRangeRecordsOrAggregate: [],
+        statsPreferences: {},
+      },
+      plan: {
+        visiblePlans: [],
+        recurringPlans: bundleHelper.cloneValue(this.readRecurringPlansSync(root)),
+        yearlyGoals: bundleHelper.cloneValue(core.yearlyGoals || {}),
+      },
+      todo: {
+        todos: bundleHelper.cloneValue(core.todos || []),
+        checkinItems: bundleHelper.cloneValue(core.checkinItems || []),
+        todayDailyCheckins: [],
+        recentCheckins: [],
+      },
+      diary: {
+        currentMonthEntries: [],
+        diaryCategories: bundleHelper.cloneValue(core.diaryCategories || []),
+        guideState: bundleHelper.cloneValue(core.guideState || guideBundle.getDefaultGuideState()),
+      },
+      settings: {
+        storageStatus: null,
+        autoBackupStatus: null,
+        recoverySummary: bundleHelper.cloneValue(this.getRecoverySummary(core.recovery)),
+        themeSummary: {
+          selectedTheme: String(core.selectedTheme || "default"),
+          customThemeCount: Array.isArray(core.customThemes) ? core.customThemes.length : 0,
+          hasBuiltInOverrides: Object.keys(core.builtInThemeOverrides || {}).length > 0,
+        },
+        navigationVisibility: null,
+      },
+    };
+    return {
+      page,
+      sourceFingerprint,
+      builtAt: new Date().toISOString(),
+      loadedPeriodIds: [],
+      data: emptyByPage[page] || emptyByPage.settings,
+      interactiveShell: true,
+      syncPending: true,
+    };
+  }
+
+  requestPageBootstrapRefresh(pageKey, options, sourceFingerprint) {
+    const page = this.normalizePageBootstrapKey(pageKey);
+    const refreshKey = [
+      this.getSidecarNamespaceKey(this.storagePath),
+      page,
+      hashPageBootstrapOptions(options),
+      sourceFingerprint,
+    ].join(":");
+    if (this.pageBootstrapRefreshes.has(refreshKey)) {
+      return this.pageBootstrapRefreshes.get(refreshKey);
+    }
+    const rebuild = this.sidecarRebuildStateByNamespace.get(
+      this.getSidecarNamespaceKey(this.storagePath),
+    )?.promise;
+    const refresh = Promise.resolve(rebuild)
+      .then(() => {
+        const root = this.getBundleRoot(this.storagePath);
+        const manifest = this.readManifestSync(root);
+        const currentFingerprint = this.buildBundleSourceFingerprint(root, manifest);
+        let payload = this.readPageBootstrapCacheSync(page, options, currentFingerprint);
+        if (!payload) {
+          payload = this.buildPageBootstrapPayload(page, options);
+          this.writePageBootstrapCacheSync(
+            page,
+            options,
+            payload.sourceFingerprint || currentFingerprint,
+            payload,
+          );
+        }
+        if (typeof this.changeListener === "function") {
+          this.changeListener({
+            reason: "page-bootstrap-ready",
+            status: null,
+            changedSections: [...(PAGE_BOOTSTRAP_DEPENDENCIES[page] || ["core"])],
+            changedPeriods: {},
+            source: "sidecar-refresh",
+            snapshotFingerprint: payload.sourceFingerprint || currentFingerprint,
+          });
+        }
+        return payload;
+      })
+      .catch((error) => {
+        console.error("后台刷新页面快照失败:", error);
+        return null;
+      })
+      .finally(() => this.pageBootstrapRefreshes.delete(refreshKey));
+    this.pageBootstrapRefreshes.set(refreshKey, refresh);
+    return refresh;
+  }
+
+  buildPageBootstrapPayload(pageKey, options = {}, context = {}) {
+    const normalizedPage = this.normalizePageBootstrapKey(pageKey);
+    const root = context.root || this.getBundleRoot(this.storagePath);
+    const core = context.core || this.repairStoredCoreProjectsIfNeeded(root);
     const effectiveRecovery =
       this.storageRecoveryState === "needs-recovery"
         ? this.buildRecoveredBundlePayloadFromFilesystem(root).recovery || core?.recovery
         : core?.recovery;
-    const manifest = this.readManifestSync(root);
-    const recurringPlans = this.readRecurringPlansSync(root);
-    const sourceFingerprint = this.buildBundleSourceFingerprint(root, manifest);
+    const manifest = context.manifest || this.readManifestSync(root);
+    const recurringPlans = context.recurringPlans || this.readRecurringPlansSync(root);
+    const sourceFingerprint =
+      context.sourceFingerprint || this.buildBundleSourceFingerprint(root, manifest);
     const builtAt = new Date().toISOString();
     let loadedPeriodIds = [];
     let data = {};
@@ -4401,8 +4614,8 @@ class StorageManager {
       };
     } else {
       data = {
-        storageStatus: this.getStorageStatus(),
-        autoBackupStatus: this.getAutoBackupStatus(),
+        storageStatus: null,
+        autoBackupStatus: null,
         recoverySummary: bundleHelper.cloneValue(
           this.getRecoverySummary(effectiveRecovery),
         ),
@@ -4451,17 +4664,24 @@ class StorageManager {
     if (cachedPayload) {
       return cachedPayload;
     }
-    const payload = this.buildPageBootstrapPayload(
+    const stalePayload = this.readStalePageBootstrapCacheSync(
       normalizedPage,
       normalizedOptions,
     );
-    this.writePageBootstrapCacheSync(
+    void this.requestPageBootstrapRefresh(
       normalizedPage,
       normalizedOptions,
       sourceFingerprint,
-      payload,
     );
-    return payload;
+    if (stalePayload) {
+      return {
+        ...bundleHelper.cloneValue(stalePayload),
+        staleSnapshot: true,
+        syncPending: true,
+        currentFingerprint: sourceFingerprint,
+      };
+    }
+    return this.buildPageBootstrapShell(normalizedPage, sourceFingerprint);
   }
 
   inspectStorageVersion(targetPath = this.storagePath, options = {}) {

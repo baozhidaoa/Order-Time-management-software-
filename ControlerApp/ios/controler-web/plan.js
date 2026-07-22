@@ -4062,7 +4062,6 @@ function markPlanInitialReady() {
     return false;
   }
   syncPlannerPanelFromHash("auto");
-  document.body?.classList.remove("page-bootstrap-pending");
   if (planShellReady) {
     return true;
   }

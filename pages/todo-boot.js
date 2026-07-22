@@ -12988,7 +12988,6 @@
     if (todoInitialReadyReported) {
       return;
     }
-    document.body?.classList.remove("page-bootstrap-pending");
     todoInitialReadyReported = true;
     uiTools?.markPerfStage?.("first-render-done");
     uiTools?.markNativePageReady?.();
@@ -13155,11 +13154,15 @@
     renderTodoWorkspace();
     todoPlanSidebarInitialized = true;
     let initialReadySnapshot = snapshot;
+    const hostNavigationRuntime =
+      window.ControlerNativeBridge?.capabilities?.hostPageNavigation === true;
     const shouldForceFreshTransitionBootstrap =
       window.ControlerStorage?.isNativeApp === true &&
+      window.ControlerNativeBridge?.capabilities?.hostPageNavigation !== true &&
       (!todoShellPageActive || isTodoShellTransitionLoading());
     const shouldBlockInitialReveal =
       window.ControlerStorage?.isNativeApp === true &&
+      !hostNavigationRuntime &&
       (shouldForceFreshTransitionBootstrap ||
         !hasTodoWorkspaceRenderableData(snapshot));
     if (shouldBlockInitialReveal) {

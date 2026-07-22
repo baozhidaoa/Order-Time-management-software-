@@ -215,6 +215,7 @@
       widgetManualAdd: false,
       openHomeScreen: false,
       desktopWidgets: false,
+      hostPageNavigation: false,
       ...overrides,
       widgetKinds: Array.isArray(overrides.widgetKinds)
         ? [...overrides.widgetKinds]
@@ -257,6 +258,7 @@
       widgetManualAdd: false,
       openHomeScreen: false,
       desktopWidgets: true,
+      hostPageNavigation: true,
     },
   });
 
@@ -276,6 +278,7 @@
       widgetManualAdd: true,
       openHomeScreen: true,
       desktopWidgets: false,
+      hostPageNavigation: true,
     },
   });
 

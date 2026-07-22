@@ -318,7 +318,7 @@
   const APP_PAGE_CUSTOM_TITLE_MAX_LENGTH = 40;
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
   const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
-  const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
+  const HOST_PAGE_NAVIGATION_ACK_TIMEOUT_MS = 1200;
   const DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR =
     ".app-main, .settings-main";
   const APP_NAV_TOUCH_GUARD_MAX_MOVE_PX = 18;
@@ -360,11 +360,11 @@
   let appPageLeavePreflightLocked = false;
   let deferredAppNavigationRequest = null;
   let pageContentLeaveTimerId = 0;
-  let nativeNavigationListenerBound = false;
+  let hostNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let appNavigationIntentCounter = 0;
   let latestAppNavigationIntent = null;
-  let pendingNativeNavigationRequest = null;
+  let pendingHostNavigationRequest = null;
   let nativeNavigationRetryTimerId = 0;
   let deferredAppNavigationReplayInitialized = false;
   let deferredAppNavigationReplayTimerId = 0;
@@ -1224,12 +1224,12 @@
     );
   }
 
-  function clearPendingNativeNavigationRequest() {
-    if (!pendingNativeNavigationRequest) {
+  function clearPendingHostNavigationRequest() {
+    if (!pendingHostNavigationRequest) {
       return null;
     }
-    const pendingRequest = pendingNativeNavigationRequest;
-    pendingNativeNavigationRequest = null;
+    const pendingRequest = pendingHostNavigationRequest;
+    pendingHostNavigationRequest = null;
     if (pendingRequest.timeoutId) {
       window.clearTimeout(pendingRequest.timeoutId);
     }
@@ -1283,7 +1283,7 @@
     if (
       appPageTransitionLocked ||
       appPageLeavePreflightLocked ||
-      !!pendingNativeNavigationRequest
+      !!pendingHostNavigationRequest
     ) {
       return false;
     }
@@ -1676,7 +1676,7 @@
     return discardDeferredAppNavigationRequest("runtime-reset");
   }
 
-  function dispatchNativeAppNavigationRequest(
+  function dispatchHostAppNavigationRequest(
     navigationRequest,
     currentItem = getCurrentAppNavigationItem(),
   ) {
@@ -1690,8 +1690,8 @@
       return false;
     }
 
-    initNativeNavigationBridge();
-    clearPendingNativeNavigationRequest();
+    initHostNavigationAckListener();
+    clearPendingHostNavigationRequest();
     const sourcePage =
       String(navigationRequest.intent?.sourcePage || currentItem?.key || "").trim();
     const sourceHref =
@@ -1704,7 +1704,7 @@
         ? navigationRequest.intent
         : buildAppNavigationIntent(targetItem, navigationRequest.targetHref);
     const requestId = `nav_${Date.now()}_${(nativeNavigationRequestCounter += 1)}`;
-    const requested = window.ControlerNativeBridge?.emitEvent?.("ui.navigate", {
+    const requestPayload = {
       page: targetItem.key,
       href: navigationRequest.targetHref,
       direction: getNavigationDirection(sourcePage, targetItem.key),
@@ -1716,13 +1716,18 @@
       sourceHref,
       targetPage: targetItem.key,
       targetHref: navigationRequest.targetHref,
-    });
+    };
+    const electronNavigate = window.electronAPI?.uiNavigatePage;
+    const requested =
+      typeof electronNavigate === "function"
+        ? true
+        : window.ControlerNativeBridge?.emitEvent?.("ui.navigate", requestPayload);
 
     if (!requested) {
       return false;
     }
 
-    pendingNativeNavigationRequest = {
+    pendingHostNavigationRequest = {
       ...navigationRequest,
       targetItem,
       targetHref: navigationRequest.targetHref,
@@ -1737,12 +1742,12 @@
       replaceHistory: navigationRequest.options?.replaceHistory === true,
       timeoutId: window.setTimeout(() => {
         if (
-          !pendingNativeNavigationRequest ||
-          pendingNativeNavigationRequest.requestId !== requestId
+          !pendingHostNavigationRequest ||
+          pendingHostNavigationRequest.requestId !== requestId
         ) {
           return;
         }
-        const timedOutRequest = clearPendingNativeNavigationRequest();
+        const timedOutRequest = clearPendingHostNavigationRequest();
         syncAndroidReactNativeAppNavLock();
         if (isAndroidReactNativeNavigationRuntime()) {
           resetAppPageTransitionRuntimeState();
@@ -1754,16 +1759,76 @@
         performAppNavigation(timedOutRequest.targetHref, {
           replaceHistory: timedOutRequest.replaceHistory === true,
         });
-      }, RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS),
+      }, HOST_PAGE_NAVIGATION_ACK_TIMEOUT_MS),
     };
+    if (typeof electronNavigate === "function") {
+      Promise.resolve(electronNavigate(requestPayload))
+        .then((ack) => {
+          handleHostNavigationAck({
+            ...(ack && typeof ack === "object" ? ack : {}),
+            requestId,
+          });
+        })
+        .catch(() => {
+          handleHostNavigationAck({ requestId, state: "rejected" });
+        });
+    }
     return true;
   }
 
-  function initNativeNavigationBridge() {
-    if (nativeNavigationListenerBound) {
+  function hasHostPageNavigationCapability() {
+    return (
+      window.electronAPI?.runtimeMeta?.capabilities?.hostPageNavigation === true ||
+      window.ControlerNativeBridge?.capabilities?.hostPageNavigation === true ||
+      typeof window.electronAPI?.uiNavigatePage === "function"
+    );
+  }
+
+  function handleHostNavigationAck(detail = {}) {
+    const requestId = String(detail.requestId || "").trim();
+    if (
+      !requestId ||
+      !pendingHostNavigationRequest ||
+      pendingHostNavigationRequest.requestId !== requestId
+    ) {
       return;
     }
-    nativeNavigationListenerBound = true;
+
+    const pendingRequest = clearPendingHostNavigationRequest();
+    if (!pendingRequest) {
+      return;
+    }
+
+    const ackState = String(detail.state || "").trim()
+      || (detail.queued === true || detail.busy === true
+        ? "queued"
+        : detail.accepted === false
+          ? "rejected"
+          : "accepted-now");
+    const shouldKeepOverlay = ackState === "queued" || ackState === "accepted-now";
+    resetAppPageTransitionRuntimeState({
+      clearStoredState: false,
+      hideOverlay: !shouldKeepOverlay,
+    });
+    if (ackState === "queued" || ackState === "accepted-now") {
+      return;
+    }
+    syncAndroidReactNativeAppNavLock();
+    if (ackState === "dropped-stale" || !pendingRequest.targetHref) {
+      return;
+    }
+    if (ackState === "rejected") {
+      performAppNavigation(pendingRequest.targetHref, {
+        replaceHistory: pendingRequest.replaceHistory === true,
+      });
+    }
+  }
+
+  function initHostNavigationAckListener() {
+    if (hostNavigationListenerBound) {
+      return;
+    }
+    hostNavigationListenerBound = true;
     window.addEventListener("controler:native-bridge-event", (event) => {
       const detail =
         event && typeof event.detail === "object" && event.detail
@@ -1776,56 +1841,7 @@
       if (detail.name !== "ui.navigate-ack") {
         return;
       }
-
-      const requestId = String(detail.requestId || "").trim();
-      if (
-        !requestId ||
-        !pendingNativeNavigationRequest ||
-        pendingNativeNavigationRequest.requestId !== requestId
-      ) {
-        return;
-      }
-
-      const pendingRequest = clearPendingNativeNavigationRequest();
-      if (!pendingRequest) {
-        return;
-      }
-
-      const ackState = String(detail.state || "").trim()
-        || (detail.queued === true || detail.busy === true
-          ? "queued"
-          : detail.accepted === false
-            ? "rejected"
-            : "accepted-now");
-      const shouldKeepOverlay =
-        ackState === "queued" || ackState === "accepted-now";
-      resetAppPageTransitionRuntimeState({
-        clearStoredState: false,
-        hideOverlay: !shouldKeepOverlay,
-      });
-
-      if (ackState === "queued") {
-        return;
-      }
-
-      if (ackState === "accepted-now") {
-        return;
-      }
-
-      syncAndroidReactNativeAppNavLock();
-      if (ackState === "dropped-stale") {
-        return;
-      }
-
-      if (!pendingRequest.targetHref) {
-        return;
-      }
-
-      if (ackState === "rejected") {
-        performAppNavigation(pendingRequest.targetHref, {
-          replaceHistory: pendingRequest.replaceHistory === true,
-        });
-      }
+      handleHostNavigationAck(detail);
     });
   }
 
@@ -1886,8 +1902,16 @@
       reason: readyReason,
     });
     if (shouldReportToNativeHost) {
+      const hostRequestId = (() => {
+        try {
+          return new URL(window.location.href).searchParams.get("controlerNavRequestId") || "";
+        } catch (_error) {
+          return "";
+        }
+      })();
       window.ControlerNativeBridge?.emitEvent?.("ui.page-ready", {
         href: window.location.href,
+        requestId: hostRequestId,
         reason: readyReason,
         allowRepeat,
         ...getLaunchPerfContext(),
@@ -2237,8 +2261,45 @@
       mode === "manual" ? "manual" : "auto";
   }
 
+  function waitForHostContentPaint() {
+    const scheduleFrame =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+    const now =
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+        ? () => performance.now()
+        : () => Date.now();
+    return new Promise((resolve) => {
+      const startedAt = now();
+      let frameCount = 0;
+      let settled = false;
+      let timeoutId = 0;
+      const finish = (painted) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve(painted === true);
+      };
+      const poll = () => {
+        if (settled) return;
+        frameCount += 1;
+        if (frameCount >= 2 && now() - startedAt >= 32) {
+          finish(true);
+          return;
+        }
+        scheduleFrame(poll);
+      };
+      timeoutId = window.setTimeout(() => finish(false), 160);
+      scheduleFrame(poll);
+    });
+  }
+
   function markNativePageReady() {
-    if (!isReactNativeNavigationRuntime()) {
+    const isReactNativeRuntime = isReactNativeNavigationRuntime();
+    const isHostNavigationRuntime = hasHostPageNavigationCapability();
+    if (!isReactNativeRuntime && !isHostNavigationRuntime) {
       reportNativePageReady();
       return;
     }
@@ -2246,9 +2307,12 @@
       return;
     }
     nativePageReadyScheduled = true;
-    void waitForVisualContentStability({
-      root: resolveNativePageReadyRoot(),
-    })
+    const paintReady = isHostNavigationRuntime
+      ? waitForHostContentPaint()
+      : waitForVisualContentStability({
+          root: resolveNativePageReadyRoot(),
+        });
+    void paintReady
       .catch(() => false)
       .finally(() => {
         nativePageReadyScheduled = false;
@@ -4238,7 +4302,7 @@
     const shouldLock =
       shellVisibilityState.active !== false &&
       (shellVisibilityState.transitionLoading === true ||
-        !!pendingNativeNavigationRequest);
+        !!pendingHostNavigationRequest);
     setAndroidReactNativeAppNavLocked(shouldLock);
     return shouldLock;
   }
@@ -4597,7 +4661,7 @@
       window.clearTimeout(pageContentLeaveTimerId);
       pageContentLeaveTimerId = 0;
     }
-    clearPendingNativeNavigationRequest();
+    clearPendingHostNavigationRequest();
     clearNativeNavigationRetryTimer();
     syncAndroidReactNativeAppNavLock();
     if (hideOverlay) {
@@ -5300,6 +5364,8 @@
     clearNativeNavigationRetryTimer();
     cancelDesktopBootstrapPrewarm("navigation-start");
     const nativeNavigationRuntime = isReactNativeNavigationRuntime();
+    const hostNavigationRuntime =
+      nativeNavigationRuntime || hasHostPageNavigationCapability();
     const androidReactNativeNavigationRuntime =
       nativeNavigationRuntime && isAndroidReactNativeNavigationRuntime();
     const navigationRequest = createDeferredAppNavigationRequest(
@@ -5343,13 +5409,13 @@
       return true;
     }
     if (androidReactNativeNavigationRuntime && isAndroidReactNativeAppNavLocked()) {
-      if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
+      if (dispatchHostAppNavigationRequest(navigationRequest, currentItem)) {
         return true;
       }
       syncAndroidReactNativeAppNavLock();
     }
 
-    if (nativeNavigationRuntime) {
+    if (hostNavigationRuntime) {
       resetAppPageTransitionRuntimeState({
         hideOverlay: false,
       });
@@ -5358,7 +5424,7 @@
       if (androidReactNativeNavigationRuntime) {
         setAndroidReactNativeAppNavLocked(true);
       }
-      if (dispatchNativeAppNavigationRequest(navigationRequest, currentItem)) {
+      if (dispatchHostAppNavigationRequest(navigationRequest, currentItem)) {
         return true;
       }
       syncAndroidReactNativeAppNavLock();
@@ -7377,21 +7443,33 @@
         ? () => performance.now()
         : () => Date.now();
     const isNativeRuntime = isReactNativeNavigationRuntime();
-    const quietWindowMs = Number.isFinite(options.quietWindowMs)
+    const isAndroidOfflineWebView =
+      getNativeHostPlatform() === "android" &&
+      window.__CONTROLER_RN_META__?.runtime === "offline-webview";
+    const requestedQuietWindowMs = Number.isFinite(options.quietWindowMs)
       ? Math.max(0, Math.round(Number(options.quietWindowMs)))
       : isNativeRuntime
         ? 64
         : 44;
-    const maxWaitMs = Number.isFinite(options.maxWaitMs)
+    const requestedMaxWaitMs = Number.isFinite(options.maxWaitMs)
       ? Math.max(32, Math.round(Number(options.maxWaitMs)))
       : isNativeRuntime
         ? 480
         : 320;
-    const minQuietFrames = Number.isFinite(options.minQuietFrames)
+    const requestedMinQuietFrames = Number.isFinite(options.minQuietFrames)
       ? Math.max(1, Math.round(Number(options.minQuietFrames)))
       : isNativeRuntime
         ? 3
         : 2;
+    const quietWindowMs = isAndroidOfflineWebView
+      ? Math.min(32, requestedQuietWindowMs)
+      : requestedQuietWindowMs;
+    const maxWaitMs = isAndroidOfflineWebView
+      ? Math.min(160, requestedMaxWaitMs)
+      : requestedMaxWaitMs;
+    const minQuietFrames = isAndroidOfflineWebView
+      ? Math.min(2, requestedMinQuietFrames)
+      : requestedMinQuietFrames;
 
     return new Promise((resolve) => {
       let settled = false;
@@ -13584,7 +13662,11 @@
   initEditablePageTitles();
   initAndroidInteractiveTextAssist();
   initNativePickerInputs();
-  setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
+  setNativePageReadyMode(
+    isReactNativeNavigationRuntime() || hasHostPageNavigationCapability()
+      ? "manual"
+      : "auto",
+  );
   scheduleInitialPagePerfReport();
   scheduleTodoSortPreferenceCoreBackfill();
   scheduleNativePageReadyReport();

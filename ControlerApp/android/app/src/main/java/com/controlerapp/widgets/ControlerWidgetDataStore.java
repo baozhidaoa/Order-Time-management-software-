@@ -39,6 +39,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -128,8 +129,29 @@ public final class ControlerWidgetDataStore {
         Executors.newSingleThreadExecutor();
     private static final Set<String> PAGE_BOOTSTRAP_REFRESH_PENDING =
         Collections.synchronizedSet(new HashSet<String>());
+    private static volatile boolean pageBootstrapPrewarmScheduled;
+    private static final int PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT = 6;
+    private static final LinkedHashMap<String, JSONObject> PROCESS_PAGE_BOOTSTRAP_CACHE =
+        new LinkedHashMap<String, JSONObject>(PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT + 1, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, JSONObject> eldest) {
+                return size() > PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT;
+            }
+        };
+    private static String processCoreFingerprint = "";
+    private static JSONObject processCoreState;
+    private static StorageVersion processBootstrapVersion;
+    private static long processBootstrapVersionAt;
 
     private ControlerWidgetDataStore() {}
+
+    private static void invalidateProcessStorageCaches() {
+        processCoreFingerprint = "";
+        processCoreState = null;
+        processBootstrapVersion = null;
+        processBootstrapVersionAt = 0L;
+        PROCESS_PAGE_BOOTSTRAP_CACHE.clear();
+    }
 
     private static void logStorageTrace(String operation, String stage, long startedAt, String extra) {
         long durationMs =
@@ -681,6 +703,7 @@ public final class ControlerWidgetDataStore {
             } finally {
                 outputStream.close();
             }
+            invalidateProcessStorageCaches();
             return true;
         } catch (Exception error) {
             error.printStackTrace();
@@ -1071,6 +1094,15 @@ public final class ControlerWidgetDataStore {
     public static synchronized JSONObject getStorageCoreState(Context context) {
         long startedAt = SystemClock.elapsedRealtime();
         logStorageTrace("getStorageCoreState", "start", startedAt, "");
+        StorageVersion version = probeBootstrapStorageVersion(context);
+        String fingerprint = version == null ? "" : safeText(version.fingerprint);
+        if (
+            processCoreState != null
+                && !TextUtils.isEmpty(fingerprint)
+                && fingerprint.equals(processCoreFingerprint)
+        ) {
+            return cloneJsonObject(processCoreState);
+        }
         if (usesDirectoryBundleStorage(context)) {
             JSONObject directCore = readBundleCoreState(context);
             if (directCore != null) {
@@ -1083,12 +1115,15 @@ public final class ControlerWidgetDataStore {
                             ? 0
                             : directCore.optJSONArray("projects").length())
                 );
+                JSONObject resolvedCore = directCore;
                 try {
-                    return ensureCheckinHistorySummaryInCore(context, directCore);
+                    resolvedCore = ensureCheckinHistorySummaryInCore(context, directCore);
                 } catch (Exception error) {
                     error.printStackTrace();
-                    return directCore;
                 }
+                processCoreFingerprint = fingerprint;
+                processCoreState = cloneJsonObject(resolvedCore);
+                return cloneJsonObject(resolvedCore);
             }
         }
         JSONObject root = loadRoot(context);
@@ -1143,12 +1178,15 @@ public final class ControlerWidgetDataStore {
             "source=root projectCount="
                 + (core.optJSONArray("projects") == null ? 0 : core.optJSONArray("projects").length())
         );
+        JSONObject resolvedCore = core;
         try {
-            return ensureCheckinHistorySummaryInCore(context, core);
+            resolvedCore = ensureCheckinHistorySummaryInCore(context, core);
         } catch (Exception error) {
             error.printStackTrace();
-            return core;
         }
+        processCoreFingerprint = fingerprint;
+        processCoreState = cloneJsonObject(resolvedCore);
+        return cloneJsonObject(resolvedCore);
     }
 
     public static synchronized JSONObject getStorageBootstrapState(Context context, JSONObject options) {
@@ -1278,6 +1316,14 @@ public final class ControlerWidgetDataStore {
         try {
             StorageVersion version = probeBootstrapStorageVersion(context);
             currentFingerprint = version == null ? "" : safeText(version.fingerprint);
+            String processCacheKey = page + "|" + pageOptions.toString() + "|" + currentFingerprint;
+            JSONObject processCached = PROCESS_PAGE_BOOTSTRAP_CACHE.get(processCacheKey);
+            if (processCached != null) {
+                JSONObject result = cloneJsonObject(processCached);
+                result.put("fromCache", true);
+                result.put("syncPending", false);
+                return result;
+            }
             JSONObject cached = readPageBootstrapSnapshot(snapshotFile);
             if (cached != null) {
                 String cachedFingerprint = safeText(cached.optString("sourceFingerprint", ""));
@@ -1286,6 +1332,7 @@ public final class ControlerWidgetDataStore {
                     JSONObject result = cloneJsonObject(cachedPayload);
                     result.put("fromCache", true);
                     result.put("syncPending", false);
+                    PROCESS_PAGE_BOOTSTRAP_CACHE.put(processCacheKey, cloneJsonObject(result));
                     return result;
                 }
                 if (cachedPayload != null) {
@@ -1305,10 +1352,35 @@ public final class ControlerWidgetDataStore {
         JSONObject fresh = buildStoragePageBootstrapState(context, source);
         try {
             writePageBootstrapSnapshot(snapshotFile, currentFingerprint, fresh);
+            String processCacheKey = page + "|" + pageOptions.toString() + "|" + currentFingerprint;
+            PROCESS_PAGE_BOOTSTRAP_CACHE.put(processCacheKey, cloneJsonObject(fresh));
         } catch (Exception error) {
             Log.w(TAG, "写入页面启动快照失败。", error);
         }
         return fresh;
+    }
+
+    public static void prewarmPageBootstrapSnapshots(Context context) {
+        if (context == null || pageBootstrapPrewarmScheduled) return;
+        pageBootstrapPrewarmScheduled = true;
+        final Context appContext = context.getApplicationContext();
+        PAGE_BOOTSTRAP_REFRESH_EXECUTOR.execute(() -> {
+            try {
+                String[] pages = new String[] {
+                    "index", "stats", "plan", "todo", "diary", "settings"
+                };
+                for (String page : pages) {
+                    JSONObject request = new JSONObject();
+                    request.put("pageKey", page);
+                    request.put("options", new JSONObject());
+                    getStoragePageBootstrapState(appContext, request);
+                }
+            } catch (Exception error) {
+                Log.w(TAG, "后台预生成页面快照失败。", error);
+            } finally {
+                pageBootstrapPrewarmScheduled = false;
+            }
+        });
     }
 
     private static JSONObject buildStoragePageBootstrapState(Context context, JSONObject options) {
@@ -5159,6 +5231,7 @@ public final class ControlerWidgetDataStore {
 
     private static void writeBundleText(Context context, String relativePath, String content)
         throws Exception {
+        invalidateProcessStorageCaches();
         if (MODE_DIRECTORY.equals(getStorageMode(context))) {
             Uri treeUri = getCustomStorageDirectoryUri(context);
             Uri documentUri = resolveDirectoryRelativeDocumentUri(
@@ -6638,6 +6711,19 @@ public final class ControlerWidgetDataStore {
     }
 
     private static StorageVersion probeBootstrapStorageVersion(Context context) {
+        long now = SystemClock.elapsedRealtime();
+        if (
+            processBootstrapVersion != null
+                && now - processBootstrapVersionAt <= 64L
+        ) {
+            return processBootstrapVersion;
+        }
+        processBootstrapVersion = probeBootstrapStorageVersionUncached(context);
+        processBootstrapVersionAt = now;
+        return processBootstrapVersion;
+    }
+
+    private static StorageVersion probeBootstrapStorageVersionUncached(Context context) {
         String actualMode = getStorageMode(context);
         if (MODE_FILE.equals(actualMode)) {
             return probeStorageVersion(context, false);

@@ -8,8 +8,10 @@ const {
   Notification,
   screen,
   Tray,
+  WebContentsView,
 } = require("electron");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const appPackage = require("./package.json");
 const StorageManager = require("./storage-manager");
@@ -17,6 +19,7 @@ const DesktopWidgetManager = require("./desktop-widget-manager");
 const DesktopNotificationScheduler = require("./desktop-notification-scheduler");
 const uiLanguage = require("./shared/ui-language.js");
 const generateReadmeScreenshots = require("./scripts/generate-readme-screenshots.js");
+const DesktopPagePool = require("./desktop-page-pool.js");
 
 const LOGIN_ITEM_LAUNCH_ARG = "--controler-launch-at-login";
 const GENERATE_README_SCREENSHOTS_ARG = "--generate-readme-screenshots";
@@ -54,10 +57,6 @@ function appendStartupDebugLog(message) {
     return;
   }
   appendAppDebugLogLine(STARTUP_DEBUG_LOG_FILE_NAME, message);
-}
-
-function appendThemeNavigationDebugLog(entry = {}) {
-  return;
 }
 
 function getGpuKillSwitchPath() {
@@ -134,6 +133,9 @@ app.on("child-process-gone", (_event, details = {}) => {
 });
 
 let mainWindow;
+let desktopPagePool = null;
+const desktopNavigationSamples = [];
+const pendingMainWindowActions = new Map();
 let appTray = null;
 const uiPreferencesPath = path.join(
   app.getPath("userData"),
@@ -678,10 +680,12 @@ function getWindowState(targetWindow = mainWindow) {
 
 function emitWindowStateChanged(targetWindow = mainWindow) {
   if (targetWindow && !targetWindow.isDestroyed()) {
-    targetWindow.webContents.send(
-      "window-state-changed",
-      getWindowState(targetWindow),
-    );
+    const state = getWindowState(targetWindow);
+    if (targetWindow === mainWindow) {
+      desktopPagePool.broadcast("window-state-changed", state);
+    } else {
+      targetWindow.webContents.send("window-state-changed", state);
+    }
   }
 }
 
@@ -702,6 +706,9 @@ function resolveWindowFromEvent(event = null) {
     if (senderWindow && !senderWindow.isDestroyed()) {
       return senderWindow;
     }
+    if (desktopPagePool?.owns(event.sender) && mainWindow && !mainWindow.isDestroyed()) {
+      return mainWindow;
+    }
   }
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
 }
@@ -709,7 +716,7 @@ function resolveWindowFromEvent(event = null) {
 function emitThemedMessage(payload = {}, fallbackOptions = null) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
-      mainWindow.webContents.send("ui:themed-message", payload);
+      desktopPagePool.broadcast("ui:themed-message", payload);
       return true;
     } catch (error) {
       console.error("发送主题消息失败:", error);
@@ -903,9 +910,53 @@ function resolvePageFilePath(targetPage = "index") {
   return path.join(__dirname, "pages", resolveTargetPageFile(targetPage));
 }
 
+function getActiveMainWebContents() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  return desktopPagePool?.getActiveWebContents() || mainWindow.webContents;
+}
+
+function recordDesktopNavigationMetric(metric = {}) {
+  const rendererWorkingSetKb = app
+    .getAppMetrics()
+    .filter((entry) => entry.type === "Tab" || entry.type === "Utility")
+    .reduce(
+      (total, entry) => total + Math.max(0, Number(entry?.memory?.workingSetSize) || 0),
+      0,
+    );
+  const durationMs = Math.max(0, Math.round(Number(metric.durationMs) || 0));
+  desktopNavigationSamples.push(durationMs);
+  if (desktopNavigationSamples.length > 120) desktopNavigationSamples.shift();
+  const sorted = [...desktopNavigationSamples].sort((left, right) => left - right);
+  const percentile = (ratio) =>
+    sorted.length
+      ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1))]
+      : 0;
+  const report = {
+    type: "navigation-performance",
+    ...metric,
+    durationMs,
+    rendererWorkingSetMb: Math.round(rendererWorkingSetKb / 1024),
+    sampleCount: sorted.length,
+    p50Ms: percentile(0.5),
+    p95Ms: percentile(0.95),
+    maxMs: sorted.length ? sorted[sorted.length - 1] : 0,
+  };
+  console.info("[navigation.performance]", JSON.stringify(report));
+  try {
+    void fs.promises.appendFile(
+      path.join(app.getPath("userData"), "navigation-performance.jsonl"),
+      `${JSON.stringify(report)}\n`,
+      "utf8",
+    ).catch(() => undefined);
+  } catch (_error) {}
+  if (rendererWorkingSetKb > 512 * 1024 || os.freemem() < 512 * 1024 * 1024) {
+    desktopPagePool?.trimToCurrent();
+  }
+}
+
 function broadcastStorageDataChanged(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("storage-data-changed", payload);
+    desktopPagePool.broadcast("storage-data-changed", payload);
   }
   desktopWidgetManager.broadcastStorageDataChanged(payload);
 }
@@ -919,7 +970,7 @@ function showAndFocusMainWindow() {
   }
   mainWindow.show();
   mainWindow.focus();
-  mainWindow.webContents.focus();
+  getActiveMainWebContents()?.focus();
   refreshTrayMenu();
 }
 
@@ -1051,7 +1102,7 @@ async function openMainWindowAction(payload = {}) {
 
   const dispatchAction = () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("main-window-action", actionPayload);
+      desktopPagePool.sendToActive("main-window-action", actionPayload);
     }
   };
 
@@ -1060,29 +1111,30 @@ async function openMainWindowAction(payload = {}) {
     return true;
   }
 
-  const currentUrl = mainWindow.webContents.getURL();
+  const currentUrl = getActiveMainWebContents().getURL();
   const currentPage = currentUrl
     ? currentUrl.split("/").pop().split("?")[0]
     : "";
 
   if (currentPage !== pageFile) {
-    appendThemeNavigationDebugLog({
-      source: "main",
-      label: "open-main-window-action-load-file",
-      currentPage,
-      targetPage: pageFile,
-      currentUrl,
-      backgroundColor: windowAppearance.backgroundColor,
-      overlayColor: windowAppearance.overlayColor,
-      symbolColor: windowAppearance.symbolColor,
-    });
-    mainWindow.loadFile(resolvePageFilePath(pageFile)).catch((error) => {
-      console.error("切换主窗口页面失败:", error);
-    });
-    mainWindow.webContents.once("did-finish-load", () => {
-      showAndFocusMainWindow();
-      dispatchAction();
-    });
+    const requestId = `host_action_${Date.now()}`;
+    pendingMainWindowActions.set(requestId, actionPayload);
+    const navigationAck = desktopPagePool.navigate(
+      {
+        requestId,
+        page: pageFile.replace(/\.html$/i, ""),
+        href: resolvePageFilePath(pageFile),
+        sourcePage: currentPage.replace(/\.html$/i, ""),
+        requestedAt: Date.now(),
+        direction: 0,
+      },
+      desktopPagePool.getActiveWebContents(),
+    );
+    if (navigationAck?.cacheSource === "hot-renderer") {
+      pendingMainWindowActions.delete(requestId);
+      desktopPagePool.sendToActive("main-window-action", actionPayload);
+    }
+    showAndFocusMainWindow();
     return true;
   }
 
@@ -1125,23 +1177,6 @@ function applyWindowAppearance(options = {}, targetWindow = mainWindow) {
     }
   }
 
-  appendThemeNavigationDebugLog({
-    source: "main",
-    label: "apply-window-appearance",
-    windowId: targetWindow && !targetWindow.isDestroyed() ? targetWindow.id : null,
-    href:
-      targetWindow &&
-      !targetWindow.isDestroyed() &&
-      targetWindow.webContents &&
-      typeof targetWindow.webContents.getURL === "function"
-        ? targetWindow.webContents.getURL()
-        : "",
-    backgroundColor: windowAppearance.backgroundColor,
-    overlayColor: windowAppearance.overlayColor,
-    symbolColor: windowAppearance.symbolColor,
-    overlayHeight: windowAppearance.overlayHeight,
-  });
-
   return getWindowAppearanceState(targetWindow);
 }
 
@@ -1182,6 +1217,24 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
   const createdWindow = new BrowserWindow(windowOptions);
   disableWindowsAccentBorder(createdWindow);
   mainWindow = createdWindow;
+  desktopPagePool = new DesktopPagePool({
+    window: createdWindow,
+    WebContentsView,
+    preloadPath: path.join(__dirname, "preload.js"),
+    resolvePagePath: resolvePageFilePath,
+    maxSlots: 3,
+    onMetric: recordDesktopNavigationMetric,
+    onLoadFailure: ({ request, errorCode, errorDescription, error }) => {
+      console.error(
+        "隐藏页面加载失败，回退网页导航:",
+        error?.message || errorDescription || errorCode,
+      );
+      if (request && request.fallbackAttempted !== true) {
+        desktopPagePool?.fallbackNavigate(request);
+      }
+    },
+  });
+  desktopPagePool.initialize(targetPageFile.replace(/\.html$/i, ""));
   let actionHandled = false;
   let rendererPageReady = false;
   let windowReadyToShow = false;
@@ -1288,43 +1341,16 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
   });
 
   createdWindow.on("focus", () => {
-    createdWindow?.webContents?.focus();
-  });
-
-  createdWindow.webContents.on(
-    "did-start-navigation",
-    (_event, url, isInPlace, isMainFrame) => {
-      if (!isMainFrame) {
-        return;
-      }
-      appendThemeNavigationDebugLog({
-        source: "main",
-        label: "did-start-navigation",
-        windowId: createdWindow.id,
-        url,
-        isInPlace: isInPlace === true,
-        backgroundColor: windowAppearance.backgroundColor,
-        overlayColor: windowAppearance.overlayColor,
-        symbolColor: windowAppearance.symbolColor,
-      });
-    },
-  );
-
-  createdWindow.webContents.on("did-navigate", (_event, url) => {
-    appendThemeNavigationDebugLog({
-      source: "main",
-      label: "did-navigate",
-      windowId: createdWindow.id,
-      url,
-      backgroundColor: windowAppearance.backgroundColor,
-      overlayColor: windowAppearance.overlayColor,
-      symbolColor: windowAppearance.symbolColor,
-    });
+    (desktopPagePool?.getActiveWebContents() || createdWindow?.webContents)?.focus();
   });
 
   createdWindow.webContents.on("dom-ready", () => {
-    createdWindow?.webContents?.focus();
+    if (desktopPagePool?.getActiveWebContents() === createdWindow.webContents) {
+      createdWindow?.webContents?.focus();
+    }
   });
+
+  createdWindow.on("resize", () => desktopPagePool?.resize());
 
   ["show", "hide", "minimize", "restore"].forEach((eventName) => {
     createdWindow.on(eventName, () => {
@@ -1338,6 +1364,9 @@ function createWindow(startPage = "index.html", onReadyAction = null) {
       revealTimer = null;
     }
     delete createdWindow.__controlerMarkPageReady;
+    desktopPagePool?.dispose();
+    desktopPagePool = null;
+    pendingMainWindowActions.clear();
     if (mainWindow === createdWindow) {
       mainWindow = null;
     }
@@ -1453,33 +1482,33 @@ function createApplicationMenu() {
         {
           label: nativeText("menu.reload"),
           accelerator: "CmdOrCtrl+R",
-          click: () => mainWindow.reload(),
+          click: () => getActiveMainWebContents()?.reload(),
         },
         {
           label: nativeText("menu.toggleDevTools"),
           accelerator: isMac ? "Cmd+Option+I" : "Ctrl+Shift+I",
-          click: () => mainWindow.webContents.toggleDevTools(),
+          click: () => getActiveMainWebContents()?.toggleDevTools(),
         },
         { type: "separator" },
         {
           label: nativeText("menu.actualSize"),
           accelerator: "CmdOrCtrl+0",
-          click: () => mainWindow.webContents.setZoomLevel(0),
+          click: () => getActiveMainWebContents()?.setZoomLevel(0),
         },
         {
           label: nativeText("menu.zoomIn"),
           accelerator: "CmdOrCtrl+=",
           click: () =>
-            mainWindow.webContents.setZoomLevel(
-              mainWindow.webContents.getZoomLevel() + 1,
+            getActiveMainWebContents()?.setZoomLevel(
+              (getActiveMainWebContents()?.getZoomLevel() || 0) + 1,
             ),
         },
         {
           label: nativeText("menu.zoomOut"),
           accelerator: "CmdOrCtrl+-",
           click: () =>
-            mainWindow.webContents.setZoomLevel(
-              mainWindow.webContents.getZoomLevel() - 1,
+            getActiveMainWebContents()?.setZoomLevel(
+              (getActiveMainWebContents()?.getZoomLevel() || 0) - 1,
             ),
         },
       ],
@@ -1955,14 +1984,37 @@ function setupIpcHandlers() {
     return fs.promises.readFile(targetPath, "utf8");
   });
 
-  ipcMain.on("ui:pageReady", (event) => {
+  ipcMain.handle("ui:navigatePage", async (event, request = {}) => {
+    if (!desktopPagePool || !desktopPagePool.owns(event.sender)) {
+      return {
+        requestId: String(request?.requestId || ""),
+        state: "rejected",
+        reason: "unmanaged-renderer",
+      };
+    }
+    return desktopPagePool.navigate(request, event.sender);
+  });
+
+  ipcMain.on("ui:pageReady", (event, payload = {}) => {
     const targetWindow = resolveWindowFromEvent(event);
+    const poolResult = desktopPagePool?.markPageReady(event.sender, payload) || null;
     if (
       targetWindow &&
       !targetWindow.isDestroyed() &&
       typeof targetWindow.__controlerMarkPageReady === "function"
     ) {
       targetWindow.__controlerMarkPageReady();
+    }
+    if (poolResult?.activated) {
+      const pendingAction = pendingMainWindowActions.get(poolResult.requestId);
+      if (pendingAction) {
+        pendingMainWindowActions.delete(poolResult.requestId);
+        desktopPagePool?.sendToActive("main-window-action", pendingAction);
+      }
+      desktopPagePool?.schedulePrewarm(
+        ["index", "stats", "plan", "todo", "diary", "settings"],
+        480,
+      );
     }
   });
 

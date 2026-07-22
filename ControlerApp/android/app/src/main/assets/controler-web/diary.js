@@ -47,8 +47,6 @@ let diaryInitialDataValidated = false;
 let diaryLoadRequestId = 0;
 let diaryLoadingOverlayTimer = 0;
 let diaryLoadingOverlayController = null;
-let diaryInitialRevealQueued = false;
-let diaryInitialRevealPromise = null;
 let diaryPrefetchRequestId = 0;
 let diaryShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let diaryShellVisibilityBound = false;
@@ -1471,52 +1469,12 @@ async function commitDiaryLocalChange({
 
 function queueDiaryInitialReveal() {
   if (diaryInitialReadyReported) {
-    return diaryInitialRevealPromise || Promise.resolve(true);
-  }
-  const body = document.body;
-  if (!(body instanceof HTMLElement)) {
-    return Promise.resolve(false);
-  }
-  if (!body.classList.contains("diary-bootstrap-pending")) {
-    diaryInitialReadyReported = true;
-    uiTools?.markNativePageReady?.();
     return Promise.resolve(true);
   }
-  if (diaryInitialRevealQueued) {
-    return diaryInitialRevealPromise || Promise.resolve(true);
-  }
-
-  diaryInitialRevealQueued = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  diaryInitialRevealPromise = new Promise((resolve) => {
-    schedule(() => {
-      schedule(() => {
-        Promise.resolve(
-          uiTools?.waitForVisualContentStability?.({
-            root: ".diary-main",
-            quietWindowMs: 72,
-            maxWaitMs: 680,
-            minQuietFrames: 3,
-          }),
-        )
-          .catch(() => false)
-          .finally(() => {
-            diaryInitialRevealQueued = false;
-            diaryInitialReadyReported = true;
-            body.classList.remove("diary-bootstrap-pending");
-            body.classList.add("diary-bootstrap-ready");
-            uiTools?.markPerfStage?.("first-render-done");
-            uiTools?.markNativePageReady?.();
-            diaryInitialRevealPromise = null;
-            resolve(true);
-          });
-      });
-    });
-  });
-  return diaryInitialRevealPromise;
+  diaryInitialReadyReported = true;
+  uiTools?.markPerfStage?.("first-render-done");
+  uiTools?.markNativePageReady?.();
+  return Promise.resolve(true);
 }
 
 function getDiaryLoadingOverlayElement() {
@@ -7913,8 +7871,11 @@ async function init() {
   await waitForDiaryStorageReady();
   bindDiaryShellVisibilityGate();
   bindDiaryExternalStorageRefresh();
+  const hostNavigationRuntime =
+    window.ControlerNativeBridge?.capabilities?.hostPageNavigation === true;
   const shouldForceFreshTransitionBootstrap =
     window.ControlerStorage?.isNativeApp === true &&
+    window.ControlerNativeBridge?.capabilities?.hostPageNavigation !== true &&
     (!diaryShellPageActive || isDiaryShellTransitionLoading());
   const bootstrappedFromSnapshot = shouldForceFreshTransitionBootstrap
     ? false
@@ -7943,7 +7904,7 @@ async function init() {
   });
   try {
     if (hydrationPromise) {
-      if (bootstrappedFromSnapshot) {
+      if (bootstrappedFromSnapshot || hostNavigationRuntime) {
         void hydrationPromise.then((hydrated) => {
           if (hydrated !== false) {
             flushDiaryPendingWidgetLaunchAction();
@@ -7958,7 +7919,11 @@ async function init() {
       }
     }
   } finally {
-    if (diaryInitialDataValidated || bootstrappedFromSnapshot) {
+    if (
+      diaryInitialDataValidated ||
+      bootstrappedFromSnapshot ||
+      hostNavigationRuntime
+    ) {
       await queueDiaryInitialReveal();
     }
   }

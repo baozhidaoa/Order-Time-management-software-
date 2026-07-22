@@ -13,6 +13,41 @@ const bridgeHealth = Object.freeze({
     typeof runtimeMeta?.platform === "string" ? runtimeMeta.platform : process.platform,
 });
 
+let pageActivityState = Object.freeze({
+  active: true,
+  page: "",
+  href: "",
+  requestId: "",
+  reason: "initial",
+});
+let deferredStorageChange = null;
+const storageChangeListeners = new Set();
+const pageActivityListeners = new Set();
+
+ipcRenderer.on("ui:page-activity-changed", (_event, payload = {}) => {
+  pageActivityState = Object.freeze({
+    active: payload?.active !== false,
+    page: typeof payload?.page === "string" ? payload.page : "",
+    href: typeof payload?.href === "string" ? payload.href : "",
+    requestId: typeof payload?.requestId === "string" ? payload.requestId : "",
+    reason: typeof payload?.reason === "string" ? payload.reason : "activity-changed",
+  });
+  pageActivityListeners.forEach((listener) => listener(pageActivityState));
+  if (pageActivityState.active && deferredStorageChange) {
+    const nextChange = deferredStorageChange;
+    deferredStorageChange = null;
+    storageChangeListeners.forEach((listener) => listener(null, nextChange));
+  }
+});
+
+ipcRenderer.on("storage-data-changed", (_event, payload) => {
+  if (!pageActivityState.active) {
+    deferredStorageChange = payload;
+    return;
+  }
+  storageChangeListeners.forEach((listener) => listener(_event, payload));
+});
+
 // Expose versions info
 contextBridge.exposeInMainWorld("versions", {
   node: () => process.versions.node,
@@ -92,6 +127,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   uiGetLanguage: () => ipcRenderer.invoke("ui:getLanguage"),
   uiSetLanguage: (language) => ipcRenderer.invoke("ui:setLanguage", language),
   uiPageReady: (payload = {}) => ipcRenderer.send("ui:pageReady", payload),
+  uiNavigatePage: (request = {}) => ipcRenderer.invoke("ui:navigatePage", request),
+  getPageActivityState: () => ({ ...pageActivityState }),
+  onPageActivityChanged: (callback) => {
+    if (typeof callback !== "function") {
+      return () => {};
+    }
+    pageActivityListeners.add(callback);
+    callback({ ...pageActivityState });
+    return () => pageActivityListeners.delete(callback);
+  },
 
   // Window chrome APIs
   windowGetState: () => ipcRenderer.invoke("window:getState"),
@@ -150,9 +195,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Listen for storage data changes
   onStorageDataChanged: (callback) => {
-    ipcRenderer.on("storage-data-changed", callback);
+    if (typeof callback !== "function") {
+      return () => {};
+    }
+    storageChangeListeners.add(callback);
     return () => {
-      ipcRenderer.removeListener("storage-data-changed", callback);
+      storageChangeListeners.delete(callback);
     };
   },
   onThemedMessage: (callback) => {

@@ -83,7 +83,7 @@ public final class OfflineWebViewBridge {
             + BuildConfig.DEBUG
             + ",\"performanceTracing\":"
             + BuildConfig.DEBUG
-            + ",\"capabilities\":{\"storage\":true,\"widgets\":true,\"notifications\":true,\"offline\":true}}";
+            + ",\"capabilities\":{\"storage\":true,\"widgets\":true,\"notifications\":true,\"offline\":true,\"hostPageNavigation\":true}}";
     }
 
     @JavascriptInterface
@@ -302,6 +302,15 @@ public final class OfflineWebViewBridge {
 
     private void handleEvent(JSONObject payload) {
         String name = payload.optString("name", "");
+        if ("ui.navigate".equals(name)) {
+            final JSONObject request = payload == null ? new JSONObject() : payload;
+            mainHandler.post(() -> {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).handleWebNavigation(request);
+                }
+            });
+            return;
+        }
         if ("ui.theme-applied".equals(name)) {
             JSONObject themeState = new JSONObject();
             try {
@@ -315,7 +324,7 @@ public final class OfflineWebViewBridge {
         if ("ui.page-ready".equals(name)) {
             mainHandler.post(() -> {
                 if (activity instanceof MainActivity) {
-                    ((MainActivity) activity).onWebPageReady();
+                    ((MainActivity) activity).onWebPageReady(payload);
                 }
             });
             return;
@@ -344,6 +353,21 @@ public final class OfflineWebViewBridge {
             message.put("payload", eventPayload);
         } catch (Exception ignored) { return; }
         sendMessage(message);
+    }
+
+    public void emitNavigationAck(JSONObject request, String state, String reason) {
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("name", "ui.navigate-ack");
+            payload.put("requestId", request == null ? "" : request.optString("requestId", ""));
+            payload.put("page", request == null ? "" : request.optString("page", ""));
+            payload.put("href", request == null ? "" : request.optString("href", ""));
+            payload.put("state", state == null ? "rejected" : state);
+            payload.put("reason", reason == null ? "" : reason);
+        } catch (Exception ignored) {
+            return;
+        }
+        sendEvent(payload);
     }
 
     private void sendError(String id, String error) {

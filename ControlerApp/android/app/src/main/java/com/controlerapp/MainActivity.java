@@ -5,15 +5,20 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.SystemClock;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.PixelCopy;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.webkit.WebChromeClient;
@@ -30,6 +35,7 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import com.controlerapp.widgets.ControlerWidgetLaunchStore;
+import com.controlerapp.widgets.ControlerWidgetDataStore;
 import com.controlerapp.widgets.ControlerWidgetRenderer;
 
 import org.json.JSONArray;
@@ -48,12 +54,19 @@ public class MainActivity extends Activity {
     private WebView webView;
     private FrameLayout hostView;
     private ImageView navigationSurface;
-    private Bitmap navigationSurfaceBitmap;
+    private Bitmap cachedNavigationSurfaceBitmap;
     private OfflineWebViewBridge bridge;
     private boolean backDispatchPending;
     private boolean splashDismissed;
     private boolean hasCommittedPage;
     private int currentThemeColor;
+    private JSONObject currentNavigationRequest;
+    private long latestNavigationRequestedAt;
+    private long navigationAcceptedElapsedMs;
+    private boolean pageBootstrapPrewarmRequested;
+    private int navigationCaptureGeneration;
+    private HandlerThread navigationCaptureThread;
+    private Handler navigationCaptureHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,6 +108,9 @@ public class MainActivity extends Activity {
     }
 
     private WebView createWebView() {
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
         WebView view = new WebView(this);
         view.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -144,6 +160,7 @@ public class MainActivity extends Activity {
             public void onPageCommitVisible(WebView target, String url) {
                 super.onPageCommitVisible(target, url);
                 hasCommittedPage = true;
+                logNavigationStage("html-commit", currentNavigationRequest, url);
             }
 
             @Override
@@ -157,9 +174,31 @@ public class MainActivity extends Activity {
         return view;
     }
 
-    void onWebPageReady() {
+    void onWebPageReady(JSONObject payload) {
+        String expectedRequestId = currentNavigationRequest == null
+            ? ""
+            : currentNavigationRequest.optString("requestId", "");
+        String readyRequestId = payload == null ? "" : payload.optString("requestId", "");
+        if (!expectedRequestId.isEmpty() && !expectedRequestId.equals(readyRequestId)) {
+            return;
+        }
         hasCommittedPage = true;
         hideNavigationSurface();
+        logNavigationStage(
+            "page-ready",
+            currentNavigationRequest,
+            payload == null ? "" : payload.optString("href", "")
+        );
+        scheduleNavigationSurfaceCapture();
+        if (!pageBootstrapPrewarmRequested && webView != null) {
+            pageBootstrapPrewarmRequested = true;
+            webView.postDelayed(
+                () -> ControlerWidgetDataStore.prewarmPageBootstrapSnapshots(this),
+                480L
+            );
+        }
+        currentNavigationRequest = null;
+        navigationAcceptedElapsedMs = 0L;
     }
 
     private void showNavigationSurface(WebView target) {
@@ -168,22 +207,13 @@ public class MainActivity extends Activity {
                 || target == null
                 || target != webView
                 || navigationSurface == null
+                || cachedNavigationSurfaceBitmap == null
+                || cachedNavigationSurfaceBitmap.isRecycled()
                 || navigationSurface.getVisibility() == View.VISIBLE
         ) {
             return;
         }
-        int width = target.getWidth();
-        int height = target.getHeight();
-        if (width <= 0 || height <= 0) return;
-        Bitmap snapshot;
-        try {
-            snapshot = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            target.draw(new Canvas(snapshot));
-        } catch (RuntimeException ignored) {
-            return;
-        }
-        navigationSurfaceBitmap = snapshot;
-        navigationSurface.setImageBitmap(snapshot);
+        navigationSurface.setImageBitmap(cachedNavigationSurfaceBitmap);
         navigationSurface.setVisibility(View.VISIBLE);
     }
 
@@ -191,10 +221,160 @@ public class MainActivity extends Activity {
         if (navigationSurface == null) return;
         navigationSurface.setVisibility(View.GONE);
         navigationSurface.setImageDrawable(null);
-        if (navigationSurfaceBitmap != null && !navigationSurfaceBitmap.isRecycled()) {
-            navigationSurfaceBitmap.recycle();
+    }
+
+    private void scheduleNavigationSurfaceCapture() {
+        final WebView target = webView;
+        if (target == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        final int generation = ++navigationCaptureGeneration;
+        target.postDelayed(() -> {
+            if (
+                generation != navigationCaptureGeneration
+                    || target != webView
+                    || navigationSurface == null
+                    || navigationSurface.getVisibility() == View.VISIBLE
+            ) {
+                return;
+            }
+            int width = target.getWidth();
+            int height = target.getHeight();
+            if (width <= 0 || height <= 0) return;
+            int[] location = new int[2];
+            target.getLocationInWindow(location);
+            Rect sourceRect = new Rect(
+                location[0],
+                location[1],
+                location[0] + width,
+                location[1] + height
+            );
+            Bitmap snapshot = Bitmap.createBitmap(
+                Math.max(1, width / 2),
+                Math.max(1, height / 2),
+                Bitmap.Config.ARGB_8888
+            );
+            ensureNavigationCaptureHandler();
+            PixelCopy.request(
+                getWindow(),
+                sourceRect,
+                snapshot,
+                result -> target.post(() -> {
+                    if (
+                        result != PixelCopy.SUCCESS
+                            || generation != navigationCaptureGeneration
+                            || target != webView
+                    ) {
+                        snapshot.recycle();
+                        return;
+                    }
+                    Bitmap previous = cachedNavigationSurfaceBitmap;
+                    cachedNavigationSurfaceBitmap = snapshot;
+                    if (previous != null && previous != snapshot && !previous.isRecycled()) {
+                        previous.recycle();
+                    }
+                }),
+                navigationCaptureHandler
+            );
+        }, 96L);
+    }
+
+    private void ensureNavigationCaptureHandler() {
+        if (navigationCaptureThread != null && navigationCaptureThread.isAlive()) return;
+        navigationCaptureThread = new HandlerThread("order-navigation-capture");
+        navigationCaptureThread.start();
+        navigationCaptureHandler = new Handler(navigationCaptureThread.getLooper());
+    }
+
+    void handleWebNavigation(JSONObject request) {
+        if (request == null || bridge == null || webView == null) return;
+        String requestId = request.optString("requestId", "").trim();
+        String page = request.optString("page", "").trim();
+        String href = request.optString("href", "").trim();
+        long requestedAt = Math.max(0L, request.optLong("requestedAt", 0L));
+        if (
+            requestId.isEmpty()
+                || !page.matches("index|stats|plan|todo|diary|settings")
+                || href.isEmpty()
+        ) {
+            bridge.emitNavigationAck(request, "rejected", "invalid-request");
+            return;
         }
-        navigationSurfaceBitmap = null;
+        final Uri targetUri;
+        try {
+            targetUri = Uri.parse(href.startsWith(WEB_ROOT) ? href : WEB_ROOT + href);
+        } catch (Exception error) {
+            bridge.emitNavigationAck(request, "rejected", "invalid-url");
+            return;
+        }
+        String targetUrl = targetUri.toString();
+        String targetPath = targetUri.getPath();
+        if (
+            !targetUrl.startsWith(WEB_ROOT)
+                || targetPath == null
+                || !targetPath.endsWith("/" + page + ".html")
+        ) {
+            bridge.emitNavigationAck(request, "rejected", "unsupported-target");
+            return;
+        }
+        if (requestedAt > 0L && requestedAt < latestNavigationRequestedAt) {
+            bridge.emitNavigationAck(request, "dropped-stale", "latest-wins");
+            return;
+        }
+        latestNavigationRequestedAt = Math.max(latestNavigationRequestedAt, requestedAt);
+        navigationCaptureGeneration += 1;
+        currentNavigationRequest = cloneJsonObject(request);
+        navigationAcceptedElapsedMs = SystemClock.elapsedRealtime();
+        showNavigationSurface(webView);
+        bridge.emitNavigationAck(request, "accepted-now", "host-load-url");
+        logNavigationStage("host-accepted", request, href);
+        webView.stopLoading();
+        webView.loadUrl(withNavigationRequestId(targetUri, requestId));
+    }
+
+    private static String withNavigationRequestId(Uri uri, String requestId) {
+        Uri.Builder builder = uri.buildUpon().clearQuery();
+        try {
+            for (String key : uri.getQueryParameterNames()) {
+                if ("controlerNavRequestId".equals(key)) continue;
+                for (String value : uri.getQueryParameters(key)) {
+                    builder.appendQueryParameter(key, value);
+                }
+            }
+        } catch (Exception ignored) {}
+        builder.appendQueryParameter("controlerNavRequestId", requestId);
+        return builder.build().toString();
+    }
+
+    private static JSONObject cloneJsonObject(JSONObject source) {
+        try {
+            return source == null ? new JSONObject() : new JSONObject(source.toString());
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private void logNavigationStage(String stage, JSONObject request, String href) {
+        JSONObject metric = new JSONObject();
+        try {
+            metric.put("stage", stage == null ? "" : stage);
+            metric.put("requestId", request == null ? "" : request.optString("requestId", ""));
+            metric.put("page", request == null ? "" : request.optString("page", ""));
+            metric.put("href", href == null ? "" : href);
+            long requestedAt = request == null ? 0L : Math.max(0L, request.optLong("requestedAt", 0L));
+            metric.put(
+                "clickToStageMs",
+                requestedAt <= 0L ? 0L : Math.max(0L, System.currentTimeMillis() - requestedAt)
+            );
+            metric.put(
+                "hostElapsedMs",
+                navigationAcceptedElapsedMs <= 0L
+                    ? 0L
+                    : Math.max(0L, SystemClock.elapsedRealtime() - navigationAcceptedElapsedMs)
+            );
+            metric.put("webViewCount", webView == null ? 0 : 1);
+        } catch (Exception ignored) {
+            return;
+        }
+        Log.i("ControlerPerf", metric.toString());
     }
 
     private void installDocumentStartTheme(WebView view) {
@@ -254,6 +434,15 @@ public class MainActivity extends Activity {
             webView = null;
         }
         hideNavigationSurface();
+        if (cachedNavigationSurfaceBitmap != null && !cachedNavigationSurfaceBitmap.isRecycled()) {
+            cachedNavigationSurfaceBitmap.recycle();
+        }
+        cachedNavigationSurfaceBitmap = null;
+        if (navigationCaptureThread != null) {
+            navigationCaptureThread.quitSafely();
+            navigationCaptureThread = null;
+            navigationCaptureHandler = null;
+        }
         navigationSurface = null;
         super.onDestroy();
     }

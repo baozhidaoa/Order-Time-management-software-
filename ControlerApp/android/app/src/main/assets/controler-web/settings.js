@@ -270,7 +270,6 @@ function bindRememberedThemeColorPicker(
 
 const SETTINGS_LANGUAGE_EVENT = "controler:language-changed";
 let settingsInitialReadyReported = false;
-let settingsInitialReadyPromise = null;
 let settingsDeferredRuntimePromise = null;
 let settingsDeferredPanelInitPromise = null;
 const SETTINGS_BUSY_OVERLAY_DELAY_MS = Math.max(
@@ -334,40 +333,12 @@ function ensureSettingsDeferredRuntimeLoaded() {
 
 function queueSettingsInitialReady() {
   if (settingsInitialReadyReported) {
-    return settingsInitialReadyPromise || Promise.resolve(true);
+    return Promise.resolve(true);
   }
-  if (settingsInitialReadyPromise) {
-    return settingsInitialReadyPromise;
-  }
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  settingsInitialReadyPromise = new Promise((resolve) => {
-    schedule(() => {
-      schedule(() => {
-        Promise.resolve(
-          window.ControlerUI?.waitForVisualContentStability?.({
-            root: ".settings-main",
-            quietWindowMs: 72,
-            maxWaitMs: 680,
-            minQuietFrames: 3,
-          }),
-        )
-          .catch(() => false)
-          .finally(async () => {
-            settingsInitialReadyReported = true;
-            document.body?.classList.remove("settings-bootstrap-pending");
-            document.body?.classList.add("settings-bootstrap-ready");
-            window.ControlerUI?.markPerfStage?.("first-render-done");
-            window.ControlerUI?.markNativePageReady?.();
-            settingsInitialReadyPromise = null;
-            resolve(true);
-          });
-      });
-    });
-  });
-  return settingsInitialReadyPromise;
+  settingsInitialReadyReported = true;
+  window.ControlerUI?.markPerfStage?.("first-render-done");
+  window.ControlerUI?.markNativePageReady?.();
+  return Promise.resolve(true);
 }
 
 function scheduleSettingsDeferredPanelInitialization() {
@@ -2797,15 +2768,6 @@ function updateThemeSelector(selectedThemeId, options = {}) {
   const selector = document.getElementById("theme-selector");
   if (!selector) return;
 
-  const shouldReportBootstrapPerf = document.body?.classList.contains(
-    "settings-bootstrap-pending",
-  );
-  const renderStartTime =
-    shouldReportBootstrapPerf &&
-    typeof performance !== "undefined" &&
-    typeof performance.now === "function"
-      ? performance.now()
-      : 0;
   lastSettingsThemeSelectorSignature =
     typeof options?.themeSelectorSignature === "string" &&
     options.themeSelectorSignature
@@ -2922,18 +2884,6 @@ function updateThemeSelector(selectedThemeId, options = {}) {
 
   selector.replaceChildren(fragment);
   scheduleSettingsCollapsibleRefresh();
-  if (renderStartTime) {
-    const durationMs =
-      typeof performance !== "undefined" &&
-      typeof performance.now === "function"
-        ? Math.max(0, Math.round(performance.now() - renderStartTime))
-        : 0;
-    window.ControlerUI?.markPerfStage?.("settings-theme-selector-ready", {
-      themeCount: themes.length,
-      durationMs,
-      selectedThemeId: String(selectedThemeId || "").trim() || "obsidian-mono",
-    });
-  }
 }
 
 function ensureThemeSelectorVisible(selectedThemeId) {

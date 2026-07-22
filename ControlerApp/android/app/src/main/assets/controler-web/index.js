@@ -367,8 +367,6 @@ function refreshIndexWorkspace({ immediate = false } = {}) {
 
 let indexExternalStorageRefreshQueued = false;
 let indexExternalStorageRefreshForceTimerSessionSync = false;
-let recordInitialRevealQueued = false;
-let recordInitialRevealPromise = null;
 let indexDeferredRuntimePromise = null;
 let indexInitialDataLoaded = false;
 let indexLoadingOverlayTimer = 0;
@@ -1007,54 +1005,10 @@ function renderRecordGuideCard() {
 }
 
 function queueRecordInitialReveal() {
-  if (recordInitialRevealPromise) {
-    return recordInitialRevealPromise;
-  }
-  const body = document.body;
-  if (!(body instanceof HTMLElement)) {
-    return Promise.resolve(false);
-  }
-  if (!body.classList.contains("record-bootstrap-pending")) {
-    uiTools?.markNativePageReady?.();
-    return Promise.resolve(true);
-  }
-  if (recordInitialRevealQueued) {
-    return recordInitialRevealPromise || Promise.resolve(true);
-  }
-
-  recordInitialRevealQueued = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  recordInitialRevealPromise = new Promise((resolve) => {
-    schedule(() => {
-      schedule(() => {
-        Promise.resolve(
-          uiTools?.waitForVisualContentStability?.({
-            root: ".record-main",
-            quietWindowMs: 72,
-            maxWaitMs: 680,
-            minQuietFrames: 3,
-          }),
-        )
-          .catch(() => false)
-          .finally(() => {
-            recordInitialRevealQueued = false;
-            body.classList.remove("record-bootstrap-pending");
-            body.classList.add("record-bootstrap-ready");
-            uiTools?.markPerfStage?.("first-render-done");
-            uiTools?.markNativePageReady?.();
-            window.setTimeout(() => {
-              reportIndexDebugInteractivityState("initial-reveal");
-            }, 120);
-            recordInitialRevealPromise = null;
-            resolve(true);
-          });
-      });
-    });
-  });
-  return recordInitialRevealPromise;
+  uiTools?.markPerfStage?.("first-render-done");
+  uiTools?.markNativePageReady?.();
+  window.setTimeout(() => reportIndexDebugInteractivityState("initial-reveal"), 120);
+  return Promise.resolve(true);
 }
 
 function getIndexLoadingOverlayElement() {
@@ -15562,6 +15516,7 @@ async function init() {
   initIndexWidgetLaunchAction();
   const shouldForceFreshTransitionBootstrap =
     window.ControlerStorage?.isNativeApp === true &&
+    window.ControlerNativeBridge?.capabilities?.hostPageNavigation !== true &&
     (!indexShellPageActive || isIndexShellTransitionLoading());
   const bootstrappedSnapshot = shouldForceFreshTransitionBootstrap
     ? null

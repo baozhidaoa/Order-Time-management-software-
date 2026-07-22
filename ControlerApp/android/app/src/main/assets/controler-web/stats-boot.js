@@ -4038,7 +4038,6 @@ function markStatsInitialReady() {
   if (statsInitialReadyReported) {
     return;
   }
-  document.body?.classList.remove("page-bootstrap-pending");
   statsInitialReadyReported = true;
   uiTools?.markPerfStage?.("first-render-done");
   uiTools?.markNativePageReady?.();
@@ -13262,8 +13261,11 @@ async function init() {
   try {
     loadStatsPreferencesFromStorage();
     applyStatsUiStateFromPreferences(statsPreferencesState);
-    statsInitialViewRuntimePromise =
-      ensureStatsViewRuntimeLoaded(statsViewMode);
+    const hostNavigationRuntime =
+      window.ControlerNativeBridge?.capabilities?.hostPageNavigation === true;
+    statsInitialViewRuntimePromise = hostNavigationRuntime
+      ? Promise.resolve(true)
+      : ensureStatsViewRuntimeLoaded(statsViewMode);
     initStatsWidgetLaunchAction();
     const initialScope = getStatsLoadScope();
     const canPrepareInitialData =
@@ -13277,7 +13279,7 @@ async function init() {
     const bootstrappedFromSnapshot = shouldForceFreshTransitionBootstrap
       ? false
       : bootstrapStatsFromCachedSnapshot(initialScope);
-    if (!bootstrappedFromSnapshot) {
+    if (!bootstrappedFromSnapshot && !hostNavigationRuntime) {
       const initialLoadFresh = false;
       await loadData(initialScope, {
         fresh: initialLoadFresh,
@@ -13285,6 +13287,9 @@ async function init() {
       if (!initialLoadFresh) {
         statsInitialLoadPendingResume = true;
       }
+    } else if (!bootstrappedFromSnapshot) {
+      statsInitialDataLoaded = true;
+      statsInitialLoadPendingResume = false;
     } else if (canPrepareInitialData) {
       statsInitialDataLoaded = true;
     } else {
@@ -13309,7 +13314,9 @@ async function init() {
       return false;
     });
     renderCurrentView();
-    await waitForStatsUiPaint();
+    if (!hostNavigationRuntime) {
+      await waitForStatsUiPaint();
+    }
     markStatsInitialReady();
     statsInitialDataLoaded = true;
     scheduleStatsInitialContentEnsure("init-complete");

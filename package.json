@@ -1,6 +1,6 @@
 {
   "name": "order",
-  "version": "1.3.75",
+  "version": "1.3.77",
   "description": "Order is a local-first time tracker for desktop and mobile.",
   "main": "main.js",
   "scripts": {
@@ -26,7 +26,8 @@
     "sync:local:release": "node scripts/sync-local-release.mjs",
     "verify:offline-assets": "node scripts/test-offline-runtime-assets.mjs",
     "verify:parity": "node scripts/verify-parity.mjs && npm run verify:offline-assets",
-    "test": "npm run prepare:web-assets && npm run verify:parity",
+    "test:navigation": "node scripts/test-desktop-page-pool.js",
+    "test": "npm run prepare:web-assets && npm run verify:parity && npm run test:navigation",
     "package": "npm run prepare:web-assets && electron-forge package",
     "make": "npm run prepare:web-assets && electron-forge make"
   },
@@ -64,7 +65,7 @@
   "build": {
     "appId": "com.controler.timetracker",
     "productName": "Order",
-    "buildVersion": "1.3.75",
+    "buildVersion": "1.3.77",
     "electronDist": "node_modules/electron/dist",
     "afterPack": "scripts/after-pack-windows.js",
     "asar": true,

@@ -1388,6 +1388,7 @@ body.page-record #project-container {
   max-height: min(32dvh, 340px);
   padding: 0 !important;
   overflow-y: auto !important;
+  scrollbar-gutter: stable;
 }
 
 body.page-record #project-container > .record-section-block {
@@ -1428,6 +1429,7 @@ body.page-record .record-output-surface {
   width: 100%;
   max-width: 100%;
   padding-bottom: 112px;
+  scrollbar-gutter: stable;
 }
 
 body.page-record .record-floating-timer-btn {
@@ -3536,6 +3538,13 @@ body.page-todo .controler-time-text-input::placeholder {
   min-width: 0;
   border-radius: inherit;
   overflow: hidden;
+}
+
+body.page-stats .stats-main,
+body.page-stats #stats-container,
+body.page-stats .resizable-panel,
+body.page-stats .weekly-glass-scroller {
+  scrollbar-gutter: stable;
 }
 
 body.page-stats .stats-section-panel[data-view-key="weekly-grid"],
@@ -5957,7 +5966,6 @@ body.controler-android-native
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 24px 48px rgba(0, 0, 0, 0.18);
   overflow-y: auto;
-  scrollbar-gutter: stable;
   overflow-x: hidden;
 }
 
@@ -10257,57 +10265,6 @@ body.page-settings .settings-card--collapsible.is-expanded .settings-collapse-to
   }
 }
 
-body.controler-ios-native.page-record.record-bootstrap-pending.controler-blocking-overlay-active .record-main > :not(#record-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-record.record-bootstrap-pending .record-main > :not(#record-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-record.record-bootstrap-ready .record-main > :not(#record-loading-overlay) {
-  opacity: 1;
-  visibility: visible;
-}
-
-body.controler-ios-native.page-diary.diary-bootstrap-pending.controler-blocking-overlay-active .diary-main > :not(#diary-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-diary.diary-bootstrap-pending .diary-main > :not(#diary-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-diary.diary-bootstrap-ready .diary-main > :not(#diary-loading-overlay) {
-  opacity: 1;
-  visibility: visible;
-}
-
-body.controler-ios-native.page-settings.settings-bootstrap-pending.controler-blocking-overlay-active .settings-main > :not(#settings-backup-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-settings.settings-bootstrap-pending .settings-main > :not(#settings-backup-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-settings.settings-bootstrap-ready .settings-main > :not(#settings-backup-overlay) {
-  opacity: 1;
-  visibility: visible;
-}
-
 body.controler-fullscreen-overlay-active > div:first-of-type > .app-nav,
 body.controler-fullscreen-overlay-active > div:first-of-type > .app-sidebar {
   pointer-events: none !important;
@@ -10735,14 +10692,6 @@ body *::after {
   scroll-behavior: auto !important;
 }
 
-body.page-bootstrap-pending
-  :is(.stats-main, .plan-main, .todo-main)
-  > :not(.page-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
 body :is(
     .ms,
     .ss,
@@ -10796,7 +10745,7 @@ body :is(
 }
 
 body.page-stats .stats-toolbar :is(select, .tree-select-button, .stats-range-step-btn),
-body.page-todo .todo-dropdown-row :is(.todo-tools-input, .tree-select-button) {
+body:is(.page-todo, .page-plan) .todo-dropdown-row :is(.todo-tools-input, .tree-select-button) {
   box-shadow: none !important;
 }
 
