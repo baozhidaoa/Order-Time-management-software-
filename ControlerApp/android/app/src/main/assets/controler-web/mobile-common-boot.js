@@ -19332,42 +19332,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const APP_PAGE_CUSTOM_TITLE_EDIT_HINT = "Enter 保存 · Esc 取消";
   const APP_PAGE_CUSTOM_TITLE_PLACEHOLDER = "输入页面标题";
   const APP_PAGE_CUSTOM_TITLE_MAX_LENGTH = 40;
-  const APP_PAGE_TRANSITION_DURATION_MS = 90;
   const APP_PAGE_ENTER_TRANSITION_MAX_AGE_MS = 15000;
   const APP_PAGE_ENTER_LOADING_OVERLAY_DELAY_MS = PAGE_LOADING_OVERLAY_DELAY_MS;
   const RN_APP_PAGE_TRANSITION_ACK_TIMEOUT_MS = 1200;
   const DESKTOP_CONTENT_OVERLAY_HOST_SELECTOR =
     ".app-main, .settings-main";
-  const ANDROID_PRESS_FEEDBACK_SELECTOR = [
-    "button",
-    'input[type="button"]',
-    'input[type="submit"]',
-    'input[type="reset"]',
-    '[role="button"]',
-    ".app-nav-button",
-    ".bts",
-    ".time-quick-btn",
-    ".todo-action-btn",
-    ".record-action-btn",
-    ".record-item",
-    ".todo-item",
-    ".project-item",
-    ".project-option",
-    ".tree-select-option",
-    ".tree-select-button",
-    ".calendar-day",
-    ".plan-timeline-block",
-    ".weekly-glass-time-block",
-    ".controler-pressable",
-    ".widget-action-card-button",
-    ".widget-action-card",
-    ".settings-collapse-toggle",
-  ].join(", ");
-  const ANDROID_PRESS_ACTIVE_CLASS = "is-android-press-active";
-  const ANDROID_PRESS_ANIMATE_CLASS = "is-android-press-animate";
-  const ANDROID_PRESS_ANIMATION_MS = 360;
-  const ANDROID_TOUCH_PRESS_POINTER_ID = -101;
-  const ANDROID_NAV_PRESS_MIN_ACTIVE_MS = 92;
   const APP_NAV_TOUCH_GUARD_MAX_MOVE_PX = 18;
   const APP_NAV_TOUCH_GUARD_CANCEL_WINDOW_MS = 360;
   const ANDROID_MODAL_TEXT_FOCUS_CLASS =
@@ -19406,6 +19375,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let appPageTransitionLocked = false;
   let appPageLeavePreflightLocked = false;
   let deferredAppNavigationRequest = null;
+  let pageContentLeaveTimerId = 0;
   let nativeNavigationListenerBound = false;
   let nativeNavigationRequestCounter = 0;
   let appNavigationIntentCounter = 0;
@@ -19430,7 +19400,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   let desktopBootstrapPrewarmGeneration = 0;
   let lastReportedAppNavigationStateSignature = "";
   let lastShellVisibilityStateSignature = "";
-  let androidPressFeedbackInitialized = false;
   let androidAppNavFocusSuppressionInitialized = false;
   let androidInteractiveTextAssistInitialized = false;
   let androidInteractiveActionFocusBypassInitialized = false;
@@ -19453,7 +19422,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const ANDROID_SOFT_INPUT_REQUEST_SETTLE_WINDOW_MS = 420;
   const ANDROID_MODAL_MANUAL_KEYBOARD_DISMISS_SUPPRESS_MS = 960;
   const ANDROID_MODAL_KEYBOARD_DISMISS_SYNC_DELAYS_MS = [0, 48, 120, 220, 360];
-  const activeAndroidPressTargets = new Map();
   const androidAutofocusedModalRoots = new WeakSet();
   const androidPreferredModalFocusTargets = new WeakMap();
   let lastAndroidAutofocusVisibleModal = null;
@@ -20902,13 +20870,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const allowRepeat = options.allowRepeat === true;
     const readyReason = resolveNativePageReadyReason(options);
     const shouldReportToReactNative = isReactNativeNavigationRuntime();
+    const shouldReportToNativeHost =
+      typeof window.ControlerNativeBridge?.emitEvent === "function";
     const shouldReportToElectron =
       !allowRepeat &&
       !!electronApi?.isElectron &&
       typeof electronApi.uiPageReady === "function";
     if (
       (!allowRepeat && nativePageReadyReported) ||
-      (!shouldReportToReactNative && !shouldReportToElectron)
+      (!shouldReportToNativeHost && !shouldReportToElectron)
     ) {
       return;
     }
@@ -20931,7 +20901,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       allowRepeat,
       reason: readyReason,
     });
-    if (shouldReportToReactNative) {
+    if (shouldReportToNativeHost) {
       window.ControlerNativeBridge?.emitEvent?.("ui.page-ready", {
         href: window.location.href,
         reason: readyReason,
@@ -23237,22 +23207,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return;
     }
 
-    activeAndroidPressTargets.forEach((target, pointerId) => {
-      if (target instanceof HTMLElement && target.closest(".app-nav")) {
-        activeAndroidPressTargets.delete(pointerId);
-      }
-    });
-
     root.querySelectorAll(".app-nav [data-nav-page]").forEach((button) => {
       if (!(button instanceof HTMLElement)) {
         return;
       }
-      clearAndroidPressAnimation(button);
-      clearAndroidPressReleaseTimer(button);
-      button.classList.remove(
-        ANDROID_PRESS_ACTIVE_CLASS,
-        ANDROID_PRESS_ANIMATE_CLASS,
-      );
       clearAndroidNavButtonFocus(button, true);
     });
   }
@@ -23629,21 +23587,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return host;
   }
 
-  function clearAppPageTransitionClasses() {
-    const body = document.body;
-    if (!(body instanceof HTMLElement)) {
-      return;
-    }
-    body.classList.remove(
-      "app-page-transition-enabled",
-      "app-page-transition-enter",
-      "app-page-transition-leave",
-      "page-transition-active",
-      "page-transition-direction-forward",
-      "page-transition-direction-back",
-    );
-  }
-
   function resetAppPageTransitionRuntimeState(options = {}) {
     const clearStoredState = options.clearStoredState !== false;
     const hideOverlay = options.hideOverlay !== false;
@@ -23651,7 +23594,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     appPageLeavePreflightLocked = false;
     clearDeferredAppNavigationRequest();
     clearPendingAndroidInteractiveActionReplay();
-    clearAppPageTransitionClasses();
+    if (pageContentLeaveTimerId) {
+      window.clearTimeout(pageContentLeaveTimerId);
+      pageContentLeaveTimerId = 0;
+    }
     clearPendingNativeNavigationRequest();
     clearNativeNavigationRetryTimer();
     syncAndroidReactNativeAppNavLock();
@@ -24243,6 +24189,30 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return true;
   }
 
+  function scheduleFullPageNavigation(navigationRequest, currentItem) {
+    if (!navigationRequest?.targetHref) {
+      return false;
+    }
+
+    const navigate = () => {
+      pageContentLeaveTimerId = 0;
+      const latestRequest =
+        takeDeferredAppNavigationRequest(navigationRequest) || navigationRequest;
+      persistDesktopAppPageTransitionState(
+        currentItem,
+        latestRequest.targetItem,
+        latestRequest.targetHref,
+      );
+      return performAppNavigation(latestRequest.targetHref, {
+        replaceHistory: latestRequest.options?.replaceHistory === true,
+      });
+    };
+
+    document.body?.classList.add("app-page-content-leaving");
+    pageContentLeaveTimerId = window.setTimeout(navigate, 80);
+    return true;
+  }
+
   function applyAppPageEnterTransition() {
     const transitionState = readAppPageTransitionState();
     const currentItem = getCurrentAppNavigationItem();
@@ -24400,8 +24370,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
     appPageTransitionLocked = true;
     appPageLeavePreflightLocked = true;
-    if (!isAndroidNativeRuntime()) {
-      persistDesktopAppPageTransitionState(currentItem, targetItem, targetHref);
+    if (isDesktopThemeTransitionRuntime()) {
+      return scheduleFullPageNavigation(navigationRequest, currentItem);
     }
     return performAppNavigation(targetHref, navigationRequest.options);
   }
@@ -24485,156 +24455,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       },
       true,
     );
-  }
-
-  function getAndroidPressFeedbackTarget(target) {
-    if (!isAndroidNativeRuntime() || !(target instanceof Element)) {
-      return null;
-    }
-    const matchedTarget = target.closest(ANDROID_PRESS_FEEDBACK_SELECTOR);
-    if (
-      !(matchedTarget instanceof HTMLElement) ||
-      matchedTarget.matches(":disabled, [aria-disabled='true']")
-    ) {
-      return null;
-    }
-    return matchedTarget;
-  }
-
-  function clearAndroidPressAnimation(target) {
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    if (typeof target.__controlerAndroidPressTimerId === "number") {
-      window.clearTimeout(target.__controlerAndroidPressTimerId);
-    }
-    target.__controlerAndroidPressTimerId = 0;
-    target.classList.remove(ANDROID_PRESS_ANIMATE_CLASS);
-  }
-
-  function clearAndroidPressReleaseTimer(target) {
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    if (typeof target.__controlerAndroidPressReleaseTimerId === "number") {
-      window.clearTimeout(target.__controlerAndroidPressReleaseTimerId);
-    }
-    target.__controlerAndroidPressReleaseTimerId = 0;
-  }
-
-  function blurAndroidPressTarget(target) {
-    if (!(target instanceof HTMLElement) || !isAndroidNativeRuntime()) {
-      return;
-    }
-    window.setTimeout(() => {
-      target.blur?.();
-    }, 0);
-  }
-
-  function setAndroidPressActiveTarget(pointerId, target) {
-    const normalizedPointerId = Number.isFinite(pointerId) ? pointerId : -1;
-    const previousTarget = activeAndroidPressTargets.get(normalizedPointerId);
-    if (previousTarget && previousTarget !== target) {
-      previousTarget.classList.remove(ANDROID_PRESS_ACTIVE_CLASS);
-    }
-    if (!(target instanceof HTMLElement)) {
-      activeAndroidPressTargets.delete(normalizedPointerId);
-      return;
-    }
-    clearAndroidPressReleaseTimer(target);
-    if (!target.classList.contains(ANDROID_PRESS_ACTIVE_CLASS)) {
-      target.__controlerAndroidPressActiveSince = Date.now();
-    }
-    target.classList.add(ANDROID_PRESS_ACTIVE_CLASS);
-    activeAndroidPressTargets.set(normalizedPointerId, target);
-  }
-
-  function getAndroidPressTargetRefCount(target) {
-    let refCount = 0;
-    activeAndroidPressTargets.forEach((activeTarget) => {
-      if (activeTarget === target) {
-        refCount += 1;
-      }
-    });
-    return refCount;
-  }
-
-  function shouldApplyAndroidPressMinimum(target) {
-    return (
-      target instanceof HTMLElement &&
-      !!target.closest(".app-nav") &&
-      (target.classList.contains("app-nav-button") ||
-        target.classList.contains("bts") ||
-        target.hasAttribute("data-nav-page"))
-    );
-  }
-
-  function clearAndroidPressTargetNow(target) {
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    clearAndroidPressReleaseTimer(target);
-    target.classList.remove(ANDROID_PRESS_ACTIVE_CLASS);
-    blurAndroidPressTarget(target);
-  }
-
-  function clearAndroidPressActiveTarget(pointerId, options = {}) {
-    const { immediate = false } = options;
-    const normalizedPointerId = Number.isFinite(pointerId) ? pointerId : -1;
-    const activeTarget = activeAndroidPressTargets.get(normalizedPointerId);
-    if (!(activeTarget instanceof HTMLElement)) {
-      activeAndroidPressTargets.delete(normalizedPointerId);
-      return null;
-    }
-    activeAndroidPressTargets.delete(normalizedPointerId);
-
-    if (getAndroidPressTargetRefCount(activeTarget) > 0) {
-      return activeTarget;
-    }
-
-    const minVisibleMs = shouldApplyAndroidPressMinimum(activeTarget)
-      ? ANDROID_NAV_PRESS_MIN_ACTIVE_MS
-      : 0;
-    const activeSince = Number(activeTarget.__controlerAndroidPressActiveSince) || 0;
-    const remainingVisibleMs =
-      immediate || minVisibleMs <= 0
-        ? 0
-        : Math.max(minVisibleMs - (Date.now() - activeSince), 0);
-
-    clearAndroidPressReleaseTimer(activeTarget);
-    if (remainingVisibleMs > 0) {
-      activeTarget.__controlerAndroidPressReleaseTimerId = window.setTimeout(() => {
-        if (getAndroidPressTargetRefCount(activeTarget) > 0) {
-          return;
-        }
-        clearAndroidPressTargetNow(activeTarget);
-      }, remainingVisibleMs);
-      return activeTarget;
-    }
-
-    clearAndroidPressTargetNow(activeTarget);
-    return activeTarget;
-  }
-
-  function triggerAndroidPressAnimation(target) {
-    if (!(target instanceof HTMLElement) || !isAndroidNativeRuntime()) {
-      return;
-    }
-    clearAndroidPressAnimation(target);
-    // Force a reflow so repeated taps can restart the ripple animation cleanly.
-    void target.offsetWidth;
-    target.classList.add(ANDROID_PRESS_ANIMATE_CLASS);
-    target.__controlerAndroidPressTimerId = window.setTimeout(() => {
-      target.classList.remove(ANDROID_PRESS_ANIMATE_CLASS);
-      target.__controlerAndroidPressTimerId = 0;
-    }, ANDROID_PRESS_ANIMATION_MS);
-  }
-
-  function initAndroidPressFeedback() {
-    if (androidPressFeedbackInitialized) {
-      return;
-    }
-    androidPressFeedbackInitialized = true;
   }
 
   function reportNativeModalState(visibleCount) {
@@ -32774,7 +32594,6 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   initAppPageTransitions();
   initEditablePageTitles();
   initAndroidInteractiveTextAssist();
-  initAndroidPressFeedback();
   initNativePickerInputs();
   setNativePageReadyMode(isReactNativeNavigationRuntime() ? "manual" : "auto");
   scheduleInitialPagePerfReport();

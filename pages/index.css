@@ -5594,9 +5594,8 @@ body.controler-mobile-runtime
     .weekly-glass-time-block,
     .controler-pressable,
     .widget-action-card-button,
-    .settings-collapse-toggle,
-    .app-nav-button
-  ):active {
+    .settings-collapse-toggle
+  ):not([data-nav-page]):active {
   transform: scale(0.98);
 }
 
@@ -5676,9 +5675,8 @@ body.controler-android-native
     .weekly-glass-time-block,
     .widget-action-card-button,
     .widget-action-card,
-    .settings-collapse-toggle,
-    .app-nav-button
-  ) {
+    .settings-collapse-toggle
+  ):not([data-nav-page]) {
   overflow: hidden;
   isolation: isolate;
   -webkit-appearance: none;
@@ -5721,9 +5719,8 @@ body.controler-android-native
     .weekly-glass-time-block,
     .widget-action-card-button,
     .widget-action-card,
-    .settings-collapse-toggle,
-    .app-nav-button
-  )::before {
+    .settings-collapse-toggle
+  ):not([data-nav-page])::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -5765,9 +5762,8 @@ body.controler-android-native
     .weekly-glass-time-block,
     .widget-action-card-button,
     .widget-action-card,
-    .settings-collapse-toggle,
-    .app-nav-button
-  ):is(:active, .is-android-press-active) {
+    .settings-collapse-toggle
+  ):not([data-nav-page]):active {
   transform: translateY(1px) scale(0.982);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -5796,39 +5792,10 @@ body.controler-android-native
     .weekly-glass-time-block,
     .widget-action-card-button,
     .widget-action-card,
-    .settings-collapse-toggle,
-    .app-nav-button
-  ):is(:active, .is-android-press-active)::before {
+    .settings-collapse-toggle
+  ):not([data-nav-page]):active::before {
   opacity: 1;
   transform: scale(1);
-}
-
-body.controler-android-native
-  :is(
-    button,
-    input[type="button"],
-    input[type="submit"],
-    input[type="reset"],
-    [role="button"],
-    .bts,
-    .time-quick-btn,
-    .todo-action-btn,
-    .record-action-btn,
-    .todo-item,
-    .project-item,
-    .project-option,
-    .tree-select-option,
-    .tree-select-button,
-    .calendar-day,
-    .plan-timeline-block,
-    .controler-pressable,
-    .weekly-glass-time-block,
-    .widget-action-card-button,
-    .widget-action-card,
-    .settings-collapse-toggle,
-    .app-nav-button
-  ).is-android-press-animate::after {
-  animation: ripple 0.52s ease-out;
 }
 
 body.controler-android-native
@@ -5887,7 +5854,7 @@ body.controler-android-native
   box-shadow: none !important;
 }
 
-body.controler-android-native .weekly-glass-time-block:is(:active, .is-android-press-active) {
+body.controler-android-native .weekly-glass-time-block:active {
   transform: scale(0.992);
   box-shadow:
     0 10px 22px rgba(0, 0, 0, 0.16),
@@ -5896,13 +5863,9 @@ body.controler-android-native .weekly-glass-time-block:is(:active, .is-android-p
 }
 
 body.controler-android-native
-  .weekly-glass-time-block:is(:active, .is-android-press-active)::before {
+  .weekly-glass-time-block:active::before {
   opacity: 1;
   transform: scale(1);
-}
-
-body.controler-android-native .weekly-glass-time-block.is-android-press-animate::after {
-  animation: weeklyGlassPulse 0.34s ease-out;
 }
 
 @keyframes ripple {
@@ -6018,7 +5981,7 @@ body.flex.row > div:first-of-type > .app-nav {
   box-shadow: 0 18px 32px rgba(0, 0, 0, 0.16);
 }
 
-body.flex.row > div:first-of-type > .app-nav .bts {
+body.flex.row > div:first-of-type > .app-nav .app-nav-button {
   width: 100%;
   min-width: 0;
   min-height: 58px;
@@ -6031,21 +5994,33 @@ body.flex.row > div:first-of-type > .app-nav .bts {
   justify-content: center;
   gap: 6px;
   font-size: 13px;
+  font-weight: bold;
   line-height: 1.15;
   background: transparent;
   color: var(--app-nav-button-text);
   border: 1px solid transparent;
   box-shadow: none;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
-body.flex.row > div:first-of-type > .app-nav .bts:hover {
+.app-nav .app-nav-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+body.flex.row > div:first-of-type > .app-nav .app-nav-button:hover {
   background: transparent;
   color: var(--app-nav-button-hover-text);
   border-color: transparent;
   box-shadow: none;
 }
 
-body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
+body.flex.row > div:first-of-type > .app-nav .app-nav-button[aria-current="page"] {
   background: var(--app-nav-button-active-bg);
   color: var(--app-nav-button-active-text);
   border-color: var(--app-nav-button-active-border);
@@ -7273,7 +7248,7 @@ body.page-record .record-output-surface > * {
     display: none !important;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button {
     width: 100%;
     min-width: 0;
     margin: 0 !important;
@@ -7302,31 +7277,30 @@ body.page-record .record-output-surface > * {
       background 0.18s ease,
       color 0.18s ease,
       border-color 0.18s ease,
-      box-shadow 0.18s ease,
       opacity 0.18s ease;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts:focus,
-  body.flex.row > div:first-of-type > .app-nav .bts:focus-visible,
-  body.flex.row > div:first-of-type > .app-nav .bts:focus-within {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button:focus,
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button:focus-visible,
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button:focus-within {
     outline: none !important;
     -webkit-focus-ring-color: transparent;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts:hover {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button:hover {
     color: var(--app-nav-button-hover-text);
     background: var(--app-nav-button-hover-bg);
     border-color: transparent;
     box-shadow: none;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts::before,
-  body.flex.row > div:first-of-type > .app-nav .bts::after {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button::before,
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button::after {
     display: none !important;
     content: none !important;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts .app-nav-icon {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button .app-nav-icon {
     display: inline-flex;
     width: 14px;
     height: 14px;
@@ -7340,14 +7314,14 @@ body.page-record .record-output-surface > * {
     opacity: 1;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts .app-nav-icon-svg {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button .app-nav-icon-svg {
     width: 14px;
     height: 14px;
     flex: 0 0 14px;
     display: block;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts .app-nav-label {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button .app-nav-label {
     display: block;
     max-width: 100%;
     overflow: hidden;
@@ -7358,11 +7332,11 @@ body.page-record .record-output-surface > * {
     opacity: 1;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts[hidden] {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button[hidden] {
     display: none !important;
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button[aria-current="page"] {
     color: var(--app-nav-button-active-text);
     border-radius: 16px;
     background: var(--app-nav-button-active-bg);
@@ -7370,49 +7344,13 @@ body.page-record .record-output-surface > * {
     box-shadow: 0 10px 18px rgba(0, 0, 0, 0.1);
   }
 
-  body.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] .app-nav-icon,
+  body.flex.row > div:first-of-type > .app-nav .app-nav-button[aria-current="page"] .app-nav-icon,
   body.flex.row
     > div:first-of-type
     > .app-nav
-    .bts[aria-current="page"]
+    .app-nav-button[aria-current="page"]
     .app-nav-label {
     opacity: 1;
-  }
-
-  body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:active {
-    background: var(--bottom-nav-button-bg);
-    border-color: transparent;
-    box-shadow: none;
-  }
-
-  body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::before,
-  body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::after {
-    display: none !important;
-    content: none !important;
-  }
-
-  body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts.is-android-press-active {
-    background: var(--bottom-nav-button-bg);
-    border-color: transparent;
-    box-shadow: none;
-  }
-
-  body.controler-android-native.flex.row
-    > div:first-of-type
-    > .app-nav
-    .bts[aria-current="page"]:active {
-    background: color-mix(in srgb, var(--bottom-nav-button-active-bg) 86%, var(--bottom-nav-bg) 14%);
-    border-color: var(--app-nav-button-active-border);
-    box-shadow: none;
-  }
-
-  body.controler-android-native.flex.row
-    > div:first-of-type
-    > .app-nav
-    .bts[aria-current="page"].is-android-press-active {
-    background: color-mix(in srgb, var(--bottom-nav-button-active-bg) 86%, var(--bottom-nav-bg) 14%);
-    border-color: var(--app-nav-button-active-border);
-    box-shadow: none;
   }
 
   body.flex.row > div:nth-of-type(2) {
@@ -9416,6 +9354,33 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
   }
 }
 
+@keyframes appPageContentEnter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes appPageContentLeave {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+body.app-layout:not(.controler-android-native):not(.controler-ios-native) .app-main {
+  animation: appPageContentEnter 120ms ease-out both !important;
+}
+
+body.app-layout.app-page-content-leaving:not(.controler-android-native):not(.controler-ios-native) .app-main {
+  animation: appPageContentLeave 80ms ease-in both !important;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   body.controler-mobile-runtime .app-main > * {
     animation: none;
@@ -9438,6 +9403,14 @@ body.page-settings .settings-card--navigation .settings-nav-grid {
 
   body.controler-mobile-runtime .modal-content {
     animation: mobileModalSheetIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.app-layout:not(.controler-android-native):not(.controler-ios-native) .app-main,
+  body.app-layout.app-page-content-leaving:not(.controler-android-native):not(.controler-ios-native) .app-main {
+    animation: none !important;
+    opacity: 1;
   }
 }
 
@@ -9582,7 +9555,7 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav {
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
 }
 
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button {
   height: 52px;
   min-height: 52px;
   max-height: 52px;
@@ -9601,13 +9574,13 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts {
     opacity 0.12s ease !important;
 }
 
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::before,
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts::after {
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button::before,
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button::after {
   display: none !important;
   content: none !important;
 }
 
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts .app-nav-label {
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button .app-nav-label {
   display: block;
   max-width: 100%;
   overflow: hidden;
@@ -9617,29 +9590,16 @@ body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts .app-
   line-height: 1;
 }
 
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus,
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus-visible,
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:focus-within {
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button:focus,
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button:focus-visible,
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button:focus-within {
   outline: none !important;
   box-shadow: none !important;
   -webkit-focus-ring-color: transparent;
 }
 
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts[aria-current="page"] {
+body.controler-android-native.flex.row > div:first-of-type > .app-nav .app-nav-button[aria-current="page"] {
   transform: none;
-}
-
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts:active,
-body.controler-android-native.flex.row > div:first-of-type > .app-nav .bts.is-android-press-active,
-body.controler-android-native.flex.row
-  > div:first-of-type
-  > .app-nav
-  .bts[aria-current="page"]:active,
-body.controler-android-native.flex.row
-  > div:first-of-type
-  > .app-nav
-  .bts[aria-current="page"].is-android-press-active {
-  transform: none !important;
 }
 
 body.controler-android-native.controler-android-nav-locked.flex.row > div:first-of-type > .app-nav {
@@ -10841,7 +10801,6 @@ body :is(
 
 body :is(
     .bts,
-    .app-nav-button,
     .widget-action-card-button,
     .settings-collapse-toggle,
     .time-quick-btn,
@@ -10862,7 +10821,6 @@ body :is(
 
 body :is(
     .bts,
-    .app-nav-button,
     .widget-action-card-button,
     .settings-collapse-toggle,
     .time-quick-btn,
@@ -10874,7 +10832,6 @@ body :is(
 
 body :is(
     .bts,
-    .app-nav-button,
     .widget-action-card-button,
     .settings-collapse-toggle,
     .time-quick-btn,
@@ -10888,7 +10845,7 @@ body :is(
     .plan-timeline-block,
     .weekly-glass-time-block,
     .controler-pressable
-  ):is(:hover, :active, .is-android-press-active, .is-android-press-animate) {
+  ):is(:hover, :active) {
   transform: none !important;
   filter: none !important;
   box-shadow: var(--controler-perf-surface-shadow) !important;
@@ -11671,7 +11628,7 @@ body.controler-android-native.page-settings
     .settings-card--navigation .settings-nav-toggle-check,
     .settings-card--widgets .widget-action-card,
     .settings-card--widgets .widget-action-card-button
-  ):is(:hover, :active, .is-android-press-active, .is-android-press-animate) {
+  ):is(:hover, :active) {
   transform: none !important;
   filter: none !important;
   box-shadow: none !important;

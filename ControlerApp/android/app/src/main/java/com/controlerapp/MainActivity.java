@@ -4,14 +4,18 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -43,9 +47,12 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private FrameLayout hostView;
+    private ImageView navigationSurface;
+    private Bitmap navigationSurfaceBitmap;
     private OfflineWebViewBridge bridge;
     private boolean backDispatchPending;
     private boolean splashDismissed;
+    private boolean hasCommittedPage;
     private int currentThemeColor;
 
     @Override
@@ -74,6 +81,15 @@ public class MainActivity extends Activity {
         hostView = new FrameLayout(this);
         hostView.setBackgroundColor(currentThemeColor);
         hostView.addView(webView);
+        navigationSurface = new ImageView(this);
+        navigationSurface.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        navigationSurface.setScaleType(ImageView.ScaleType.FIT_XY);
+        navigationSurface.setBackgroundColor(currentThemeColor);
+        navigationSurface.setVisibility(View.GONE);
+        hostView.addView(navigationSurface);
         setContentView(hostView);
         webView.loadUrl(resolveStartUrl());
     }
@@ -104,6 +120,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView target, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(target, url, favicon);
+                showNavigationSurface(target);
                 bridge.onNavigationStarted();
             }
 
@@ -112,12 +129,21 @@ public class MainActivity extends Activity {
                 Uri uri = request == null ? null : request.getUrl();
                 if (uri == null) return false;
                 String url = uri.toString();
-                if (url.startsWith("file:///android_asset/controler-web/")) return false;
+                if (url.startsWith("file:///android_asset/controler-web/")) {
+                    showNavigationSurface(target);
+                    return false;
+                }
                 Intent external = new Intent(Intent.ACTION_VIEW, uri);
                 try {
                     startActivity(external);
                 } catch (Exception ignored) {}
                 return true;
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView target, String url) {
+                super.onPageCommitVisible(target, url);
+                hasCommittedPage = true;
             }
 
             @Override
@@ -129,6 +155,46 @@ public class MainActivity extends Activity {
             }
         });
         return view;
+    }
+
+    void onWebPageReady() {
+        hasCommittedPage = true;
+        hideNavigationSurface();
+    }
+
+    private void showNavigationSurface(WebView target) {
+        if (
+            !hasCommittedPage
+                || target == null
+                || target != webView
+                || navigationSurface == null
+                || navigationSurface.getVisibility() == View.VISIBLE
+        ) {
+            return;
+        }
+        int width = target.getWidth();
+        int height = target.getHeight();
+        if (width <= 0 || height <= 0) return;
+        Bitmap snapshot;
+        try {
+            snapshot = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            target.draw(new Canvas(snapshot));
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        navigationSurfaceBitmap = snapshot;
+        navigationSurface.setImageBitmap(snapshot);
+        navigationSurface.setVisibility(View.VISIBLE);
+    }
+
+    private void hideNavigationSurface() {
+        if (navigationSurface == null) return;
+        navigationSurface.setVisibility(View.GONE);
+        navigationSurface.setImageDrawable(null);
+        if (navigationSurfaceBitmap != null && !navigationSurfaceBitmap.isRecycled()) {
+            navigationSurfaceBitmap.recycle();
+        }
+        navigationSurfaceBitmap = null;
     }
 
     private void installDocumentStartTheme(WebView view) {
@@ -154,9 +220,10 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        boolean hasWidgetLaunch = ControlerWidgetLaunchStore.hasLaunchAction(intent);
         ControlerStartupTrace.captureLaunchIntent(intent);
         ControlerWidgetLaunchStore.captureLaunchIntent(this, intent);
-        if (webView != null) {
+        if (hasWidgetLaunch && webView != null) {
             webView.loadUrl(resolveStartUrl());
         }
     }
@@ -165,13 +232,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (bridge != null) bridge.onResume(this);
-        if (webView != null) {
-            webView.onResume();
-            webView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('controler:native-app-resume'));true;",
-                null
-            );
-        }
+        if (webView != null) webView.onResume();
         ControlerWidgetRenderer.scheduleDateSensitiveRefreshIfNeeded(this, "activity-resume");
     }
 
@@ -192,6 +253,8 @@ public class MainActivity extends Activity {
             webView.destroy();
             webView = null;
         }
+        hideNavigationSurface();
+        navigationSurface = null;
         super.onDestroy();
     }
 
@@ -277,6 +340,7 @@ public class MainActivity extends Activity {
         applyWindowChrome(color);
         if (hostView != null) hostView.setBackgroundColor(color);
         if (webView != null) webView.setBackgroundColor(color);
+        if (navigationSurface != null) navigationSurface.setBackgroundColor(color);
     }
 
     private void applyWindowChrome(int color) {

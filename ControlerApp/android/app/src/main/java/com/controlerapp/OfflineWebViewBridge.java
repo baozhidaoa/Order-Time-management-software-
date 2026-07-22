@@ -266,6 +266,14 @@ public final class OfflineWebViewBridge {
             applyThemeState(themeState);
             return;
         }
+        if ("ui.page-ready".equals(name)) {
+            mainHandler.post(() -> {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).onWebPageReady();
+                }
+            });
+            return;
+        }
         if (
             "perf.metric".equals(name)
                 && "page-ready-emitted".equals(payload.optString("stage", ""))
