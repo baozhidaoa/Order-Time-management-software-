@@ -10735,6 +10735,14 @@ body *::after {
   scroll-behavior: auto !important;
 }
 
+body.page-bootstrap-pending
+  :is(.stats-main, .plan-main, .todo-main)
+  > :not(.page-loading-overlay) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 body :is(
     .ms,
     .ss,
@@ -10785,6 +10793,11 @@ body :is(
     .record-action-btn
   ) {
   box-shadow: var(--controler-perf-surface-shadow) !important;
+}
+
+body.page-stats .stats-toolbar :is(select, .tree-select-button, .stats-range-step-btn),
+body.page-todo .todo-dropdown-row :is(.todo-tools-input, .tree-select-button) {
+  box-shadow: none !important;
 }
 
 body :is(

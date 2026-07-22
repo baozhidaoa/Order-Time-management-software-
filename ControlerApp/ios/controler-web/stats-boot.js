@@ -4038,6 +4038,7 @@ function markStatsInitialReady() {
   if (statsInitialReadyReported) {
     return;
   }
+  document.body?.classList.remove("page-bootstrap-pending");
   statsInitialReadyReported = true;
   uiTools?.markPerfStage?.("first-render-done");
   uiTools?.markNativePageReady?.();
@@ -6273,9 +6274,6 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
     if (options.fresh === true || options.authoritative === true) {
       statsInitialDataValidated = true;
       statsInitialFreshValidationQueued = false;
-    }
-    if (!statsInitialReadyReported) {
-      markStatsInitialReady();
     }
   };
 

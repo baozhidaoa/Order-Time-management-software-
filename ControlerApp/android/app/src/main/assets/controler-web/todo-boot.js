@@ -12988,6 +12988,7 @@
     if (todoInitialReadyReported) {
       return;
     }
+    document.body?.classList.remove("page-bootstrap-pending");
     todoInitialReadyReported = true;
     uiTools?.markPerfStage?.("first-render-done");
     uiTools?.markNativePageReady?.();

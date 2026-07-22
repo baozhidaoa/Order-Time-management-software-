@@ -4062,6 +4062,7 @@ function markPlanInitialReady() {
     return false;
   }
   syncPlannerPanelFromHash("auto");
+  document.body?.classList.remove("page-bootstrap-pending");
   if (planShellReady) {
     return true;
   }
@@ -8711,16 +8712,12 @@ async function init() {
       }
     });
 
-    if (
-      !planInitialDataValidated &&
-      !planShellPageActive &&
-      !isPlanShellTransitionLoading()
-    ) {
-      scheduleDeferredPlanBootstrap();
-    } else if (bootstrappedFromSnapshot && !planInitialDataValidated) {
-      scheduleDeferredPlanBootstrap();
-    } else if (!planInitialDataValidated) {
-      await hydratePlanData();
+    if (!planInitialDataValidated) {
+      if (planShellPageActive || isPlanShellTransitionLoading()) {
+        await hydratePlanData();
+      } else {
+        scheduleDeferredPlanBootstrap();
+      }
     } else {
       markPlanInitialReady();
       if (useWidgetLaunchFastPath) {
@@ -8735,7 +8732,7 @@ async function init() {
         active: false,
       });
     }
-    if (planInitialDataValidated || bootstrappedFromSnapshot) {
+    if (planInitialDataValidated) {
       markPlanInitialReady();
     }
     schedulePlanInitialContentEnsure("init-finally");
