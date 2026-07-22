@@ -24,7 +24,7 @@
         overflow-x: hidden;
       }
     </style>
-  <body class="app-layout page-stats stats-toolbar-bootstrap-pending bkg flex row">
+  <body class="app-layout page-stats bkg flex row">
     <!-- 侧边栏 -->
     <div
       class="app-sidebar flex column ms mgt mgb"
@@ -148,6 +148,7 @@
                   &lt;
                 </button>
                 <select id="stats-range-unit-select">
+                  <option value="all">全部</option>
                   <option value="today">今天</option>
                   <option value="day">天</option>
                   <option value="week">周</option>
@@ -166,14 +167,42 @@
             </div>
 
             <div class="stats-toolbar-group stats-toolbar-group--dates">
-              <label class="stats-date-field" for="start-date-select">
+              <label class="stats-date-field">
                 <span>开始日期</span>
-                <input type="date" id="start-date-select" class="date-input themed-native-picker-input" />
+                <span class="stats-date-input-control">
+                  <input
+                    type="date"
+                    id="start-date-select"
+                    class="date-input themed-native-picker-input"
+                    tabindex="-1"
+                    aria-hidden="true"
+                  />
+                  <button
+                    type="button"
+                    id="start-date-trigger"
+                    class="stats-date-picker-trigger"
+                    aria-label="选择开始日期"
+                  ></button>
+                </span>
               </label>
 
-              <label class="stats-date-field" for="end-date-select">
+              <label class="stats-date-field">
                 <span>结束日期</span>
-                <input type="date" id="end-date-select" class="date-input themed-native-picker-input" />
+                <span class="stats-date-input-control">
+                  <input
+                    type="date"
+                    id="end-date-select"
+                    class="date-input themed-native-picker-input"
+                    tabindex="-1"
+                    aria-hidden="true"
+                  />
+                  <button
+                    type="button"
+                    id="end-date-trigger"
+                    class="stats-date-picker-trigger"
+                    aria-label="选择结束日期"
+                  ></button>
+                </span>
               </label>
             </div>
           </div>

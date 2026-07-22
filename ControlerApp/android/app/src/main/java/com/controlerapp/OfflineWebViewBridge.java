@@ -1,6 +1,7 @@
 package com.controlerapp;
 
 import android.app.Activity;
+import android.app.DatePickerDialog;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -17,6 +18,8 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.lang.reflect.Method;
+import java.util.Calendar;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -196,6 +199,7 @@ public final class OfflineWebViewBridge {
                 call("setLaunchThemeState", jsonObject(themeState), promise);
                 return;
             case "ui.showToast": call("showToast", payload.optString("message", ""), promise); return;
+            case "ui.pickDate": pickDate(payload.optString("value", ""), promise); return;
             case "ui.showSoftInput": call("showSoftInput", promise); return;
             case "ui.restartSoftInput": call("restartSoftInput", promise); return;
             case "ui.getSoftInputState": call("getSoftInputState", promise); return;
@@ -206,6 +210,48 @@ public final class OfflineWebViewBridge {
             case "ui.markStartupReady": call("markStartupReady", promise); return;
             default: throw new IllegalArgumentException("Unsupported native bridge method: " + method);
         }
+    }
+
+    private void pickDate(String value, Promise promise) {
+        mainHandler.post(() -> {
+            if (activity == null || activity.isFinishing()) {
+                promise.reject("pick_date_failed", "当前没有可用的前台页面。");
+                return;
+            }
+
+            Calendar initialDate = Calendar.getInstance();
+            String[] dateParts = value == null ? new String[0] : value.trim().split("-");
+            if (dateParts.length == 3) {
+                try {
+                    initialDate.set(
+                        Integer.parseInt(dateParts[0]),
+                        Integer.parseInt(dateParts[1]) - 1,
+                        Integer.parseInt(dateParts[2])
+                    );
+                } catch (NumberFormatException ignored) {}
+            }
+
+            boolean[] resolved = {false};
+            DatePickerDialog dialog = new DatePickerDialog(
+                activity,
+                (view, year, month, day) -> {
+                    resolved[0] = true;
+                    promise.resolve(
+                        String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
+                    );
+                },
+                initialDate.get(Calendar.YEAR),
+                initialDate.get(Calendar.MONTH),
+                initialDate.get(Calendar.DAY_OF_MONTH)
+            );
+            dialog.setOnDismissListener(ignored -> {
+                if (!resolved[0]) {
+                    resolved[0] = true;
+                    promise.resolve(null);
+                }
+            });
+            dialog.show();
+        });
     }
 
     private void call(String methodName, Object... actualArgs) throws Exception {

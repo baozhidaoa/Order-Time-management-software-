@@ -11916,19 +11916,11 @@
       }
       openPicker(event);
     };
-    const handleFocus = () => {
-      if (getNativeHostPlatform() === "android" && document.activeElement === input) {
-        input.blur?.();
-      }
-    };
-
     input.dataset.controlerNativePicker = "true";
-    input.setAttribute("inputmode", "none");
     input.autocomplete = "off";
     input.addEventListener("pointerdown", handlePointerDown);
     input.addEventListener("click", handleClick);
     input.addEventListener("keydown", handleKeydown);
-    input.addEventListener("focus", handleFocus);
 
     const api = {
       open() {
@@ -11938,8 +11930,6 @@
         input.removeEventListener("pointerdown", handlePointerDown);
         input.removeEventListener("click", handleClick);
         input.removeEventListener("keydown", handleKeydown);
-        input.removeEventListener("focus", handleFocus);
-        input.removeAttribute("inputmode");
         delete input.dataset.controlerNativePicker;
         delete input.__controlerNativePickerApi;
       },

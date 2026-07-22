@@ -34,7 +34,6 @@ let planLoadingOverlayController = null;
 let planShellRendered = false;
 let planShellReady = false;
 let planInitialDataLoadPromise = null;
-let planInitialRevealPromise = null;
 let planDeferredBootstrapQueued = false;
 let planDeferredBootstrapGeneration = 0;
 let planDeferredBootstrapTimerId = 0;
@@ -608,7 +607,7 @@ function schedulePlanInitialContentEnsure(reason = "shell-active") {
     if (planInitialDataValidated) {
       if (!hasPlanRenderedInitialContent()) {
         renderCalendarContent();
-        void queuePlanInitialReveal();
+        markPlanInitialReady();
       }
       return;
     }
@@ -4058,63 +4057,19 @@ function getRequestedPlannerPanel() {
   return "todos";
 }
 
-let planInitialRevealQueued = false;
-
-function queuePlanInitialReveal() {
-  if (planInitialRevealPromise) {
-    return planInitialRevealPromise;
-  }
-  const body = document.body;
-  if (!(body instanceof HTMLElement)) {
-    return Promise.resolve(false);
-  }
+function markPlanInitialReady() {
   if (!planShellRendered) {
-    return Promise.resolve(false);
+    return false;
   }
-  if (!body.classList.contains("plan-bootstrap-pending")) {
-    planShellReady = true;
-    uiTools?.markNativePageReady?.();
-    return Promise.resolve(true);
+  syncPlannerPanelFromHash("auto");
+  if (planShellReady) {
+    return true;
   }
-  if (planInitialRevealQueued) {
-    return planInitialRevealPromise || Promise.resolve(true);
-  }
-
-  planInitialRevealQueued = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  planInitialRevealPromise = new Promise((resolve) => {
-    schedule(() => {
-      syncPlannerPanelFromHash("auto");
-      schedule(() => {
-        Promise.resolve(
-          uiTools?.waitForVisualContentStability?.({
-            root: ".app-main",
-            quietWindowMs: 72,
-            maxWaitMs: 680,
-            minQuietFrames: 3,
-          }),
-        )
-          .catch(() => false)
-          .finally(() => {
-            planInitialRevealQueued = false;
-            planShellReady = true;
-            document.body?.classList.remove("plan-bootstrap-pending");
-            document.body?.classList.add("plan-bootstrap-ready");
-            window.dispatchEvent(
-              new CustomEvent("controler:plan-initial-ready"),
-            );
-            uiTools?.markPerfStage?.("first-render-done");
-            uiTools?.markNativePageReady?.();
-            planInitialRevealPromise = null;
-            resolve(true);
-          });
-      });
-    });
-  });
-  return planInitialRevealPromise;
+  planShellReady = true;
+  window.dispatchEvent(new CustomEvent("controler:plan-initial-ready"));
+  uiTools?.markPerfStage?.("first-render-done");
+  uiTools?.markNativePageReady?.();
+  return true;
 }
 
 function getPlanLoadingOverlayElement() {
@@ -8565,7 +8520,7 @@ async function loadInitialPlanWorkspace(options = {}) {
         planInitialDataLoaded = true;
         planInitialDataValidated = true;
         schedulePlanDeferredRuntimeIdleBootstrap();
-        await queuePlanInitialReveal();
+        markPlanInitialReady();
         return;
       } finally {
         if (shouldManageInitialLoading && requestId === planLoadRequestId) {
@@ -8626,7 +8581,7 @@ async function loadInitialPlanWorkspace(options = {}) {
           planInitialDataLoaded = true;
           planInitialDataValidated = true;
           schedulePlanDeferredRuntimeIdleBootstrap();
-          await queuePlanInitialReveal();
+          markPlanInitialReady();
         },
       },
     );
@@ -8644,7 +8599,7 @@ async function loadInitialPlanWorkspace(options = {}) {
     .finally(() => {
       planInitialDataLoadPromise = null;
       if (requestId === planLoadRequestId && planInitialDataValidated) {
-        void queuePlanInitialReveal();
+        markPlanInitialReady();
       }
     });
 
@@ -8767,7 +8722,7 @@ async function init() {
     } else if (!planInitialDataValidated) {
       await hydratePlanData();
     } else {
-      await queuePlanInitialReveal();
+      markPlanInitialReady();
       if (useWidgetLaunchFastPath) {
         scheduleDeferredPlanBootstrap();
       }
@@ -8781,7 +8736,7 @@ async function init() {
       });
     }
     if (planInitialDataValidated || bootstrappedFromSnapshot) {
-      await queuePlanInitialReveal();
+      markPlanInitialReady();
     }
     schedulePlanInitialContentEnsure("init-finally");
   }

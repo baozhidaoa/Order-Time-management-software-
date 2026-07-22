@@ -2627,8 +2627,6 @@ let statsAvailableRecordDateBounds = {
   min: null,
   max: null,
 };
-let statsToolbarRevealQueued = false;
-let statsToolbarRevealPromise = null;
 let statsInitialReadyReported = false;
 let statsInitialDataLoaded = false;
 let statsInitialDataValidated = false;
@@ -2681,7 +2679,14 @@ const STATS_VIEW_MODES = new Set([
   "day-line",
 ]);
 const STATS_MAIN_VIEW_MODES = new Set(["table", "charts", "heatmap"]);
-const STATS_RANGE_UNITS = new Set(["today", "day", "week", "month", "year"]);
+const STATS_RANGE_UNITS = new Set([
+  "all",
+  "today",
+  "day",
+  "week",
+  "month",
+  "year",
+]);
 const STATS_HEATMAP_RANGE_UNITS = new Set(["month", "year"]);
 const STATS_LEVEL_FILTER_VALUES = new Set(["all", "1", "2", "3"]);
 function getStatsToolbarViewValue(viewMode) {
@@ -3773,6 +3778,10 @@ function isTodayStatsRangeUnit(unit = statsRangeState.unit) {
   return normalizeStatsRangeUnit(unit, "day") === "today";
 }
 
+function isAllStatsRangeUnit(unit = statsRangeState.unit) {
+  return normalizeStatsRangeUnit(unit, "day") === "all";
+}
+
 function normalizeHeatmapRangeUnit(unit) {
   const normalizedUnit = String(unit || "").trim();
   return STATS_HEATMAP_RANGE_UNITS.has(normalizedUnit)
@@ -4025,56 +4034,13 @@ function formatStatsWeekBucketLabel(date) {
     : `${date.getMonth() + 1}/${date.getDate()}起`;
 }
 
-function queueStatsToolbarReveal() {
+function markStatsInitialReady() {
   if (statsInitialReadyReported) {
-    return statsToolbarRevealPromise || Promise.resolve(true);
+    return;
   }
-  const body = document.body;
-  if (!(body instanceof HTMLElement)) {
-    return Promise.resolve(false);
-  }
-  if (!body.classList.contains("stats-toolbar-bootstrap-pending")) {
-    statsInitialReadyReported = true;
-    uiTools?.markNativePageReady?.();
-    return Promise.resolve(true);
-  }
-  if (statsToolbarRevealQueued) {
-    return statsToolbarRevealPromise || Promise.resolve(true);
-  }
-
-  statsToolbarRevealQueued = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  statsToolbarRevealPromise = new Promise((resolve) => {
-    schedule(() => {
-      schedule(() => {
-        Promise.resolve(
-          uiTools?.waitForVisualContentStability?.({
-            root: ".stats-main",
-            quietWindowMs: 72,
-            maxWaitMs: 680,
-            minQuietFrames: 3,
-          }),
-        )
-          .catch(() => false)
-          .finally(() => {
-            statsToolbarRevealQueued = false;
-            body.classList.remove("stats-toolbar-bootstrap-pending");
-            body.classList.add("stats-toolbar-bootstrap-ready");
-            if (!statsInitialReadyReported) {
-              statsInitialReadyReported = true;
-              uiTools?.markPerfStage?.("first-render-done");
-              uiTools?.markNativePageReady?.();
-            }
-            statsToolbarRevealPromise = null;
-            resolve(true);
-          });
-      });
-    });
-  });
-  return statsToolbarRevealPromise;
+  statsInitialReadyReported = true;
+  uiTools?.markPerfStage?.("first-render-done");
+  uiTools?.markNativePageReady?.();
 }
 
 function getStatsLoadingOverlayElement() {
@@ -4809,6 +4775,44 @@ function getStatsAvailableRecordDateBounds(recordList = records) {
   };
 }
 
+function getStatsFirstRecordDate(recordList = records) {
+  let firstDate = null;
+
+  (Array.isArray(recordList) ? recordList : []).forEach((record) => {
+    const recordDate = [
+      record?.startTime,
+      record?.timestamp,
+      record?.endTime,
+      record?.rawEndTime,
+      record?.sptTime,
+    ]
+      .map((value) => getDateOnly(value))
+      .find(
+        (value) => value instanceof Date && !Number.isNaN(value.getTime()),
+      );
+    if (!(recordDate instanceof Date) || Number.isNaN(recordDate.getTime())) {
+      return;
+    }
+    if (!(firstDate instanceof Date) || recordDate < firstDate) {
+      firstDate = new Date(recordDate);
+    }
+  });
+
+  return firstDate;
+}
+
+function getStatsAllDateRange(recordList = records) {
+  const today = getDateOnly(new Date());
+  const firstRecordDate = getStatsFirstRecordDate(recordList);
+  return {
+    start:
+      firstRecordDate && firstRecordDate <= today
+        ? firstRecordDate
+        : new Date(today),
+    end: new Date(today),
+  };
+}
+
 function syncStatsDateInputBounds() {
   const startDateInput = document.getElementById("start-date-select");
   const endDateInput = document.getElementById("end-date-select");
@@ -4914,6 +4918,7 @@ function normalizeStatsAnchorForView(
   const baseAnchor = clampStatsDateToAvailableBounds(anchorDateValue);
   if (!isHeatmapToolbarViewMode(viewMode)) {
     switch (safeUnit) {
+      case "all":
       case "today":
         return getDateOnly(new Date());
       case "week":
@@ -5018,7 +5023,8 @@ function syncStatsTimeUnitOptions(select = null) {
     const optionValue = String(optionNode?.value || "").trim();
     optionNode.disabled =
       heatmapView &&
-      (optionValue === "today" ||
+      (optionValue === "all" ||
+        optionValue === "today" ||
         optionValue === "day" ||
         optionValue === "week");
   });
@@ -5059,6 +5065,8 @@ function getStatsRangeForUnit(unit, anchorDateValue) {
   }
 
   switch (safeUnit) {
+    case "all":
+      return getStatsAllDateRange();
     case "today": {
       const today = getDateOnly(new Date()) || anchorDate;
       return {
@@ -5140,6 +5148,8 @@ function resolveStatsCustomRangeAnchor(
     getInitialStatsAnchorForView();
 
   switch (safeUnit) {
+    case "all":
+      return getDateOnly(new Date()) || new Date(safeReferenceDate);
     case "today":
       return getDateOnly(new Date()) || new Date(safeReferenceDate);
     case "week":
@@ -5160,6 +5170,7 @@ function getShiftedStatsDateByUnit(dateValue, unit, amount) {
   const nextDate = new Date(safeDate);
 
   switch (safeUnit) {
+    case "all":
     case "today":
       return getDateOnly(new Date()) || nextDate;
     case "week":
@@ -5305,6 +5316,7 @@ function shiftStatsAnchorDate(anchorDateValue, unit, amount) {
   }
 
   switch (safeUnit) {
+    case "all":
     case "today":
       return getDateOnly(new Date()) || nextAnchor;
     case "week":
@@ -5410,7 +5422,10 @@ function applyStatsCustomRange(startDateValue, endDateValue, options = {}) {
   const endDateInput = document.getElementById("end-date-select");
   const unitSelect = document.getElementById("stats-range-unit-select");
   const requestedUnit = normalizeStatsRangeUnit(unit, "day");
-  const safeUnit = requestedUnit === "today" ? "day" : requestedUnit;
+  const safeUnit =
+    requestedUnit === "today" || requestedUnit === "all"
+      ? "day"
+      : requestedUnit;
   const { start, end } = setStatsCustomDateRange(startDateValue, endDateValue);
   const nextAnchor =
     getDateOnly(anchorDate) ||
@@ -5719,6 +5734,9 @@ function getStatsChartViewportHeight() {
 }
 
 function getStatsLoadScope() {
+  if (!isHeatmapToolbarViewMode() && isAllStatsRangeUnit()) {
+    return { all: true };
+  }
   const startValue = document.getElementById("start-date-select")?.value;
   const endValue = document.getElementById("end-date-select")?.value;
   if (startValue && endValue) {
@@ -6233,6 +6251,20 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       return;
     }
     applyStatsWorkspaceState(snapshot);
+    if (isAllStatsRangeUnit()) {
+      const allRange = getStatsAllDateRange(records);
+      const startDateInput = document.getElementById("start-date-select");
+      const endDateInput = document.getElementById("end-date-select");
+      statsRangeState.anchorDate = new Date(allRange.end);
+      clearStatsCustomDateRange();
+      if (startDateInput) {
+        startDateInput.value = formatDateInputValue(allRange.start);
+      }
+      if (endDateInput) {
+        endDateInput.value = formatDateInputValue(allRange.end);
+      }
+      updateCurrentTimeRangeDisplay();
+    }
     if (shouldRender) {
       renderCurrentView();
       await waitForStatsUiPaint();
@@ -6243,7 +6275,7 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       statsInitialFreshValidationQueued = false;
     }
     if (!statsInitialReadyReported) {
-      await queueStatsToolbarReveal();
+      markStatsInitialReady();
     }
   };
 
@@ -6327,7 +6359,8 @@ function setStatsRangeControlsBusy(active) {
 function updateStatsRangeStepButtonAvailability() {
   const prevBtn = document.getElementById("stats-range-prev");
   const nextBtn = document.getElementById("stats-range-next");
-  const shouldDisableForUnit = isTodayStatsRangeUnit();
+  const shouldDisableForUnit =
+    isTodayStatsRangeUnit() || isAllStatsRangeUnit();
   const shouldBlockInteraction = statsRangeControlsBusy || shouldDisableForUnit;
   [prevBtn, nextBtn].forEach((button) => {
     if (!(button instanceof HTMLButtonElement)) {
@@ -6363,6 +6396,8 @@ function getStatsRangeNavigationRefreshOptions(
 function initTimeSelector() {
   const startDate = document.getElementById("start-date-select");
   const endDate = document.getElementById("end-date-select");
+  const startDateTrigger = document.getElementById("start-date-trigger");
+  const endDateTrigger = document.getElementById("end-date-trigger");
   const prevBtn = document.getElementById("stats-range-prev");
   const nextBtn = document.getElementById("stats-range-next");
   const unitSelect = document.getElementById("stats-range-unit-select");
@@ -6508,7 +6543,9 @@ function initTimeSelector() {
 
     const effectiveUnit = isTodayStatsRangeUnit(statsRangeState.unit)
       ? "day"
-      : statsRangeState.unit;
+      : isAllStatsRangeUnit(statsRangeState.unit)
+        ? "day"
+        : statsRangeState.unit;
     const nextAnchor =
       resolveStatsAnchorFromInputs(effectiveUnit, changeSource) ||
       getInitialStatsAnchorForView();
@@ -6532,6 +6569,49 @@ function initTimeSelector() {
     endDate.addEventListener("change", () => handleDateChange("end"));
   }
 
+  const bindDatePickerTrigger = (trigger, input) => {
+    if (
+      !(trigger instanceof HTMLButtonElement) ||
+      trigger.dataset.bound === "true"
+    ) {
+      return;
+    }
+    trigger.dataset.bound = "true";
+    trigger.addEventListener("click", async () => {
+      const nativeBridge = window.ControlerNativeBridge;
+      const nativePlatform = String(
+        nativeBridge?.platform || window.__CONTROLER_RN_META__?.platform || "",
+      ).toLowerCase();
+      if (nativePlatform === "android") {
+        if (typeof nativeBridge?.call !== "function") {
+          return;
+        }
+        trigger.disabled = true;
+        try {
+          const result = await nativeBridge.call("ui.pickDate", {
+            value: input.value,
+          });
+          const value = String(
+            typeof result === "string" ? result : result?.value || "",
+          );
+          if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value !== input.value) {
+            input.value = value;
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        } catch (error) {
+          console.error("打开日期选择器失败", error);
+        } finally {
+          trigger.disabled = false;
+        }
+        return;
+      }
+      input.__controlerNativePickerApi?.open?.();
+    });
+  };
+
+  bindDatePickerTrigger(startDateTrigger, startDate);
+  bindDatePickerTrigger(endDateTrigger, endDate);
+
   applyStatsRange(statsRangeState.unit, statsRangeState.anchorDate, false);
   updateCurrentTimeRangeDisplay();
 }
@@ -6549,6 +6629,7 @@ function updateCurrentTimeRangeDisplay() {
   const start = startDate.value;
   const end = endDate.value;
   const unitLabels = {
+    all: "全部",
     today: "今天",
     day: "天",
     week: "周",
@@ -13179,9 +13260,6 @@ function initStatsWidgetLaunchAction() {
 async function init() {
   ensureElectronStatsCompatibilityStyles();
   scheduleStatsVisualizationRuntimePreload();
-  const useWidgetLaunchFastPath =
-    typeof STATS_WIDGET_CONTEXT.launchAction === "string" &&
-    STATS_WIDGET_CONTEXT.launchAction.trim().length > 0;
   bindStatsShellVisibilityGate();
   try {
     loadStatsPreferencesFromStorage();
@@ -13189,9 +13267,6 @@ async function init() {
     statsInitialViewRuntimePromise =
       ensureStatsViewRuntimeLoaded(statsViewMode);
     initStatsWidgetLaunchAction();
-    if (useWidgetLaunchFastPath) {
-      queueStatsToolbarReveal();
-    }
     const initialScope = getStatsLoadScope();
     const canPrepareInitialData =
       statsShellPageActive || isStatsShellTransitionLoading();
@@ -13237,7 +13312,7 @@ async function init() {
     });
     renderCurrentView();
     await waitForStatsUiPaint();
-    await queueStatsToolbarReveal();
+    markStatsInitialReady();
     statsInitialDataLoaded = true;
     scheduleStatsInitialContentEnsure("init-complete");
   } finally {

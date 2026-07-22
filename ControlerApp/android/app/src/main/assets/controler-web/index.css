@@ -1388,7 +1388,6 @@ body.page-record #project-container {
   max-height: min(32dvh, 340px);
   padding: 0 !important;
   overflow-y: auto !important;
-  scrollbar-gutter: stable;
 }
 
 body.page-record #project-container > .record-section-block {
@@ -1429,7 +1428,6 @@ body.page-record .record-output-surface {
   width: 100%;
   max-width: 100%;
   padding-bottom: 112px;
-  scrollbar-gutter: stable;
 }
 
 body.page-record .record-floating-timer-btn {
@@ -3264,30 +3262,6 @@ select optgroup {
   cursor: progress;
 }
 
-body.controler-ios-native.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-active
-  :is(.stats-toolbar-group--sections, .stats-toolbar-group--range) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-stats.stats-toolbar-bootstrap-pending.controler-blocking-overlay-active .stats-shell {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-stats.stats-toolbar-bootstrap-pending .stats-main > :not(#stats-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-stats.stats-toolbar-bootstrap-ready .stats-shell {
-  opacity: 1;
-  visibility: visible;
-}
-
 .stats-date-field {
   display: grid;
   grid-template-columns: 1fr;
@@ -3305,6 +3279,31 @@ body.controler-ios-native.page-stats.stats-toolbar-bootstrap-ready .stats-shell 
   font-size: 13px;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.stats-date-input-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.stats-date-picker-trigger {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stats-date-picker-trigger:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
 }
 
 .stats-date-field .date-input::-webkit-datetime-edit,
@@ -3537,13 +3536,6 @@ body.page-todo .controler-time-text-input::placeholder {
   min-width: 0;
   border-radius: inherit;
   overflow: hidden;
-}
-
-body.page-stats .stats-main,
-body.page-stats #stats-container,
-body.page-stats .resizable-panel,
-body.page-stats .weekly-glass-scroller {
-  scrollbar-gutter: stable;
 }
 
 body.page-stats .stats-section-panel[data-view-key="weekly-grid"],
@@ -5965,6 +5957,7 @@ body.controler-android-native
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 24px 48px rgba(0, 0, 0, 0.18);
   overflow-y: auto;
+  scrollbar-gutter: stable;
   overflow-x: hidden;
 }
 
@@ -10264,25 +10257,6 @@ body.page-settings .settings-card--collapsible.is-expanded .settings-collapse-to
   }
 }
 
-body.controler-ios-native.page-plan.plan-bootstrap-pending.controler-blocking-overlay-active .planner-dashboard {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: none !important;
-  animation: none !important;
-}
-
-body.controler-ios-native.page-plan.plan-bootstrap-pending .plan-main > :not(#plan-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-plan.plan-bootstrap-ready .planner-dashboard {
-  opacity: 1;
-  visibility: visible;
-}
-
 body.controler-ios-native.page-record.record-bootstrap-pending.controler-blocking-overlay-active .record-main > :not(#record-loading-overlay) {
   opacity: 0;
   visibility: hidden;
@@ -10296,23 +10270,6 @@ body.controler-ios-native.page-record.record-bootstrap-pending .record-main > :n
 }
 
 body.controler-ios-native.page-record.record-bootstrap-ready .record-main > :not(#record-loading-overlay) {
-  opacity: 1;
-  visibility: visible;
-}
-
-body.controler-ios-native.page-todo.todo-bootstrap-pending.controler-blocking-overlay-active .todo-main > :not(#todo-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-todo.todo-bootstrap-pending .todo-main > :not(#todo-loading-overlay) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-body.controler-ios-native.page-todo.todo-bootstrap-ready .todo-main > :not(#todo-loading-overlay) {
   opacity: 1;
   visibility: visible;
 }

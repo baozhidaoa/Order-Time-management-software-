@@ -267,8 +267,6 @@
   let todoActiveSwipeDeleteShell = null;
   let todoSwipeDeleteDismissBound = false;
   let todoSwipeDeleteConfirmationShell = null;
-  let todoInitialRevealQueued = false;
-  let todoInitialRevealPromise = null;
   let todoInitialReadyReported = false;
   let todoInitialDataLoaded = false;
   let todoInitialDataValidated = false;
@@ -12986,54 +12984,13 @@
     };
   }
 
-  function queueTodoInitialReveal() {
+  function markTodoInitialReady() {
     if (todoInitialReadyReported) {
-      return todoInitialRevealPromise || Promise.resolve(true);
+      return;
     }
-    const body = document.body;
-    if (!(body instanceof HTMLElement)) {
-      return Promise.resolve(false);
-    }
-    if (!body.classList.contains("todo-bootstrap-pending")) {
-      todoInitialReadyReported = true;
-      uiTools?.markNativePageReady?.();
-      return Promise.resolve(true);
-    }
-    if (todoInitialRevealQueued) {
-      return todoInitialRevealPromise || Promise.resolve(true);
-    }
-
-    todoInitialRevealQueued = true;
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 16);
-    todoInitialRevealPromise = new Promise((resolve) => {
-      schedule(() => {
-        schedule(() => {
-          Promise.resolve(
-            uiTools?.waitForVisualContentStability?.({
-              root: ".todo-main",
-              quietWindowMs: 72,
-              maxWaitMs: 680,
-              minQuietFrames: 3,
-            }),
-          )
-            .catch(() => false)
-            .finally(() => {
-              todoInitialRevealQueued = false;
-              todoInitialReadyReported = true;
-              body.classList.remove("todo-bootstrap-pending");
-              body.classList.add("todo-bootstrap-ready");
-              uiTools?.markPerfStage?.("first-render-done");
-              uiTools?.markNativePageReady?.();
-              todoInitialRevealPromise = null;
-              resolve(true);
-            });
-        });
-      });
-    });
-    return todoInitialRevealPromise;
+    todoInitialReadyReported = true;
+    uiTools?.markPerfStage?.("first-render-done");
+    uiTools?.markNativePageReady?.();
   }
 
   window.ControlerTodoRuntime = {
@@ -13234,8 +13191,8 @@
       });
     }
     markTodoInitialDataReady(initialReadySnapshot);
-    await queueTodoInitialReveal();
     await waitForTodoUiPaint();
+    markTodoInitialReady();
     if (!todoInitialDataValidated) {
       scheduleTodoDeferredFreshSync();
     }

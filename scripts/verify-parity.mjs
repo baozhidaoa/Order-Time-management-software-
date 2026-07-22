@@ -1058,7 +1058,7 @@ async function main() {
         "bindTodoExternalStorageRefresh();",
         "const snapshot = bootstrapTodoFromCachedSnapshot();",
         "renderTodoWorkspace();",
-        "queueTodoInitialReveal();",
+        "markTodoInitialReady();",
         "scheduleTodoDeferredFreshSync();",
       ],
       "待办页初始化未先绑定外部刷新，再基于当前快照快速首屏渲染，并在首屏后调度后台 fresh 同步。",
