@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private boolean splashDismissed;
     private boolean hasCommittedPage;
     private int currentThemeColor;
+    private String currentThemeStateSignature;
     private JSONObject currentNavigationRequest;
     private long latestNavigationRequestedAt;
     private long navigationAcceptedElapsedMs;
@@ -74,6 +75,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         String launchTheme = readLaunchThemeState();
         currentThemeColor = resolveLaunchBackgroundColor(launchTheme);
+        currentThemeStateSignature = normalizeThemeStateSignature(launchTheme);
         setTheme(resolveLaunchThemeStyle(launchTheme));
         SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
@@ -252,6 +254,16 @@ public class MainActivity extends Activity {
         if (navigationSurface == null) return;
         navigationSurface.setVisibility(View.GONE);
         navigationSurface.setImageDrawable(null);
+    }
+
+    private void invalidateNavigationSurfaceSnapshot() {
+        navigationCaptureGeneration += 1;
+        hideNavigationSurface();
+        Bitmap previous = cachedNavigationSurfaceBitmap;
+        cachedNavigationSurfaceBitmap = null;
+        if (previous != null && !previous.isRecycled()) {
+            previous.recycle();
+        }
     }
 
     private void scheduleNavigationSurfaceCapture() {
@@ -590,12 +602,50 @@ public class MainActivity extends Activity {
     }
 
     void applyWebThemeState(JSONObject themeState) {
+        String nextThemeStateSignature = normalizeThemeStateSignature(themeState);
+        boolean themeChanged = !nextThemeStateSignature.equals(currentThemeStateSignature);
+        currentThemeStateSignature = nextThemeStateSignature;
         int color = resolveThemeBackgroundColor(themeState);
         currentThemeColor = color;
         applyWindowChrome(color);
         if (hostView != null) hostView.setBackgroundColor(color);
         if (webView != null) webView.setBackgroundColor(color);
         if (navigationSurface != null) navigationSurface.setBackgroundColor(color);
+        if (themeChanged) {
+            invalidateNavigationSurfaceSnapshot();
+            if (hasCommittedPage && currentNavigationRequest == null) {
+                scheduleNavigationSurfaceCapture();
+            }
+        }
+    }
+
+    private static String normalizeThemeStateSignature(String stateJson) {
+        try {
+            return normalizeThemeStateSignature(new JSONObject(stateJson));
+        } catch (Exception ignored) {
+            return normalizeThemeStateSignature(new JSONObject());
+        }
+    }
+
+    private static String normalizeThemeStateSignature(JSONObject themeState) {
+        JSONObject source = themeState == null ? new JSONObject() : themeState;
+        JSONObject normalized = new JSONObject();
+        try {
+            normalized.put("selectedTheme", source.optString("selectedTheme", "default"));
+            normalized.put(
+                "customThemes",
+                source.optJSONArray("customThemes") == null
+                    ? new JSONArray()
+                    : source.optJSONArray("customThemes")
+            );
+            normalized.put(
+                "builtInThemeOverrides",
+                source.optJSONObject("builtInThemeOverrides") == null
+                    ? new JSONObject()
+                    : source.optJSONObject("builtInThemeOverrides")
+            );
+        } catch (Exception ignored) {}
+        return normalized.toString();
     }
 
     private void applyWindowChrome(int color) {

@@ -23,24 +23,6 @@ let pageActivityState = Object.freeze({
 let deferredStorageChange = null;
 const storageChangeListeners = new Set();
 const pageActivityListeners = new Set();
-const THEME_STORAGE_SECTIONS = new Set([
-  "selectedTheme",
-  "customThemes",
-  "builtInThemeOverrides",
-]);
-
-function isThemeStorageChange(payload) {
-  const changedSections = Array.isArray(payload?.changedSections)
-    ? payload.changedSections
-    : [];
-  return changedSections.some((section) =>
-    THEME_STORAGE_SECTIONS.has(String(section || "").trim()),
-  );
-}
-
-function notifyStorageChangeListeners(event, payload) {
-  storageChangeListeners.forEach((listener) => listener(event, payload));
-}
 
 ipcRenderer.on("ui:page-activity-changed", (_event, payload = {}) => {
   pageActivityState = Object.freeze({
@@ -54,20 +36,16 @@ ipcRenderer.on("ui:page-activity-changed", (_event, payload = {}) => {
   if (pageActivityState.active && deferredStorageChange) {
     const nextChange = deferredStorageChange;
     deferredStorageChange = null;
-    notifyStorageChangeListeners(null, nextChange);
+    storageChangeListeners.forEach((listener) => listener(null, nextChange));
   }
 });
 
 ipcRenderer.on("storage-data-changed", (_event, payload) => {
-  if (!pageActivityState.active && !isThemeStorageChange(payload)) {
+  if (!pageActivityState.active) {
     deferredStorageChange = payload;
     return;
   }
-  if (!pageActivityState.active && storageChangeListeners.size === 0) {
-    deferredStorageChange = payload;
-    return;
-  }
-  notifyStorageChangeListeners(_event, payload);
+  storageChangeListeners.forEach((listener) => listener(_event, payload));
 });
 
 // Expose versions info
