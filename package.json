@@ -100,7 +100,8 @@
     "win": {
       "target": "nsis",
       "icon": "Order.ico",
-      "sign": "./scripts/windows-authenticode-sign.js",
+      "certificateFile": "./certs/OrderInternal.pfx",
+      "certificatePassword": "order2026sig",
       "signingHashAlgorithms": [
         "sha256"
       ],

@@ -37,7 +37,10 @@ function findRceditBinary() {
   }
 
   const vendorCacheDir = cacheRoots[1];
-  if (!fs.existsSync(vendorCacheDir) || !fs.statSync(vendorCacheDir).isDirectory()) {
+  if (
+    !fs.existsSync(vendorCacheDir) ||
+    !fs.statSync(vendorCacheDir).isDirectory()
+  ) {
     return null;
   }
 
@@ -120,15 +123,8 @@ module.exports = async (context) => {
     );
   }
 
-  if (process.env.WIN_CSC_LINK) {
-    await signWindowsFile({
-      path: exePath,
-      hash: "sha256",
-      isNest: false,
-      cscInfo: {
-        file: process.env.WIN_CSC_LINK,
-        password: process.env.WIN_CSC_KEY_PASSWORD || "",
-      },
-    });
-  }
+  // Signing is handled by electron-builder's win.sign configuration
+  // (or by its built-in CSC_LINK / WIN_CSC_LINK logic).
+  // We skip it here to avoid double-signature conflicts with the custom
+  // sign script referenced in package.json#build.win.sign.
 };
