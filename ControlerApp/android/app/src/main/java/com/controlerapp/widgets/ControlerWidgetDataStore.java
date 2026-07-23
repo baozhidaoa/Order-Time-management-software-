@@ -1,7 +1,5 @@
 package com.controlerapp.widgets;
 
-import com.controlerapp.MainApplication;
-
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -94,6 +92,10 @@ public final class ControlerWidgetDataStore {
     private static final String STORAGE_RECOVERY_STATE_OK = "ok";
     private static final String STORAGE_RECOVERY_STATE_REPAIRED = "repaired";
     private static final String STORAGE_RECOVERY_STATE_NEEDS_RECOVERY = "needs-recovery";
+    public static final String READ_STATE_VALID = "VALID";
+    public static final String READ_STATE_NOT_FOUND = "NOT_FOUND";
+    public static final String READ_STATE_UNREADABLE = "UNREADABLE";
+    public static final String READ_STATE_CORRUPTED = "CORRUPTED";
     private static final String DIRECTORY_DOCUMENT_URI_CACHE_FILE_NAME =
         "directory-document-uri-cache.json";
     private static final int[] DIRECTORY_CREATE_RESOLVE_RETRY_DELAYS_MS =
@@ -106,7 +108,9 @@ public final class ControlerWidgetDataStore {
     private static final String STORAGE_BINDING_KIND_FILE = "file";
     private static final String STORAGE_BINDING_KIND_DIRECTORY = "directory";
     private static final String STORAGE_TRANSACTION_DIRECTORY = "storage-transactions";
-    private static final String STORAGE_TRANSACTION_FILE = "pending.json";
+    private static final String STORAGE_TRANSACTION_FILE = "rollback.json";
+    private static final String LEGACY_STORAGE_TRANSACTION_FILE = "pending.json";
+    private static final String SINGLE_FILE_TRANSACTION_TARGET = "@single-file";
     private static final String PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY =
         "page-bootstrap-snapshots";
     private static final int PROJECT_DURATION_CACHE_VERSION = 2;
@@ -115,6 +119,8 @@ public final class ControlerWidgetDataStore {
     private static final String PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
     private static volatile String storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
     private static volatile String storageRecoveryMessage = "";
+    private static volatile String storageReadState = READ_STATE_NOT_FOUND;
+    private static volatile String storageReadMessage = "";
     private static volatile long bundleStorageReadyVerifiedAt = 0L;
     private static volatile String bundleStorageReadyCacheKey = "";
     private static volatile long storageBindingResolvedAt = 0L;
@@ -127,10 +133,10 @@ public final class ControlerWidgetDataStore {
         };
     private static final ExecutorService PAGE_BOOTSTRAP_REFRESH_EXECUTOR =
         Executors.newSingleThreadExecutor();
-    private static final Set<String> PAGE_BOOTSTRAP_REFRESH_PENDING =
-        Collections.synchronizedSet(new HashSet<String>());
     private static volatile boolean pageBootstrapPrewarmScheduled;
     private static final int PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT = 6;
+    private static final int DISK_PAGE_BOOTSTRAP_CACHE_LIMIT = 24;
+    private static final long DISK_PAGE_BOOTSTRAP_MAX_AGE_MS = 14L * 24L * 60L * 60L * 1000L;
     private static final LinkedHashMap<String, JSONObject> PROCESS_PAGE_BOOTSTRAP_CACHE =
         new LinkedHashMap<String, JSONObject>(PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT + 1, 0.75f, true) {
             @Override
@@ -144,6 +150,15 @@ public final class ControlerWidgetDataStore {
     private static long processBootstrapVersionAt;
 
     private ControlerWidgetDataStore() {}
+
+    private static final class StorageReadException extends Exception {
+        final String readState;
+
+        StorageReadException(String readState, String message, Throwable cause) {
+            super(message, cause);
+            this.readState = readState;
+        }
+    }
 
     private static void invalidateProcessStorageCaches() {
         processCoreFingerprint = "";
@@ -434,19 +449,9 @@ public final class ControlerWidgetDataStore {
             "bundleMode=" + usesDirectoryBundleStorage(context)
         );
         try {
-            recoverPendingStorageTransaction(context);
-            if (usesDirectoryBundleStorage(context)) {
-                return loadBundleRoot(context, false);
-            }
-            String raw = readStorageText(context).trim();
-            return normalizeRoot(
-                context,
-                TextUtils.isEmpty(raw) ? new JSONObject() : new JSONObject(raw),
-                false
-            );
+            return loadRootChecked(context, true);
         } catch (Exception error) {
-            error.printStackTrace();
-            return normalizeRoot(context, new JSONObject(), false);
+            return buildReadErrorRoot();
         } finally {
             logStorageTrace("loadRoot", "finish", startedAt, "");
         }
@@ -454,20 +459,9 @@ public final class ControlerWidgetDataStore {
 
     public static synchronized JSONObject loadRootForWidgets(Context context) {
         try {
-            recoverPendingStorageTransaction(context);
-            if (usesDirectoryBundleStorage(context)) {
-                return loadBundleRoot(context, false, false);
-            }
-            String raw = readStorageText(context).trim();
-            return normalizeRoot(
-                context,
-                TextUtils.isEmpty(raw) ? new JSONObject() : new JSONObject(raw),
-                false,
-                false
-            );
+            return loadRootChecked(context, false);
         } catch (Exception error) {
-            error.printStackTrace();
-            return normalizeRoot(context, new JSONObject(), false, false);
+            return buildReadErrorRoot();
         }
     }
 
@@ -620,8 +614,7 @@ public final class ControlerWidgetDataStore {
 
             return root;
         } catch (Exception error) {
-            error.printStackTrace();
-            return loadRootForWidgets(context);
+            return buildReadErrorRoot();
         }
     }
 
@@ -670,29 +663,170 @@ public final class ControlerWidgetDataStore {
     }
 
     public static synchronized JSONObject loadRootStrict(Context context) throws Exception {
-        recoverPendingStorageTransaction(context);
-        if (usesDirectoryBundleStorage(context)) {
-            return loadBundleRoot(context, true);
-        }
-        String raw = readStorageText(context);
-        if (TextUtils.isEmpty(raw) || TextUtils.isEmpty(raw.trim())) {
-            throw new Exception("同步 JSON 文件为空。");
-        }
+        return loadRootChecked(context, true);
+    }
 
-        JSONObject parsedRoot = new JSONObject(raw.trim());
-        validateRootShape(parsedRoot);
-        return normalizeRoot(context, parsedRoot, false);
+    private static JSONObject loadRootChecked(Context context, boolean rebuildCaches)
+        throws Exception {
+        try {
+            ensureBoundStorageReadable(context);
+            recoverRollbackTransaction(context);
+            if (usesDirectoryBundleStorage(context)) {
+                BundleArtifactInspection inspection = inspectBundleArtifacts(context);
+                if (!inspection.hasAnyArtifacts()) {
+                    if (MODE_DEFAULT.equals(getStorageMode(context))) {
+                        setStorageReadState(READ_STATE_NOT_FOUND, "默认存储尚未创建。");
+                        return normalizeRoot(context, new JSONObject(), false, rebuildCaches);
+                    }
+                    throw new StorageReadException(
+                        READ_STATE_NOT_FOUND,
+                        "已绑定的存储目录中没有 bundle 数据。",
+                        null
+                    );
+                }
+                JSONObject root = loadBundleRoot(context, true, rebuildCaches);
+                validateRootShape(root);
+                setStorageReadState(READ_STATE_VALID, "");
+                return root;
+            }
+            String raw = readStorageText(context);
+            if (TextUtils.isEmpty(raw) || TextUtils.isEmpty(raw.trim())) {
+                throw new StorageReadException(
+                    READ_STATE_CORRUPTED,
+                    "已绑定的同步 JSON 文件为空。",
+                    null
+                );
+            }
+            JSONObject parsedRoot = new JSONObject(raw.trim());
+            validateRootShape(parsedRoot);
+            setStorageReadState(READ_STATE_VALID, "");
+            return normalizeRoot(context, parsedRoot, false, rebuildCaches);
+        } catch (StorageReadException error) {
+            failStorageRead(error.readState, error.getMessage());
+            throw error;
+        } catch (SecurityException error) {
+            failStorageRead(READ_STATE_UNREADABLE, "存储授权已失效，无法读取数据。");
+            throw new StorageReadException(
+                READ_STATE_UNREADABLE,
+                getStorageReadMessage(),
+                error
+            );
+        } catch (org.json.JSONException error) {
+            failStorageRead(READ_STATE_CORRUPTED, "存储 JSON 已损坏，无法安全读取。");
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                getStorageReadMessage(),
+                error
+            );
+        } catch (Exception error) {
+            String state = isUnreadableStorageError(error)
+                ? READ_STATE_UNREADABLE
+                : READ_STATE_CORRUPTED;
+            String message = READ_STATE_UNREADABLE.equals(state)
+                ? "存储不可读取或授权已失效。"
+                : "bundle 文件缺失、损坏或与 manifest 不一致。";
+            failStorageRead(state, message);
+            throw new StorageReadException(state, message, error);
+        }
+    }
+
+    private static void ensureBoundStorageReadable(Context context)
+        throws StorageReadException {
+        String mode = getStorageMode(context);
+        Uri uri = MODE_FILE.equals(mode)
+            ? getCustomStorageUri(context)
+            : MODE_DIRECTORY.equals(mode)
+                ? getCustomStorageDirectoryUri(context)
+                : null;
+        if (!MODE_FILE.equals(mode) && !MODE_DIRECTORY.equals(mode)) return;
+        if (uri == null) {
+            throw new StorageReadException(
+                READ_STATE_NOT_FOUND,
+                "已绑定的存储位置不存在。",
+                null
+            );
+        }
+        if (!hasPersistedUriAccess(context, uri)) {
+            throw new StorageReadException(
+                READ_STATE_UNREADABLE,
+                "存储授权已失效，无法读取数据。",
+                null
+            );
+        }
+        if (!queryDocumentExists(context, resolveMetadataQueryUri(uri))) {
+            throw new StorageReadException(
+                READ_STATE_NOT_FOUND,
+                "已绑定的存储文件或目录不存在。",
+                null
+            );
+        }
+    }
+
+    private static boolean isUnreadableStorageError(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof SecurityException) return true;
+            String message = safeText(current.getMessage()).toLowerCase(Locale.US);
+            if (
+                message.contains("permission")
+                    || message.contains("denied")
+                    || message.contains("授权")
+                    || message.contains("不可用")
+                    || message.contains("无法读取")
+            ) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static void recordStorageReadFailure(
+        Throwable error,
+        String unreadableMessage,
+        String corruptedMessage
+    ) {
+        if (error instanceof StorageReadException) {
+            StorageReadException readError = (StorageReadException) error;
+            failStorageRead(readError.readState, readError.getMessage());
+            return;
+        }
+        if (isUnreadableStorageError(error)) {
+            failStorageRead(READ_STATE_UNREADABLE, unreadableMessage);
+        } else {
+            failStorageRead(READ_STATE_CORRUPTED, corruptedMessage);
+        }
+    }
+
+    private static JSONObject buildReadErrorRoot() {
+        JSONObject result = new JSONObject();
+        try {
+            result.put("readState", getStorageReadState());
+            result.put("readMessage", getStorageReadMessage());
+            result.put("recoveryState", getStorageRecoveryState());
+        } catch (Exception ignored) {}
+        return result;
     }
 
     public static synchronized boolean saveRoot(Context context, JSONObject root) {
+        boolean ownsTransaction = false;
         try {
+            assertStorageWritable();
             if (usesDirectoryBundleStorage(context)) {
-                ensureBundleStorageReady(context);
-                assertStorageWritable();
+                loadRootChecked(context, false);
                 JSONObject normalizedRoot = normalizeRoot(context, root, true);
                 return writeBundleRoot(context, normalizedRoot);
             }
+            loadRootChecked(context, false);
             JSONObject normalizedRoot = normalizeRoot(context, root, true);
+            if (!STORAGE_TRANSACTION_ACTIVE.get()) {
+                beginRollbackTransaction(
+                    context,
+                    Collections.singleton(SINGLE_FILE_TRANSACTION_TARGET)
+                );
+                STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
+                ownsTransaction = true;
+            }
             OutputStream outputStream = openStorageOutputStream(context);
             if (outputStream == null) {
                 return false;
@@ -703,11 +837,21 @@ public final class ControlerWidgetDataStore {
             } finally {
                 outputStream.close();
             }
+            if (ownsTransaction) completeRollbackTransaction(context);
             invalidateProcessStorageCaches();
             return true;
         } catch (Exception error) {
+            if (ownsTransaction) {
+                try {
+                    rollbackActiveTransaction(context, error);
+                } catch (Exception rollbackError) {
+                    rollbackError.printStackTrace();
+                }
+            }
             error.printStackTrace();
             return false;
+        } finally {
+            if (ownsTransaction) STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
         }
     }
 
@@ -716,7 +860,6 @@ public final class ControlerWidgetDataStore {
             if (!usesDirectoryBundleStorage(context)) {
                 return saveRoot(context, root);
             }
-            ensureBundleStorageReady(context);
             assertStorageWritable();
             JSONObject mergedRoot = mergeBundleWriteRootWithCurrent(context, root);
             return writeBundleRoot(context, mergedRoot);
@@ -730,7 +873,7 @@ public final class ControlerWidgetDataStore {
         Context context,
         JSONObject incomingRoot
     ) throws Exception {
-        JSONObject currentRoot = normalizeRoot(context, loadRoot(context), false);
+        JSONObject currentRoot = normalizeRoot(context, loadRootChecked(context, false), false);
         JSONObject normalizedIncoming = normalizeRoot(context, incomingRoot, false);
         JSONObject nextRoot = cloneJsonObject(normalizedIncoming);
         boolean suspiciousShrink = isSuspiciousManagedSnapshotShrink(
@@ -975,9 +1118,37 @@ public final class ControlerWidgetDataStore {
         return TextUtils.isEmpty(storageRecoveryMessage) ? "" : storageRecoveryMessage;
     }
 
+    public static String getStorageReadState() {
+        return TextUtils.isEmpty(storageReadState) ? READ_STATE_NOT_FOUND : storageReadState;
+    }
+
+    public static String getStorageReadMessage() {
+        return TextUtils.isEmpty(storageReadMessage) ? "" : storageReadMessage;
+    }
+
+    private static void setStorageReadState(String state, String message) {
+        storageReadState = TextUtils.isEmpty(state) ? READ_STATE_VALID : state;
+        storageReadMessage = TextUtils.isEmpty(message) ? "" : message;
+        if (
+            (READ_STATE_VALID.equals(storageReadState)
+                || READ_STATE_NOT_FOUND.equals(storageReadState))
+                && STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())
+        ) {
+            setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
+        }
+    }
+
+    private static void failStorageRead(String state, String message) {
+        setStorageReadState(state, message);
+        setStorageRecoveryState(STORAGE_RECOVERY_STATE_NEEDS_RECOVERY, message);
+        invalidateProcessStorageCaches();
+    }
+
     private static void resetStorageRecoveryState() {
         storageRecoveryState = STORAGE_RECOVERY_STATE_OK;
         storageRecoveryMessage = "";
+        storageReadState = READ_STATE_NOT_FOUND;
+        storageReadMessage = "";
         clearBundleStorageReadyCache();
     }
 
@@ -999,19 +1170,29 @@ public final class ControlerWidgetDataStore {
         if (context == null) {
             return "";
         }
+        StorageVersion version = probeBootstrapStorageVersionUncached(context);
+        String fingerprint = version == null ? "" : safeText(version.fingerprint);
         if (MODE_DIRECTORY.equals(getStorageMode(context))) {
             Uri directoryUri = getCustomStorageDirectoryUri(context);
-            return MODE_DIRECTORY + ":" + (directoryUri == null ? "" : directoryUri.toString());
+            return MODE_DIRECTORY
+                + ":"
+                + (directoryUri == null ? "" : directoryUri.toString())
+                + "|"
+                + fingerprint;
         }
         File root = getDefaultBundleRootDirectory(context);
-        return MODE_DEFAULT + ":" + (root == null ? "" : root.getAbsolutePath());
+        return MODE_DEFAULT
+            + ":"
+            + (root == null ? "" : root.getAbsolutePath())
+            + "|"
+            + fingerprint;
     }
 
     private static boolean canUseBundleStorageReadyCache(Context context) {
         if (
             context == null
                 || !usesDirectoryBundleStorage(context)
-                || !STORAGE_RECOVERY_STATE_OK.equals(getStorageRecoveryState())
+                || STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())
         ) {
             return false;
         }
@@ -1083,19 +1264,47 @@ public final class ControlerWidgetDataStore {
 
     public static synchronized JSONObject getStorageManifest(Context context) {
         if (usesDirectoryBundleStorage(context)) {
-            JSONObject manifest = readBundleManifest(context);
-            if (manifest != null) {
+            try {
+                ensureBundleStorageReady(context);
+                JSONObject manifest = readBundleJsonObject(
+                    context,
+                    BUNDLE_MANIFEST_FILE_NAME
+                );
+                if (manifest == null && isDefaultBundleUninitialized(context)) {
+                    setStorageReadState(READ_STATE_NOT_FOUND, "默认存储尚未创建。");
+                    return buildStorageManifest(
+                        normalizeRoot(context, new JSONObject(), false)
+                    );
+                }
+                validateBundleManifest(context, manifest);
+                setStorageReadState(READ_STATE_VALID, "");
                 return manifest;
+            } catch (Exception error) {
+                recordStorageReadFailure(
+                    error,
+                    "存储授权已失效，无法读取 manifest。",
+                    "bundle manifest 缺失、损坏或与文件布局不一致。"
+                );
+                return buildReadErrorRoot();
             }
         }
-        return buildStorageManifest(loadRoot(context));
+        JSONObject root = loadRoot(context);
+        return root.has("readState") ? buildReadErrorRoot() : buildStorageManifest(root);
     }
 
     public static synchronized JSONObject getStorageCoreState(Context context) {
         long startedAt = SystemClock.elapsedRealtime();
         logStorageTrace("getStorageCoreState", "start", startedAt, "");
+        try {
+            ensureBoundStorageReadable(context);
+        } catch (StorageReadException error) {
+            failStorageRead(error.readState, error.getMessage());
+            throw new IllegalStateException(error.getMessage(), error);
+        }
         StorageVersion version = probeBootstrapStorageVersion(context);
-        String fingerprint = version == null ? "" : safeText(version.fingerprint);
+        String fingerprint = isBootstrapCacheEligible(context, version)
+            ? safeText(version.fingerprint)
+            : "";
         if (
             processCoreState != null
                 && !TextUtils.isEmpty(fingerprint)
@@ -1105,6 +1314,19 @@ public final class ControlerWidgetDataStore {
         }
         if (usesDirectoryBundleStorage(context)) {
             JSONObject directCore = readBundleCoreState(context);
+            if (directCore == null || directCore.optJSONArray("projects") == null) {
+                if (
+                    MODE_DEFAULT.equals(getStorageMode(context))
+                        && READ_STATE_NOT_FOUND.equals(getStorageReadState())
+                ) {
+                    directCore = null;
+                } else {
+                    if (!STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())) {
+                        failStorageRead(READ_STATE_CORRUPTED, "无法读取有效的 core.json。");
+                    }
+                    throw new IllegalStateException(getStorageReadMessage());
+                }
+            }
             if (directCore != null) {
                 logStorageTrace(
                     "getStorageCoreState",
@@ -1121,12 +1343,17 @@ public final class ControlerWidgetDataStore {
                 } catch (Exception error) {
                     error.printStackTrace();
                 }
-                processCoreFingerprint = fingerprint;
-                processCoreState = cloneJsonObject(resolvedCore);
+                if (!TextUtils.isEmpty(fingerprint)) {
+                    processCoreFingerprint = fingerprint;
+                    processCoreState = cloneJsonObject(resolvedCore);
+                }
                 return cloneJsonObject(resolvedCore);
             }
         }
         JSONObject root = loadRoot(context);
+        if (root.has("readState")) {
+            throw new IllegalStateException(root.optString("readMessage", "存储读取失败。"));
+        }
         JSONObject core = new JSONObject();
         try {
             core.put("projects", cloneJsonArray(root.optJSONArray("projects")));
@@ -1184,8 +1411,10 @@ public final class ControlerWidgetDataStore {
         } catch (Exception error) {
             error.printStackTrace();
         }
-        processCoreFingerprint = fingerprint;
-        processCoreState = cloneJsonObject(resolvedCore);
+        if (!TextUtils.isEmpty(fingerprint)) {
+            processCoreFingerprint = fingerprint;
+            processCoreState = cloneJsonObject(resolvedCore);
+        }
         return cloneJsonObject(resolvedCore);
     }
 
@@ -1288,18 +1517,10 @@ public final class ControlerWidgetDataStore {
 
             payload.put("pageData", pageData);
         } catch (Exception error) {
-            error.printStackTrace();
-            try {
-                payload.put("page", page);
-                payload.put("snapshotVersion", "");
-                payload.put("generatedAt", isoNow());
-                payload.put("changedSections", new JSONArray());
-                payload.put("changedPeriods", new JSONObject());
-                payload.put("pendingCompaction", false);
-                payload.put("pageData", pageData);
-            } catch (Exception ignored) {
-                // Ignore bootstrap fallback serialization errors.
+            if (!STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())) {
+                failStorageRead(READ_STATE_CORRUPTED, "启动数据读取失败。");
             }
+            throw new IllegalStateException(getStorageReadMessage(), error);
         }
         return payload;
     }
@@ -1315,9 +1536,14 @@ public final class ControlerWidgetDataStore {
         String currentFingerprint = "";
         try {
             StorageVersion version = probeBootstrapStorageVersion(context);
-            currentFingerprint = version == null ? "" : safeText(version.fingerprint);
-            String processCacheKey = page + "|" + pageOptions.toString() + "|" + currentFingerprint;
-            JSONObject processCached = PROCESS_PAGE_BOOTSTRAP_CACHE.get(processCacheKey);
+            currentFingerprint = isBootstrapCacheEligible(context, version)
+                ? safeText(version.fingerprint)
+                : "";
+            String optionsKey = canonicalJson(pageOptions);
+            String processCacheKey = page + "|" + optionsKey + "|" + currentFingerprint;
+            JSONObject processCached = TextUtils.isEmpty(currentFingerprint)
+                ? null
+                : PROCESS_PAGE_BOOTSTRAP_CACHE.get(processCacheKey);
             if (processCached != null) {
                 JSONObject result = cloneJsonObject(processCached);
                 result.put("fromCache", true);
@@ -1328,20 +1554,15 @@ public final class ControlerWidgetDataStore {
             if (cached != null) {
                 String cachedFingerprint = safeText(cached.optString("sourceFingerprint", ""));
                 JSONObject cachedPayload = cached.optJSONObject("payload");
-                if (cachedPayload != null && cachedFingerprint.equals(currentFingerprint)) {
+                if (
+                    cachedPayload != null
+                        && !TextUtils.isEmpty(currentFingerprint)
+                        && cachedFingerprint.equals(currentFingerprint)
+                ) {
                     JSONObject result = cloneJsonObject(cachedPayload);
                     result.put("fromCache", true);
                     result.put("syncPending", false);
                     PROCESS_PAGE_BOOTSTRAP_CACHE.put(processCacheKey, cloneJsonObject(result));
-                    return result;
-                }
-                if (cachedPayload != null) {
-                    queuePageBootstrapSnapshotRefresh(context, source, snapshotFile);
-                    JSONObject result = cloneJsonObject(cachedPayload);
-                    result.put("fromCache", true);
-                    result.put("syncPending", true);
-                    result.put("staleSnapshot", true);
-                    result.put("currentFingerprint", currentFingerprint);
                     return result;
                 }
             }
@@ -1350,14 +1571,46 @@ public final class ControlerWidgetDataStore {
         }
 
         JSONObject fresh = buildStoragePageBootstrapState(context, source);
-        try {
-            writePageBootstrapSnapshot(snapshotFile, currentFingerprint, fresh);
-            String processCacheKey = page + "|" + pageOptions.toString() + "|" + currentFingerprint;
-            PROCESS_PAGE_BOOTSTRAP_CACHE.put(processCacheKey, cloneJsonObject(fresh));
-        } catch (Exception error) {
-            Log.w(TAG, "写入页面启动快照失败。", error);
+        if (!TextUtils.isEmpty(currentFingerprint)) {
+            try {
+                writePageBootstrapSnapshot(snapshotFile, currentFingerprint, fresh);
+                String processCacheKey = page + "|" + canonicalJson(pageOptions) + "|" + currentFingerprint;
+                PROCESS_PAGE_BOOTSTRAP_CACHE.put(processCacheKey, cloneJsonObject(fresh));
+            } catch (Exception error) {
+                Log.w(TAG, "写入页面启动快照失败。", error);
+            }
         }
         return fresh;
+    }
+
+    private static boolean isBootstrapCacheEligible(
+        Context context,
+        StorageVersion version
+    ) {
+        if (context == null || version == null || TextUtils.isEmpty(version.fingerprint)) {
+            return false;
+        }
+        String mode = getStorageMode(context);
+        if (MODE_FILE.equals(mode)) {
+            Uri uri = getCustomStorageUri(context);
+            return uri != null && queryDocumentExists(context, uri);
+        }
+        if (MODE_DIRECTORY.equals(mode)) {
+            Uri treeUri = getCustomStorageDirectoryUri(context);
+            Uri manifestUri = resolveDirectoryRelativeDocumentUri(
+                context,
+                treeUri,
+                BUNDLE_MANIFEST_FILE_NAME,
+                false,
+                false
+            );
+            return manifestUri != null && queryDocumentExists(context, manifestUri);
+        }
+        File manifest = new File(
+            getDefaultBundleRootDirectory(context),
+            BUNDLE_MANIFEST_FILE_NAME
+        );
+        return manifest.isFile() && manifest.length() > 0L;
     }
 
     public static void prewarmPageBootstrapSnapshots(Context context) {
@@ -1535,16 +1788,10 @@ public final class ControlerWidgetDataStore {
             payload.put("loadedPeriodIds", loadedPeriodIds);
             payload.put("data", data);
         } catch (Exception error) {
-            error.printStackTrace();
-            try {
-                payload.put("page", page);
-                payload.put("sourceFingerprint", "");
-                payload.put("builtAt", isoNow());
-                payload.put("loadedPeriodIds", loadedPeriodIds);
-                payload.put("data", data);
-            } catch (Exception ignored) {
-                // Ignore bootstrap fallback serialization errors.
+            if (!STORAGE_RECOVERY_STATE_NEEDS_RECOVERY.equals(getStorageRecoveryState())) {
+                failStorageRead(READ_STATE_CORRUPTED, "页面启动数据读取失败。");
             }
+            throw new IllegalStateException(getStorageReadMessage(), error);
         } finally {
             logStorageTrace(
                 "getStoragePageBootstrapState",
@@ -1568,8 +1815,8 @@ public final class ControlerWidgetDataStore {
     ) {
         String dateKey = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
         String scopeKey = safeText(page) + "|" + dateKey + "|"
-            + (pageOptions == null ? "{}" : pageOptions.toString());
-        String fileName = safeText(page) + "-" + Integer.toHexString(scopeKey.hashCode()) + ".json";
+            + canonicalJson(pageOptions);
+        String fileName = safeText(page) + "-" + sha256Text(scopeKey) + ".json";
         return new File(
             new File(context.getFilesDir(), PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY),
             fileName
@@ -1605,75 +1852,56 @@ public final class ControlerWidgetDataStore {
         envelope.put("verifiedAt", isoNow());
         envelope.put("payload", cloneJsonObject(payload));
         writeTextToFile(file, envelope.toString());
+        prunePageBootstrapSnapshots(file.getParentFile());
     }
 
-    private static void queuePageBootstrapSnapshotRefresh(
-        Context context,
-        JSONObject options,
-        File snapshotFile
-    ) {
-        if (context == null || snapshotFile == null) {
-            return;
-        }
-        final String refreshKey = snapshotFile.getAbsolutePath();
-        if (!PAGE_BOOTSTRAP_REFRESH_PENDING.add(refreshKey)) {
-            return;
-        }
-        final Context appContext = context.getApplicationContext();
-        final JSONObject safeOptions = options == null ? new JSONObject() : cloneJsonObject(options);
-        PAGE_BOOTSTRAP_REFRESH_EXECUTOR.execute(() -> {
-            try {
-                JSONObject refreshed;
-                String fingerprint;
-                synchronized (ControlerWidgetDataStore.class) {
-                    refreshed = buildStoragePageBootstrapState(appContext, safeOptions);
-                    StorageVersion version = probeBootstrapStorageVersion(appContext);
-                    fingerprint = version == null ? "" : safeText(version.fingerprint);
-                    writePageBootstrapSnapshot(snapshotFile, fingerprint, refreshed);
-                }
-                if (appContext instanceof MainApplication) {
-                    ((MainApplication) appContext).emitStorageChanged(
-                        buildBootstrapRefreshChangedSections(
-                            normalizeBootstrapPage(
-                                firstNonEmpty(
-                                    safeOptions.optString("pageKey", ""),
-                                    safeOptions.optString("page", "")
-                                )
-                            )
-                        ),
-                        new JSONObject(),
-                        "android-bootstrap-refresh"
-                    );
-                }
-            } catch (Exception error) {
-                Log.w(TAG, "后台刷新页面启动快照失败。", error);
-            } finally {
-                PAGE_BOOTSTRAP_REFRESH_PENDING.remove(refreshKey);
+    private static String canonicalJson(Object value) {
+        if (value == null || value == JSONObject.NULL) return "null";
+        if (value instanceof JSONObject) {
+            JSONObject object = (JSONObject) value;
+            TreeSet<String> keys = new TreeSet<>();
+            java.util.Iterator<String> iterator = object.keys();
+            while (iterator.hasNext()) keys.add(iterator.next());
+            StringBuilder builder = new StringBuilder("{");
+            boolean first = true;
+            for (String key : keys) {
+                if (!first) builder.append(',');
+                first = false;
+                builder.append(JSONObject.quote(key)).append(':').append(canonicalJson(object.opt(key)));
             }
-        });
+            return builder.append('}').toString();
+        }
+        if (value instanceof JSONArray) {
+            JSONArray array = (JSONArray) value;
+            StringBuilder builder = new StringBuilder("[");
+            for (int index = 0; index < array.length(); index += 1) {
+                if (index > 0) builder.append(',');
+                builder.append(canonicalJson(array.opt(index)));
+            }
+            return builder.append(']').toString();
+        }
+        if (value instanceof String) return JSONObject.quote((String) value);
+        if (value instanceof Number || value instanceof Boolean) return String.valueOf(value);
+        return JSONObject.quote(String.valueOf(value));
     }
 
-    private static JSONArray buildBootstrapRefreshChangedSections(String page) {
-        JSONArray result = new JSONArray();
-        if ("index".equals(page) || "stats".equals(page)) {
-            result.put("projects");
-            result.put("records");
-        } else if ("plan".equals(page)) {
-            result.put("plans");
-            result.put("plansRecurring");
-            result.put("yearlyGoals");
-        } else if ("todo".equals(page)) {
-            result.put("todos");
-            result.put("checkinItems");
-            result.put("dailyCheckins");
-            result.put("checkins");
-        } else if ("diary".equals(page)) {
-            result.put("diaryEntries");
-            result.put("diaryCategories");
-        } else {
-            result.put("core");
+    private static void prunePageBootstrapSnapshots(File directory) {
+        if (directory == null || !directory.isDirectory()) return;
+        File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
+        if (files == null) return;
+        long cutoff = System.currentTimeMillis() - DISK_PAGE_BOOTSTRAP_MAX_AGE_MS;
+        ArrayList<File> retained = new ArrayList<>();
+        for (File file : files) {
+            if (file.lastModified() < cutoff) {
+                file.delete();
+            } else {
+                retained.add(file);
+            }
         }
-        return result;
+        retained.sort((left, right) -> Long.compare(right.lastModified(), left.lastModified()));
+        for (int index = DISK_PAGE_BOOTSTRAP_CACHE_LIMIT; index < retained.size(); index += 1) {
+            retained.get(index).delete();
+        }
     }
 
     public static synchronized JSONObject getStoragePlanBootstrapState(Context context, JSONObject options) {
@@ -1681,36 +1909,20 @@ public final class ControlerWidgetDataStore {
             options == null || options.optBoolean("includeYearlyGoals", true);
         boolean includeRecurringPlans =
             options == null || options.optBoolean("includeRecurringPlans", true);
-        if (usesDirectoryBundleStorage(context)) {
-            JSONObject core = readBundleCore(context);
-            JSONObject payload = new JSONObject();
-            try {
-                if (includeYearlyGoals) {
-                    payload.put(
-                        "yearlyGoals",
-                        cloneJsonObject(core == null ? null : core.optJSONObject("yearlyGoals"))
-                    );
-                }
-                if (includeRecurringPlans) {
-                    payload.put("recurringPlans", readBundleRecurringPlans(context));
-                }
-            } catch (Exception error) {
-                error.printStackTrace();
-            }
-            return payload;
-        }
-
-        JSONObject root = loadRoot(context);
+        JSONObject core = getStorageCoreState(context);
         JSONObject payload = new JSONObject();
         try {
             if (includeYearlyGoals) {
-                payload.put("yearlyGoals", cloneJsonObject(root.optJSONObject("yearlyGoals")));
+                payload.put("yearlyGoals", cloneJsonObject(core.optJSONObject("yearlyGoals")));
             }
             if (includeRecurringPlans) {
-                payload.put("recurringPlans", collectRecurringPlans(root.optJSONArray("plans")));
+                payload.put(
+                    "recurringPlans",
+                    cloneJsonArray(core.optJSONArray("recurringPlans"))
+                );
             }
         } catch (Exception error) {
-            error.printStackTrace();
+            throw new IllegalStateException("无法构建计划启动数据。", error);
         }
         return payload;
     }
@@ -1826,7 +2038,20 @@ public final class ControlerWidgetDataStore {
         );
 
         if (usesDirectoryBundleStorage(context)) {
-            JSONObject result = loadBundleSectionRange(context, normalizedSection, scope);
+            JSONObject result;
+            try {
+                result = loadBundleSectionRange(context, normalizedSection, scope);
+                if (!READ_STATE_NOT_FOUND.equals(getStorageReadState())) {
+                    setStorageReadState(READ_STATE_VALID, "");
+                }
+            } catch (Exception error) {
+                recordStorageReadFailure(
+                    error,
+                    "存储授权已失效，无法读取分区数据。",
+                    "分区文件缺失、损坏或与 manifest 不一致。"
+                );
+                throw error;
+            }
             logStorageTrace(
                 "loadStorageSectionRange",
                 "finish",
@@ -1843,7 +2068,7 @@ public final class ControlerWidgetDataStore {
             return result;
         }
 
-        JSONObject root = loadRoot(context);
+        JSONObject root = loadRootStrict(context);
         Set<String> requestedPeriodIds = resolveRequestedPeriodIds(normalizedSection, scope);
         JSONArray sourceItems = root.optJSONArray(normalizedSection);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
@@ -1883,29 +2108,12 @@ public final class ControlerWidgetDataStore {
         ArrayList<String> sortedPeriodIds = new ArrayList<>(matchedPeriodIds);
         Collections.sort(sortedPeriodIds);
 
-        JSONObject result = new JSONObject();
-        result.put("section", normalizedSection);
-        result.put("periodUnit", PERIOD_UNIT);
-        result.put("periodIds", buildJsonArrayFromStrings(sortedPeriodIds));
-        putNullableString(
-            result,
-            "startDate",
-            normalizeDateText(
-                scope == null
-                    ? ""
-                    : firstNonEmpty(scope.optString("startDate", ""), scope.optString("start", ""))
-            )
+        JSONObject result = buildSectionRangeResult(
+            normalizedSection,
+            scope,
+            sortedPeriodIds,
+            matchedItems
         );
-        putNullableString(
-            result,
-            "endDate",
-            normalizeDateText(
-                scope == null
-                    ? ""
-                    : firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
-            )
-        );
-        result.put("items", buildJsonArrayFromObjects(matchedItems));
         if ("records".equals(section) || "plans".equals(section)) {
             Log.i(
                 TAG,
@@ -1987,7 +2195,7 @@ public final class ControlerWidgetDataStore {
         }
 
         ArrayList<JSONObject> incomingItems = jsonArrayToObjectList(incomingArray);
-        JSONObject root = loadRoot(context);
+        JSONObject root = loadRootStrict(context);
         JSONArray sourceItems = root.optJSONArray(normalizedSection);
         ArrayList<JSONObject> existingPartitionItems = new ArrayList<>();
         ArrayList<JSONObject> retainedItems = new ArrayList<>();
@@ -2101,7 +2309,7 @@ public final class ControlerWidgetDataStore {
             logStorageTrace("replaceStorageCoreState", "finish", startedAt, "bundleMode=true");
             return result;
         }
-        JSONObject root = loadRoot(context);
+        JSONObject root = loadRootStrict(context);
         String[] mutableKeys = new String[] {
             "projects",
             "todos",
@@ -2153,7 +2361,7 @@ public final class ControlerWidgetDataStore {
         if (usesDirectoryBundleStorage(context)) {
             return replaceBundleRecurringPlans(context, items);
         }
-        JSONObject root = loadRoot(context);
+        JSONObject root = loadRootStrict(context);
         JSONArray plans = root.optJSONArray("plans");
         ArrayList<JSONObject> oneTimePlans = new ArrayList<>();
         if (plans != null) {
@@ -2333,7 +2541,7 @@ public final class ControlerWidgetDataStore {
         Context context,
         JSONObject importedRoot
     ) throws Exception {
-        JSONObject currentRoot = normalizeRoot(context, loadRoot(context), false);
+        JSONObject currentRoot = normalizeRoot(context, loadRootStrict(context), false);
         JSONObject incomingRoot = normalizeRoot(context, importedRoot, false);
         JSONObject nextRoot = cloneJsonObject(currentRoot);
 
@@ -2434,7 +2642,7 @@ public final class ControlerWidgetDataStore {
 
         JSONObject currentRoot = normalizeRoot(
             context,
-            context == null ? new JSONObject() : loadRoot(context),
+            context == null ? new JSONObject() : loadRootStrict(context),
             false
         );
 
@@ -2488,10 +2696,22 @@ public final class ControlerWidgetDataStore {
             logStorageTrace("loadBundleRoot", "finish", startedAt, "manifestMissing=true");
             return normalizedEmpty;
         }
+        validateBundleManifest(context, manifest);
 
         JSONObject root = readBundleCore(context);
         if (root == null) {
-            root = new JSONObject();
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "bundle 缺少有效的 core.json。",
+                null
+            );
+        }
+        if (root.optJSONArray("projects") == null) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "core.json 缺少必需字段。",
+                null
+            );
         }
         JSONArray sections = new JSONArray()
             .put("records")
@@ -2513,14 +2733,12 @@ public final class ControlerWidgetDataStore {
                     if (partition == null) {
                         continue;
                     }
-                    JSONObject envelope = readBundlePartitionEnvelope(
+                    JSONObject envelope = readValidatedBundlePartition(
                         context,
-                        partition.optString("file", "")
+                        section,
+                        partition
                     );
-                    JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
-                    if (items == null) {
-                        continue;
-                    }
+                    JSONArray items = envelope.optJSONArray("items");
                     for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
                         JSONObject item = items.optJSONObject(itemIndex);
                         if (item != null) {
@@ -2532,12 +2750,23 @@ public final class ControlerWidgetDataStore {
 
             if ("plans".equals(section)) {
                 JSONArray recurringPlans = readBundleRecurringPlans(context);
-                if (recurringPlans != null) {
-                    for (int index = 0; index < recurringPlans.length(); index += 1) {
-                        JSONObject item = recurringPlans.optJSONObject(index);
-                        if (item != null) {
-                            mergedItems.put(cloneJsonObject(item));
-                        }
+                JSONObject recurringMetadata = sectionsObject.optJSONObject("plansRecurring");
+                int expectedRecurringCount = recurringMetadata.optInt("count", -1);
+                if (
+                    recurringPlans == null
+                        || expectedRecurringCount < 0
+                        || recurringPlans.length() != expectedRecurringCount
+                ) {
+                    throw new StorageReadException(
+                        READ_STATE_CORRUPTED,
+                        "plans-recurring.json 与 manifest 计数不一致。",
+                        null
+                    );
+                }
+                for (int index = 0; index < recurringPlans.length(); index += 1) {
+                    JSONObject item = recurringPlans.optJSONObject(index);
+                    if (item != null) {
+                        mergedItems.put(cloneJsonObject(item));
                     }
                 }
             }
@@ -2580,8 +2809,84 @@ public final class ControlerWidgetDataStore {
         return normalizedRoot;
     }
 
+    private static void validateBundleManifest(Context context, JSONObject manifest) throws Exception {
+        if (
+            manifest == null
+                || manifest.optInt("formatVersion", -1) != BUNDLE_FORMAT_VERSION
+                || !BUNDLE_MODE.equals(manifest.optString("bundleMode", ""))
+        ) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "bundle-manifest.json 格式无效。",
+                null
+            );
+        }
+        JSONObject sections = manifest.optJSONObject("sections");
+        JSONObject core = sections == null ? null : sections.optJSONObject("core");
+        JSONObject recurring = sections == null ? null : sections.optJSONObject("plansRecurring");
+        if (
+            core == null
+                || !BUNDLE_CORE_FILE_NAME.equals(core.optString("file", ""))
+                || recurring == null
+                || !BUNDLE_RECURRING_PLANS_FILE_NAME.equals(recurring.optString("file", ""))
+                || !bundlePathExists(context, BUNDLE_CORE_FILE_NAME)
+                || !bundlePathExists(context, BUNDLE_RECURRING_PLANS_FILE_NAME)
+        ) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "bundle manifest 缺少必需文件声明。",
+                null
+            );
+        }
+    }
+
+    private static JSONObject readValidatedBundlePartition(
+        Context context,
+        String section,
+        JSONObject metadata
+    ) throws Exception {
+        String periodId = normalizePeriodId(metadata == null ? "" : metadata.optString("periodId", ""));
+        String relativePath = normalizeBundleRelativePath(
+            metadata == null ? "" : metadata.optString("file", "")
+        );
+        if (
+            TextUtils.isEmpty(periodId)
+                || !getPartitionRelativePath(section, periodId).equals(relativePath)
+                || !bundlePathExists(context, relativePath)
+        ) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "manifest 引用的分区文件缺失或路径无效。",
+                null
+            );
+        }
+        JSONObject envelope = readBundleJsonObject(context, relativePath);
+        JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
+        ArrayList<JSONObject> itemList = jsonArrayToObjectList(items);
+        String expectedFingerprint = buildPartitionFingerprint(section, periodId, itemList);
+        if (
+            envelope == null
+                || items == null
+                || !section.equals(envelope.optString("section", ""))
+                || !periodId.equals(envelope.optString("periodId", ""))
+                || envelope.optInt("count", -1) != items.length()
+                || metadata.optInt("count", -1) != items.length()
+                || !expectedFingerprint.equals(envelope.optString("fingerprint", ""))
+                || !expectedFingerprint.equals(metadata.optString("fingerprint", ""))
+        ) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "分区文件与 manifest 的 fingerprint/count 不一致。",
+                null
+            );
+        }
+        return envelope;
+    }
+
     private static boolean writeBundleRoot(Context context, JSONObject normalizedRoot) {
+        boolean ownsTransaction = false;
         try {
+            assertStorageWritable();
             if (MODE_DIRECTORY.equals(getStorageMode(context))) {
                 clearDirectoryDocumentUriCache(context, getCustomStorageDirectoryUri(context));
             }
@@ -2592,6 +2897,15 @@ public final class ControlerWidgetDataStore {
                     "legacyBackups",
                     cloneJsonArray(previousManifest.optJSONArray("legacyBackups"))
                 );
+            }
+            if (!STORAGE_TRANSACTION_ACTIVE.get()) {
+                LinkedHashSet<String> targets = new LinkedHashSet<>();
+                targets.add(BUNDLE_MANIFEST_FILE_NAME);
+                targets.addAll(collectBundleFilesFromManifest(previousManifest));
+                targets.addAll(collectBundleFilesFromManifest(manifest));
+                beginRollbackTransaction(context, targets);
+                STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
+                ownsTransaction = true;
             }
 
             writeBundleJson(
@@ -2629,10 +2943,20 @@ public final class ControlerWidgetDataStore {
             writeBundleJson(context, BUNDLE_MANIFEST_FILE_NAME, manifest);
             deleteStaleBundleFiles(context, previousManifest, manifest);
             deleteIgnoredBundleArtifacts(context, "writeBundleRoot");
+            if (ownsTransaction) completeRollbackTransaction(context);
             return true;
         } catch (Exception error) {
+            if (ownsTransaction) {
+                try {
+                    rollbackActiveTransaction(context, error);
+                } catch (Exception rollbackError) {
+                    rollbackError.printStackTrace();
+                }
+            }
             error.printStackTrace();
             return false;
+        } finally {
+            if (ownsTransaction) STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
         }
     }
 
@@ -2657,17 +2981,48 @@ public final class ControlerWidgetDataStore {
         try {
             return readBundleJsonArray(context, BUNDLE_RECURRING_PLANS_FILE_NAME);
         } catch (Exception error) {
-            return new JSONArray();
+            return null;
         }
     }
 
     private static JSONObject readBundleCoreState(Context context) {
         try {
             ensureBundleStorageReady(context);
+            JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
+            if (manifest == null && isDefaultBundleUninitialized(context)) {
+                setStorageReadState(READ_STATE_NOT_FOUND, "默认存储尚未创建。");
+                return null;
+            }
+            if (manifest == null) {
+                throw new StorageReadException(
+                    READ_STATE_NOT_FOUND,
+                    "已绑定的存储目录缺少 bundle-manifest.json。",
+                    null
+                );
+            }
+            validateBundleManifest(context, manifest);
             JSONObject core = loadBundleCoreWithProjectDurationCache(context);
-            core.put("recurringPlans", readBundleRecurringPlans(context));
+            JSONArray recurringPlans = readBundleRecurringPlans(context);
+            JSONObject recurringMetadata = manifest
+                .getJSONObject("sections")
+                .getJSONObject("plansRecurring");
+            if (
+                core == null
+                    || core.optJSONArray("projects") == null
+                    || recurringPlans == null
+                    || recurringMetadata.optInt("count", -1) != recurringPlans.length()
+            ) {
+                throw new Exception("core 或 plans-recurring 与 manifest 不一致。");
+            }
+            core.put("recurringPlans", recurringPlans);
+            setStorageReadState(READ_STATE_VALID, "");
             return core;
         } catch (Exception error) {
+            recordStorageReadFailure(
+                error,
+                "存储授权已失效，无法读取 core bundle 数据。",
+                "无法读取有效的 core bundle 数据。"
+            );
             return null;
         }
     }
@@ -2686,6 +3041,23 @@ public final class ControlerWidgetDataStore {
         );
         ensureBundleStorageReady(context);
         JSONObject manifest = readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
+        if (manifest == null && isDefaultBundleUninitialized(context)) {
+            setStorageReadState(READ_STATE_NOT_FOUND, "默认存储尚未创建。");
+            return buildSectionRangeResult(
+                section,
+                scope,
+                new ArrayList<>(),
+                new ArrayList<>()
+            );
+        }
+        if (manifest == null) {
+            throw new StorageReadException(
+                READ_STATE_NOT_FOUND,
+                "已绑定的存储目录缺少 bundle-manifest.json。",
+                null
+            );
+        }
+        validateBundleManifest(context, manifest);
         Set<String> requestedPeriodIds = resolveRequestedPeriodIds(section, scope);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         ArrayList<String> matchedPeriodIds = new ArrayList<>();
@@ -2694,6 +3066,13 @@ public final class ControlerWidgetDataStore {
             manifest == null || manifest.optJSONObject("sections") == null
                 ? null
                 : manifest.optJSONObject("sections").optJSONObject(section);
+        if (sectionObject == null || sectionObject.optJSONArray("partitions") == null) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "manifest 缺少分区 section: " + section,
+                null
+            );
+        }
         JSONArray partitions = sectionObject == null ? null : sectionObject.optJSONArray("partitions");
         if (partitions != null) {
             for (int index = 0; index < partitions.length(); index += 1) {
@@ -2705,16 +3084,8 @@ public final class ControlerWidgetDataStore {
                 if (!requestedPeriodIds.isEmpty() && !requestedPeriodIds.contains(periodId)) {
                     continue;
                 }
-                JSONObject envelope = readBundlePartitionEnvelopeWithConflictRecovery(
-                    context,
-                    section,
-                    periodId,
-                    partition.optString("file", "")
-                );
-                JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
-                if (items == null) {
-                    continue;
-                }
+                JSONObject envelope = readValidatedBundlePartition(context, section, partition);
+                JSONArray items = envelope.optJSONArray("items");
                 for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
                     JSONObject item = items.optJSONObject(itemIndex);
                     if (item != null && sectionItemMatchesScope(section, item, scope)) {
@@ -2733,10 +3104,41 @@ public final class ControlerWidgetDataStore {
         Collections.sort(matchedPeriodIds);
         sortJsonItems(section, matchedItems);
 
+        JSONObject result = buildSectionRangeResult(
+            section,
+            scope,
+            matchedPeriodIds,
+            matchedItems
+        );
+        logStorageTrace(
+            "loadBundleSectionRange",
+            "finish",
+            startedAt,
+            "section="
+                + safeText(section)
+                + " itemCount="
+                + matchedItems.size()
+                + " periodCount="
+                + matchedPeriodIds.size()
+        );
+        return result;
+    }
+
+    private static JSONObject buildSectionRangeResult(
+        String section,
+        JSONObject scope,
+        List<String> periodIds,
+        List<JSONObject> items
+    ) throws Exception {
         JSONObject result = new JSONObject();
         result.put("section", section);
         result.put("periodUnit", PERIOD_UNIT);
-        result.put("periodIds", buildJsonArrayFromStrings(matchedPeriodIds));
+        result.put(
+            "periodIds",
+            buildJsonArrayFromStrings(
+                periodIds == null ? new ArrayList<>() : new ArrayList<>(periodIds)
+            )
+        );
         putNullableString(
             result,
             "startDate",
@@ -2755,17 +3157,11 @@ public final class ControlerWidgetDataStore {
                     : firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
             )
         );
-        result.put("items", buildJsonArrayFromObjects(matchedItems));
-        logStorageTrace(
-            "loadBundleSectionRange",
-            "finish",
-            startedAt,
-            "section="
-                + safeText(section)
-                + " itemCount="
-                + matchedItems.size()
-                + " periodCount="
-                + matchedPeriodIds.size()
+        result.put(
+            "items",
+            buildJsonArrayFromObjects(
+                items == null ? new ArrayList<>() : new ArrayList<>(items)
+            )
         );
         return result;
     }
@@ -3058,7 +3454,8 @@ public final class ControlerWidgetDataStore {
     }
 
     private static void ensureBundleStorageReady(Context context) throws Exception {
-        recoverPendingStorageTransaction(context);
+        ensureBoundStorageReadable(context);
+        recoverRollbackTransaction(context);
         if (!usesDirectoryBundleStorage(context)) {
             return;
         }
@@ -3070,21 +3467,14 @@ public final class ControlerWidgetDataStore {
         String previousRecoveryState = getStorageRecoveryState();
         BundleArtifactInspection inspection = inspectBundleArtifacts(context);
         if (inspection.manifestExists || inspection.hasBundleArtifacts()) {
-            if (!shouldRepairBundleArtifacts(context, inspection)) {
-                if (!STORAGE_RECOVERY_STATE_OK.equals(previousRecoveryState)) {
-                    setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
-                }
+            if (!hasInvalidBundleArtifacts(context, inspection)) {
                 markBundleStorageReadyVerified(context);
                 return;
             }
-            if (repairBundleArtifactsIfNeeded(context, inspection)) {
-                return;
-            }
-
             String recoveryMessage =
-                "检测到存储目录中存在未完成或损坏的 bundle 数据，当前无法自动修复，请先恢复后再继续。";
-            setStorageRecoveryState(STORAGE_RECOVERY_STATE_NEEDS_RECOVERY, recoveryMessage);
-            throw new Exception(recoveryMessage);
+                "检测到 bundle 文件缺失、损坏或与 manifest 不一致，已停止读写以等待恢复。";
+            failStorageRead(READ_STATE_CORRUPTED, recoveryMessage);
+            throw new StorageReadException(READ_STATE_CORRUPTED, recoveryMessage, null);
         }
 
         if (inspection.legacyExists) {
@@ -3120,7 +3510,7 @@ public final class ControlerWidgetDataStore {
         markBundleStorageReadyVerified(context);
     }
 
-    private static boolean shouldRepairBundleArtifacts(
+    private static boolean hasInvalidBundleArtifacts(
         Context context,
         BundleArtifactInspection inspection
     ) throws Exception {
@@ -3137,7 +3527,9 @@ public final class ControlerWidgetDataStore {
             return true;
         }
 
-        Set<String> manifestFiles = collectBundleFilesFromManifest(inspection.manifest);
+        JSONObject manifest = inspection.manifest;
+        validateBundleManifest(context, manifest);
+        Set<String> manifestFiles = collectBundleFilesFromManifest(manifest);
         for (String file : manifestFiles) {
             if (BUNDLE_MANIFEST_FILE_NAME.equals(file)) {
                 continue;
@@ -3146,28 +3538,44 @@ public final class ControlerWidgetDataStore {
                 return true;
             }
         }
-        return false;
-    }
 
-    private static boolean repairBundleArtifactsIfNeeded(
-        Context context,
-        BundleArtifactInspection inspection
-    ) throws Exception {
-        if (inspection == null || !shouldRepairBundleArtifacts(context, inspection)) {
-            return false;
-        }
-
-        JSONObject repairedRoot = buildRecoveredBundlePayloadFromFilesystem(context, inspection);
-        if (repairedRoot == null) {
-            return false;
-        }
-
-        writeRecoveredBundleRoot(context, repairedRoot, inspection.manifest);
-        setStorageRecoveryState(
-            STORAGE_RECOVERY_STATE_REPAIRED,
-            "检测到存储索引缺失或过期，已根据现有数据文件自动修复。"
+        JSONObject core = readBundleJsonObject(context, BUNDLE_CORE_FILE_NAME);
+        if (core == null || core.optJSONArray("projects") == null) return true;
+        JSONArray recurringPlans = readBundleJsonArray(
+            context,
+            BUNDLE_RECURRING_PLANS_FILE_NAME
         );
-        return true;
+        JSONObject sections = manifest.optJSONObject("sections");
+        JSONObject recurringMetadata = sections == null
+            ? null
+            : sections.optJSONObject("plansRecurring");
+        if (
+            recurringMetadata == null
+                || recurringMetadata.optInt("count", -1) != recurringPlans.length()
+        ) {
+            return true;
+        }
+
+        String[] partitionedSections = new String[] {
+            "records",
+            "diaryEntries",
+            "dailyCheckins",
+            "checkins",
+            "plans"
+        };
+        for (String section : partitionedSections) {
+            JSONObject sectionMetadata = sections.optJSONObject(section);
+            JSONArray partitions = sectionMetadata == null
+                ? null
+                : sectionMetadata.optJSONArray("partitions");
+            if (partitions == null) return true;
+            for (int index = 0; index < partitions.length(); index += 1) {
+                JSONObject partition = partitions.optJSONObject(index);
+                if (partition == null) return true;
+                readValidatedBundlePartition(context, section, partition);
+            }
+        }
+        return false;
     }
 
     private static BundleArtifactInspection inspectBundleArtifacts(Context context) {
@@ -3224,93 +3632,9 @@ public final class ControlerWidgetDataStore {
         return inspection;
     }
 
-    private static JSONObject buildRecoveredBundlePayloadFromFilesystem(
-        Context context,
-        BundleArtifactInspection inspection
-    ) throws Exception {
-        if (inspection == null || !inspection.hasBundleArtifacts()) {
-            return null;
-        }
-
-        JSONObject root =
-            tryReadBundleJsonObject(context, BUNDLE_CORE_FILE_NAME);
-        boolean recoveredAnyArtifacts = root != null;
-        if (root == null) {
-            root = new JSONObject();
-        } else {
-            root = cloneJsonObject(root);
-        }
-
-        String[] sections = new String[] {
-            "records",
-            "diaryEntries",
-            "dailyCheckins",
-            "checkins",
-            "plans"
-        };
-        for (String section : sections) {
-            JSONArray mergedItems = new JSONArray();
-            ArrayList<String> sectionFiles = new ArrayList<>();
-            if (inspection.manifestExists && inspection.manifest != null) {
-                JSONObject sectionObject =
-                    inspection.manifest.optJSONObject("sections") == null
-                        ? null
-                        : inspection.manifest.optJSONObject("sections").optJSONObject(section);
-                JSONArray partitions =
-                    sectionObject == null ? null : sectionObject.optJSONArray("partitions");
-                if (partitions != null) {
-                    for (int partitionIndex = 0; partitionIndex < partitions.length(); partitionIndex += 1) {
-                        JSONObject partition = partitions.optJSONObject(partitionIndex);
-                        String file =
-                            partition == null ? "" : normalizeBundleRelativePath(partition.optString("file", ""));
-                        if (!TextUtils.isEmpty(file)) {
-                            sectionFiles.add(file);
-                        }
-                    }
-                }
-            } else {
-                sectionFiles.addAll(inspection.partitionFiles);
-            }
-            for (String relativePath : sectionFiles) {
-                String normalizedPath = normalizeBundleRelativePath(relativePath);
-                if (!normalizedPath.startsWith(section + "/")) {
-                    continue;
-                }
-                JSONObject envelope = readBundlePartitionEnvelope(context, normalizedPath);
-                JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
-                if (items == null) {
-                    continue;
-                }
-                recoveredAnyArtifacts = true;
-                for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
-                    JSONObject item = items.optJSONObject(itemIndex);
-                    if (item != null) {
-                        mergedItems.put(cloneJsonObject(item));
-                    }
-                }
-            }
-            if ("plans".equals(section)) {
-                JSONArray recurringPlans = tryReadBundleJsonArray(
-                    context,
-                    BUNDLE_RECURRING_PLANS_FILE_NAME
-                );
-                if (recurringPlans != null) {
-                    recoveredAnyArtifacts = true;
-                    for (int index = 0; index < recurringPlans.length(); index += 1) {
-                        JSONObject item = recurringPlans.optJSONObject(index);
-                        if (item != null) {
-                            mergedItems.put(cloneJsonObject(item));
-                        }
-                    }
-                }
-            }
-            root.put(section, mergedItems);
-        }
-
-        if (!recoveredAnyArtifacts) {
-            return null;
-        }
-        return normalizeRoot(context, root, false);
+    private static boolean isDefaultBundleUninitialized(Context context) {
+        return MODE_DEFAULT.equals(getStorageMode(context))
+            && !inspectBundleArtifacts(context).hasAnyArtifacts();
     }
 
     private static JSONObject tryReadBundleJsonObject(Context context, String relativePath) {
@@ -3319,62 +3643,6 @@ public final class ControlerWidgetDataStore {
         } catch (Exception error) {
             return null;
         }
-    }
-
-    private static JSONArray tryReadBundleJsonArray(Context context, String relativePath) {
-        try {
-            return readBundleJsonArray(context, relativePath);
-        } catch (Exception error) {
-            return null;
-        }
-    }
-
-    private static void writeRecoveredBundleRoot(
-        Context context,
-        JSONObject normalizedRoot,
-        JSONObject previousManifest
-    ) throws Exception {
-        if (MODE_DIRECTORY.equals(getStorageMode(context))) {
-            clearDirectoryDocumentUriCache(context, getCustomStorageDirectoryUri(context));
-        }
-        JSONObject manifest = buildStorageManifest(normalizedRoot);
-        if (previousManifest != null && previousManifest.optJSONArray("legacyBackups") != null) {
-            manifest.put(
-                "legacyBackups",
-                cloneJsonArray(previousManifest.optJSONArray("legacyBackups"))
-            );
-        }
-
-        writeBundleJson(context, BUNDLE_CORE_FILE_NAME, buildCoreStateFromRoot(normalizedRoot));
-        writeBundleJson(
-            context,
-            BUNDLE_RECURRING_PLANS_FILE_NAME,
-            collectRecurringPlans(normalizedRoot.optJSONArray("plans"))
-        );
-
-        String[] sections = new String[] {
-            "records",
-            "diaryEntries",
-            "dailyCheckins",
-            "checkins",
-            "plans"
-        };
-        for (String section : sections) {
-            Map<String, ArrayList<JSONObject>> grouped = groupItemsByPeriod(
-                section,
-                normalizedRoot.optJSONArray(section)
-            );
-            for (Map.Entry<String, ArrayList<JSONObject>> entry : grouped.entrySet()) {
-                writeBundleJson(
-                    context,
-                    getPartitionRelativePath(section, entry.getKey()),
-                    buildPartitionEnvelope(section, entry.getKey(), entry.getValue())
-                );
-            }
-        }
-
-        writeBundleJson(context, BUNDLE_MANIFEST_FILE_NAME, manifest);
-        deleteStaleBundleFiles(context, previousManifest, manifest);
     }
 
     private static JSONObject buildCoreStateFromRoot(JSONObject root) {
@@ -3504,20 +3772,29 @@ public final class ControlerWidgetDataStore {
 
         JSONArray safeOperations = operations == null ? new JSONArray() : cloneJsonArray(operations);
         validateStorageOperations(safeOperations);
-        JSONObject transaction = new JSONObject();
-        transaction.put("id", UUID.randomUUID().toString());
-        transaction.put("state", "prepared");
-        transaction.put("createdAt", isoNow());
-        transaction.put("ops", safeOperations);
-        writeTextToFile(getPendingStorageTransactionFile(context), transaction.toString());
-
+        assertStorageWritable();
+        initializeDefaultBundleIfNeeded(context);
+        beginRollbackTransaction(context, collectOperationTransactionTargets(context, safeOperations));
         STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
         try {
             JSONObject result = applyStorageOperations(context, safeOperations);
-            clearPendingStorageTransaction(context);
+            completeRollbackTransaction(context);
             return result;
+        } catch (Exception error) {
+            rollbackActiveTransaction(context, error);
+            throw error;
         } finally {
             STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
+        }
+    }
+
+    private static void initializeDefaultBundleIfNeeded(Context context) throws Exception {
+        if (!usesDirectoryBundleStorage(context) || !isDefaultBundleUninitialized(context)) {
+            return;
+        }
+        JSONObject emptyRoot = normalizeRoot(context, new JSONObject(), false);
+        if (!saveRoot(context, emptyRoot)) {
+            throw new Exception("无法初始化默认 bundle 存储。");
         }
     }
 
@@ -3558,35 +3835,313 @@ public final class ControlerWidgetDataStore {
         }
     }
 
-    private static File getPendingStorageTransactionFile(Context context) {
+    private static File getRollbackTransactionFile(Context context) {
         File directory = new File(context.getFilesDir(), STORAGE_TRANSACTION_DIRECTORY);
         return new File(directory, STORAGE_TRANSACTION_FILE);
     }
 
-    private static void clearPendingStorageTransaction(Context context) {
-        new AtomicFile(getPendingStorageTransactionFile(context)).delete();
+    private static File getLegacyStorageTransactionFile(Context context) {
+        return new File(
+            new File(context.getFilesDir(), STORAGE_TRANSACTION_DIRECTORY),
+            LEGACY_STORAGE_TRANSACTION_FILE
+        );
     }
 
-    private static void recoverPendingStorageTransaction(Context context) throws Exception {
+    private static LinkedHashSet<String> collectOperationTransactionTargets(
+        Context context,
+        JSONArray operations
+    ) {
+        LinkedHashSet<String> targets = new LinkedHashSet<>();
+        if (!usesDirectoryBundleStorage(context)) {
+            targets.add(SINGLE_FILE_TRANSACTION_TARGET);
+            return targets;
+        }
+        targets.add(BUNDLE_CORE_FILE_NAME);
+        targets.add(BUNDLE_MANIFEST_FILE_NAME);
+        for (int index = 0; operations != null && index < operations.length(); index += 1) {
+            JSONObject operation = operations.optJSONObject(index);
+            String kind = operation == null ? "" : operation.optString("kind", "");
+            if ("saveSectionRange".equals(kind)) {
+                JSONObject payload = operation.optJSONObject("payload");
+                String section = normalizeBundleSection(operation.optString("section", ""));
+                String periodId = normalizePeriodId(
+                    payload == null ? "" : payload.optString("periodId", "")
+                );
+                targets.add(getPartitionRelativePath(section, periodId));
+            } else if ("replaceRecurringPlans".equals(kind)) {
+                targets.add(BUNDLE_RECURRING_PLANS_FILE_NAME);
+            }
+        }
+        return targets;
+    }
+
+    private static String getStorageBindingKey(Context context) {
+        String mode = getStorageMode(context);
+        if (MODE_FILE.equals(mode)) {
+            Uri uri = getCustomStorageUri(context);
+            return MODE_FILE + ":" + (uri == null ? "" : uri.toString());
+        }
+        if (MODE_DIRECTORY.equals(mode)) {
+            Uri uri = getCustomStorageDirectoryUri(context);
+            return MODE_DIRECTORY + ":" + (uri == null ? "" : uri.toString());
+        }
+        File root = getDefaultBundleRootDirectory(context);
+        return MODE_DEFAULT + ":" + (root == null ? "" : root.getAbsolutePath());
+    }
+
+    private static void beginRollbackTransaction(Context context, Set<String> targetPaths)
+        throws Exception {
+        recoverRollbackTransaction(context);
+        File transactionFile = getRollbackTransactionFile(context);
+        File transactionDirectory = transactionFile.getParentFile();
+        if (transactionDirectory.exists()) deleteRollbackDirectory(context, transactionDirectory);
+        if (!transactionDirectory.mkdirs() && !transactionDirectory.isDirectory()) {
+            throw new Exception("无法创建存储回滚目录。");
+        }
+        File backupDirectory = new File(transactionDirectory, "backups");
+        if (!backupDirectory.mkdirs() && !backupDirectory.isDirectory()) {
+            throw new Exception("无法创建存储回滚备份目录。");
+        }
+
+        JSONObject transaction = new JSONObject();
+        transaction.put("id", UUID.randomUUID().toString());
+        transaction.put("state", "prepared");
+        transaction.put("createdAt", isoNow());
+        transaction.put("storageBinding", getStorageBindingKey(context));
+        JSONArray entries = new JSONArray();
+        int index = 0;
+        for (String targetPath : targetPaths) {
+            boolean existed = transactionTargetExists(context, targetPath);
+            String oldContent = existed ? readTransactionTarget(context, targetPath) : "";
+            String backupName = index + ".bak";
+            writeTextToFile(new File(backupDirectory, backupName), oldContent);
+            JSONObject entry = new JSONObject();
+            entry.put("path", targetPath);
+            entry.put("existed", existed);
+            entry.put("backup", backupName);
+            entry.put("oldSha256", sha256Text(oldContent));
+            entries.put(entry);
+            index += 1;
+        }
+        transaction.put("targets", entries);
+        String manifest = bundlePathExists(context, BUNDLE_MANIFEST_FILE_NAME)
+            ? readBundleText(context, BUNDLE_MANIFEST_FILE_NAME)
+            : "";
+        transaction.put("originalManifestFingerprint", sha256Text(manifest));
+        writeTextToFile(transactionFile, transaction.toString());
+    }
+
+    private static void completeRollbackTransaction(Context context) throws Exception {
+        File transactionFile = getRollbackTransactionFile(context);
+        JSONObject transaction = new JSONObject(readTextFromFile(transactionFile));
+        JSONArray targets = transaction.optJSONArray("targets");
+        for (int index = 0; targets != null && index < targets.length(); index += 1) {
+            JSONObject entry = targets.getJSONObject(index);
+            String path = entry.getString("path");
+            boolean exists = transactionTargetExists(context, path);
+            entry.put("expectedExists", exists);
+            entry.put(
+                "expectedSha256",
+                exists ? sha256Text(readTransactionTarget(context, path)) : ""
+            );
+        }
+        transaction.put("state", "written");
+        transaction.put("writtenAt", isoNow());
+        writeTextToFile(transactionFile, transaction.toString());
+        if (!validateTransactionTargets(context, transaction, true)) {
+            throw new Exception("写入后的存储文件校验失败。");
+        }
+        clearRollbackTransaction(context);
+        invalidateProcessStorageCaches();
+    }
+
+    private static void recoverRollbackTransaction(Context context) throws Exception {
         if (context == null || STORAGE_TRANSACTION_ACTIVE.get()) {
             return;
         }
-        File pendingFile = getPendingStorageTransactionFile(context);
-        if (!pendingFile.exists()) {
+        File legacyFile = getLegacyStorageTransactionFile(context);
+        File transactionFile = getRollbackTransactionFile(context);
+        if (legacyFile.exists() && !transactionFile.exists()) {
+            String message = "检测到旧版未完成的操作重放日志，已停止写入以避免重复应用。";
+            failStorageRead(READ_STATE_CORRUPTED, message);
+            throw new Exception(message);
+        }
+        if (!transactionFile.exists()) {
             return;
         }
-        JSONObject transaction = new JSONObject(readTextFromFile(pendingFile));
-        JSONArray operations = transaction.optJSONArray("ops");
-        validateStorageOperations(operations == null ? new JSONArray() : operations);
+        JSONObject transaction = new JSONObject(readTextFromFile(transactionFile));
+        if (!getStorageBindingKey(context).equals(transaction.optString("storageBinding", ""))) {
+            String message = "存储绑定已变化，无法安全应用上次写入的回滚日志。";
+            failStorageRead(READ_STATE_UNREADABLE, message);
+            throw new Exception(message);
+        }
+        if (
+            "written".equals(transaction.optString("state", ""))
+                && validateTransactionTargets(context, transaction, true)
+        ) {
+            clearRollbackTransaction(context);
+            return;
+        }
         STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
         try {
-            applyStorageOperations(context, operations == null ? new JSONArray() : operations);
-            clearPendingStorageTransaction(context);
-            storageRecoveryState = STORAGE_RECOVERY_STATE_REPAIRED;
-            storageRecoveryMessage = "已完成上次中断的存储事务。";
+            restoreTransactionTargets(context, transaction);
+            if (!validateTransactionTargets(context, transaction, false)) {
+                throw new Exception("回滚后的文件校验失败。");
+            }
+            clearRollbackTransaction(context);
+            setStorageRecoveryState(
+                STORAGE_RECOVERY_STATE_REPAIRED,
+                "已回滚上次中断的存储写入。"
+            );
+            setStorageReadState(READ_STATE_VALID, "");
+        } catch (Exception error) {
+            String message = "上次写入中断且无法自动回滚，存储已进入只读恢复状态。";
+            failStorageRead(READ_STATE_CORRUPTED, message);
+            throw new Exception(message, error);
         } finally {
             STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
         }
+    }
+
+    private static void rollbackActiveTransaction(Context context, Exception cause) throws Exception {
+        try {
+            JSONObject transaction = new JSONObject(readTextFromFile(getRollbackTransactionFile(context)));
+            restoreTransactionTargets(context, transaction);
+            if (validateTransactionTargets(context, transaction, false)) {
+                clearRollbackTransaction(context);
+                return;
+            }
+        } catch (Exception rollbackError) {
+            cause.addSuppressed(rollbackError);
+        }
+        String message = "写入失败且无法恢复旧数据，存储已进入只读恢复状态。";
+        failStorageRead(READ_STATE_CORRUPTED, message);
+        throw new Exception(message, cause);
+    }
+
+    private static void restoreTransactionTargets(Context context, JSONObject transaction)
+        throws Exception {
+        JSONArray targets = transaction.optJSONArray("targets");
+        File backupDirectory = new File(
+            getRollbackTransactionFile(context).getParentFile(),
+            "backups"
+        );
+        for (int pass = 0; pass < 2; pass += 1) {
+            for (int index = 0; targets != null && index < targets.length(); index += 1) {
+                JSONObject entry = targets.getJSONObject(index);
+                String path = entry.getString("path");
+                boolean manifest = BUNDLE_MANIFEST_FILE_NAME.equals(path);
+                if ((pass == 0 && manifest) || (pass == 1 && !manifest)) continue;
+                if (entry.optBoolean("existed", false)) {
+                    String content = readTextFromFile(
+                        new File(backupDirectory, entry.getString("backup"))
+                    );
+                    writeTransactionTarget(context, path, content);
+                } else {
+                    deleteTransactionTarget(context, path);
+                }
+            }
+        }
+    }
+
+    private static boolean validateTransactionTargets(
+        Context context,
+        JSONObject transaction,
+        boolean expected
+    ) {
+        try {
+            JSONArray targets = transaction.optJSONArray("targets");
+            for (int index = 0; targets != null && index < targets.length(); index += 1) {
+                JSONObject entry = targets.getJSONObject(index);
+                String path = entry.getString("path");
+                boolean shouldExist = expected
+                    ? entry.optBoolean("expectedExists", false)
+                    : entry.optBoolean("existed", false);
+                if (transactionTargetExists(context, path) != shouldExist) return false;
+                if (!shouldExist) continue;
+                String content = readTransactionTarget(context, path);
+                String expectedHash = expected
+                    ? entry.optString("expectedSha256", "")
+                    : entry.optString("oldSha256", "");
+                if (!sha256Text(content).equals(expectedHash) || !isValidTransactionJson(path, content)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private static boolean isValidTransactionJson(String path, String content) {
+        try {
+            if (BUNDLE_RECURRING_PLANS_FILE_NAME.equals(path)) {
+                new JSONArray(content);
+            } else {
+                new JSONObject(content);
+            }
+            return true;
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private static boolean transactionTargetExists(Context context, String path) {
+        if (SINGLE_FILE_TRANSACTION_TARGET.equals(path)) {
+            return MODE_FILE.equals(getStorageMode(context)) && getCustomStorageUri(context) != null;
+        }
+        return bundlePathExists(context, path);
+    }
+
+    private static String readTransactionTarget(Context context, String path) throws Exception {
+        return SINGLE_FILE_TRANSACTION_TARGET.equals(path)
+            ? readStorageText(context)
+            : readBundleText(context, path);
+    }
+
+    private static void writeTransactionTarget(Context context, String path, String content)
+        throws Exception {
+        if (SINGLE_FILE_TRANSACTION_TARGET.equals(path)) {
+            OutputStream output = openStorageOutputStream(context);
+            if (output == null) throw new Exception("无法恢复单文件存储。");
+            try {
+                output.write(content.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+            } finally {
+                output.close();
+            }
+            return;
+        }
+        writeBundleText(context, path, content);
+    }
+
+    private static void deleteTransactionTarget(Context context, String path) {
+        if (!SINGLE_FILE_TRANSACTION_TARGET.equals(path)) {
+            deleteBundlePath(context, path);
+        }
+    }
+
+    private static void clearRollbackTransaction(Context context) {
+        deleteRollbackDirectory(context, getRollbackTransactionFile(context).getParentFile());
+    }
+
+    private static void deleteRollbackDirectory(Context context, File target) {
+        if (context == null || target == null) return;
+        File allowedRoot = new File(context.getFilesDir(), STORAGE_TRANSACTION_DIRECTORY);
+        try {
+            String allowedPath = allowedRoot.getCanonicalPath();
+            String targetPath = target.getCanonicalPath();
+            if (!targetPath.equals(allowedPath) && !targetPath.startsWith(allowedPath + File.separator)) {
+                return;
+            }
+        } catch (Exception error) {
+            return;
+        }
+        File[] children = target.listFiles();
+        if (children != null) {
+            for (File child : children) deleteRollbackDirectory(context, child);
+        }
+        target.delete();
     }
 
     private static JSONObject firstTransactionResult(JSONObject transactionResult)
@@ -3600,11 +4155,11 @@ public final class ControlerWidgetDataStore {
     }
 
     public static synchronized JSONObject flushStorageJournal(Context context) throws Exception {
-        recoverPendingStorageTransaction(context);
+        recoverRollbackTransaction(context);
         JSONObject result = new JSONObject();
         StorageVersion version = probeStorageVersion(context, false);
         result.put("ok", true);
-        result.put("pending", getPendingStorageTransactionFile(context).exists());
+        result.put("pending", getRollbackTransactionFile(context).exists());
         result.put("snapshotVersion", version == null ? "" : safeText(version.fingerprint));
         result.put("generatedAt", isoNow());
         return result;
@@ -3702,15 +4257,11 @@ public final class ControlerWidgetDataStore {
         ensureBundleStorageReady(context);
         JSONObject storedCore = readBundleCore(context);
         if (storedCore == null) {
-            JSONObject rebuiltCore = buildCoreStateFromRoot(loadBundleRoot(context, false));
-            writeBundleJson(context, BUNDLE_CORE_FILE_NAME, rebuiltCore);
-            logStorageTrace(
-                "loadBundleCoreWithProjectDurationCache",
-                "finish",
-                startedAt,
-                "storedCoreMissing=true"
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "bundle 缺少有效的 core.json。",
+                null
             );
-            return rebuiltCore;
         }
         CorePayloadSanitizeResult sanitizeResult =
             stripPartitionedSectionsFromCorePayload(storedCore);
@@ -3734,7 +4285,6 @@ public final class ControlerWidgetDataStore {
             repairedCore.put("projects", cloneJsonArray(repairedRoot.optJSONArray("projects")));
         }
         ensureThemeStateInCore(repairedCore);
-        writeBundleJson(context, BUNDLE_CORE_FILE_NAME, repairedCore);
         logBundleCorePollutionCleanup(
             "loadBundleCoreWithProjectDurationCache",
             sanitizeResult.removedSections
@@ -4960,27 +5510,61 @@ public final class ControlerWidgetDataStore {
         throws Exception {
         String raw = readBundleText(context, relativePath);
         if (TextUtils.isEmpty(raw) || TextUtils.isEmpty(raw.trim())) {
-            return new JSONArray();
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "bundle JSON 数组文件为空: " + relativePath,
+                null
+            );
         }
         return new JSONArray(raw.trim());
     }
 
     private static void writeBundleJson(Context context, String relativePath, JSONObject value)
         throws Exception {
-        writeBundleText(
+        writeBundleJsonText(
             context,
             relativePath,
-            value == null ? "{}" : value.toString()
+            value == null ? "{}" : value.toString(),
+            false
         );
     }
 
     private static void writeBundleJson(Context context, String relativePath, JSONArray value)
         throws Exception {
-        writeBundleText(
+        writeBundleJsonText(
             context,
             relativePath,
-            value == null ? "[]" : value.toString()
+            value == null ? "[]" : value.toString(),
+            true
         );
+    }
+
+    private static void writeBundleJsonText(
+        Context context,
+        String relativePath,
+        String content,
+        boolean array
+    ) throws Exception {
+        boolean ownsTransaction = !STORAGE_TRANSACTION_ACTIVE.get();
+        if (ownsTransaction) {
+            assertStorageWritable();
+            beginRollbackTransaction(context, Collections.singleton(relativePath));
+            STORAGE_TRANSACTION_ACTIVE.set(Boolean.TRUE);
+        }
+        try {
+            writeBundleText(context, relativePath, content);
+            String actual = readBundleText(context, relativePath).trim();
+            if (array) new JSONArray(actual); else new JSONObject(actual);
+            if (!sha256Text(content).equals(sha256Text(actual))) {
+                throw new Exception("bundle 文件写入后校验失败: " + relativePath);
+            }
+            if (ownsTransaction) completeRollbackTransaction(context);
+        } catch (Exception error) {
+            if (ownsTransaction) rollbackActiveTransaction(context, error);
+            throw error;
+        } finally {
+            if (ownsTransaction) STORAGE_TRANSACTION_ACTIVE.set(Boolean.FALSE);
+        }
     }
 
     private static boolean bundlePathExists(Context context, String relativePath) {
@@ -5426,6 +6010,7 @@ public final class ControlerWidgetDataStore {
         JSONObject assetPayload,
         byte[] content
     ) throws Exception {
+        assertStorageWritable();
         ensureBundleStorageReady(context);
         JSONObject normalizedEntry = normalizeDiaryMediaAssetEntry(assetPayload);
         if (normalizedEntry == null) {
@@ -5480,6 +6065,7 @@ public final class ControlerWidgetDataStore {
         Context context,
         JSONObject options
     ) throws Exception {
+        assertStorageWritable();
         ensureBundleStorageReady(context);
         Set<String> targetAssetIds = new LinkedHashSet<>();
         Set<String> keepAssetIds = new LinkedHashSet<>();
@@ -5504,6 +6090,7 @@ public final class ControlerWidgetDataStore {
         JSONArray entries = readDiaryMediaManifestEntries(context);
         JSONArray nextEntries = new JSONArray();
         JSONArray deletedAssetIds = new JSONArray();
+        ArrayList<String> deletedPaths = new ArrayList<>();
         for (int index = 0; index < entries.length(); index += 1) {
             JSONObject entry = entries.optJSONObject(index);
             if (entry == null) {
@@ -5518,11 +6105,12 @@ public final class ControlerWidgetDataStore {
                 nextEntries.put(cloneJsonObject(entry));
                 continue;
             }
-            deleteBundlePath(context, entry.optString("file", ""));
+            deletedPaths.add(entry.optString("file", ""));
             deletedAssetIds.put(assetId);
         }
         if (deletedAssetIds.length() > 0 || !keepAssetIds.isEmpty()) {
             writeDiaryMediaManifestEntries(context, nextEntries);
+            for (String path : deletedPaths) deleteBundlePath(context, path);
         }
         JSONObject result = new JSONObject();
         result.put("deletedAssetIds", deletedAssetIds);
@@ -6183,12 +6771,26 @@ public final class ControlerWidgetDataStore {
 
     public static void clearStorageRuntimeCaches(Context context) {
         resetStorageRecoveryState();
+        invalidateProcessStorageCaches();
+        clearPageBootstrapSnapshots(context);
         clearDirectoryDocumentUriCache(context, null);
         File sizeCacheFile = getBundleSizeCacheFile(context);
         if (sizeCacheFile.exists()) {
             sizeCacheFile.delete();
         }
         clearStorageBindingResolutionCache();
+    }
+
+    private static void clearPageBootstrapSnapshots(Context context) {
+        if (context == null) return;
+        File directory = new File(context.getFilesDir(), PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY);
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) file.delete();
+            }
+        }
+        directory.delete();
     }
 
     private static void clearStorageBindingResolutionCache() {
@@ -9358,7 +9960,7 @@ public final class ControlerWidgetDataStore {
             touchBundleMetadata(context, manifest, core);
             return;
         }
-        JSONObject root = loadRoot(context);
+        JSONObject root = loadRootStrict(context);
         root.put(
             "checkinHistorySummary",
             cloneJsonObject(core.optJSONObject("checkinHistorySummary"))

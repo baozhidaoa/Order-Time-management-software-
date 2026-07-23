@@ -263,7 +263,7 @@
   });
 
   const ANDROID_NATIVE_PROFILE = createRuntimeProfile({
-    runtime: "react-native",
+    runtime: "android-webview",
     platform: "android",
     capabilities: {
       storageSourceSwitch: true,
@@ -283,7 +283,7 @@
   });
 
   const IOS_NATIVE_PROFILE = createRuntimeProfile({
-    runtime: "react-native",
+    runtime: "ios-react-native",
     platform: "ios",
     capabilities: {
       storageSourceSwitch: true,
@@ -358,8 +358,37 @@
     return WEB_PROFILE;
   }
 
+  function resolveRuntimeName(runtimeOrProfile) {
+    return String(
+      runtimeOrProfile && typeof runtimeOrProfile === "object"
+        ? runtimeOrProfile.runtime
+        : runtimeOrProfile || "",
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  function isAndroidWebViewRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "android-webview";
+  }
+
+  function isIosReactNativeRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "ios-react-native";
+  }
+
+  function isElectronRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "electron";
+  }
+
+  function isNativeRuntime(runtimeOrProfile) {
+    return (
+      isAndroidWebViewRuntime(runtimeOrProfile) ||
+      isIosReactNativeRuntime(runtimeOrProfile)
+    );
+  }
+
   return Object.freeze({
-    version: "2026-03-21",
+    version: "2026-07-23",
     widgetKinds: WIDGET_KINDS,
     widgetKindIds: WIDGET_KIND_IDS,
     launchActions: LAUNCH_ACTIONS,
@@ -374,5 +403,9 @@
     getElectronRuntimeProfile,
     getReactNativeRuntimeProfile,
     getRuntimeProfile,
+    isNativeRuntime,
+    isAndroidWebViewRuntime,
+    isIosReactNativeRuntime,
+    isElectronRuntime,
   });
 });

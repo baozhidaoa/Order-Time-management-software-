@@ -4764,6 +4764,13 @@
       typeof reactNativeBridge.platform === "string"
         ? reactNativeBridge.platform
         : "native";
+    const failClosedNativeReads = platform === "android";
+    function throwIfNativeReadMustFailClosed(error) {
+      if (!failClosedNativeReads) return;
+      throw error instanceof Error
+        ? error
+        : new Error(String(error || "Android 权威存储读取失败。"));
+    }
     // Android receives storage.changed after native commits and performs one
     // lightweight check on app resume. Timed polling only creates redundant
     // JSON reads and serialized bridge work in an offline application.
@@ -5627,7 +5634,15 @@
       return explicitCoveredPeriodIds.length > 0 || normalizedPeriodIds.length > 0;
     }
 
+    function nativeStorageNeedsRecovery() {
+      return (
+        failClosedNativeReads &&
+        String(cachedStatus?.recoveryState || "").trim() === "needs-recovery"
+      );
+    }
+
     function canServeManagedSectionRange(section, scope = {}) {
+      if (nativeStorageNeedsRecovery()) return null;
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
         return normalizedRange;
@@ -5665,6 +5680,7 @@
     }
 
     function canServeManagedPageBootstrap(pageKey, options = {}) {
+      if (nativeStorageNeedsRecovery()) return false;
       const normalizedPage = normalizePageBootstrapKey(pageKey);
       const normalizedOptions =
         options && typeof options === "object" ? options : {};
@@ -6406,6 +6422,7 @@
           );
         }
         console.error("读取 React Native 存储失败:", error);
+        throwIfNativeReadMustFailClosed(error);
         return null;
       }
     }
@@ -6489,6 +6506,7 @@
           });
         }
         console.error("读取 React Native 核心状态失败:", error);
+        throwIfNativeReadMustFailClosed(error);
         return null;
       }
     }
@@ -7327,9 +7345,26 @@
         return;
       }
 
-      const nextCore = await getNativeCoreStateSnapshot({
-        suppressError: true,
-      });
+      let nextCore = null;
+      try {
+        nextCore = await getNativeCoreStateSnapshot({
+          suppressError: true,
+        });
+      } catch (error) {
+        reportNativeStorageSyncError(
+          "权威存储读取失败，已进入只读恢复状态。",
+          {
+            reason: "native-initial-core",
+            error,
+          },
+        );
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+          force: true,
+        });
+        persistMirrorSnapshot(true);
+        return;
+      }
       if (isManagedShellInactive()) {
         queueNativeForegroundSyncOnShellResume("shell-resume");
         updateVersionBaseline(cachedStatus);
@@ -8147,7 +8182,8 @@
             const rawPayload = await reactNativeBridge.call("storage.getManifest");
             return parseJsonSafely(rawPayload, null);
           } catch (error) {
-            console.error("读取 React Native 存储 manifest 失败，回退本地推导:", error);
+            console.error("读取 React Native 存储 manifest 失败:", error);
+            throwIfNativeReadMustFailClosed(error);
             return null;
           }
         },
@@ -8207,7 +8243,8 @@
             nativeInitializationSettled &&
             !shouldBypassManagedBootstrapCache &&
             hasPendingStateChanges &&
-            hasManagedCoreSnapshot;
+            hasManagedCoreSnapshot &&
+            !nativeStorageNeedsRecovery();
           const shouldHydrateManagedMirror =
             forceAuthoritativeBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
@@ -8267,10 +8304,8 @@
               return normalizedBootstrap;
             }
           } catch (error) {
-            console.error(
-              "读取 React Native 页面引导状态失败，回退本地快照:",
-              error,
-            );
+            console.error("读取 React Native 页面引导状态失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
         },
@@ -8370,7 +8405,11 @@
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return managedSnapshot;
           }
-          if (hasManagedCoreSnapshot && !forceAuthoritativeCoreState) {
+          if (
+            hasManagedCoreSnapshot &&
+            !forceAuthoritativeCoreState &&
+            !nativeStorageNeedsRecovery()
+          ) {
             scheduleManagedFastValidation("core-fast-path");
             return managedSnapshot;
           }
@@ -8410,7 +8449,8 @@
               return getManagedCoreStateSnapshot();
             }
           } catch (error) {
-            console.error("读取 React Native 核心状态失败，回退本地快照:", error);
+            console.error("读取 React Native 核心状态失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return managedSnapshot;
         },
@@ -8621,7 +8661,8 @@
             !forceAuthoritativeRange &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
-            hasManagedCoreSnapshot;
+            hasManagedCoreSnapshot &&
+            !nativeStorageNeedsRecovery();
           if (canUseManagedRangeFastPath || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
@@ -8649,7 +8690,8 @@
               return parsed;
             }
           } catch (error) {
-            console.error("读取 React Native 分区范围失败，回退本地推导:", error);
+            console.error("读取 React Native 分区范围失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return loadManagedSectionRange(section, scope);
         },

@@ -23,6 +23,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -42,6 +43,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Collections;
 
@@ -84,7 +86,7 @@ public class MainActivity extends Activity {
         );
 
         ControlerStartupTrace.captureLaunchIntent(getIntent());
-        ControlerStartupTrace.mark("main_activity_created", "host=offline-webview");
+        ControlerStartupTrace.mark("main_activity_created", "host=android-webview");
         ControlerWidgetLaunchStore.captureLaunchIntent(this, getIntent());
 
         bridge = new OfflineWebViewBridge(this);
@@ -124,6 +126,13 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(false);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.setSafeBrowsingEnabled(true);
+        }
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMediaPlaybackRequiresUserGesture(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -144,16 +153,39 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView target, WebResourceRequest request) {
                 Uri uri = request == null ? null : request.getUrl();
                 if (uri == null) return false;
-                String url = uri.toString();
-                if (url.startsWith("file:///android_asset/controler-web/")) {
+                if (isAllowedAssetUri(uri)) {
                     showNavigationSurface(target);
                     return false;
+                }
+                String scheme = uri.getScheme();
+                if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                    Log.w("ControlerWebView", "Blocked external URL: " + uri);
+                    return true;
                 }
                 Intent external = new Intent(Intent.ACTION_VIEW, uri);
                 try {
                     startActivity(external);
                 } catch (Exception ignored) {}
                 return true;
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(
+                WebView target,
+                WebResourceRequest request
+            ) {
+                Uri uri = request == null ? null : request.getUrl();
+                if (isAllowedAssetUri(uri)) {
+                    return super.shouldInterceptRequest(target, request);
+                }
+                return new WebResourceResponse(
+                    "text/plain",
+                    "UTF-8",
+                    403,
+                    "Blocked",
+                    Collections.emptyMap(),
+                    new ByteArrayInputStream(new byte[0])
+                );
             }
 
             @Override
@@ -166,7 +198,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView target, String url) {
                 super.onPageFinished(target, url);
-                target.clearHistory();
                 ControlerStartupTrace.mark("webview_page_finished", "url=" + url);
                 splashDismissed = true;
             }
@@ -308,7 +339,7 @@ public class MainActivity extends Activity {
         String targetUrl = targetUri.toString();
         String targetPath = targetUri.getPath();
         if (
-            !targetUrl.startsWith(WEB_ROOT)
+            !isAllowedAssetUri(targetUri)
                 || targetPath == null
                 || !targetPath.endsWith("/" + page + ".html")
         ) {
@@ -388,8 +419,12 @@ public class MainActivity extends Activity {
             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
             WebViewCompat.addDocumentStartJavaScript(
                 view,
-                output.toString("UTF-8"),
-                Collections.singleton("*")
+                "if(String(location.href||'').indexOf('"
+                    + WEB_ROOT
+                    + "')===0){"
+                    + output.toString("UTF-8")
+                    + "}",
+                Collections.singleton("file://")
             );
         } catch (Exception error) {
             throw new IllegalStateException("Unable to install the theme bootstrap script", error);
@@ -403,8 +438,15 @@ public class MainActivity extends Activity {
         boolean hasWidgetLaunch = ControlerWidgetLaunchStore.hasLaunchAction(intent);
         ControlerStartupTrace.captureLaunchIntent(intent);
         ControlerWidgetLaunchStore.captureLaunchIntent(this, intent);
-        if (hasWidgetLaunch && webView != null) {
-            webView.loadUrl(resolveStartUrl());
+        if (hasWidgetLaunch && bridge != null) {
+            JSONObject payload = new JSONObject();
+            try {
+                payload.put("name", "widgets.launch-action-available");
+                payload.put("source", "android-widget");
+            } catch (Exception ignored) {
+                return;
+            }
+            bridge.emitBridgeEvent(payload);
         }
     }
 
@@ -468,6 +510,18 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(
+        int requestCode,
+        String[] permissions,
+        int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (bridge != null) {
+            bridge.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+    }
+
+    @Override
     public void onBackPressed() {
         if (webView == null) {
             super.onBackPressed();
@@ -521,6 +575,18 @@ public class MainActivity extends Activity {
     private static void appendQuery(Uri.Builder builder, String key, String value) {
         String normalized = value == null ? "" : value.trim();
         if (!normalized.isEmpty()) builder.appendQueryParameter(key, normalized);
+    }
+
+    static boolean isAllowedAssetUri(Uri uri) {
+        if (uri == null || !"file".equalsIgnoreCase(uri.getScheme())) return false;
+        String authority = uri.getAuthority();
+        if (authority != null && !authority.isEmpty()) return false;
+        String path = uri.getPath();
+        if (path == null || !path.startsWith("/android_asset/controler-web/")) return false;
+        String decodedPath = Uri.decode(path);
+        return decodedPath.startsWith("/android_asset/controler-web/")
+            && !decodedPath.contains("/../")
+            && !decodedPath.endsWith("/..");
     }
 
     void applyWebThemeState(JSONObject themeState) {

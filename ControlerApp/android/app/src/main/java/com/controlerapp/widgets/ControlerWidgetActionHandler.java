@@ -751,6 +751,13 @@ public final class ControlerWidgetActionHandler {
                 ControlerWidgetKinds.START_TIMER
             );
             JSONObject root = ControlerWidgetDataStore.loadRootForWidgets(context);
+            if (root.has("readState")) {
+                return ActionResult.fullRefresh(
+                    false,
+                    false,
+                    root.optString("readMessage", "存储需要恢复，已阻止小组件写入。")
+                );
+            }
             JSONArray projects = ensureArray(root, "projects");
             JSONArray records = ensureArray(root, "records");
             JSONObject timerSession = ensureObject(root, "timerSessionState");

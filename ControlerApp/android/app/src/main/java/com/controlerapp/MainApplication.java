@@ -20,7 +20,7 @@ public class MainApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        ControlerStartupTrace.mark("application_on_create", "host=offline-webview");
+        ControlerStartupTrace.mark("application_on_create", "host=android-webview");
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
 
         startupExecutor.schedule(() -> {

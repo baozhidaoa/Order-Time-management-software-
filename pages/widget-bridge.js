@@ -93,7 +93,12 @@
 
     if (nativeBridge?.isReactNativeApp) {
       return {
-        runtime: "react-native",
+        runtime:
+          nativePlatform === "android"
+            ? "android-webview"
+            : nativePlatform === "ios"
+              ? "ios-react-native"
+              : "web",
         platform: nativePlatform,
         capabilities:
           nativeBridge?.capabilities && typeof nativeBridge.capabilities === "object"
@@ -177,11 +182,12 @@
     };
   }
 
-  function isReactNativeNavigationRuntime(snapshot = getRuntimeSnapshot()) {
-    return (
-      !!snapshot?.nativeBridge?.isReactNativeApp ||
-      snapshot?.runtimeMeta?.runtime === "react-native"
-    );
+  function isNativeRuntime(snapshot = getRuntimeSnapshot()) {
+    const contract = getPlatformContract();
+    if (typeof contract?.isNativeRuntime === "function") {
+      return contract.isNativeRuntime(snapshot?.runtimeMeta);
+    }
+    return snapshot?.isNativePlatform === true;
   }
 
   function getCurrentPageName() {
@@ -251,7 +257,7 @@
       });
       const currentUrl = `${window.location.pathname.split("/").pop()}${window.location.search}`;
       if (nextUrl !== currentUrl) {
-        window.location.href = nextUrl;
+        void navigateWidgetActionAfterFlush(nextUrl);
       }
       return true;
     }
@@ -262,6 +268,36 @@
       action,
     });
     return true;
+  }
+
+  async function navigateWidgetActionAfterFlush(nextUrl) {
+    let timedOut = false;
+    let timeoutId = 0;
+    const flush =
+      typeof window.ControlerStorage?.flushJournal === "function"
+        ? window.ControlerStorage.flushJournal({ reason: "widget-navigation" })
+        : typeof window.ControlerStorage?.flush === "function"
+          ? window.ControlerStorage.flush()
+          : Promise.resolve();
+    await Promise.race([
+      Promise.resolve(flush).catch((error) => {
+        console.warn("Widget navigation flush failed", error);
+      }),
+      new Promise((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, 800);
+      }),
+    ]);
+    if (timeoutId) window.clearTimeout(timeoutId);
+    if (timedOut) {
+      console.warn("Widget navigation flush timed out after 800ms", { nextUrl });
+    }
+    if (window.ControlerUI?.navigateAppHref?.(nextUrl, { source: "widget" })) {
+      return;
+    }
+    window.location.href = nextUrl;
   }
 
   async function safeNativeCall(methodName, payload = {}) {
@@ -301,7 +337,7 @@
       nativeLaunchPollPending ||
       !snapshot.isNativePlatform ||
       !snapshot.hasNativeCall ||
-      isReactNativeNavigationRuntime(snapshot)
+      !isNativeRuntime(snapshot)
     ) {
       return null;
     }
@@ -330,7 +366,7 @@
     });
   }
 
-  if (!isReactNativeNavigationRuntime(initialSnapshot)) {
+  if (initialSnapshot.isNativePlatform) {
     window.setTimeout(() => {
       void pollNativeLaunchAction();
     }, 80);
@@ -344,6 +380,13 @@
       }
     });
   }
+
+  window.addEventListener("controler:native-bridge-event", (event) => {
+    const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+    if (detail.name === "widgets.launch-action-available") {
+      void pollNativeLaunchAction();
+    }
+  });
 
   function normalizeAndroidPinSupport(kind, payload = null) {
     const normalizedKind = typeof kind === "string" ? kind.trim() : "";

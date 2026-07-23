@@ -8,7 +8,7 @@
       const runtimeMeta = JSON.parse(window.ReactNativeWebView.getRuntimeMeta());
       if (runtimeMeta && typeof runtimeMeta === "object") {
         window.__CONTROLER_RN_META__ = runtimeMeta;
-        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}`;
+        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       }
     }
   } catch (_error) {}
@@ -23,6 +23,18 @@
   const HEAVY_IMPORT_MESSAGE_TIMEOUT_MS = 600000;
   const pendingRequests = new Map();
   let requestCounter = 0;
+
+  const PAGE_SESSION_ID =
+    typeof window.__CONTROLER_RN_SESSION_ID__ === "string" &&
+    window.__CONTROLER_RN_SESSION_ID__.trim()
+      ? window.__CONTROLER_RN_SESSION_ID__.trim()
+      : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const NAVIGATION_GENERATION = Math.max(
+    0,
+    Number(getRuntimeMeta().navigationGeneration) || 0,
+  );
+  const REQUIRES_PAGE_SESSION_ENVELOPE = getNativeHostPlatform() === "android";
+  window.__CONTROLER_RN_SESSION_ID__ = PAGE_SESSION_ID;
 
   const MESSAGE_TIMEOUT_OVERRIDES = {
     "storage.selectFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
@@ -114,11 +126,15 @@
     nativeWebView.postMessage(
       JSON.stringify({
         type,
+        pageSessionId: PAGE_SESSION_ID,
+        navigationGeneration: NAVIGATION_GENERATION,
         payload: normalizePayload(payload),
       }),
     );
     return true;
   }
+
+  postMessage("bridge-session", {});
 
   function emitEvent(name, payload = {}) {
     if (!isReactNativeApp()) {
@@ -235,6 +251,13 @@
     if (!message || typeof message !== "object") {
       return;
     }
+    if (
+      REQUIRES_PAGE_SESSION_ENVELOPE &&
+      (message.pageSessionId !== PAGE_SESSION_ID ||
+        Number(message.navigationGeneration) !== NAVIGATION_GENERATION)
+    ) {
+      return;
+    }
 
     if (message.type === "bridge-response") {
       const { id, result, error } = normalizePayload(message.payload);
@@ -299,6 +322,8 @@
         : {};
     },
     eventName: BRIDGE_EVENT_NAME,
+    pageSessionId: PAGE_SESSION_ID,
+    navigationGeneration: NAVIGATION_GENERATION,
     call,
     emitEvent,
   };

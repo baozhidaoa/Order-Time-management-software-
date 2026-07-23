@@ -50,8 +50,6 @@ import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.modules.core.PermissionAwareActivity;
-import com.facebook.react.modules.core.PermissionListener;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -87,6 +85,7 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import androidx.core.content.FileProvider;
+import androidx.core.app.ActivityCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -387,42 +386,6 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             });
         }
     };
-    private final PermissionListener notificationPermissionListener =
-        new PermissionListener() {
-            @Override
-            public boolean onRequestPermissionsResult(
-                int requestCode,
-                String[] permissions,
-                int[] grantResults
-            ) {
-                if (requestCode != REQUEST_NOTIFICATION_PERMISSION) {
-                    return false;
-                }
-
-                Promise promise = pendingNotificationPermissionPromise;
-                pendingNotificationPermissionPromise = null;
-                if (promise == null) {
-                    return true;
-                }
-
-                boolean granted =
-                    grantResults != null
-                        && grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-                try {
-                    if (granted) {
-                        maybeRequestExactAlarmAccessIfNeeded(true);
-                        ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
-                    }
-                    promise.resolve(
-                        buildNotificationPermissionResult(true, granted, true).toString()
-                    );
-                } catch (Exception error) {
-                    promise.reject("notification_permission_failed", error);
-                }
-                return true;
-            }
-        };
     private final ActivityEventListener activityEventListener =
         new BaseActivityEventListener() {
             @Override
@@ -455,7 +418,9 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             public void onHostPause() {}
 
             @Override
-            public void onHostDestroy() {}
+            public void onHostDestroy() {
+                cancelPendingRequests("activity_destroyed", "页面已关闭，请求已取消。");
+            }
         };
 
     public ControlerBridgeModule(ReactApplicationContext reactContext) {
@@ -467,6 +432,61 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
     @Override
     public String getName() {
         return "ControlerBridge";
+    }
+
+    public boolean onRequestPermissionsResult(
+        int requestCode,
+        String[] permissions,
+        int[] grantResults
+    ) {
+        if (requestCode != REQUEST_NOTIFICATION_PERMISSION) {
+            return false;
+        }
+        Promise promise = pendingNotificationPermissionPromise;
+        pendingNotificationPermissionPromise = null;
+        if (promise == null) {
+            return true;
+        }
+        boolean granted =
+            grantResults != null
+                && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        try {
+            if (granted) {
+                maybeRequestExactAlarmAccessIfNeeded(true);
+                ControlerNotificationScheduler.rescheduleAll(getReactApplicationContext());
+            }
+            promise.resolve(buildNotificationPermissionResult(true, granted, true).toString());
+        } catch (Exception error) {
+            promise.reject("notification_permission_failed", error);
+        }
+        return true;
+    }
+
+    public void cancelPendingRequests(String code, String message) {
+        String safeCode = TextUtils.isEmpty(code) ? "request_cancelled" : code;
+        String safeMessage = TextUtils.isEmpty(message) ? "请求已取消。" : message;
+        Promise[] pending = new Promise[] {
+            pendingSelectStorageFilePromise,
+            pendingSelectStorageDirectoryPromise,
+            pendingNotificationPermissionPromise,
+            pendingImportStorageSourcePromise,
+            pendingPickImportSourcePromise,
+            pendingPickDiaryImagesPromise
+        };
+        pendingSelectStorageFilePromise = null;
+        pendingSelectStorageDirectoryPromise = null;
+        pendingNotificationPermissionPromise = null;
+        pendingImportStorageSourcePromise = null;
+        pendingImportStorageSourceOptions = null;
+        pendingPickImportSourcePromise = null;
+        pendingPickImportSourceOptions = null;
+        pendingPickDiaryImagesPromise = null;
+        pendingPickDiaryImagesOptions = null;
+        pendingExactAlarmPermissionCheck = false;
+        for (Promise promise : pending) {
+            if (promise != null) promise.reject(safeCode, safeMessage);
+        }
     }
 
     private String normalizeUiLanguage(String language) {
@@ -2441,7 +2461,7 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
 
             Activity activity = getCurrentActivity();
-            if (!(activity instanceof PermissionAwareActivity)) {
+            if (activity == null || activity.isFinishing()) {
                 promise.reject("notification_permission_unavailable", "当前没有可用的权限请求 Activity。");
                 return;
             }
@@ -2451,10 +2471,10 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             }
 
             pendingNotificationPermissionPromise = promise;
-            ((PermissionAwareActivity) activity).requestPermissions(
+            ActivityCompat.requestPermissions(
+                activity,
                 new String[] { Manifest.permission.POST_NOTIFICATIONS },
-                REQUEST_NOTIFICATION_PERMISSION,
-                notificationPermissionListener
+                REQUEST_NOTIFICATION_PERMISSION
             );
         } catch (Exception error) {
             pendingNotificationPermissionPromise = null;
@@ -5957,10 +5977,17 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
             );
         JSONObject manifest =
             ControlerWidgetDataStore.getStorageManifest(getReactApplicationContext());
-        JSONObject core =
-            root != null
-                ? root
-                : ControlerWidgetDataStore.getStorageCoreState(getReactApplicationContext());
+        JSONObject core = root;
+        if (
+            core == null
+                && !"needs-recovery".equals(ControlerWidgetDataStore.getStorageRecoveryState())
+        ) {
+            try {
+                core = ControlerWidgetDataStore.getStorageCoreState(getReactApplicationContext());
+            } catch (Exception ignored) {
+                core = null;
+            }
+        }
         File defaultStorageFile =
             ControlerWidgetDataStore.getDefaultStorageFile(getReactApplicationContext());
         File defaultStorageDirectory = defaultStorageFile.getParentFile();
@@ -6034,6 +6061,8 @@ public class ControlerBridgeModule extends ReactContextBaseJavaModule {
                 ? ""
                 : ControlerWidgetDataStore.getStorageRecoveryMessage()
         );
+        status.put("readState", ControlerWidgetDataStore.getStorageReadState());
+        status.put("readMessage", ControlerWidgetDataStore.getStorageReadMessage());
         status.put("isNativeApp", true);
         status.put("platform", "android");
         return status;

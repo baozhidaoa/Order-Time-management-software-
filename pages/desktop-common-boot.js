@@ -267,7 +267,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   });
 
   const ANDROID_NATIVE_PROFILE = createRuntimeProfile({
-    runtime: "react-native",
+    runtime: "android-webview",
     platform: "android",
     capabilities: {
       storageSourceSwitch: true,
@@ -287,7 +287,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   });
 
   const IOS_NATIVE_PROFILE = createRuntimeProfile({
-    runtime: "react-native",
+    runtime: "ios-react-native",
     platform: "ios",
     capabilities: {
       storageSourceSwitch: true,
@@ -362,8 +362,37 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     return WEB_PROFILE;
   }
 
+  function resolveRuntimeName(runtimeOrProfile) {
+    return String(
+      runtimeOrProfile && typeof runtimeOrProfile === "object"
+        ? runtimeOrProfile.runtime
+        : runtimeOrProfile || "",
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  function isAndroidWebViewRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "android-webview";
+  }
+
+  function isIosReactNativeRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "ios-react-native";
+  }
+
+  function isElectronRuntime(runtimeOrProfile) {
+    return resolveRuntimeName(runtimeOrProfile) === "electron";
+  }
+
+  function isNativeRuntime(runtimeOrProfile) {
+    return (
+      isAndroidWebViewRuntime(runtimeOrProfile) ||
+      isIosReactNativeRuntime(runtimeOrProfile)
+    );
+  }
+
   return Object.freeze({
-    version: "2026-03-21",
+    version: "2026-07-23",
     widgetKinds: WIDGET_KINDS,
     widgetKindIds: WIDGET_KIND_IDS,
     launchActions: LAUNCH_ACTIONS,
@@ -378,6 +407,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     getElectronRuntimeProfile,
     getReactNativeRuntimeProfile,
     getRuntimeProfile,
+    isNativeRuntime,
+    isAndroidWebViewRuntime,
+    isIosReactNativeRuntime,
+    isElectronRuntime,
   });
 });
 
@@ -393,7 +426,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       const runtimeMeta = JSON.parse(window.ReactNativeWebView.getRuntimeMeta());
       if (runtimeMeta && typeof runtimeMeta === "object") {
         window.__CONTROLER_RN_META__ = runtimeMeta;
-        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}`;
+        window.__CONTROLER_RN_SESSION_ID__ = `android-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       }
     }
   } catch (_error) {}
@@ -408,6 +441,18 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   const HEAVY_IMPORT_MESSAGE_TIMEOUT_MS = 600000;
   const pendingRequests = new Map();
   let requestCounter = 0;
+
+  const PAGE_SESSION_ID =
+    typeof window.__CONTROLER_RN_SESSION_ID__ === "string" &&
+    window.__CONTROLER_RN_SESSION_ID__.trim()
+      ? window.__CONTROLER_RN_SESSION_ID__.trim()
+      : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const NAVIGATION_GENERATION = Math.max(
+    0,
+    Number(getRuntimeMeta().navigationGeneration) || 0,
+  );
+  const REQUIRES_PAGE_SESSION_ENVELOPE = getNativeHostPlatform() === "android";
+  window.__CONTROLER_RN_SESSION_ID__ = PAGE_SESSION_ID;
 
   const MESSAGE_TIMEOUT_OVERRIDES = {
     "storage.selectFile": INTERACTIVE_MESSAGE_TIMEOUT_MS,
@@ -499,11 +544,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     nativeWebView.postMessage(
       JSON.stringify({
         type,
+        pageSessionId: PAGE_SESSION_ID,
+        navigationGeneration: NAVIGATION_GENERATION,
         payload: normalizePayload(payload),
       }),
     );
     return true;
   }
+
+  postMessage("bridge-session", {});
 
   function emitEvent(name, payload = {}) {
     if (!isReactNativeApp()) {
@@ -620,6 +669,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     if (!message || typeof message !== "object") {
       return;
     }
+    if (
+      REQUIRES_PAGE_SESSION_ENVELOPE &&
+      (message.pageSessionId !== PAGE_SESSION_ID ||
+        Number(message.navigationGeneration) !== NAVIGATION_GENERATION)
+    ) {
+      return;
+    }
 
     if (message.type === "bridge-response") {
       const { id, result, error } = normalizePayload(message.payload);
@@ -684,6 +740,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         : {};
     },
     eventName: BRIDGE_EVENT_NAME,
+    pageSessionId: PAGE_SESSION_ID,
+    navigationGeneration: NAVIGATION_GENERATION,
     call,
     emitEvent,
   };
@@ -8797,6 +8855,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       typeof reactNativeBridge.platform === "string"
         ? reactNativeBridge.platform
         : "native";
+    const failClosedNativeReads = platform === "android";
+    function throwIfNativeReadMustFailClosed(error) {
+      if (!failClosedNativeReads) return;
+      throw error instanceof Error
+        ? error
+        : new Error(String(error || "Android 权威存储读取失败。"));
+    }
     // Android receives storage.changed after native commits and performs one
     // lightweight check on app resume. Timed polling only creates redundant
     // JSON reads and serialized bridge work in an offline application.
@@ -9660,7 +9725,15 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       return explicitCoveredPeriodIds.length > 0 || normalizedPeriodIds.length > 0;
     }
 
+    function nativeStorageNeedsRecovery() {
+      return (
+        failClosedNativeReads &&
+        String(cachedStatus?.recoveryState || "").trim() === "needs-recovery"
+      );
+    }
+
     function canServeManagedSectionRange(section, scope = {}) {
+      if (nativeStorageNeedsRecovery()) return null;
       const normalizedRange = normalizeManagedSectionRangeScope(scope);
       if (managedFullyHydratedSections.has(section)) {
         return normalizedRange;
@@ -9698,6 +9771,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     }
 
     function canServeManagedPageBootstrap(pageKey, options = {}) {
+      if (nativeStorageNeedsRecovery()) return false;
       const normalizedPage = normalizePageBootstrapKey(pageKey);
       const normalizedOptions =
         options && typeof options === "object" ? options : {};
@@ -10439,6 +10513,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           );
         }
         console.error("读取 React Native 存储失败:", error);
+        throwIfNativeReadMustFailClosed(error);
         return null;
       }
     }
@@ -10522,6 +10597,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
           });
         }
         console.error("读取 React Native 核心状态失败:", error);
+        throwIfNativeReadMustFailClosed(error);
         return null;
       }
     }
@@ -11360,9 +11436,26 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
         return;
       }
 
-      const nextCore = await getNativeCoreStateSnapshot({
-        suppressError: true,
-      });
+      let nextCore = null;
+      try {
+        nextCore = await getNativeCoreStateSnapshot({
+          suppressError: true,
+        });
+      } catch (error) {
+        reportNativeStorageSyncError(
+          "权威存储读取失败，已进入只读恢复状态。",
+          {
+            reason: "native-initial-core",
+            error,
+          },
+        );
+        scheduleNativeStatusRefresh({
+          suppressError: true,
+          force: true,
+        });
+        persistMirrorSnapshot(true);
+        return;
+      }
       if (isManagedShellInactive()) {
         queueNativeForegroundSyncOnShellResume("shell-resume");
         updateVersionBaseline(cachedStatus);
@@ -12180,7 +12273,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             const rawPayload = await reactNativeBridge.call("storage.getManifest");
             return parseJsonSafely(rawPayload, null);
           } catch (error) {
-            console.error("读取 React Native 存储 manifest 失败，回退本地推导:", error);
+            console.error("读取 React Native 存储 manifest 失败:", error);
+            throwIfNativeReadMustFailClosed(error);
             return null;
           }
         },
@@ -12240,7 +12334,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             nativeInitializationSettled &&
             !shouldBypassManagedBootstrapCache &&
             hasPendingStateChanges &&
-            hasManagedCoreSnapshot;
+            hasManagedCoreSnapshot &&
+            !nativeStorageNeedsRecovery();
           const shouldHydrateManagedMirror =
             forceAuthoritativeBootstrap || !canUseManagedBootstrapFastPath;
           if (preferManagedBootstrap) {
@@ -12300,10 +12395,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return normalizedBootstrap;
             }
           } catch (error) {
-            console.error(
-              "读取 React Native 页面引导状态失败，回退本地快照:",
-              error,
-            );
+            console.error("读取 React Native 页面引导状态失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return this.peekPageBootstrapState(normalizedPage, normalizedOptions);
         },
@@ -12403,7 +12496,11 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             queueNativeForegroundSyncOnShellResume("shell-resume");
             return managedSnapshot;
           }
-          if (hasManagedCoreSnapshot && !forceAuthoritativeCoreState) {
+          if (
+            hasManagedCoreSnapshot &&
+            !forceAuthoritativeCoreState &&
+            !nativeStorageNeedsRecovery()
+          ) {
             scheduleManagedFastValidation("core-fast-path");
             return managedSnapshot;
           }
@@ -12443,7 +12540,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return getManagedCoreStateSnapshot();
             }
           } catch (error) {
-            console.error("读取 React Native 核心状态失败，回退本地快照:", error);
+            console.error("读取 React Native 核心状态失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return managedSnapshot;
         },
@@ -12654,7 +12752,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
             !forceAuthoritativeRange &&
             nativeInitializationSettled &&
             hasPendingStateChanges &&
-            hasManagedCoreSnapshot;
+            hasManagedCoreSnapshot &&
+            !nativeStorageNeedsRecovery();
           if (canUseManagedRangeFastPath || preferManagedRange) {
             scheduleManagedFastValidation(`section-fast-path:${section}`);
             return loadManagedSectionRange(
@@ -12682,7 +12781,8 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
               return parsed;
             }
           } catch (error) {
-            console.error("读取 React Native 分区范围失败，回退本地推导:", error);
+            console.error("读取 React Native 分区范围失败:", error);
+            throwIfNativeReadMustFailClosed(error);
           }
           return loadManagedSectionRange(section, scope);
         },
@@ -13855,7 +13955,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
 
     if (nativeBridge?.isReactNativeApp) {
       return {
-        runtime: "react-native",
+        runtime:
+          nativePlatform === "android"
+            ? "android-webview"
+            : nativePlatform === "ios"
+              ? "ios-react-native"
+              : "web",
         platform: nativePlatform,
         capabilities:
           nativeBridge?.capabilities && typeof nativeBridge.capabilities === "object"
@@ -13939,11 +14044,12 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     };
   }
 
-  function isReactNativeNavigationRuntime(snapshot = getRuntimeSnapshot()) {
-    return (
-      !!snapshot?.nativeBridge?.isReactNativeApp ||
-      snapshot?.runtimeMeta?.runtime === "react-native"
-    );
+  function isNativeRuntime(snapshot = getRuntimeSnapshot()) {
+    const contract = getPlatformContract();
+    if (typeof contract?.isNativeRuntime === "function") {
+      return contract.isNativeRuntime(snapshot?.runtimeMeta);
+    }
+    return snapshot?.isNativePlatform === true;
   }
 
   function getCurrentPageName() {
@@ -14013,7 +14119,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       });
       const currentUrl = `${window.location.pathname.split("/").pop()}${window.location.search}`;
       if (nextUrl !== currentUrl) {
-        window.location.href = nextUrl;
+        void navigateWidgetActionAfterFlush(nextUrl);
       }
       return true;
     }
@@ -14024,6 +14130,36 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       action,
     });
     return true;
+  }
+
+  async function navigateWidgetActionAfterFlush(nextUrl) {
+    let timedOut = false;
+    let timeoutId = 0;
+    const flush =
+      typeof window.ControlerStorage?.flushJournal === "function"
+        ? window.ControlerStorage.flushJournal({ reason: "widget-navigation" })
+        : typeof window.ControlerStorage?.flush === "function"
+          ? window.ControlerStorage.flush()
+          : Promise.resolve();
+    await Promise.race([
+      Promise.resolve(flush).catch((error) => {
+        console.warn("Widget navigation flush failed", error);
+      }),
+      new Promise((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, 800);
+      }),
+    ]);
+    if (timeoutId) window.clearTimeout(timeoutId);
+    if (timedOut) {
+      console.warn("Widget navigation flush timed out after 800ms", { nextUrl });
+    }
+    if (window.ControlerUI?.navigateAppHref?.(nextUrl, { source: "widget" })) {
+      return;
+    }
+    window.location.href = nextUrl;
   }
 
   async function safeNativeCall(methodName, payload = {}) {
@@ -14063,7 +14199,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       nativeLaunchPollPending ||
       !snapshot.isNativePlatform ||
       !snapshot.hasNativeCall ||
-      isReactNativeNavigationRuntime(snapshot)
+      !isNativeRuntime(snapshot)
     ) {
       return null;
     }
@@ -14092,7 +14228,7 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     });
   }
 
-  if (!isReactNativeNavigationRuntime(initialSnapshot)) {
+  if (initialSnapshot.isNativePlatform) {
     window.setTimeout(() => {
       void pollNativeLaunchAction();
     }, 80);
@@ -14106,6 +14242,13 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
       }
     });
   }
+
+  window.addEventListener("controler:native-bridge-event", (event) => {
+    const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+    if (detail.name === "widgets.launch-action-available") {
+      void pollNativeLaunchAction();
+    }
+  });
 
   function normalizeAndroidPinSupport(kind, payload = null) {
     const normalizedKind = typeof kind === "string" ? kind.trim() : "";
@@ -23280,7 +23423,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   function isAndroidReactNativeNavigationRuntime() {
     return (
       getNativeHostPlatform() === "android" &&
-      window.__CONTROLER_RN_META__?.runtime === "react-native"
+      window.ControlerPlatformContract?.isAndroidWebViewRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true
     );
   }
 
@@ -23601,18 +23746,10 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
   }
 
   function isReactNativeNavigationRuntime() {
-    const platform = getNativeHostPlatform();
-    if (platform === "android") {
-      return isAndroidReactNativeNavigationRuntime();
-    }
-    if (platform === "ios") {
-      return true;
-    }
     return (
-      typeof window.ControlerNativeBridge?.emitEvent === "function" ||
-      typeof window.ControlerNativeBridge?.call === "function" ||
-      typeof window.ReactNativeWebView?.postMessage === "function" ||
-      window.__CONTROLER_RN_META__?.runtime === "react-native"
+      window.ControlerPlatformContract?.isNativeRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true
     );
   }
 
@@ -26464,7 +26601,9 @@ window.__CONTROLER_NATIVE_PAGE_READY_MODE__ = "manual";
     const isNativeRuntime = isReactNativeNavigationRuntime();
     const isAndroidOfflineWebView =
       getNativeHostPlatform() === "android" &&
-      window.__CONTROLER_RN_META__?.runtime === "offline-webview";
+      window.ControlerPlatformContract?.isAndroidWebViewRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true;
     const requestedQuietWindowMs = Number.isFinite(options.quietWindowMs)
       ? Math.max(0, Math.round(Number(options.quietWindowMs)))
       : isNativeRuntime

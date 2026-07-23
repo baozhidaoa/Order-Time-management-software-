@@ -934,12 +934,12 @@ async function main() {
   );
   assertRegexMatch(
     pagesStorageAdapterSource,
-    /async getPageBootstrapState\(pageKey,\s*options = \{\}\)\s*\{[\s\S]*const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead\(\s*normalizedOptions,\s*\);[\s\S]*const canUseManagedBootstrapFastPath =[\s\S]*!forceAuthoritativeBootstrap &&[\s\S]*nativeInitializationSettled &&[\s\S]*canUseManagedBootstrap;[\s\S]*const preferManagedBootstrap =[\s\S]*!forceAuthoritativeBootstrap &&[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot;[\s\S]*const shouldHydrateManagedMirror =[\s\S]*forceAuthoritativeBootstrap \|\| !canUseManagedBootstrapFastPath;/,
+    /async getPageBootstrapState\(pageKey,\s*options = \{\}\)\s*\{[\s\S]*const forceAuthoritativeBootstrap = shouldForceAuthoritativeRead\(\s*normalizedOptions,\s*\);[\s\S]*const canUseManagedBootstrapFastPath =[\s\S]*!forceAuthoritativeBootstrap &&[\s\S]*nativeInitializationSettled &&[\s\S]*canUseManagedBootstrap;[\s\S]*const preferManagedBootstrap =[\s\S]*!forceAuthoritativeBootstrap &&[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot &&[\s\S]*!nativeStorageNeedsRecovery\(\);[\s\S]*const shouldHydrateManagedMirror =[\s\S]*forceAuthoritativeBootstrap \|\| !canUseManagedBootstrapFastPath;/,
     "React Native 页面引导快路径仍可能在原生初始化完成前直接复用待补写镜像。",
   );
   assertRegexMatch(
     pagesStorageAdapterSource,
-    /async loadSectionRange\(section,\s*scope = \{\}\)\s*\{[\s\S]*const forceAuthoritativeRange = shouldForceAuthoritativeRead\(\s*normalizedScope,\s*\);[\s\S]*const nativeScope = stripAuthoritativeReadFlags\(normalizedScope\);[\s\S]*const normalizedRange = canServeManagedSectionRange\(\s*section,\s*nativeScope,\s*\);[\s\S]*const canUseManagedRangeFastPath =[\s\S]*!forceAuthoritativeRange &&[\s\S]*nativeInitializationSettled &&[\s\S]*!!normalizedRange;[\s\S]*const preferManagedRange =[\s\S]*!forceAuthoritativeRange &&[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot;/,
+    /async loadSectionRange\(section,\s*scope = \{\}\)\s*\{[\s\S]*const forceAuthoritativeRange = shouldForceAuthoritativeRead\(\s*normalizedScope,\s*\);[\s\S]*const nativeScope = stripAuthoritativeReadFlags\(normalizedScope\);[\s\S]*const normalizedRange = canServeManagedSectionRange\(\s*section,\s*nativeScope,\s*\);[\s\S]*const canUseManagedRangeFastPath =[\s\S]*!forceAuthoritativeRange &&[\s\S]*nativeInitializationSettled &&[\s\S]*!!normalizedRange;[\s\S]*const preferManagedRange =[\s\S]*!forceAuthoritativeRange &&[\s\S]*nativeInitializationSettled &&[\s\S]*hasPendingStateChanges &&[\s\S]*hasManagedCoreSnapshot &&[\s\S]*!nativeStorageNeedsRecovery\(\);/,
     "React Native 分区范围快路径仍可能在原生初始化完成前直接复用待补写镜像。",
   );
   assertRegexMatch(

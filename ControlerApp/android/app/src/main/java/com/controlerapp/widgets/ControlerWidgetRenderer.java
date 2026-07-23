@@ -1097,6 +1097,9 @@ public final class ControlerWidgetRenderer {
                         requestedKinds
                     );
             renderSource.palette = resolveThemePalette(renderSource.root);
+            if (renderSource.root.has("readState")) {
+                return renderSource;
+            }
             renderSource.state = ControlerWidgetDataStore.loadFromRoot(renderSource.root);
         } catch (Exception error) {
             error.printStackTrace();
@@ -1123,6 +1126,11 @@ public final class ControlerWidgetRenderer {
                 || appWidgetIds == null
                 || appWidgetIds.length == 0
                 || TextUtils.isEmpty(normalizedKind)
+                || (
+                    renderSource != null
+                        && renderSource.root != null
+                        && renderSource.root.has("readState")
+                )
         ) {
             return;
         }

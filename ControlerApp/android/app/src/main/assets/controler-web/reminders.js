@@ -203,14 +203,24 @@
 
   function getResolvedRuntimeMeta() {
     const electronAPI = getElectronRuntime();
+    const contract = window.ControlerPlatformContract || null;
     if (electronAPI?.runtimeMeta && typeof electronAPI.runtimeMeta === "object") {
       return electronAPI.runtimeMeta;
     }
 
     if (nativeBridge()?.isReactNativeApp) {
+      if (typeof contract?.getReactNativeRuntimeProfile === "function") {
+        return contract.getReactNativeRuntimeProfile(nativeBridge()?.platform || "web");
+      }
+      const nativePlatform = nativeBridge()?.platform || "web";
       return {
-        runtime: "react-native",
-        platform: nativeBridge()?.platform || "web",
+        runtime:
+          nativePlatform === "android"
+            ? "android-webview"
+            : nativePlatform === "ios"
+              ? "ios-react-native"
+              : "web",
+        platform: nativePlatform,
         capabilities:
           nativeBridge()?.capabilities && typeof nativeBridge()?.capabilities === "object"
             ? nativeBridge().capabilities
@@ -218,7 +228,6 @@
       };
     }
 
-    const contract = window.ControlerPlatformContract || null;
     if (typeof contract?.getRuntimeProfile === "function") {
       return contract.getRuntimeProfile({
         isElectron: !!electronAPI?.isElectron,

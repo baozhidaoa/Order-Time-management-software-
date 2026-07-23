@@ -4261,7 +4261,9 @@
   function isAndroidReactNativeNavigationRuntime() {
     return (
       getNativeHostPlatform() === "android" &&
-      window.__CONTROLER_RN_META__?.runtime === "react-native"
+      window.ControlerPlatformContract?.isAndroidWebViewRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true
     );
   }
 
@@ -4582,18 +4584,10 @@
   }
 
   function isReactNativeNavigationRuntime() {
-    const platform = getNativeHostPlatform();
-    if (platform === "android") {
-      return isAndroidReactNativeNavigationRuntime();
-    }
-    if (platform === "ios") {
-      return true;
-    }
     return (
-      typeof window.ControlerNativeBridge?.emitEvent === "function" ||
-      typeof window.ControlerNativeBridge?.call === "function" ||
-      typeof window.ReactNativeWebView?.postMessage === "function" ||
-      window.__CONTROLER_RN_META__?.runtime === "react-native"
+      window.ControlerPlatformContract?.isNativeRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true
     );
   }
 
@@ -7445,7 +7439,9 @@
     const isNativeRuntime = isReactNativeNavigationRuntime();
     const isAndroidOfflineWebView =
       getNativeHostPlatform() === "android" &&
-      window.__CONTROLER_RN_META__?.runtime === "offline-webview";
+      window.ControlerPlatformContract?.isAndroidWebViewRuntime?.(
+        window.__CONTROLER_RN_META__,
+      ) === true;
     const requestedQuietWindowMs = Number.isFinite(options.quietWindowMs)
       ? Math.max(0, Math.round(Number(options.quietWindowMs)))
       : isNativeRuntime

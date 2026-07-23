@@ -18,6 +18,7 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.Calendar;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -34,8 +35,24 @@ public final class OfflineWebViewBridge {
     private final AtomicInteger navigationGeneration = new AtomicInteger();
     private final ReactApplicationContext reactContext;
     private final ControlerBridgeModule module;
+    private final ArrayDeque<PendingNativeMessage> pendingMessages = new ArrayDeque<>();
     private WebView webView;
     private Activity activity;
+    private DatePickerDialog activeDatePicker;
+    private String pageSessionId = "";
+    private boolean foreground = true;
+
+    private static final class PendingNativeMessage {
+        final JSONObject message;
+        final String pageSessionId;
+        final int navigationGeneration;
+
+        PendingNativeMessage(JSONObject message, String pageSessionId, int navigationGeneration) {
+            this.message = message;
+            this.pageSessionId = pageSessionId;
+            this.navigationGeneration = navigationGeneration;
+        }
+    }
 
     public OfflineWebViewBridge(Activity activity) {
         this.activity = activity;
@@ -47,20 +64,30 @@ public final class OfflineWebViewBridge {
         webView = view;
     }
 
-    public void onNavigationStarted() {
+    public synchronized void onNavigationStarted() {
         navigationGeneration.incrementAndGet();
+        pageSessionId = "";
+        pendingMessages.clear();
+        cancelInteractiveRequests("navigation_changed", "页面已切换，请求已取消。");
     }
 
-    public void onResume(Activity nextActivity) {
+    public synchronized void onResume(Activity nextActivity) {
         activity = nextActivity;
+        foreground = true;
         reactContext.onHostResume(nextActivity);
+        flushPendingMessages();
     }
 
-    public void onPause() {
+    public synchronized void onPause() {
+        foreground = false;
         reactContext.onHostPause();
     }
 
-    public void onDestroy() {
+    public synchronized void onDestroy() {
+        navigationGeneration.incrementAndGet();
+        pageSessionId = "";
+        pendingMessages.clear();
+        cancelInteractiveRequests("activity_destroyed", "页面已关闭，请求已取消。");
         reactContext.onHostDestroy();
         executor.shutdownNow();
         webView = null;
@@ -77,9 +104,15 @@ public final class OfflineWebViewBridge {
         }
     }
 
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        module.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
     @JavascriptInterface
     public String getRuntimeMeta() {
-        return "{\"runtime\":\"offline-webview\",\"platform\":\"android\",\"isNative\":true,\"debug\":"
+        return "{\"runtime\":\"android-webview\",\"platform\":\"android\",\"isNative\":true,\"navigationGeneration\":"
+            + navigationGeneration.get()
+            + ",\"debug\":"
             + BuildConfig.DEBUG
             + ",\"performanceTracing\":"
             + BuildConfig.DEBUG
@@ -96,6 +129,19 @@ public final class OfflineWebViewBridge {
         }
 
         String type = message.optString("type", "");
+        String requestSessionId = message.optString("pageSessionId", "").trim();
+        int requestGeneration = message.optInt("navigationGeneration", -1);
+        if ("bridge-session".equals(type)) {
+            synchronized (this) {
+                if (requestGeneration == navigationGeneration.get() && !requestSessionId.isEmpty()) {
+                    pageSessionId = requestSessionId;
+                }
+            }
+            return;
+        }
+        if (!isCurrentPage(requestSessionId, requestGeneration)) {
+            return;
+        }
         JSONObject payload = message.optJSONObject("payload");
         if (payload == null) {
             payload = new JSONObject();
@@ -104,50 +150,80 @@ public final class OfflineWebViewBridge {
             final String id = payload.optString("id", "");
             final String method = payload.optString("method", "");
             final JSONObject requestPayload = payload.optJSONObject("payload");
-            final int requestGeneration = navigationGeneration.get();
             executor.execute(() -> dispatchRequest(
                 id,
                 method,
                 requestPayload == null ? new JSONObject() : requestPayload,
+                requestSessionId,
                 requestGeneration
             ));
             return;
         }
         if ("bridge-event".equals(type)) {
-            handleEvent(payload);
+            handleEvent(payload, requestSessionId, requestGeneration);
         }
     }
 
-    private void dispatchRequest(String id, String method, JSONObject payload, int requestGeneration) {
+    private void dispatchRequest(
+        String id,
+        String method,
+        JSONObject payload,
+        String requestSessionId,
+        int requestGeneration
+    ) {
         if (id == null || id.trim().isEmpty()) {
             return;
         }
-        if (isDiscardableRead(method) && requestGeneration != navigationGeneration.get()) {
+        if (!isCurrentPage(requestSessionId, requestGeneration)) {
             return;
         }
+        ResponsePromise promise = new ResponsePromise(
+            id,
+            requestSessionId,
+            requestGeneration
+        );
         try {
-            invoke(method, payload, new ResponsePromise(id));
+            if (requiresNavigationSerializedSetup(method)) {
+                synchronized (this) {
+                    if (!isCurrentPage(requestSessionId, requestGeneration)) return;
+                    invoke(
+                        method,
+                        payload,
+                        promise,
+                        requestSessionId,
+                        requestGeneration
+                    );
+                }
+            } else {
+                invoke(method, payload, promise, requestSessionId, requestGeneration);
+            }
         } catch (Exception error) {
-            sendError(id, error.getMessage() == null ? error.toString() : error.getMessage());
+            sendError(
+                id,
+                error.getMessage() == null ? error.toString() : error.getMessage(),
+                requestSessionId,
+                requestGeneration
+            );
         }
     }
 
-    private static boolean isDiscardableRead(String method) {
-        return "storage.readState".equals(method)
-            || "storage.getStatus".equals(method)
-            || "storage.getManifest".equals(method)
-            || "storage.getCoreState".equals(method)
-            || "storage.getPageBootstrapState".equals(method)
-            || "storage.getBootstrapState".equals(method)
-            || "storage.getPlanBootstrapState".equals(method)
-            || "storage.getDraft".equals(method)
-            || "storage.getAutoBackupStatus".equals(method)
-            || "storage.loadSectionRange".equals(method)
-            || "storage.probeStateVersion".equals(method)
-            || "ui.getSoftInputState".equals(method);
+    private static boolean requiresNavigationSerializedSetup(String method) {
+        return "storage.importSource".equals(method)
+            || "storage.pickImportSourceFile".equals(method)
+            || "storage.pickDiaryImages".equals(method)
+            || "storage.selectFile".equals(method)
+            || "storage.selectDirectory".equals(method)
+            || "notifications.requestPermission".equals(method)
+            || "ui.pickDate".equals(method);
     }
 
-    private void invoke(String method, JSONObject payload, Promise promise) throws Exception {
+    private void invoke(
+        String method,
+        JSONObject payload,
+        Promise promise,
+        String requestSessionId,
+        int requestGeneration
+    ) throws Exception {
         switch (method) {
             case "storage.readState": call("readStorageState", promise); return;
             case "storage.writeState": call("writeStorageState", jsonObject(payload.opt("state")), promise); return;
@@ -199,7 +275,14 @@ public final class OfflineWebViewBridge {
                 call("setLaunchThemeState", jsonObject(themeState), promise);
                 return;
             case "ui.showToast": call("showToast", payload.optString("message", ""), promise); return;
-            case "ui.pickDate": pickDate(payload.optString("value", ""), promise); return;
+            case "ui.pickDate":
+                pickDate(
+                    payload.optString("value", ""),
+                    promise,
+                    requestSessionId,
+                    requestGeneration
+                );
+                return;
             case "ui.showSoftInput": call("showSoftInput", promise); return;
             case "ui.restartSoftInput": call("restartSoftInput", promise); return;
             case "ui.getSoftInputState": call("getSoftInputState", promise); return;
@@ -212,9 +295,18 @@ public final class OfflineWebViewBridge {
         }
     }
 
-    private void pickDate(String value, Promise promise) {
+    private void pickDate(
+        String value,
+        Promise promise,
+        String requestSessionId,
+        int requestGeneration
+    ) {
         mainHandler.post(() -> {
-            if (activity == null || activity.isFinishing()) {
+            if (
+                !isCurrentPage(requestSessionId, requestGeneration)
+                    || activity == null
+                    || activity.isFinishing()
+            ) {
                 promise.reject("pick_date_failed", "当前没有可用的前台页面。");
                 return;
             }
@@ -245,11 +337,17 @@ public final class OfflineWebViewBridge {
                 initialDate.get(Calendar.DAY_OF_MONTH)
             );
             dialog.setOnDismissListener(ignored -> {
+                synchronized (OfflineWebViewBridge.this) {
+                    if (activeDatePicker == dialog) activeDatePicker = null;
+                }
                 if (!resolved[0]) {
                     resolved[0] = true;
                     promise.resolve(null);
                 }
             });
+            synchronized (OfflineWebViewBridge.this) {
+                activeDatePicker = dialog;
+            }
             dialog.show();
         });
     }
@@ -300,12 +398,12 @@ public final class OfflineWebViewBridge {
         return result.toString();
     }
 
-    private void handleEvent(JSONObject payload) {
+    private void handleEvent(JSONObject payload, String requestSessionId, int requestGeneration) {
         String name = payload.optString("name", "");
         if ("ui.navigate".equals(name)) {
             final JSONObject request = payload == null ? new JSONObject() : payload;
             mainHandler.post(() -> {
-                if (activity instanceof MainActivity) {
+                if (isCurrentPage(requestSessionId, requestGeneration) && activity instanceof MainActivity) {
                     ((MainActivity) activity).handleWebNavigation(request);
                 }
             });
@@ -318,12 +416,12 @@ public final class OfflineWebViewBridge {
                 themeState.put("customThemes", payload.optJSONArray("customThemes") == null ? new JSONArray() : payload.optJSONArray("customThemes"));
                 themeState.put("builtInThemeOverrides", payload.optJSONObject("builtInThemeOverrides") == null ? new JSONObject() : payload.optJSONObject("builtInThemeOverrides"));
             } catch (Exception ignored) {}
-            applyThemeState(themeState);
+            applyThemeState(themeState, requestSessionId, requestGeneration);
             return;
         }
         if ("ui.page-ready".equals(name)) {
             mainHandler.post(() -> {
-                if (activity instanceof MainActivity) {
+                if (isCurrentPage(requestSessionId, requestGeneration) && activity instanceof MainActivity) {
                     ((MainActivity) activity).onWebPageReady(payload);
                 }
             });
@@ -338,21 +436,42 @@ public final class OfflineWebViewBridge {
     }
 
     private void applyThemeState(JSONObject themeState) {
+        final String targetSession;
+        final int targetGeneration;
+        synchronized (this) {
+            targetSession = pageSessionId;
+            targetGeneration = navigationGeneration.get();
+        }
+        applyThemeState(themeState, targetSession, targetGeneration);
+    }
+
+    private void applyThemeState(
+        JSONObject themeState,
+        String targetSession,
+        int targetGeneration
+    ) {
         final JSONObject safeState = themeState == null ? new JSONObject() : themeState;
         mainHandler.post(() -> {
-            if (activity instanceof MainActivity) {
+            if (isCurrentPage(targetSession, targetGeneration) && activity instanceof MainActivity) {
                 ((MainActivity) activity).applyWebThemeState(safeState);
             }
         });
     }
 
     private void sendEvent(JSONObject eventPayload) {
+        final String targetSession;
+        final int targetGeneration;
+        synchronized (this) {
+            targetSession = pageSessionId;
+            targetGeneration = navigationGeneration.get();
+        }
+        if (targetSession.isEmpty()) return;
         JSONObject message = new JSONObject();
         try {
             message.put("type", "bridge-event");
             message.put("payload", eventPayload);
         } catch (Exception ignored) { return; }
-        sendMessage(message);
+        sendMessage(message, targetSession, targetGeneration);
     }
 
     public void emitNavigationAck(JSONObject request, String state, String reason) {
@@ -370,20 +489,20 @@ public final class OfflineWebViewBridge {
         sendEvent(payload);
     }
 
-    private void sendError(String id, String error) {
+    private void sendError(String id, String error, String targetSession, int targetGeneration) {
         JSONObject payload = new JSONObject();
         try { payload.put("id", id); payload.put("error", error == null ? "native bridge error" : error); } catch (Exception ignored) {}
         JSONObject message = new JSONObject();
         try { message.put("type", "bridge-response"); message.put("payload", payload); } catch (Exception ignored) { return; }
-        sendMessage(message);
+        sendMessage(message, targetSession, targetGeneration);
     }
 
-    private void sendResult(String id, Object value) {
+    private void sendResult(String id, Object value, String targetSession, int targetGeneration) {
         JSONObject payload = new JSONObject();
         try { payload.put("id", id); payload.put("result", normalizeResult(value)); } catch (Exception ignored) {}
         JSONObject message = new JSONObject();
         try { message.put("type", "bridge-response"); message.put("payload", payload); } catch (Exception ignored) { return; }
-        sendMessage(message);
+        sendMessage(message, targetSession, targetGeneration);
     }
 
     private static Object normalizeResult(Object value) {
@@ -396,25 +515,79 @@ public final class OfflineWebViewBridge {
         return text;
     }
 
-    private void sendMessage(JSONObject message) {
+    private void sendMessage(JSONObject message, String targetSession, int targetGeneration) {
+        try {
+            message.put("pageSessionId", targetSession);
+            message.put("navigationGeneration", targetGeneration);
+        } catch (Exception ignored) {
+            return;
+        }
+        mainHandler.post(() -> {
+            synchronized (OfflineWebViewBridge.this) {
+                if (!isCurrentPage(targetSession, targetGeneration) || webView == null) return;
+                if (!foreground) {
+                    if (pendingMessages.size() >= 64) pendingMessages.removeFirst();
+                    pendingMessages.addLast(
+                        new PendingNativeMessage(message, targetSession, targetGeneration)
+                    );
+                    return;
+                }
+                evaluateMessage(message);
+            }
+        });
+    }
+
+    private synchronized boolean isCurrentPage(String sessionId, int generation) {
+        return generation == navigationGeneration.get()
+            && sessionId != null
+            && !sessionId.isEmpty()
+            && sessionId.equals(pageSessionId);
+    }
+
+    private void evaluateMessage(JSONObject message) {
+        if (webView == null) return;
         final String script = "(function(){var m=" + message.toString() + ";if(typeof window.__controlerReceiveNativeMessage==='function'){window.__controlerReceiveNativeMessage(m);}else{(window.__CONTROLER_PENDING_NATIVE_MESSAGES__=window.__CONTROLER_PENDING_NATIVE_MESSAGES__||[]).push(m);}})();true;";
-        mainHandler.post(() -> { if (webView != null) webView.evaluateJavascript(script, null); });
+        webView.evaluateJavascript(script, null);
+    }
+
+    private void flushPendingMessages() {
+        while (!pendingMessages.isEmpty()) {
+            PendingNativeMessage pending = pendingMessages.removeFirst();
+            if (isCurrentPage(pending.pageSessionId, pending.navigationGeneration)) {
+                evaluateMessage(pending.message);
+            }
+        }
+    }
+
+    private void cancelInteractiveRequests(String code, String message) {
+        module.cancelPendingRequests(code, message);
+        final DatePickerDialog dialog = activeDatePicker;
+        activeDatePicker = null;
+        if (dialog != null) {
+            mainHandler.post(dialog::dismiss);
+        }
     }
 
     private final class ResponsePromise implements Promise {
         private final String id;
-        ResponsePromise(String id) { this.id = id; }
-        @Override public void resolve(Object value) { sendResult(id, value); }
-        @Override public void reject(String code, String message) { sendError(id, message == null ? code : message); }
-        @Override public void reject(String code, Throwable e) { sendError(id, e == null ? code : e.getMessage()); }
-        @Override public void reject(String code, String message, Throwable e) { sendError(id, message == null ? code : message); }
-        @Override public void reject(Throwable reason) { sendError(id, reason == null ? "native bridge error" : reason.getMessage()); }
+        private final String targetSession;
+        private final int targetGeneration;
+        ResponsePromise(String id, String targetSession, int targetGeneration) {
+            this.id = id;
+            this.targetSession = targetSession;
+            this.targetGeneration = targetGeneration;
+        }
+        @Override public void resolve(Object value) { sendResult(id, value, targetSession, targetGeneration); }
+        @Override public void reject(String code, String message) { sendError(id, message == null ? code : message, targetSession, targetGeneration); }
+        @Override public void reject(String code, Throwable e) { sendError(id, e == null ? code : e.getMessage(), targetSession, targetGeneration); }
+        @Override public void reject(String code, String message, Throwable e) { sendError(id, message == null ? code : message, targetSession, targetGeneration); }
+        @Override public void reject(Throwable reason) { sendError(id, reason == null ? "native bridge error" : reason.getMessage(), targetSession, targetGeneration); }
         @Override public void reject(Throwable reason, WritableMap userInfo) { reject(reason); }
-        @Override public void reject(String code, WritableMap userInfo) { sendError(id, code); }
+        @Override public void reject(String code, WritableMap userInfo) { sendError(id, code, targetSession, targetGeneration); }
         @Override public void reject(String code, Throwable reason, WritableMap userInfo) { reject(code, reason); }
-        @Override public void reject(String code, String message, WritableMap userInfo) { sendError(id, message == null ? code : message); }
-        @Override public void reject(String code, String message, Throwable e, WritableMap userInfo) { sendError(id, message == null ? code : message); }
-        @Override public void reject(String code) { sendError(id, code); }
+        @Override public void reject(String code, String message, WritableMap userInfo) { sendError(id, message == null ? code : message, targetSession, targetGeneration); }
+        @Override public void reject(String code, String message, Throwable e, WritableMap userInfo) { sendError(id, message == null ? code : message, targetSession, targetGeneration); }
+        @Override public void reject(String code) { sendError(id, code, targetSession, targetGeneration); }
     }
 
 }
