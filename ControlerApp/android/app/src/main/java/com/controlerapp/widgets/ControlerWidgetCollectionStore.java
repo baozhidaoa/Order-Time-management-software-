@@ -46,11 +46,16 @@ public final class ControlerWidgetCollectionStore {
 
     private ControlerWidgetCollectionStore() {}
 
-    public static void saveRows(Context context, int appWidgetId, String kind, JSONArray rows) {
+    public static synchronized void saveRows(
+        Context context,
+        int appWidgetId,
+        String kind,
+        JSONArray rows
+    ) {
         saveRows(context, appWidgetId, kind, "", rows);
     }
 
-    public static void saveRows(
+    public static synchronized void saveRows(
         Context context,
         int appWidgetId,
         String kind,
@@ -66,6 +71,76 @@ public final class ControlerWidgetCollectionStore {
             .edit()
             .putString(buildKey(appWidgetId, kind, slot), rows == null ? "[]" : rows.toString())
             .commit();
+    }
+
+    static synchronized boolean upsertFirstRow(
+        Context context,
+        int appWidgetId,
+        String kind,
+        JSONObject row
+    ) {
+        if (context == null || appWidgetId <= 0 || row == null) {
+            return false;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        String targetId = row.optString("targetId", "").trim();
+        if (TextUtils.isEmpty(normalizedKind) || TextUtils.isEmpty(targetId)) {
+            return false;
+        }
+
+        SharedPreferences preferences =
+            context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String key = buildKey(appWidgetId, normalizedKind, "");
+        JSONArray currentRows = parseRows(preferences.getString(key, "[]"));
+        JSONArray nextRows = new JSONArray();
+        nextRows.put(row);
+        for (int index = 0; index < currentRows.length(); index++) {
+            JSONObject currentRow = currentRows.optJSONObject(index);
+            if (
+                currentRow != null
+                    && !TextUtils.equals(
+                        targetId,
+                        currentRow.optString("targetId", "").trim()
+                    )
+            ) {
+                nextRows.put(currentRow);
+            }
+        }
+        return preferences.edit().putString(key, nextRows.toString()).commit();
+    }
+
+    static synchronized boolean removeRow(
+        Context context,
+        int appWidgetId,
+        String kind,
+        String targetId
+    ) {
+        if (context == null || appWidgetId <= 0 || TextUtils.isEmpty(targetId)) {
+            return false;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (TextUtils.isEmpty(normalizedKind)) {
+            return false;
+        }
+
+        SharedPreferences preferences =
+            context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String key = buildKey(appWidgetId, normalizedKind, "");
+        JSONArray currentRows = parseRows(preferences.getString(key, "[]"));
+        JSONArray nextRows = new JSONArray();
+        boolean removed = false;
+        for (int index = 0; index < currentRows.length(); index++) {
+            JSONObject currentRow = currentRows.optJSONObject(index);
+            if (currentRow == null) {
+                continue;
+            }
+            if (TextUtils.equals(targetId.trim(), currentRow.optString("targetId", "").trim())) {
+                removed = true;
+            } else {
+                nextRows.put(currentRow);
+            }
+        }
+        return removed && preferences.edit().putString(key, nextRows.toString()).commit();
     }
 
     public static List<RowData> loadRows(Context context, int appWidgetId, String kind) {
@@ -187,7 +262,7 @@ public final class ControlerWidgetCollectionStore {
         );
     }
 
-    public static boolean markRowPending(
+    public static synchronized boolean markRowPending(
         Context context,
         int appWidgetId,
         String kind,
@@ -271,6 +346,17 @@ public final class ControlerWidgetCollectionStore {
             return false;
         }
         return editor.commit();
+    }
+
+    private static JSONArray parseRows(String raw) {
+        if (TextUtils.isEmpty(raw)) {
+            return new JSONArray();
+        }
+        try {
+            return new JSONArray(raw);
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
     }
 
     public static void clearRows(Context context, int[] appWidgetIds) {

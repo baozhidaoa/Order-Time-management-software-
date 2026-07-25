@@ -82,6 +82,7 @@ public final class ControlerWidgetRenderer {
     private static final String WIDGET_REFRESH_PREFS = "controler_widget_refresh_state";
     private static final String KEY_LAST_DATE_SENSITIVE_REFRESH_DAY =
         "last_date_sensitive_refresh_day";
+    private static final String KEY_THEME_PALETTE = "theme_palette";
     private static final Object REFRESH_LOCK = new Object();
     private static final Object RENDER_STATE_LOCK = new Object();
     private static final HandlerThread REFRESH_THREAD = createRefreshThread();
@@ -991,11 +992,128 @@ public final class ControlerWidgetRenderer {
             return new ThemePalette();
         }
         Context appContext = context.getApplicationContext();
+        synchronized (RENDER_STATE_LOCK) {
+            if (lastRenderSource != null && lastRenderSource.palette != null) {
+                return lastRenderSource.palette;
+            }
+        }
+        SharedPreferences preferences =
+            appContext.getSharedPreferences(WIDGET_REFRESH_PREFS, Context.MODE_PRIVATE);
+        return deserializeThemePalette(preferences.getString(KEY_THEME_PALETTE, ""));
+    }
+
+    static void showPendingQuickAdd(Context context, String kind, JSONObject item) {
+        if (context == null || item == null) {
+            return;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        if (
+            !ControlerWidgetKinds.TODOS.equals(normalizedKind)
+                && !ControlerWidgetKinds.CHECKINS.equals(normalizedKind)
+        ) {
+            return;
+        }
+        int[] appWidgetIds = getWidgetIds(context, normalizedKind);
+        if (appWidgetIds.length == 0) {
+            return;
+        }
+
         try {
-            return resolveThemePalette(ControlerWidgetDataStore.getStorageCoreState(appContext));
+            JSONObject root = new JSONObject();
+            String section = ControlerWidgetKinds.TODOS.equals(normalizedKind)
+                ? "todos"
+                : "checkinItems";
+            root.put(section, new JSONArray().put(item));
+            WidgetContent content = new WidgetContent();
+            content.page = ControlerWidgetKinds.defaultPage(normalizedKind);
+            content.action = ControlerWidgetKinds.defaultAction(normalizedKind);
+            ControlerWidgetDataStore.State state = ControlerWidgetDataStore.loadFromRoot(root);
+            if (ControlerWidgetKinds.TODOS.equals(normalizedKind)) {
+                fillTodosContent(content, state, AppWidgetManager.INVALID_APPWIDGET_ID);
+            } else {
+                fillCheckinsContent(content, state, AppWidgetManager.INVALID_APPWIDGET_ID);
+            }
+            if (content.itemCards.isEmpty()) {
+                return;
+            }
+            WidgetItemCard card = content.itemCards.get(0);
+            card.meta = appendPendingMeta(card.meta);
+            card.actionLabel = "创建中";
+            card.actionDisabled = true;
+            content.itemCards.clear();
+            content.itemCards.add(card);
+            JSONArray rows = buildCollectionRowsPayload(
+                normalizedKind,
+                content,
+                loadThemePalette(context)
+            );
+            JSONObject row = rows.optJSONObject(0);
+            if (row == null) {
+                return;
+            }
+            boolean changed = false;
+            for (int appWidgetId : appWidgetIds) {
+                changed = ControlerWidgetCollectionStore.upsertFirstRow(
+                    context,
+                    appWidgetId,
+                    normalizedKind,
+                    row
+                ) || changed;
+            }
+            if (changed) {
+                notifyCollectionChanged(context, appWidgetIds);
+            }
         } catch (Exception error) {
-            error.printStackTrace();
-            return new ThemePalette();
+            Log.w(LOG_TAG, "Unable to publish pending quick-add row", error);
+        }
+    }
+
+    static void removePendingQuickAdd(Context context, String kind, String targetId) {
+        if (context == null || TextUtils.isEmpty(targetId)) {
+            return;
+        }
+        String normalizedKind = ControlerWidgetKinds.normalize(kind);
+        int[] appWidgetIds = getWidgetIds(context, normalizedKind);
+        boolean changed = false;
+        for (int appWidgetId : appWidgetIds) {
+            changed = ControlerWidgetCollectionStore.removeRow(
+                context,
+                appWidgetId,
+                normalizedKind,
+                targetId
+            ) || changed;
+        }
+        if (changed) {
+            notifyCollectionChanged(context, appWidgetIds);
+        }
+    }
+
+    private static int[] getWidgetIds(Context context, String kind) {
+        if (context == null || TextUtils.isEmpty(kind)) {
+            return new int[0];
+        }
+        ComponentName componentName = ControlerWidgetKinds.componentNameForKind(context, kind);
+        if (componentName == null) {
+            return new int[0];
+        }
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        if (appWidgetManager == null) {
+            return new int[0];
+        }
+        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(componentName);
+        return appWidgetIds == null ? new int[0] : appWidgetIds;
+    }
+
+    private static void notifyCollectionChanged(Context context, int[] appWidgetIds) {
+        if (context == null || appWidgetIds == null || appWidgetIds.length == 0) {
+            return;
+        }
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        if (appWidgetManager != null) {
+            appWidgetManager.notifyAppWidgetViewDataChanged(
+                appWidgetIds,
+                R.id.widget_collection_list
+            );
         }
     }
 
@@ -1100,6 +1218,7 @@ public final class ControlerWidgetRenderer {
             if (renderSource.root.has("readState")) {
                 return renderSource;
             }
+            persistThemePalette(context, renderSource.palette);
             renderSource.state = ControlerWidgetDataStore.loadFromRoot(renderSource.root);
         } catch (Exception error) {
             error.printStackTrace();
@@ -1111,6 +1230,88 @@ public final class ControlerWidgetRenderer {
             lastRenderSource = renderSource;
         }
         return renderSource;
+    }
+
+    private static void persistThemePalette(Context context, ThemePalette palette) {
+        if (context == null || palette == null) {
+            return;
+        }
+        SharedPreferences preferences = context
+            .getApplicationContext()
+            .getSharedPreferences(WIDGET_REFRESH_PREFS, Context.MODE_PRIVATE);
+        String serializedPalette = serializeThemePalette(palette);
+        if (TextUtils.equals(serializedPalette, preferences.getString(KEY_THEME_PALETTE, ""))) {
+            return;
+        }
+        preferences.edit().putString(KEY_THEME_PALETTE, serializedPalette).apply();
+    }
+
+    private static String serializeThemePalette(ThemePalette palette) {
+        JSONObject value = new JSONObject();
+        try {
+            value.put("background", palette.backgroundColor);
+            value.put("surface", palette.surfaceColor);
+            value.put("border", palette.borderColor);
+            value.put("title", palette.titleColor);
+            value.put("subtitle", palette.subtitleColor);
+            value.put("body", palette.bodyColor);
+            value.put("actionFill", palette.actionFillColor);
+            value.put("actionOutline", palette.actionOutlineColor);
+            value.put("actionText", palette.actionTextColor);
+            value.put("accent", palette.accentColor);
+            value.put("accentText", palette.accentTextColor);
+            value.put("contrast", palette.contrastReferenceColor);
+            value.put("cardFill", palette.cardFillColor);
+            value.put("itemFill", palette.itemFillColor);
+            value.put("cardBorder", palette.cardBorderColor);
+            value.put("cardGloss", palette.cardGlossColor);
+            value.put("light", palette.surfaceIsLight);
+            value.put("customText", palette.hasCustomTextColor);
+            value.put("customActionText", palette.hasCustomActionTextColor);
+        } catch (Exception ignored) {}
+        return value.toString();
+    }
+
+    private static ThemePalette deserializeThemePalette(String raw) {
+        ThemePalette palette = new ThemePalette();
+        if (TextUtils.isEmpty(raw)) {
+            return palette;
+        }
+        try {
+            JSONObject value = new JSONObject(raw);
+            palette.backgroundColor = value.optInt("background", palette.backgroundColor);
+            palette.surfaceColor = value.optInt("surface", palette.surfaceColor);
+            palette.borderColor = value.optInt("border", palette.borderColor);
+            palette.titleColor = value.optInt("title", palette.titleColor);
+            palette.subtitleColor = value.optInt("subtitle", palette.subtitleColor);
+            palette.bodyColor = value.optInt("body", palette.bodyColor);
+            palette.actionFillColor = value.optInt("actionFill", palette.actionFillColor);
+            palette.actionOutlineColor = value.optInt(
+                "actionOutline",
+                palette.actionOutlineColor
+            );
+            palette.actionTextColor = value.optInt("actionText", palette.actionTextColor);
+            palette.accentColor = value.optInt("accent", palette.accentColor);
+            palette.accentTextColor = value.optInt("accentText", palette.accentTextColor);
+            palette.contrastReferenceColor = value.optInt(
+                "contrast",
+                palette.contrastReferenceColor
+            );
+            palette.cardFillColor = value.optInt("cardFill", palette.cardFillColor);
+            palette.itemFillColor = value.optInt("itemFill", palette.itemFillColor);
+            palette.cardBorderColor = value.optInt("cardBorder", palette.cardBorderColor);
+            palette.cardGlossColor = value.optInt("cardGloss", palette.cardGlossColor);
+            palette.surfaceIsLight = value.optBoolean("light", palette.surfaceIsLight);
+            palette.hasCustomTextColor = value.optBoolean(
+                "customText",
+                palette.hasCustomTextColor
+            );
+            palette.hasCustomActionTextColor = value.optBoolean(
+                "customActionText",
+                palette.hasCustomActionTextColor
+            );
+        } catch (Exception ignored) {}
+        return palette;
     }
 
     private static void updateWidgets(

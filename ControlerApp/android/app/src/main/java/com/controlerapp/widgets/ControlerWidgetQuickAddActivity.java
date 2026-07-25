@@ -1,8 +1,6 @@
 package com.controlerapp.widgets;
 
 import android.app.DatePickerDialog;
-import android.appwidget.AppWidgetManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -45,7 +43,6 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         new String[] {"周日", "周一", "周二", "周三", "周四", "周五", "周六"};
 
     private String widgetKind = "";
-    private int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
     private EditText nameInput = null;
     private Button cancelButton = null;
     private Button saveButton = null;
@@ -109,14 +106,6 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
                 ? ""
                 : getIntent().getStringExtra(ControlerWidgetActionHandler.EXTRA_WIDGET_KIND)
         );
-        appWidgetId =
-            getIntent() == null
-                ? AppWidgetManager.INVALID_APPWIDGET_ID
-                : getIntent().getIntExtra(
-                    ControlerWidgetActionHandler.EXTRA_APP_WIDGET_ID,
-                    AppWidgetManager.INVALID_APPWIDGET_ID
-                );
-
         if (
             !ControlerWidgetKinds.TODOS.equals(widgetKind)
                 && !ControlerWidgetKinds.CHECKINS.equals(widgetKind)
@@ -314,49 +303,64 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         }
 
         setSaving(true);
+        final boolean isTodoWidget = ControlerWidgetKinds.TODOS.equals(widgetKind);
+        final Context appContext = getApplicationContext();
+        final String quickAddKind = widgetKind;
+        final JSONObject item;
+        try {
+            item = isTodoWidget ? buildTodo(title) : buildCheckin(title);
+        } catch (Exception error) {
+            setSaving(false);
+            Toast.makeText(this, "创建失败，请稍后重试。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        finish();
         new Thread(() -> {
             long startedAtMs = SystemClock.elapsedRealtime();
             try {
-                final boolean isTodoWidget = ControlerWidgetKinds.TODOS.equals(widgetKind);
+                ControlerWidgetRenderer.showPendingQuickAdd(
+                    appContext,
+                    quickAddKind,
+                    item
+                );
                 if (isTodoWidget) {
-                    saveTodo(title);
+                    saveTodo(appContext, item);
                 } else {
-                    saveCheckin(title);
+                    saveCheckin(appContext, item);
                 }
-                runOnUiThread(() -> {
-                    Toast.makeText(
-                        getApplicationContext(),
-                        isTodoWidget ? "待办已创建" : "打卡项目已创建",
-                        Toast.LENGTH_SHORT
-                    ).show();
-                    finish();
-                });
                 ControlerWidgetActionHandler.emitStorageChangedToForeground(
-                    getApplicationContext(),
+                    appContext,
                     isTodoWidget
                         ? new String[] {"todos"}
                         : new String[] {"checkinItems", "checkinHistorySummary"},
                     null,
                     "android-widget-quick-add"
                 );
-                refreshTargetWidgets();
+                ControlerWidgetRenderer.refreshKind(appContext, quickAddKind);
+                runOnUiThread(() -> Toast.makeText(
+                    appContext,
+                    isTodoWidget ? "待办已创建" : "打卡项目已创建",
+                    Toast.LENGTH_SHORT
+                ).show());
                 Log.d(
                     LOG_TAG,
                     "quickAddSaved kind="
-                        + widgetKind
-                        + " appWidgetId="
-                        + appWidgetId
+                        + quickAddKind
                         + " durationMs="
                         + Math.max(0L, SystemClock.elapsedRealtime() - startedAtMs)
                 );
             } catch (Exception error) {
                 error.printStackTrace();
+                ControlerWidgetRenderer.removePendingQuickAdd(
+                    appContext,
+                    quickAddKind,
+                    item.optString("id", "")
+                );
                 runOnUiThread(() -> {
-                    setSaving(false);
-                    Toast.makeText(this, "保存失败，请稍后重试。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(appContext, "保存失败，请稍后重试。", Toast.LENGTH_SHORT).show();
                 });
             }
-        }).start();
+        }, "ControlerWidgetQuickAdd").start();
     }
 
     private void setSaving(boolean nextSaving) {
@@ -673,66 +677,6 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         button.setAlpha(enabled ? 1f : 0.58f);
     }
 
-    private void refreshTargetWidgets() {
-        Context appContext = getApplicationContext();
-        ControlerWidgetRenderer.invalidateRenderSourceCache();
-        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            ControlerWidgetRenderer.updateWidgets(
-                appContext,
-                widgetKind,
-                new int[] {appWidgetId}
-            );
-            int[] siblingWidgetIds = findSiblingWidgetIds(appContext, widgetKind, appWidgetId);
-            if (siblingWidgetIds.length > 0) {
-                ControlerWidgetRenderer.scheduleUpdateWidgets(
-                    appContext,
-                    widgetKind,
-                    siblingWidgetIds
-                );
-            }
-            return;
-        }
-        ControlerWidgetRenderer.refreshKind(appContext, widgetKind);
-    }
-
-    private static int[] findSiblingWidgetIds(
-        Context context,
-        String widgetKind,
-        int excludedAppWidgetId
-    ) {
-        if (context == null) {
-            return new int[0];
-        }
-        String normalizedKind = ControlerWidgetKinds.normalize(widgetKind);
-        if (TextUtils.isEmpty(normalizedKind)) {
-            return new int[0];
-        }
-        ComponentName componentName =
-            ControlerWidgetKinds.componentNameForKind(context, normalizedKind);
-        if (componentName == null) {
-            return new int[0];
-        }
-        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
-        if (appWidgetManager == null) {
-            return new int[0];
-        }
-        int[] widgetIds = appWidgetManager.getAppWidgetIds(componentName);
-        if (widgetIds == null || widgetIds.length == 0) {
-            return new int[0];
-        }
-        ArrayList<Integer> siblingIds = new ArrayList<>();
-        for (int widgetId : widgetIds) {
-            if (widgetId != excludedAppWidgetId) {
-                siblingIds.add(Integer.valueOf(widgetId));
-            }
-        }
-        int[] result = new int[siblingIds.size()];
-        for (int index = 0; index < siblingIds.size(); index += 1) {
-            result[index] = siblingIds.get(index).intValue();
-        }
-        return result;
-    }
-
     private GradientDrawable buildRoundedBackground(int fillColor, int strokeColor, float radiusDp) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setShape(GradientDrawable.RECTANGLE);
@@ -825,12 +769,7 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
-    private void saveTodo(String title) throws Exception {
-        JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(this);
-        JSONArray todos = coreState.optJSONArray("todos");
-        if (todos == null) {
-            todos = new JSONArray();
-        }
+    private JSONObject buildTodo(String title) throws Exception {
         String today = todayText();
         JSONObject todo = new JSONObject();
         todo.put("id", generateId("todo_"));
@@ -850,23 +789,23 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         todo.put("startDate", today);
         todo.put("endDate", TextUtils.isEmpty(todoDueDate) ? "" : todoDueDate);
         todo.put("notification", JSONObject.NULL);
+        return todo;
+    }
+
+    private static void saveTodo(Context context, JSONObject todo) throws Exception {
+        JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(context);
+        JSONArray todos = coreState.optJSONArray("todos");
+        if (todos == null) {
+            todos = new JSONArray();
+        }
         todos.put(todo);
 
         JSONObject partialCore = new JSONObject();
         partialCore.put("todos", todos);
-        ControlerWidgetDataStore.replaceStorageCoreState(this, partialCore);
+        ControlerWidgetDataStore.replaceStorageCoreState(context, partialCore);
     }
 
-    private void saveCheckin(String title) throws Exception {
-        JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(this);
-        JSONArray checkinItems = coreState.optJSONArray("checkinItems");
-        JSONObject checkinHistorySummary = coreState.optJSONObject("checkinHistorySummary");
-        if (checkinItems == null) {
-            checkinItems = new JSONArray();
-        }
-        if (checkinHistorySummary == null) {
-            checkinHistorySummary = new JSONObject();
-        }
+    private JSONObject buildCheckin(String title) throws Exception {
         String today = todayText();
         JSONArray repeatWeekdays = new JSONArray();
         if ("weekly".equals(checkinRepeatType)) {
@@ -898,13 +837,30 @@ public final class ControlerWidgetQuickAddActivity extends AppCompatActivity {
         item.put("createdAt", nowText);
         item.put("type", "checkin");
         item.put("notification", JSONObject.NULL);
+        return item;
+    }
+
+    private static void saveCheckin(Context context, JSONObject item) throws Exception {
+        JSONObject coreState = ControlerWidgetDataStore.getStorageCoreState(context);
+        JSONArray checkinItems = coreState.optJSONArray("checkinItems");
+        JSONObject checkinHistorySummary = coreState.optJSONObject("checkinHistorySummary");
+        if (checkinItems == null) {
+            checkinItems = new JSONArray();
+        }
+        if (checkinHistorySummary == null) {
+            checkinHistorySummary = new JSONObject();
+        }
         checkinItems.put(item);
-        ensureCheckinHistorySummaryEntry(checkinHistorySummary, item.optString("id", ""), nowText);
+        ensureCheckinHistorySummaryEntry(
+            checkinHistorySummary,
+            item.optString("id", ""),
+            item.optString("createdAt", isoNow())
+        );
 
         JSONObject partialCore = new JSONObject();
         partialCore.put("checkinItems", checkinItems);
         partialCore.put("checkinHistorySummary", checkinHistorySummary);
-        ControlerWidgetDataStore.replaceStorageCoreState(this, partialCore);
+        ControlerWidgetDataStore.replaceStorageCoreState(context, partialCore);
     }
 
     private static String formatDateForDisplay(String dateText) {

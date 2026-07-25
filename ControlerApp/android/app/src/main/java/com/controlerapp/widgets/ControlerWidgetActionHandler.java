@@ -717,7 +717,6 @@ public final class ControlerWidgetActionHandler {
                 + System.currentTimeMillis()
         );
         launchIntent.putExtra(EXTRA_WIDGET_KIND, normalizedKind);
-        launchIntent.putExtra(EXTRA_APP_WIDGET_ID, appWidgetId);
         launchIntent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
