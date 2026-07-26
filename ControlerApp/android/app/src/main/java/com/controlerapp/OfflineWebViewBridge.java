@@ -64,11 +64,12 @@ public final class OfflineWebViewBridge {
         webView = view;
     }
 
-    public synchronized void onNavigationStarted() {
-        navigationGeneration.incrementAndGet();
+    public synchronized int onNavigationStarted() {
+        int generation = navigationGeneration.incrementAndGet();
         pageSessionId = "";
         pendingMessages.clear();
         cancelInteractiveRequests("navigation_changed", "页面已切换，请求已取消。");
+        return generation;
     }
 
     public synchronized void onResume(Activity nextActivity) {
@@ -271,7 +272,6 @@ public final class OfflineWebViewBridge {
             case "ui.setLastVisiblePage": call("setLastVisiblePage", payload.optString("pageKey", ""), promise); return;
             case "ui.setLaunchThemeState":
                 JSONObject themeState = payload.optJSONObject("themeState");
-                applyThemeState(themeState);
                 call("setLaunchThemeState", jsonObject(themeState), promise);
                 return;
             case "ui.showToast": call("showToast", payload.optString("message", ""), promise); return;
@@ -415,8 +415,30 @@ public final class OfflineWebViewBridge {
                 themeState.put("selectedTheme", payload.optString("selectedTheme", "default"));
                 themeState.put("customThemes", payload.optJSONArray("customThemes") == null ? new JSONArray() : payload.optJSONArray("customThemes"));
                 themeState.put("builtInThemeOverrides", payload.optJSONObject("builtInThemeOverrides") == null ? new JSONObject() : payload.optJSONObject("builtInThemeOverrides"));
+                themeState.put("colors", payload.optJSONObject("colors") == null ? new JSONObject() : payload.optJSONObject("colors"));
+                themeState.put("recordCard", payload.optJSONObject("recordCard") == null ? new JSONObject() : payload.optJSONObject("recordCard"));
             } catch (Exception ignored) {}
             applyThemeState(themeState, requestSessionId, requestGeneration);
+            return;
+        }
+        if ("ui.navigation-visibility".equals(name)) {
+            mainHandler.post(() -> {
+                if (isCurrentPage(requestSessionId, requestGeneration) && activity instanceof MainActivity) {
+                    ((MainActivity) activity).applyShellNavigationState(payload);
+                }
+            });
+            return;
+        }
+        if ("storage.changed".equals(name)) {
+            sendEvent(payload);
+            return;
+        }
+        if ("ui.shell-back-result".equals(name)) {
+            mainHandler.post(() -> {
+                if (isCurrentPage(requestSessionId, requestGeneration) && activity instanceof MainActivity) {
+                    ((MainActivity) activity).onShellBackResult(payload.optBoolean("handled", false));
+                }
+            });
             return;
         }
         if ("ui.page-ready".equals(name)) {
@@ -546,7 +568,7 @@ public final class OfflineWebViewBridge {
 
     private void evaluateMessage(JSONObject message) {
         if (webView == null) return;
-        final String script = "(function(){var m=" + message.toString() + ";if(typeof window.__controlerReceiveNativeMessage==='function'){window.__controlerReceiveNativeMessage(m);}else{(window.__CONTROLER_PENDING_NATIVE_MESSAGES__=window.__CONTROLER_PENDING_NATIVE_MESSAGES__||[]).push(m);}})();true;";
+        final String script = "(function(){var m=" + message.toString() + ";if(window.ControlerAndroidShell&&typeof window.ControlerAndroidShell.routeNativeMessage==='function'){window.ControlerAndroidShell.routeNativeMessage(m);return true;}if(typeof window.__controlerReceiveNativeMessage==='function'){window.__controlerReceiveNativeMessage(m);}else{(window.__CONTROLER_PENDING_NATIVE_MESSAGES__=window.__CONTROLER_PENDING_NATIVE_MESSAGES__||[]).push(m);}return true;})();";
         webView.evaluateJavascript(script, null);
     }
 

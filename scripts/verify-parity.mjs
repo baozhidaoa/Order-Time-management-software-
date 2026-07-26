@@ -58,6 +58,11 @@ const generatedBootstrapFiles = new Set([
   "settings-boot.js",
 ]);
 const mobileForbiddenBootstrapFiles = new Set(["desktop-common-boot.js"]);
+const androidOnlyWebFiles = [
+  "android-shell-frame.js",
+  "android-shell.html",
+  "android-shell.js",
+];
 const mobileBootstrapHtmlPages = new Set([
   "index.html",
   "diary.html",
@@ -241,7 +246,7 @@ function stripMobileBootstrapHeadContent(headContent, pageKey) {
   return preservedContent.replace(/^(?:[ \t]*\r?\n)+/, "");
 }
 
-function rewriteMobileBootstrapHtml(sourceText, relativePath) {
+function rewriteMobileBootstrapHtml(sourceText, relativePath, options = {}) {
   const pageKey = path.basename(relativePath, ".html");
   const titleEndIndex = sourceText.indexOf("</title>");
   const headEndIndex =
@@ -266,6 +271,9 @@ function rewriteMobileBootstrapHtml(sourceText, relativePath) {
     pageKey,
   );
   const bootstrapScripts =
+    (options.androidTarget === true
+      ? '    <script src="android-shell-frame.js"></script>\n'
+      : "") +
     `    <script defer src="offline-assets/${OFFLINE_ASSET_MANIFEST_FILE_NAME}"></script>\n` +
     `    <script defer src="mobile-common-boot.js"></script>\n` +
     `    <script defer src="${pageKey}-boot.js"></script>\n`;
@@ -321,7 +329,9 @@ async function compareDirectories(sourceDir, targetDir, label, options = {}) {
         readUtf8(sourcePath),
         readUtf8(targetPath),
       ]);
-      const expectedTargetText = rewriteMobileBootstrapHtml(sourceText, relativePath);
+      const expectedTargetText = rewriteMobileBootstrapHtml(sourceText, relativePath, {
+        androidTarget: label === "pages 与 Android Web 资源",
+      });
       if (expectedTargetText !== targetText) {
         recordFailure(`${label} 文件内容不一致: ${relativePath}`);
       }
@@ -746,7 +756,7 @@ async function main() {
     path.join(repoRoot, "ControlerApp", "ios", "controler-web"),
     "pages 与 iOS Web 资源",
     {
-      excludedRelativePrefixes: ["offline-assets"],
+      excludedRelativePrefixes: ["offline-assets", ...androidOnlyWebFiles],
     },
   );
   await assertMobileBootstrapPolicy(

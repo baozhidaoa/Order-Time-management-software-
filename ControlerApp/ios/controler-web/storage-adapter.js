@@ -346,6 +346,7 @@
     customThemes: [],
     builtInThemeOverrides: {},
     selectedTheme: "obsidian-mono",
+    todoSortPreference: "dueDate",
     createdAt: null,
     lastModified: null,
     storagePath: null,
@@ -4860,10 +4861,6 @@
       };
     }
 
-    const legacyBrowserBootstrap = readLegacyBrowserBootstrapState();
-    const emptyComparableSnapshot = createComparableSnapshot(
-      normalizeState({}, buildLegacyBrowserMetadata()),
-    );
     const initialMirrorStateRaw =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     const initialMirrorPendingWriteRaw =
@@ -4876,8 +4873,6 @@
         window.localStorage,
         MOBILE_MIRROR_PENDING_SESSION_KEY,
       ) || "";
-    const initialMirrorCoverageRaw =
-      nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_COVERAGE_KEY) || "";
     const initialMirrorPendingWrite =
       initialMirrorPendingWriteRaw === "1" ||
       initialMirrorPendingWriteRaw === "true";
@@ -4914,16 +4909,34 @@
         hasMirrorState: !!initialMirrorStateRaw.trim(),
       });
     }
-    const initialMirrorState = parseJsonSafely(
-      initialMirrorStateRaw,
+    const parsedInitialMirrorState = initialMirrorStateRaw.trim()
+      ? parseJsonSafely(initialMirrorStateRaw, null)
+      : null;
+    const hasParsedInitialMirrorState = isPlainObject(parsedInitialMirrorState);
+    const hasUsableInitialMirrorState =
+      hasParsedInitialMirrorState && !shouldDiscardInitialPendingWrite;
+    const emptyBootstrapState = normalizeState(
       {},
+      buildLegacyBrowserMetadata(),
     );
+    const legacyBrowserBootstrap = hasParsedInitialMirrorState
+      ? {
+          state: emptyBootstrapState,
+          didMigrate: false,
+          sharedKeys: [],
+        }
+      : readLegacyBrowserBootstrapState();
+    const emptyComparableSnapshot = createComparableSnapshot(emptyBootstrapState);
+    const initialMirrorState = hasUsableInitialMirrorState
+      ? parsedInitialMirrorState
+      : {};
     adoptLegacyLocalOnlyValues(initialMirrorState);
+    const normalizedInitialMirrorState = normalizeState(initialMirrorState, {
+      platform,
+      useStateRecordsForProjectNormalization: false,
+    });
     const initialMirrorComparableSnapshot = createComparableSnapshot(
-      normalizeState(initialMirrorState, {
-        platform,
-        useStateRecordsForProjectNormalization: false,
-      }),
+      normalizedInitialMirrorState,
     );
     const legacyBrowserComparableSnapshot = createComparableSnapshot(
       legacyBrowserBootstrap.state,
@@ -4931,29 +4944,32 @@
     const shouldAdoptLegacyBrowserBootstrap =
       legacyBrowserComparableSnapshot !== emptyComparableSnapshot &&
       (
-        !initialMirrorStateRaw.trim() ||
+        !hasUsableInitialMirrorState ||
         initialMirrorPendingWrite ||
         initialMirrorComparableSnapshot === emptyComparableSnapshot
-      );
+    );
     const shouldSeedMirrorFromLegacyBrowserBootstrap =
       shouldAdoptLegacyBrowserBootstrap &&
       (
-        !initialMirrorStateRaw.trim() ||
+        !hasUsableInitialMirrorState ||
         initialMirrorComparableSnapshot === emptyComparableSnapshot
       );
     const initialPendingSharedKeys = [];
-    const initialBootstrapState = shouldAdoptLegacyBrowserBootstrap
-      ? legacyBrowserBootstrap.state
-      : initialMirrorState;
     const initialPendingWrite =
       initialMirrorPendingWrite && !shouldDiscardInitialPendingWrite;
-    const effectiveInitialMirrorCoverageRaw = initialMirrorPendingWrite
-      ? ""
-      : initialMirrorCoverageRaw;
-    let cachedState = normalizeState(initialBootstrapState, {
-      platform,
-      useStateRecordsForProjectNormalization: false,
-    });
+    const selectedInitialState = shouldAdoptLegacyBrowserBootstrap
+      ? legacyBrowserBootstrap.state
+      : normalizedInitialMirrorState;
+    let cachedState =
+      initialPendingWrite || shouldAdoptLegacyBrowserBootstrap
+        ? selectedInitialState
+        : normalizeState(
+            buildManagedBootstrapMirrorState(selectedInitialState),
+            {
+              platform,
+              useStateRecordsForProjectNormalization: false,
+            },
+          );
     let cachedStatus =
       parseJsonSafely(
         nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY),
@@ -4977,7 +4993,7 @@
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATE_KEY) || "";
     let lastMirroredStatusJson =
       nativeMethods.getItem?.call(window.localStorage, MOBILE_MIRROR_STATUS_KEY) || "";
-    let lastMirroredCoverageJson = effectiveInitialMirrorCoverageRaw;
+    let lastMirroredCoverageJson = "";
     let lastMirroredPendingWriteValue = initialPendingWrite ? "1" : "0";
     let lastMirroredPendingSessionId = initialPendingWrite
       ? String(initialMirrorPendingSessionId || "").trim()
@@ -5004,7 +5020,7 @@
       "diaryEntries",
     ];
     let hasManagedCoreSnapshot =
-      !!initialMirrorStateRaw.trim() || shouldAdoptLegacyBrowserBootstrap;
+      hasUsableInitialMirrorState || shouldAdoptLegacyBrowserBootstrap;
     let preferProbeOnlyOnFirstShellResume =
       initialShellVisibilityState?.active === false &&
       hasManagedCoreSnapshot &&
@@ -5117,20 +5133,24 @@
       };
     }
 
-    function buildManagedMirrorCoverageMetadata() {
+    function buildManagedMirrorCoverageMetadata(includeRangeState = true) {
       return {
-        fullyHydratedSections: MANAGED_RANGE_SECTIONS.filter((section) =>
-          managedFullyHydratedSections.has(section),
-        ),
+        fullyHydratedSections: includeRangeState
+          ? MANAGED_RANGE_SECTIONS.filter((section) =>
+              managedFullyHydratedSections.has(section),
+            )
+          : [],
         sectionCoverage: MANAGED_RANGE_SECTIONS.reduce((result, section) => {
-          result[section] = Array.from(managedSectionCoverage?.[section] || []);
+          result[section] = includeRangeState
+            ? Array.from(managedSectionCoverage?.[section] || [])
+            : [];
           return result;
         }, {}),
       };
     }
 
     const initialManagedMirrorCoverage =
-      normalizeManagedMirrorCoverageMetadata(effectiveInitialMirrorCoverageRaw);
+      normalizeManagedMirrorCoverageMetadata(null);
     managedSectionCoverage = initialManagedMirrorCoverage.coverage;
     managedFullyHydratedSections =
       initialManagedMirrorCoverage.fullyHydratedSections;
@@ -6002,6 +6022,32 @@
       });
     }
 
+    function buildManagedBootstrapMirrorState(state = readState()) {
+      const sourceState = isPlainObject(state) ? state : {};
+      const coreState = buildManagedCoreStateSnapshot(sourceState);
+      const mirrorState = {};
+      reservedMetadataKeys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(sourceState, key)) {
+          mirrorState[key] = cloneValue(sourceState[key]);
+        }
+      });
+      return {
+        ...mirrorState,
+        projects: coreState.projects,
+        todos: coreState.todos,
+        checkinItems: coreState.checkinItems,
+        checkinHistorySummary: coreState.checkinHistorySummary,
+        yearlyGoals: coreState.yearlyGoals,
+        diaryCategories: coreState.diaryCategories,
+        guideState: coreState.guideState,
+        customThemes: coreState.customThemes,
+        builtInThemeOverrides: coreState.builtInThemeOverrides,
+        selectedTheme: coreState.selectedTheme,
+        todoSortPreference: coreState.todoSortPreference,
+        plans: coreState.recurringPlans,
+      };
+    }
+
     function assignState(nextState) {
       cachedState = normalizeState(
         nextState,
@@ -6037,7 +6083,10 @@
 
     function persistMirrorSnapshot(force = false) {
       try {
-        const nextStateJson = JSON.stringify(cachedState);
+        const persistedState = hasPendingStateChanges
+          ? cachedState
+          : buildManagedBootstrapMirrorState(cachedState);
+        const nextStateJson = JSON.stringify(persistedState);
         if (force || nextStateJson !== lastMirroredStateJson) {
           nativeMethods.setItem?.call(
             window.localStorage,
@@ -6058,7 +6107,7 @@
           }
         }
         const nextCoverageJson = JSON.stringify(
-          buildManagedMirrorCoverageMetadata(),
+          buildManagedMirrorCoverageMetadata(hasPendingStateChanges),
         );
         if (force || nextCoverageJson !== lastMirroredCoverageJson) {
           nativeMethods.setItem?.call(
@@ -6939,6 +6988,152 @@
       return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
     }
 
+    async function syncChangedStateFromNative(reason, options = {}) {
+      const {
+        forceDispatch = false,
+        suppressError = false,
+        changedSections = [],
+        changedPeriods = {},
+        source = "",
+        originPageInstanceId = "",
+      } = options;
+      const normalizedChangedSections = normalizeChangedSectionsList(changedSections);
+      const normalizedChangedPeriods = normalizeChangedPeriodsMap(changedPeriods);
+      const resolvedChangedSections = normalizedChangedSections.length
+        ? normalizedChangedSections
+        : [...DEFAULT_CHANGED_SECTIONS];
+      const normalizedSource = typeof source === "string" ? source.trim() : "";
+      const normalizedOriginPageInstanceId =
+        typeof originPageInstanceId === "string"
+          ? originPageInstanceId.trim()
+          : "";
+
+      emitStorageDebug("sync-changed-state-from-native-start", {
+        reason: typeof reason === "string" ? reason : "",
+        forceDispatch: forceDispatch === true,
+        suppressError: suppressError === true,
+        changedSections: resolvedChangedSections,
+        changedPeriods: normalizedChangedPeriods,
+        source: normalizedSource,
+        originPageInstanceId: normalizedOriginPageInstanceId,
+      });
+
+      if (isManagedShellInactive()) {
+        queueNativeForegroundSyncOnShellResume(reason || "shell-resume", {
+          resetWindow: true,
+          allowProbeOnlyBypass: false,
+          forceSnapshotSync: true,
+          forceDispatch,
+          changedSections: resolvedChangedSections,
+          changedPeriods: normalizedChangedPeriods,
+          source: normalizedSource,
+          originPageInstanceId: normalizedOriginPageInstanceId,
+        });
+        return createSourceSyncResult(
+          buildMergedState(cachedState, {
+            includeAliases: true,
+          }),
+          cachedStatus,
+        );
+      }
+
+      if (hasPendingStateChanges) {
+        await writeNativeState();
+      }
+
+      const previousState = readState();
+      const nextCore = await getNativeCoreStateSnapshot({
+        suppressError,
+      });
+      if (nextCore) {
+        const normalizedCorePayload = normalizeCorePayloadProjects(nextCore).payload;
+        cachedState = normalizeState(
+          mergeManagedStateWithNativeCorePayload(
+            normalizedCorePayload,
+            previousState,
+          ),
+          buildManagedPartialStateMetadata(normalizedCorePayload),
+        );
+        hasManagedCoreSnapshot = true;
+        rebuildManagedSectionCoverage(cachedState, {
+          markFull: false,
+        });
+      }
+
+      for (const section of resolvedChangedSections) {
+        if (!MANAGED_RANGE_SECTIONS.includes(section)) {
+          continue;
+        }
+        const periodIds = Array.isArray(normalizedChangedPeriods[section])
+          ? normalizedChangedPeriods[section]
+              .map((periodId) => String(periodId || "").trim())
+              .filter(Boolean)
+          : [];
+        if (!periodIds.length) {
+          continue;
+        }
+        try {
+          const rawPayload = await reactNativeBridge.call(
+            "storage.loadSectionRange",
+            {
+              section,
+              scope: {
+                periodIds,
+              },
+            },
+          );
+          const parsed = parseJsonSafely(rawPayload, null);
+          if (parsed && typeof parsed === "object") {
+            mergeManagedSectionRange(
+              section,
+              {
+                periodIds,
+              },
+              Array.isArray(parsed.items) ? parsed.items : [],
+              {
+                coveredPeriodIds: Array.isArray(parsed.periodIds)
+                  ? parsed.periodIds
+                  : periodIds,
+              },
+            );
+          }
+        } catch (error) {
+          console.error(`读取 React Native ${section} 变更分区失败:`, error);
+          throwIfNativeReadMustFailClosed(error);
+        }
+      }
+
+      hasPendingStateChanges = false;
+      lastWrittenComparableSnapshot = createComparableSnapshot(cachedState);
+      persistMirrorSnapshot(true);
+      await refreshNativeStatusCache({
+        suppressError: true,
+        force: true,
+      });
+      clearStorageSyncError();
+
+      if (reason && (forceDispatch || nextCore)) {
+        dispatchStorageChangedEvent(
+          reason,
+          buildMergedState(cachedState),
+          cachedStatus,
+          {
+            changedSections: resolvedChangedSections,
+            changedPeriods: normalizedChangedPeriods,
+            source: normalizedSource,
+            originPageInstanceId: normalizedOriginPageInstanceId,
+          },
+        );
+      }
+      emitStorageDebug("sync-changed-state-from-native-finished", {
+        reason: typeof reason === "string" ? reason : "",
+        forceDispatch: forceDispatch === true,
+        changedSections: resolvedChangedSections,
+        changedPeriods: normalizedChangedPeriods,
+      });
+      return createSourceSyncResult(buildMergedState(cachedState), cachedStatus);
+    }
+
     async function runNativeVersionProbe(reason) {
       emitStorageDebug("run-native-version-probe-start", {
         reason: typeof reason === "string" ? reason : "",
@@ -7053,7 +7248,12 @@
           emitStorageDebug("run-native-version-probe-syncing-after-mismatch", {
             reason: typeof reason === "string" ? reason : "",
           });
-          const syncResult = await syncStateFromNative(reason || "external-update");
+          const syncResult = await syncChangedStateFromNative(
+            reason || "external-update",
+            {
+              forceDispatch: true,
+            },
+          );
           updateVersionBaseline(syncResult?.status || cachedStatus);
           return syncResult;
         }
@@ -7065,9 +7265,13 @@
           emitStorageDebug("run-native-version-probe-force-sync", {
             reason: typeof reason === "string" ? reason : "",
           });
-          const syncResult = await syncStateFromNative(reason || "external-update", {
+          const syncResult = await syncChangedStateFromNative(
+            reason || "external-update",
+            {
             suppressError: true,
-          });
+              forceDispatch: true,
+            },
+          );
           updateVersionBaseline(syncResult?.status || cachedStatus);
           return (
             syncResult ||
@@ -7242,7 +7446,7 @@
         writeChain = writeChain
           .then(() => {
             if (forceSnapshotSync) {
-              return syncStateFromNative(reason || "external-update", {
+              return syncChangedStateFromNative(reason || "external-update", {
                 forceDispatch:
                   forceDispatch === true ||
                   normalizedChangedSections.length > 0 ||
@@ -7553,6 +7757,10 @@
           sourceState.selectedTheme.trim()
             ? sourceState.selectedTheme.trim()
             : "obsidian-mono",
+        todoSortPreference:
+          typeof sourceState?.todoSortPreference === "string"
+            ? sourceState.todoSortPreference
+            : "dueDate",
         createdAt: sourceState?.createdAt || null,
         lastModified: sourceState?.lastModified || null,
         storagePath: sourceState?.storagePath || null,
@@ -7626,6 +7834,10 @@
           normalizedCorePayload.selectedTheme.trim()
             ? normalizedCorePayload.selectedTheme.trim()
             : currentCoreSnapshot.selectedTheme,
+        todoSortPreference:
+          typeof normalizedCorePayload?.todoSortPreference === "string"
+            ? normalizedCorePayload.todoSortPreference
+            : currentCoreSnapshot.todoSortPreference,
         plans: [
           ...(
             Array.isArray(currentState?.plans)
@@ -8024,8 +8236,9 @@
           typeof options.reason === "string" && options.reason.trim()
             ? options.reason.trim()
             : "manual-sync";
-        return syncStateFromNative(reason, {
+        return syncChangedStateFromNative(reason, {
           suppressError: false,
+          forceDispatch: true,
         });
       },
       afterJournalStateApplied(nextState, operations = [], metadata = {}) {
@@ -9392,7 +9605,7 @@
             if (hasPendingStateChanges) {
               await writeNativeState();
             }
-            return syncStateFromNative(
+            return syncChangedStateFromNative(
               typeof detail.reason === "string" && detail.reason.trim()
                 ? detail.reason.trim()
                 : "external-update",

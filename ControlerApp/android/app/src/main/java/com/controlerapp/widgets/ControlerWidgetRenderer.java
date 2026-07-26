@@ -78,7 +78,6 @@ public final class ControlerWidgetRenderer {
     private static final float HEADER_ACTION_TEXT_RESERVE_DP = 72f;
     private static final int CARD_BACKGROUND_CACHE_BYTES = 4 * 1024 * 1024;
     private static final int PREVIEW_BITMAP_CACHE_BYTES = 8 * 1024 * 1024;
-    private static final long RENDER_SOURCE_CACHE_TTL_MS = 260L;
     private static final String WIDGET_REFRESH_PREFS = "controler_widget_refresh_state";
     private static final String KEY_LAST_DATE_SENSITIVE_REFRESH_DAY =
         "last_date_sensitive_refresh_day";
@@ -88,8 +87,8 @@ public final class ControlerWidgetRenderer {
     private static final HandlerThread REFRESH_THREAD = createRefreshThread();
     private static final Handler REFRESH_HANDLER = new Handler(REFRESH_THREAD.getLooper());
     private static final Map<Integer, String> LAST_RENDER_KEYS = new HashMap<>();
-    private static long lastRenderSourceLoadedAtMs = 0L;
     private static String lastRenderSourceKindsSignature = "all";
+    private static String lastRenderSourceFingerprint = "";
     private static RenderSource lastRenderSource = null;
     private static final LruCache<String, Bitmap> CARD_BACKGROUND_CACHE =
         new LruCache<String, Bitmap>(CARD_BACKGROUND_CACHE_BYTES) {
@@ -223,6 +222,7 @@ public final class ControlerWidgetRenderer {
         JSONObject root = null;
         ThemePalette palette = new ThemePalette();
         ControlerWidgetDataStore.State state = new ControlerWidgetDataStore.State();
+        String sourceFingerprint = "";
     }
 
     private static final class PendingWidgetUpdate {
@@ -840,7 +840,6 @@ public final class ControlerWidgetRenderer {
             return;
         }
 
-        invalidateRenderSourceCache();
         ControlerStartupTrace.mark(
             "widget-refresh-batch-start",
             "reason="
@@ -981,8 +980,8 @@ public final class ControlerWidgetRenderer {
 
     public static void invalidateRenderSourceCache() {
         synchronized (RENDER_STATE_LOCK) {
-            lastRenderSourceLoadedAtMs = 0L;
             lastRenderSourceKindsSignature = "all";
+            lastRenderSourceFingerprint = "";
             lastRenderSource = null;
         }
     }
@@ -1187,11 +1186,19 @@ public final class ControlerWidgetRenderer {
 
     private static RenderSource loadRenderSource(Context context, Set<String> requestedKinds) {
         String requestedKindsSignature = buildRenderSourceKindsSignature(requestedKinds);
-        long now = System.currentTimeMillis();
+        if (context == null) {
+            return new RenderSource();
+        }
+        ControlerWidgetDataStore.StorageVersion storageVersion =
+            ControlerWidgetDataStore.probeStorageVersion(context, false);
+        String sourceFingerprint = storageVersion == null
+            ? ""
+            : safeText(storageVersion.fingerprint);
         synchronized (RENDER_STATE_LOCK) {
             if (
                 lastRenderSource != null
-                    && now - lastRenderSourceLoadedAtMs <= RENDER_SOURCE_CACHE_TTL_MS
+                    && !TextUtils.isEmpty(sourceFingerprint)
+                    && TextUtils.equals(lastRenderSourceFingerprint, sourceFingerprint)
                     && TextUtils.equals(
                         lastRenderSourceKindsSignature,
                         requestedKindsSignature
@@ -1202,10 +1209,7 @@ public final class ControlerWidgetRenderer {
         }
 
         RenderSource renderSource = new RenderSource();
-        if (context == null) {
-            return renderSource;
-        }
-
+        renderSource.sourceFingerprint = sourceFingerprint;
         try {
             renderSource.root =
                 "all".equals(requestedKindsSignature)
@@ -1225,8 +1229,8 @@ public final class ControlerWidgetRenderer {
         }
 
         synchronized (RENDER_STATE_LOCK) {
-            lastRenderSourceLoadedAtMs = now;
             lastRenderSourceKindsSignature = requestedKindsSignature;
+            lastRenderSourceFingerprint = sourceFingerprint;
             lastRenderSource = renderSource;
         }
         return renderSource;

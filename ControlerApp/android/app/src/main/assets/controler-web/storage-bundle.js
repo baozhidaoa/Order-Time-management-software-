@@ -13,7 +13,7 @@
   const MANIFEST_FILE_NAME = "bundle-manifest.json";
   const RECURRING_PLANS_FILE_NAME = "plans-recurring.json";
   const DIARY_MEDIA_DIR_NAME = "diary-media";
-  const PROJECT_DURATION_CACHE_VERSION = 2;
+  const PROJECT_DURATION_CACHE_VERSION = 3;
   const PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
   const PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
   const PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
@@ -930,16 +930,11 @@
       return -1;
     }
 
-    const preferredRecordName = normalizeProjectReferenceName(recordName);
-    if (preferredRecordName && context.byName.has(preferredRecordName)) {
-      return context.byName.get(preferredRecordName).index;
-    }
-
     if (context.byName.has(recordName)) {
       return context.byName.get(recordName).index;
     }
 
-    const leafName = extractProjectLeafName(recordName);
+    const leafName = normalizeProjectReferenceName(recordName);
 
     if (leafName && context.byName.has(leafName)) {
       return context.byName.get(leafName).index;
@@ -1053,7 +1048,8 @@
       project[PROJECT_TOTAL_DURATION_KEY] = 0;
     });
 
-    attachProjectIdsToRecords(records, context.projects).forEach((record) => {
+    const uniqueRecords = mergePartitionItems("records", [], records, "merge");
+    attachProjectIdsToRecords(uniqueRecords, context.projects).forEach((record) => {
       const projectIndex = findProjectIndexForRecord(record, context);
       if (projectIndex === -1) {
         return;
@@ -1110,11 +1106,21 @@
   function applyProjectRecordDurationChanges(projects = [], changes = {}) {
     const context = buildProjectDurationContext(projects);
     const removedRecords = attachProjectIdsToRecords(
-      ensureArray(changes?.removedRecords),
+      mergePartitionItems(
+        "records",
+        [],
+        ensureArray(changes?.removedRecords),
+        "merge",
+      ),
       context.projects,
     );
     const addedRecords = attachProjectIdsToRecords(
-      ensureArray(changes?.addedRecords),
+      mergePartitionItems(
+        "records",
+        [],
+        ensureArray(changes?.addedRecords),
+        "merge",
+      ),
       context.projects,
     );
 

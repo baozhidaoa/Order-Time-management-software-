@@ -2629,23 +2629,17 @@ let statsAvailableRecordDateBounds = {
 };
 let statsInitialReadyReported = false;
 let statsInitialDataLoaded = false;
-let statsInitialDataValidated = false;
-let statsInitialFreshValidationQueued = false;
 let statsShellPageActive = uiTools?.isShellPageActive?.() !== false;
 let statsShellVisibilityBound = false;
-let statsInitialLoadPendingResume = false;
 let statsExternalRefreshPendingResume = false;
 let statsLoadingOverlayTimer = 0;
 let statsLoadingOverlayController = null;
 let statsChartRuntimeLoader = null;
 let statsHeatmapRuntimeLoader = null;
 let statsInitialViewRuntimePromise = null;
-let statsVisualizationRuntimePreloadQueued = false;
 let statsNativeBusyLockActive = false;
 let statsRangeControlsBusy = false;
-let statsBootstrappedFromPageBootstrap = false;
 let statsLineChartThemeSyncBound = false;
-let statsInitialContentEnsureQueued = false;
 let statsDeferredProjectSnapshot = null;
 let statsDeferredProjectPersistTimer = 0;
 const STATS_THEME_APPLIED_EVENT_NAME =
@@ -2771,18 +2765,6 @@ function emitStatsRangeLoad(stage, payload = {}) {
       // Ignore logging failures.
     }
   }
-  emitStatsDebugPerf("stats.range-load", {
-    stage: normalizedStage,
-    ...payload,
-  });
-}
-
-function emitStatsDebugEvent(name, payload = {}) {
-  return;
-}
-
-function emitStatsDebugPerf(reason, payload = {}) {
-  return;
 }
 
 function parseStatsFlexibleDate(value) {
@@ -2936,7 +2918,19 @@ function findStatsProjectByName(projectName, projectList = projects) {
       ) || null
     : null;
   return (
-    exactPreferred || preferredLeafMatch || exactMatch || leafMatch || null
+    exactPreferred || exactMatch || preferredLeafMatch || leafMatch || null
+  );
+}
+
+function findStatsProjectById(projectId, projectList = projects) {
+  const normalizedProjectId = String(projectId || "").trim();
+  if (!normalizedProjectId) {
+    return null;
+  }
+  return (
+    (Array.isArray(projectList) ? projectList : []).find(
+      (project) => String(project?.id || "").trim() === normalizedProjectId,
+    ) || null
   );
 }
 
@@ -2971,21 +2965,16 @@ function normalizeStatsLoadedRecords(recordList = [], projectList = projects) {
       "未命名项目";
     const normalizedProjectId = String(record?.projectId || "").trim();
     const matchedProject =
+      findStatsProjectById(normalizedProjectId, safeProjects) ||
       findStatsProjectByName(normalizedName, safeProjects) ||
-      safeProjects.find(
-        (project) => String(project?.id || "").trim() === normalizedProjectId,
-      ) ||
       null;
     const normalizedNextProjectName = normalizeStatsProjectReferenceName(
       record?.nextProjectName,
     );
     const normalizedNextProjectId = String(record?.nextProjectId || "").trim();
     const matchedNextProject =
+      findStatsProjectById(normalizedNextProjectId, safeProjects) ||
       findStatsProjectByName(normalizedNextProjectName, safeProjects) ||
-      safeProjects.find(
-        (project) =>
-          String(project?.id || "").trim() === normalizedNextProjectId,
-      ) ||
       null;
 
     return {
@@ -3492,56 +3481,16 @@ function ensureStatsHeatmapRuntimeLoaded() {
   return statsHeatmapRuntimeLoader;
 }
 
-function preloadStatsVisualizationRuntimes() {
-  const needsChart = typeof window.Chart === "undefined";
-  const needsD3 = typeof window.d3 === "undefined";
-  if (!needsChart && !needsD3) {
-    return Promise.resolve(true);
-  }
-  return Promise.all([
-    needsChart ? ensureStatsChartRuntimeLoaded() : Promise.resolve(),
-    needsD3 ? ensureStatsD3RuntimeLoaded() : Promise.resolve(),
-  ]).then(() => true);
-}
-
 function ensureStatsViewRuntimeLoaded(viewMode = statsViewMode) {
   const normalizedViewMode = normalizeStatsViewMode(viewMode);
   switch (normalizedViewMode) {
     case "charts":
-      return Promise.all([
-        ensureStatsChartRuntimeLoaded(),
-        ensureStatsD3RuntimeLoaded(),
-      ]).then(() => true);
+      return ensureStatsChartRuntimeLoaded().then(() => true);
     case "day-line":
       return ensureStatsChartRuntimeLoaded().then(() => true);
-    case "day-pie":
-      return ensureStatsD3RuntimeLoaded().then(() => true);
     default:
       return Promise.resolve(true);
   }
-}
-
-function scheduleStatsVisualizationRuntimePreload() {
-  if (
-    statsVisualizationRuntimePreloadQueued ||
-    (typeof window.Chart !== "undefined" && typeof window.d3 !== "undefined")
-  ) {
-    return;
-  }
-  statsVisualizationRuntimePreloadQueued = true;
-  const startPreload = () => {
-    statsVisualizationRuntimePreloadQueued = false;
-    void preloadStatsVisualizationRuntimes().catch((error) => {
-      console.error("后台预热统计图表资源失败:", error);
-    });
-  };
-  if (typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(startPreload, {
-      timeout: 800,
-    });
-    return;
-  }
-  window.setTimeout(startPreload, 120);
 }
 
 const statsViewRefreshScheduler = uiTools?.createFrameScheduler?.(
@@ -5769,48 +5718,6 @@ function applyStatsWorkspaceState(snapshot = {}) {
   syncStatsDataIndex(["records", "projects"]);
 }
 
-function addStatsMonthOffsetToPeriodId(periodId, monthOffset = 0) {
-  const normalized = String(periodId || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(normalized)) {
-    return "";
-  }
-  const [yearText, monthText] = normalized.split("-");
-  const cursor = new Date(
-    Number.parseInt(yearText, 10),
-    Number.parseInt(monthText, 10) - 1,
-    1,
-  );
-  if (Number.isNaN(cursor.getTime())) {
-    return "";
-  }
-  cursor.setMonth(cursor.getMonth() + Math.round(Number(monthOffset) || 0));
-  return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function expandStatsScopedRecordPeriodIds(scope = {}) {
-  const recordScope = getExpandedStatsRecordLoadScope(scope);
-  if (recordScope?.all === true) {
-    return [];
-  }
-  const normalizedPeriodIds = Array.isArray(recordScope?.periodIds)
-    ? recordScope.periodIds
-        .map((periodId) => String(periodId || "").trim())
-        .filter(Boolean)
-    : [];
-  const periodIds = new Set(normalizedPeriodIds);
-  normalizedPeriodIds.forEach((periodId) => {
-    const previousPeriodId = addStatsMonthOffsetToPeriodId(periodId, -1);
-    const nextPeriodId = addStatsMonthOffsetToPeriodId(periodId, 1);
-    if (previousPeriodId) {
-      periodIds.add(previousPeriodId);
-    }
-    if (nextPeriodId) {
-      periodIds.add(nextPeriodId);
-    }
-  });
-  return Array.from(periodIds).sort((left, right) => left.localeCompare(right));
-}
-
 function statsRecordOverlapsScope(record = {}, scope = getStatsLoadScope()) {
   if (scope?.all === true) {
     return true;
@@ -5894,7 +5801,13 @@ function buildStatsWorkspaceSnapshotFromState(
   scope = getStatsLoadScope(),
 ) {
   const recordScope = getExpandedStatsRecordLoadScope(scope);
-  const periodSet = new Set(expandStatsScopedRecordPeriodIds(scope));
+  const periodSet = new Set(
+    Array.isArray(recordScope?.periodIds)
+      ? recordScope.periodIds
+          .map((periodId) => String(periodId || "").trim())
+          .filter(Boolean)
+      : [],
+  );
   const sourceRecords = Array.isArray(sourceState?.records)
     ? sourceState.records
     : [];
@@ -5954,107 +5867,6 @@ function pickPreferredStatsWorkspaceSnapshot(
     getStatsWorkspaceSnapshotWeight(primarySnapshot)
     ? fallbackSnapshot
     : primarySnapshot;
-}
-
-function buildStatsWorkspaceSnapshotFromTrustedEnvelope(
-  envelope = null,
-  scope = getStatsLoadScope(),
-) {
-  if (!envelope || typeof envelope !== "object") {
-    return null;
-  }
-  const nextRecords = Array.isArray(envelope.records) ? envelope.records : [];
-  return {
-    preferences: readStatsPreferencesFromStorage(),
-    records: nextRecords,
-    projects: Array.isArray(envelope.projects) ? envelope.projects : [],
-    loadedRecordPeriodIds:
-      Array.isArray(envelope.loadedPeriodIds) && envelope.loadedPeriodIds.length
-        ? envelope.loadedPeriodIds
-            .map((periodId) => String(periodId || "").trim())
-            .filter(Boolean)
-        : buildStatsLoadedRecordPeriodIds(scope, nextRecords),
-  };
-}
-
-function readStatsWorkspaceSnapshotFromTrustedCache(
-  scope = getStatsLoadScope(),
-) {
-  try {
-    if (
-      typeof window.ControlerStorage?.peekTrustedRecordBootstrapState !==
-      "function"
-    ) {
-      return null;
-    }
-    const recordScope = getExpandedStatsRecordLoadScope(scope);
-    const cachedEnvelope =
-      window.ControlerStorage.peekTrustedRecordBootstrapState("stats", {
-        recordScope,
-      });
-    return buildStatsWorkspaceSnapshotFromTrustedEnvelope(
-      cachedEnvelope,
-      scope,
-    );
-  } catch (error) {
-    console.error("读取统计页精确范围缓存失败:", error);
-    return null;
-  }
-}
-
-async function persistStatsTrustedRecordBootstrap(
-  scope = getStatsLoadScope(),
-  snapshot = {},
-) {
-  if (
-    typeof window.ControlerStorage?.setTrustedRecordBootstrapState !==
-    "function"
-  ) {
-    return null;
-  }
-  const recordScope = getExpandedStatsRecordLoadScope(scope);
-  const normalizedSnapshot =
-    snapshot && typeof snapshot === "object"
-      ? snapshot
-      : captureStatsWorkspaceSnapshot();
-  const recordSnapshot = Array.isArray(normalizedSnapshot.records)
-    ? cloneStatsRecordSnapshotList(normalizedSnapshot.records)
-    : cloneStatsRecordSnapshotList(records);
-  return window.ControlerStorage.setTrustedRecordBootstrapState(
-    "stats",
-    {
-      recordScope,
-      loadedPeriodIds:
-        Array.isArray(normalizedSnapshot.loadedRecordPeriodIds) &&
-        normalizedSnapshot.loadedRecordPeriodIds.length
-          ? normalizedSnapshot.loadedRecordPeriodIds
-          : buildStatsLoadedRecordPeriodIds(scope, recordSnapshot),
-      projects: Array.isArray(normalizedSnapshot.projects)
-        ? cloneStatsProjectSnapshot(normalizedSnapshot.projects)
-        : cloneStatsProjectSnapshot(projects),
-      records: recordSnapshot,
-    },
-    {
-      recordScope,
-    },
-  );
-}
-
-function bootstrapStatsFromCachedSnapshot(scope = getStatsLoadScope()) {
-  const snapshot = readStatsWorkspaceSnapshotFromTrustedCache(scope);
-  if (!snapshot) {
-    statsBootstrappedFromPageBootstrap = false;
-    return false;
-  }
-  applyStatsWorkspaceState(snapshot);
-  statsBootstrappedFromPageBootstrap = false;
-  uiTools?.markPerfStage?.("first-data-ready", {
-    rangeUnit: statsRangeState.unit,
-    recordCount: records.length,
-    projectCount: projects.length,
-    fromCache: true,
-  });
-  return true;
 }
 
 async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
@@ -6117,11 +5929,6 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           projectCount: snapshot.projects.length,
           loadedPeriodCount: snapshot.loadedRecordPeriodIds.length,
         });
-        await persistStatsTrustedRecordBootstrap(scope, snapshot).catch(
-          (error) => {
-            console.error("写入统计页精确范围缓存失败:", error);
-          },
-        );
         return snapshot;
       }
     }
@@ -6170,11 +5977,6 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
           ? recordsResult.periodIds.length
           : snapshot.loadedRecordPeriodIds.length,
       });
-      await persistStatsTrustedRecordBootstrap(scope, snapshot).catch(
-        (error) => {
-          console.error("写入统计页精确范围缓存失败:", error);
-        },
-      );
       return snapshot;
     }
 
@@ -6196,9 +5998,6 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
       recordCount: snapshot.records.length,
       projectCount: snapshot.projects.length,
     });
-    await persistStatsTrustedRecordBootstrap(scope, snapshot).catch((error) => {
-      console.error("写入统计页精确范围缓存失败:", error);
-    });
     return snapshot;
   } catch (e) {
     console.error("加载数据失败:", e);
@@ -6211,12 +6010,6 @@ async function readStatsWorkspace(scope = getStatsLoadScope(), options = {}) {
     });
     return mergeStatsWorkspaceSnapshot({}, retainedSnapshot);
   }
-}
-
-async function loadData(scope = getStatsLoadScope(), options = {}) {
-  const snapshot = await readStatsWorkspace(scope, options);
-  applyStatsWorkspaceState(snapshot);
-  return snapshot;
 }
 
 async function refreshStatsRangeData(shouldRender = true, options = {}) {
@@ -6270,10 +6063,6 @@ async function refreshStatsRangeData(shouldRender = true, options = {}) {
       await waitForStatsUiPaint();
     }
     statsInitialDataLoaded = true;
-    if (options.fresh === true || options.authoritative === true) {
-      statsInitialDataValidated = true;
-      statsInitialFreshValidationQueued = false;
-    }
   };
 
   try {
@@ -7578,15 +7367,6 @@ function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
     return;
   }
 
-  if (typeof d3 === "undefined") {
-    chartContainer.innerHTML = `
-      <div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted-text-color); text-align: center; padding: 20px;">
-        D3 未加载，无法渲染层级饼状图
-      </div>
-    `;
-    return;
-  }
-
   const wrapper = document.createElement("div");
   wrapper.className = "stats-pie-layout";
   const availableWidth = Math.max(chartContainer.clientWidth || 0, 320);
@@ -7702,52 +7482,115 @@ function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
     };
   };
 
-  const hierarchyRoot = d3
-    .hierarchy(toHierarchyNode(breakdownTree))
-    .sum((node) => Math.max(node.weightMs || 0, 0));
-  d3.partition().size([2 * Math.PI, hierarchyRoot.height + 1])(hierarchyRoot);
-
-  const svg = d3
-    .create("svg")
-    .attr(
-      "viewBox",
-      `${-chartSize / 2} ${-chartSize / 2} ${chartSize} ${chartSize}`,
-    )
-    .style("width", `${chartSize}px`)
-    .style("height", `${chartSize}px`)
-    .style("max-width", "100%");
-
-  const arc = d3
-    .arc()
-    .startAngle((node) => node.x0)
-    .endAngle((node) => node.x1)
-    .padAngle((node) => Math.min((node.x1 - node.x0) / 2, 0.007))
-    .padRadius(radius * 1.1)
-    .innerRadius((node) => (node.y0 / (hierarchyRoot.height + 1)) * radius)
-    .outerRadius((node) =>
-      Math.max(
-        (node.y1 / (hierarchyRoot.height + 1)) * radius - 1,
-        (node.y0 / (hierarchyRoot.height + 1)) * radius + 2,
-      ),
+  const root = toHierarchyNode(breakdownTree);
+  const getTreeDepth = (node) =>
+    (node.children || []).reduce(
+      (maxDepth, child) => Math.max(maxDepth, 1 + getTreeDepth(child)),
+      0,
     );
+  const getSubtreeWeight = (node) => {
+    const childrenWeight = (node.children || []).reduce(
+      (sum, child) => sum + getSubtreeWeight(child),
+      0,
+    );
+    node.value = Math.max(node.weightMs || 0, 0) + childrenWeight;
+    return node.value;
+  };
+  const treeDepth = Math.max(1, getTreeDepth(root));
+  getSubtreeWeight(root);
 
-  const arcNodes = hierarchyRoot
-    .descendants()
-    .filter((node) => node.depth > 0 && node.x1 > node.x0 && node.value > 0);
+  const arcNodes = [];
+  const layoutChildren = (parent, startAngle, endAngle, depth) => {
+    const availableValue = Math.max(parent.value || 0, 0);
+    let cursor = startAngle;
+    (parent.children || []).forEach((child) => {
+      const childSpan =
+        availableValue > 0
+          ? ((endAngle - startAngle) * Math.max(child.value || 0, 0)) /
+            availableValue
+          : 0;
+      const childEnd = cursor + childSpan;
+      const layoutNode = {
+        data: child,
+        depth,
+        parent,
+        value: Math.max(child.value || 0, 0),
+        x0: cursor,
+        x1: childEnd,
+      };
+      if (layoutNode.value > 0 && childEnd > cursor) {
+        arcNodes.push(layoutNode);
+        layoutChildren(child, cursor, childEnd, depth + 1);
+      }
+      cursor = childEnd;
+    });
+  };
+  layoutChildren(root, 0, 2 * Math.PI, 1);
 
-  svg
-    .append("g")
-    .selectAll("path")
-    .data(arcNodes)
-    .join("path")
-    .attr("d", arc)
-    .attr("fill", (node) => node.data.color || "var(--accent-color)")
-    .attr("stroke", "rgba(255, 255, 255, 0.26)")
-    .attr("stroke-width", (node) => (node.data.kind === "single" ? 1.15 : 0.85))
-    .attr("stroke-linejoin", "round")
-    .attr("stroke-linecap", "round")
-    .attr("opacity", 0.97)
-    .on("mouseenter", function (event, node) {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute(
+    "viewBox",
+    `${-chartSize / 2} ${-chartSize / 2} ${chartSize} ${chartSize}`,
+  );
+  svg.style.width = `${chartSize}px`;
+  svg.style.height = `${chartSize}px`;
+  svg.style.maxWidth = "100%";
+
+  const pointOnCircle = (angle, circleRadius) => {
+    const adjustedAngle = angle - Math.PI / 2;
+    return {
+      x: Math.cos(adjustedAngle) * circleRadius,
+      y: Math.sin(adjustedAngle) * circleRadius,
+    };
+  };
+  const buildArcPath = (startAngle, endAngle, innerRadius, outerRadius) => {
+    const padAngle = Math.min((endAngle - startAngle) / 2, 0.007);
+    const start = startAngle + padAngle / 2;
+    const end = endAngle - padAngle / 2;
+    if (end <= start || outerRadius <= innerRadius) {
+      return "";
+    }
+    const span = end - start;
+    const outerStart = pointOnCircle(start, outerRadius);
+    const outerEnd = pointOnCircle(end, outerRadius);
+    const innerEnd = pointOnCircle(end, innerRadius);
+    const innerStart = pointOnCircle(start, innerRadius);
+    const largeArc = span > Math.PI ? 1 : 0;
+    return [
+      `M ${outerStart.x} ${outerStart.y}`,
+      `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${outerEnd.x} ${outerEnd.y}`,
+      `L ${innerEnd.x} ${innerEnd.y}`,
+      `A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${innerStart.x} ${innerStart.y}`,
+      "Z",
+    ].join(" ");
+  };
+
+  arcNodes.forEach((node) => {
+    const innerRadius = (node.depth / (treeDepth + 1)) * radius;
+    const outerRadius = Math.max(
+      ((node.depth + 1) / (treeDepth + 1)) * radius - 1,
+      innerRadius + 2,
+    );
+    const pathData = buildArcPath(
+      node.x0,
+      node.x1,
+      innerRadius,
+      outerRadius,
+    );
+    if (!pathData) {
+      return;
+    }
+    const path = document.createElementNS(SVG_NS, "path");
+    const normalStrokeWidth = node.data.kind === "single" ? 1.15 : 0.85;
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", node.data.color || "var(--accent-color)");
+    path.setAttribute("stroke", "rgba(255, 255, 255, 0.26)");
+    path.setAttribute("stroke-width", String(normalStrokeWidth));
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("opacity", "0.97");
+    path.addEventListener("mouseenter", (event) => {
       const totalPercent =
         breakdownTree.valueMs > 0
           ? ((node.value / breakdownTree.valueMs) * 100).toFixed(1)
@@ -7756,29 +7599,42 @@ function renderPieHierarchyChart(chartContainer, breakdownTree, options = {}) {
         node.parent?.value > 0
           ? ((node.value / node.parent.value) * 100).toFixed(1)
           : "0.0";
-      tooltip.innerHTML = `
-        <div style="font-weight: 600; margin-bottom: 4px;">${node.data.label}</div>
-        <div>时长：${formatMsToHoursText(node.data.displayMs || node.value || 0)}</div>
-        <div>占整体：${totalPercent}%</div>
-        <div>占上级：${parentPercent}%</div>
-      `;
+      tooltip.textContent = "";
+      const rows = [
+        node.data.label,
+        `时长：${formatMsToHoursText(node.data.displayMs || node.value || 0)}`,
+        `占整体：${totalPercent}%`,
+        `占上级：${parentPercent}%`,
+      ];
+      rows.forEach((text, index) => {
+        const row = document.createElement("div");
+        row.textContent = text;
+        if (index === 0) {
+          row.style.fontWeight = "600";
+          row.style.marginBottom = "4px";
+        }
+        tooltip.appendChild(row);
+      });
       tooltip.style.opacity = "1";
       positionStatsPointerTooltip(tooltip, event.clientX, event.clientY);
-      d3.select(this)
-        .attr("opacity", 1)
-        .attr("stroke-width", node.data.kind === "single" ? 1.35 : 1.05);
-    })
-    .on("mousemove", (event) => {
-      positionStatsPointerTooltip(tooltip, event.clientX, event.clientY);
-    })
-    .on("mouseleave", function (event, node) {
-      tooltip.style.opacity = "0";
-      d3.select(this)
-        .attr("opacity", 0.97)
-        .attr("stroke-width", node.data.kind === "single" ? 1.15 : 0.85);
+      path.setAttribute("opacity", "1");
+      path.setAttribute(
+        "stroke-width",
+        String(node.data.kind === "single" ? 1.35 : 1.05),
+      );
     });
+    path.addEventListener("mousemove", (event) => {
+      positionStatsPointerTooltip(tooltip, event.clientX, event.clientY);
+    });
+    path.addEventListener("mouseleave", () => {
+      tooltip.style.opacity = "0";
+      path.setAttribute("opacity", "0.97");
+      path.setAttribute("stroke-width", String(normalStrokeWidth));
+    });
+    svg.appendChild(path);
+  });
 
-  svgHost.appendChild(svg.node());
+  svgHost.appendChild(svg);
 
   const legendItems = Array.isArray(options?.legendItems)
     ? options.legendItems
@@ -8103,8 +7959,6 @@ function renderCurrentView() {
   if (!container) return;
   const scrollState = captureStatsViewScrollState(container);
   clearStatsCheckinRangeScaleLifecycle();
-
-  disposeWeeklyGridOverlayLifecycle(container);
   destroyCalHeatmapInstance();
   if (window.pieChart && typeof window.pieChart.destroy === "function") {
     window.pieChart.destroy();
@@ -8136,27 +7990,15 @@ function renderCurrentView() {
     "day-line": renderLineChart,
   };
   const safeMode = renderers[statsViewMode] ? statsViewMode : "table";
-  emitStatsDebugPerf("stats.view-render", {
-    viewMode: safeMode,
-    recordCount: Array.isArray(records) ? records.length : 0,
-    projectCount: Array.isArray(projects) ? projects.length : 0,
-    shellPageActive: statsShellPageActive,
-    documentHidden: document.hidden === true,
-    containerConnected: container.isConnected === true,
-  });
   if (safeMode === "charts") {
     const missingChart = typeof window.Chart === "undefined";
-    const missingD3 = typeof window.d3 === "undefined";
-    if (missingChart || missingD3) {
+    if (missingChart) {
       renderStatsRuntimeMessage(
         container,
         STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
         "正在加载图表资源...",
       );
-      void Promise.all([
-        missingChart ? ensureStatsChartRuntimeLoaded() : Promise.resolve(),
-        missingD3 ? ensureStatsD3RuntimeLoaded() : Promise.resolve(),
-      ])
+      void ensureStatsChartRuntimeLoaded()
         .then(() => {
           if (statsViewMode === safeMode) {
             renderCurrentView();
@@ -8182,31 +8024,6 @@ function renderCurrentView() {
         "正在加载图表资源...",
       );
       void ensureStatsChartRuntimeLoaded()
-        .then(() => {
-          if (statsViewMode === safeMode) {
-            renderCurrentView();
-          }
-        })
-        .catch((error) => {
-          renderStatsRuntimeMessage(
-            container,
-            STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
-            `图表资源加载失败：${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        });
-      return;
-    }
-  }
-  if (safeMode === "day-pie") {
-    if (typeof window.d3 === "undefined") {
-      renderStatsRuntimeMessage(
-        container,
-        STATS_VIEW_LABELS[safeMode] || STATS_VIEW_LABELS.table,
-        "正在加载图表资源...",
-      );
-      void ensureStatsD3RuntimeLoaded()
         .then(() => {
           if (statsViewMode === safeMode) {
             renderCurrentView();
@@ -8483,7 +8300,6 @@ function renderCombinedCharts(container) {
 // 动态时间表格（周视图）
 function renderWeeklyTimeGrid(container) {
   const widgetMode = isStatsDesktopWidgetMode();
-  disposeWeeklyGridOverlayLifecycle(container);
   container.innerHTML = "";
   const { shell: viewShell, content: viewRoot } = applyResizableViewShell(
     container,
@@ -8681,26 +8497,9 @@ function renderWeeklyTimeGrid(container) {
     dates,
     timeTableLevelFilter,
   );
-  const uniqueSegmentCount = new Set(
-    Array.from(weeklyGridSegmentsByCell.values()).flatMap((segments) =>
-      (segments || []).map((segment) => String(segment?.segmentKey || "")),
-    ),
-  ).size;
-  emitStatsDebugPerf("stats.weekly-grid-build", {
-    startDate: formatDateInputValue(start),
-    endDate: formatDateInputValue(end),
-    selectedDayCount: resolvedRange.selectedDayCount,
-    adjusted: resolvedRange.adjusted || "none",
-    visibleDayCount: daysDiff,
-    recordCount: Array.isArray(records) ? records.length : 0,
-    timeRecordCount: convertToTimeRecords().length,
-    segmentCellCount: weeklyGridSegmentsByCell.size,
-    uniqueSegmentCount,
-    containerConnected: container.isConnected === true,
-    shellConnected: viewShell.isConnected === true,
-    shellPageActive: statsShellPageActive,
-    documentHidden: document.hidden === true,
-  });
+  const dayIndexByDate = new Map(
+    dates.map((date, dayIndex) => [formatDateInputValue(date), dayIndex]),
+  );
   const columnTemplate = `${timeColumnWidth}px repeat(${daysDiff}, ${colWidth}px)`;
   const surface = document.createElement("div");
   surface.className = "weekly-glass-surface";
@@ -8791,8 +8590,6 @@ function renderWeeklyTimeGrid(container) {
   table.style.gridTemplateRows = `repeat(24, ${slotHeight}px)`;
   table.style.position = "relative";
   table.style.boxSizing = "border-box";
-  const weeklyGridCellRefs = new Map();
-
   // 每小时一行，从0点到24点
   for (let hour = 0; hour < 24; hour++) {
     const timeCell = document.createElement("div");
@@ -8844,30 +8641,38 @@ function renderWeeklyTimeGrid(container) {
         hour === 23
           ? "none"
           : "1px solid color-mix(in srgb, var(--panel-border-color) 72%, transparent)";
-      if (!widgetMode) {
-        bindStatsGridGapActivation(cell, (event) => {
-          const clickedAt = resolveStatsWeeklyGridClickTime(
-            dayDate,
-            hour,
-            cell,
-            event,
-          );
-          const gap = findStatsGapAtTime(dayDate, clickedAt);
-          if (!gap || gap.endTime.getTime() <= gap.startTime.getTime()) {
-            return;
-          }
-          if (gap.endTime.getTime() > Date.now()) {
-            return;
-          }
-          openStatsRecordEditModal({
-            mode: "create",
-            gap,
-          });
-        });
-      }
-      weeklyGridCellRefs.set(`${formatDateInputValue(dayDate)}-${hour}`, cell);
+      cell.dataset.dayIndex = String(dayIndex);
+      cell.dataset.hour = String(hour);
       table.appendChild(cell);
     }
+  }
+
+  if (!widgetMode) {
+    bindStatsGridGapActivation(table, (cell, event) => {
+      const dayDate = dates[Number.parseInt(cell.dataset.dayIndex || "", 10)];
+      const hour = Number.parseInt(cell.dataset.hour || "", 10);
+      if (!(dayDate instanceof Date) || !Number.isFinite(hour)) {
+        return;
+      }
+      const clickedAt = resolveStatsWeeklyGridClickTime(
+        dayDate,
+        hour,
+        cell,
+        event,
+      );
+      const gap = findStatsGapAtTime(dayDate, clickedAt);
+      if (
+        !gap ||
+        gap.endTime.getTime() <= gap.startTime.getTime() ||
+        gap.endTime.getTime() > Date.now()
+      ) {
+        return;
+      }
+      openStatsRecordEditModal({
+        mode: "create",
+        gap,
+      });
+    });
   }
 
   scroller.style.position = "relative";
@@ -8878,11 +8683,17 @@ function renderWeeklyTimeGrid(container) {
   viewRoot.appendChild(gridContainer);
 
   renderWeeklyGridBlocksOverlay({
-    scroller: table,
     table,
-    cellRefs: weeklyGridCellRefs,
     segmentsByCell: weeklyGridSegmentsByCell,
     scale: weeklyGridScale,
+    layout: {
+      dayIndexByDate,
+      timeColumnWidth,
+      columnWidth: colWidth,
+      slotHeight,
+      tableWidth: totalTableWidth,
+      tableHeight: totalTimelineHeight,
+    },
   });
 
   // 添加图例
@@ -8966,18 +8777,27 @@ function bindStatsGridGapActivation(element, onActivate) {
   let lastTapAt = 0;
   let lastTapX = 0;
   let lastTapY = 0;
+  let lastTapCell = null;
+
+  const resolveCell = (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const cell = target?.closest?.(".weekly-glass-cell") || null;
+    return cell instanceof HTMLElement && element.contains(cell) ? cell : null;
+  };
 
   element.addEventListener("dblclick", (event) => {
-    if (event.target !== element) {
+    const cell = resolveCell(event);
+    if (!cell || event.target !== cell) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    onActivate(event);
+    onActivate(cell, event);
   });
 
   element.addEventListener("pointerup", (event) => {
-    if (event.pointerType === "mouse" || event.target !== element) {
+    const cell = resolveCell(event);
+    if (event.pointerType === "mouse" || !cell || event.target !== cell) {
       return;
     }
 
@@ -8985,6 +8805,7 @@ function bindStatsGridGapActivation(element, onActivate) {
     const deltaX = Math.abs(event.clientX - lastTapX);
     const deltaY = Math.abs(event.clientY - lastTapY);
     const tappedTwice =
+      cell === lastTapCell &&
       now - lastTapAt <= DOUBLE_TAP_ACTIVATION_DELAY_MS &&
       deltaX <= DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX &&
       deltaY <= DOUBLE_TAP_ACTIVATION_MOVE_TOLERANCE_PX;
@@ -8992,6 +8813,7 @@ function bindStatsGridGapActivation(element, onActivate) {
     lastTapAt = now;
     lastTapX = event.clientX;
     lastTapY = event.clientY;
+    lastTapCell = cell;
 
     if (!tappedTwice) {
       return;
@@ -9000,7 +8822,8 @@ function bindStatsGridGapActivation(element, onActivate) {
     event.preventDefault();
     event.stopPropagation();
     lastTapAt = 0;
-    onActivate(event);
+    lastTapCell = null;
+    onActivate(cell, event);
   });
 }
 
@@ -9104,14 +8927,6 @@ function saveStatsRecordsToStorage() {
       cloneStatsProjectSnapshot(projects);
     await persistStatsProjectsSnapshot(nextProjects);
     syncStatsDataIndex(["records", "projects"]);
-    await persistStatsTrustedRecordBootstrap(
-      getStatsLoadScope(),
-      captureStatsWorkspaceSnapshot({
-        projects: nextProjects,
-      }),
-    ).catch((error) => {
-      console.error("写入统计页精确范围缓存失败:", error);
-    });
     return true;
   }, "保存统计记录失败:");
 }
@@ -9168,15 +8983,6 @@ function persistStatsRecordMutationsToStorage({
       localStorage.setItem("records", JSON.stringify(nextAllRecords));
     }
     await persistStatsProjectsSnapshot(projectSnapshot);
-    await persistStatsTrustedRecordBootstrap(
-      getStatsLoadScope(),
-      captureStatsWorkspaceSnapshot({
-        projects: projectSnapshot,
-        records: recordsSnapshot,
-      }),
-    ).catch((error) => {
-      console.error("写入统计页精确范围缓存失败:", error);
-    });
     return true;
   }, "保存统计记录失败:");
 }
@@ -10304,215 +10110,16 @@ function assignWeeklyGridSegmentLanes(segments = []) {
   return positionedSegments;
 }
 
-function getWeeklyGridElementWidth(element) {
-  if (!(element instanceof HTMLElement)) {
-    return 0;
-  }
-  const rectWidth = Math.round(element.getBoundingClientRect().width || 0);
-  return Math.max(
-    rectWidth,
-    element.offsetWidth || 0,
-    element.clientWidth || 0,
-  );
-}
-
-function getWeeklyGridElementHeight(element) {
-  if (!(element instanceof HTMLElement)) {
-    return 0;
-  }
-  const rectHeight = Math.round(element.getBoundingClientRect().height || 0);
-  return Math.max(
-    rectHeight,
-    element.offsetHeight || 0,
-    element.clientHeight || 0,
-  );
-}
-
-function measureWeeklyGridOverlayLayout(table, cellRefs) {
-  const tableWidth = getWeeklyGridElementWidth(table);
-  const tableHeight = getWeeklyGridElementHeight(table);
-  let sampleCellWidth = 0;
-  let sampleCellHeight = 0;
-
-  if (cellRefs instanceof Map) {
-    for (const cell of cellRefs.values()) {
-      if (!(cell instanceof HTMLElement) || !cell.isConnected) {
-        continue;
-      }
-      sampleCellWidth = getWeeklyGridElementWidth(cell);
-      sampleCellHeight = getWeeklyGridElementHeight(cell);
-      if (sampleCellWidth > 0 && sampleCellHeight > 0) {
-        break;
-      }
-    }
-  }
-
-  return {
-    ready:
-      tableWidth > 0 &&
-      tableHeight > 0 &&
-      sampleCellWidth > 0 &&
-      sampleCellHeight > 0,
-    tableWidth,
-    tableHeight,
-    sampleCellWidth,
-    sampleCellHeight,
-  };
-}
-
-function disposeWeeklyGridOverlayLifecycle(root) {
-  if (!(root instanceof Element) && !(root instanceof DocumentFragment)) {
-    return;
-  }
-  root.querySelectorAll?.(".weekly-glass-table").forEach((table) => {
-    cleanupWeeklyGridOverlayLifecycle(table);
-  });
-}
-
-function cleanupWeeklyGridOverlayLifecycle(table) {
-  if (!(table instanceof HTMLElement)) {
-    return;
-  }
-  clearWeeklyGridBlocksOverlayRetryTimer(table);
-  const resizeObserver = table.__controlerWeeklyGridOverlayResizeObserver;
-  if (resizeObserver && typeof resizeObserver.disconnect === "function") {
-    resizeObserver.disconnect();
-  }
-  const handleVisibilityChange =
-    table.__controlerWeeklyGridOverlayVisibilityHandler;
-  if (typeof handleVisibilityChange === "function") {
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }
-  const pendingFrameId = Number(table.__controlerWeeklyGridOverlayFrameId) || 0;
-  if (pendingFrameId > 0 && typeof window.cancelAnimationFrame === "function") {
-    window.cancelAnimationFrame(pendingFrameId);
-  }
-  table.__controlerWeeklyGridOverlayResizeObserver = null;
-  table.__controlerWeeklyGridOverlayVisibilityHandler = null;
-  table.__controlerWeeklyGridOverlayFrameId = 0;
-  table.__controlerWeeklyGridOverlayRenderOptions = null;
-  table.__controlerWeeklyGridOverlayLifecycleBound = false;
-}
-
-function bindWeeklyGridOverlayLifecycle(renderOptions) {
-  const table = renderOptions?.table;
-  if (!(table instanceof HTMLElement)) {
-    return;
-  }
-  table.__controlerWeeklyGridOverlayRenderOptions = {
-    ...renderOptions,
-    retryCount: 0,
-  };
-  if (table.__controlerWeeklyGridOverlayLifecycleBound) {
-    return;
-  }
-  table.__controlerWeeklyGridOverlayLifecycleBound = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  const rerender = (trigger = "unknown") => {
-    const nextRenderOptions = table.__controlerWeeklyGridOverlayRenderOptions;
-    if (!(nextRenderOptions?.table instanceof HTMLElement)) {
-      return;
-    }
-    const nextTable = nextRenderOptions.table;
-    if (!nextTable.isConnected) {
-      return;
-    }
-    const pendingFrameId =
-      Number(nextTable.__controlerWeeklyGridOverlayFrameId) || 0;
-    if (
-      pendingFrameId > 0 &&
-      typeof window.cancelAnimationFrame === "function"
-    ) {
-      window.cancelAnimationFrame(pendingFrameId);
-    }
-    nextTable.__controlerWeeklyGridOverlayFrameId = schedule(() => {
-      nextTable.__controlerWeeklyGridOverlayFrameId = 0;
-      emitStatsDebugPerf("stats.weekly-grid-overlay-rerender", {
-        trigger,
-        tableConnected: nextTable.isConnected === true,
-        documentHidden: document.hidden === true,
-      });
-      renderWeeklyGridBlocksOverlay({
-        ...nextRenderOptions,
-        retryCount: 0,
-      });
-    });
-  };
-  if (typeof ResizeObserver === "function") {
-    const resizeObserver = new ResizeObserver(() => {
-      rerender("resize-observer");
-    });
-    resizeObserver.observe(table);
-    table.__controlerWeeklyGridOverlayResizeObserver = resizeObserver;
-  }
-  const handleVisibilityChange = () => {
-    if (!document.hidden) {
-      rerender("visibilitychange");
-    }
-  };
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-  table.__controlerWeeklyGridOverlayVisibilityHandler = handleVisibilityChange;
-}
-
-function clearWeeklyGridBlocksOverlayRetryTimer(table) {
-  const retryTimerId =
-    Number(table?.__controlerWeeklyGridOverlayRetryTimer) || 0;
-  if (retryTimerId > 0) {
-    window.clearTimeout(retryTimerId);
-  }
-  if (table && typeof table === "object") {
-    table.__controlerWeeklyGridOverlayRetryTimer = 0;
-  }
-}
-
-function scheduleWeeklyGridBlocksOverlayRetry(
-  renderOptions,
-  retryCount = 0,
-  maxRetryCount = 8,
-) {
-  const table = renderOptions?.table;
-  if (!(table instanceof HTMLElement)) {
-    return false;
-  }
-  if (retryCount >= maxRetryCount) {
-    return false;
-  }
-  clearWeeklyGridBlocksOverlayRetryTimer(table);
-  const nextRetryDelayMs = Math.min(96, 16 * (retryCount + 1));
-  table.__controlerWeeklyGridOverlayRetryTimer = window.setTimeout(() => {
-    table.__controlerWeeklyGridOverlayRetryTimer = 0;
-    renderWeeklyGridBlocksOverlay({
-      ...renderOptions,
-      retryCount: retryCount + 1,
-    });
-  }, nextRetryDelayMs);
-  return true;
-}
-
 function renderWeeklyGridBlocksOverlay({
-  scroller,
   table,
-  cellRefs,
   segmentsByCell,
   scale = 1,
-  retryCount = 0,
+  layout,
 }) {
-  if (!(scroller instanceof HTMLElement) || !(table instanceof HTMLElement)) {
+  if (!(table instanceof HTMLElement) || !layout) {
     return;
   }
-
-  bindWeeklyGridOverlayLifecycle({
-    scroller,
-    table,
-    cellRefs,
-    segmentsByCell,
-    scale,
-  });
-  clearWeeklyGridBlocksOverlayRetryTimer(table);
-  scroller
+  table
     .querySelectorAll(".weekly-glass-block-layer")
     .forEach((node) => node.remove());
 
@@ -10529,47 +10136,6 @@ function renderWeeklyGridBlocksOverlay({
   });
 
   if (uniqueSegments.size === 0) {
-    emitStatsDebugPerf("stats.weekly-grid-overlay", {
-      stage: "no-segments",
-      retryCount,
-      tableConnected: table.isConnected === true,
-      documentHidden: document.hidden === true,
-    });
-    return;
-  }
-
-  const layoutMetrics = measureWeeklyGridOverlayLayout(table, cellRefs);
-  if (!layoutMetrics.ready) {
-    const scheduled = scheduleWeeklyGridBlocksOverlayRetry(
-      {
-        scroller,
-        table,
-        cellRefs,
-        segmentsByCell,
-        scale,
-      },
-      retryCount,
-    );
-    if (!scheduled) {
-      console.warn("周表格时间块布局测量失败，跳过本次渲染:", {
-        retryCount,
-        tableWidth: layoutMetrics.tableWidth,
-        tableHeight: layoutMetrics.tableHeight,
-        sampleCellWidth: layoutMetrics.sampleCellWidth,
-        sampleCellHeight: layoutMetrics.sampleCellHeight,
-      });
-    }
-    emitStatsDebugPerf("stats.weekly-grid-overlay", {
-      stage: scheduled ? "layout-waiting" : "layout-failed",
-      retryCount,
-      uniqueSegmentCount: uniqueSegments.size,
-      tableConnected: table.isConnected === true,
-      documentHidden: document.hidden === true,
-      tableWidth: layoutMetrics.tableWidth,
-      tableHeight: layoutMetrics.tableHeight,
-      sampleCellWidth: layoutMetrics.sampleCellWidth,
-      sampleCellHeight: layoutMetrics.sampleCellHeight,
-    });
     return;
   }
 
@@ -10584,13 +10150,13 @@ function renderWeeklyGridBlocksOverlay({
   overlay.style.position = "absolute";
   overlay.style.top = "0";
   overlay.style.left = "0";
-  overlay.style.width = `${layoutMetrics.tableWidth}px`;
-  overlay.style.height = `${layoutMetrics.tableHeight}px`;
+  overlay.style.width = `${layout.tableWidth}px`;
+  overlay.style.height = `${layout.tableHeight}px`;
   overlay.style.pointerEvents = "none";
   overlay.style.zIndex = "1";
   overlay.style.background = "transparent";
   overlay.style.isolation = "isolate";
-  scroller.appendChild(overlay);
+  table.appendChild(overlay);
 
   const blockLabelFontSize = Math.max(7, Math.round(9 * scale));
   const blockTimeFontSize = Math.max(6, Math.round(8 * scale));
@@ -10600,7 +10166,7 @@ function renderWeeklyGridBlocksOverlay({
   let renderedBlockCount = 0;
 
   positionedSegments.forEach((segment) => {
-    const metrics = resolveWeeklyGridSegmentMetrics(segment, cellRefs, table);
+    const metrics = resolveWeeklyGridSegmentMetrics(segment, layout);
     if (!metrics) {
       skippedSegmentKeys.add(segment.segmentKey);
       return;
@@ -10726,90 +10292,39 @@ function renderWeeklyGridBlocksOverlay({
       skippedSegmentKeys: Array.from(skippedSegmentKeys),
     });
   }
-  emitStatsDebugPerf("stats.weekly-grid-overlay", {
-    stage: "rendered",
-    retryCount,
-    uniqueSegmentCount: uniqueSegments.size,
-    renderedBlockCount,
-    skippedSegmentCount: skippedSegmentKeys.size,
-    tableConnected: table.isConnected === true,
-    documentHidden: document.hidden === true,
-    tableWidth: layoutMetrics.tableWidth,
-    tableHeight: layoutMetrics.tableHeight,
-  });
 }
 
-function resolveWeeklyGridSegmentMetrics(segment, cellRefs, table = null) {
-  if (!segment || !(cellRefs instanceof Map)) {
+function resolveWeeklyGridSegmentMetrics(segment, layout) {
+  if (!segment || !(layout?.dayIndexByDate instanceof Map)) {
     return null;
   }
 
   const startDayKey = formatDateInputValue(segment.displayStart);
-  const startHourKey = `${startDayKey}-${segment.displayStart.getHours()}`;
-  const startCell = cellRefs.get(startHourKey);
-  if (!(startCell instanceof HTMLElement)) {
+  const dayIndex = layout.dayIndexByDate.get(startDayKey);
+  if (!Number.isInteger(dayIndex)) {
     return null;
   }
-
-  const tableRect =
-    table instanceof HTMLElement ? table.getBoundingClientRect() : null;
-  const startCellRect = startCell.getBoundingClientRect();
-  const width = getWeeklyGridElementWidth(startCell);
-  const startCellHeight = getWeeklyGridElementHeight(startCell);
-  if (width <= 0 || startCellHeight <= 0) {
-    return null;
-  }
-  const left =
-    tableRect && tableRect.width > 0
-      ? Math.round(startCellRect.left - tableRect.left)
-      : startCell.offsetLeft;
-  const startCellTop =
-    tableRect && tableRect.height > 0
-      ? Math.round(startCellRect.top - tableRect.top)
-      : startCell.offsetTop;
-  const cellTopOffset =
-    (segment.displayStart.getMinutes() / 60) * startCellHeight;
-  const top = startCellTop + cellTopOffset;
-
-  let bottom = top + Math.max(4, startCellHeight * (1 / 60));
+  const startMinutes =
+    segment.displayStart.getHours() * 60 +
+    segment.displayStart.getMinutes() +
+    segment.displayStart.getSeconds() / 60;
   const endsAtNextMidnight =
     segment.displayEnd.getHours() === 0 &&
     segment.displayEnd.getMinutes() === 0 &&
     segment.displayEnd.getSeconds() === 0 &&
     !isSameDate(segment.displayEnd, segment.displayStart);
-
-  if (endsAtNextMidnight) {
-    const lastHourCell = cellRefs.get(`${startDayKey}-23`);
-    if (lastHourCell instanceof HTMLElement) {
-      const lastHourRect = lastHourCell.getBoundingClientRect();
-      const lastHourTop =
-        tableRect && tableRect.height > 0
-          ? Math.round(lastHourRect.top - tableRect.top)
-          : lastHourCell.offsetTop;
-      bottom = lastHourTop + getWeeklyGridElementHeight(lastHourCell);
-    }
-  } else {
-    const endDayKey = formatDateInputValue(segment.displayEnd);
-    const endHourKey = `${endDayKey}-${segment.displayEnd.getHours()}`;
-    const endCell = cellRefs.get(endHourKey);
-    if (endCell instanceof HTMLElement) {
-      const endCellRect = endCell.getBoundingClientRect();
-      const endCellTop =
-        tableRect && tableRect.height > 0
-          ? Math.round(endCellRect.top - tableRect.top)
-          : endCell.offsetTop;
-      const endCellHeight = getWeeklyGridElementHeight(endCell);
-      bottom =
-        endCellTop + (segment.displayEnd.getMinutes() / 60) * endCellHeight;
-    }
-  }
+  const endMinutes = endsAtNextMidnight
+    ? 24 * 60
+    : segment.displayEnd.getHours() * 60 +
+      segment.displayEnd.getMinutes() +
+      segment.displayEnd.getSeconds() / 60;
+  const top = (startMinutes / 60) * layout.slotHeight;
+  const bottom = (endMinutes / 60) * layout.slotHeight;
 
   return {
-    left,
-    width,
+    left: layout.timeColumnWidth + dayIndex * layout.columnWidth,
+    width: layout.columnWidth,
     top,
-    cellTopOffset,
-    startCell,
     height: Math.max(4, bottom - top),
   };
 }
@@ -12905,78 +12420,6 @@ function refreshStatsFromExternalStorageChange() {
   });
 }
 
-function hasStatsRenderedInitialContent() {
-  const container = document.getElementById("stats-container");
-  const hasContent =
-    container instanceof HTMLElement &&
-    container.isConnected === true &&
-    container.childElementCount > 0;
-  return hasContent;
-}
-
-function scheduleStatsInitialFreshValidation(reason = "initial-validation") {
-  if (statsInitialDataValidated || statsInitialFreshValidationQueued) {
-    return;
-  }
-  if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
-    statsInitialLoadPendingResume = true;
-    return;
-  }
-  statsInitialFreshValidationQueued = true;
-  window.setTimeout(() => {
-    statsInitialFreshValidationQueued = false;
-    if (statsInitialDataValidated) {
-      return;
-    }
-    if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
-      statsInitialLoadPendingResume = true;
-      return;
-    }
-    void refreshStatsRangeData(true, {
-      manageLoading: false,
-      mode: "inline",
-      fresh: true,
-      reason,
-    });
-  }, 80);
-}
-
-function scheduleStatsInitialContentEnsure(reason = "shell-active") {
-  if (statsInitialContentEnsureQueued) {
-    return;
-  }
-  statsInitialContentEnsureQueued = true;
-  const schedule =
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : (callback) => window.setTimeout(callback, 16);
-  schedule(() => {
-    statsInitialContentEnsureQueued = false;
-    if (!statsShellPageActive && !isStatsShellTransitionLoading()) {
-      statsInitialLoadPendingResume = true;
-      return;
-    }
-    if (statsInitialDataLoaded) {
-      if (!hasStatsRenderedInitialContent()) {
-        renderCurrentView();
-      }
-      if (!statsInitialDataValidated) {
-        scheduleStatsInitialFreshValidation(reason);
-      }
-      return;
-    }
-    statsInitialLoadPendingResume = false;
-    void refreshStatsRangeData(true, {
-      manageLoading: false,
-      mode: "inline",
-      pageBootstrap: true,
-      fresh: false,
-      message: "正在整理统计索引与范围数据，请稍候",
-      reason,
-    });
-  });
-}
-
 function bindStatsShellVisibilityGate() {
   if (statsShellVisibilityBound) {
     return;
@@ -12990,7 +12433,6 @@ function bindStatsShellVisibilityGate() {
         ? event.detail
         : {};
     const nextActive = detail.active !== false;
-    const wasActive = statsShellPageActive;
     statsShellPageActive = nextActive;
     if (!nextActive) {
       return;
@@ -12998,32 +12440,11 @@ function bindStatsShellVisibilityGate() {
 
     scheduleDeferredStatsProjectSnapshotPersist("shell-active");
 
-    if (statsInitialLoadPendingResume) {
-      statsInitialLoadPendingResume = false;
-      const needsBlockingResumeLoad = !statsInitialDataLoaded;
-      if (needsBlockingResumeLoad) {
-        void refreshStatsRangeData(true, {
-          mode: "inline",
-          delayMs: 0,
-          manageLoading: false,
-          message: "正在整理统计索引与范围数据，请稍候",
-        });
-      } else {
-        scheduleStatsInitialFreshValidation("shell-resume");
-      }
-    }
     if (statsExternalRefreshPendingResume) {
       statsExternalRefreshPendingResume = false;
       refreshStatsFromExternalStorageChange();
       return;
     }
-    if (statsInitialDataLoaded && !wasActive) {
-      renderCurrentView();
-    }
-    if (statsInitialDataLoaded && !statsInitialDataValidated) {
-      scheduleStatsInitialFreshValidation("shell-active");
-    }
-    scheduleStatsInitialContentEnsure("shell-active");
   });
 }
 
@@ -13256,73 +12677,42 @@ function initStatsWidgetLaunchAction() {
 }
 async function init() {
   ensureElectronStatsCompatibilityStyles();
-  scheduleStatsVisualizationRuntimePreload();
   bindStatsShellVisibilityGate();
-  try {
-    loadStatsPreferencesFromStorage();
-    applyStatsUiStateFromPreferences(statsPreferencesState);
-    const hostNavigationRuntime =
-      window.ControlerNativeBridge?.capabilities?.hostPageNavigation === true;
-    statsInitialViewRuntimePromise = hostNavigationRuntime
-      ? Promise.resolve(true)
-      : ensureStatsViewRuntimeLoaded(statsViewMode);
-    initStatsWidgetLaunchAction();
-    const initialScope = getStatsLoadScope();
-    const canPrepareInitialData =
-      statsShellPageActive || isStatsShellTransitionLoading();
-    const shouldForceFreshTransitionBootstrap = false;
-    const shouldPreferBootstrapForInitialRender =
-      window.ControlerStorage?.isNativeApp === true &&
-      statsShellPageActive &&
-      !isStatsShellTransitionLoading() &&
-      canPrepareInitialData;
-    const bootstrappedFromSnapshot = shouldForceFreshTransitionBootstrap
-      ? false
-      : bootstrapStatsFromCachedSnapshot(initialScope);
-    if (!bootstrappedFromSnapshot && !hostNavigationRuntime) {
-      const initialLoadFresh = false;
-      await loadData(initialScope, {
-        fresh: initialLoadFresh,
-      });
-      if (!initialLoadFresh) {
-        statsInitialLoadPendingResume = true;
-      }
-    } else if (!bootstrappedFromSnapshot) {
-      statsInitialDataLoaded = true;
-      statsInitialLoadPendingResume = false;
-    } else if (canPrepareInitialData) {
-      statsInitialDataLoaded = true;
-    } else {
-      statsInitialDataLoaded = true;
-      statsInitialLoadPendingResume = true;
-    }
-    reconcileStatsRangeStateWithAvailableData();
-    uiTools?.markPerfStage?.("first-data-ready", {
-      rangeUnit: statsRangeState.unit,
-      recordCount: records.length,
-      projectCount: projects.length,
-    });
-    applyStatsDesktopWidgetMode();
-    initTimeSelector();
+  loadStatsPreferencesFromStorage();
+  applyStatsUiStateFromPreferences(statsPreferencesState);
+  initStatsWidgetLaunchAction();
 
-    // 尺寸设置实时联动
-    bindTableScaleLiveRefresh();
-    initViewSelector({ shouldRender: false });
-    bindStatsExternalStorageRefresh();
-    await statsInitialViewRuntimePromise.catch((error) => {
+  const initialScope = getStatsLoadScope();
+  statsInitialViewRuntimePromise = ensureStatsViewRuntimeLoaded(statsViewMode);
+  const initialWorkspacePromise = readStatsWorkspace(initialScope, {
+    pageBootstrap: true,
+    fresh: false,
+  });
+
+  const [initialWorkspace] = await Promise.all([
+    initialWorkspacePromise,
+    statsInitialViewRuntimePromise.catch((error) => {
       console.error("预加载统计视图资源失败:", error);
       return false;
-    });
-    renderCurrentView();
-    if (!hostNavigationRuntime) {
-      await waitForStatsUiPaint();
-    }
-    markStatsInitialReady();
-    statsInitialDataLoaded = true;
-    scheduleStatsInitialContentEnsure("init-complete");
-  } finally {
-    scheduleStatsInitialContentEnsure("init-finally");
-  }
+    }),
+  ]);
+  applyStatsWorkspaceState(initialWorkspace);
+  statsInitialDataLoaded = true;
+  reconcileStatsRangeStateWithAvailableData();
+  uiTools?.markPerfStage?.("first-data-ready", {
+    rangeUnit: statsRangeState.unit,
+    recordCount: records.length,
+    projectCount: projects.length,
+  });
+
+  applyStatsDesktopWidgetMode();
+  initTimeSelector();
+  bindTableScaleLiveRefresh();
+  initViewSelector({ shouldRender: false });
+  bindStatsExternalStorageRefresh();
+  renderCurrentView();
+  await waitForStatsUiPaint();
+  markStatsInitialReady();
 }
 
 // 页面加载完成后初始化
@@ -14698,9 +14088,9 @@ function renderProjectTreeSelector(
     Array.isArray(treeNodes) && treeNodes.length > 0
       ? treeNodes
       : buildProjectSelectorTree(allLabel);
-  const flattened = flattenProjectSelectorTree(effectiveTreeNodes);
-  const safeSelectedValue = flattened.some(
-    (node) => node.value === selectedValue,
+  const safeSelectedValue = findProjectSelectorNode(
+    effectiveTreeNodes,
+    selectedValue,
   )
     ? selectedValue
     : effectiveTreeNodes[0]?.value || "all";
@@ -14708,14 +14098,45 @@ function renderProjectTreeSelector(
     findProjectSelectorNode(effectiveTreeNodes, safeSelectedValue) ||
     effectiveTreeNodes[0] ||
     null;
-  const selectedPath = new Set(
-    findProjectSelectorPathValues(effectiveTreeNodes, safeSelectedValue) || [],
-  );
   const safeWidthFactor = getExpandWidthFactor(widthFactor);
   const scaledMinWidth = scaleExpandConstraint(minWidth, safeWidthFactor);
-  const selectorWidth =
-    uiTools?.measureExpandSurfaceWidth?.(
-      flattened.map(
+
+  container.innerHTML = "";
+
+  const selector = document.createElement("div");
+  selector.className = "tree-select";
+  if (selectorClassName) {
+    selector.classList.add(...selectorClassName.split(/\s+/).filter(Boolean));
+  }
+  selector.style.width = `${scaledMinWidth}px`;
+  selector.style.minWidth = "0";
+  selector.style.maxWidth = "100%";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "tree-select-button";
+  trigger.style.width = "100%";
+  trigger.style.minWidth = "0";
+  trigger.style.maxWidth = "100%";
+  trigger.innerHTML = `
+    <span class="tree-select-button-text"></span>
+    <span class="tree-select-button-caret">▾</span>
+  `;
+  const triggerText = trigger.querySelector(".tree-select-button-text");
+  if (triggerText) {
+    triggerText.textContent =
+      selectedNode?.triggerLabel || selectedNode?.label || allLabel;
+  }
+
+  const menu = document.createElement("div");
+  menu.className = "tree-select-menu";
+  let selectorWidth = scaledMinWidth;
+  let menuBuilt = false;
+  let selectedPath = new Set();
+
+  const resolveSelectorWidth = () => {
+    const measuredWidth = uiTools?.measureExpandSurfaceWidth?.(
+      flattenProjectSelectorTree(effectiveTreeNodes).map(
         (node) =>
           node.triggerLabel ||
           (node.level > 0
@@ -14733,43 +14154,17 @@ function renderProjectTreeSelector(
           scaledMinWidth,
         ),
       },
-    ) ||
-    Math.max(
+    );
+    selectorWidth = Math.max(
+      Number(measuredWidth) || 0,
       scaleExpandConstraint(container.offsetWidth || 0, safeWidthFactor),
       scaledMinWidth,
     );
-
-  container.innerHTML = "";
-
-  const selector = document.createElement("div");
-  selector.className = "tree-select";
-  if (selectorClassName) {
-    selector.classList.add(...selectorClassName.split(/\s+/).filter(Boolean));
-  }
-  selector.style.width = `${selectorWidth}px`;
-  selector.style.minWidth = "0";
-  selector.style.maxWidth = "100%";
-
-  const trigger = document.createElement("button");
-  trigger.type = "button";
-  trigger.className = "tree-select-button";
-  trigger.style.width = `${selectorWidth}px`;
-  trigger.style.minWidth = "0";
-  trigger.style.maxWidth = "100%";
-  trigger.innerHTML = `
-    <span class="tree-select-button-text"></span>
-    <span class="tree-select-button-caret">▾</span>
-  `;
-  const triggerText = trigger.querySelector(".tree-select-button-text");
-  if (triggerText) {
-    triggerText.textContent =
-      selectedNode?.triggerLabel || selectedNode?.label || allLabel;
-  }
-
-  const menu = document.createElement("div");
-  menu.className = "tree-select-menu";
+    selector.style.width = `${selectorWidth}px`;
+  };
 
   const repositionMenu = () => {
+    resolveSelectorWidth();
     uiTools?.positionFloatingMenu?.(selector, menu, {
       minWidth: Math.max(scaledMinWidth, selectorWidth),
       preferredWidth: Math.max(selectorWidth + 8, scaledMinWidth),
@@ -14788,6 +14183,7 @@ function renderProjectTreeSelector(
   };
 
   const openSelector = () => {
+    ensureMenuBuilt();
     repositionMenu();
     selector.classList.add("open");
     setTimeout(() => {
@@ -14875,9 +14271,20 @@ function renderProjectTreeSelector(
     return wrapper;
   };
 
-  effectiveTreeNodes.forEach((node) => {
-    menu.appendChild(buildNode(node));
-  });
+  const ensureMenuBuilt = () => {
+    if (menuBuilt) {
+      return;
+    }
+    menuBuilt = true;
+    selectedPath = new Set(
+      findProjectSelectorPathValues(effectiveTreeNodes, safeSelectedValue) || [],
+    );
+    const fragment = document.createDocumentFragment();
+    effectiveTreeNodes.forEach((node) => {
+      fragment.appendChild(buildNode(node));
+    });
+    menu.appendChild(fragment);
+  };
 
   selector.appendChild(trigger);
   selector.appendChild(menu);

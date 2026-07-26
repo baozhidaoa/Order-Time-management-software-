@@ -53,6 +53,11 @@ const legacyPageAssetDirs = ["embedded-assets", "runtime-assets", "vendor"];
 const offlineAssetDefinitions = createOfflineAssetDefinitions(repoRoot);
 const pageMirrorExcludedDirs = new Set(["offline-assets"]);
 const mobileWebExcludedFiles = new Set(["desktop-common-boot.js"]);
+const androidOnlyWebFiles = new Set([
+  "android-shell-frame.js",
+  "android-shell.html",
+  "android-shell.js",
+]);
 const desktopThemePreloadFileName = "desktop-theme-preload.js";
 
 const desktopBootBundleEntries = {
@@ -83,6 +88,10 @@ const desktopBootBundleEntries = {
     {
       label: "pages/theme-init.js",
       file: path.join(pagesSourceDir, "theme-init.js"),
+    },
+    {
+      label: "pages/app-navigation.js",
+      file: path.join(pagesSourceDir, "app-navigation.js"),
     },
     {
       label: "pages/ui-helpers.js",
@@ -188,6 +197,10 @@ const mobileBootBundleEntries = {
     {
       label: "pages/theme-init.js",
       file: path.join(pagesSourceDir, "theme-init.js"),
+    },
+    {
+      label: "pages/app-navigation.js",
+      file: path.join(pagesSourceDir, "app-navigation.js"),
     },
     {
       label: "pages/ui-helpers.js",
@@ -647,6 +660,9 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
   await Promise.all(mobileWebDirs.map((mobileWebDir) =>
     removeMobileWebExcludedFiles(mobileWebDir),
   ));
+  for (const fileName of androidOnlyWebFiles) {
+    await fs.remove(path.join(mobileIosWebDir, fileName));
+  }
 
   const mobileBootBundles = await buildBootBundles(mobileBootBundleEntries);
   for (const mobileWebDir of mobileWebDirs) {
@@ -660,14 +676,17 @@ if (await fs.pathExists(path.join(repoRoot, "ControlerApp"))) {
       offlineAssetBuffers,
     );
     await writeBootBundles(mobileWebDir, mobileBootBundles);
+    const isAndroidTarget = mobileWebDir === mobileAndroidWebDir;
     for (const pageKey of mobileBootstrapPages) {
       await rewriteBootstrapHtml(mobileWebDir, pageKey, {
         commonBundleName: "mobile-common-boot.js",
+        preloadScripts: isAndroidTarget ? ["android-shell-frame.js"] : [],
         preferStylesheetBeforeScripts: true,
       });
       await validateBootstrapHtml(mobileWebDir, pageKey, {
         commonBundleName: "mobile-common-boot.js",
         platformLabel: "移动端",
+        preloadScripts: isAndroidTarget ? ["android-shell-frame.js"] : [],
       });
     }
     await validateBootBundles(mobileWebDir, mobileBootBundles);

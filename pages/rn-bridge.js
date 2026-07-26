@@ -29,7 +29,7 @@
     window.__CONTROLER_RN_SESSION_ID__.trim()
       ? window.__CONTROLER_RN_SESSION_ID__.trim()
       : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  const NAVIGATION_GENERATION = Math.max(
+  let NAVIGATION_GENERATION = Math.max(
     0,
     Number(getRuntimeMeta().navigationGeneration) || 0,
   );
@@ -135,6 +135,25 @@
   }
 
   postMessage("bridge-session", {});
+
+  function rebindSession(nextGeneration) {
+    if (!REQUIRES_PAGE_SESSION_ENVELOPE) {
+      return false;
+    }
+    const normalizedGeneration = Math.max(0, Number(nextGeneration) || 0);
+    if (!normalizedGeneration) {
+      return false;
+    }
+    NAVIGATION_GENERATION = normalizedGeneration;
+    if (
+      window.__CONTROLER_RN_META__ &&
+      typeof window.__CONTROLER_RN_META__ === "object"
+    ) {
+      window.__CONTROLER_RN_META__.navigationGeneration = normalizedGeneration;
+    }
+    postMessage("bridge-session", {});
+    return true;
+  }
 
   function emitEvent(name, payload = {}) {
     if (!isReactNativeApp()) {
@@ -323,9 +342,12 @@
     },
     eventName: BRIDGE_EVENT_NAME,
     pageSessionId: PAGE_SESSION_ID,
-    navigationGeneration: NAVIGATION_GENERATION,
+    get navigationGeneration() {
+      return NAVIGATION_GENERATION;
+    },
     call,
     emitEvent,
+    rebindSession,
   };
 
   function applyRuntimeClasses() {

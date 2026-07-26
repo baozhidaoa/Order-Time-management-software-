@@ -45,8 +45,6 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -113,7 +111,7 @@ public final class ControlerWidgetDataStore {
     private static final String SINGLE_FILE_TRANSACTION_TARGET = "@single-file";
     private static final String PAGE_BOOTSTRAP_SNAPSHOT_DIRECTORY =
         "page-bootstrap-snapshots";
-    private static final int PROJECT_DURATION_CACHE_VERSION = 2;
+    private static final int PROJECT_DURATION_CACHE_VERSION = 3;
     private static final String PROJECT_DURATION_CACHE_VERSION_KEY = "durationCacheVersion";
     private static final String PROJECT_DIRECT_DURATION_KEY = "cachedDirectDurationMs";
     private static final String PROJECT_TOTAL_DURATION_KEY = "cachedTotalDurationMs";
@@ -131,17 +129,22 @@ public final class ControlerWidgetDataStore {
                 return Boolean.FALSE;
             }
         };
-    private static final ExecutorService PAGE_BOOTSTRAP_REFRESH_EXECUTOR =
-        Executors.newSingleThreadExecutor();
-    private static volatile boolean pageBootstrapPrewarmScheduled;
     private static final int PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT = 6;
     private static final int DISK_PAGE_BOOTSTRAP_CACHE_LIMIT = 24;
+    private static final int PROCESS_PARTITION_CACHE_LIMIT = 12;
     private static final long DISK_PAGE_BOOTSTRAP_MAX_AGE_MS = 14L * 24L * 60L * 60L * 1000L;
     private static final LinkedHashMap<String, JSONObject> PROCESS_PAGE_BOOTSTRAP_CACHE =
         new LinkedHashMap<String, JSONObject>(PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT + 1, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, JSONObject> eldest) {
                 return size() > PROCESS_PAGE_BOOTSTRAP_CACHE_LIMIT;
+            }
+        };
+    private static final LinkedHashMap<String, JSONObject> PROCESS_PARTITION_CACHE =
+        new LinkedHashMap<String, JSONObject>(PROCESS_PARTITION_CACHE_LIMIT + 1, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, JSONObject> eldest) {
+                return size() > PROCESS_PARTITION_CACHE_LIMIT;
             }
         };
     private static String processCoreFingerprint = "";
@@ -166,6 +169,7 @@ public final class ControlerWidgetDataStore {
         processBootstrapVersion = null;
         processBootstrapVersionAt = 0L;
         PROCESS_PAGE_BOOTSTRAP_CACHE.clear();
+        PROCESS_PARTITION_CACHE.clear();
     }
 
     private static void logStorageTrace(String operation, String stage, long startedAt, String extra) {
@@ -370,6 +374,25 @@ public final class ControlerWidgetDataStore {
         public int score = Integer.MIN_VALUE;
     }
 
+    private static final class SectionDateRange {
+        public final String lowerDate;
+        public final String upperDate;
+        public final long lowerTimeMs;
+        public final long upperExclusiveTimeMs;
+
+        private SectionDateRange(
+            String lowerDate,
+            String upperDate,
+            long lowerTimeMs,
+            long upperExclusiveTimeMs
+        ) {
+            this.lowerDate = lowerDate;
+            this.upperDate = upperDate;
+            this.lowerTimeMs = lowerTimeMs;
+            this.upperExclusiveTimeMs = upperExclusiveTimeMs;
+        }
+    }
+
     private static final class ProjectDurationIndexEntry {
         public final int index;
         public final JSONObject project;
@@ -514,27 +537,14 @@ public final class ControlerWidgetDataStore {
                     "records",
                     recordScope
                 );
-                root.put("projects", cloneJsonArray(core.optJSONArray("projects")));
                 root.put("records", cloneJsonArray(recordRange.optJSONArray("items")));
-                root.put(
-                    "timerSessionState",
-                    cloneJsonObject(core.optJSONObject("timerSessionState"))
-                );
             }
 
-            boolean needsTodoState =
-                normalizedKinds.contains(ControlerWidgetKinds.TODOS)
-                    || normalizedKinds.contains(ControlerWidgetKinds.CHECKINS);
-            if (needsTodoState) {
+            if (normalizedKinds.contains(ControlerWidgetKinds.CHECKINS)) {
                 JSONObject dailyCheckinRange = loadStorageSectionRange(
                     context,
                     "dailyCheckins",
                     buildCurrentDayScope()
-                );
-                root.put("todos", cloneJsonArray(core.optJSONArray("todos")));
-                root.put(
-                    "checkinItems",
-                    cloneJsonArray(core.optJSONArray("checkinItems"))
                 );
                 root.put(
                     "dailyCheckins",
@@ -590,10 +600,6 @@ public final class ControlerWidgetDataStore {
                     }
                 }
                 root.put("plans", mergedPlans);
-                root.put(
-                    "yearlyGoals",
-                    cloneJsonObject(core.optJSONObject("yearlyGoals"))
-                );
             }
 
             if (normalizedKinds.contains(ControlerWidgetKinds.WRITE_DIARY)) {
@@ -605,10 +611,6 @@ public final class ControlerWidgetDataStore {
                 root.put(
                     "diaryEntries",
                     cloneJsonArray(diaryRange.optJSONArray("items"))
-                );
-                root.put(
-                    "diaryCategories",
-                    cloneJsonArray(core.optJSONArray("diaryCategories"))
                 );
             }
 
@@ -1613,29 +1615,6 @@ public final class ControlerWidgetDataStore {
         return manifest.isFile() && manifest.length() > 0L;
     }
 
-    public static void prewarmPageBootstrapSnapshots(Context context) {
-        if (context == null || pageBootstrapPrewarmScheduled) return;
-        pageBootstrapPrewarmScheduled = true;
-        final Context appContext = context.getApplicationContext();
-        PAGE_BOOTSTRAP_REFRESH_EXECUTOR.execute(() -> {
-            try {
-                String[] pages = new String[] {
-                    "index", "stats", "plan", "todo", "diary", "settings"
-                };
-                for (String page : pages) {
-                    JSONObject request = new JSONObject();
-                    request.put("pageKey", page);
-                    request.put("options", new JSONObject());
-                    getStoragePageBootstrapState(appContext, request);
-                }
-            } catch (Exception error) {
-                Log.w(TAG, "后台预生成页面快照失败。", error);
-            } finally {
-                pageBootstrapPrewarmScheduled = false;
-            }
-        });
-    }
-
     private static JSONObject buildStoragePageBootstrapState(Context context, JSONObject options) {
         long startedAt = SystemClock.elapsedRealtime();
         JSONObject source = options == null ? new JSONObject() : options;
@@ -2073,6 +2052,7 @@ public final class ControlerWidgetDataStore {
         JSONArray sourceItems = root.optJSONArray(normalizedSection);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         Set<String> matchedPeriodIds = new HashSet<>();
+        SectionDateRange dateRange = resolveSectionDateRange(scope);
 
         if (sourceItems != null) {
             for (int index = 0; index < sourceItems.length(); index += 1) {
@@ -2096,10 +2076,10 @@ public final class ControlerWidgetDataStore {
                 if (!matchesRequestedPeriods) {
                     continue;
                 }
-                if (!sectionItemMatchesScope(normalizedSection, item, scope)) {
+                if (!sectionItemMatchesScope(normalizedSection, item, dateRange)) {
                     continue;
                 }
-                matchedItems.add(cloneJsonObject(item));
+                matchedItems.add(item);
                 matchedPeriodIds.addAll(itemPeriodIds);
             }
         }
@@ -2852,8 +2832,20 @@ public final class ControlerWidgetDataStore {
         if (
             TextUtils.isEmpty(periodId)
                 || !getPartitionRelativePath(section, periodId).equals(relativePath)
-                || !bundlePathExists(context, relativePath)
         ) {
+            throw new StorageReadException(
+                READ_STATE_CORRUPTED,
+                "manifest 引用的分区文件缺失或路径无效。",
+                null
+            );
+        }
+        String metadataFingerprint = metadata.optString("fingerprint", "");
+        String cacheKey = section + "|" + periodId + "|" + metadataFingerprint;
+        JSONObject cachedEnvelope = PROCESS_PARTITION_CACHE.get(cacheKey);
+        if (cachedEnvelope != null) {
+            return cachedEnvelope;
+        }
+        if (!bundlePathExists(context, relativePath)) {
             throw new StorageReadException(
                 READ_STATE_CORRUPTED,
                 "manifest 引用的分区文件缺失或路径无效。",
@@ -2864,6 +2856,17 @@ public final class ControlerWidgetDataStore {
         JSONArray items = envelope == null ? null : envelope.optJSONArray("items");
         ArrayList<JSONObject> itemList = jsonArrayToObjectList(items);
         String expectedFingerprint = buildPartitionFingerprint(section, periodId, itemList);
+        String legacyFingerprint = buildLegacyPartitionFingerprint(section, periodId, itemList);
+        String envelopeFingerprint = envelope == null
+            ? ""
+            : envelope.optString("fingerprint", "");
+        String manifestFingerprint = metadata.optString("fingerprint", "");
+        boolean fingerprintValid =
+            envelopeFingerprint.equals(manifestFingerprint)
+                && (
+                    expectedFingerprint.equals(envelopeFingerprint)
+                        || legacyFingerprint.equals(envelopeFingerprint)
+                );
         if (
             envelope == null
                 || items == null
@@ -2871,8 +2874,7 @@ public final class ControlerWidgetDataStore {
                 || !periodId.equals(envelope.optString("periodId", ""))
                 || envelope.optInt("count", -1) != items.length()
                 || metadata.optInt("count", -1) != items.length()
-                || !expectedFingerprint.equals(envelope.optString("fingerprint", ""))
-                || !expectedFingerprint.equals(metadata.optString("fingerprint", ""))
+                || !fingerprintValid
         ) {
             throw new StorageReadException(
                 READ_STATE_CORRUPTED,
@@ -2880,6 +2882,7 @@ public final class ControlerWidgetDataStore {
                 null
             );
         }
+        PROCESS_PARTITION_CACHE.put(cacheKey, envelope);
         return envelope;
     }
 
@@ -3061,6 +3064,7 @@ public final class ControlerWidgetDataStore {
         Set<String> requestedPeriodIds = resolveRequestedPeriodIds(section, scope);
         ArrayList<JSONObject> matchedItems = new ArrayList<>();
         ArrayList<String> matchedPeriodIds = new ArrayList<>();
+        SectionDateRange dateRange = resolveSectionDateRange(scope);
 
         JSONObject sectionObject =
             manifest == null || manifest.optJSONObject("sections") == null
@@ -3088,8 +3092,8 @@ public final class ControlerWidgetDataStore {
                 JSONArray items = envelope.optJSONArray("items");
                 for (int itemIndex = 0; itemIndex < items.length(); itemIndex += 1) {
                     JSONObject item = items.optJSONObject(itemIndex);
-                    if (item != null && sectionItemMatchesScope(section, item, scope)) {
-                        matchedItems.add(cloneJsonObject(item));
+                    if (item != null && sectionItemMatchesScope(section, item, dateRange)) {
+                        matchedItems.add(item);
                     }
                 }
                 if (!TextUtils.isEmpty(periodId)) {
@@ -3098,8 +3102,12 @@ public final class ControlerWidgetDataStore {
             }
         }
 
-        if ("records".equals(section)) {
-            matchedItems = mergePartitionItems(section, new ArrayList<>(), matchedItems, true);
+        if ("records".equals(section) && matchedPeriodIds.size() > 1) {
+            Map<String, JSONObject> uniqueItems = new LinkedHashMap<>();
+            for (JSONObject item : matchedItems) {
+                uniqueItems.put(buildPartitionMergeKey(section, item), item);
+            }
+            matchedItems = new ArrayList<>(uniqueItems.values());
         }
         Collections.sort(matchedPeriodIds);
         sortJsonItems(section, matchedItems);
@@ -3157,25 +3165,17 @@ public final class ControlerWidgetDataStore {
                     : firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
             )
         );
-        result.put(
-            "items",
-            buildJsonArrayFromObjects(
-                items == null ? new ArrayList<>() : new ArrayList<>(items)
-            )
-        );
+        JSONArray resultItems = new JSONArray();
+        if (items != null) {
+            for (JSONObject item : items) {
+                resultItems.put(item);
+            }
+        }
+        result.put("items", resultItems);
         return result;
     }
 
-    private static boolean sectionItemMatchesScope(
-        String section,
-        JSONObject item,
-        JSONObject scope
-    ) {
-        String normalizedSection = normalizeBundleSection(section);
-        if (item == null || TextUtils.isEmpty(normalizedSection)) {
-            return false;
-        }
-
+    private static SectionDateRange resolveSectionDateRange(JSONObject scope) {
         String startDate = normalizeDateText(
             scope == null
                 ? ""
@@ -3187,68 +3187,103 @@ public final class ControlerWidgetDataStore {
                 : firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
         );
         if (TextUtils.isEmpty(startDate) || TextUtils.isEmpty(endDate)) {
-            return true;
+            return null;
         }
 
         String lowerDate = startDate.compareTo(endDate) <= 0 ? startDate : endDate;
         String upperDate = startDate.compareTo(endDate) <= 0 ? endDate : startDate;
+        Calendar lowerCalendar = calendarFromDateText(lowerDate);
+        Calendar upperCalendar = calendarFromDateText(upperDate);
+        if (lowerCalendar == null || upperCalendar == null) {
+            return new SectionDateRange(lowerDate, upperDate, -1L, -1L);
+        }
+        upperCalendar.add(Calendar.DAY_OF_MONTH, 1);
+        return new SectionDateRange(
+            lowerDate,
+            upperDate,
+            lowerCalendar.getTimeInMillis(),
+            upperCalendar.getTimeInMillis()
+        );
+    }
+
+    private static boolean sectionItemMatchesScope(
+        String section,
+        JSONObject item,
+        SectionDateRange dateRange
+    ) {
+        String normalizedSection = normalizeBundleSection(section);
+        if (item == null || TextUtils.isEmpty(normalizedSection)) {
+            return false;
+        }
+        if (dateRange == null) {
+            return true;
+        }
         if ("records".equals(normalizedSection)) {
-            return recordOverlapsDateScope(item, lowerDate, upperDate);
+            return recordOverlapsDateScope(item, dateRange);
         }
 
         String itemDateKey = getSectionItemDateKey(normalizedSection, item);
         if (TextUtils.isEmpty(itemDateKey)) {
             return false;
         }
-        return itemDateKey.compareTo(lowerDate) >= 0 && itemDateKey.compareTo(upperDate) <= 0;
+        return itemDateKey.compareTo(dateRange.lowerDate) >= 0
+            && itemDateKey.compareTo(dateRange.upperDate) <= 0;
     }
 
     private static boolean recordOverlapsDateScope(
         JSONObject record,
-        String lowerDate,
-        String upperDate
+        SectionDateRange dateRange
     ) {
-        if (record == null || TextUtils.isEmpty(lowerDate) || TextUtils.isEmpty(upperDate)) {
+        if (record == null || dateRange == null) {
             return record != null;
         }
 
-        Calendar lowerCalendar = calendarFromDateText(lowerDate);
-        Calendar upperCalendar = calendarFromDateText(upperDate);
-        if (lowerCalendar == null || upperCalendar == null) {
-            return true;
+        String startTime = firstNonEmpty(
+            record.optString("startTime", ""),
+            record.optString("timestamp", ""),
+            record.optString("endTime", "")
+        );
+        String endTime = firstNonEmpty(
+            record.optString("endTime", ""),
+            record.optString("timestamp", ""),
+            record.optString("startTime", "")
+        );
+        String startDate = normalizeDateText(startTime);
+        String endDate = normalizeDateText(endTime);
+        if (!TextUtils.isEmpty(startDate) && !TextUtils.isEmpty(endDate)) {
+            if (endDate.compareTo(startDate) < 0) {
+                String swappedDate = startDate;
+                startDate = endDate;
+                endDate = swappedDate;
+                String swappedTime = startTime;
+                startTime = endTime;
+                endTime = swappedTime;
+            }
+            if (
+                endDate.compareTo(dateRange.lowerDate) < 0
+                    || startDate.compareTo(dateRange.upperDate) > 0
+            ) {
+                return false;
+            }
+            if (endDate.compareTo(dateRange.lowerDate) > 0) {
+                return true;
+            }
+            long boundaryEndTimeMs = parseRecordTimestampMs(endTime);
+            return boundaryEndTimeMs < 0L
+                || dateRange.lowerTimeMs < 0L
+                || boundaryEndTimeMs > dateRange.lowerTimeMs;
         }
-        lowerCalendar.set(Calendar.HOUR_OF_DAY, 0);
-        lowerCalendar.set(Calendar.MINUTE, 0);
-        lowerCalendar.set(Calendar.SECOND, 0);
-        lowerCalendar.set(Calendar.MILLISECOND, 0);
-        upperCalendar.set(Calendar.HOUR_OF_DAY, 23);
-        upperCalendar.set(Calendar.MINUTE, 59);
-        upperCalendar.set(Calendar.SECOND, 59);
-        upperCalendar.set(Calendar.MILLISECOND, 999);
-        long lowerTimeMs = lowerCalendar.getTimeInMillis();
-        long upperExclusiveTimeMs = upperCalendar.getTimeInMillis() + 1L;
 
-        long startTimeMs = parseRecordTimestampMs(
-            firstNonEmpty(
-                record.optString("startTime", ""),
-                record.optString("timestamp", ""),
-                record.optString("endTime", "")
-            )
-        );
-        long endTimeMs = parseRecordTimestampMs(
-            firstNonEmpty(
-                record.optString("endTime", ""),
-                record.optString("timestamp", ""),
-                record.optString("startTime", "")
-            )
-        );
+        long startTimeMs = parseRecordTimestampMs(startTime);
+        long endTimeMs = parseRecordTimestampMs(endTime);
 
         if (startTimeMs < 0L && endTimeMs < 0L) {
             String anchorDate = getSectionItemDateKey("records", record);
             if (TextUtils.isEmpty(anchorDate)) {
                 return false;
             }
-            return anchorDate.compareTo(lowerDate) >= 0 && anchorDate.compareTo(upperDate) <= 0;
+            return anchorDate.compareTo(dateRange.lowerDate) >= 0
+                && anchorDate.compareTo(dateRange.upperDate) <= 0;
         }
         if (startTimeMs < 0L) {
             startTimeMs = endTimeMs;
@@ -3262,7 +3297,11 @@ public final class ControlerWidgetDataStore {
             endTimeMs = swapped;
         }
 
-        return endTimeMs > lowerTimeMs && startTimeMs < upperExclusiveTimeMs;
+        if (dateRange.lowerTimeMs < 0L || dateRange.upperExclusiveTimeMs < 0L) {
+            return true;
+        }
+        return endTimeMs > dateRange.lowerTimeMs
+            && startTimeMs < dateRange.upperExclusiveTimeMs;
     }
 
     private static JSONObject saveBundleSectionRange(
@@ -3336,8 +3375,8 @@ public final class ControlerWidgetDataStore {
                 buildJsonArrayFromObjects(
                     applyProjectRecordDurationChanges(
                         jsonArrayToObjectList(currentCore.optJSONArray("projects")),
-                        normalizedExistingItems,
-                        mergedItems
+                        filterRecordDurationCacheOwners(periodId, normalizedExistingItems),
+                        filterRecordDurationCacheOwners(periodId, mergedItems)
                     )
                 )
             );
@@ -3463,14 +3502,19 @@ public final class ControlerWidgetDataStore {
             return;
         }
 
-        deleteIgnoredBundleArtifacts(context, "ensureBundleStorageReady");
         String previousRecoveryState = getStorageRecoveryState();
+        JSONObject manifest = tryReadBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME);
+        if (manifest != null) {
+            validateBundleManifest(context, manifest);
+            if (!STORAGE_RECOVERY_STATE_OK.equals(previousRecoveryState)) {
+                setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
+            }
+            markBundleStorageReadyVerified(context);
+            return;
+        }
+
         BundleArtifactInspection inspection = inspectBundleArtifacts(context);
         if (inspection.manifestExists || inspection.hasBundleArtifacts()) {
-            if (!hasInvalidBundleArtifacts(context, inspection)) {
-                markBundleStorageReadyVerified(context);
-                return;
-            }
             String recoveryMessage =
                 "检测到 bundle 文件缺失、损坏或与 manifest 不一致，已停止读写以等待恢复。";
             failStorageRead(READ_STATE_CORRUPTED, recoveryMessage);
@@ -3508,74 +3552,6 @@ public final class ControlerWidgetDataStore {
             setStorageRecoveryState(STORAGE_RECOVERY_STATE_OK, "");
         }
         markBundleStorageReadyVerified(context);
-    }
-
-    private static boolean hasInvalidBundleArtifacts(
-        Context context,
-        BundleArtifactInspection inspection
-    ) throws Exception {
-        if (inspection == null) {
-            return false;
-        }
-        if (!inspection.manifestExists) {
-            return inspection.hasBundleArtifacts();
-        }
-        if (inspection.manifestInvalid || inspection.manifest == null) {
-            return true;
-        }
-        if (!inspection.coreExists) {
-            return true;
-        }
-
-        JSONObject manifest = inspection.manifest;
-        validateBundleManifest(context, manifest);
-        Set<String> manifestFiles = collectBundleFilesFromManifest(manifest);
-        for (String file : manifestFiles) {
-            if (BUNDLE_MANIFEST_FILE_NAME.equals(file)) {
-                continue;
-            }
-            if (!bundlePathExists(context, file)) {
-                return true;
-            }
-        }
-
-        JSONObject core = readBundleJsonObject(context, BUNDLE_CORE_FILE_NAME);
-        if (core == null || core.optJSONArray("projects") == null) return true;
-        JSONArray recurringPlans = readBundleJsonArray(
-            context,
-            BUNDLE_RECURRING_PLANS_FILE_NAME
-        );
-        JSONObject sections = manifest.optJSONObject("sections");
-        JSONObject recurringMetadata = sections == null
-            ? null
-            : sections.optJSONObject("plansRecurring");
-        if (
-            recurringMetadata == null
-                || recurringMetadata.optInt("count", -1) != recurringPlans.length()
-        ) {
-            return true;
-        }
-
-        String[] partitionedSections = new String[] {
-            "records",
-            "diaryEntries",
-            "dailyCheckins",
-            "checkins",
-            "plans"
-        };
-        for (String section : partitionedSections) {
-            JSONObject sectionMetadata = sections.optJSONObject(section);
-            JSONArray partitions = sectionMetadata == null
-                ? null
-                : sectionMetadata.optJSONArray("partitions");
-            if (partitions == null) return true;
-            for (int index = 0; index < partitions.length(); index += 1) {
-                JSONObject partition = partitions.optJSONObject(index);
-                if (partition == null) return true;
-                readValidatedBundlePartition(context, section, partition);
-            }
-        }
-        return false;
     }
 
     private static BundleArtifactInspection inspectBundleArtifacts(Context context) {
@@ -4285,6 +4261,11 @@ public final class ControlerWidgetDataStore {
             repairedCore.put("projects", cloneJsonArray(repairedRoot.optJSONArray("projects")));
         }
         ensureThemeStateInCore(repairedCore);
+        touchBundleMetadata(
+            context,
+            readBundleJsonObject(context, BUNDLE_MANIFEST_FILE_NAME),
+            repairedCore
+        );
         logBundleCorePollutionCleanup(
             "loadBundleCoreWithProjectDurationCache",
             sanitizeResult.removedSections
@@ -4551,40 +4532,57 @@ public final class ControlerWidgetDataStore {
             return null;
         }
         String trimmedValue = value.trim();
-        String[] timezoneAwarePatterns = new String[] {
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
-            "yyyy-MM-dd'T'HH:mm:ssX"
-        };
-        for (String pattern : timezoneAwarePatterns) {
-            try {
-                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
-                format.setTimeZone(TimeZone.getTimeZone("UTC"));
-                Date parsedDate = format.parse(trimmedValue);
-                if (parsedDate != null) {
-                    return parsedDate;
-                }
-            } catch (Exception ignored) {
-            }
+        if (trimmedValue.length() < 19) {
+            return null;
         }
-        String[] localPatterns = new String[] {
-            "yyyy-MM-dd'T'HH:mm:ss.SSS",
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyy-MM-dd HH:mm:ss"
-        };
-        for (String pattern : localPatterns) {
-            try {
-                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
-                format.setTimeZone(TimeZone.getDefault());
-                Date parsedDate = format.parse(trimmedValue);
-                if (parsedDate != null) {
-                    return parsedDate;
-                }
-            } catch (Exception ignored) {
+
+        char dateTimeSeparator = trimmedValue.charAt(10);
+        boolean hasMilliseconds =
+            trimmedValue.length() > 19 && trimmedValue.charAt(19) == '.';
+        String pattern;
+        boolean timezoneAware = false;
+        if (dateTimeSeparator == ' ') {
+            pattern = hasMilliseconds
+                ? "yyyy-MM-dd HH:mm:ss.SSS"
+                : "yyyy-MM-dd HH:mm:ss";
+        } else if (dateTimeSeparator == 'T') {
+            int timezoneMarkerIndex = -1;
+            if (trimmedValue.endsWith("Z")) {
+                timezoneMarkerIndex = trimmedValue.length() - 1;
+            } else {
+                int plusIndex = trimmedValue.indexOf('+', 19);
+                int minusIndex = trimmedValue.indexOf('-', 19);
+                timezoneMarkerIndex = plusIndex >= 0 ? plusIndex : minusIndex;
             }
+            if (timezoneMarkerIndex < 0) {
+                pattern = hasMilliseconds
+                    ? "yyyy-MM-dd'T'HH:mm:ss.SSS"
+                    : "yyyy-MM-dd'T'HH:mm:ss";
+            } else {
+                timezoneAware = true;
+                String timezoneSuffix = trimmedValue.substring(timezoneMarkerIndex);
+                String timezonePattern = timezoneSuffix.indexOf(':') >= 0
+                    ? "XXX"
+                    : timezoneSuffix.length() == 5
+                        ? "XX"
+                        : "X";
+                pattern = hasMilliseconds
+                    ? "yyyy-MM-dd'T'HH:mm:ss.SSS" + timezonePattern
+                    : "yyyy-MM-dd'T'HH:mm:ss" + timezonePattern;
+            }
+        } else {
+            return null;
         }
-        return null;
+
+        try {
+            SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+            format.setTimeZone(
+                timezoneAware ? TimeZone.getTimeZone("UTC") : TimeZone.getDefault()
+            );
+            return format.parse(trimmedValue);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static long parseRecordTimestampMs(String value) {
@@ -4749,7 +4747,16 @@ public final class ControlerWidgetDataStore {
             }
         }
 
-        ArrayList<JSONObject> normalizedRecords = attachProjectIdsToRecords(records, context);
+        ArrayList<JSONObject> uniqueRecords = mergePartitionItems(
+            "records",
+            new ArrayList<>(),
+            records,
+            true
+        );
+        ArrayList<JSONObject> normalizedRecords = attachProjectIdsToRecords(
+            uniqueRecords,
+            context
+        );
         for (JSONObject record : normalizedRecords) {
             int projectIndex = findProjectIndexForRecord(record, context);
             if (projectIndex < 0 || projectIndex >= context.projects.size()) {
@@ -4881,6 +4888,26 @@ public final class ControlerWidgetDataStore {
         }
 
         return recalculateProjectDurationTotals(context.projects);
+    }
+
+    private static ArrayList<JSONObject> filterRecordDurationCacheOwners(
+        String periodId,
+        ArrayList<JSONObject> records
+    ) {
+        ArrayList<JSONObject> ownedRecords = new ArrayList<>();
+        if (records == null) {
+            return ownedRecords;
+        }
+        String normalizedPeriodId = normalizePeriodId(periodId);
+        for (JSONObject record : records) {
+            if (
+                record != null &&
+                normalizedPeriodId.equals(getPeriodIdForSectionItem("records", record))
+            ) {
+                ownedRecords.add(record);
+            }
+        }
+        return ownedRecords;
     }
 
     private static JSONObject buildPartitionEnvelope(
@@ -9087,39 +9114,7 @@ public final class ControlerWidgetDataStore {
         return new ArrayList<>(sections);
     }
 
-    private static String addMonthOffsetToPeriodId(String periodId, int monthOffset) {
-        String normalizedPeriodId = normalizePeriodId(periodId);
-        if (TextUtils.isEmpty(normalizedPeriodId)) {
-            return "";
-        }
-
-        String[] parts = normalizedPeriodId.split("-");
-        if (parts.length != 2) {
-            return "";
-        }
-        int year;
-        int month;
-        try {
-            year = Integer.parseInt(parts[0]);
-            month = Integer.parseInt(parts[1]);
-        } catch (NumberFormatException error) {
-            return "";
-        }
-
-        Calendar calendar = Calendar.getInstance();
-        calendar.clear();
-        calendar.set(year, month - 1, 1, 0, 0, 0);
-        calendar.add(Calendar.MONTH, monthOffset);
-        return String.format(
-            Locale.US,
-            "%04d-%02d",
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH) + 1
-        );
-    }
-
     private static Set<String> resolveRequestedPeriodIds(String section, JSONObject scope) {
-        String normalizedSection = normalizeBundleSection(section);
         Set<String> periodIds = new HashSet<>();
         if (scope == null) {
             return periodIds;
@@ -9134,21 +9129,7 @@ public final class ControlerWidgetDataStore {
                     normalizedPeriodIds.add(periodId);
                 }
             }
-            if ("records".equals(normalizedSection)) {
-                for (String periodId : normalizedPeriodIds) {
-                    periodIds.add(periodId);
-                    String previousPeriodId = addMonthOffsetToPeriodId(periodId, -1);
-                    String nextPeriodId = addMonthOffsetToPeriodId(periodId, 1);
-                    if (!TextUtils.isEmpty(previousPeriodId)) {
-                        periodIds.add(previousPeriodId);
-                    }
-                    if (!TextUtils.isEmpty(nextPeriodId)) {
-                        periodIds.add(nextPeriodId);
-                    }
-                }
-            } else {
-                periodIds.addAll(normalizedPeriodIds);
-            }
+            periodIds.addAll(normalizedPeriodIds);
             return periodIds;
         }
 
@@ -9159,38 +9140,6 @@ public final class ControlerWidgetDataStore {
             firstNonEmpty(scope.optString("endDate", ""), scope.optString("end", ""))
         );
         if (TextUtils.isEmpty(startDate) || TextUtils.isEmpty(endDate)) {
-            return periodIds;
-        }
-
-        if ("records".equals(normalizedSection)) {
-            Calendar startCalendar = parseFlexibleDate(startDate);
-            Calendar endCalendar = parseFlexibleDate(endDate);
-            if (startCalendar == null || endCalendar == null) {
-                return periodIds;
-            }
-
-            Calendar lower = startCalendar.getTimeInMillis() <= endCalendar.getTimeInMillis()
-                ? (Calendar) startCalendar.clone()
-                : (Calendar) endCalendar.clone();
-            Calendar upper = startCalendar.getTimeInMillis() <= endCalendar.getTimeInMillis()
-                ? (Calendar) endCalendar.clone()
-                : (Calendar) startCalendar.clone();
-            lower.set(Calendar.DAY_OF_MONTH, 1);
-            upper.set(Calendar.DAY_OF_MONTH, 1);
-            lower.add(Calendar.MONTH, -1);
-            upper.add(Calendar.MONTH, 1);
-
-            while (lower.getTimeInMillis() <= upper.getTimeInMillis()) {
-                periodIds.add(
-                    String.format(
-                        Locale.US,
-                        "%04d-%02d",
-                        lower.get(Calendar.YEAR),
-                        lower.get(Calendar.MONTH) + 1
-                    )
-                );
-                lower.add(Calendar.MONTH, 1);
-            }
             return periodIds;
         }
 
@@ -9411,6 +9360,23 @@ public final class ControlerWidgetDataStore {
         String periodId,
         ArrayList<JSONObject> items
     ) {
+        return buildPartitionFingerprint(section, periodId, items, true);
+    }
+
+    private static String buildLegacyPartitionFingerprint(
+        String section,
+        String periodId,
+        ArrayList<JSONObject> items
+    ) {
+        return buildPartitionFingerprint(section, periodId, items, false);
+    }
+
+    private static String buildPartitionFingerprint(
+        String section,
+        String periodId,
+        ArrayList<JSONObject> items,
+        boolean includeArraySyntax
+    ) {
         String minDate = "";
         String maxDate = "";
         if (items != null && !items.isEmpty()) {
@@ -9421,6 +9387,9 @@ public final class ControlerWidgetDataStore {
         if (items != null) {
             for (JSONObject item : items) {
                 serializedLength += item == null ? 0 : item.toString().length();
+            }
+            if (includeArraySyntax) {
+                serializedLength += items.isEmpty() ? 2 : items.size() + 1;
             }
         }
         return section
@@ -10219,6 +10188,9 @@ public final class ControlerWidgetDataStore {
             return "";
         }
         String trimmedValue = value.trim();
+        if (trimmedValue.length() >= 19 && trimmedValue.charAt(10) == ' ') {
+            return trimmedValue.substring(0, 10);
+        }
         Date parsedDate = parseDateTimeValue(trimmedValue);
         if (parsedDate != null) {
             Calendar calendar = Calendar.getInstance();
@@ -10237,6 +10209,16 @@ public final class ControlerWidgetDataStore {
     public static int extractHour(String timestamp) {
         if (TextUtils.isEmpty(timestamp)) {
             return 0;
+        }
+        String trimmedTimestamp = timestamp.trim();
+        if (trimmedTimestamp.length() >= 19 && trimmedTimestamp.charAt(10) == ' ') {
+            try {
+                return Math.max(
+                    0,
+                    Math.min(23, Integer.parseInt(trimmedTimestamp.substring(11, 13)))
+                );
+            } catch (Exception ignored) {
+            }
         }
         Date parsedDate = parseDateTimeValue(timestamp);
         if (parsedDate != null) {

@@ -3108,6 +3108,36 @@
   }
 
   async function runThemeRefreshFromAvailableSources(options = {}) {
+    const shellThemeState = window.__CONTROLER_ANDROID_SHELL_THEME_STATE__;
+    if (
+      shellThemeState?.colors &&
+      typeof shellThemeState.colors === "object"
+    ) {
+      const shellThemeId = String(
+        shellThemeState.themeId ||
+          shellThemeState.selectedTheme ||
+          DEFAULT_THEME_ID,
+      ).trim();
+      applyThemeState(
+        shellThemeId,
+        {
+          id: shellThemeId,
+          colors: shellThemeState.colors,
+          recordCard:
+            shellThemeState.recordCard &&
+            typeof shellThemeState.recordCard === "object"
+              ? shellThemeState.recordCard
+              : {},
+        },
+        {
+          ...options,
+          source: "android-shell",
+          emitNative: false,
+          syncLaunchTheme: false,
+        },
+      );
+      return;
+    }
     if (
       window.ControlerStorage?.isNativeApp === true &&
       typeof window.ControlerStorage?.getCoreState === "function"

@@ -481,25 +481,7 @@ function buildJournalResult(operations = [], metadata = {}, extra = {}) {
   };
 }
 
-function addMonthOffsetToPeriodId(periodId, monthOffset = 0) {
-  const normalized = String(periodId || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(normalized)) {
-    return "";
-  }
-  const [yearText, monthText] = normalized.split("-");
-  const cursor = new Date(
-    Number.parseInt(yearText, 10),
-    Number.parseInt(monthText, 10) - 1,
-    1,
-  );
-  if (Number.isNaN(cursor.getTime())) {
-    return "";
-  }
-  cursor.setMonth(cursor.getMonth() + Math.round(Number(monthOffset) || 0));
-  return `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function expandRecordScopePeriodIds(range = {}, rawScope = {}) {
+function resolveRecordScopePeriodIds(range = {}, rawScope = {}) {
   const normalizedPeriodIds = Array.isArray(range?.periodIds)
     ? range.periodIds
         .map((periodId) => String(periodId || "").trim())
@@ -507,18 +489,7 @@ function expandRecordScopePeriodIds(range = {}, rawScope = {}) {
     : [];
   const periodIds = new Set(normalizedPeriodIds);
 
-  if (periodIds.size > 0) {
-    normalizedPeriodIds.forEach((periodId) => {
-      const previousPeriodId = addMonthOffsetToPeriodId(periodId, -1);
-      const nextPeriodId = addMonthOffsetToPeriodId(periodId, 1);
-      if (previousPeriodId) {
-        periodIds.add(previousPeriodId);
-      }
-      if (nextPeriodId) {
-        periodIds.add(nextPeriodId);
-      }
-    });
-  } else {
+  if (periodIds.size === 0) {
     const startValue = rawScope?.startDate || rawScope?.start || null;
     const endValue = rawScope?.endDate || rawScope?.end || null;
     const startDate = bundleHelper.normalizeDateInput(startValue);
@@ -526,8 +497,8 @@ function expandRecordScopePeriodIds(range = {}, rawScope = {}) {
     if (startDate && endDate) {
       const lower = startDate.getTime() <= endDate.getTime() ? startDate : endDate;
       const upper = startDate.getTime() <= endDate.getTime() ? endDate : startDate;
-      const cursor = new Date(lower.getFullYear(), lower.getMonth() - 1, 1);
-      const target = new Date(upper.getFullYear(), upper.getMonth() + 1, 1);
+      const cursor = new Date(lower.getFullYear(), lower.getMonth(), 1);
+      const target = new Date(upper.getFullYear(), upper.getMonth(), 1);
       while (cursor.getTime() <= target.getTime()) {
         periodIds.add(
           `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
@@ -5100,11 +5071,13 @@ class StorageManager {
       periodUnit: bundleHelper.PERIOD_UNIT,
       partitions,
     };
+    const isDurationCacheOwner = (record) =>
+      bundleHelper.getPeriodIdForSectionItem("records", record) === periodId;
     currentCore.projects = bundleHelper.applyProjectRecordDurationChanges(
       currentCore.projects || [],
       {
-        removedRecords: repairedRemoved.items,
-        addedRecords: repairedIncoming.items,
+        removedRecords: repairedRemoved.items.filter(isDurationCacheOwner),
+        addedRecords: repairedIncoming.items.filter(isDurationCacheOwner),
       },
     );
     currentCore.lastModified = manifest.lastModified;
@@ -5217,11 +5190,13 @@ class StorageManager {
     currentCore.userDataPath = this.userDataPath;
     currentCore.documentsPath = this.documentsPath;
     if (section === "records") {
+      const isDurationCacheOwner = (record) =>
+        bundleHelper.getPeriodIdForSectionItem("records", record) === periodId;
       currentCore.projects = bundleHelper.applyProjectRecordDurationChanges(
         currentCore.projects || [],
         {
-          removedRecords: normalizedExisting,
-          addedRecords: mergedItems,
+          removedRecords: normalizedExisting.filter(isDurationCacheOwner),
+          addedRecords: mergedItems.filter(isDurationCacheOwner),
         },
       );
       this.writeJsonFileSync(
@@ -6021,7 +5996,7 @@ class StorageManager {
     const range = bundleHelper.normalizeRangeInput(scope);
     const effectivePeriodIds =
       section === "records"
-        ? expandRecordScopePeriodIds(range, scope)
+        ? resolveRecordScopePeriodIds(range, scope)
         : range.periodIds || [];
     const requested = new Set(effectivePeriodIds);
     const matched = (manifest?.sections?.[section]?.partitions || []).filter(

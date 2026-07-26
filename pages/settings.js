@@ -2872,7 +2872,7 @@ function updateThemeSelector(selectedThemeId, options = {}) {
       });
       applyTheme(theme.id, {
         source: "settings-theme-write",
-        emitNative: false,
+        emitNative: true,
         syncLaunchTheme: false,
       });
       await saveTheme(theme.id);

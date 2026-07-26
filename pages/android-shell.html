@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order</title>
+    <script src="desktop-theme-preload.js"></script>
+    <script src="app-navigation.js"></script>
+    <link rel="stylesheet" href="index.css" />
+    <script defer src="android-shell.js"></script>
+  </head>
+  <body
+    class="app-layout flex row bgs bkg controler-mobile-runtime controler-android-native controler-android-shell"
+  >
+    <div class="app-sidebar flex column mgt mgb">
+      <div class="app-sidebar-spacer flex ms"></div>
+      <nav
+        id="android-shell-navigation"
+        class="app-nav flex flex1 column ms mgt"
+        aria-label="页面导航"
+      ></nav>
+    </div>
+    <div id="android-shell-pages" class="android-shell-pages"></div>
+  </body>
+</html>

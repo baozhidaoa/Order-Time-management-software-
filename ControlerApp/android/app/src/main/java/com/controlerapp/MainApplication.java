@@ -7,14 +7,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.lang.ref.WeakReference;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /** Lightweight Android application. No React Native or Hermes runtime is created. */
 public class MainApplication extends Application {
-    private final ScheduledExecutorService startupExecutor =
-        Executors.newSingleThreadScheduledExecutor();
     private volatile WeakReference<MainActivity> foregroundActivity = new WeakReference<>(null);
 
     @Override
@@ -22,17 +17,6 @@ public class MainApplication extends Application {
         super.onCreate();
         ControlerStartupTrace.mark("application_on_create", "host=android-webview");
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
-
-        startupExecutor.schedule(() -> {
-            ControlerNotificationScheduler.ensureNotificationChannel(this);
-            ControlerNotificationScheduler.rescheduleAll(this);
-        }, 5, TimeUnit.SECONDS);
-    }
-
-    @Override
-    public void onTerminate() {
-        startupExecutor.shutdownNow();
-        super.onTerminate();
     }
 
     public void registerForegroundActivity(MainActivity activity) {

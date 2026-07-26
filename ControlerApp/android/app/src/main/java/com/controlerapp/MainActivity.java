@@ -4,23 +4,16 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.view.PixelCopy;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -45,37 +38,34 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.ArrayDeque;
 import java.util.Collections;
 
-/** Android uses one offline WebView. React Native remains an iOS-only shell. */
+/** Android uses one offline WebView with a persistent navigation document. */
 public class MainActivity extends Activity {
     private static final String WEB_ROOT = "file:///android_asset/controler-web/";
+    private static final String SHELL_URL = WEB_ROOT + "android-shell.html";
     private static final String LAUNCH_THEME_PREFS = "controler_launch_theme_preferences";
     private static final String KEY_LAUNCH_THEME_STATE = "theme_state";
 
     private WebView webView;
     private FrameLayout hostView;
-    private ImageView navigationSurface;
-    private Bitmap cachedNavigationSurfaceBitmap;
     private OfflineWebViewBridge bridge;
     private boolean backDispatchPending;
     private boolean splashDismissed;
-    private boolean hasCommittedPage;
     private int currentThemeColor;
-    private String currentThemeStateSignature;
     private JSONObject currentNavigationRequest;
+    private String currentPageUrl = "";
+    private String pendingPageUrl = "";
+    private boolean pendingHistoryBack;
+    private final ArrayDeque<String> pageHistory = new ArrayDeque<>();
     private long latestNavigationRequestedAt;
     private long navigationAcceptedElapsedMs;
-    private boolean pageBootstrapPrewarmRequested;
-    private int navigationCaptureGeneration;
-    private HandlerThread navigationCaptureThread;
-    private Handler navigationCaptureHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         String launchTheme = readLaunchThemeState();
         currentThemeColor = resolveLaunchBackgroundColor(launchTheme);
-        currentThemeStateSignature = normalizeThemeStateSignature(launchTheme);
         setTheme(resolveLaunchThemeStyle(launchTheme));
         SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
@@ -98,17 +88,9 @@ public class MainActivity extends Activity {
         hostView = new FrameLayout(this);
         hostView.setBackgroundColor(currentThemeColor);
         hostView.addView(webView);
-        navigationSurface = new ImageView(this);
-        navigationSurface.setLayoutParams(new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-        navigationSurface.setScaleType(ImageView.ScaleType.FIT_XY);
-        navigationSurface.setBackgroundColor(currentThemeColor);
-        navigationSurface.setVisibility(View.GONE);
-        hostView.addView(navigationSurface);
         setContentView(hostView);
-        webView.loadUrl(resolveStartUrl());
+        currentPageUrl = resolveInitialPageUrl();
+        webView.loadUrl(resolveShellUrl(currentPageUrl));
     }
 
     private WebView createWebView() {
@@ -147,8 +129,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView target, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(target, url, favicon);
-                showNavigationSurface(target);
-                bridge.onNavigationStarted();
+                if (isShellDocumentUri(Uri.parse(url))) {
+                    bridge.onNavigationStarted();
+                }
             }
 
             @Override
@@ -156,7 +139,6 @@ public class MainActivity extends Activity {
                 Uri uri = request == null ? null : request.getUrl();
                 if (uri == null) return false;
                 if (isAllowedAssetUri(uri)) {
-                    showNavigationSurface(target);
                     return false;
                 }
                 String scheme = uri.getScheme();
@@ -193,7 +175,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageCommitVisible(WebView target, String url) {
                 super.onPageCommitVisible(target, url);
-                hasCommittedPage = true;
                 logNavigationStage("html-commit", currentNavigationRequest, url);
             }
 
@@ -201,7 +182,6 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView target, String url) {
                 super.onPageFinished(target, url);
                 ControlerStartupTrace.mark("webview_page_finished", "url=" + url);
-                splashDismissed = true;
             }
         });
         return view;
@@ -212,119 +192,33 @@ public class MainActivity extends Activity {
             ? ""
             : currentNavigationRequest.optString("requestId", "");
         String readyRequestId = payload == null ? "" : payload.optString("requestId", "");
+        if (currentNavigationRequest == null && !readyRequestId.isEmpty()) {
+            return;
+        }
         if (!expectedRequestId.isEmpty() && !expectedRequestId.equals(readyRequestId)) {
             return;
         }
-        hasCommittedPage = true;
-        hideNavigationSurface();
+        if (!expectedRequestId.isEmpty()) {
+            commitShellNavigation(currentNavigationRequest);
+            if (pendingHistoryBack) {
+                if (!pageHistory.isEmpty() && pageHistory.peekLast().equals(pendingPageUrl)) {
+                    pageHistory.removeLast();
+                }
+            } else if (!currentPageUrl.isEmpty() && !currentPageUrl.equals(pendingPageUrl)) {
+                pageHistory.addLast(currentPageUrl);
+            }
+            currentPageUrl = pendingPageUrl;
+        }
         logNavigationStage(
             "page-ready",
             currentNavigationRequest,
             payload == null ? "" : payload.optString("href", "")
         );
-        scheduleNavigationSurfaceCapture();
-        if (!pageBootstrapPrewarmRequested && webView != null) {
-            pageBootstrapPrewarmRequested = true;
-            webView.postDelayed(
-                () -> ControlerWidgetDataStore.prewarmPageBootstrapSnapshots(this),
-                480L
-            );
-        }
+        splashDismissed = true;
         currentNavigationRequest = null;
+        pendingPageUrl = "";
+        pendingHistoryBack = false;
         navigationAcceptedElapsedMs = 0L;
-    }
-
-    private void showNavigationSurface(WebView target) {
-        if (
-            !hasCommittedPage
-                || target == null
-                || target != webView
-                || navigationSurface == null
-                || cachedNavigationSurfaceBitmap == null
-                || cachedNavigationSurfaceBitmap.isRecycled()
-                || navigationSurface.getVisibility() == View.VISIBLE
-        ) {
-            return;
-        }
-        navigationSurface.setImageBitmap(cachedNavigationSurfaceBitmap);
-        navigationSurface.setVisibility(View.VISIBLE);
-    }
-
-    private void hideNavigationSurface() {
-        if (navigationSurface == null) return;
-        navigationSurface.setVisibility(View.GONE);
-        navigationSurface.setImageDrawable(null);
-    }
-
-    private void invalidateNavigationSurfaceSnapshot() {
-        navigationCaptureGeneration += 1;
-        hideNavigationSurface();
-        Bitmap previous = cachedNavigationSurfaceBitmap;
-        cachedNavigationSurfaceBitmap = null;
-        if (previous != null && !previous.isRecycled()) {
-            previous.recycle();
-        }
-    }
-
-    private void scheduleNavigationSurfaceCapture() {
-        final WebView target = webView;
-        if (target == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        final int generation = ++navigationCaptureGeneration;
-        target.postDelayed(() -> {
-            if (
-                generation != navigationCaptureGeneration
-                    || target != webView
-                    || navigationSurface == null
-                    || navigationSurface.getVisibility() == View.VISIBLE
-            ) {
-                return;
-            }
-            int width = target.getWidth();
-            int height = target.getHeight();
-            if (width <= 0 || height <= 0) return;
-            int[] location = new int[2];
-            target.getLocationInWindow(location);
-            Rect sourceRect = new Rect(
-                location[0],
-                location[1],
-                location[0] + width,
-                location[1] + height
-            );
-            Bitmap snapshot = Bitmap.createBitmap(
-                Math.max(1, width / 2),
-                Math.max(1, height / 2),
-                Bitmap.Config.ARGB_8888
-            );
-            ensureNavigationCaptureHandler();
-            PixelCopy.request(
-                getWindow(),
-                sourceRect,
-                snapshot,
-                result -> target.post(() -> {
-                    if (
-                        result != PixelCopy.SUCCESS
-                            || generation != navigationCaptureGeneration
-                            || target != webView
-                    ) {
-                        snapshot.recycle();
-                        return;
-                    }
-                    Bitmap previous = cachedNavigationSurfaceBitmap;
-                    cachedNavigationSurfaceBitmap = snapshot;
-                    if (previous != null && previous != snapshot && !previous.isRecycled()) {
-                        previous.recycle();
-                    }
-                }),
-                navigationCaptureHandler
-            );
-        }, 96L);
-    }
-
-    private void ensureNavigationCaptureHandler() {
-        if (navigationCaptureThread != null && navigationCaptureThread.isAlive()) return;
-        navigationCaptureThread = new HandlerThread("order-navigation-capture");
-        navigationCaptureThread.start();
-        navigationCaptureHandler = new Handler(navigationCaptureThread.getLooper());
     }
 
     void handleWebNavigation(JSONObject request) {
@@ -363,14 +257,72 @@ public class MainActivity extends Activity {
             return;
         }
         latestNavigationRequestedAt = Math.max(latestNavigationRequestedAt, requestedAt);
-        navigationCaptureGeneration += 1;
         currentNavigationRequest = cloneJsonObject(request);
+        pendingPageUrl = targetUrl;
+        pendingHistoryBack = false;
         navigationAcceptedElapsedMs = SystemClock.elapsedRealtime();
-        showNavigationSurface(webView);
-        bridge.emitNavigationAck(request, "accepted-now", "host-load-url");
+        bridge.emitNavigationAck(request, "accepted-now", "shell-content-load");
         logNavigationStage("host-accepted", request, href);
-        webView.stopLoading();
-        webView.loadUrl(withNavigationRequestId(targetUri, requestId));
+        webView.post(() -> startShellNavigation(targetUri, requestId));
+    }
+
+    private void startShellNavigation(Uri targetUri, String requestId) {
+        if (webView == null || bridge == null || currentNavigationRequest == null) return;
+        int navigationGeneration = bridge.onNavigationStarted();
+        JSONObject detail = new JSONObject();
+        try {
+            detail.put("href", withNavigationRequestId(targetUri, requestId));
+            detail.put("page", currentNavigationRequest.optString("page", ""));
+            detail.put("requestId", requestId);
+            detail.put("navigationGeneration", navigationGeneration);
+        } catch (Exception ignored) {
+            cancelPendingNavigation("invalid-shell-detail");
+            return;
+        }
+        String script =
+            "window.ControlerAndroidShell&&window.ControlerAndroidShell.beginNavigation("
+                + detail.toString()
+                + ");";
+        webView.evaluateJavascript(script, result -> {
+            if (!"true".equals(result)) {
+                cancelPendingNavigation("shell-rejected");
+            }
+        });
+    }
+
+    private void commitShellNavigation(JSONObject request) {
+        if (webView == null || request == null) return;
+        JSONObject detail = new JSONObject();
+        try {
+            detail.put("requestId", request.optString("requestId", ""));
+            detail.put("page", request.optString("page", ""));
+        } catch (Exception ignored) {
+            return;
+        }
+        webView.evaluateJavascript(
+            "window.ControlerAndroidShell&&window.ControlerAndroidShell.commitNavigation("
+                + detail.toString()
+                + ");",
+            null
+        );
+    }
+
+    private void cancelPendingNavigation(String reason) {
+        if (webView != null && currentNavigationRequest != null) {
+            String requestId = currentNavigationRequest.optString("requestId", "");
+            webView.evaluateJavascript(
+                "window.ControlerAndroidShell&&window.ControlerAndroidShell.cancelNavigation({requestId:"
+                    + JSONObject.quote(requestId)
+                    + "});",
+                null
+            );
+            Log.w("ControlerWebView", "Navigation cancelled: " + reason);
+            webView.loadUrl(resolveShellUrl(currentPageUrl));
+        }
+        currentNavigationRequest = null;
+        pendingPageUrl = "";
+        pendingHistoryBack = false;
+        navigationAcceptedElapsedMs = 0L;
     }
 
     private static String withNavigationRequestId(Uri uri, String requestId) {
@@ -487,17 +439,6 @@ public class MainActivity extends Activity {
             webView.destroy();
             webView = null;
         }
-        hideNavigationSurface();
-        if (cachedNavigationSurfaceBitmap != null && !cachedNavigationSurfaceBitmap.isRecycled()) {
-            cachedNavigationSurfaceBitmap.recycle();
-        }
-        cachedNavigationSurfaceBitmap = null;
-        if (navigationCaptureThread != null) {
-            navigationCaptureThread.quitSafely();
-            navigationCaptureThread = null;
-            navigationCaptureHandler = null;
-        }
-        navigationSurface = null;
         super.onDestroy();
     }
 
@@ -543,24 +484,58 @@ public class MainActivity extends Activity {
 
         backDispatchPending = true;
         webView.evaluateJavascript(
-            "(function(){try{var r=window.ControlerUI&&window.ControlerUI.handleNativeBack?window.ControlerUI.handleNativeBack({source:'android-back'}):null;return !!(r&&r.handled);}catch(e){return false;}})();",
-            handled -> {
+            "!!(window.ControlerAndroidShell&&window.ControlerAndroidShell.requestBack());",
+            requested -> {
+                if ("true".equals(requested)) return;
                 backDispatchPending = false;
-                if ("true".equals(handled)) return;
-                if (webView != null && webView.canGoBack()) {
-                    webView.goBack();
-                    return;
-                }
                 finishBackNavigation();
             }
         );
+    }
+
+    void onShellBackResult(boolean handled) {
+        if (!backDispatchPending) return;
+        backDispatchPending = false;
+        if (handled) return;
+        if (currentNavigationRequest != null) {
+            return;
+        }
+        if (pageHistory.isEmpty()) {
+            finishBackNavigation();
+            return;
+        }
+        String targetUrl = pageHistory.peekLast();
+        Uri targetUri = Uri.parse(targetUrl);
+        String targetPage = pageKeyFromUri(targetUri);
+        if (targetPage.isEmpty()) {
+            finishBackNavigation();
+            return;
+        }
+        String requestId = "back_" + System.currentTimeMillis();
+        JSONObject request = new JSONObject();
+        try {
+            request.put("requestId", requestId);
+            request.put("page", targetPage);
+            request.put("href", targetUrl);
+            request.put("requestedAt", System.currentTimeMillis());
+            request.put("sourcePage", pageKeyFromUri(Uri.parse(currentPageUrl)));
+        } catch (Exception ignored) {
+            finishBackNavigation();
+            return;
+        }
+        currentNavigationRequest = request;
+        pendingPageUrl = targetUrl;
+        pendingHistoryBack = true;
+        navigationAcceptedElapsedMs = SystemClock.elapsedRealtime();
+        logNavigationStage("host-back", request, targetUrl);
+        startShellNavigation(targetUri, requestId);
     }
 
     private void finishBackNavigation() {
         super.onBackPressed();
     }
 
-    private String resolveStartUrl() {
+    private String resolveInitialPageUrl() {
         String page = "index";
         JSONObject launchAction = null;
         try {
@@ -584,6 +559,14 @@ public class MainActivity extends Activity {
         return builder.build().toString();
     }
 
+    private static String resolveShellUrl(String initialPageUrl) {
+        return Uri.parse(SHELL_URL)
+            .buildUpon()
+            .appendQueryParameter("initialHref", initialPageUrl)
+            .build()
+            .toString();
+    }
+
     private static void appendQuery(Uri.Builder builder, String key, String value) {
         String normalized = value == null ? "" : value.trim();
         if (!normalized.isEmpty()) builder.appendQueryParameter(key, normalized);
@@ -601,51 +584,64 @@ public class MainActivity extends Activity {
             && !decodedPath.endsWith("/..");
     }
 
+    private static boolean isShellDocumentUri(Uri uri) {
+        if (!isAllowedAssetUri(uri)) return false;
+        String path = uri.getPath();
+        return path != null && path.endsWith("/android-shell.html");
+    }
+
+    private static String pageKeyFromUri(Uri uri) {
+        if (!isAllowedAssetUri(uri)) return "";
+        String path = uri.getPath();
+        if (path == null) return "";
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        String page = fileName.replaceFirst("\\.html$", "");
+        return page.matches("index|stats|plan|todo|diary|settings") ? page : "";
+    }
+
+    void applyShellNavigationState(JSONObject state) {
+        if (webView == null || state == null) return;
+        JSONObject detail = new JSONObject();
+        try {
+            detail.put(
+                "hiddenPages",
+                state.optJSONArray("hiddenPages") == null
+                    ? new JSONArray()
+                    : state.optJSONArray("hiddenPages")
+            );
+            detail.put(
+                "order",
+                state.optJSONArray("order") == null
+                    ? new JSONArray()
+                    : state.optJSONArray("order")
+            );
+            detail.put("reason", state.optString("reason", ""));
+            detail.put("sourcePage", state.optString("sourcePage", ""));
+        } catch (Exception ignored) {
+            return;
+        }
+        webView.evaluateJavascript(
+            "window.ControlerAndroidShell&&window.ControlerAndroidShell.applyNavigationState("
+                + detail.toString()
+                + ");",
+            null
+        );
+    }
+
     void applyWebThemeState(JSONObject themeState) {
-        String nextThemeStateSignature = normalizeThemeStateSignature(themeState);
-        boolean themeChanged = !nextThemeStateSignature.equals(currentThemeStateSignature);
-        currentThemeStateSignature = nextThemeStateSignature;
         int color = resolveThemeBackgroundColor(themeState);
         currentThemeColor = color;
         applyWindowChrome(color);
         if (hostView != null) hostView.setBackgroundColor(color);
         if (webView != null) webView.setBackgroundColor(color);
-        if (navigationSurface != null) navigationSurface.setBackgroundColor(color);
-        if (themeChanged) {
-            invalidateNavigationSurfaceSnapshot();
-            if (hasCommittedPage && currentNavigationRequest == null) {
-                scheduleNavigationSurfaceCapture();
-            }
-        }
-    }
-
-    private static String normalizeThemeStateSignature(String stateJson) {
-        try {
-            return normalizeThemeStateSignature(new JSONObject(stateJson));
-        } catch (Exception ignored) {
-            return normalizeThemeStateSignature(new JSONObject());
-        }
-    }
-
-    private static String normalizeThemeStateSignature(JSONObject themeState) {
-        JSONObject source = themeState == null ? new JSONObject() : themeState;
-        JSONObject normalized = new JSONObject();
-        try {
-            normalized.put("selectedTheme", source.optString("selectedTheme", "default"));
-            normalized.put(
-                "customThemes",
-                source.optJSONArray("customThemes") == null
-                    ? new JSONArray()
-                    : source.optJSONArray("customThemes")
+        if (webView != null) {
+            webView.evaluateJavascript(
+                "window.ControlerAndroidShell&&window.ControlerAndroidShell.applyThemeState("
+                    + (themeState == null ? "{}" : themeState.toString())
+                    + ");",
+                null
             );
-            normalized.put(
-                "builtInThemeOverrides",
-                source.optJSONObject("builtInThemeOverrides") == null
-                    ? new JSONObject()
-                    : source.optJSONObject("builtInThemeOverrides")
-            );
-        } catch (Exception ignored) {}
-        return normalized.toString();
+        }
     }
 
     private void applyWindowChrome(int color) {
