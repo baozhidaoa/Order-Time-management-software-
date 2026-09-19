@@ -173,3 +173,6 @@ certs/*.pvk
 # Local benchmark data
 benchmarks/datasets/
 benchmarks/reports/
+
+# DSH 本地状态（会话/记忆库/调试日志）
+.dsh-meow/
